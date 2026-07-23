@@ -24,38 +24,6 @@ max_batch_timeout = 5
 pipeline = "REPLACE_WITH_PIPELINE_ID"
 binding = "ANALYTICS_STREAM"
 
-# ============ TEST ENVIRONMENT ============
-[env.test]
-name = "weldsuite-analytics-test"
-
-[env.test.vars]
-ENVIRONMENT = "test"
-
-[[env.test.queues.consumers]]
-queue = "analytics-events-test"
-max_batch_size = 25
-max_batch_timeout = 5
-
-[[env.test.pipelines]]
-pipeline = "REPLACE_WITH_PIPELINE_ID"
-binding = "ANALYTICS_STREAM"
-
-# ============ PREVIEW ENVIRONMENT ============
-[env.preview]
-name = "weldsuite-analytics-preview"
-
-[env.preview.vars]
-ENVIRONMENT = "preview"
-
-[[env.preview.queues.consumers]]
-queue = "analytics-events-preview"
-max_batch_size = 25
-max_batch_timeout = 5
-
-[[env.preview.pipelines]]
-pipeline = "REPLACE_WITH_PIPELINE_ID"
-binding = "ANALYTICS_STREAM"
-
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 logpush = true
@@ -72,16 +40,6 @@ max_batch_timeout = 5
 [[env.production.pipelines]]
 pipeline = "REPLACE_WITH_PIPELINE_ID"
 binding = "ANALYTICS_STREAM"
-
-# --- Persist Workers Logs across environments ---
-# observability is NOT inherited by named environments, so it must be set on each.
-[env.test.observability]
-enabled = true
-head_sampling_rate = 1
-
-[env.preview.observability]
-enabled = true
-head_sampling_rate = 1
 
 [env.production.observability]
 enabled = true

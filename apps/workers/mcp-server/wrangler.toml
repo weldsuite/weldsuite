@@ -34,52 +34,6 @@ class_name = "RateLimiter"
 tag = "v1"
 new_sqlite_classes = ["RateLimiter"]
 
-# ============ TEST ENVIRONMENT ============
-[env.test]
-name = "weldsuite-mcp-server-test"
-routes = [{ pattern = "mcp-test.weldsuite.org/*", zone_name = "weldsuite.org" }]
-vars = { ENVIRONMENT = "test", EXTERNAL_API_BASE_URL = "https://api-test.weldsuite.org" }
-
-[[env.test.services]]
-binding = "EXTERNAL_API"
-service = "weldsuite-external-api-test"
-
-[[env.test.durable_objects.bindings]]
-name = "RATE_LIMITER"
-class_name = "RateLimiter"
-
-[[env.test.migrations]]
-tag = "v1"
-new_sqlite_classes = ["RateLimiter"]
-
-# Share KV namespace with external-api for cache coherence
-[[env.test.kv_namespaces]]
-binding = "API_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
-# ============ PREVIEW ENVIRONMENT ============
-[env.preview]
-name = "weldsuite-mcp-server-preview"
-routes = [{ pattern = "mcp-preview.weldsuite.org/*", zone_name = "weldsuite.org" }]
-vars = { ENVIRONMENT = "preview", EXTERNAL_API_BASE_URL = "https://api-preview.weldsuite.org" }
-
-[[env.preview.services]]
-binding = "EXTERNAL_API"
-service = "weldsuite-external-api-preview"
-
-[[env.preview.durable_objects.bindings]]
-name = "RATE_LIMITER"
-class_name = "RateLimiter"
-
-[[env.preview.migrations]]
-tag = "v1"
-new_sqlite_classes = ["RateLimiter"]
-
-# Share KV namespace with external-api for cache coherence
-[[env.preview.kv_namespaces]]
-binding = "API_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 name = "weldsuite-mcp-server"
@@ -105,16 +59,6 @@ id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 
 # Inheritable key — applies to all named environments unless overridden.
 [observability]
-enabled = true
-head_sampling_rate = 1
-
-# --- Persist Workers Logs across environments ---
-# observability is NOT inherited by named environments, so it must be set on each.
-[env.test.observability]
-enabled = true
-head_sampling_rate = 1
-
-[env.preview.observability]
 enabled = true
 head_sampling_rate = 1
 

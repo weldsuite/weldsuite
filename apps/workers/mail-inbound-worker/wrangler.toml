@@ -26,57 +26,11 @@ id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 # R2 storage for mail attachments
 [[r2_buckets]]
 binding = "STORAGE"
-bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+bucket_name = "weldsuite-storage"
 
 [[services]]
 binding = "REALTIME"
 service = "weldsuite-realtime"
-
-# ============ TEST ENVIRONMENT ============
-[env.test]
-name = "weldsuite-mail-inbound-test"
-routes = [
-  { pattern = "mail-inbound-test.weldsuite.org", custom_domain = true }
-]
-
-[env.test.vars]
-ENVIRONMENT = "test"
-R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
-
-[[env.test.r2_buckets]]
-binding = "STORAGE"
-bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
-
-[[env.test.kv_namespaces]]
-binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
-[[env.test.services]]
-binding = "REALTIME"
-service = "weldsuite-realtime-test"
-
-# ============ PREVIEW ENVIRONMENT ============
-[env.preview]
-name = "weldsuite-mail-inbound-preview"
-routes = [
-  { pattern = "mail-inbound-preview.weldsuite.org", custom_domain = true }
-]
-
-[env.preview.vars]
-ENVIRONMENT = "preview"
-R2_PUBLIC_URL = "https://weldsuite-storage-preview.weldsuite.org"
-
-[[env.preview.r2_buckets]]
-binding = "STORAGE"
-bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
-
-[[env.preview.kv_namespaces]]
-binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
-[[env.preview.services]]
-binding = "REALTIME"
-service = "weldsuite-realtime-preview"
 
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
@@ -92,7 +46,7 @@ R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
 
 [[env.production.r2_buckets]]
 binding = "STORAGE"
-bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+bucket_name = "weldsuite-storage"
 
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -101,16 +55,6 @@ id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 [[env.production.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-production"
-
-# --- Persist Workers Logs across environments ---
-# observability is NOT inherited by named environments, so it must be set on each.
-[env.test.observability]
-enabled = true
-head_sampling_rate = 1
-
-[env.preview.observability]
-enabled = true
-head_sampling_rate = 1
 
 [env.production.observability]
 enabled = true

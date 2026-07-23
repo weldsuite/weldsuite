@@ -30,38 +30,6 @@ queue = "audit-events-dev"
 max_batch_size = 10
 max_batch_timeout = 1
 
-# ============ TEST ENVIRONMENT ============
-[env.test]
-name = "weldsuite-audit-log-test"
-
-[env.test.vars]
-ENVIRONMENT = "test"
-
-[[env.test.kv_namespaces]]
-binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
-[[env.test.queues.consumers]]
-queue = "audit-events-test"
-max_batch_size = 10
-max_batch_timeout = 1
-
-# ============ PREVIEW ENVIRONMENT ============
-[env.preview]
-name = "weldsuite-audit-log-preview"
-
-[env.preview.vars]
-ENVIRONMENT = "preview"
-
-[[env.preview.kv_namespaces]]
-binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
-[[env.preview.queues.consumers]]
-queue = "audit-events-preview"
-max_batch_size = 10
-max_batch_timeout = 1
-
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 logpush = true
@@ -78,16 +46,6 @@ id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 queue = "audit-events"
 max_batch_size = 10
 max_batch_timeout = 1
-
-# --- Persist Workers Logs across environments ---
-# observability is NOT inherited by named environments, so it must be set on each.
-[env.test.observability]
-enabled = true
-head_sampling_rate = 1
-
-[env.preview.observability]
-enabled = true
-head_sampling_rate = 1
 
 [env.production.observability]
 enabled = true

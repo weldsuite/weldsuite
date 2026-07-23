@@ -32,39 +32,6 @@ localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:
 binding = "APP_API"
 service = "weldsuite-app-api"
 
-# ============ TEST ENVIRONMENT ============
-[env.test]
-name = "integration-sync-scheduler-test"
-
-[env.test.triggers]
-crons = []
-
-[env.test.vars]
-ENVIRONMENT = "test"
-
-[[env.test.services]]
-binding = "APP_API"
-service = "weldsuite-app-api-test"
-
-# ============ PREVIEW ENVIRONMENT ============
-[env.preview]
-name = "integration-sync-scheduler-preview"
-
-[env.preview.vars]
-ENVIRONMENT = "preview"
-
-[[env.preview.hyperdrive]]
-binding = "HYPERDRIVE_MASTER"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
-# app-api has no preview custom domain and preview is only ever deployed by a
-# manual workflow_dispatch, so preview borrows the TEST app-api — the same
-# pattern workflow-worker's [env.preview.vars] APP_API_URL uses. This worker's
-# preview INTERNAL_API_SECRET must therefore match the TEST app-api's secret.
-[[env.preview.services]]
-binding = "APP_API"
-service = "weldsuite-app-api-test"
-
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 name = "integration-sync-scheduler-production"
@@ -82,16 +49,6 @@ binding = "APP_API"
 service = "weldsuite-app-api"
 
 [observability]
-enabled = true
-head_sampling_rate = 1
-
-# --- Persist Workers Logs across environments ---
-# observability is NOT inherited by named environments, so it must be set on each.
-[env.test.observability]
-enabled = true
-head_sampling_rate = 1
-
-[env.preview.observability]
 enabled = true
 head_sampling_rate = 1
 

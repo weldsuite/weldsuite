@@ -64,51 +64,6 @@ new_classes = ["SupportRoom"]
 tag = "v4"
 new_classes = ["DocumentRoom"]
 
-# ============ ENVIRONMENTS ============
-
-[env.test]
-name = "weldsuite-realtime-test"
-routes = [
-  { pattern = "realtime-test.weldsuite.org", custom_domain = true }
-]
-
-[env.test.vars]
-CLERK_ISSUER = "https://definite-eagle-3.clerk.accounts.dev"
-
-[env.test.durable_objects]
-bindings = [
-  { name = "WORKSPACE_HUB", class_name = "WorkspaceHub" },
-  { name = "CONVERSATION_ROOM", class_name = "ConversationRoom" },
-  { name = "CHAT_ROOM", class_name = "ChatRoom" },
-  { name = "WHITEBOARD_ROOM", class_name = "WhiteboardRoom" },
-  { name = "DOCUMENT_ROOM", class_name = "DocumentRoom" },
-  { name = "SUPPORT_ROOM", class_name = "SupportRoom" },
-]
-
-[[env.test.kv_namespaces]]
-binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
-[env.preview]
-name = "weldsuite-realtime-preview"
-
-[env.preview.vars]
-CLERK_ISSUER = "https://clerk.weldsuite.org"
-
-[env.preview.durable_objects]
-bindings = [
-  { name = "WORKSPACE_HUB", class_name = "WorkspaceHub" },
-  { name = "CONVERSATION_ROOM", class_name = "ConversationRoom" },
-  { name = "CHAT_ROOM", class_name = "ChatRoom" },
-  { name = "WHITEBOARD_ROOM", class_name = "WhiteboardRoom" },
-  { name = "DOCUMENT_ROOM", class_name = "DocumentRoom" },
-  { name = "SUPPORT_ROOM", class_name = "SupportRoom" },
-]
-
-[[env.preview.kv_namespaces]]
-binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
 [env.production]
 name = "weldsuite-realtime-production"
 routes = [
@@ -131,16 +86,6 @@ bindings = [
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
-# --- Persist Workers Logs across environments ---
-# observability is NOT inherited by named environments, so it must be set on each.
-[env.test.observability]
-enabled = true
-head_sampling_rate = 1
-
-[env.preview.observability]
-enabled = true
-head_sampling_rate = 1
 
 [env.production.observability]
 enabled = true

@@ -57,65 +57,6 @@ crons = ["*/5 * * * *", "0 3 * * *"]
 binding = "WORKSPACE_CACHE"
 id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 
-# ============ TEST ENVIRONMENT ============
-[env.test]
-name = "weldsuite-workspace-test"
-routes = [
-  { pattern = "workspace-worker-test.weldsuite.org", custom_domain = true }
-]
-
-[env.test.vars]
-ENVIRONMENT = "test"
-NEON_DEFAULT_REGION = "aws-eu-central-1"
-APP_URL = "https://app-test.weldsuite.org"
-POOL_TARGET_SHARED = "3"
-POOL_TARGET_DEDICATED = "1"
-
-[[env.test.workflows]]
-name = "provision-workspace-test"
-binding = "PROVISION_WORKSPACE"
-class_name = "ProvisionWorkspaceWorkflow"
-
-[[env.test.workflows]]
-name = "refill-pool-test"
-binding = "REFILL_POOL"
-class_name = "RefillPoolWorkflow"
-
-[env.test.triggers]
-crons = ["*/5 * * * *", "0 3 * * *"]
-
-[[env.test.kv_namespaces]]
-binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
-# ============ PREVIEW ENVIRONMENT ============
-[env.preview]
-name = "weldsuite-workspace-preview"
-
-[env.preview.vars]
-ENVIRONMENT = "preview"
-NEON_DEFAULT_REGION = "aws-eu-central-1"
-APP_URL = "https://app-preview.weldsuite.org"
-POOL_TARGET_SHARED = "2"
-POOL_TARGET_DEDICATED = "0"
-
-[[env.preview.workflows]]
-name = "provision-workspace-preview"
-binding = "PROVISION_WORKSPACE"
-class_name = "ProvisionWorkspaceWorkflow"
-
-[[env.preview.workflows]]
-name = "refill-pool-preview"
-binding = "REFILL_POOL"
-class_name = "RefillPoolWorkflow"
-
-[env.preview.triggers]
-crons = ["*/5 * * * *", "0 3 * * *"]
-
-[[env.preview.kv_namespaces]]
-binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 logpush = true
@@ -146,16 +87,6 @@ crons = ["*/5 * * * *", "0 3 * * *"]
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
-# --- Persist Workers Logs across environments ---
-# observability is NOT inherited by named environments, so it must be set on each.
-[env.test.observability]
-enabled = true
-head_sampling_rate = 1
-
-[env.preview.observability]
-enabled = true
-head_sampling_rate = 1
 
 [env.production.observability]
 enabled = true
