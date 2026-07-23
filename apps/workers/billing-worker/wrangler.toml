@@ -33,35 +33,6 @@ localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:
 binding = "WORKSPACE_CACHE"
 id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 
-# ============ TEST ENVIRONMENT ============
-[env.test]
-name = "weldsuite-billing-test"
-routes = [
-  { pattern = "billing-worker-test.weldsuite.org", custom_domain = true }
-]
-
-[env.test.vars]
-ENVIRONMENT = "test"
-
-[[env.test.kv_namespaces]]
-binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
-# ============ PREVIEW ENVIRONMENT ============
-[env.preview]
-name = "weldsuite-billing-preview"
-
-[env.preview.vars]
-ENVIRONMENT = "preview"
-
-[[env.preview.hyperdrive]]
-binding = "HYPERDRIVE_MASTER"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
-[[env.preview.kv_namespaces]]
-binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 logpush = true
@@ -80,16 +51,6 @@ id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
-# --- Persist Workers Logs across environments ---
-# observability is NOT inherited by named environments, so it must be set on each.
-[env.test.observability]
-enabled = true
-head_sampling_rate = 1
-
-[env.preview.observability]
-enabled = true
-head_sampling_rate = 1
 
 [env.production.observability]
 enabled = true

@@ -36,42 +36,6 @@ HELPDESK_WIDGET_API_URL = "http://localhost:8790"
 binding = "WORKFLOW_WORKER"
 service = "helpdesk-workflow-worker"
 
-# ============ TEST ENVIRONMENT ============
-[env.test]
-name = "discord-bot-worker-test"
-routes = [
-  { pattern = "discord-bot-worker-test.weldsuite.org", custom_domain = true }
-]
-
-[env.test.durable_objects]
-bindings = [{ name = "DISCORD_GATEWAY", class_name = "DiscordGateway" }]
-
-[env.test.vars]
-ENVIRONMENT = "test"
-HELPDESK_WIDGET_API_URL = "https://helpdesk-widget-api-test.weldsuite.org"
-
-[[env.test.services]]
-binding = "WORKFLOW_WORKER"
-service = "helpdesk-workflow-worker-test"
-
-# ============ PREVIEW ENVIRONMENT ============
-[env.preview]
-name = "discord-bot-worker-preview"
-routes = [
-  { pattern = "discord-bot-worker-preview.weldsuite.org", custom_domain = true }
-]
-
-[env.preview.durable_objects]
-bindings = [{ name = "DISCORD_GATEWAY", class_name = "DiscordGateway" }]
-
-[env.preview.vars]
-ENVIRONMENT = "preview"
-HELPDESK_WIDGET_API_URL = "https://helpdesk-widget-api-preview.weldsuite.org"
-
-[[env.preview.services]]
-binding = "WORKFLOW_WORKER"
-service = "helpdesk-workflow-worker-preview"
-
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 logpush = true
@@ -90,16 +54,6 @@ HELPDESK_WIDGET_API_URL = "https://helpdesk-widget-api.weldsuite.org"
 [[env.production.services]]
 binding = "WORKFLOW_WORKER"
 service = "helpdesk-workflow-worker"
-
-# --- Persist Workers Logs across environments ---
-# observability is NOT inherited by named environments, so it must be set on each.
-[env.test.observability]
-enabled = true
-head_sampling_rate = 1
-
-[env.preview.observability]
-enabled = true
-head_sampling_rate = 1
 
 [env.production.observability]
 enabled = true

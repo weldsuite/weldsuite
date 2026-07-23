@@ -35,9 +35,9 @@ export function getHelpdeskWorkerUrl(env: Env): string {
   const urls: Record<string, string> = {
     development: 'http://localhost:8789',
     test: 'https://app-api-test.weldsuite.org',
-    // preview has no custom domain (wrangler.toml [env.preview] declares no
-    // routes), so preview borrows the TEST app-api hostname — same stance as
-    // workflow-worker/wrangler.toml. There is no app-api-preview.* host.
+    // 'preview' is no longer a deployed environment (only production remains),
+    // but keep the mapping for defensiveness: it borrows the TEST app-api
+    // hostname — there is no app-api-preview.* host.
     preview: 'https://app-api-test.weldsuite.org',
     production: 'https://app-api.weldsuite.org',
   };

@@ -53,69 +53,6 @@ id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 binding = "REALTIME"
 service = "weldsuite-realtime"
 
-# ============ TEST ENVIRONMENT ============
-[env.test]
-name = "helpdesk-workflow-worker-test"
-routes = [
-  { pattern = "helpdesk-workflow-worker-test.weldsuite.org", custom_domain = true }
-]
-
-[env.test.durable_objects]
-bindings = [
-  { name = "ASSIGNMENT_ROUTER", class_name = "AssignmentRouter" },
-]
-
-[env.test.triggers]
-crons = []
-
-[env.test.vars]
-ENVIRONMENT = "test"
-
-[[env.test.kv_namespaces]]
-binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
-[[env.test.workflows]]
-name = "conversation-workflow-test"
-binding = "CONVERSATION_WORKFLOW"
-class_name = "ConversationWorkflow"
-
-[[env.test.services]]
-binding = "REALTIME"
-service = "weldsuite-realtime-test"
-
-# ============ PREVIEW ENVIRONMENT ============
-[env.preview]
-name = "helpdesk-workflow-worker-preview"
-
-[env.preview.durable_objects]
-bindings = [
-  { name = "ASSIGNMENT_ROUTER", class_name = "AssignmentRouter" },
-]
-
-[env.preview.triggers]
-crons = []
-
-[env.preview.vars]
-ENVIRONMENT = "preview"
-
-[[env.preview.hyperdrive]]
-binding = "HYPERDRIVE_MASTER"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
-[[env.preview.kv_namespaces]]
-binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
-[[env.preview.workflows]]
-name = "conversation-workflow-preview"
-binding = "CONVERSATION_WORKFLOW"
-class_name = "ConversationWorkflow"
-
-[[env.preview.services]]
-binding = "REALTIME"
-service = "weldsuite-realtime-preview"
-
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 logpush = true
@@ -151,16 +88,6 @@ class_name = "ConversationWorkflow"
 [[env.production.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-production"
-
-# --- Persist Workers Logs across environments ---
-# observability is NOT inherited by named environments, so it must be set on each.
-[env.test.observability]
-enabled = true
-head_sampling_rate = 1
-
-[env.preview.observability]
-enabled = true
-head_sampling_rate = 1
 
 [env.production.observability]
 enabled = true

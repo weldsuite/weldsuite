@@ -36,7 +36,7 @@ id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 
 [[r2_buckets]]
 binding = "STORAGE"
-bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+bucket_name = "weldsuite-storage"
 
 # Cloudflare Queues for entity mutation events
 [[queues.producers]]
@@ -55,81 +55,6 @@ service = "helpdesk-workflow-worker"
 [[services]]
 binding = "REALTIME"
 service = "weldsuite-realtime"
-
-# ============ TEST ENVIRONMENT ============
-[env.test]
-name = "helpdesk-widget-api-test"
-routes = [
-  { pattern = "helpdesk-widget-api-test.weldsuite.org", custom_domain = true }
-]
-
-[env.test.vars]
-ENVIRONMENT = "test"
-R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
-CF_ACCOUNT_ID = "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID"
-
-
-[[env.test.kv_namespaces]]
-binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
-[[env.test.queues.producers]]
-binding = "ENTITY_EVENTS"
-queue = "entity-events-test"
-
-[[env.test.queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events-test"
-
-[[env.test.services]]
-binding = "WORKFLOW_WORKER"
-service = "helpdesk-workflow-worker-test"
-
-[[env.test.services]]
-binding = "REALTIME"
-service = "weldsuite-realtime-test"
-
-[[env.test.r2_buckets]]
-binding = "STORAGE"
-bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
-
-# ============ PREVIEW ENVIRONMENT ============
-[env.preview]
-name = "helpdesk-widget-api-preview"
-
-[env.preview.vars]
-ENVIRONMENT = "preview"
-R2_PUBLIC_URL = "https://weldsuite-storage-preview.weldsuite.org"
-CF_ACCOUNT_ID = "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID"
-
-
-[[env.preview.hyperdrive]]
-binding = "HYPERDRIVE_MASTER"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
-[[env.preview.kv_namespaces]]
-binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
-
-[[env.preview.queues.producers]]
-binding = "ENTITY_EVENTS"
-queue = "entity-events-preview"
-
-[[env.preview.queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events-preview"
-
-[[env.preview.services]]
-binding = "WORKFLOW_WORKER"
-service = "helpdesk-workflow-worker-preview"
-
-[[env.preview.services]]
-binding = "REALTIME"
-service = "weldsuite-realtime-preview"
-
-[[env.preview.r2_buckets]]
-binding = "STORAGE"
-bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
 
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
@@ -171,17 +96,7 @@ service = "weldsuite-realtime-production"
 
 [[env.production.r2_buckets]]
 binding = "STORAGE"
-bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
-
-# --- Persist Workers Logs across environments ---
-# observability is NOT inherited by named environments, so it must be set on each.
-[env.test.observability]
-enabled = true
-head_sampling_rate = 1
-
-[env.preview.observability]
-enabled = true
-head_sampling_rate = 1
+bucket_name = "weldsuite-storage"
 
 [env.production.observability]
 enabled = true

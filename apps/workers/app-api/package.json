@@ -8,8 +8,6 @@
     "dev": "wrangler dev --port 8789",
     "build": "wrangler deploy",
     "deploy": "wrangler deploy",
-    "deploy:test": "wrangler deploy --env test",
-    "deploy:preview": "wrangler deploy --env preview",
     "deploy:production": "wrangler deploy --env production",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
