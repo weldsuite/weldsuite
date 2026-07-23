@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useTranslations } from '@weldsuite/i18n/client';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -84,7 +85,7 @@ import {
 } from '@weldsuite/ui/components/table';
 import {
   STANDARD_ACTIONS,
-  ACTION_LABELS,
+  getActionLabels,
   COMING_SOON_CATEGORIES,
   CategoryIcon,
   ComingSoonBadge,
@@ -1764,6 +1765,8 @@ function PermissionOverrideTables({
   inheritedTitle: (perm: OverridePerm) => string;
   searchQuery?: string;
 }) {
+  const t = useTranslations();
+  const ACTION_LABELS = React.useMemo(() => getActionLabels(t), [t]);
   const rows: CategoryRow<OverridePerm>[] = React.useMemo(() => {
     return PERMISSION_CATALOG_OBJECTS.map((obj) => {
       const perAction: Partial<Record<StandardAction, OverridePerm>> = {};
