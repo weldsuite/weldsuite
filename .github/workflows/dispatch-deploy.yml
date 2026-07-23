@@ -1,0 +1,39 @@
+name: Dispatch deploy
+
+# The ONLY public workflow that uses a secret, and that secret can do exactly
+# one thing: trigger a `deploy` event on the private deployment overlay repo.
+# It holds no Cloudflare / Neon / Doppler / Expo credentials. All real deploy
+# work happens in weldsuite/deployment-overlay (private).
+#
+# Requires the repo secret OVERLAY_DISPATCH_TOKEN: a fine-grained PAT scoped to
+# ONLY weldsuite/deployment-overlay (see that repo's SECRETS.md). Until the
+# token exists this workflow no-ops with a clear error and nothing deploys.
+
+on:
+  push:
+    branches: [main, develop]
+
+# No repo write access needed; the PAT (not GITHUB_TOKEN) does the dispatch.
+permissions: {}
+
+concurrency:
+  group: dispatch-deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Dispatch to deployment overlay
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger overlay deploy
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+        with:
+          token: ${{ secrets.OVERLAY_DISPATCH_TOKEN }}
+          repository: weldsuite/deployment-overlay
+          event-type: deploy
+          client-payload: |
+            {
+              "sha": "${{ github.sha }}",
+              "base_sha": "${{ github.event.before }}",
+              "ref": "${{ github.ref_name }}"
+            }
