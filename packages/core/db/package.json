@@ -1,0 +1,59 @@
+{
+  "name": "@weldsuite/db",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "lint": "eslint .",
+    "type-check": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:generate:master": "drizzle-kit generate --config=drizzle.master.config.ts",
+    "db:migrate:master": "drizzle-kit migrate --config=drizzle.master.config.ts",
+    "db:studio": "drizzle-kit studio",
+    "seed:ai-gateway-credits": "tsx scripts/seed-ai-gateway-credits.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.1",
+    "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/permissions": "workspace:*",
+    "drizzle-orm": "^0.45.1",
+    "postgres": "^3.4.7",
+    "ws": "^8.18.0"
+  },
+  "peerDependencies": {
+    "@clerk/nextjs": "^6.0.0",
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@clerk/nextjs": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@weldsuite/eslint-config": "workspace:*",
+    "@weldsuite/typescript-config": "workspace:*",
+    "@clerk/nextjs": "^6.0.0",
+    "@types/ws": "^8.0.0",
+    "drizzle-kit": "^0.30.5",
+    "react": "^19.0.0",
+    "@types/react": "^19.0.0",
+    "typescript": "^5.9.2",
+    "tsx": "^4.19.2",
+    "vitest": "^2.1.8"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema/index.ts",
+    "./schema/*": "./src/schema/*.ts",
+    "./lib": "./src/lib/index.ts",
+    "./lib/*": "./src/lib/*.ts",
+    "./migrations": "./drizzle/tenant-migrations",
+    "./migrations/master": "./drizzle/master-migrations"
+  }
+}

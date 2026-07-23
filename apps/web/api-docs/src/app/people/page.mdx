@@ -1,0 +1,248 @@
+# People
+
+People are the individual contacts in your CRM. This page covers the person model and its endpoints. Mutations require the `people:write` scope; reads require `people:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The person model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `person_abc123`).</Property>
+  <Property name="firstName" type="string">First name.</Property>
+  <Property name="lastName" type="string">Last name.</Property>
+  <Property name="fullName" type="string">Full name (derived from first/last when not supplied).</Property>
+  <Property name="displayName" type="string">Server-derived display name (full name, else email).</Property>
+  <Property name="email" type="string">Primary email address.</Property>
+  <Property name="title" type="string">Job title.</Property>
+  <Property name="department" type="string">Department.</Property>
+  <Property name="directPhone" type="string">Direct phone number.</Property>
+  <Property name="mobilePhone" type="string">Mobile phone number.</Property>
+  <Property name="primaryAddress" type="object">Primary address object.</Property>
+  <Property name="ownerId" type="string">Owner user ID.</Property>
+  <Property name="status" type="string">Lifecycle status (e.g. `active`).</Property>
+  <Property name="isSupplier" type="boolean">Supplier-contact flag.</Property>
+  <Property name="isLead" type="boolean">Lead flag.</Property>
+  <Property name="dateOfBirth" type="timestamp">Date of birth.</Property>
+  <Property name="tags" type="array">Free-form tags.</Property>
+  <Property name="createdAt" type="timestamp">When the person was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the person was last updated.</Property>
+</Properties>
+
+---
+
+## List people {{ tag: 'GET', label: '/v1/people' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of people.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="search" type="string">Search across display name, full name, first/last name, and email.</Property>
+      <Property name="status" type="string">Filter by status.</Property>
+      <Property name="ownerId" type="string">Filter by owner.</Property>
+      <Property name="isSupplier" type="boolean">Filter by supplier flag.</Property>
+      <Property name="isLead" type="boolean">Filter by lead flag.</Property>
+      <Property name="companyId" type="string">Filter to current employees of a company.</Property>
+      <Property name="listId" type="string">Restrict to members of a people list.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/people">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/people \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d search=jane
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "person_abc123",
+          "firstName": "Jane",
+          "lastName": "Doe",
+          "fullName": "Jane Doe",
+          "displayName": "Jane Doe",
+          "email": "jane@doe.example",
+          "title": "Operations Director"
+        }
+      ],
+      "pagination": { "totalCount": 12, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a person {{ tag: 'POST', label: '/v1/people' }}
+
+<Row>
+  <Col>
+
+    Create a person. `fullName` and `displayName` are derived when omitted.
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="firstName" type="string">First name.</Property>
+      <Property name="lastName" type="string">Last name.</Property>
+      <Property name="email" type="string">Email address.</Property>
+      <Property name="title" type="string">Job title.</Property>
+      <Property name="directPhone" type="string">Direct phone.</Property>
+      <Property name="mobilePhone" type="string">Mobile phone.</Property>
+      <Property name="ownerId" type="string">Owner user ID.</Property>
+      <Property name="status" type="string">Lifecycle status.</Property>
+      <Property name="isSupplier" type="boolean">Supplier flag.</Property>
+      <Property name="isLead" type="boolean">Lead flag.</Property>
+      <Property name="dateOfBirth" type="string">ISO 8601 date-time.</Property>
+      <Property name="tags" type="array">Tags.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/people">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/people \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "firstName": "Jane",
+        "lastName": "Doe",
+        "email": "jane@doe.example",
+        "title": "Operations Director"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "person_new456",
+        "firstName": "Jane",
+        "lastName": "Doe",
+        "fullName": "Jane Doe",
+        "displayName": "Jane Doe",
+        "email": "jane@doe.example",
+        "status": "active",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a person {{ tag: 'GET', label: '/v1/people/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single person by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/people/person_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/people/person_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "person_abc123",
+        "fullName": "Jane Doe",
+        "email": "jane@doe.example",
+        "title": "Operations Director"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a person {{ tag: 'PATCH', label: '/v1/people/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a person. Sending `firstName`/`lastName` recomputes `fullName` and `displayName`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/people/person_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/people/person_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "title": "VP Operations" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": { "id": "person_abc123", "title": "VP Operations", "updatedAt": "2024-12-01T15:00:00Z" }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a person {{ tag: 'DELETE', label: '/v1/people/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a person. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/people/person_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/people/person_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

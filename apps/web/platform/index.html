@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.ico" />
+    <title>WeldSuite</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&family=Outfit:wght@300..600&display=swap" rel="stylesheet" />
+    <!-- Runtime environment variables for Docker deployments -->
+    <script src="/__ENV.js"></script>
+    <script>
+      (function() {
+        try {
+          var theme = localStorage.getItem('theme') || 'system';
+          var fontSize = parseInt(localStorage.getItem('fontSize') || '14', 10);
+
+          // Apply theme immediately to prevent FOUC
+          if (theme === 'system') {
+            var systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            document.documentElement.classList.add(systemTheme);
+          } else {
+            document.documentElement.classList.add(theme);
+          }
+
+          // Apply font size immediately
+          document.documentElement.style.fontSize = fontSize + 'px';
+        } catch(e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IsolatedHtmlContent harness</title>
+<style>
+  /* Simulate the WeldMail dark-mode reading pane */
+  body { margin:0; background:#0b0f1a; color:#e4e4e7; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; padding:24px; }
+  .pane { max-width: 480px; margin: 0 auto; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:#9ca3af; margin: 24px 0 8px; }
+  /* Wrapper matching the component: overflow-hidden rounded-lg dark:border */
+  .frame { overflow:hidden; border-radius:8px; border:1px solid #27272a; margin-bottom:8px; }
+  iframe { width:100%; border:none; display:block; background:#fff; }
+</style>
+</head>
+<body>
+<div class="pane">
+  <div style="font-size:12px;color:#6b7280">Dark UI · pane width follows the container →</div>
+  <h2>1 · Fixed-width 600px marketing email</h2>
+  <div class="frame"><iframe id="f1"></iframe></div>
+  <h2>2 · Plain HTML reply</h2>
+  <div class="frame"><iframe id="f2"></iframe></div>
+</div>
+
+<script>
+const baseStyles = `
+  <style>
+    * { box-sizing: border-box; }
+    html { overflow-x:auto; overflow-y:hidden; background:#fff; -webkit-text-size-adjust:100%; text-size-adjust:100%; }
+    body { margin:0; padding:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; font-size:14px; line-height:1.5; color:#1a1a1a; background:#fff; overflow-wrap:break-word; }
+    p { margin:0 0 1em; } p:last-child { margin-bottom:0; }
+    img { max-width:100%; height:auto; border:0; }
+    a { color:#2563eb; text-decoration:none; } a:hover { text-decoration:underline; }
+    table { border-collapse:collapse; }
+    pre,code { white-space:pre-wrap; word-wrap:break-word; background:#f3f4f6; padding:2px 4px; border-radius:4px; font-size:13px; }
+    blockquote { margin:8px 0; padding-left:12px; border-left:3px solid #d1d5db; color:#6b7280; }
+    img[width="1"], img[height="1"] { display:none !important; }
+  </style>`;
+
+// A classic 600px fixed-width email with brand colors + button (should keep its
+// colors on white, and scroll horizontally when the pane is < 600px).
+const email1 = `
+  <table width="600" cellpadding="0" cellspacing="0" style="width:600px;background:#0f766e;color:#fff;font-family:Arial">
+    <tr><td style="padding:24px 32px">
+      <h1 style="margin:0;color:#ffffff;font-size:22px">Acme Weekly</h1>
+      <p style="color:#d1fae5;margin:6px 0 0">Your Tuesday digest — 600px wide, brand teal.</p>
+    </td></tr>
+  </table>
+  <table width="600" cellpadding="0" cellspacing="0" style="width:600px;background:#ffffff">
+    <tr><td style="padding:24px 32px;font-family:Arial;color:#111827">
+      <p>Hi there, here's what's new this week. This layout is a fixed 600px table — the industry standard.</p>
+      <p><a href="https://example.com" style="display:inline-block;background:#f97316;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none">Read more →</a></p>
+      <p style="color:#6b7280;font-size:12px">You received this because you subscribed. Unsubscribe.</p>
+    </td></tr>
+  </table>`;
+
+const email2 = `
+  <div style="color:#222">
+    <p>Thanks for the update — looks good to me. A couple of notes:</p>
+    <ul><li>Ship the invite card first</li><li>Then the rendering fix</li></ul>
+    <p>Here is a long unbroken link that must wrap, not force width: https://tracking.example.com/a/b/c/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddd?utm=xxxxxxxxxxxxxxxxxxxxxxxx</p>
+    <blockquote>On Mon, someone wrote: the previous message body appears quoted like this.</blockquote>
+  </div>`;
+
+function mount(id, html) {
+  const iframe = document.getElementById(id);
+  const doc = iframe.contentDocument;
+  doc.open();
+  doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">${baseStyles}</head><body>${html}</body></html>`);
+  doc.close();
+  const adjust = () => {
+    const de = doc.documentElement, body = doc.body;
+    if (!de || !body) return;
+    const h = Math.max(body.scrollHeight, body.offsetHeight, de.scrollHeight);
+    if (h <= 0) return;
+    const hasHScroll = de.scrollWidth > de.clientWidth + 1;
+    iframe.style.height = Math.max(h + (hasHScroll ? 16 : 0), 24) + 'px';
+  };
+  adjust();
+  new ResizeObserver(adjust).observe(doc.body);
+}
+mount('f1', email1);
+mount('f2', email2);
+</script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+{
+  "name": "@weldsuite/df3-noise-suppression",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./rnnoise-worker": "./src/rnnoise-worker.ts",
+    "./worklet": "./src/df3-worklet-processor.js"
+  },
+  "bin": {
+    "df3-install-worklet": "./scripts/install-worklet.mjs",
+    "df3-install-rnnoise-worker": "./scripts/install-rnnoise-worker.mjs"
+  },
+  "files": [
+    "src",
+    "scripts"
+  ],
+  "dependencies": {
+    "@jitsi/rnnoise-wasm": "^0.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@weldsuite/typescript-config": "workspace:*",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.19.0",
+    "typescript": "5.9.2"
+  }
+}

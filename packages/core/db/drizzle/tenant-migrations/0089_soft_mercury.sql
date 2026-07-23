@@ -1,0 +1,1 @@
+ALTER TABLE "chat_messages" ADD COLUMN "pin_expires_at" timestamp;

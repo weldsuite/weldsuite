@@ -1,0 +1,23 @@
+name: Create Production Builds and Submit
+
+jobs:
+  build_android:
+    type: build
+    params:
+      platform: android
+  build_ios:
+    type: build
+    params:
+      platform: ios
+  submit_android:
+    type: submit
+    needs: [build_android]
+    params:
+      platform: android
+      build_id: ${{ needs.build_android.outputs.build_id }}
+  submit_ios:
+    type: submit
+    needs: [build_ios]
+    params:
+      platform: ios
+      build_id: ${{ needs.build_ios.outputs.build_id }}

@@ -1,0 +1,44 @@
+{
+  "name": "migrate-databases",
+  "license": "AGPL-3.0-only",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "migrate": "tsx src/index.ts",
+    "migrate:dry-run": "tsx src/index.ts --dry-run",
+    "db:migrate:tenants": "tsx src/index.ts",
+    "cleanup:pool": "tsx src/cleanup-pool.ts",
+    "cleanup:pool:execute": "tsx src/cleanup-pool.ts --execute",
+    "rotate:key": "tsx src/rotate-encryption-key.ts",
+    "rotate:key:execute": "tsx src/rotate-encryption-key.ts --execute",
+    "backfill:cfv": "tsx src/backfill-custom-field-values.ts",
+    "backfill:cfv:execute": "tsx src/backfill-custom-field-values.ts --execute",
+    "backfill:pile-b": "tsx src/backfill-pile-b.ts",
+    "backfill:pile-b:execute": "tsx src/backfill-pile-b.ts --execute",
+    "backfill:pile-a": "tsx src/backfill-pile-a-columns.ts",
+    "backfill:pile-a:execute": "tsx src/backfill-pile-a-columns.ts --execute",
+    "audit:blobs": "tsx src/audit-custom-field-blobs.ts",
+    "extract:blobs": "tsx src/extract-blob-fields.ts",
+    "extract:blobs:execute": "tsx src/extract-blob-fields.ts --execute"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.958.0",
+    "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/db": "workspace:*",
+    "@weldsuite/permissions": "workspace:*",
+    "zod": "^3.25.76",
+    "docx": "^9.6.1",
+    "drizzle-orm": "^0.45.1",
+    "htmlparser2": "^10.1.0",
+    "marked": "^16.4.2",
+    "postgres": "^3.4.7",
+    "dotenv": "^17.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.29",
+    "@weldsuite/typescript-config": "workspace:*",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7"
+  }
+}

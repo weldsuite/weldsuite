@@ -1,0 +1,14 @@
+{
+  "extends": "@weldsuite/typescript-config/react-library.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@weldsuite/i18n/*": ["./src/*"]
+    },
+    "types": [],
+    "moduleResolution": "bundler",
+    "module": "ESNext"
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}

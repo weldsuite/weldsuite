@@ -1,0 +1,55 @@
+@import "@weldsuite/ui/globals.css";
+
+@source "../**/*.{ts,tsx}";
+@source "../../../../packages/design/weldmeet-ui/src/**/*.{ts,tsx}";
+@source "../../../../packages/design/ui/src/**/*.{ts,tsx}";
+
+.dark {
+  /* Attio dark theme — exact palette from app.attio.com (matches apps/web/platform)
+     black-50  #101113  primary-background  (sidebar / outer chrome)
+     black-100 #1c1d1f  secondary-background (main content)
+     black-300 #232529  surface-subtle      (cards / popovers / muted)
+     black-400 #2e3238  surface             (hover / accent / subtle stroke)
+     black-500 #383e47  input stroke
+     black-700 #6f7988  default stroke / disabled fg
+     white-100 #ffffff  primary fg
+     white-400 #edeff3  secondary fg
+     white-900 #b5bdc9  tertiary / muted fg
+     blue-500  #266df0  primary accent
+     blue-400  #709ff5  focus ring / link
+     red-500   #ff5b59  destructive
+     green-500 #0fc27b  success
+     yellow-500 #f5b900 warning */
+  --background: #1c1d1f;
+  --foreground: #ffffff;
+  --card: #232529;
+  --card-foreground: #ffffff;
+  --popover: #232529;
+  --popover-foreground: #ffffff;
+  --primary: #266df0;
+  --primary-foreground: #ffffff;
+  --secondary: #2e3238;
+  --secondary-foreground: #edeff3;
+  --muted: #232529;
+  --muted-foreground: #b5bdc9;
+  --accent: #2e3238;
+  --accent-foreground: #edeff3;
+  --destructive: #ff5b59;
+  --destructive-foreground: #ffffff;
+  --border: #2e3238;
+  --input: #383e47;
+  --ring: #709ff5;
+  --chart-1: #266df0;
+  --chart-2: #709ff5;
+  --chart-3: #0fc27b;
+  --chart-4: #f5b900;
+  --chart-5: #ff5b59;
+  --sidebar: #1c1d1f;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #266df0;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #2e3238;
+  --sidebar-accent-foreground: #edeff3;
+  --sidebar-border: #2e3238;
+  --sidebar-ring: #709ff5;
+}

@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Connection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .info { background-color: #d1ecf1; color: #0c5460; }
+        .log {
+            background-color: #f5f5f5;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Helpdesk WebSocket Connection Test</h1>
+
+    <div id="status" class="status info">
+        Status: Not connected
+    </div>
+
+    <div>
+        <button onclick="connect()">Connect</button>
+        <button onclick="disconnect()">Disconnect</button>
+        <button onclick="testJoinConversation()">Test Join Conversation</button>
+        <button onclick="testSendMessage()">Test Send Message</button>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <h2>Connection Log:</h2>
+    <div id="log" class="log"></div>
+
+    <script>
+        const WEBSOCKET_URL = 'wss://kgch09tgxk.execute-api.eu-central-1.amazonaws.com/production';
+        const WIDGET_ID = 'test_widget_123';
+
+        let ws = null;
+        let conversationId = null;
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.style.color = type === 'error' ? 'red' : type === 'success' ? 'green' : 'black';
+            entry.textContent = `[${timestamp}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function updateStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = 'Status: ' + message;
+            statusDiv.className = 'status ' + type;
+        }
+
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                log('Already connected', 'info');
+                return;
+            }
+
+            try {
+                const url = new URL(WEBSOCKET_URL);
+                url.searchParams.set('type', 'customer');
+                url.searchParams.set('widgetId', WIDGET_ID);
+
+                log('Connecting to: ' + url.toString(), 'info');
+                updateStatus('Connecting...', 'info');
+
+                ws = new WebSocket(url.toString());
+
+                ws.onopen = () => {
+                    log('✓ WebSocket connected successfully!', 'success');
+                    updateStatus('Connected', 'success');
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        log('← Received: ' + JSON.stringify(data, null, 2), 'info');
+
+                        // Handle joined event
+                        if (data.type === 'joined') {
+                            conversationId = data.data.conversationId;
+                            log('✓ Joined conversation: ' + conversationId, 'success');
+                            log('History: ' + data.data.history.length + ' messages', 'info');
+                        }
+                    } catch (err) {
+                        log('Error parsing message: ' + err.message, 'error');
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    log('✗ WebSocket error: ' + error, 'error');
+                    updateStatus('Error', 'error');
+                };
+
+                ws.onclose = (event) => {
+                    log(`✗ WebSocket closed: ${event.code} - ${event.reason}`, 'error');
+                    updateStatus('Disconnected', 'error');
+                    ws = null;
+                };
+
+            } catch (error) {
+                log('✗ Connection error: ' + error.message, 'error');
+                updateStatus('Error', 'error');
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close(1000, 'Client disconnect');
+                ws = null;
+                log('Disconnected', 'info');
+                updateStatus('Disconnected', 'info');
+            } else {
+                log('Not connected', 'info');
+            }
+        }
+
+        function testJoinConversation() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('✗ Not connected. Connect first!', 'error');
+                return;
+            }
+
+            const message = {
+                action: 'joinConversation',
+                widgetId: WIDGET_ID,
+                customerName: 'Test Customer',
+                customerEmail: 'test@example.com'
+            };
+
+            log('→ Sending: ' + JSON.stringify(message, null, 2), 'info');
+            ws.send(JSON.stringify(message));
+        }
+
+        function testSendMessage() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('✗ Not connected. Connect first!', 'error');
+                return;
+            }
+
+            if (!conversationId) {
+                log('✗ No conversation joined. Join conversation first!', 'error');
+                return;
+            }
+
+            const message = {
+                action: 'sendMessage',
+                conversationId: conversationId,
+                message: 'Hello from test page! This is a test message.',
+                senderName: 'Test Customer',
+                senderType: 'customer'
+            };
+
+            log('→ Sending: ' + JSON.stringify(message, null, 2), 'info');
+            ws.send(JSON.stringify(message));
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        // Auto-connect on load
+        log('WebSocket Test Page loaded', 'info');
+        log('WebSocket URL: ' + WEBSOCKET_URL, 'info');
+        log('Widget ID: ' + WIDGET_ID, 'info');
+        log('Click "Connect" to test the connection', 'info');
+    </script>
+</body>
+</html>

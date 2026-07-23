@@ -1,0 +1,236 @@
+# Folders
+
+Folders organise files in WeldDrive into a hierarchical tree. Deleting a folder is a soft delete (`deletedAt` is set). Mutations require the `folders:write` scope; reads require `folders:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The folder model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `folder_abc123`).</Property>
+  <Property name="name" type="string">Folder display name (max 500 characters).</Property>
+  <Property name="parentId" type="string">Parent folder ID. `null` for root-level folders.</Property>
+  <Property name="color" type="string">Optional colour identifier.</Property>
+  <Property name="icon" type="string">Optional icon identifier.</Property>
+  <Property name="createdById" type="string">User ID of the creator.</Property>
+  <Property name="createdAt" type="timestamp">When the folder was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the folder was last updated.</Property>
+  <Property name="deletedAt" type="timestamp">When the folder was soft-deleted. `null` if not deleted.</Property>
+</Properties>
+
+---
+
+## List folders {{ tag: 'GET', label: '/v1/folders' }}
+
+<Row>
+  <Col>
+
+    Retrieve a list of folders.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="parentId" type="string">Filter to children of a specific parent folder.</Property>
+      <Property name="all" type="boolean">When `true`, return all folders regardless of parent.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/folders">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/folders \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d parentId=folder_root
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "folder_abc123",
+          "name": "Marketing Assets",
+          "parentId": null,
+          "color": null,
+          "deletedAt": null
+        }
+      ],
+      "pagination": { "totalCount": 8, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a folder {{ tag: 'POST', label: '/v1/folders' }}
+
+<Row>
+  <Col>
+
+    Create a new folder.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="name" type="string">Folder display name (max 500 characters).</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="parentId" type="string">Parent folder ID (omit for root).</Property>
+      <Property name="color" type="string">Colour identifier.</Property>
+      <Property name="icon" type="string">Icon identifier.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/folders">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/folders \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Q4 Campaign",
+        "parentId": "folder_abc123",
+        "color": "yellow"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "folder_new456",
+        "name": "Q4 Campaign",
+        "parentId": "folder_abc123",
+        "color": "yellow",
+        "deletedAt": null,
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a folder {{ tag: 'GET', label: '/v1/folders/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single folder by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/folders/folder_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/folders/folder_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "folder_abc123",
+        "name": "Marketing Assets",
+        "parentId": null,
+        "deletedAt": null
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a folder {{ tag: 'PATCH', label: '/v1/folders/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a folder. Pass `parentId: null` to move the folder to root.
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="name" type="string">New folder name (max 500 characters).</Property>
+      <Property name="parentId" type="string">New parent folder ID. Pass `null` to move to root.</Property>
+      <Property name="color" type="string">New colour. Pass `null` to clear.</Property>
+      <Property name="icon" type="string">New icon. Pass `null` to clear.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/folders/folder_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/folders/folder_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "name": "Marketing Assets 2024" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "folder_abc123",
+        "name": "Marketing Assets 2024",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a folder {{ tag: 'DELETE', label: '/v1/folders/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a folder. The record is retained with `deletedAt` set. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/folders/folder_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/folders/folder_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

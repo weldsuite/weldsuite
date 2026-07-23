@@ -1,0 +1,211 @@
+# Drafts
+
+Drafts are unsent message drafts scoped to a WeldChat channel. A user can have one active draft per channel. Mutations require the `chat_drafts:write` scope; reads require `chat_drafts:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The draft model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `cdraft_abc123`).</Property>
+  <Property name="channelId" type="string">ID of the channel the draft belongs to.</Property>
+  <Property name="body" type="string">Draft body text.</Property>
+  <Property name="createdAt" type="timestamp">When the draft was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the draft was last updated.</Property>
+</Properties>
+
+---
+
+## List drafts {{ tag: 'GET', label: '/v1/chat-drafts' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of the current user's chat drafts.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="channelId" type="string">Filter by channel.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/chat-drafts">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/chat-drafts \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d channelId=channel_abc123
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "cdraft_abc123",
+          "channelId": "channel_abc123",
+          "body": "Here's the updated plan..."
+        }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a draft {{ tag: 'POST', label: '/v1/chat-drafts' }}
+
+<Row>
+  <Col>
+
+    Save a new message draft.
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="channelId" type="string">ID of the channel.</Property>
+      <Property name="body" type="string">Draft body text.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/chat-drafts">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/chat-drafts \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "channelId": "channel_abc123",
+        "body": "Here'\''s the updated plan..."
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "cdraft_new456",
+        "channelId": "channel_abc123",
+        "body": "Here's the updated plan...",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a draft {{ tag: 'GET', label: '/v1/chat-drafts/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single draft by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/chat-drafts/cdraft_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/chat-drafts/cdraft_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "cdraft_abc123",
+        "channelId": "channel_abc123",
+        "body": "Here's the updated plan..."
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a draft {{ tag: 'PATCH', label: '/v1/chat-drafts/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a draft.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/chat-drafts/cdraft_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/chat-drafts/cdraft_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "body": "Here'\''s the updated plan (revised)..." }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "cdraft_abc123",
+        "body": "Here's the updated plan (revised)...",
+        "updatedAt": "2024-12-01T14:10:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a draft {{ tag: 'DELETE', label: '/v1/chat-drafts/:id' }}
+
+<Row>
+  <Col>
+
+    Discard a draft. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/chat-drafts/cdraft_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/chat-drafts/cdraft_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

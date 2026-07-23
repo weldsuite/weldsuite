@@ -1,0 +1,117 @@
+# WeldSuite Mail Inbound Worker
+# Handles inbound emails via Cloudflare Email Routing (the `email` handler).
+# All domains (weldmail.com + custom domains) route through Cloudflare.
+
+name = "weldsuite-mail-inbound"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# Required secrets (add via wrangler secret put):
+# - BETTERSTACK_TOKEN: Better Stack source token (from Better Stack > Sources)
+
+[vars]
+ENVIRONMENT = "development"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+
+# KV namespace for workspace URL caching (create via: wrangler kv namespace create WORKSPACE_CACHE)
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# R2 storage for mail attachments
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+
+[[services]]
+binding = "REALTIME"
+service = "weldsuite-realtime"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+name = "weldsuite-mail-inbound-test"
+routes = [
+  { pattern = "mail-inbound-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+# ============ PREVIEW ENVIRONMENT ============
+[env.preview]
+name = "weldsuite-mail-inbound-preview"
+routes = [
+  { pattern = "mail-inbound-preview.weldsuite.org", custom_domain = true }
+]
+
+[env.preview.vars]
+ENVIRONMENT = "preview"
+R2_PUBLIC_URL = "https://weldsuite-storage-preview.weldsuite.org"
+
+[[env.preview.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+
+[[env.preview.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[[env.preview.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-preview"
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-mail-inbound"
+routes = [
+  { pattern = "mail-inbound.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+# --- Persist Workers Logs across environments ---
+# observability is NOT inherited by named environments, so it must be set on each.
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.preview.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

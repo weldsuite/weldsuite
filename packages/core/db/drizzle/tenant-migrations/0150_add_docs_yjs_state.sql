@@ -1,0 +1,1 @@
+ALTER TABLE "docs" ADD COLUMN "yjs_state" text;

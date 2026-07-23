@@ -1,0 +1,12 @@
+{
+  "extends": "@weldsuite/typescript-config/base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "types": []
+  },
+  "include": ["src"],
+  "exclude": ["node_modules"]
+}

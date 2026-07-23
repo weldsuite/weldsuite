@@ -1,0 +1,44 @@
+# Symlinks that break Windows builds
+**/.claude
+**/.agents
+.claude
+.agents
+
+# Git/CI
+.git
+.github
+
+# Other apps (not needed for this build)
+apps/web/platform
+apps/api-worker
+apps/core-api
+apps/web/helpdesk-widget
+apps/workers/helpdesk-widget-api
+apps/workers/helpdesk-workflow-worker
+apps/tools/discord-bot
+apps/workers/discord-bot-worker
+apps/workers/billing-worker
+apps/workers/workspace-worker
+apps/workers/mail-inbound-worker
+apps/mobile-api-worker
+apps/workers/external-api
+apps/workers/analytics-worker
+apps/workers/audit-log-worker
+apps/workers/integration-webhook-worker
+apps/workers/realtime-worker
+apps/web/sites
+apps/web/helpcenter
+apps/web/parcel-tracking-portal
+apps/web/parcel-return-portal
+apps/tools/migrate-databases
+# Exclude every other mobile app from this app's EAS build.
+# The scaffolder adds a line for each sibling mobile app so
+# builds don't pull in unrelated source.
+apps/mobile/weldbooks-app
+apps/mobile/weldchat-app
+apps/mobile/weldcrm-app
+apps/mobile/welddesk-app
+apps/mobile/weldflow-app
+apps/mobile/weldmail-app
+apps/mobile/weldsuite-app
+apps/mobile/weldsocial-app

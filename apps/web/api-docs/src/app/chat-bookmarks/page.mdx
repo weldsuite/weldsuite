@@ -1,0 +1,217 @@
+# Bookmarks
+
+Bookmarks let users save WeldChat messages for quick retrieval later. Each bookmark links a user, a message, and optionally a channel. Mutations require the `chat_bookmarks:write` scope; reads require `chat_bookmarks:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The bookmark model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `cbookmark_abc123`).</Property>
+  <Property name="messageId" type="string">ID of the bookmarked message.</Property>
+  <Property name="channelId" type="string">ID of the channel the message belongs to.</Property>
+  <Property name="userId" type="string">ID of the user who created the bookmark.</Property>
+  <Property name="createdAt" type="timestamp">When the bookmark was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the bookmark was last updated.</Property>
+</Properties>
+
+---
+
+## List bookmarks {{ tag: 'GET', label: '/v1/chat-bookmarks' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of bookmarks.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="channelId" type="string">Filter by channel.</Property>
+      <Property name="userId" type="string">Filter by user.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/chat-bookmarks">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/chat-bookmarks \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d userId=user_xyz789
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "cbookmark_abc123",
+          "messageId": "chatmsg_abc123",
+          "channelId": "channel_abc123",
+          "userId": "user_xyz789"
+        }
+      ],
+      "pagination": { "totalCount": 5, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a bookmark {{ tag: 'POST', label: '/v1/chat-bookmarks' }}
+
+<Row>
+  <Col>
+
+    Save a message as a bookmark.
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="messageId" type="string">ID of the message to bookmark.</Property>
+      <Property name="channelId" type="string">ID of the channel.</Property>
+      <Property name="userId" type="string">User ID (defaults to key owner).</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/chat-bookmarks">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/chat-bookmarks \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "messageId": "chatmsg_abc123",
+        "channelId": "channel_abc123"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "cbookmark_new456",
+        "messageId": "chatmsg_abc123",
+        "channelId": "channel_abc123",
+        "userId": "user_xyz789",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a bookmark {{ tag: 'GET', label: '/v1/chat-bookmarks/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single bookmark by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/chat-bookmarks/cbookmark_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/chat-bookmarks/cbookmark_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "cbookmark_abc123",
+        "messageId": "chatmsg_abc123",
+        "channelId": "channel_abc123",
+        "userId": "user_xyz789"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a bookmark {{ tag: 'PATCH', label: '/v1/chat-bookmarks/:id' }}
+
+<Row>
+  <Col>
+
+    Update a bookmark record.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/chat-bookmarks/cbookmark_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/chat-bookmarks/cbookmark_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "channelId": "channel_def456" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "cbookmark_abc123",
+        "channelId": "channel_def456",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a bookmark {{ tag: 'DELETE', label: '/v1/chat-bookmarks/:id' }}
+
+<Row>
+  <Col>
+
+    Remove a bookmark. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/chat-bookmarks/cbookmark_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/chat-bookmarks/cbookmark_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

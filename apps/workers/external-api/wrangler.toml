@@ -1,0 +1,322 @@
+# External API - Cloudflare Workers Configuration
+name = "weldsuite-external-api"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Use custom esbuild aliases to avoid incompatible imports
+# These shims prevent bundling of packages that use Node.js APIs
+[alias]
+"@clerk/nextjs/server" = "./src/lib/clerk-shim.ts"
+"@clerk/nextjs" = "./src/lib/clerk-shim.ts"
+"next/server" = "./src/lib/next-shim.ts"
+"react" = "./src/lib/react-shim.ts"
+
+# Durable Object lifecycle migrations.
+# v1 created the RateLimiter SQLite DO; rate limiting has since moved to the
+# native [[ratelimits]] bindings below, so the class is no longer exported.
+# The live workers were deployed at v1, so a v2 delete-class migration is
+# required — otherwise deploys fail with "does not export class 'RateLimiter'
+# which is depended on by existing Durable Objects" [code: 10064].
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RateLimiter"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["RateLimiter"]
+
+# Native rate limiting — one namespace per plan tier (req per 60s).
+# Keyed per workspace in `rateLimitMiddleware`; keep limits in sync with
+# RATE_LIMITS in src/middleware/rate-limit.ts. namespace_id is account-scoped;
+# each env below uses a distinct range so counters don't bleed across envs.
+[[ratelimits]]
+name = "RL_FREE"
+namespace_id = "10"
+  [ratelimits.simple]
+  limit = 60
+  period = 60
+
+[[ratelimits]]
+name = "RL_BUSINESS"
+namespace_id = "11"
+  [ratelimits.simple]
+  limit = 300
+  period = 60
+
+[[ratelimits]]
+name = "RL_SCALE"
+namespace_id = "12"
+  [ratelimits.simple]
+  limit = 1000
+  period = 60
+
+[[ratelimits]]
+name = "RL_ENTERPRISE"
+namespace_id = "13"
+  [ratelimits.simple]
+  limit = 5000
+  period = 60
+
+# Entity-event sinks (dev). Fed by publishEntityEvent so public-API mutations
+# reach the same audit / workflow / analytics / realtime systems as app-api.
+[[queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events-dev"
+
+[[queues.producers]]
+binding = "WORKFLOW_EVENTS"
+queue = "workflow-events-dev"
+
+[[queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events-dev"
+
+[[services]]
+binding = "REALTIME"
+service = "weldsuite-realtime"
+
+# R2 bucket for user-app bundles (dev) — same buckets as app-api's STORAGE
+# binding; bundles are written here at `user-apps/{appId}/{versionId}/...`.
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+name = "weldsuite-external-api-test"
+routes = [{ pattern = "api-test.weldsuite.org/*", zone_name = "weldsuite.org" }]
+vars = { ENVIRONMENT = "test" }
+
+[[env.test.migrations]]
+tag = "v1"
+new_sqlite_classes = ["RateLimiter"]
+
+[[env.test.migrations]]
+tag = "v2"
+deleted_classes = ["RateLimiter"]
+
+# Native rate limiting (test) — distinct namespace_id range.
+[[env.test.ratelimits]]
+name = "RL_FREE"
+namespace_id = "1001"
+  [env.test.ratelimits.simple]
+  limit = 60
+  period = 60
+
+[[env.test.ratelimits]]
+name = "RL_BUSINESS"
+namespace_id = "1002"
+  [env.test.ratelimits.simple]
+  limit = 300
+  period = 60
+
+[[env.test.ratelimits]]
+name = "RL_SCALE"
+namespace_id = "1003"
+  [env.test.ratelimits.simple]
+  limit = 1000
+  period = 60
+
+[[env.test.ratelimits]]
+name = "RL_ENTERPRISE"
+namespace_id = "1004"
+  [env.test.ratelimits.simple]
+  limit = 5000
+  period = 60
+
+# KV namespace for API key registry + workspace caching
+# Create via: wrangler kv namespace create API_CACHE --env test
+[[env.test.kv_namespaces]]
+binding = "API_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# Entity-event sinks (test)
+[[env.test.queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events-test"
+
+[[env.test.queues.producers]]
+binding = "WORKFLOW_EVENTS"
+queue = "workflow-events-test"
+
+[[env.test.queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+# R2 bucket for user-app bundles (test)
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+
+# ============ PREVIEW ENVIRONMENT ============
+[env.preview]
+name = "weldsuite-external-api-preview"
+routes = [{ pattern = "api-preview.weldsuite.org/*", zone_name = "weldsuite.org" }]
+vars = { ENVIRONMENT = "preview" }
+
+[[env.preview.migrations]]
+tag = "v1"
+new_sqlite_classes = ["RateLimiter"]
+
+[[env.preview.migrations]]
+tag = "v2"
+deleted_classes = ["RateLimiter"]
+
+# Native rate limiting (preview) — distinct namespace_id range.
+[[env.preview.ratelimits]]
+name = "RL_FREE"
+namespace_id = "2001"
+  [env.preview.ratelimits.simple]
+  limit = 60
+  period = 60
+
+[[env.preview.ratelimits]]
+name = "RL_BUSINESS"
+namespace_id = "2002"
+  [env.preview.ratelimits.simple]
+  limit = 300
+  period = 60
+
+[[env.preview.ratelimits]]
+name = "RL_SCALE"
+namespace_id = "2003"
+  [env.preview.ratelimits.simple]
+  limit = 1000
+  period = 60
+
+[[env.preview.ratelimits]]
+name = "RL_ENTERPRISE"
+namespace_id = "2004"
+  [env.preview.ratelimits.simple]
+  limit = 5000
+  period = 60
+
+[[env.preview.hyperdrive]]
+binding = "HYPERDRIVE_MASTER"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# KV namespace for API key registry + workspace caching
+# Create via: wrangler kv namespace create API_CACHE --env preview
+[[env.preview.kv_namespaces]]
+binding = "API_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# Entity-event sinks (preview)
+[[env.preview.queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events-preview"
+
+[[env.preview.queues.producers]]
+binding = "WORKFLOW_EVENTS"
+queue = "workflow-events-preview"
+
+[[env.preview.queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events-preview"
+
+[[env.preview.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-preview"
+
+# R2 bucket for user-app bundles (preview)
+[[env.preview.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+name = "weldsuite-external-api"
+routes = [{ pattern = "api.weldsuite.org/*", zone_name = "weldsuite.org" }]
+vars = { ENVIRONMENT = "production" }
+
+[[env.production.migrations]]
+tag = "v1"
+new_sqlite_classes = ["RateLimiter"]
+
+[[env.production.migrations]]
+tag = "v2"
+deleted_classes = ["RateLimiter"]
+
+# Native rate limiting (production) — distinct namespace_id range.
+[[env.production.ratelimits]]
+name = "RL_FREE"
+namespace_id = "3001"
+  [env.production.ratelimits.simple]
+  limit = 60
+  period = 60
+
+[[env.production.ratelimits]]
+name = "RL_BUSINESS"
+namespace_id = "3002"
+  [env.production.ratelimits.simple]
+  limit = 300
+  period = 60
+
+[[env.production.ratelimits]]
+name = "RL_SCALE"
+namespace_id = "3003"
+  [env.production.ratelimits.simple]
+  limit = 1000
+  period = 60
+
+[[env.production.ratelimits]]
+name = "RL_ENTERPRISE"
+namespace_id = "3004"
+  [env.production.ratelimits.simple]
+  limit = 5000
+  period = 60
+
+[[env.production.hyperdrive]]
+binding = "HYPERDRIVE_MASTER"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# KV namespace for API key registry + workspace caching
+# Create via: wrangler kv namespace create API_CACHE --env production
+[[env.production.kv_namespaces]]
+binding = "API_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# Entity-event sinks (production)
+[[env.production.queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events"
+
+[[env.production.queues.producers]]
+binding = "WORKFLOW_EVENTS"
+queue = "workflow-events"
+
+[[env.production.queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+# R2 bucket for user-app bundles (production)
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# --- Persist Workers Logs across environments ---
+# observability is NOT inherited by named environments, so it must be set on each.
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.preview.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

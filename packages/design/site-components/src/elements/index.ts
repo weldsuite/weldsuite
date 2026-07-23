@@ -1,0 +1,9 @@
+export { ProductImageGalleryElement } from './product-image-gallery-element';
+export { ProductInfoHeaderElement } from './product-info-header-element';
+export { ProductTitleRatingElement } from './product-title-rating-element';
+export { ProductPriceDisplayElement } from './product-price-display-element';
+export { ProductSizeSelectorElement } from './product-size-selector-element';
+export { ProductQuantitySelectorElement } from './product-quantity-selector-element';
+export { ProductActionButtonsElement } from './product-action-buttons-element';
+export { ProductDescriptionElement } from './product-description-element';
+export { ProductPolicyButtonsElement } from './product-policy-buttons-element';

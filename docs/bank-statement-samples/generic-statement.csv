@@ -1,0 +1,8 @@
+date,description,amount,counterparty,iban,reference,balance
+2026-04-01,Opening balance adjustment,0.00,,,,10000.00
+2026-04-03,Invoice payment received,1815.00,Acme Widgets BV,NL02RABO0123456789,INV-0001,11815.00
+2026-04-05,Office rent April,-1500.00,Rent NL BV,NL91ABNA0417164300,Rent April 2026,10315.00
+2026-04-08,SaaS subscription,-49.00,Figma Inc,,SUBS-FIGMA,10266.00
+2026-04-12,Invoice payment received,605.00,Jane Doe Freelance,NL65INGB0001234567,INV-0002,10871.00
+2026-04-15,Bank fees,-12.50,,,Monthly fee,10858.50
+2026-04-18,Coffee supplies,-78.40,Nespresso,NL12ABNA0999888777,Order 8842,10780.10

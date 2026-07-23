@@ -1,0 +1,1 @@
+ALTER TABLE "telephony_number_pricing" ADD COLUMN "stripe_product_id" varchar(255);

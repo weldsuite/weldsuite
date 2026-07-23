@@ -1,0 +1,102 @@
+{
+  "name": "@weldsuite/helpdesk-widget-sdk",
+  "version": "1.0.18",
+  "description": "Easy-to-use helpdesk widget SDK that loads via iframe",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.esm.js",
+      "require": "./dist/react.js"
+    },
+    "./vue": {
+      "types": "./frameworks/vue/useHelpdeskWidget.ts",
+      "import": "./dist/vue-composables.esm.js",
+      "require": "./dist/vue-composables.js"
+    },
+    "./angular": {
+      "types": "./dist/angular.d.ts",
+      "import": "./dist/angular.esm.js",
+      "require": "./dist/angular.js"
+    },
+    "./svelte": {
+      "types": "./frameworks/svelte/index.ts",
+      "svelte": "./frameworks/svelte/HelpdeskWidget.svelte",
+      "import": "./frameworks/svelte/index.ts",
+      "require": "./frameworks/svelte/index.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "frameworks/vue",
+    "frameworks/svelte",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "rollup -c -w",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
+  },
+  "keywords": [
+    "helpdesk",
+    "widget",
+    "chat",
+    "customer-support",
+    "iframe",
+    "embed",
+    "sdk"
+  ],
+  "author": "WeldSuite",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/weldcorporation/weldsuite.git",
+    "directory": "packages/helpdesk-widget-sdk"
+  },
+  "devDependencies": {
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-typescript": "^11.1.6",
+    "@types/node": "^20.11.5",
+    "rollup": "^4.9.6",
+    "rollup-plugin-dts": "^6.1.0",
+    "tslib": "^2.6.2",
+    "typescript": "^5.3.3"
+  },
+  "peerDependencies": {
+    "@angular/core": ">=14.0.0",
+    "react": ">=16.8.0",
+    "react-dom": ">=16.8.0",
+    "svelte": ">=3.0.0",
+    "vue": ">=3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    },
+    "@angular/core": {
+      "optional": true
+    },
+    "svelte": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

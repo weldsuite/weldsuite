@@ -1,0 +1,50 @@
+{
+  "name": "app-api",
+  "license": "AGPL-3.0-only",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8789",
+    "build": "wrangler deploy",
+    "deploy": "wrangler deploy",
+    "deploy:test": "wrangler deploy --env test",
+    "deploy:preview": "wrangler deploy --env preview",
+    "deploy:production": "wrangler deploy --env production",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@clerk/backend": "^2.29.0",
+    "@hono/zod-validator": "^0.4.0",
+    "@neondatabase/serverless": "^1.0.1",
+    "@weldsuite/ai": "workspace:*",
+    "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/cloudflare-realtime": "workspace:*",
+    "@weldsuite/cloudflare-registrar": "workspace:*",
+    "@weldsuite/core-api-client": "workspace:*",
+    "@weldsuite/credits": "workspace:*",
+    "@weldsuite/db": "workspace:*",
+    "@weldsuite/email": "workspace:*",
+    "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/workflow-integrations": "workspace:*",
+    "@weldsuite/feature-flags": "workspace:*",
+    "@weldsuite/notifications": "workspace:*",
+    "@weldsuite/permissions": "workspace:*",
+    "@weldsuite/realtime": "workspace:*",
+    "drizzle-orm": "^0.45.1",
+    "fflate": "^0.8.2",
+    "hono": "4.11.4",
+    "nanoid": "^5.1.5",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@electric-sql/pglite": "^0.4.5",
+    "@types/node": "^20",
+    "typescript": "^5.7",
+    "vitest": "^2.1.8",
+    "wrangler": "^4.95.0"
+  }
+}

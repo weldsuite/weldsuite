@@ -1,0 +1,1 @@
+ALTER TABLE "workspace_members" ADD COLUMN "hours_per_week" numeric(5, 2);

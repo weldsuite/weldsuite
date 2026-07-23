@@ -1,0 +1,195 @@
+# Activities
+
+Activities are calls, emails, meetings, tasks, and notes attached to your CRM records. Mutations require the `activities:write` scope; reads require `activities:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The activity model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `act_abc123`).</Property>
+  <Property name="type" type="string">Activity type: `call`, `email`, `meeting`, `task`, `note`, `sms`, `linkedin`, `demo`, or `presentation`.</Property>
+  <Property name="subject" type="string">Short subject line.</Property>
+  <Property name="description" type="string">Longer description / body.</Property>
+  <Property name="status" type="string">`planned`, `in_progress`, `completed`, `cancelled`, or `deferred`. Defaults to `planned`.</Property>
+  <Property name="priority" type="string">`high`, `medium`, or `low`. Defaults to `medium`.</Property>
+  <Property name="assignedToId" type="string">User the activity is assigned to.</Property>
+  <Property name="customerId" type="string">Related company/customer ID.</Property>
+  <Property name="contactId" type="string">Related person ID.</Property>
+  <Property name="leadId" type="string">Related lead ID.</Property>
+  <Property name="opportunityId" type="string">Related opportunity ID.</Property>
+  <Property name="dueDate" type="timestamp">When the activity is due.</Property>
+  <Property name="startTime" type="timestamp">Start time (for meetings/calls).</Property>
+  <Property name="endTime" type="timestamp">End time.</Property>
+  <Property name="createdAt" type="timestamp">When created.</Property>
+  <Property name="updatedAt" type="timestamp">When last updated.</Property>
+</Properties>
+
+---
+
+## List activities {{ tag: 'GET', label: '/v1/activities' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `search` (subject + description), `type`, `status`, `assignedToId`, `customerId`, `contactId`, `leadId`, `opportunityId`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/activities">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/activities \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d type=call -d status=planned
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        { "id": "act_abc123", "type": "call", "subject": "Intro call", "status": "planned", "assignedToId": "user_001" }
+      ],
+      "pagination": { "totalCount": 14, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create an activity {{ tag: 'POST', label: '/v1/activities' }}
+
+<Row>
+  <Col>
+
+    Create an activity. **Required:** `type`, `subject`. `assignedToId` defaults to the key's user; workspace keys must supply it. You may attach the activity to a record via `customerId`, `contactId`, `leadId`, or `opportunityId`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/activities">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/activities \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "type": "meeting",
+        "subject": "Site visit",
+        "opportunityId": "opp_abc123",
+        "dueDate": "2024-12-10T09:00:00Z"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "act_new456",
+        "type": "meeting",
+        "subject": "Site visit",
+        "status": "planned",
+        "priority": "medium",
+        "opportunityId": "opp_abc123",
+        "createdAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve an activity {{ tag: 'GET', label: '/v1/activities/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single activity by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/activities/act_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/activities/act_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    { "data": { "id": "act_abc123", "type": "call", "subject": "Intro call", "status": "planned" } }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update an activity {{ tag: 'PATCH', label: '/v1/activities/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update an activity. Setting `status` to `completed` also emits a completion event.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/activities/act_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/activities/act_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "status": "completed" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    { "data": { "id": "act_abc123", "status": "completed", "updatedAt": "2024-12-01T15:00:00Z" } }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete an activity {{ tag: 'DELETE', label: '/v1/activities/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete an activity. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/activities/act_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/activities/act_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

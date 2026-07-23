@@ -1,0 +1,195 @@
+# Tasks
+
+Tasks are the units of work inside projects. Mutations require the `tasks:write` scope; reads require `tasks:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The task model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `task_abc123`).</Property>
+  <Property name="title" type="string">Task title.</Property>
+  <Property name="description" type="string">Description.</Property>
+  <Property name="projectId" type="string">Containing project ID.</Property>
+  <Property name="status" type="string">Status. Defaults to `todo`.</Property>
+  <Property name="priority" type="string">Priority. Defaults to `medium`.</Property>
+  <Property name="type" type="string">Task type. Defaults to `task`.</Property>
+  <Property name="assigneeId" type="string">Primary assignee's user ID.</Property>
+  <Property name="assigneeIds" type="array">All assignee user IDs.</Property>
+  <Property name="sprintId" type="string">Sprint ID.</Property>
+  <Property name="milestoneId" type="string">Milestone ID.</Property>
+  <Property name="parentTaskId" type="string">Parent task ID (for subtasks).</Property>
+  <Property name="dueDate" type="timestamp">Due date.</Property>
+  <Property name="startDate" type="timestamp">Start date.</Property>
+  <Property name="createdAt" type="timestamp">When created.</Property>
+  <Property name="updatedAt" type="timestamp">When last updated.</Property>
+</Properties>
+
+---
+
+## List tasks {{ tag: 'GET', label: '/v1/tasks' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `search` (title + description), `projectId`, `status`, `priority`, `type`, `assigneeId` (matches primary or any assignee), `sprintId`, `milestoneId`, `parentTaskId`, `dueDateFrom`, `dueDateTo`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/tasks">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/tasks \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d projectId=prj_abc123 -d status=todo
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        { "id": "task_abc123", "title": "Wire the controller", "projectId": "prj_abc123", "status": "todo", "priority": "high" }
+      ],
+      "pagination": { "totalCount": 18, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a task {{ tag: 'POST', label: '/v1/tasks' }}
+
+<Row>
+  <Col>
+
+    Create a task. **Required:** `title`. Optional: `description`, `projectId`, `status`, `priority`, `type`, `assigneeId`, `assigneeIds`, `sprintId`, `milestoneId`, `parentTaskId`, `dueDate`, `startDate`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/tasks">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/tasks \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "title": "Wire the controller",
+        "projectId": "prj_abc123",
+        "priority": "high",
+        "dueDate": "2025-01-10T17:00:00Z"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "task_new456",
+        "title": "Wire the controller",
+        "projectId": "prj_abc123",
+        "status": "todo",
+        "priority": "high",
+        "type": "task",
+        "createdAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a task {{ tag: 'GET', label: '/v1/tasks/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single task by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/tasks/task_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/tasks/task_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    { "data": { "id": "task_abc123", "title": "Wire the controller", "status": "todo" } }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a task {{ tag: 'PATCH', label: '/v1/tasks/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a task.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/tasks/task_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/tasks/task_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "status": "in_progress", "assigneeId": "user_007" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    { "data": { "id": "task_abc123", "status": "in_progress", "assigneeId": "user_007", "updatedAt": "2024-12-01T15:00:00Z" } }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a task {{ tag: 'DELETE', label: '/v1/tasks/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a task. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/tasks/task_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/tasks/task_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

@@ -1,0 +1,106 @@
+# WeldSuite Discord Bot Worker
+# Maintains persistent Discord Gateway WebSocket via Durable Object
+# Forwards MESSAGE_CREATE events to helpdesk-widget-api
+
+name = "discord-bot-worker"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ DURABLE OBJECTS ============
+[durable_objects]
+bindings = [{ name = "DISCORD_GATEWAY", class_name = "DiscordGateway" }]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["DiscordGateway"]
+
+# ============ LOCAL DEVELOPMENT ============
+# Required secrets (add via wrangler secret put or .dev.vars):
+# - DISCORD_BOT_TOKEN: Discord bot token for Gateway auth
+# - DISCORD_PUBLIC_KEY: Discord app public key for interaction verification + webhook X-Bot-Secret
+# - DISCORD_APPLICATION_ID: Discord application ID
+# - MANAGEMENT_SECRET: Bearer token to protect /manage/* endpoints
+# - BETTERSTACK_TOKEN: (optional) Better Stack source token
+
+[vars]
+ENVIRONMENT = "development"
+HELPDESK_WIDGET_API_URL = "http://localhost:8790"
+
+# Service binding to workflow worker (for wf_* button interactions)
+[[services]]
+binding = "WORKFLOW_WORKER"
+service = "helpdesk-workflow-worker"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+name = "discord-bot-worker-test"
+routes = [
+  { pattern = "discord-bot-worker-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.durable_objects]
+bindings = [{ name = "DISCORD_GATEWAY", class_name = "DiscordGateway" }]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+HELPDESK_WIDGET_API_URL = "https://helpdesk-widget-api-test.weldsuite.org"
+
+[[env.test.services]]
+binding = "WORKFLOW_WORKER"
+service = "helpdesk-workflow-worker-test"
+
+# ============ PREVIEW ENVIRONMENT ============
+[env.preview]
+name = "discord-bot-worker-preview"
+routes = [
+  { pattern = "discord-bot-worker-preview.weldsuite.org", custom_domain = true }
+]
+
+[env.preview.durable_objects]
+bindings = [{ name = "DISCORD_GATEWAY", class_name = "DiscordGateway" }]
+
+[env.preview.vars]
+ENVIRONMENT = "preview"
+HELPDESK_WIDGET_API_URL = "https://helpdesk-widget-api-preview.weldsuite.org"
+
+[[env.preview.services]]
+binding = "WORKFLOW_WORKER"
+service = "helpdesk-workflow-worker-preview"
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "discord-bot-worker"
+routes = [
+  { pattern = "discord-bot-worker.weldsuite.org", custom_domain = true }
+]
+
+[env.production.durable_objects]
+bindings = [{ name = "DISCORD_GATEWAY", class_name = "DiscordGateway" }]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+HELPDESK_WIDGET_API_URL = "https://helpdesk-widget-api.weldsuite.org"
+
+[[env.production.services]]
+binding = "WORKFLOW_WORKER"
+service = "helpdesk-workflow-worker"
+
+# --- Persist Workers Logs across environments ---
+# observability is NOT inherited by named environments, so it must be set on each.
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.preview.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

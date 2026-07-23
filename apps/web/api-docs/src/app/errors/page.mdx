@@ -1,0 +1,146 @@
+# Errors
+
+The WeldSuite API uses conventional HTTP status codes and a consistent JSON error envelope across every endpoint. This guide covers the error shape, the error codes you may encounter, and how to handle them. {{ className: 'lead' }}
+
+---
+
+## Error response format
+
+Every error response has the same shape: a single `error` object with a machine-readable `code`, a human-readable `message`, and optional `details`.
+
+```json {{ title: 'Error response schema' }}
+{
+  "error": {
+    "code": "BAD_REQUEST",
+    "message": "Validation failed",
+    "details": [
+      {
+        "path": ["email"],
+        "message": "Invalid email"
+      }
+    ]
+  }
+}
+```
+
+### Properties
+
+<Properties>
+  <Property name="error.code" type="string">
+    A stable, machine-readable error code (see the table below). Branch on this in your integration.
+  </Property>
+  <Property name="error.message" type="string">
+    A human-readable explanation of what went wrong.
+  </Property>
+  <Property name="error.details" type="array">
+    Optional. Present on validation errors (`BAD_REQUEST`), an array of Zod issues, each with a `path` and `message`.
+  </Property>
+</Properties>
+
+---
+
+## Error codes
+
+| Status | `code` | Description |
+|--------|--------|-------------|
+| 400 | `BAD_REQUEST` | The request body or query failed validation. `details` lists the offending fields. |
+| 401 | `UNAUTHORIZED` | The API key is missing, malformed, revoked, or expired. |
+| 403 | `FORBIDDEN` | The API key is valid but lacks the scope required for this endpoint, or the workspace plan has no API access. |
+| 404 | `NOT_FOUND` | The requested resource does not exist (or is soft-deleted). |
+| 409 | `CONFLICT` | The request conflicts with the current state of the resource. |
+| 429 | `RATE_LIMITED` | You exceeded your plan's rate limit. A `Retry-After` header indicates when to retry. |
+| 500 | `INTERNAL_ERROR` | An unexpected server error occurred. Retry with backoff. |
+
+---
+
+## Validation errors
+
+When a request fails validation you receive a `400` with `code: "BAD_REQUEST"` and a `details` array of Zod issues:
+
+```json {{ title: '400 Bad Request' }}
+{
+  "error": {
+    "code": "BAD_REQUEST",
+    "message": "Validation failed",
+    "details": [
+      { "path": ["email"], "message": "Invalid email" },
+      { "path": ["name"], "message": "String must contain at least 1 character(s)" }
+    ]
+  }
+}
+```
+
+## Scope errors
+
+When your API key is valid but lacks the scope an endpoint requires, you receive a `403`:
+
+```json {{ title: '403 Forbidden' }}
+{
+  "error": {
+    "code": "FORBIDDEN",
+    "message": "Missing required scope: people:write"
+  }
+}
+```
+
+See [Authentication](/authentication) for the full list of scopes and how to grant them.
+
+## Rate-limit errors
+
+```json {{ title: '429 Too Many Requests' }}
+{
+  "error": {
+    "code": "RATE_LIMITED",
+    "message": "Rate limit exceeded"
+  }
+}
+```
+
+The response also includes a `Retry-After` header (seconds) and the `X-RateLimit-*` headers described in [Pagination](/pagination) and the rate-limit section of [Authentication](/authentication).
+
+---
+
+## Handling errors
+
+Branch on `error.code`, it is stable across API versions, unlike `message`.
+
+```js {{ title: 'Error handling example' }}
+async function apiRequest(path, options = {}) {
+  const response = await fetch(`https://api.weldsuite.org/v1${path}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${process.env.WELDSUITE_API_KEY}`,
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+  })
+
+  if (response.status === 204) return null
+  const body = await response.json()
+
+  if (!response.ok) {
+    const { code, message, details } = body.error
+    switch (code) {
+      case 'RATE_LIMITED': {
+        const retryAfter = Number(response.headers.get('Retry-After') ?? 1)
+        await new Promise((r) => setTimeout(r, retryAfter * 1000))
+        return apiRequest(path, options)
+      }
+      case 'FORBIDDEN':
+        throw new Error(`Missing scope or no API access: ${message}`)
+      case 'BAD_REQUEST':
+        throw new Error(`Validation failed: ${JSON.stringify(details)}`)
+      default:
+        throw new Error(`${code}: ${message}`)
+    }
+  }
+
+  return body
+}
+```
+
+---
+
+## Getting help
+
+If you hit a persistent `INTERNAL_ERROR`, check the [status page](https://status.weldsuite.com) and contact [support@weldsuite.com](mailto:support@weldsuite.com) with the request you made and the timestamp.

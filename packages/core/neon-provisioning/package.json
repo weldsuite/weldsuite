@@ -1,0 +1,27 @@
+{
+  "name": "@weldsuite/neon-provisioning",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts",
+    "./provisioning": "./src/provisioning.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "echo 'no lint configured'"
+  },
+  "dependencies": {
+    "@neondatabase/api-client": "^2.7.3",
+    "@neondatabase/serverless": "^1.0.1",
+    "@weldsuite/db": "workspace:*",
+    "drizzle-orm": "^0.45.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@weldsuite/typescript-config": "workspace:*",
+    "typescript": "^5.9.2"
+  }
+}

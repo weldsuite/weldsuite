@@ -1,0 +1,186 @@
+# Authentication
+
+The WeldSuite External API uses API key authentication with fine-grained permission scopes. Each API key belongs to one workspace and carries a set of scopes (`resource:action`) that control exactly which endpoints it can call. {{ className: 'lead' }}
+
+All requests go to the base URL `https://api.weldsuite.org/v1`.
+
+---
+
+## API Key Authentication
+
+API keys are ideal for server-to-server integrations. Each key can be scoped down to the minimum permissions an integration needs.
+
+### Step 1: Create an API key
+
+Create an API key from your WeldSuite dashboard under **Settings → API Keys**. You can create either a **personal key** (acts as you) or a **workspace key** (shared, not tied to a user). During creation you choose which scopes to grant.
+
+<Note>
+  Your API key is shown only once and starts with the `wsk_` prefix. Store it securely, it grants access to your workspace data and cannot be retrieved after creation.
+</Note>
+
+### Step 2: Authenticate your requests
+
+Send the key in the `Authorization` header as a Bearer token (recommended), or in the `X-Api-Key` header:
+
+<Row>
+  <Col>
+
+    Either header is accepted on every request. The key is validated, and the request proceeds only if the key is active and holds the scope the endpoint requires, otherwise you receive `401 Unauthorized` or `403 Forbidden`.
+
+  </Col>
+  <Col sticky>
+
+    ```bash {{ title: 'Authorization: Bearer (recommended)' }}
+    curl https://api.weldsuite.org/v1/people \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    ```bash {{ title: 'X-Api-Key header' }}
+    curl https://api.weldsuite.org/v1/people \
+      -H "X-Api-Key: wsk_your_api_key"
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Scope-based authorization
+
+Every endpoint requires a specific `resource:action` scope. Read endpoints require `<resource>:read`; create, update, and delete endpoints require `<resource>:write`. If your key lacks the scope, the response is `403 Forbidden`:
+
+```json {{ title: '403 Forbidden' }}
+{
+  "error": {
+    "code": "FORBIDDEN",
+    "message": "Missing required scope: people:write"
+  }
+}
+```
+
+### How scopes match
+
+A required scope is satisfied if the key holds any of the following:
+
+<Properties>
+  <Property name="Exact match" type="people:read">
+    The exact scope string, e.g. `people:read`.
+  </Property>
+  <Property name="Resource wildcard" type="people:*">
+    `<resource>:*` grants every action on that resource, e.g. `people:*` covers `people:read` and `people:write`.
+  </Property>
+  <Property name="Global wildcard" type="*">
+    The reserved `*` scope grants access to every endpoint. Use with caution.
+  </Property>
+</Properties>
+
+```text
+Key holds: ["people:read", "projects:*"]
+
+✅ GET  /v1/people        → has people:read
+❌ POST /v1/people        → missing people:write
+✅ GET  /v1/projects      → projects:* covers projects:read
+✅ POST /v1/projects      → projects:* covers projects:write
+```
+
+<Note>
+  Wildcards only collapse the **action**, not a domain. `companies:*` works; there is no `weldcrm:*` that spans multiple resources. Grant each resource wildcard you need, or `*` for full access.
+</Note>
+
+---
+
+## Scope reference
+
+Scopes are `resource:action`. Unless noted, each resource supports `:read` and `:write`.
+
+### WeldCRM
+
+- `companies:read` · `companies:write`
+- `people:read` · `people:write`
+- `leads:read` · `leads:write`
+- `opportunities:read` · `opportunities:write`
+- `activities:read` · `activities:write`
+- `quotes:read` · `quotes:write`
+- `pipelines:read` · `pipelines:write`
+- `pipeline_stages:read` · `pipeline_stages:write`
+
+### WeldFlow
+
+- `projects:read` · `projects:write`
+- `tasks:read` · `tasks:write`
+- `time_entries:read` · `time_entries:write`
+- `sprints:read` · `sprints:write`
+- `milestones:read` · `milestones:write`
+- `goals:read` · `goals:write`
+- `project_members:read` · `project_members:write`
+- `project_files:read` · `project_files:write`
+- `project_documents:read` · `project_documents:write`
+- `project_messages:read` · `project_messages:write`
+- `project_sheets:read`, read-only; no write scope
+- `project_labels:read` · `project_labels:write`
+- `task_comments:read` · `task_comments:write`
+- `task_tags:read` · `task_tags:write`
+- `whiteboards:read` · `whiteboards:write`
+
+### WeldChat
+
+- `channels:read` · `channels:write`
+- `channel_members:read` · `channel_members:write`
+- `chat_messages:read` · `chat_messages:write`
+- `chat_drafts:read` · `chat_drafts:write`
+- `chat_bookmarks:read` · `chat_bookmarks:write`
+- `chat_sections:read` · `chat_sections:write`
+
+### WeldCalendar
+
+- `calendars:read` · `calendars:write`
+- `calendar_events:read` · `calendar_events:write`
+
+### WeldDrive
+
+- `files:read` · `files:write`
+- `folders:read` · `folders:write`
+- `drive:read`, read-only; no write scope
+
+---
+
+## Plan requirements
+
+API access depends on your workspace plan. If your plan does not include API access, valid keys still receive `403 Forbidden`. Upgrade your plan to enable the External API.
+
+For performance, key validation is cached for about 5 minutes after first use, so revoking a key takes effect within that window.
+
+---
+
+## Rate limits
+
+Requests are rate-limited per workspace, by plan tier:
+
+| Plan | Limit |
+|------|-------|
+| Free | 60 requests / minute |
+| Starter | 300 requests / minute |
+| Professional | 1,000 requests / minute |
+| Enterprise | 5,000 requests / minute |
+
+Every response includes `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset`. Exceeding the limit returns `429` with `code: "RATE_LIMITED"` and a `Retry-After` header.
+
+---
+
+## Common authentication errors
+
+| Status | `code` | Cause | Fix |
+|--------|--------|-------|-----|
+| 401 | `UNAUTHORIZED` | Key missing, malformed, revoked, or expired | Check the key / create a new one |
+| 403 | `FORBIDDEN` | Key lacks the required scope | Create a key with the right scope |
+| 403 | `FORBIDDEN` | Plan has no API access | Upgrade your plan |
+
+---
+
+## Best practices
+
+1. **Least privilege**, grant only the scopes an integration needs; prefer `:read` where possible.
+2. **One key per integration**, makes revocation and auditing easy.
+3. **Never commit keys**, use environment variables or a secret manager.
+4. **Rotate regularly**, create new keys periodically and revoke old ones.
+5. **Prefer workspace keys** for shared automations so the key survives staff changes.

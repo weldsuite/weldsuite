@@ -1,0 +1,112 @@
+@import "@weldsuite/ui/globals.css";
+
+/* Timezone picker — used by components/timezone-picker.tsx */
+.tz-list { padding: 4px 0 4px 4px; }
+.tz-list[data-overflows='false'] { padding-right: 4px; }
+.tz-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 14px;
+  line-height: 20px;
+  color: rgb(17 24 39);
+  background-color: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  user-select: none;
+}
+.tz-row:hover { background-color: rgb(243 244 246); }
+.tz-row[data-chosen='true'] { background-color: rgb(243 244 246); font-weight: 500; }
+.tz-row[data-chosen='true']:hover { background-color: rgb(243 244 246); }
+.tz-row[data-selected='true'] { background-color: transparent; }
+.tz-row[data-selected='true']:hover { background-color: rgb(243 244 246); }
+.tz-row[data-chosen='true'][data-selected='true'] { background-color: rgb(243 244 246); }
+.tz-row[data-chosen='true'][data-selected='true']:hover { background-color: rgb(243 244 246); }
+.tz-offset { color: rgb(156 163 175); margin-right: 8px; font-variant-numeric: tabular-nums; }
+.tz-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dark .tz-row { color: #E4E4E7; }
+.dark .tz-row:hover { background-color: #1F1F23; }
+.dark .tz-row[data-chosen='true'] { background-color: #1F1F23; }
+.dark .tz-row[data-chosen='true']:hover { background-color: #1F1F23; }
+.dark .tz-row[data-selected='true']:hover { background-color: #1F1F23; }
+.dark .tz-row[data-chosen='true'][data-selected='true'] { background-color: #1F1F23; }
+.dark .tz-row[data-chosen='true'][data-selected='true']:hover { background-color: #1F1F23; }
+.dark .tz-offset { color: #6E6E76; }
+
+/* Confirmation badge entry animation — used by components/confirmation-card.tsx */
+@keyframes confirmed-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.confirmed-badge {
+  animation: confirmed-in 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.scrollbar-thin:hover {
+  scrollbar-color: rgba(0, 0, 0, 0.06) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+.scrollbar-thin:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.06);
+}
+.scrollbar-thin:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.scrollbar-thin-visible {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.06) transparent;
+}
+.scrollbar-thin-visible::-webkit-scrollbar {
+  width: 4px;
+}
+.scrollbar-thin-visible::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin-visible::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 4px;
+}
+.scrollbar-thin-visible::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.dark .scrollbar-thin-visible {
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+.dark .scrollbar-thin-visible::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+}
+.dark .scrollbar-thin-visible::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.dark .scrollbar-thin {
+  scrollbar-color: transparent transparent;
+}
+.dark .scrollbar-thin:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.10) transparent;
+}
+.dark .scrollbar-thin:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.10);
+}
+.dark .scrollbar-thin:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.20);
+}

@@ -1,0 +1,130 @@
+import { Guides } from '@/components/Guides'
+import { Resources } from '@/components/Resources'
+import { HeroPattern } from '@/components/HeroPattern'
+
+export const sections = [
+  { title: 'Guides', id: 'guides' },
+  { title: 'Resources', id: 'resources' },
+]
+
+<HeroPattern />
+
+# WeldSuite API Documentation
+
+Build powerful integrations with WeldSuite's External API. Access your workspace data with fine-grained, scope-based API keys, automate workflows, and extend your business operations programmatically. {{ className: 'lead' }}
+
+<div className="not-prose mt-6 mb-16 flex gap-3">
+  <Button href="/quickstart" arrow="right">
+    <>Quickstart</>
+  </Button>
+  <Button href="/authentication" variant="outline">
+    <>Authentication</>
+  </Button>
+</div>
+
+## Getting started {{ anchor: false }}
+
+The WeldSuite API is a REST API served under `https://api.weldsuite.org/v1`. It uses API key authentication with fine-grained permission scopes, no OAuth flows, just a `wsk_` key with exactly the permissions your integration needs. Every list endpoint is cursor-paginated and every response uses a consistent JSON envelope. {{ className: 'lead' }}
+
+<div className="not-prose">
+  <Button href="/quickstart" variant="text" arrow="right">
+    <>Get started with your first API request</>
+  </Button>
+</div>
+
+---
+
+## Key features
+
+<div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 not-prose mt-8">
+  <div className="relative rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6">
+    <h3 className="font-semibold text-zinc-900 dark:text-white">Fine-grained permissions</h3>
+    <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+      Every endpoint is gated by a <code>resource:action</code> scope. Grant only what an integration needs, from a single read scope to a full-access key.
+    </div>
+  </div>
+
+  <div className="relative rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6">
+    <h3 className="font-semibold text-zinc-900 dark:text-white">Simple authentication</h3>
+    <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+      Send your <code>wsk_</code> key as <code>Authorization: Bearer</code> (or <code>X-Api-Key</code>). No token exchanges, no refresh flows.
+    </div>
+  </div>
+
+  <div className="relative rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6">
+    <h3 className="font-semibold text-zinc-900 dark:text-white">RESTful & predictable</h3>
+    <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+      Standard REST conventions, cursor pagination, and a single <code>{`{ error: { code, message } }`}</code> envelope across every endpoint.
+    </div>
+  </div>
+
+  <div className="relative rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6">
+    <h3 className="font-semibold text-zinc-900 dark:text-white">Broad coverage</h3>
+    <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+      Access WeldCRM, WeldFlow, WeldChat, WeldCalendar, and WeldDrive objects, all through one API and one key format.
+    </div>
+  </div>
+
+  <div className="relative rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6">
+    <h3 className="font-semibold text-zinc-900 dark:text-white">Per-workspace rate limits</h3>
+    <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+      Generous, plan-based rate limits with <code>X-RateLimit-*</code> headers so you can pace your integration with confidence.
+    </div>
+  </div>
+
+  <div className="relative rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6">
+    <h3 className="font-semibold text-zinc-900 dark:text-white">Clear errors</h3>
+    <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+      Stable error <code>code</code>s and field-level validation <code>details</code> help you debug integrations quickly.
+    </div>
+  </div>
+</div>
+
+---
+
+## Quick example
+
+List people from your workspace:
+
+```bash
+curl https://api.weldsuite.org/v1/people \
+  -H "Authorization: Bearer wsk_your_api_key"
+```
+
+```json
+{
+  "data": [
+    {
+      "id": "person_abc123",
+      "firstName": "Jane",
+      "lastName": "Doe",
+      "fullName": "Jane Doe",
+      "email": "jane@doe.example",
+      "title": "Operations Director"
+    }
+  ],
+  "pagination": {
+    "totalCount": 42,
+    "hasMore": false,
+    "cursor": null
+  }
+}
+```
+
+---
+
+## Available resources
+
+The WeldSuite API exposes these product modules:
+
+- **WeldCRM**, Companies, People, Leads, Opportunities, Activities, Quotes, Pipelines, Pipeline Stages
+- **WeldFlow**, Projects, Tasks, Time Entries, Sprints, Milestones, Goals, Project Members, Project Files, Project Documents, Project Messages, Project Sheets, Project Labels, Task Comments, Task Tags, Whiteboards
+- **WeldChat**, Channels, Channel Members, Messages, Drafts, Bookmarks, Sections
+- **WeldCalendar**, Calendars, Events
+- **WeldDrive**, Files, Folders, Drive (unified feed + storage stats)
+
+Each resource is gated by its own permission scopes so you control exactly what your API keys can access.
+
+<Guides />
+
+<Resources />

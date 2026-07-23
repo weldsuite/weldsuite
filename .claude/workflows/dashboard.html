@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>WeldSuite Bug-Fix Dashboard</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #14181d;
+    --panel-2: #1c2128;
+    --border: #2a323d;
+    --text: #e6e8eb;
+    --muted: #8a94a4;
+    --high: #ef4444;
+    --medium: #f59e0b;
+    --low: #6b7280;
+    --accent: #60a5fa;
+    --accent-2: #34d399;
+    --bundle: #a78bfa;
+    --gate: #f97316;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+  }
+  .h-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .stats { display: flex; gap: 16px; font-size: 13px; color: var(--muted); }
+  .stats b { color: var(--text); margin-right: 4px; }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .pill {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .pill:hover { color: var(--text); border-color: #3a4452; }
+  .pill.active { background: var(--accent); color: #04162d; border-color: var(--accent); font-weight: 600; }
+  .pill .count { opacity: 0.7; margin-left: 6px; }
+
+  main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+
+  .pr-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .pr-head {
+    padding: 14px 18px;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(0deg, transparent, rgba(255,255,255,0.02));
+  }
+  .pr-num {
+    font-weight: 700; font-size: 13px;
+    color: var(--muted);
+    background: var(--panel-2);
+    padding: 4px 10px;
+    border-radius: 6px;
+  }
+  .pr-title { font-weight: 600; flex: 1; min-width: 200px; }
+  .badge {
+    font-size: 11px; padding: 3px 8px; border-radius: 4px;
+    font-weight: 600; letter-spacing: 0.3px;
+  }
+  .b-high { background: rgba(239, 68, 68, 0.15); color: var(--high); }
+  .b-medium { background: rgba(245, 158, 11, 0.15); color: var(--medium); }
+  .b-low { background: rgba(107, 114, 128, 0.2); color: var(--low); }
+  .b-bundle { background: rgba(167, 139, 250, 0.15); color: var(--bundle); }
+  .b-gate { background: rgba(249, 115, 22, 0.15); color: var(--gate); }
+  .b-feat { background: rgba(52, 211, 153, 0.15); color: var(--accent-2); }
+  .b-bug { background: rgba(96, 165, 250, 0.15); color: var(--accent); }
+  .pr-hyp {
+    padding: 10px 18px;
+    font-size: 13px;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    background: rgba(255,255,255,0.015);
+  }
+
+  .task-row {
+    padding: 12px 18px;
+    display: flex; align-items: center; gap: 12px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 80ms;
+  }
+  .task-row:last-child { border-bottom: none; }
+  .task-row:hover { background: var(--panel-2); }
+  .task-id {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--panel-2);
+    padding: 3px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+  .task-title { flex: 1; font-size: 14px; }
+  .task-module { font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+  /* modal */
+  .modal-bg {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 100;
+    padding: 24px;
+  }
+  .modal-bg.open { display: flex; }
+  .modal {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 720px;
+    max-height: 90vh;
+    display: flex; flex-direction: column;
+  }
+  .modal-head {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: start; gap: 12px;
+  }
+  .modal-title { font-size: 16px; font-weight: 600; }
+  .modal-close {
+    background: transparent; border: none; color: var(--muted);
+    font-size: 22px; cursor: pointer; line-height: 1;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal-body { padding: 20px; overflow-y: auto; }
+  .prompt-box {
+    background: #06080b;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12.5px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: #cbd5e1;
+    max-height: 360px;
+    overflow-y: auto;
+  }
+  .modal-actions {
+    padding: 14px 20px;
+    border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; gap: 10px; align-items: center;
+  }
+  .btn {
+    background: var(--accent);
+    color: #04162d;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .btn:hover { filter: brightness(1.1); }
+  .btn-ghost {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { color: var(--text); border-color: #3a4452; }
+  .copied { color: var(--accent-2); font-size: 12px; }
+
+  .hint { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+  .toggle {
+    display: inline-flex; gap: 6px; align-items: center; cursor: pointer;
+    color: var(--muted); font-size: 12px;
+    margin-bottom: 10px;
+  }
+  .toggle input { accent-color: var(--accent); }
+
+  details.bundle-tasks summary {
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 12px;
+    padding: 6px 0;
+  }
+  details.bundle-tasks summary:hover { color: var(--text); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="h-row">
+    <div>
+      <h1>WeldSuite Bug-Fix Dashboard</h1>
+      <div class="sub">Click a task → copy the prompt → paste into Claude Code. Strict serial: only the topmost PR is active.</div>
+    </div>
+    <div class="stats">
+      <div><b id="stat-high">0</b>high</div>
+      <div><b id="stat-medium">0</b>medium</div>
+      <div><b id="stat-tasks">0</b>tasks queued</div>
+      <div><b id="stat-prs">0</b>planned PRs</div>
+    </div>
+  </div>
+  <div class="filters" id="filters"></div>
+</header>
+
+<main id="prs"></main>
+
+<div class="modal-bg" id="modal-bg" onclick="if(event.target===this) closeModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <div>
+        <div class="modal-title" id="m-title">—</div>
+        <div class="sub" id="m-meta">—</div>
+      </div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <label class="toggle">
+        <input type="checkbox" id="m-deep" />
+        Deep mode: full repro + DoD checklist (use for tricky bugs)
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="m-raw" />
+        Raw prompt only (no <code>claude -p</code> wrapper)
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="m-bash" />
+        Bash-style escaping (default is PowerShell — your shell)
+      </label>
+      <div class="hint">Default output is a complete <code>claude -p '…'</code> command — paste straight into your terminal. It kicks off the <code>task-enricher</code> agent, which interviews you until the task is spec'd, then dispatches to the right specialist.</div>
+      <div class="prompt-box" id="m-prompt">—</div>
+    </div>
+    <div class="modal-actions">
+      <a id="m-open" href="#" target="_blank" class="btn btn-ghost">Open in WeldSuite ↗</a>
+      <div>
+        <span class="copied" id="m-copied" style="display:none;">copied ✓</span>
+        <button class="btn" onclick="copyPrompt()">Copy <code style="background:rgba(0,0,0,0.2);padding:1px 5px;border-radius:3px;">claude -p</code> command</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   DATA — generated from WeldSuite MCP for user Gert
+   DO NOT EDIT BY HAND. Regenerate with:
+     node .claude/workflows/scripts/regenerate-dashboard.mjs
+   ============================================================ */
+/* DATA-START */
+const DATA = {
+  modules: {
+    "proj_mltcvympgjpf3edo": "Platform",
+    "proj_mltcu9vf29l8pz6m": "WeldCRM",
+    "proj_mltcv056h1jjm1fk": "WeldMail",
+    "proj_mn7ga6996igircmk": "WeldChat",
+    "proj_mnrmd6a2232fc43i": "WeldMeet",
+    "proj_mng54nah3k5oysrp": "Calendar/Booking",
+    "proj_mltctx2khziheqt2": "WeldFlow",
+    "proj_mltcvd867xnigips": "WeldHost",
+    "proj_mltcuor4tidstwyl": "Helpdesk Widget",
+    "proj_mltcwf5btcydxusl": "WeldDesk",
+    "proj_mltcw73mlaziacdk": "WeldAgent",
+    "proj_morpdin0gd0p2ymz": "Teams",
+  },
+  prs: [
+    {
+      n: 1, title: "Avatar consistency bundle", prio: "high", flags: ["bundle"],
+      hyp: "Root cause: avatar URL helper not used consistently — different surfaces build avatar URLs differently.",
+      specialist: "frontend-platform",
+      tasks: [
+        { id: "task_mooflyhkrpm9fu2u", title: "WeldMail avatars wrong (menu, details, contact panel)", project: "proj_mltcv056h1jjm1fk", prio: "high", type: "task" },
+        { id: "task_mon1xkcxj4g1x83z", title: "Teammember avatars wrong in details panel", project: "proj_mltcvympgjpf3edo", prio: "high", type: "task" },
+        { id: "task_mp5wyw9tsy2ysszh", title: "Preview screen avatars wrong in WeldMeet", project: "proj_mnrmd6a2232fc43i", prio: "high", type: "task" },
+        { id: "task_mng31kp54gekuw1f", title: "WeldFlow assignee avatars wrong", project: "proj_mltctx2khziheqt2", prio: "medium", type: "task" },
+      ],
+    },
+    {
+      n: 2, title: "Realtime cache-invalidation bundle", prio: "high", flags: ["bundle"],
+      hyp: "Root cause: client mutations don't trigger immediate React Query invalidations + sidebar counters poll instead of subscribing to @weldsuite/realtime.",
+      specialist: "frontend-platform + backend-workers (realtime-worker review)",
+      tasks: [
+        { id: "task_mp2q1hz8md25hce2", title: "Teammember edits not instant — others must refresh", project: "proj_mltcvympgjpf3edo", prio: "high", type: "task" },
+        { id: "task_momy6w7owxs5hlph", title: "Mini-sidebar notification counts only update after refresh", project: "proj_mltcvympgjpf3edo", prio: "high", type: "task" },
+        { id: "task_mp4jz339w5bjfr9w", title: "WeldChat notifications missing from app-icon mini-sidebar", project: "proj_mn7ga6996igircmk", prio: "high", type: "task" },
+      ],
+    },
+    {
+      n: 3, title: "WeldMeet camera/video bundle", prio: "high", flags: ["bundle"],
+      hyp: "Root cause: video track state not restored on toggle / route change / guest actions.",
+      specialist: "weldmeet-meetings + frontend-platform",
+      tasks: [
+        { id: "task_mp5wxyqptmmkejfy", title: "Camera bug", project: "proj_mnrmd6a2232fc43i", prio: "high", type: "task" },
+        { id: "task_mp4jp3l983ft2np4", title: "Camera off → on → black screen, no avatar", project: "proj_mnrmd6a2232fc43i", prio: "high", type: "task" },
+        { id: "task_mp4jodml80ugs0fv", title: "Raise hand guest → host doesn't work", project: "proj_mnrmd6a2232fc43i", prio: "high", type: "task" },
+        { id: "task_mo8ifmze297ilpei", title: "Meeting disappears when switching to another app", project: "proj_mnrmd6a2232fc43i", prio: "high", type: "task" },
+      ],
+    },
+    {
+      n: 4, title: "Activity page bundle", prio: "high", flags: ["bundle"],
+      hyp: "Backend join missing channel name + last-activity timestamp not propagated.",
+      specialist: "backend-app-api + frontend-platform",
+      tasks: [
+        { id: "task_mp749neib2vtrurr", title: "Channel names not shown in activity page", project: "proj_mn7ga6996igircmk", prio: "high", type: "task" },
+        { id: "task_mox1x0e7e6mnssnq", title: "'Last activity' date always '--'", project: "proj_mn7ga6996igircmk", prio: "high", type: "task" },
+      ],
+    },
+    {
+      n: 5, title: "CRM panel header bundle", prio: "high", flags: ["bundle"],
+      hyp: "Detail panel header logic isn't shared between contact types.",
+      specialist: "weldcrm + frontend-platform",
+      tasks: [
+        { id: "task_mp5koomq8eqs43v3", title: "Contact page not showing all contacts", project: "proj_mnrmd6a2232fc43i", prio: "high", type: "task" },
+        { id: "task_mp4edihu8ccquvv8", title: "Email/phone icon buttons must be clickable when filled, disabled otherwise", project: "proj_mltcu9vf29l8pz6m", prio: "high", type: "task" },
+        { id: "task_movy7rmcpjchyd2s", title: "Custom field address input with suggest menu", project: "proj_mltcu9vf29l8pz6m", prio: "high", type: "task" },
+      ],
+    },
+    {
+      n: 6, title: "Notifications system rebuild", prio: "high", flags: ["bundle", "gate"],
+      hyp: "Needs new entity-event types + a unified notifications service. ⛔ Expect schema + entity-events gate.",
+      specialist: "backend-app-api + weldagent-ai + frontend-platform",
+      tasks: [
+        { id: "task_moojfeetsi1gbcfu", title: "Outlook-style notifications (meeting in 15m, task assigned, etc.)", project: "proj_mltcvympgjpf3edo", prio: "high", type: "task" },
+        { id: "task_mp2qp8y55e8445ej", title: "Teammember invite shows up in notifications panel", project: "proj_mnrmd6a2232fc43i", prio: "high", type: "task" },
+        { id: "task_mp08c3udi2cnmufn", title: "Notifications popups in WeldSuite", project: "proj_mltcvympgjpf3edo", prio: "medium", type: "task" },
+      ],
+    },
+    {
+      n: 7, title: "Pipeline templates in CRM settings (already in progress!)", prio: "high", flags: ["gate"],
+      hyp: "Your `git status` shows `packages/core/db/src/schema/crm-templates.ts` + routes + UI uncommitted. Finish/commit this BEFORE picking anything else.",
+      specialist: "database (approval) + backend-app-api + frontend-platform",
+      tasks: [
+        { id: "task_movy7a7869chvvvz", title: "Pipeline templates in CRM settings", project: "proj_mltcu9vf29l8pz6m", prio: "high", type: "task" },
+      ],
+    },
+    {
+      n: 8, title: "Domain panel & WeldHost bundle", prio: "high", flags: ["bundle"],
+      hyp: "Domain detail panel should reuse the customer detail panel component; WeldHost panels missing chat/comment integration.",
+      specialist: "weldhost-domains + frontend-platform",
+      tasks: [
+        { id: "task_mon222tuairmba20", title: "Domain details panel must use the customer-panel component", project: "proj_mltcvd867xnigips", prio: "high", type: "task" },
+        { id: "task_molyrea42ctliwg4", title: "Comments in domain panel → WeldChat", project: "proj_mltcvd867xnigips", prio: "high", type: "task" },
+        { id: "task_mord6pmhvoqo9pw4", title: "Chat in WeldHost detail panel working", project: "proj_mltcvd867xnigips", prio: "high", type: "task" },
+        { id: "task_mossruy0lxp1o1cl", title: "Domain search not working", project: "proj_mltcvd867xnigips", prio: "medium", type: "task" },
+      ],
+    },
+    {
+      n: 9, title: "Calendar / booking bundle", prio: "high", flags: ["bundle"],
+      hyp: "Mixed bag — calendar bugs and booking features. Triage may split into 2 PRs.",
+      specialist: "weldmeet-meetings + frontend-platform",
+      tasks: [
+        { id: "task_molxcjzxoq9tvlvt", title: "Calendar cards slow to load on navigation", project: "proj_mng54nah3k5oysrp", prio: "high", type: "task" },
+        { id: "task_movy6f1yab03uzfv", title: "Task cards in calendar coloured by priority", project: "proj_mng54nah3k5oysrp", prio: "high", type: "task" },
+        { id: "task_mp5k7ztwz6zq0ske", title: "Schedule call form → auto-create contact", project: "proj_mng54nah3k5oysrp", prio: "high", type: "task" },
+        { id: "task_movy6890nr9nb6l2", title: "Booking email", project: "proj_mng54nah3k5oysrp", prio: "high", type: "task" },
+        { id: "task_moevjee8m8hsunjc", title: "Google Calendar integration not working", project: "proj_mng54nah3k5oysrp", prio: "high", type: "task" },
+        { id: "task_mnhmx9qo8c6fro3w", title: "Events with WeldDrive file attachment", project: "proj_mng54nah3k5oysrp", prio: "high", type: "task" },
+        { id: "task_movy6t2wbzwye4a7", title: "Motion-style auto-scheduling", project: "proj_mng54nah3k5oysrp", prio: "high", type: "task" },
+      ],
+    },
+    {
+      n: 10, title: "WeldChat structure", prio: "high", flags: ["bundle", "gate"],
+      hyp: "Role-based channel ACLs + agent membership rules. ⛔ Schema + entity-events likely needed.",
+      specialist: "database (approval) + backend-app-api + weldagent-ai",
+      tasks: [
+        { id: "task_mp2q40sxtkcc918q", title: "Role-based channels in WeldChat", project: "proj_mn7ga6996igircmk", prio: "high", type: "task" },
+        { id: "task_moq8vyybretnwpww", title: "Agents in public channels", project: "proj_mn7ga6996igircmk", prio: "high", type: "task" },
+        { id: "task_mo7j5mrnl9qr47sc", title: "Link projects/customers/tasks to a channel", project: "proj_mn7ga6996igircmk", prio: "high", type: "task" },
+      ],
+    },
+    // Singletons after the bundles
+    { n: 11, title: "Scroll bug in 'my tasks' page", prio: "high", flags: [], hyp: "Small frontend fix.", specialist: "frontend-platform",
+      tasks: [{ id: "task_mpejyr0hi925l6ax", title: "Can't scroll in my-tasks page", project: "proj_mltcu9vf29l8pz6m", prio: "high", type: "task" }] },
+    { n: 12, title: "CRM categories customizable", prio: "high", flags: ["gate"], hyp: "Likely needs schema. ⛔ migration gate.", specialist: "database + backend-app-api + frontend-platform",
+      tasks: [{ id: "task_mp4dh2hi7hw7fhpd", title: "CRM categories customizable", project: "proj_mltcu9vf29l8pz6m", prio: "high", type: "task" }] },
+    { n: 13, title: "Invited teammembers visible (Clerk-style)", prio: "high", flags: [], hyp: "Clerk pending-invite list integration.", specialist: "backend-app-api + frontend-platform",
+      tasks: [{ id: "task_mosozqytdmavq0m0", title: "Invited teammembers visible", project: "proj_mltcvympgjpf3edo", prio: "high", type: "task" }] },
+    { n: 14, title: "Phone numbers page 'failed to load'", prio: "high", flags: [], hyp: "Twilio fetch broken.", specialist: "backend-workers + frontend-platform",
+      tasks: [{ id: "task_momwydxnowk0h2vo", title: "Phone numbers search failed to load", project: "proj_mltcvympgjpf3edo", prio: "high", type: "task" }] },
+    { n: 15, title: "Inbound calls in CRM", prio: "high", flags: ["gate"], hyp: "Larger feature; expect schema work.", specialist: "weldcrm + backend-app-api",
+      tasks: [{ id: "task_molnwnko5cwrusq7", title: "Inbound calls in CRM", project: "proj_mltcu9vf29l8pz6m", prio: "high", type: "task" }] },
+    { n: 16, title: "Global 'unsaved changes' warning", prio: "high", flags: [], hyp: "Platform-wide router guard. Risk: every form.", specialist: "frontend-platform",
+      tasks: [{ id: "task_mn9g1bomtnv65jnm", title: "Unsaved changes warning popup across all of WeldSuite", project: "proj_mltcvympgjpf3edo", prio: "high", type: "task" }] },
+    { n: 17, title: "Excel-style WeldFlow tables", prio: "high", flags: [], hyp: "Big refactor of the projects table page.", specialist: "weldflow-projects + frontend-platform",
+      tasks: [{ id: "task_moka8xh0dpxskfnr", title: "Excel format in WeldFlow tables", project: "proj_mltctx2khziheqt2", prio: "high", type: "task" }] },
+    { n: 18, title: "WeldMeet breakout rooms", prio: "high", flags: ["gate"], hyp: "Feature; may need new realtime channels.", specialist: "weldmeet-meetings",
+      tasks: [{ id: "task_mo8hiyknz78yf1i1", title: "Breakout rooms", project: "proj_mnrmd6a2232fc43i", prio: "high", type: "task" }] },
+    { n: 19, title: "Teammember work days/hours in panel", prio: "high", flags: [], hyp: "Small UI + small data field.", specialist: "frontend-platform",
+      tasks: [{ id: "task_mo5v60qsbryonyup", title: "Teammember work days/hours in panel", project: "proj_mltcvympgjpf3edo", prio: "high", type: "task" }] },
+    { n: 20, title: "Link meeting/call intelligence to contacts", prio: "high", flags: [], hyp: "Data join + UI surface.", specialist: "weldcrm",
+      tasks: [{ id: "task_mnnkj0qqd17yxlav", title: "Link meeting/call intelligence to contacts", project: "proj_mltcu9vf29l8pz6m", prio: "high", type: "task" }] },
+    { n: 21, title: "Teammember overview page + admin view", prio: "high", flags: [], hyp: "Permissions-gated dashboard for admins.", specialist: "frontend-platform",
+      tasks: [{ id: "task_mnalejbqkpieuozf", title: "Teammember overview page (notes, shared projects, admin activity)", project: "proj_mn7ga6996igircmk", prio: "high", type: "task" }] },
+    { n: 22, title: "Group calls + group chats", prio: "high", flags: ["gate"], hyp: "Schema + realtime feature.", specialist: "weldchat + backend-app-api",
+      tasks: [{ id: "task_mnalhaco3llsfwjk", title: "Group calls + group chats", project: "proj_mn7ga6996igircmk", prio: "high", type: "task" }] },
+    { n: 23, title: "Contact panel buttons per installed app", prio: "high", flags: [], hyp: "Feature-flag UI based on installed apps.", specialist: "frontend-platform",
+      tasks: [{ id: "task_mn9ge5feju82c4fc", title: "Contact buttons based on which apps are installed", project: "proj_mltcvympgjpf3edo", prio: "high", type: "task" }] },
+    { n: 24, title: "Mobile DM 'no message yet' bug", prio: "high", flags: [], hyp: "Mobile cache.", specialist: "mobile-expo",
+      tasks: [{ id: "task_mndn09fpvnkzxgpg", title: "Mobile DMs overview says 'No message yet'", project: "proj_mn7ga6996igircmk", prio: "high", type: "task" }] },
+    { n: 25, title: "Mobile add email account", prio: "high", flags: [], hyp: "OAuth flow.", specialist: "mobile-expo",
+      tasks: [{ id: "task_mn9g91lvvnjh6ucl", title: "Mobile add email account working", project: "proj_mltcv056h1jjm1fk", prio: "high", type: "task" }] },
+    { n: 26, title: "Mobile website widget shadow (Safari)", prio: "high", flags: [], hyp: "CSS / iframe.", specialist: "frontend-nextjs",
+      tasks: [{ id: "task_mo315gz2dx74wggs", title: "Mobile widget shadow broken on Safari", project: "proj_mltcuor4tidstwyl", prio: "high", type: "task" }] },
+    { n: 27, title: "Helpdesk widget premature 'new conversation'", prio: "high", flags: [], hyp: "Notification triggers on convo creation instead of first message.", specialist: "welddesk-helpdesk + backend-workers",
+      tasks: [{ id: "task_mn6gmldqg7vgjbno", title: "Widget triggers helpdesk notif on create, should be on first message", project: "proj_mltcuor4tidstwyl", prio: "high", type: "task" }] },
+    { n: 28, title: "Messages overview names/preview", prio: "high", flags: [], hyp: "DM list shows wrong name/last message.", specialist: "weldchat + frontend-platform",
+      tasks: [{ id: "task_mn1ugm8oedxglaoa", title: "Messages overview should show person/AI name + last message text", project: "proj_mltcuor4tidstwyl", prio: "high", type: "task" }] },
+  ],
+};
+/* DATA-END */
+
+/* ============================================================
+   PROMPT GENERATION
+   ============================================================ */
+function buildPrompt(pr, deep) {
+  const taskList = pr.tasks.map(t => `- ${t.id} — ${t.title}`).join("\n");
+  const ids = pr.tasks.map(t => t.id);
+  const flagNotes = [];
+  if (pr.flags.includes("bundle")) flagNotes.push("This is a BUNDLE: fix all listed tasks in a single PR.");
+  if (pr.flags.includes("gate")) flagNotes.push("Expect a HARD GATE (schema migration or entity-events change). STOP and ask Gert before generating any migration or extending the entity-events catalog.");
+
+  const head = pr.tasks.length === 1
+    ? `I want to work on WeldSuite task \`${ids[0]}\`.`
+    : `I want to work on a bundle of ${pr.tasks.length} WeldSuite tasks that share a root cause:\n${taskList}`;
+
+  const hyp = pr.hyp ? `\n\n**Root-cause hypothesis (from queue triage):**\n> ${pr.hyp}` : "";
+  const spec = pr.specialist ? `\n\n**Suggested specialist chain:** ${pr.specialist}` : "";
+  const flags = flagNotes.length ? `\n\n**Flags:**\n- ${flagNotes.join("\n- ")}` : "";
+
+  const playbook = deep ? `
+**Run the full flow strictly serial:**
+1. Pull the task(s) from WeldSuite via the MCP and read the full description.
+2. \`task-enricher\`: interview me with dynamic questions until the spec is concrete. Append an \`## Enriched analysis\` block (with my approval) before continuing.
+3. \`weldsuite-dispatcher\`: classify and route to the specialist(s) above.
+4. \`bug-triage\`: reproduce the bug locally, write the fix plan with file paths + line numbers, do NOT write code yet.
+5. Implement on a new branch \`fix/${ids[0]}-<slug>\` off \`develop\`.
+6. Run the Definition of Done from \`.claude/workflows/bug-fix-and-feature-workflow.md\`:
+   - Reproduces before, doesn't after
+   - Tenant scoping (workspaceId) on every Drizzle query
+   - Permission check on new routes
+   - Zod v3 both directions
+   - i18n entries in BOTH \`en\` and \`nl\`
+   - \`pnpm lint\` + \`pnpm build\` pass
+   - No console.log / any / @ts-ignore
+   - 🛑 stop and ask before any DB migration
+7. Open the PR, link it back to the WeldSuite task(s), wait for merge.
+8. \`/done\` on each task ID.
+
+**Hard rules:**
+- ONE task in flight (this one). Do not pull anything else.
+- New routes go in \`apps/workers/app-api\`. \`api-worker\` and \`core-api\` are obsolete.
+- Anthropic SDK calls only in \`apps/agent-worker\`.
+` : `
+Please run \`/fix-bug ${ids[0]}\` end-to-end (enrich → dispatch → triage → implement → DoD → close).
+${ids.length > 1 ? `\nThe other task IDs in this bundle (${ids.slice(1).join(", ")}) should be fixed in the same PR — apply the same enriched analysis to each.` : ""}
+`;
+
+  return `${head}${hyp}${spec}${flags}
+${playbook}`;
+}
+
+function weldsuiteUrl(taskId, projectId) {
+  return `https://app.weldsuite.com/projects/${projectId}/tasks/${taskId}`;
+}
+
+/* ============================================================
+   RENDER
+   ============================================================ */
+const state = { filter: "all" };
+
+function render() {
+  const main = document.getElementById("prs");
+  const f = state.filter;
+  const visible = DATA.prs.filter(pr => {
+    if (f === "all") return true;
+    if (f === "high" || f === "medium" || f === "low") return pr.prio === f;
+    if (f === "bundle") return pr.flags.includes("bundle");
+    if (f === "gate") return pr.flags.includes("gate");
+    if (f === "singletons") return !pr.flags.includes("bundle");
+    return true;
+  });
+
+  main.innerHTML = visible.map(pr => `
+    <div class="pr-card">
+      <div class="pr-head">
+        <span class="pr-num">PR #${pr.n}</span>
+        <div class="pr-title">${escape(pr.title)}</div>
+        <span class="badge b-${pr.prio}">${pr.prio}</span>
+        ${pr.flags.includes("bundle") ? `<span class="badge b-bundle">🧷 bundle (${pr.tasks.length})</span>` : ""}
+        ${pr.flags.includes("gate") ? `<span class="badge b-gate">🛑 gate</span>` : ""}
+      </div>
+      ${pr.hyp ? `<div class="pr-hyp">${escape(pr.hyp)}</div>` : ""}
+      ${pr.tasks.map(t => `
+        <div class="task-row" onclick='openModal(${JSON.stringify(pr.n)})'>
+          <span class="task-id">${t.id}</span>
+          <span class="task-title">${escape(t.title)}</span>
+          <span class="task-module">${DATA.modules[t.project] || t.project}</span>
+          <span class="badge b-${t.prio}">${t.prio}</span>
+          ${t.type === "bug" ? `<span class="badge b-bug">bug</span>` : ""}
+          ${t.type === "feature" ? `<span class="badge b-feat">feat</span>` : ""}
+        </div>
+      `).join("")}
+    </div>
+  `).join("");
+
+  renderFilters();
+  renderStats();
+}
+
+function renderFilters() {
+  const counts = {
+    all: DATA.prs.length,
+    high: DATA.prs.filter(p => p.prio === "high").length,
+    medium: DATA.prs.filter(p => p.prio === "medium").length,
+    bundle: DATA.prs.filter(p => p.flags.includes("bundle")).length,
+    singletons: DATA.prs.filter(p => !p.flags.includes("bundle")).length,
+    gate: DATA.prs.filter(p => p.flags.includes("gate")).length,
+  };
+  const items = [
+    ["all", "All"], ["high", "High"], ["medium", "Medium"],
+    ["bundle", "🧷 Bundles"], ["singletons", "Singletons"], ["gate", "🛑 Gates"],
+  ];
+  document.getElementById("filters").innerHTML = items.map(([k, label]) => `
+    <span class="pill ${state.filter === k ? "active" : ""}" onclick="setFilter('${k}')">${label}<span class="count">${counts[k] ?? 0}</span></span>
+  `).join("");
+}
+
+function renderStats() {
+  document.getElementById("stat-high").textContent = DATA.prs.filter(p => p.prio === "high").length;
+  document.getElementById("stat-medium").textContent = DATA.prs.filter(p => p.prio === "medium").length;
+  document.getElementById("stat-tasks").textContent = DATA.prs.reduce((s, p) => s + p.tasks.length, 0);
+  document.getElementById("stat-prs").textContent = DATA.prs.length;
+}
+
+function setFilter(k) { state.filter = k; render(); }
+
+function escape(s) { return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+
+let currentPR = null;
+function openModal(prN) {
+  const pr = DATA.prs.find(p => p.n === prN);
+  if (!pr) return;
+  currentPR = pr;
+  document.getElementById("m-title").textContent = `PR #${pr.n} — ${pr.title}`;
+  const taskLabel = pr.tasks.length === 1 ? "1 task" : `${pr.tasks.length} tasks (bundle)`;
+  document.getElementById("m-meta").textContent = `${taskLabel} · ${pr.prio} · ${pr.specialist || ""}`;
+  const t0 = pr.tasks[0];
+  document.getElementById("m-open").href = weldsuiteUrl(t0.id, t0.project);
+  document.getElementById("m-copied").style.display = "none";
+  updatePrompt();
+  document.getElementById("modal-bg").classList.add("open");
+}
+
+function updatePrompt() {
+  if (!currentPR) return;
+  const deep = document.getElementById("m-deep").checked;
+  const raw = document.getElementById("m-raw").checked;
+  const bash = document.getElementById("m-bash").checked;
+  const prompt = buildPrompt(currentPR, deep);
+  document.getElementById("m-prompt").textContent = raw ? prompt : wrapClaudeP(prompt, bash);
+}
+
+// Wrap the prompt as a `claude -p '...'` shell command.
+// PowerShell single-quoted strings: '' = literal '. Everything else is literal — no $/` interpolation.
+// Bash single-quoted strings: cannot contain ' at all, must close-escape-reopen: 'foo'\''bar'.
+function wrapClaudeP(prompt, bash) {
+  if (bash) {
+    const escaped = prompt.replace(/'/g, "'\\''");
+    return `claude -p '${escaped}'`;
+  } else {
+    const escaped = prompt.replace(/'/g, "''");
+    return `claude -p '${escaped}'`;
+  }
+}
+
+function closeModal() {
+  document.getElementById("modal-bg").classList.remove("open");
+  currentPR = null;
+}
+
+function copyPrompt() {
+  const txt = document.getElementById("m-prompt").textContent;
+  navigator.clipboard.writeText(txt).then(() => {
+    const el = document.getElementById("m-copied");
+    el.style.display = "inline";
+    setTimeout(() => { el.style.display = "none"; }, 1500);
+  });
+}
+
+document.getElementById("m-deep").addEventListener("change", updatePrompt);
+document.getElementById("m-raw").addEventListener("change", updatePrompt);
+document.getElementById("m-bash").addEventListener("change", updatePrompt);
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") closeModal();
+});
+
+render();
+</script>
+</body>
+</html>

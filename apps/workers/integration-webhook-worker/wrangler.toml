@@ -1,0 +1,283 @@
+# WeldSuite Integration Webhook Worker
+# Handles inbound webhooks from external CRM/integration providers (Attio, HubSpot, etc.)
+# POST /webhook/:connectionId endpoint — verifies signatures, fetches full records, upserts into tenant DB.
+
+name = "weldsuite-integration-webhooks"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# Required secrets (add via wrangler secret put):
+# - NEON_API_KEY: Neon API key for tenant database resolution
+# - DATABASE_ENCRYPTION_KEY: Encryption key for stored database connection strings
+# - BETTERSTACK_TOKEN: Better Stack source token (optional)
+# WeldConnect integration triggers:
+# - SLACK_SIGNING_SECRET: verifies inbound Slack webhooks (POST /integration-webhook/slack)
+# - GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET: refresh Google tokens during the Sheets poll
+
+[vars]
+ENVIRONMENT = "development"
+
+# KV namespace for workspace URL + connection caching
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# app-api service binding (Google Calendar incremental-sync trigger + renew-watch).
+# Targets the internal router (app-api routes/integrations/internal.ts), mounted
+# above the Clerk guard and authenticated on X-Internal-Secret. This worker's
+# INTERNAL_API_SECRET must match the target app-api env's secret — the router
+# fails closed with 401 otherwise and the callers below only log the failure.
+[[services]]
+binding = "APP_API"
+service = "weldsuite-app-api"
+
+# Realtime fan-out (Durable Objects) — entity-event realtime sink
+[[services]]
+binding = "REALTIME"
+service = "weldsuite-realtime"
+
+# Entity-event queues (publishEntityEventRaw sinks)
+[[queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events-dev"
+
+[[queues.producers]]
+binding = "WORKFLOW_EVENTS"
+queue = "workflow-events-dev"
+
+[[queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events-dev"
+
+# CRM sync engine — Cloudflare Workflow owned by this worker.
+# Distinct name from api-worker's "crm-sync-dev" during the transition.
+[[workflows]]
+name = "crm-sync-int-dev"
+binding = "CRM_SYNC"
+class_name = "CrmSyncWorkflow"
+
+[[workflows]]
+name = "github-project-sync-int-dev"
+binding = "GITHUB_PROJECT_SYNC"
+class_name = "GithubProjectSyncWorkflow"
+
+[[workflows]]
+name = "github-project-outbound-int-dev"
+binding = "GITHUB_PROJECT_OUTBOUND"
+class_name = "GithubProjectOutboundSyncWorkflow"
+
+# Cron stays disabled until cutover (the old integration-sync-worker is still
+# active; enabling here too would double-trigger). Enabled at Stage-2 S2.5.
+[triggers]
+crons = []
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+name = "weldsuite-integration-webhooks-test"
+routes = [
+  { pattern = "integration-webhooks-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+
+[[env.test.services]]
+binding = "APP_API"
+service = "weldsuite-app-api-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[[env.test.queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events-test"
+
+[[env.test.queues.producers]]
+binding = "WORKFLOW_EVENTS"
+queue = "workflow-events-test"
+
+[[env.test.queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events-test"
+
+[[env.test.workflows]]
+name = "crm-sync-int-test"
+binding = "CRM_SYNC"
+class_name = "CrmSyncWorkflow"
+
+[[env.test.workflows]]
+name = "github-project-sync-int-test"
+binding = "GITHUB_PROJECT_SYNC"
+class_name = "GithubProjectSyncWorkflow"
+
+[[env.test.workflows]]
+name = "github-project-outbound-int-test"
+binding = "GITHUB_PROJECT_OUTBOUND"
+class_name = "GithubProjectOutboundSyncWorkflow"
+
+# WeldConnect engine (workflow-worker) — dispatched for inbound integration_event triggers.
+[[env.test.workflows]]
+name = "execute-workflow-test"
+binding = "EXECUTE_WORKFLOW"
+class_name = "ExecuteWorkflowWorkflow"
+script_name = "weldsuite-workflow-test"
+
+# Integration poll triggers (Sheets/Gmail/Calendar/Airtable). Only this cron is
+# enabled — the scheduled handler branches on the pattern so CRM auto-sync stays
+# disabled during cutover.
+[env.test.triggers]
+crons = ["*/10 * * * *"]
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# ============ PREVIEW ENVIRONMENT ============
+[env.preview]
+name = "weldsuite-integration-webhooks-preview"
+routes = [
+  { pattern = "integration-webhooks-preview.weldsuite.org", custom_domain = true }
+]
+
+[env.preview.vars]
+ENVIRONMENT = "preview"
+
+[[env.preview.hyperdrive]]
+binding = "HYPERDRIVE_MASTER"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# app-api has no preview custom domain and preview is only ever deployed by a
+# manual workflow_dispatch, so preview borrows the TEST app-api — the same
+# pattern workflow-worker's [env.preview.vars] APP_API_URL uses. This worker's
+# preview INTERNAL_API_SECRET must therefore match the TEST app-api's secret.
+[[env.preview.services]]
+binding = "APP_API"
+service = "weldsuite-app-api-test"
+
+[[env.preview.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-preview"
+
+[[env.preview.queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events-preview"
+
+[[env.preview.queues.producers]]
+binding = "WORKFLOW_EVENTS"
+queue = "workflow-events-preview"
+
+[[env.preview.queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events-preview"
+
+[[env.preview.workflows]]
+name = "crm-sync-int-preview"
+binding = "CRM_SYNC"
+class_name = "CrmSyncWorkflow"
+
+[[env.preview.workflows]]
+name = "github-project-sync-int-preview"
+binding = "GITHUB_PROJECT_SYNC"
+class_name = "GithubProjectSyncWorkflow"
+
+[[env.preview.workflows]]
+name = "github-project-outbound-int-preview"
+binding = "GITHUB_PROJECT_OUTBOUND"
+class_name = "GithubProjectOutboundSyncWorkflow"
+
+[[env.preview.workflows]]
+name = "execute-workflow-preview"
+binding = "EXECUTE_WORKFLOW"
+class_name = "ExecuteWorkflowWorkflow"
+script_name = "weldsuite-workflow-preview"
+
+[env.preview.triggers]
+crons = ["*/10 * * * *"]
+
+[[env.preview.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-integration-webhooks"
+routes = [
+  { pattern = "integration-webhooks.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+
+[[env.production.hyperdrive]]
+binding = "HYPERDRIVE_MASTER"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# app-api's [env.production] name is "weldsuite-app-api" (no "-production" suffix).
+[[env.production.services]]
+binding = "APP_API"
+service = "weldsuite-app-api"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+[[env.production.queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events"
+
+[[env.production.queues.producers]]
+binding = "WORKFLOW_EVENTS"
+queue = "workflow-events"
+
+[[env.production.queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events"
+
+[[env.production.workflows]]
+name = "crm-sync-int"
+binding = "CRM_SYNC"
+class_name = "CrmSyncWorkflow"
+
+[[env.production.workflows]]
+name = "github-project-sync-int"
+binding = "GITHUB_PROJECT_SYNC"
+class_name = "GithubProjectSyncWorkflow"
+
+[[env.production.workflows]]
+name = "github-project-outbound-int"
+binding = "GITHUB_PROJECT_OUTBOUND"
+class_name = "GithubProjectOutboundSyncWorkflow"
+
+[[env.production.workflows]]
+name = "execute-workflow"
+binding = "EXECUTE_WORKFLOW"
+class_name = "ExecuteWorkflowWorkflow"
+script_name = "weldsuite-workflow"
+
+[env.production.triggers]
+crons = ["*/10 * * * *"]
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# --- Persist Workers Logs across environments ---
+# observability is NOT inherited by named environments, so it must be set on each.
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.preview.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

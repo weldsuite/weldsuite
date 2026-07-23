@@ -1,0 +1,45 @@
+{
+  "name": "@weldsuite/cli",
+  "version": "0.1.0",
+  "description": "CLI for building, deploying and publishing WeldSuite apps",
+  "private": false,
+  "type": "module",
+  "bin": {
+    "weld": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "pnpm run build"
+  },
+  "keywords": [
+    "weldsuite",
+    "weldapp",
+    "cli",
+    "apps",
+    "deploy"
+  ],
+  "author": "WeldSuite",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/weldcorporation/weldsuite.git",
+    "directory": "packages/sdk/cli"
+  },
+  "dependencies": {
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.5",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

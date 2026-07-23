@@ -1,0 +1,222 @@
+# Project Members
+
+Project members control who has access to a WeldFlow project and with what role. Mutations require the `project_members:write` scope; reads require `project_members:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The project member model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `pmember_abc123`).</Property>
+  <Property name="projectId" type="string">ID of the parent project.</Property>
+  <Property name="userId" type="string">ID of the workspace member.</Property>
+  <Property name="role" type="string">Member role (e.g. `owner`, `editor`, `viewer`).</Property>
+  <Property name="createdAt" type="timestamp">When the membership was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the membership was last updated.</Property>
+</Properties>
+
+---
+
+## List project members {{ tag: 'GET', label: '/v1/project-members' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of project members.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="projectId" type="string">Filter by project.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/project-members">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/project-members \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d projectId=proj_abc123
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "pmember_abc123",
+          "projectId": "proj_abc123",
+          "userId": "user_xyz789",
+          "role": "editor"
+        }
+      ],
+      "pagination": { "totalCount": 5, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Add a project member {{ tag: 'POST', label: '/v1/project-members' }}
+
+<Row>
+  <Col>
+
+    Add a user to a project.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="projectId" type="string">ID of the project.</Property>
+      <Property name="userId" type="string">ID of the user to add.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="role" type="string">Role (max 50 characters).</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/project-members">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/project-members \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "projectId": "proj_abc123",
+        "userId": "user_xyz789",
+        "role": "editor"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "pmember_new456",
+        "projectId": "proj_abc123",
+        "userId": "user_xyz789",
+        "role": "editor",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a project member {{ tag: 'GET', label: '/v1/project-members/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single project member record by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/project-members/pmember_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/project-members/pmember_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "pmember_abc123",
+        "projectId": "proj_abc123",
+        "userId": "user_xyz789",
+        "role": "editor"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a project member {{ tag: 'PATCH', label: '/v1/project-members/:id' }}
+
+<Row>
+  <Col>
+
+    Update the role of an existing project member.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/project-members/pmember_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/project-members/pmember_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "role": "viewer" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "pmember_abc123",
+        "role": "viewer",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Remove a project member {{ tag: 'DELETE', label: '/v1/project-members/:id' }}
+
+<Row>
+  <Col>
+
+    Remove a user from a project. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/project-members/pmember_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/project-members/pmember_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

@@ -1,0 +1,247 @@
+# Project Documents
+
+Project documents are rich-text or structured documents linked to a WeldFlow project. Documents can have multiple pages and support HTML, Markdown, or JSON content formats. Mutations require the `project_documents:write` scope; reads require `project_documents:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The project document model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `pdoc_abc123`).</Property>
+  <Property name="projectId" type="string">ID of the parent project.</Property>
+  <Property name="title" type="string">Document title.</Property>
+  <Property name="content" type="string">Document content (HTML, Markdown, or serialised JSON).</Property>
+  <Property name="contentType" type="string">Content format: `html`, `markdown`, or `json`.</Property>
+  <Property name="contentJson" type="array">Structured JSON content array (when contentType is `json`).</Property>
+  <Property name="pages" type="array">Array of sub-pages, each with `id`, `title`, `content`, `icon`, `parentId`, and `order`.</Property>
+  <Property name="activePageId" type="string">Currently active page ID.</Property>
+  <Property name="parentId" type="string">Parent document ID for nested documents.</Property>
+  <Property name="position" type="integer">Display order position.</Property>
+  <Property name="coverImage" type="string">Cover image URL.</Property>
+  <Property name="icon" type="string">Icon identifier.</Property>
+  <Property name="isPublished" type="boolean">Whether the document is published.</Property>
+  <Property name="publishedAt" type="timestamp">When the document was published.</Property>
+  <Property name="lastEditedBy" type="string">User ID of the last editor.</Property>
+  <Property name="createdAt" type="timestamp">When the document was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the document was last updated.</Property>
+</Properties>
+
+---
+
+## List project documents {{ tag: 'GET', label: '/v1/project-documents' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of project documents.
+
+    ### Required query parameters
+
+    <Properties>
+      <Property name="projectId" type="string">Filter to a specific project.</Property>
+    </Properties>
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/project-documents">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/project-documents \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d projectId=proj_abc123
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "pdoc_abc123",
+          "projectId": "proj_abc123",
+          "title": "Technical Specification",
+          "contentType": "markdown",
+          "isPublished": true
+        }
+      ],
+      "pagination": { "totalCount": 6, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a project document {{ tag: 'POST', label: '/v1/project-documents' }}
+
+<Row>
+  <Col>
+
+    Create a new project document.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="projectId" type="string">ID of the project.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="title" type="string">Document title.</Property>
+      <Property name="content" type="string">Initial content.</Property>
+      <Property name="contentType" type="string">`html`, `markdown`, or `json`.</Property>
+      <Property name="coverImage" type="string">Cover image URL.</Property>
+      <Property name="icon" type="string">Icon identifier.</Property>
+      <Property name="parentId" type="string">Parent document ID.</Property>
+      <Property name="position" type="integer">Display order position.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/project-documents">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/project-documents \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "projectId": "proj_abc123",
+        "title": "Technical Specification",
+        "contentType": "markdown",
+        "content": "# Overview\n\nThis document describes..."
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "pdoc_new456",
+        "projectId": "proj_abc123",
+        "title": "Technical Specification",
+        "contentType": "markdown",
+        "isPublished": false,
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a project document {{ tag: 'GET', label: '/v1/project-documents/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single project document by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/project-documents/pdoc_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/project-documents/pdoc_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "pdoc_abc123",
+        "projectId": "proj_abc123",
+        "title": "Technical Specification",
+        "contentType": "markdown",
+        "isPublished": true
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a project document {{ tag: 'PATCH', label: '/v1/project-documents/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a project document.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/project-documents/pdoc_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/project-documents/pdoc_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "title": "Technical Specification v2" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "pdoc_abc123",
+        "title": "Technical Specification v2",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a project document {{ tag: 'DELETE', label: '/v1/project-documents/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a project document. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/project-documents/pdoc_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/project-documents/pdoc_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

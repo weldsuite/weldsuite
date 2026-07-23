@@ -1,0 +1,4 @@
+{
+  "extends": "@weldsuite/typescript-config/base.json"
+}
+

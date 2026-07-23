@@ -1,0 +1,66 @@
+name: Bug report
+description: Report a problem in the WeldSuite codebase
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug! Please search existing issues first to avoid duplicates.
+
+        ⚠️ **Do not report security vulnerabilities here.** Follow [SECURITY.md](../blob/main/SECURITY.md) instead.
+
+        ℹ️ WeldSuite is source-visible and not currently self-hostable, so "how do I run the whole product" is not a bug — please don't file those.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+      placeholder: When I ..., I expected ..., but instead ...
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: How can a maintainer reproduce this?
+      placeholder: |
+        1. Go to ...
+        2. Do ...
+        3. See error
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      description: Which part of the codebase?
+      options:
+        - Platform SPA (apps/web/platform)
+        - Backend (apps/workers/app-api)
+        - Other worker (apps/workers/*)
+        - Next.js app (sites / help center / portal / admin)
+        - Mobile app (apps/mobile/*)
+        - Shared package (packages/*)
+        - Database / schema (packages/core/db)
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Node version, pnpm version, OS, browser — whatever is relevant.
+      placeholder: |
+        - Node: 20.x
+        - pnpm: 10.4.1
+        - OS: ...
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / stack trace
+      description: Paste any relevant error output. This will be rendered as code.
+      render: shell
+    validations:
+      required: false

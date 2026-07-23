@@ -1,0 +1,125 @@
+name: CI
+
+# Public-repo CI. Deliberately SECRET-FREE: it references no `secrets.*`, uses
+# `pull_request` (never `pull_request_target`), and never checks out or runs
+# fork code with elevated privileges. Fork PRs therefore run this in full with a
+# read-only token and no access to repository secrets — safe to expose publicly.
+#
+# The secret-bearing jobs (Playwright E2E against the live test API, worker
+# deploys, DB migrations, Doppler→Cloudflare secret sync) live in workflows that
+# are EXCLUDED from the public export (see .claude/export/public-export-exclude.txt)
+# and run only in the private repo / deployment overlay.
+#
+# Job names here match the ones pr-checks.yml used ("Unit · app-api",
+# "Unit · platform", "Type Check · app-api") so they can be reused verbatim as
+# required status checks in the public repo's branch protection.
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ────────────────────────────────────────────
+  # Lint + platform type-check surface pre-existing failures on the default
+  # branch (ESLint v9 migration in @weldsuite/db; ~1300 platform type errors
+  # from the ongoing schema/refactor work). They run as informational jobs so
+  # contributors see NEW regressions without a red wall on day one. Flip
+  # `continue-on-error` to `false` once each is clean.
+  # ────────────────────────────────────────────
+  lint:
+    name: Lint (informational)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Lint
+        run: pnpm lint
+
+  type-check-api:
+    name: Type Check · app-api
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # app-api's schema is clean — this one blocks.
+    env:
+      # ~565 source files against drizzle-orm's deep generics blow past Node's
+      # default ~2 GB heap and tsc OOMs (exit 134) before it can report.
+      # ubuntu-latest has 16 GB, so give tsc room to finish.
+      NODE_OPTIONS: --max-old-space-size=8192
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Type-check app-api
+        working-directory: apps/workers/app-api
+        run: pnpm type-check
+
+  type-check-platform:
+    name: Type Check · platform (informational)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # ~1300 pre-existing platform type errors. Surfaces them on every PR but
+    # doesn't block. Flip `continue-on-error` to `false` once the count is low.
+    continue-on-error: true
+    env:
+      NODE_OPTIONS: --max-old-space-size=8192
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Type-check platform
+        working-directory: apps/web/platform
+        run: pnpm type-check
+
+  # ────────────────────────────────────────────
+  # Unit + service tests — these DO block PRs.
+  # ────────────────────────────────────────────
+  unit-api:
+    name: Unit · app-api
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Run Vitest
+        working-directory: apps/workers/app-api
+        run: pnpm test
+
+  unit-platform:
+    name: Unit · platform
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Run Vitest
+        working-directory: apps/web/platform
+        run: pnpm test
+
+  # ────────────────────────────────────────────
+  # Cold build — the "does it even build from a clean checkout" signal (plan
+  # Phase 4). Informational until it's verified green on a from-scratch clone;
+  # turbo build is env-independent for types (esbuild strips them) but some app
+  # builds may want VITE_*/EXPO_* values that aren't present in a secret-free
+  # run. Promote to blocking once a cold clone builds clean.
+  # ────────────────────────────────────────────
+  build:
+    name: Build (informational)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    continue-on-error: true
+    env:
+      NODE_OPTIONS: --max-old-space-size=8192
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Build
+        run: pnpm build

@@ -1,0 +1,205 @@
+# Time Entries
+
+Time entries record work logged against projects and tasks. Mutations require the `time_entries:write` scope; reads require `time_entries:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The time-entry model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `te_abc123`).</Property>
+  <Property name="projectId" type="string">Project the time is logged against.</Property>
+  <Property name="taskId" type="string">Task the time is logged against.</Property>
+  <Property name="userId" type="string">User who logged the time.</Property>
+  <Property name="date" type="string">The date worked (`YYYY-MM-DD`).</Property>
+  <Property name="duration" type="string">Duration in minutes, as a decimal string.</Property>
+  <Property name="billable" type="boolean">Whether the time is billable. Defaults to `true`.</Property>
+  <Property name="rate" type="string">Hourly rate (decimal string).</Property>
+  <Property name="cost" type="string">Computed cost = (duration / 60) × rate.</Property>
+  <Property name="status" type="string">Approval status. Defaults to `draft`.</Property>
+  <Property name="description" type="string">What was worked on.</Property>
+  <Property name="activity" type="string">Activity category.</Property>
+  <Property name="createdAt" type="timestamp">When created.</Property>
+  <Property name="updatedAt" type="timestamp">When last updated.</Property>
+</Properties>
+
+---
+
+## List time entries {{ tag: 'GET', label: '/v1/time-entries' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `projectId`, `taskId`, `userId`, `status`, `billable`, `fromDate`, `toDate`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/time-entries">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/time-entries \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d projectId=prj_abc123 -d fromDate=2024-12-01
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        { "id": "te_abc123", "projectId": "prj_abc123", "date": "2024-12-02", "duration": "90", "billable": true, "status": "draft" }
+      ],
+      "pagination": { "totalCount": 6, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a time entry {{ tag: 'POST', label: '/v1/time-entries' }}
+
+<Row>
+  <Col>
+
+    Create a time entry.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="date" type="string">Date worked (`YYYY-MM-DD`).</Property>
+      <Property name="duration" type="string | number">Minutes worked.</Property>
+    </Properties>
+
+    `userId` is taken from the key's user; workspace keys must pass `userId` explicitly. `cost` is derived from `rate` and `duration`. Optional: `projectId`, `taskId`, `billable`, `rate`, `description`, `activity`, `startTime`, `endTime`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/time-entries">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/time-entries \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "projectId": "prj_abc123",
+        "date": "2024-12-02",
+        "duration": 90,
+        "rate": "75.00",
+        "description": "Controller wiring"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "te_new456",
+        "projectId": "prj_abc123",
+        "date": "2024-12-02",
+        "duration": "90",
+        "rate": "75.00",
+        "cost": "112.5",
+        "billable": true,
+        "status": "draft",
+        "createdAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a time entry {{ tag: 'GET', label: '/v1/time-entries/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single time entry by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/time-entries/te_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/time-entries/te_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    { "data": { "id": "te_abc123", "date": "2024-12-02", "duration": "90", "status": "draft" } }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a time entry {{ tag: 'PATCH', label: '/v1/time-entries/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a time entry. `cost` is recomputed when `rate` or `duration` changes.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/time-entries/te_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/time-entries/te_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "duration": 120 }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    { "data": { "id": "te_abc123", "duration": "120", "cost": "150", "updatedAt": "2024-12-01T15:00:00Z" } }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a time entry {{ tag: 'DELETE', label: '/v1/time-entries/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a time entry. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/time-entries/te_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/time-entries/te_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

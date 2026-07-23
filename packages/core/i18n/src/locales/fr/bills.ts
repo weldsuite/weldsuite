@@ -1,0 +1,71 @@
+export const bills = {
+  "title": "[TRANSLATE] Bills",
+  "bill": "[TRANSLATE] Bill",
+  "vendor": "[TRANSLATE] Vendor",
+  "billNumber": "[TRANSLATE] Bill Number",
+  "issueDate": "[TRANSLATE] Issue Date",
+  "dueDate": "[TRANSLATE] Due Date",
+  "totalAmount": "[TRANSLATE] Total Amount",
+  "outstandingAmount": "[TRANSLATE] Outstanding Amount",
+  "paidAmount": "[TRANSLATE] Paid Amount",
+  "billDate": "[TRANSLATE] Bill Date",
+  "reference": "[TRANSLATE] Reference",
+  "items": "[TRANSLATE] Items",
+  "item": "[TRANSLATE] Item",
+  "quantity": "[TRANSLATE] Quantity",
+  "unitPrice": "[TRANSLATE] Unit Price",
+  "lineTotal": "[TRANSLATE] Line Total",
+  "subtotal": "[TRANSLATE] Subtotal",
+  "taxAmount": "[TRANSLATE] Tax Amount",
+  "totalOutstanding": "[TRANSLATE] Total Outstanding",
+  "paymentStatus": "[TRANSLATE] Payment Status",
+  "approvalStatus": "[TRANSLATE] Approval Status",
+  "status": {
+    "draft": "[TRANSLATE] Draft",
+    "received": "[TRANSLATE] Received",
+    "approved": "[TRANSLATE] Approved",
+    "paid": "[TRANSLATE] Paid",
+    "overdue": "[TRANSLATE] Overdue",
+    "cancelled": "[TRANSLATE] Cancelled",
+    "partiallyPaid": "[TRANSLATE] Partially Paid",
+    "rejected": "[TRANSLATE] Rejected"
+  },
+  "actions": {
+    "newBill": "[TRANSLATE] New Bill",
+    "editBill": "[TRANSLATE] Edit Bill",
+    "deleteBill": "[TRANSLATE] Delete Bill",
+    "approveBill": "[TRANSLATE] Approve Bill",
+    "rejectBill": "[TRANSLATE] Reject Bill",
+    "payBill": "[TRANSLATE] Pay Bill",
+    "duplicateBill": "[TRANSLATE] Duplicate Bill",
+    "printBill": "[TRANSLATE] Print Bill",
+    "viewBill": "[TRANSLATE] View Bill",
+    "recordPayment": "[TRANSLATE] Record Payment"
+  },
+  "messages": {
+    "billCreated": "[TRANSLATE] Bill created successfully",
+    "billUpdated": "[TRANSLATE] Bill updated successfully",
+    "billDeleted": "[TRANSLATE] Bill deleted successfully",
+    "billApproved": "[TRANSLATE] Bill approved successfully",
+    "billRejected": "[TRANSLATE] Bill rejected successfully",
+    "paymentRecorded": "[TRANSLATE] Payment recorded successfully",
+    "confirmDelete": "[TRANSLATE] Are you sure you want to delete this bill?",
+    "confirmApprove": "[TRANSLATE] Are you sure you want to approve this bill?",
+    "confirmReject": "[TRANSLATE] Are you sure you want to reject this bill?",
+    "failedToLoad": "[TRANSLATE] Failed to load bills",
+    "failedToCreate": "[TRANSLATE] Failed to create bill",
+    "failedToDelete": "[TRANSLATE] Failed to delete bill"
+  },
+  "placeholders": {
+    "searchBills": "[TRANSLATE] Search bills...",
+    "selectVendor": "[TRANSLATE] Select vendor",
+    "filterByStatus": "[TRANSLATE] Filter by status",
+    "enterBillDetails": "[TRANSLATE] Enter the bill details"
+  },
+  "summary": {
+    "totalBills": "[TRANSLATE] Total Bills",
+    "draftCount": "[TRANSLATE] Draft Bills",
+    "overdueCount": "[TRANSLATE] Overdue Bills",
+    "paidThisMonth": "[TRANSLATE] Paid This Month"
+  }
+};

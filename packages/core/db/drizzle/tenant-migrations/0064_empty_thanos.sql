@@ -1,0 +1,1 @@
+ALTER TABLE "helpdesk_conversations" ALTER COLUMN "customer_email" DROP NOT NULL;

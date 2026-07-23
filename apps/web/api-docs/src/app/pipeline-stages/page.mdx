@@ -1,0 +1,245 @@
+# Pipeline Stages
+
+Pipeline stages are the ordered steps within a pipeline (e.g. Qualified, Proposal, Closed Won). Each stage belongs to a pipeline and carries outcome flags. Mutations require the `pipeline_stages:write` scope; reads require `pipeline_stages:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The pipeline stage model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `pstage_abc123`).</Property>
+  <Property name="name" type="string">Stage display name.</Property>
+  <Property name="description" type="string">Optional description.</Property>
+  <Property name="position" type="integer">Zero-based ordering position within the pipeline.</Property>
+  <Property name="probability" type="integer">Win probability percentage (0–100).</Property>
+  <Property name="color" type="string">Optional brand colour.</Property>
+  <Property name="pipeline" type="string">Pipeline key this stage belongs to (defaults to `default`).</Property>
+  <Property name="isDefault" type="boolean">Whether this is the entry stage for new opportunities.</Property>
+  <Property name="isWon" type="boolean">Whether reaching this stage counts as a won deal.</Property>
+  <Property name="isLost" type="boolean">Whether reaching this stage counts as a lost deal.</Property>
+  <Property name="createdAt" type="timestamp">When the stage was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the stage was last updated.</Property>
+</Properties>
+
+---
+
+## List pipeline stages {{ tag: 'GET', label: '/v1/pipeline-stages' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of pipeline stages.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 200).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="pipeline" type="string">Filter by pipeline key.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/pipeline-stages">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/pipeline-stages \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d pipeline=default
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "pstage_abc123",
+          "name": "Qualified",
+          "position": 0,
+          "probability": 20,
+          "pipeline": "default",
+          "isDefault": true,
+          "isWon": false,
+          "isLost": false
+        }
+      ],
+      "pagination": { "totalCount": 5, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a pipeline stage {{ tag: 'POST', label: '/v1/pipeline-stages' }}
+
+<Row>
+  <Col>
+
+    Create a new stage within a pipeline.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="name" type="string">Stage display name (max 255 characters).</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="description" type="string">Description (max 1000 characters).</Property>
+      <Property name="position" type="integer">Zero-based position (defaults to 0).</Property>
+      <Property name="probability" type="integer">Win probability 0–100.</Property>
+      <Property name="color" type="string">Brand colour.</Property>
+      <Property name="pipeline" type="string">Pipeline key (defaults to `default`).</Property>
+      <Property name="isDefault" type="boolean">Entry stage flag.</Property>
+      <Property name="isWon" type="boolean">Won outcome flag.</Property>
+      <Property name="isLost" type="boolean">Lost outcome flag.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/pipeline-stages">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/pipeline-stages \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Proposal Sent",
+        "position": 2,
+        "probability": 60,
+        "pipeline": "default"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "pstage_new456",
+        "name": "Proposal Sent",
+        "position": 2,
+        "probability": 60,
+        "pipeline": "default",
+        "isDefault": false,
+        "isWon": false,
+        "isLost": false,
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a pipeline stage {{ tag: 'GET', label: '/v1/pipeline-stages/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single pipeline stage by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/pipeline-stages/pstage_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/pipeline-stages/pstage_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "pstage_abc123",
+        "name": "Qualified",
+        "position": 0,
+        "probability": 20,
+        "pipeline": "default"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a pipeline stage {{ tag: 'PATCH', label: '/v1/pipeline-stages/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a pipeline stage.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/pipeline-stages/pstage_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/pipeline-stages/pstage_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "probability": 30, "color": "#F59E0B" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "pstage_abc123",
+        "probability": 30,
+        "color": "#F59E0B",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a pipeline stage {{ tag: 'DELETE', label: '/v1/pipeline-stages/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a pipeline stage. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/pipeline-stages/pstage_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/pipeline-stages/pstage_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

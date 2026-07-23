@@ -1,0 +1,40 @@
+{
+  "pkg": "@weldsuite/ui",
+  "globalName": "WeldSuiteUI",
+  "projectId": "e55c5e49-2fe2-4c9a-ac89-77d704572d46",
+  "shape": "storybook",
+  "storybookConfigDir": "apps/tools/storybook/.storybook",
+  "storybookStatic": ".design-sync/sb-reference",
+  "cssEntry": ".ds-styles.css",
+  "readmeHeader": ".design-sync/conventions.md",
+  "entry": "packages/design/ui/.ds-entry.ts",
+  "tsconfig": "../../.design-sync/tsconfig.ds-sync.json",
+  "titleMap": {
+    "Kanban": "KanbanBoard",
+    "Tree": "TreeView",
+    "Sonner": "Toaster",
+    "Resizable": "ResizablePanelGroup",
+    "WorkflowCanvas": null,
+    "Overview": null,
+    "Browse&editacontact": null,
+    "Capturealead→convert": null,
+    "Createatask": null,
+    "Planaproject(kanban)": null
+  },
+  "overrides": {
+    "AspectRatio": { "cardMode": "column" },
+    "Calendar": { "cardMode": "column" },
+    "Carousel": { "cardMode": "column" },
+    "KanbanBoard": { "cardMode": "column" },
+    "ListToolbar": { "cardMode": "column" },
+    "WorkflowList": { "cardMode": "column" },
+    "Autocomplete": { "cardMode": "column" },
+    "ChatInput": { "cardMode": "column" },
+    "Accordion": { "cardMode": "column" },
+    "Card": { "cardMode": "column" },
+    "ScrollArea": { "cardMode": "column" },
+    "EntityDetailView": { "cardMode": "single", "primaryStory": "FullscreenMode" },
+    "EntitySheetShell": { "cardMode": "single", "primaryStory": "Default" }
+  },
+  "buildCmd": "node .design-sync/gen-barrel.mjs && (cd apps/tools/storybook && NODE_OPTIONS=--max-old-space-size=8192 npx storybook build -c .storybook -o ../../.design-sync/sb-reference) && node .design-sync/cp-sb-css.mjs"
+}

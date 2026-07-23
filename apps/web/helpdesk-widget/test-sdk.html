@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Helpdesk Widget SDK Test</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 40px;
+      max-width: 800px;
+      margin: 0 auto;
+      background: #f5f5f5;
+    }
+    h1 { color: #333; }
+    .card {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    button {
+      background: #4F46E5;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin: 5px;
+      font-size: 14px;
+    }
+    button:hover { background: #4338CA; }
+    button.secondary {
+      background: #6B7280;
+    }
+    button.secondary:hover { background: #4B5563; }
+    .status {
+      padding: 10px;
+      background: #E5E7EB;
+      border-radius: 4px;
+      margin-top: 10px;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    .log {
+      max-height: 200px;
+      overflow-y: auto;
+      background: #1F2937;
+      color: #10B981;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 11px;
+      margin-top: 10px;
+    }
+    .log div { margin: 2px 0; }
+  </style>
+</head>
+<body>
+  <h1>Helpdesk Widget SDK Test</h1>
+
+  <div class="card">
+    <h3>Configuration</h3>
+    <p>Widget ID: <code>wgt_mjxb5jr6tnmanwgl</code></p>
+    <p>Widget URL: <code>http://localhost:3100</code></p>
+    <div class="status" id="status">Status: Not initialized</div>
+  </div>
+
+  <div class="card">
+    <h3>Controls</h3>
+    <button onclick="initSDK()">Initialize SDK</button>
+    <button onclick="openWidget()">Open Widget</button>
+    <button onclick="closeWidget()">Close Widget</button>
+    <button onclick="toggleWidget()">Toggle Widget</button>
+    <br><br>
+    <button class="secondary" onclick="showLauncher()">Show Launcher</button>
+    <button class="secondary" onclick="hideLauncher()">Hide Launcher</button>
+    <button class="secondary" onclick="destroySDK()">Destroy SDK</button>
+  </div>
+
+  <div class="card">
+    <h3>Console Log</h3>
+    <div class="log" id="log"></div>
+  </div>
+
+  <script type="module">
+    // Import SDK from local build or use inline implementation
+    import { WeldSDK, createWeldSDK } from './node_modules/@weldsuite/helpdesk-widget-sdk/dist/index.esm.js';
+
+    let sdk = null;
+
+    function log(message) {
+      const logEl = document.getElementById('log');
+      const time = new Date().toLocaleTimeString();
+      logEl.innerHTML += `<div>[${time}] ${message}</div>`;
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(message);
+    }
+
+    function updateStatus(status) {
+      document.getElementById('status').textContent = `Status: ${status}`;
+    }
+
+    window.initSDK = async function() {
+      try {
+        log('Initializing SDK...');
+        updateStatus('Initializing...');
+
+        sdk = new WeldSDK({
+          widgetId: 'wgt_mjxb5jr6tnmanwgl',
+          baseUrl: 'http://localhost:3100',
+          logging: {
+            level: 'debug',
+            console: true
+          },
+          onReady: () => {
+            log('SDK Ready!');
+            updateStatus('Ready');
+          },
+          onOpen: () => log('Widget opened'),
+          onClose: () => log('Widget closed'),
+          onError: (error) => {
+            log(`Error: ${error.message}`);
+            updateStatus('Error');
+          }
+        });
+
+        await sdk.init();
+        log('SDK initialized successfully');
+      } catch (error) {
+        log(`Failed to initialize: ${error.message}`);
+        updateStatus('Failed');
+      }
+    };
+
+    window.openWidget = function() {
+      if (!sdk) {
+        log('SDK not initialized');
+        return;
+      }
+      sdk.open();
+      log('Opening widget...');
+    };
+
+    window.closeWidget = function() {
+      if (!sdk) {
+        log('SDK not initialized');
+        return;
+      }
+      sdk.close();
+      log('Closing widget...');
+    };
+
+    window.toggleWidget = function() {
+      if (!sdk) {
+        log('SDK not initialized');
+        return;
+      }
+      sdk.toggle();
+      log('Toggling widget...');
+    };
+
+    window.showLauncher = function() {
+      if (!sdk) {
+        log('SDK not initialized');
+        return;
+      }
+      sdk.showLauncher();
+      log('Showing launcher...');
+    };
+
+    window.hideLauncher = function() {
+      if (!sdk) {
+        log('SDK not initialized');
+        return;
+      }
+      sdk.hideLauncher();
+      log('Hiding launcher...');
+    };
+
+    window.destroySDK = function() {
+      if (!sdk) {
+        log('SDK not initialized');
+        return;
+      }
+      sdk.destroy();
+      sdk = null;
+      log('SDK destroyed');
+      updateStatus('Destroyed');
+    };
+
+    log('Test page loaded. Click "Initialize SDK" to start.');
+  </script>
+</body>
+</html>

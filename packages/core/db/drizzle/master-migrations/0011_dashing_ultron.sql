@@ -1,0 +1,1 @@
+ALTER TABLE "plans" ADD COLUMN "remove_branding" boolean DEFAULT false NOT NULL;

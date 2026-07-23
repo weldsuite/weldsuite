@@ -1,0 +1,1 @@
+ALTER TABLE "parties" ADD COLUMN "archived_at" timestamp;

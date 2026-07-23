@@ -1,0 +1,726 @@
+# WeldSuite App API Worker
+#
+# Unified first-party API for the platform SPA and all WeldSuite mobile apps.
+# Successor to core-api, api-worker, and mobile-api-worker. Routes are
+# organised by object (customers, contacts, tickets, ...) to mirror the
+# object-based permission model.
+#
+# Hostname pair:
+#   app-api.weldsuite.org   — this worker (first-party clients)
+#   api.weldsuite.org       — external-api worker (third-party integrations)
+
+name = "weldsuite-app-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ LOCAL DEVELOPMENT ============
+# Required secrets (add via wrangler secret put):
+# - CLERK_SECRET_KEY
+# - CLERK_JWT_KEY
+# - CLERK_MACHINE_SECRET_KEY (ak_…) — mints M2M tokens to call workspace-worker
+#   /api/onboard for the "create additional workspace" flow (test/preview/prod)
+# - NEON_API_KEY
+# - DATABASE_ENCRYPTION_KEY (optional)
+# - CLOUDFLARE_API_TOKEN (for /api/domains: Registrar + Zones)
+# - CLOUDFLARE_ACCOUNT_ID (for /api/domains: account that owns registrar + zones)
+# - STRIPE_SECRET_KEY (for /api/domains/checkout)
+# - LEMLIST_API_KEY (WeldData lead database — shared WeldSuite Lemlist key)
+# - TEST_FIXTURES_TOKEN (test + preview envs ONLY; gates /test-fixtures/*.
+#   Never set this in the production env — the worker's middleware also
+#   blocks the route when ENVIRONMENT === 'production' as a second layer.)
+# - TEST_WORKSPACE_ID (test + preview envs ONLY; Clerk org id of the shared
+#   E2E workspace. /test-fixtures/teardown-workspace refuses to destroy this
+#   org. Set via `wrangler secret put TEST_WORKSPACE_ID --env test|preview`.
+#   Never set in production.)
+# - R2_SQL_API_TOKEN (project analytics: Cloudflare R2 SQL REST API bearer token)
+# - R2_ANALYTICS_BUCKET (project analytics: R2 bucket name for the Iceberg catalog)
+# - CF_REALTIME_APP_ID + CF_REALTIME_APP_SECRET (WeldChat voice/video calls:
+#   Cloudflare RealtimeKit credentials used by @weldsuite/cloudflare-realtime.
+#   Set via `wrangler secret put CF_REALTIME_APP_ID|CF_REALTIME_APP_SECRET`.
+#   Do NOT hardcode these. CF_ACCOUNT_ID is already a [vars] value below.)
+# - POSTPEER_API_KEY (WeldSocial: single WeldSuite-level PostPeer key, sent as
+#   the `x-access-key` header. Set via `wrangler secret put POSTPEER_API_KEY`.)
+# - POSTPEER_WEBHOOK_SECRET (WeldSocial: HMAC secret to verify PostPeer delivery
+#   webhooks at /public/social/postpeer/webhook. `wrangler secret put`.)
+#   (POSTPEER_BASE_URL defaults to https://api.postpeer.dev/v1; override via [vars].)
+#
+# Legacy api-worker phase-out (W3/W4) — secrets to provision per env, values
+# copied from api-worker (wrangler secret put / Doppler sync-secrets):
+# - INTERNAL_API_SECRET (internal service-to-service auth: /api/internal bearer
+#   from workflow-worker's send_email action + X-Internal-Secret on the internal
+#   /api/integrations router called by integration-sync-worker and
+#   integration-webhook-worker. Values MUST match across those workers.
+#   NOTE: app-api has no preview custom domain, so workflow-worker PREVIEW
+#   targets app-api TEST — workflow-worker's preview secret must equal
+#   app-api's TEST secret.)
+# - TELNYX_API_KEY + TELNYX_CONNECTION_ID + TELNYX_SIP_CONNECTION_ID
+#   (telephony: /api/telephony, /api/porting, /public/webhooks/telnyx)
+# - TELNYX_PUBLIC_KEY (optional, recommended: base64 Ed25519 account public key;
+#   when set the Telnyx webhook receiver enforces signatures)
+# - TELNYX_WEBHOOK_SECRET (optional, legacy parity only — declared-but-unused
+#   slot carried over from api-worker)
+# - DISCORD_CLIENT_ID + DISCORD_CLIENT_SECRET + DISCORD_BOT_TOKEN
+#   (WeldDesk helpdesk Discord channel OAuth callback)
+# - ATTIO_CLIENT_ID + ATTIO_CLIENT_SECRET (Attio CRM integration OAuth)
+# - HUBSPOT_CLIENT_ID + HUBSPOT_CLIENT_SECRET (HubSpot CRM integration OAuth)
+# - GOOGLE_CALENDAR_CLIENT_ID + GOOGLE_CALENDAR_CLIENT_SECRET (Google Calendar
+#   integration OAuth — distinct from GOOGLE_CLIENT_ID, which belongs to the
+#   WeldConnect workflow-integrations Google app)
+# - ASSEMBLYAI_API_KEY (W4: TranscribeRecordingWorkflow — meeting/call
+#   recording transcription; copy the value from api-worker per env)
+# - RESEND_API_KEY (W4: SendDigestWorkflow prefers Resend when set, else it
+#   falls back to the SEND_EMAIL binding; already used by notifications.
+#   W5b: also gates the calendar attendee mails — services/calendar-mail.ts
+#   no-ops entirely when it is unset, matching the legacy api-worker route.)
+# - RESEND_MEETING_INVITE_TEMPLATE_ID / RESEND_MEETING_UPDATE_TEMPLATE_ID /
+#   RESEND_MEETING_CANCEL_TEMPLATE_ID (W5b calendar attendee mails). NOT
+#   secrets — plain Resend template ids, add as [vars] per env once the
+#   templates exist. Each is independently optional: when one is unset that
+#   mail falls back to the inline HTML template (same branch legacy had), so
+#   they are deliberately left undeclared here rather than stubbed empty.
+# - STRIPE_SECRET_KEY (already listed above for /api/domains/checkout; now ALSO
+#   required by /api/billing — must be the SAME Stripe account billing-worker's
+#   webhooks use, since /api/billing/seats relies on the invoice.paid webhook)
+# - CAUTION: SLACK_CLIENT_ID / SLACK_CLIENT_SECRET are documented as the
+#   WeldConnect workflow-integrations Slack app, but the helpdesk Slack OAuth
+#   callback ( /api/integrations/helpdesk/slack/callback ) reuses the same Env
+#   fields. If the WeldDesk helpdesk Slack app is a DIFFERENT OAuth app,
+#   introduce HELPDESK_SLACK_CLIENT_ID/_SECRET + a 2-line route change (W6).
+# - AI (@weldsuite/ai) — the Cloudflare AI Gateway. Model ids and pricing are
+#   canonical. Set:
+#   - AI_GATEWAY_API_TOKEN — CF API token with Workers AI + AI Gateway Run scopes,
+#     sent as Authorization. Covers Workers AI (@cf/… — free allocation) and
+#     third-party models (unified billing). `wrangler secret put AI_GATEWAY_API_TOKEN`.
+#     CF_ACCOUNT_ID is already a [vars] value. Optionally CF_AI_GATEWAY (named
+#     gateway id — omit for the account default) + CF_AIG_TOKEN (authenticated
+#     gateways only).
+#   AI_DEFAULT_MODEL ([vars], optional) overrides the default model.
+
+[vars]
+ENVIRONMENT = "development"
+NEON_DEFAULT_REGION = "aws-eu-central-1"
+CF_ACCOUNT_ID = "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+# helpdesk-workflow-worker /respond target for /api/helpdesk-workflows resume.
+HELPDESK_WORKFLOW_WORKER_URL = "http://localhost:8790"
+# WeldBooks → Belastingdienst SBR filing. 'simulated' builds the SOAP envelope
+# but transmits nothing. Flip to 'preprod' (then 'production') ONLY after the
+# PKIoverheid SBR services server certificate is uploaded and the
+# DIGIPOORT_CERT mtls_certificates binding below is enabled.
+DIGIPOORT_MODE = "simulated"
+
+# PKIoverheid client certificate for Digipoort mTLS. Upload with:
+#   wrangler mtls-certificate upload --cert pkioverheid.pem --key pkioverheid.key --name digipoort-sbr
+# then paste the returned certificate_id here and uncomment:
+# [[mtls_certificates]]
+# binding = "DIGIPOORT_CERT"
+# certificate_id = "<uuid from wrangler mtls-certificate upload>"
+
+# Cloudflare Flagship (feature flags). Flag config lives on Cloudflare's
+# network — there is no local simulation — so for local `wrangler dev` we use a
+# REMOTE BINDING (`remote = true`): the Worker still runs locally but this
+# binding is proxied to the DEPLOYED Flagship app. Requires `wrangler login`
+# and the real <APP_ID>. Comment this block out (or leave <APP_ID> unset) to
+# fall back to catalog defaults — button hidden — when developing offline.
+# See https://developers.cloudflare.com/workers/development-testing/#remote-bindings
+[[flagship]]
+binding = "FLAGSHIP"
+app_id = "REPLACE_WITH_FLAGSHIP_APP_ID"
+remote = true
+
+# KV namespace for workspace URL caching (shared with core-api + api-worker)
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# D1 schedule index — shared with workflow-worker. The workflow-schedules
+# service upserts rows here on schedule CRUD so the sweep can poll D1 instead of
+# fanning out to every tenant DB. Dev uses the test database.
+[[d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+# R2 bucket for avatars / customer logos (shared with api-worker).
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+
+# Cloudflare Queues for entity mutation events (mirrors api-worker producers).
+[[queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events-dev"
+
+[[queues.producers]]
+binding = "WORKFLOW_EVENTS"
+queue = "workflow-events-dev"
+
+[[queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events-dev"
+
+# Service binding to realtime-worker (Durable Objects event system) — used by
+# publishEntityEvent for live WorkspaceHub fan-out AND WeldChat message fan-out
+# to the ChatRoom DO (services/chat/post-message.ts).
+#
+# Must target the SAME realtime deployment the browser's WebSocket connects to
+# (platform .env: VITE_REALTIME_URL = wss://realtime-test.weldsuite.org). The
+# dev block previously bound the *production* worker (weldsuite-realtime), so a
+# locally-run app-api published chat messages into the production ChatRoom DO
+# where no local browser is connected — typing (client↔DO over WS) worked, but
+# sent messages never reached the other person live. Like FLAGSHIP above, this
+# uses a REMOTE binding so the locally-running Worker proxies to the deployed
+# test realtime worker (plain `wrangler dev` mocks service bindings locally,
+# where no ChatRoom DO exists).
+[[services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+remote = true
+
+# RPC binding to workspace-worker's WorkspaceOnboardEntrypoint — server-side
+# org+workspace+DB provisioning for /api/onboarding/create-workspace. Binding-only
+# (no public exposure) so no Clerk M2M token is needed. `remote = true` lets plain
+# `wrangler dev` reach the deployed test worker (mirrors the REALTIME binding).
+[[services]]
+binding = "WORKSPACE_WORKER"
+service = "weldsuite-workspace-test"
+entrypoint = "WorkspaceOnboardEntrypoint"
+remote = true
+
+# Cloudflare Email Sending binding for WeldMail outbound delivery. The
+# `destination_address` is the envelope MAIL FROM the binding will accept;
+# Cloudflare requires this address to be verified in the dashboard once per
+# environment. Locally there's no MTA, so `wrangler dev` will fail any
+# actual send — that's expected; the route handlers gate on env.SEND_EMAIL
+# and surface a 503 with `code: 'EMAIL_BINDING_UNAVAILABLE'` when missing.
+[[send_email]]
+name = "SEND_EMAIL"
+
+# WeldData enrichment — Cloudflare Workflow hosted in THIS worker (app-api).
+# Class exported from src/index.ts. Self-hosted (no script_name) so it is safe
+# to include in the local dev block — no cross-script reference.
+[[workflows]]
+name = "welddata-enrich-dev"
+binding = "WELDDATA_ENRICH"
+class_name = "WelddataEnrichWorkflow"
+
+# Scheduled email — hosted here too, so unlike the cross-script bindings below
+# it works under plain `wrangler dev`. (Previously this class lived in
+# api-worker, which made scheduling always 503 with WORKFLOW_BINDING_MISSING
+# locally.)
+[[workflows]]
+name = "send-scheduled-email-v2-dev"
+binding = "SEND_SCHEDULED_EMAIL"
+class_name = "SendScheduledEmailWorkflow"
+
+# --- W4 legacy-worker phase-out: workflows re-hosted from api-worker --------
+# All six classes below now live in THIS worker (src/workflows/, exported from
+# src/index.ts) under NEW `-v2` workflow names, following the
+# send-scheduled-email-v2 precedent: api-worker keeps the old names
+# (execute-sequence*, trash-cleanup*, transcribe-recording*,
+# unpin-expired-message*, send-digest*, import-tasks*) only while its
+# in-flight instances drain (W7 deletes them). Self-hosted (no script_name),
+# so they also work under plain `wrangler dev`.
+
+[[workflows]]
+name = "execute-sequence-v2-dev"
+binding = "EXECUTE_SEQUENCE"
+class_name = "ExecuteSequenceWorkflow"
+
+[[workflows]]
+name = "trash-cleanup-v2-dev"
+binding = "TRASH_CLEANUP"
+class_name = "TrashCleanupWorkflow"
+
+[[workflows]]
+name = "transcribe-recording-v2-dev"
+binding = "TRANSCRIBE_RECORDING"
+class_name = "TranscribeRecordingWorkflow"
+
+[[workflows]]
+name = "unpin-expired-message-v2-dev"
+binding = "UNPIN_EXPIRED_MESSAGE"
+class_name = "UnpinExpiredMessageWorkflow"
+
+[[workflows]]
+name = "send-digest-v2-dev"
+binding = "SEND_DIGEST"
+class_name = "SendDigestWorkflow"
+
+[[workflows]]
+name = "import-tasks-v2-dev"
+binding = "IMPORT_TASKS"
+class_name = "ImportTasksWorkflow"
+
+# Cron sweeps re-hosted from api-worker (there they were configured ONLY in
+# the Cloudflare dashboard — invisible in its repo config; delete those
+# dashboard crons after this deploys, see W7). Handled by scheduled() in
+# src/index.ts: hourly digest sweep + daily 04:00 calendar replan.
+[triggers]
+crons = ["0 * * * *", "0 4 * * *"]
+
+# NOTE: the EXECUTE_WORKFLOW workflow binding is intentionally omitted from
+# the default (local dev) block. Its class lives in workflow-worker
+# (weldsuite-workflow), and wrangler v4 refuses to start a worker whose
+# workflow refers to a `script_name` that isn't also running locally.
+# Including it fails with:
+#   Worker "workflows:execute-workflow-dev"'s binding "USER_WORKFLOW" refers
+#   to a service "core:user:weldsuite-workflow", but no such service is defined.
+#
+# If you need to exercise the workflow-executions routes locally, run both
+# workers together so the workflow class is in scope:
+#   wrangler dev -c apps/workers/app-api/wrangler.toml -c apps/workers/workflow-worker/wrangler.toml
+# and add the [[workflows]] block back here for that session.
+#
+# test / preview / production envs below keep the cross-worker bindings intact.
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+name = "weldsuite-app-api-test"
+routes = [
+  { pattern = "app-api-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+DIGIPOORT_MODE = "simulated"
+NEON_DEFAULT_REGION = "aws-eu-central-1"
+CF_ACCOUNT_ID = "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+WORKSPACE_WORKER_URL = "https://workspace-worker-test.weldsuite.org"
+HELPDESK_WORKFLOW_WORKER_URL = "https://helpdesk-workflow-worker-test.weldsuite.org"
+
+# Cloudflare Flagship feature-flag binding.
+# app id from the dashboard, and create each flag (e.g. `upgrade-button`) there.
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "REPLACE_WITH_FLAGSHIP_APP_ID"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[[env.test.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+
+[[env.test.queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events-test"
+
+[[env.test.queues.producers]]
+binding = "WORKFLOW_EVENTS"
+queue = "workflow-events-test"
+
+[[env.test.queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[[env.test.services]]
+binding = "WORKSPACE_WORKER"
+service = "weldsuite-workspace-test"
+entrypoint = "WorkspaceOnboardEntrypoint"
+
+[[env.test.send_email]]
+name = "SEND_EMAIL"
+
+[[env.test.workflows]]
+name = "execute-workflow-test"
+binding = "EXECUTE_WORKFLOW"
+class_name = "ExecuteWorkflowWorkflow"
+script_name = "weldsuite-workflow-test"
+
+# CRM sequence execution — hosted in this worker (app-api), no script_name.
+# New name (W4): the old `execute-sequence-test` stays owned by api-worker
+# while its in-flight instances drain.
+[[env.test.workflows]]
+name = "execute-sequence-v2-test"
+binding = "EXECUTE_SEQUENCE"
+class_name = "ExecuteSequenceWorkflow"
+
+# Trash purge — hosted in this worker (app-api), no script_name. New name
+# (W4): api-worker's `trash-cleanup-test` keeps draining (30-day sleeps).
+[[env.test.workflows]]
+name = "trash-cleanup-v2-test"
+binding = "TRASH_CLEANUP"
+class_name = "TrashCleanupWorkflow"
+
+# Scheduled email — hosted in this worker (app-api), no script_name.
+# New name: the old `send-scheduled-email-test` is still owned by api-worker
+# while its in-flight instances drain (max 7 days, MAX_SCHEDULE_DAYS).
+[[env.test.workflows]]
+name = "send-scheduled-email-v2-test"
+binding = "SEND_SCHEDULED_EMAIL"
+class_name = "SendScheduledEmailWorkflow"
+
+# Transcription workflow — dispatched by POST /api/meetings/:id/recording/transcribe.
+# Hosted in this worker (W4); requires the ASSEMBLYAI_API_KEY secret.
+[[env.test.workflows]]
+name = "transcribe-recording-v2-test"
+binding = "TRANSCRIBE_RECORDING"
+class_name = "TranscribeRecordingWorkflow"
+
+# Chat pin auto-expiry — hosted in this worker (W4); dispatched by the
+# routes/chat-messages pin endpoints.
+[[env.test.workflows]]
+name = "unpin-expired-message-v2-test"
+binding = "UNPIN_EXPIRED_MESSAGE"
+class_name = "UnpinExpiredMessageWorkflow"
+
+# Daily task digest — hosted in this worker (W4); dispatched by the hourly
+# digest sweep cron (scheduled() in src/index.ts).
+[[env.test.workflows]]
+name = "send-digest-v2-test"
+binding = "SEND_DIGEST"
+class_name = "SendDigestWorkflow"
+
+# Bulk task import — hosted in this worker (W4); dispatched by
+# POST /api/projects/:projectId/tasks/import-jobs.
+[[env.test.workflows]]
+name = "import-tasks-v2-test"
+binding = "IMPORT_TASKS"
+class_name = "ImportTasksWorkflow"
+
+# Cron sweeps re-hosted from api-worker (dashboard-configured there; delete
+# those dashboard crons after this deploys — W7).
+[env.test.triggers]
+crons = ["0 * * * *", "0 4 * * *"]
+
+# GitHub sync workflows — classes hosted in integration-webhook-worker
+# (weldsuite-integration-webhooks-test), dispatched from /api/workflow-github
+# routes and the tasks route (outbound).
+[[env.test.workflows]]
+name = "github-project-sync-int-test"
+binding = "GITHUB_PROJECT_SYNC"
+class_name = "GithubProjectSyncWorkflow"
+script_name = "weldsuite-integration-webhooks-test"
+
+[[env.test.workflows]]
+name = "github-project-outbound-int-test"
+binding = "GITHUB_PROJECT_OUTBOUND"
+class_name = "GithubProjectOutboundSyncWorkflow"
+script_name = "weldsuite-integration-webhooks-test"
+
+# CRM sync engine — CrmSyncWorkflow hosted by integration-webhook-worker,
+# dispatched from /api/integrations connect/sync (legacy api-worker parity).
+# Omitted from the local dev block per this file's cross-script convention.
+[[env.test.workflows]]
+name = "crm-sync-int-test"
+binding = "CRM_SYNC"
+class_name = "CrmSyncWorkflow"
+script_name = "weldsuite-integration-webhooks-test"
+
+# WeldData enrichment — hosted in this worker (app-api), no script_name.
+[[env.test.workflows]]
+name = "welddata-enrich-test"
+binding = "WELDDATA_ENRICH"
+class_name = "WelddataEnrichWorkflow"
+
+# ============ PREVIEW ENVIRONMENT ============
+[env.preview]
+name = "weldsuite-app-api-preview"
+
+[env.preview.vars]
+ENVIRONMENT = "preview"
+DIGIPOORT_MODE = "simulated"
+NEON_DEFAULT_REGION = "aws-eu-central-1"
+CF_ACCOUNT_ID = "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID"
+R2_PUBLIC_URL = "https://weldsuite-storage-preview.weldsuite.org"
+WORKSPACE_WORKER_URL = "https://workspace-worker-test.weldsuite.org"
+HELPDESK_WORKFLOW_WORKER_URL = "https://helpdesk-workflow-worker-preview.weldsuite.org"
+
+# Cloudflare Flagship feature-flag binding.
+# app id from the dashboard, and create each flag (e.g. `upgrade-button`) there.
+[[env.preview.flagship]]
+binding = "FLAGSHIP"
+app_id = "REPLACE_WITH_FLAGSHIP_APP_ID"
+
+[[env.preview.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[[env.preview.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-preview"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[[env.preview.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+
+[[env.preview.queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events-preview"
+
+[[env.preview.queues.producers]]
+binding = "WORKFLOW_EVENTS"
+queue = "workflow-events-preview"
+
+[[env.preview.queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events-preview"
+
+[[env.preview.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-preview"
+
+[[env.preview.services]]
+binding = "WORKSPACE_WORKER"
+service = "weldsuite-workspace-preview"
+entrypoint = "WorkspaceOnboardEntrypoint"
+
+[[env.preview.send_email]]
+name = "SEND_EMAIL"
+
+[[env.preview.workflows]]
+name = "execute-workflow-preview"
+binding = "EXECUTE_WORKFLOW"
+class_name = "ExecuteWorkflowWorkflow"
+script_name = "weldsuite-workflow-preview"
+
+# CRM sequence execution — hosted in this worker (app-api), no script_name (W4).
+[[env.preview.workflows]]
+name = "execute-sequence-v2-preview"
+binding = "EXECUTE_SEQUENCE"
+class_name = "ExecuteSequenceWorkflow"
+
+# Trash purge — hosted in this worker (app-api), no script_name (W4).
+[[env.preview.workflows]]
+name = "trash-cleanup-v2-preview"
+binding = "TRASH_CLEANUP"
+class_name = "TrashCleanupWorkflow"
+
+# Scheduled email — hosted in this worker (app-api), no script_name.
+[[env.preview.workflows]]
+name = "send-scheduled-email-v2-preview"
+binding = "SEND_SCHEDULED_EMAIL"
+class_name = "SendScheduledEmailWorkflow"
+
+# Transcription workflow — hosted in this worker (W4); needs ASSEMBLYAI_API_KEY.
+[[env.preview.workflows]]
+name = "transcribe-recording-v2-preview"
+binding = "TRANSCRIBE_RECORDING"
+class_name = "TranscribeRecordingWorkflow"
+
+# Chat pin auto-expiry — hosted in this worker (W4).
+[[env.preview.workflows]]
+name = "unpin-expired-message-v2-preview"
+binding = "UNPIN_EXPIRED_MESSAGE"
+class_name = "UnpinExpiredMessageWorkflow"
+
+# Daily task digest — hosted in this worker (W4).
+[[env.preview.workflows]]
+name = "send-digest-v2-preview"
+binding = "SEND_DIGEST"
+class_name = "SendDigestWorkflow"
+
+# Bulk task import — hosted in this worker (W4).
+[[env.preview.workflows]]
+name = "import-tasks-v2-preview"
+binding = "IMPORT_TASKS"
+class_name = "ImportTasksWorkflow"
+
+# Cron sweeps re-hosted from api-worker (W4).
+[env.preview.triggers]
+crons = ["0 * * * *", "0 4 * * *"]
+
+# GitHub sync workflows — classes hosted in integration-webhook-worker (weldsuite-integration-webhooks-preview).
+[[env.preview.workflows]]
+name = "github-project-sync-int-preview"
+binding = "GITHUB_PROJECT_SYNC"
+class_name = "GithubProjectSyncWorkflow"
+script_name = "weldsuite-integration-webhooks-preview"
+
+[[env.preview.workflows]]
+name = "github-project-outbound-int-preview"
+binding = "GITHUB_PROJECT_OUTBOUND"
+class_name = "GithubProjectOutboundSyncWorkflow"
+script_name = "weldsuite-integration-webhooks-preview"
+
+# CRM sync engine — CrmSyncWorkflow hosted by integration-webhook-worker.
+[[env.preview.workflows]]
+name = "crm-sync-int-preview"
+binding = "CRM_SYNC"
+class_name = "CrmSyncWorkflow"
+script_name = "weldsuite-integration-webhooks-preview"
+
+# WeldData enrichment — hosted in this worker (app-api), no script_name.
+[[env.preview.workflows]]
+name = "welddata-enrich-preview"
+binding = "WELDDATA_ENRICH"
+class_name = "WelddataEnrichWorkflow"
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-app-api"
+routes = [
+  { pattern = "app-api.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+DIGIPOORT_MODE = "simulated"
+NEON_DEFAULT_REGION = "aws-eu-central-1"
+CF_ACCOUNT_ID = "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID"
+R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
+WORKSPACE_WORKER_URL = "https://workspace-worker.weldsuite.org"
+HELPDESK_WORKFLOW_WORKER_URL = "https://helpdesk-workflow-worker.weldsuite.org"
+
+# Cloudflare Flagship feature-flag binding.
+# app id from the dashboard, and create each flag (e.g. `upgrade-button`) there.
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "REPLACE_WITH_FLAGSHIP_APP_ID"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[[env.production.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-production"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+
+[[env.production.queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events"
+
+[[env.production.queues.producers]]
+binding = "WORKFLOW_EVENTS"
+queue = "workflow-events"
+
+[[env.production.queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+# Production workspace-worker deploys under the base name "weldsuite-workspace"
+# (its wrangler [env.production] name), NOT a "-production" suffix.
+[[env.production.services]]
+binding = "WORKSPACE_WORKER"
+service = "weldsuite-workspace"
+entrypoint = "WorkspaceOnboardEntrypoint"
+
+[[env.production.send_email]]
+name = "SEND_EMAIL"
+
+[[env.production.workflows]]
+name = "execute-workflow"
+binding = "EXECUTE_WORKFLOW"
+class_name = "ExecuteWorkflowWorkflow"
+script_name = "weldsuite-workflow"
+
+# CRM sequence execution — hosted in this worker (app-api), no script_name.
+# New name (W4): the old `execute-sequence` stays owned by api-worker while
+# its in-flight instances drain.
+[[env.production.workflows]]
+name = "execute-sequence-v2"
+binding = "EXECUTE_SEQUENCE"
+class_name = "ExecuteSequenceWorkflow"
+
+# Trash purge — hosted in this worker (app-api), no script_name. New name
+# (W4): api-worker's `trash-cleanup` keeps draining (30-day sleeps).
+[[env.production.workflows]]
+name = "trash-cleanup-v2"
+binding = "TRASH_CLEANUP"
+class_name = "TrashCleanupWorkflow"
+
+# Scheduled email — hosted in this worker (app-api), no script_name.
+# New name: the old `send-scheduled-email` is still owned by api-worker while
+# its in-flight instances drain (max 7 days, MAX_SCHEDULE_DAYS).
+[[env.production.workflows]]
+name = "send-scheduled-email-v2"
+binding = "SEND_SCHEDULED_EMAIL"
+class_name = "SendScheduledEmailWorkflow"
+
+# Transcription workflow — hosted in this worker (W4); needs ASSEMBLYAI_API_KEY.
+[[env.production.workflows]]
+name = "transcribe-recording-v2"
+binding = "TRANSCRIBE_RECORDING"
+class_name = "TranscribeRecordingWorkflow"
+
+# Chat pin auto-expiry — hosted in this worker (W4).
+[[env.production.workflows]]
+name = "unpin-expired-message-v2"
+binding = "UNPIN_EXPIRED_MESSAGE"
+class_name = "UnpinExpiredMessageWorkflow"
+
+# Daily task digest — hosted in this worker (W4).
+[[env.production.workflows]]
+name = "send-digest-v2"
+binding = "SEND_DIGEST"
+class_name = "SendDigestWorkflow"
+
+# Bulk task import — hosted in this worker (W4).
+[[env.production.workflows]]
+name = "import-tasks-v2"
+binding = "IMPORT_TASKS"
+class_name = "ImportTasksWorkflow"
+
+# Cron sweeps re-hosted from api-worker (dashboard-configured there; delete
+# api-worker's dashboard crons "0 * * * *" and "0 4 * * *" after this deploys
+# so digests aren't sent twice — W7 ops).
+[env.production.triggers]
+crons = ["0 * * * *", "0 4 * * *"]
+
+# GitHub sync workflows — classes hosted in integration-webhook-worker (weldsuite-integration-webhooks).
+[[env.production.workflows]]
+name = "github-project-sync-int"
+binding = "GITHUB_PROJECT_SYNC"
+class_name = "GithubProjectSyncWorkflow"
+script_name = "weldsuite-integration-webhooks"
+
+[[env.production.workflows]]
+name = "github-project-outbound-int"
+binding = "GITHUB_PROJECT_OUTBOUND"
+class_name = "GithubProjectOutboundSyncWorkflow"
+script_name = "weldsuite-integration-webhooks"
+
+# CRM sync engine — CrmSyncWorkflow hosted by integration-webhook-worker.
+[[env.production.workflows]]
+name = "crm-sync-int"
+binding = "CRM_SYNC"
+class_name = "CrmSyncWorkflow"
+script_name = "weldsuite-integration-webhooks"
+
+# WeldData enrichment — hosted in this worker (app-api), no script_name.
+[[env.production.workflows]]
+name = "welddata-enrich"
+binding = "WELDDATA_ENRICH"
+class_name = "WelddataEnrichWorkflow"
+
+# --- Persist Workers Logs across environments ---
+# observability is NOT inherited by named environments, so it must be set on each.
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.preview.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

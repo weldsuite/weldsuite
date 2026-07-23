@@ -1,0 +1,1 @@
+ALTER TABLE "weldagent_user_settings" ADD COLUMN "custom_instructions" text;

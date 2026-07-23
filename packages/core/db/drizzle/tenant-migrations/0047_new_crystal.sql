@@ -1,0 +1,1 @@
+ALTER TABLE "task_digest_settings" ALTER COLUMN "enabled" SET DEFAULT true;

@@ -1,0 +1,1 @@
+ALTER TABLE "helpdesk_conversations" ALTER COLUMN "assignee_id" SET DATA TYPE varchar(255);

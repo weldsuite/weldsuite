@@ -1,0 +1,1 @@
+ALTER TABLE "ai_agent_definitions" ADD COLUMN "integration_tool_permissions" jsonb DEFAULT '{}'::jsonb;

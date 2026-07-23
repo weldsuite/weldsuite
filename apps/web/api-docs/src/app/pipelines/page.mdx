@@ -1,0 +1,235 @@
+# Pipelines
+
+Pipelines organise your CRM deals into named, multi-stage funnels. Each pipeline holds an ordered set of pipeline stages. Mutations require the `pipelines:write` scope; reads require `pipelines:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The pipeline model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `pipeline_abc123`).</Property>
+  <Property name="name" type="string">Display name of the pipeline.</Property>
+  <Property name="description" type="string">Optional description.</Property>
+  <Property name="icon" type="string">Optional icon identifier.</Property>
+  <Property name="color" type="string">Optional brand colour (hex or named).</Property>
+  <Property name="template" type="string">Optional template key used during creation.</Property>
+  <Property name="settings" type="object">Arbitrary JSON settings blob.</Property>
+  <Property name="isDefault" type="boolean">Whether this is the workspace default pipeline.</Property>
+  <Property name="isArchived" type="boolean">Whether the pipeline is archived.</Property>
+  <Property name="createdAt" type="timestamp">When the pipeline was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the pipeline was last updated.</Property>
+</Properties>
+
+---
+
+## List pipelines {{ tag: 'GET', label: '/v1/pipelines' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of pipelines.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="search" type="string">Filter by name.</Property>
+      <Property name="archived" type="string">One of `active` (default), `archived`, or `all`.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/pipelines">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/pipelines \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d archived=active
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "pipeline_abc123",
+          "name": "Sales Pipeline",
+          "isDefault": true,
+          "isArchived": false
+        }
+      ],
+      "pagination": { "totalCount": 3, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a pipeline {{ tag: 'POST', label: '/v1/pipelines' }}
+
+<Row>
+  <Col>
+
+    Create a new pipeline.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="name" type="string">Pipeline display name (max 255 characters).</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="description" type="string">Description (max 1000 characters).</Property>
+      <Property name="icon" type="string">Icon identifier.</Property>
+      <Property name="color" type="string">Brand colour.</Property>
+      <Property name="template" type="string">Template key.</Property>
+      <Property name="settings" type="object">Arbitrary JSON settings.</Property>
+      <Property name="isDefault" type="boolean">Set as workspace default.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/pipelines">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/pipelines \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Enterprise Sales",
+        "description": "Pipeline for enterprise deals",
+        "color": "#3B82F6"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "pipeline_new456",
+        "name": "Enterprise Sales",
+        "description": "Pipeline for enterprise deals",
+        "color": "#3B82F6",
+        "isDefault": false,
+        "isArchived": false,
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a pipeline {{ tag: 'GET', label: '/v1/pipelines/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single pipeline by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/pipelines/pipeline_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/pipelines/pipeline_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "pipeline_abc123",
+        "name": "Sales Pipeline",
+        "isDefault": true,
+        "isArchived": false
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a pipeline {{ tag: 'PATCH', label: '/v1/pipelines/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a pipeline. All fields are optional. Set `isArchived: true` to archive the pipeline.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/pipelines/pipeline_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/pipelines/pipeline_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "name": "Enterprise Pipeline", "color": "#10B981" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "pipeline_abc123",
+        "name": "Enterprise Pipeline",
+        "color": "#10B981",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a pipeline {{ tag: 'DELETE', label: '/v1/pipelines/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a pipeline. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/pipelines/pipeline_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/pipelines/pipeline_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

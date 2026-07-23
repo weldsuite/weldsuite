@@ -1,0 +1,37 @@
+{
+  "name": "desktop",
+  "license": "AGPL-3.0-only",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WeldSuite desktop app — Electron shell around the platform SPA with native screen share, tray, notifications, and deep links.",
+  "main": "dist/main/index.mjs",
+  "scripts": {
+    "dev": "cross-env NODE_ENV=development electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "type-check": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "icons": "node scripts/generate-icons.mjs",
+    "package": "electron-vite build && electron-builder",
+    "package:win": "electron-vite build && electron-builder --win",
+    "package:mac": "electron-vite build && electron-builder --mac",
+    "package:linux": "electron-vite build && electron-builder --linux",
+    "publish": "electron-vite build && electron-builder --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@weldsuite/typescript-config": "workspace:*",
+    "cross-env": "^10.0.0",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "png-to-ico": "^3.0.0",
+    "png2icons": "^2.0.1",
+    "sharp": "^0.33.5",
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0"
+  }
+}

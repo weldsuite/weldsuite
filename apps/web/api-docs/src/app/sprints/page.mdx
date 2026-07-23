@@ -1,0 +1,236 @@
+# Sprints
+
+Sprints are time-boxed iterations within a WeldFlow project. Each sprint has a goal, a date range, and a status. Mutations require the `sprints:write` scope; reads require `sprints:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The sprint model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `sprint_abc123`).</Property>
+  <Property name="name" type="string">Sprint display name.</Property>
+  <Property name="projectId" type="string">ID of the parent project.</Property>
+  <Property name="startDate" type="string">ISO 8601 start date.</Property>
+  <Property name="endDate" type="string">ISO 8601 end date.</Property>
+  <Property name="status" type="string">Current status (e.g. `planning`, `active`, `completed`).</Property>
+  <Property name="goal" type="string">Free-text sprint goal.</Property>
+  <Property name="createdAt" type="timestamp">When the sprint was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the sprint was last updated.</Property>
+</Properties>
+
+---
+
+## List sprints {{ tag: 'GET', label: '/v1/sprints' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of sprints.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="projectId" type="string">Filter by project.</Property>
+      <Property name="status" type="string">Filter by status.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/sprints">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/sprints \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d projectId=proj_abc123
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "sprint_abc123",
+          "name": "Sprint 1",
+          "projectId": "proj_abc123",
+          "startDate": "2024-12-01",
+          "endDate": "2024-12-14",
+          "status": "active"
+        }
+      ],
+      "pagination": { "totalCount": 4, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a sprint {{ tag: 'POST', label: '/v1/sprints' }}
+
+<Row>
+  <Col>
+
+    Create a new sprint.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="name" type="string">Sprint display name (max 255 characters).</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="projectId" type="string">Parent project ID.</Property>
+      <Property name="startDate" type="string">ISO 8601 start date.</Property>
+      <Property name="endDate" type="string">ISO 8601 end date.</Property>
+      <Property name="status" type="string">Initial status.</Property>
+      <Property name="goal" type="string">Sprint goal.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/sprints">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/sprints \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Sprint 2",
+        "projectId": "proj_abc123",
+        "startDate": "2024-12-15",
+        "endDate": "2024-12-28",
+        "goal": "Ship the new dashboard"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "sprint_new456",
+        "name": "Sprint 2",
+        "projectId": "proj_abc123",
+        "startDate": "2024-12-15",
+        "endDate": "2024-12-28",
+        "status": "planning",
+        "goal": "Ship the new dashboard",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a sprint {{ tag: 'GET', label: '/v1/sprints/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single sprint by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/sprints/sprint_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/sprints/sprint_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "sprint_abc123",
+        "name": "Sprint 1",
+        "projectId": "proj_abc123",
+        "status": "active"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a sprint {{ tag: 'PATCH', label: '/v1/sprints/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a sprint.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/sprints/sprint_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/sprints/sprint_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "status": "completed" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "sprint_abc123",
+        "status": "completed",
+        "updatedAt": "2024-12-14T18:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a sprint {{ tag: 'DELETE', label: '/v1/sprints/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a sprint. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/sprints/sprint_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/sprints/sprint_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

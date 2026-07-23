@@ -1,0 +1,70 @@
+appId: com.weldsuite.desktop
+productName: WeldSuite
+copyright: Copyright © 2026 Weld Corporation
+asar: true
+
+directories:
+  output: release
+  buildResources: assets
+
+files:
+  - dist/**/*
+  - resources/**/*
+  - package.json
+
+extraResources:
+  - from: resources
+    to: .
+    filter:
+      - "**/*"
+
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+  icon: assets/icon.ico
+  publisherName: Weld Corporation
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: WeldSuite
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  icon: assets/icon.icns
+  category: public.app-category.business
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: assets/entitlements.mac.plist
+  entitlementsInherit: assets/entitlements.mac.plist
+  extendInfo:
+    NSCameraUsageDescription: WeldSuite needs camera access for video meetings in WeldMeet.
+    NSMicrophoneUsageDescription: WeldSuite needs microphone access for video meetings in WeldMeet.
+    NSScreenCaptureUsageDescription: WeldSuite needs screen recording access to share your screen in WeldMeet.
+
+dmg:
+  sign: false
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  category: Office
+  icon: assets/icon.png
+
+protocols:
+  - name: WeldSuite Deep Link
+    schemes: [weldsuite]
+
+publish:
+  provider: generic
+  url: https://updates.weldsuite.com/desktop
+  channel: latest

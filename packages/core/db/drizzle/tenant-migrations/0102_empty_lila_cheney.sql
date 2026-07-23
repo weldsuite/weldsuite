@@ -1,0 +1,1 @@
+ALTER TABLE "crm_transcript_segments" ADD COLUMN "words" jsonb;

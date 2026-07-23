@@ -1,0 +1,1 @@
+ALTER TABLE "crm_activities" ALTER COLUMN "assigned_to_id" DROP NOT NULL;

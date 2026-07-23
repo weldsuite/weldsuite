@@ -1,0 +1,1 @@
+ALTER TABLE "helpdesk_conversations" ADD COLUMN "has_active_workflow" boolean DEFAULT false NOT NULL;

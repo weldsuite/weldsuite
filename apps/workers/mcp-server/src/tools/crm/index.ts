@@ -1,0 +1,421 @@
+import { z } from 'zod';
+import {
+  createPersonSchema,
+  updatePersonSchema,
+  listPeopleQuery,
+} from '../../schemas/people';
+import {
+  createCompanySchema,
+  updateCompanySchema,
+  listCompaniesQuery,
+} from '../../schemas/companies';
+import {
+  createLeadSchema,
+  updateLeadSchema,
+  listLeadsQuery,
+} from '../../schemas/leads';
+import {
+  createOpportunitySchema,
+  updateOpportunitySchema,
+  listOpportunitiesQuery,
+} from '../../schemas/opportunities';
+import {
+  createActivitySchema,
+  updateActivitySchema,
+  listActivitiesQuery,
+} from '../../schemas/activities';
+import {
+  createPipelineSchema,
+  updatePipelineSchema,
+  listPipelinesQuery,
+} from '../../schemas/pipelines-crm';
+import {
+  createPipelineStageSchema,
+  updatePipelineStageSchema,
+  listPipelineStagesQuery,
+} from '../../schemas/pipeline-stages';
+import type { ToolDefinition } from '../registry';
+
+// Inline quote schemas — mirrored from apps/workers/external-api/src/routes/v1/quotes/index.ts
+const createQuoteSchema = z.object({
+  name: z.string().min(1).max(255),
+  quoteNumber: z.string().optional(),
+  counterpartyId: z.string().optional(),
+  personId: z.string().optional(),
+  opportunityId: z.string().optional(),
+  currency: z.string().max(10).optional(),
+  validFrom: z.string().datetime().optional(),
+  validUntil: z.string().datetime().optional(),
+  lineItems: z.array(z.record(z.unknown())).optional(),
+  notes: z.string().optional(),
+});
+
+const updateQuoteSchema = createQuoteSchema.partial();
+
+const listQuoteQuery = z.object({
+  cursor: z.string().optional(),
+  limit: z.coerce.number().min(1).max(200).optional(),
+  search: z.string().optional(),
+});
+
+export const crmTools: ToolDefinition[] = [
+  // ── Contacts (people) ────────────────────────────────────────────────────
+  {
+    name: 'search_contacts',
+    scope: 'contacts:read',
+    description: 'Search CRM contacts by name, email, or company. Returns matching contacts with key details.',
+    inputSchema: listPeopleQuery.shape,
+    method: 'GET',
+    path: '/v1/people',
+  },
+  {
+    name: 'get_contact',
+    scope: 'contacts:read',
+    description: 'Get full details of a specific CRM contact by ID.',
+    inputSchema: { contactId: z.string().describe('The contact ID') },
+    method: 'GET',
+    path: '/v1/people/:id',
+    pathParams: { id: 'contactId' },
+  },
+  {
+    name: 'create_contact',
+    scope: 'contacts:write',
+    description: 'Create a new CRM contact linked to a customer.',
+    inputSchema: createPersonSchema.shape,
+    method: 'POST',
+    path: '/v1/people',
+  },
+  {
+    name: 'update_contact',
+    scope: 'contacts:write',
+    description: 'Update an existing CRM contact.',
+    inputSchema: { contactId: z.string().describe('The contact ID to update'), ...updatePersonSchema.shape },
+    method: 'PATCH',
+    path: '/v1/people/:id',
+    pathParams: { id: 'contactId' },
+  },
+  {
+    name: 'delete_contact',
+    scope: 'contacts:write',
+    description: 'Soft-delete a CRM contact (person) by ID.',
+    inputSchema: { contactId: z.string().describe('The contact ID') },
+    method: 'DELETE',
+    path: '/v1/people/:id',
+    pathParams: { id: 'contactId' },
+  },
+
+  // ── Customers (companies) ─────────────────────────────────────────────────
+  {
+    name: 'search_customers',
+    scope: 'customers:read',
+    description: 'Search CRM customers/companies by name, email, or other details.',
+    inputSchema: listCompaniesQuery.shape,
+    method: 'GET',
+    path: '/v1/companies',
+  },
+  {
+    name: 'get_customer',
+    scope: 'customers:read',
+    description: 'Get full details of a specific CRM customer/company by ID.',
+    inputSchema: { customerId: z.string().describe('The customer ID') },
+    method: 'GET',
+    path: '/v1/companies/:id',
+    pathParams: { id: 'customerId' },
+  },
+  {
+    name: 'create_customer',
+    scope: 'customers:write',
+    description: 'Create a new CRM customer (company).',
+    inputSchema: createCompanySchema.shape,
+    method: 'POST',
+    path: '/v1/companies',
+  },
+  {
+    name: 'update_customer',
+    scope: 'customers:write',
+    description: 'Update an existing CRM customer (company) by ID.',
+    inputSchema: { customerId: z.string().describe('The customer ID'), ...updateCompanySchema.shape },
+    method: 'PATCH',
+    path: '/v1/companies/:id',
+    pathParams: { id: 'customerId' },
+  },
+  {
+    name: 'delete_customer',
+    scope: 'customers:write',
+    description: 'Soft-delete a CRM customer (company) by ID.',
+    inputSchema: { customerId: z.string().describe('The customer ID') },
+    method: 'DELETE',
+    path: '/v1/companies/:id',
+    pathParams: { id: 'customerId' },
+  },
+
+  // ── Leads ─────────────────────────────────────────────────────────────────
+  {
+    name: 'search_leads',
+    scope: 'leads:read',
+    description: 'List/search CRM leads. Cursor-paginated; filter by status, source, rating, owner.',
+    inputSchema: listLeadsQuery.shape,
+    method: 'GET',
+    path: '/v1/leads',
+  },
+  {
+    name: 'get_lead',
+    scope: 'leads:read',
+    description: 'Get full details of a CRM lead by ID.',
+    inputSchema: { leadId: z.string().describe('The lead ID') },
+    method: 'GET',
+    path: '/v1/leads/:id',
+    pathParams: { id: 'leadId' },
+  },
+  {
+    name: 'create_lead',
+    scope: 'leads:write',
+    description: 'Create a new CRM lead.',
+    inputSchema: createLeadSchema.shape,
+    method: 'POST',
+    path: '/v1/leads',
+  },
+  {
+    name: 'update_lead',
+    scope: 'leads:write',
+    description: 'Update an existing CRM lead by ID.',
+    inputSchema: { leadId: z.string().describe('The lead ID'), ...updateLeadSchema.shape },
+    method: 'PATCH',
+    path: '/v1/leads/:id',
+    pathParams: { id: 'leadId' },
+  },
+  {
+    name: 'delete_lead',
+    scope: 'leads:write',
+    description: 'Soft-delete a CRM lead by ID.',
+    inputSchema: { leadId: z.string().describe('The lead ID') },
+    method: 'DELETE',
+    path: '/v1/leads/:id',
+    pathParams: { id: 'leadId' },
+  },
+
+  // ── Opportunities ─────────────────────────────────────────────────────────
+  {
+    name: 'search_opportunities',
+    scope: 'opportunities:read',
+    description: 'Search sales opportunities/deals in the pipeline.',
+    inputSchema: listOpportunitiesQuery.shape,
+    method: 'GET',
+    path: '/v1/opportunities',
+  },
+  {
+    name: 'get_opportunity',
+    scope: 'opportunities:read',
+    description: 'Get full details of a specific sales opportunity/deal by ID.',
+    inputSchema: { opportunityId: z.string().describe('The opportunity ID') },
+    method: 'GET',
+    path: '/v1/opportunities/:id',
+    pathParams: { id: 'opportunityId' },
+  },
+  {
+    name: 'create_opportunity',
+    scope: 'opportunities:write',
+    description: 'Create a new CRM opportunity.',
+    inputSchema: createOpportunitySchema.shape,
+    method: 'POST',
+    path: '/v1/opportunities',
+  },
+  {
+    name: 'update_opportunity',
+    scope: 'opportunities:write',
+    description: 'Update an existing CRM opportunity by ID.',
+    inputSchema: { opportunityId: z.string().describe('The opportunity ID'), ...updateOpportunitySchema.shape },
+    method: 'PATCH',
+    path: '/v1/opportunities/:id',
+    pathParams: { id: 'opportunityId' },
+  },
+  {
+    name: 'delete_opportunity',
+    scope: 'opportunities:write',
+    description: 'Soft-delete a CRM opportunity by ID.',
+    inputSchema: { opportunityId: z.string().describe('The opportunity ID') },
+    method: 'DELETE',
+    path: '/v1/opportunities/:id',
+    pathParams: { id: 'opportunityId' },
+  },
+
+  // ── Activities ────────────────────────────────────────────────────────────
+  {
+    name: 'search_activities',
+    scope: 'activities:read',
+    description: 'List/search CRM activities. Cursor-paginated; filter by type, status, assignee, or linked record.',
+    inputSchema: listActivitiesQuery.shape,
+    method: 'GET',
+    path: '/v1/activities',
+  },
+  {
+    name: 'get_activity',
+    scope: 'activities:read',
+    description: 'Get full details of a CRM activity by ID.',
+    inputSchema: { id: z.string().describe('The activity ID') },
+    method: 'GET',
+    path: '/v1/activities/:id',
+    pathParams: { id: 'id' },
+  },
+  {
+    name: 'create_activity',
+    scope: 'activities:write',
+    description: 'Create a new CRM activity (call, email, meeting, task, note, etc.).',
+    inputSchema: createActivitySchema.shape,
+    method: 'POST',
+    path: '/v1/activities',
+  },
+  {
+    name: 'update_activity',
+    scope: 'activities:write',
+    description: 'Update an existing CRM activity by ID.',
+    inputSchema: { id: z.string().describe('The activity ID'), ...updateActivitySchema.shape },
+    method: 'PATCH',
+    path: '/v1/activities/:id',
+    pathParams: { id: 'id' },
+  },
+  {
+    name: 'delete_activity',
+    scope: 'activities:write',
+    description: 'Soft-delete a CRM activity by ID.',
+    inputSchema: { id: z.string().describe('The activity ID') },
+    method: 'DELETE',
+    path: '/v1/activities/:id',
+    pathParams: { id: 'id' },
+  },
+
+  // ── Pipelines ─────────────────────────────────────────────────────────────
+  {
+    name: 'search_pipelines',
+    scope: 'pipelines:read',
+    description: 'List/search CRM pipelines. Cursor-paginated; filter by name or archived state.',
+    inputSchema: listPipelinesQuery.shape,
+    method: 'GET',
+    path: '/v1/pipelines',
+  },
+  {
+    name: 'get_pipeline',
+    scope: 'pipelines:read',
+    description: 'Get full details of a CRM pipeline by ID.',
+    inputSchema: { id: z.string().describe('The pipeline ID') },
+    method: 'GET',
+    path: '/v1/pipelines/:id',
+    pathParams: { id: 'id' },
+  },
+  {
+    name: 'create_pipeline',
+    scope: 'pipelines:write',
+    description: 'Create a new CRM pipeline.',
+    inputSchema: createPipelineSchema.shape,
+    method: 'POST',
+    path: '/v1/pipelines',
+  },
+  {
+    name: 'update_pipeline',
+    scope: 'pipelines:write',
+    description: 'Update an existing CRM pipeline by ID.',
+    inputSchema: { id: z.string().describe('The pipeline ID'), ...updatePipelineSchema.shape },
+    method: 'PATCH',
+    path: '/v1/pipelines/:id',
+    pathParams: { id: 'id' },
+  },
+  {
+    name: 'delete_pipeline',
+    scope: 'pipelines:write',
+    description: 'Soft-delete a CRM pipeline by ID.',
+    inputSchema: { id: z.string().describe('The pipeline ID') },
+    method: 'DELETE',
+    path: '/v1/pipelines/:id',
+    pathParams: { id: 'id' },
+  },
+
+  // ── Pipeline stages ───────────────────────────────────────────────────────
+  {
+    name: 'search_pipeline_stages',
+    scope: 'pipeline_stages:read',
+    description: 'List/search CRM pipeline stages. Cursor-paginated; filter by pipeline.',
+    inputSchema: listPipelineStagesQuery.shape,
+    method: 'GET',
+    path: '/v1/pipeline-stages',
+  },
+  {
+    name: 'get_pipeline_stage',
+    scope: 'pipeline_stages:read',
+    description: 'Get full details of a CRM pipeline stage by ID.',
+    inputSchema: { id: z.string().describe('The pipeline stage ID') },
+    method: 'GET',
+    path: '/v1/pipeline-stages/:id',
+    pathParams: { id: 'id' },
+  },
+  {
+    name: 'create_pipeline_stage',
+    scope: 'pipeline_stages:write',
+    description: 'Create a new CRM pipeline stage.',
+    inputSchema: createPipelineStageSchema.shape,
+    method: 'POST',
+    path: '/v1/pipeline-stages',
+  },
+  {
+    name: 'update_pipeline_stage',
+    scope: 'pipeline_stages:write',
+    description: 'Update an existing CRM pipeline stage by ID.',
+    inputSchema: { id: z.string().describe('The pipeline stage ID'), ...updatePipelineStageSchema.shape },
+    method: 'PATCH',
+    path: '/v1/pipeline-stages/:id',
+    pathParams: { id: 'id' },
+  },
+  {
+    name: 'delete_pipeline_stage',
+    scope: 'pipeline_stages:write',
+    description: 'Soft-delete a CRM pipeline stage by ID.',
+    inputSchema: { id: z.string().describe('The pipeline stage ID') },
+    method: 'DELETE',
+    path: '/v1/pipeline-stages/:id',
+    pathParams: { id: 'id' },
+  },
+
+  // ── Quotes ────────────────────────────────────────────────────────────────
+  {
+    name: 'search_quotes',
+    scope: 'quotes:read',
+    description: 'List/search CRM quotes. Cursor-paginated; filter by name.',
+    inputSchema: listQuoteQuery.shape,
+    method: 'GET',
+    path: '/v1/quotes',
+  },
+  {
+    name: 'get_quote',
+    scope: 'quotes:read',
+    description: 'Get full details of a CRM quote by ID.',
+    inputSchema: { id: z.string().describe('The quote ID') },
+    method: 'GET',
+    path: '/v1/quotes/:id',
+    pathParams: { id: 'id' },
+  },
+  {
+    name: 'create_quote',
+    scope: 'quotes:write',
+    description: 'Create a new CRM quote.',
+    inputSchema: createQuoteSchema.shape,
+    method: 'POST',
+    path: '/v1/quotes',
+  },
+  {
+    name: 'update_quote',
+    scope: 'quotes:write',
+    description: 'Update an existing CRM quote by ID.',
+    inputSchema: { id: z.string().describe('The quote ID'), ...updateQuoteSchema.shape },
+    method: 'PATCH',
+    path: '/v1/quotes/:id',
+    pathParams: { id: 'id' },
+  },
+  {
+    name: 'delete_quote',
+    scope: 'quotes:write',
+    description: 'Soft-delete a CRM quote by ID.',
+    inputSchema: { id: z.string().describe('The quote ID') },
+    method: 'DELETE',
+    path: '/v1/quotes/:id',
+    pathParams: { id: 'id' },
+  },
+];

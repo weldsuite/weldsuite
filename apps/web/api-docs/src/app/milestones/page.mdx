@@ -1,0 +1,232 @@
+# Milestones
+
+Milestones mark significant checkpoints in a WeldFlow project, a release date, a deliverable, or a review gate. Mutations require the `milestones:write` scope; reads require `milestones:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The milestone model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `milestone_abc123`).</Property>
+  <Property name="name" type="string">Milestone display name.</Property>
+  <Property name="projectId" type="string">ID of the parent project.</Property>
+  <Property name="description" type="string">Optional description.</Property>
+  <Property name="dueDate" type="string">ISO 8601 due date.</Property>
+  <Property name="status" type="string">Current status (e.g. `open`, `completed`).</Property>
+  <Property name="createdAt" type="timestamp">When the milestone was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the milestone was last updated.</Property>
+</Properties>
+
+---
+
+## List milestones {{ tag: 'GET', label: '/v1/milestones' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of milestones.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="projectId" type="string">Filter by project.</Property>
+      <Property name="status" type="string">Filter by status.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/milestones">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/milestones \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d projectId=proj_abc123
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "milestone_abc123",
+          "name": "Beta Launch",
+          "projectId": "proj_abc123",
+          "dueDate": "2024-12-31",
+          "status": "open"
+        }
+      ],
+      "pagination": { "totalCount": 3, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a milestone {{ tag: 'POST', label: '/v1/milestones' }}
+
+<Row>
+  <Col>
+
+    Create a new milestone.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="name" type="string">Milestone display name (max 255 characters).</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="projectId" type="string">Parent project ID.</Property>
+      <Property name="description" type="string">Description.</Property>
+      <Property name="dueDate" type="string">ISO 8601 due date.</Property>
+      <Property name="status" type="string">Initial status.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/milestones">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/milestones \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Beta Launch",
+        "projectId": "proj_abc123",
+        "dueDate": "2024-12-31",
+        "description": "Public beta available to all users"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "milestone_new456",
+        "name": "Beta Launch",
+        "projectId": "proj_abc123",
+        "dueDate": "2024-12-31",
+        "description": "Public beta available to all users",
+        "status": "open",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a milestone {{ tag: 'GET', label: '/v1/milestones/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single milestone by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/milestones/milestone_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/milestones/milestone_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "milestone_abc123",
+        "name": "Beta Launch",
+        "projectId": "proj_abc123",
+        "dueDate": "2024-12-31",
+        "status": "open"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a milestone {{ tag: 'PATCH', label: '/v1/milestones/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a milestone.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/milestones/milestone_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/milestones/milestone_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "status": "completed" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "milestone_abc123",
+        "status": "completed",
+        "updatedAt": "2024-12-31T23:59:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a milestone {{ tag: 'DELETE', label: '/v1/milestones/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a milestone. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/milestones/milestone_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/milestones/milestone_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

@@ -1,0 +1,8 @@
+packages:
+  - "apps/web/*"
+  - "apps/workers/*"
+  - "apps/tools/*"
+  - "apps/mobile/*"
+  - "!apps/mobile/_template"
+  - "apps/desktop"
+  - "packages/*/*"

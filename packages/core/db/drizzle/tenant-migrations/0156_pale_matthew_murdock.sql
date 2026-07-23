@@ -1,0 +1,1 @@
+ALTER TABLE "welddata_lists" ADD COLUMN "kind" varchar(10) DEFAULT 'person' NOT NULL;

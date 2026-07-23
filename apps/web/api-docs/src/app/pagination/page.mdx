@@ -1,0 +1,92 @@
+# Pagination
+
+All list endpoints in the WeldSuite API are **cursor-paginated**. Each list response returns a `data` array plus a `pagination` object containing `totalCount`, `hasMore`, and an opaque `cursor`. To fetch the next page, pass the returned `cursor` back as the `cursor` query parameter. {{ className: 'lead' }}
+
+Results are ordered newest-first (by creation time, then id), so the ordering is stable as new records are added.
+
+## Pagination parameters
+
+<Row>
+  <Col>
+
+    Use these query parameters to control pagination:
+
+    <Properties>
+      <Property name="limit" type="integer">
+        The number of items to return. Defaults to a server-side value (typically 25) and is capped at 100.
+      </Property>
+      <Property name="cursor" type="string">
+        An opaque cursor returned as `pagination.cursor` on the previous page. Omit it to fetch the first page.
+      </Property>
+    </Properties>
+
+  </Col>
+  <Col>
+
+    ```bash {{ title: 'Paginated request using cURL' }}
+    curl -G https://api.weldsuite.org/v1/people \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d limit=2
+    ```
+
+    ```json {{ title: 'Paginated response' }}
+    {
+      "data": [
+        { "id": "person_abc123", "fullName": "Jane Doe" },
+        { "id": "person_def456", "fullName": "John Smith" }
+      ],
+      "pagination": {
+        "totalCount": 42,
+        "hasMore": true,
+        "cursor": "person_def456"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+## The pagination object
+
+<Properties>
+  <Property name="totalCount" type="integer">
+    The total number of records matching the query, across all pages.
+  </Property>
+  <Property name="hasMore" type="boolean">
+    Whether more pages are available. When `false`, `cursor` is `null`.
+  </Property>
+  <Property name="cursor" type="string | null">
+    The opaque cursor to pass as `?cursor=` to retrieve the next page. `null` on the last page.
+  </Property>
+</Properties>
+
+## Example: fetching all items
+
+Keep requesting pages while `hasMore` is `true`, feeding `cursor` back each time:
+
+```js {{ title: 'Fetching every page' }}
+async function fetchAllPeople(apiKey) {
+  const all = []
+  let cursor = null
+
+  do {
+    const url = new URL('https://api.weldsuite.org/v1/people')
+    url.searchParams.set('limit', '100')
+    if (cursor) url.searchParams.set('cursor', cursor)
+
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
+    const { data, pagination } = await res.json()
+
+    all.push(...data)
+    cursor = pagination.hasMore ? pagination.cursor : null
+  } while (cursor)
+
+  return all
+}
+```
+
+<Note>
+  Treat the `cursor` as opaque, its format is an implementation detail and may change. Always read it from the previous response rather than constructing it yourself.
+</Note>

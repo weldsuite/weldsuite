@@ -1,0 +1,221 @@
+# Project Messages
+
+Project messages are team announcements or threaded discussion posts scoped to a WeldFlow project. Mutations require the `project_messages:write` scope; reads require `project_messages:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The project message model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `pmsg_abc123`).</Property>
+  <Property name="projectId" type="string">ID of the parent project.</Property>
+  <Property name="authorId" type="string">User ID of the message author.</Property>
+  <Property name="body" type="string">Message body text.</Property>
+  <Property name="attachments" type="object">Optional attachments payload.</Property>
+  <Property name="createdAt" type="timestamp">When the message was posted.</Property>
+  <Property name="updatedAt" type="timestamp">When the message was last updated.</Property>
+</Properties>
+
+---
+
+## List project messages {{ tag: 'GET', label: '/v1/project-messages' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of project messages.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="projectId" type="string">Filter by project.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/project-messages">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/project-messages \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d projectId=proj_abc123
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "pmsg_abc123",
+          "projectId": "proj_abc123",
+          "authorId": "user_xyz789",
+          "body": "Sprint 2 kicks off Monday, let's review the backlog Friday."
+        }
+      ],
+      "pagination": { "totalCount": 12, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Post a project message {{ tag: 'POST', label: '/v1/project-messages' }}
+
+<Row>
+  <Col>
+
+    Post a new message to a project.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="projectId" type="string">ID of the project.</Property>
+      <Property name="body" type="string">Message body.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="authorId" type="string">Author user ID (defaults to key owner).</Property>
+      <Property name="attachments" type="object">Attachments payload.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/project-messages">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/project-messages \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "projectId": "proj_abc123",
+        "body": "Sprint 2 kicks off Monday!"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "pmsg_new456",
+        "projectId": "proj_abc123",
+        "body": "Sprint 2 kicks off Monday!",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a project message {{ tag: 'GET', label: '/v1/project-messages/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single project message by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/project-messages/pmsg_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/project-messages/pmsg_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "pmsg_abc123",
+        "projectId": "proj_abc123",
+        "body": "Sprint 2 kicks off Monday, let's review the backlog Friday."
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a project message {{ tag: 'PATCH', label: '/v1/project-messages/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a project message.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/project-messages/pmsg_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/project-messages/pmsg_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "body": "Sprint 2 kicks off Monday at 9am!" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "pmsg_abc123",
+        "body": "Sprint 2 kicks off Monday at 9am!",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a project message {{ tag: 'DELETE', label: '/v1/project-messages/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a project message. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/project-messages/pmsg_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/project-messages/pmsg_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

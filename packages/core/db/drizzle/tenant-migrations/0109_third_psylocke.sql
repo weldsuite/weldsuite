@@ -1,0 +1,1 @@
+ALTER TABLE "autonomous_agents" ADD COLUMN "schedule_config" jsonb;

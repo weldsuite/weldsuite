@@ -1,0 +1,2 @@
+DROP INDEX "chat_drafts_location_idx";--> statement-breakpoint
+ALTER TABLE "chat_drafts" ADD CONSTRAINT "chat_drafts_location_unique" UNIQUE NULLS NOT DISTINCT("user_id","channel_id","thread_parent_message_id");

@@ -1,0 +1,2 @@
+ALTER TABLE "workspace_members" ADD COLUMN "member_type" varchar(20) DEFAULT 'INTERNAL' NOT NULL;--> statement-breakpoint
+CREATE INDEX "workspace_members_member_type_idx" ON "workspace_members" USING btree ("member_type");

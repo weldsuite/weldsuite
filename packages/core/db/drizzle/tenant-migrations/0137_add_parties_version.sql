@@ -1,0 +1,1 @@
+ALTER TABLE "parties" ADD COLUMN "version" integer DEFAULT 1 NOT NULL;

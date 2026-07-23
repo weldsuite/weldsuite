@@ -1,0 +1,1 @@
+ALTER TABLE "plans" ADD COLUMN "has_api_access" boolean DEFAULT false NOT NULL;

@@ -1,0 +1,93 @@
+export const invoices = {
+  "title": "[TRANSLATE] Invoices",
+  "invoice": "[TRANSLATE] Invoice",
+  "invoiceNumber": "[TRANSLATE] Invoice Number",
+  "customer": "[TRANSLATE] Customer",
+  "issueDate": "[TRANSLATE] Issue Date",
+  "dueDate": "[TRANSLATE] Due Date",
+  "paymentTerms": "[TRANSLATE] Payment Terms",
+  "items": "[TRANSLATE] Items",
+  "item": "[TRANSLATE] Item",
+  "quantity": "[TRANSLATE] Quantity",
+  "unitPrice": "[TRANSLATE] Unit Price",
+  "discount": "[TRANSLATE] Discount",
+  "lineTotal": "[TRANSLATE] Line Total",
+  "subtotal": "[TRANSLATE] Subtotal",
+  "tax": "[TRANSLATE] Tax",
+  "total": "[TRANSLATE] Total",
+  "balanceDue": "[TRANSLATE] Balance Due",
+  "paidAmount": "[TRANSLATE] Paid Amount",
+  "paymentMethod": "[TRANSLATE] Payment Method",
+  "actions": {
+    "newInvoice": "[TRANSLATE] New Invoice",
+    "importInvoice": "[TRANSLATE] Import Invoice",
+    "editInvoice": "[TRANSLATE] Edit Invoice",
+    "deleteInvoice": "[TRANSLATE] Delete Invoice",
+    "sendInvoice": "[TRANSLATE] Send Invoice",
+    "printInvoice": "[TRANSLATE] Print Invoice",
+    "duplicateInvoice": "[TRANSLATE] Duplicate Invoice",
+    "convertToCredit": "[TRANSLATE] Convert to Credit Note",
+    "recordPayment": "[TRANSLATE] Record Payment",
+    "viewInvoice": "[TRANSLATE] View Invoice"
+  },
+  "status": {
+    "draft": "[TRANSLATE] Draft",
+    "sent": "[TRANSLATE] Sent",
+    "viewed": "[TRANSLATE] Viewed",
+    "paid": "[TRANSLATE] Paid",
+    "partiallyPaid": "[TRANSLATE] Partially Paid",
+    "overdue": "[TRANSLATE] Overdue",
+    "cancelled": "[TRANSLATE] Cancelled"
+  },
+  "stats": {
+    "totalInvoices": "[TRANSLATE] Total Invoices",
+    "totalInvoicesDesc": "[TRANSLATE] All invoices",
+    "overdue": "[TRANSLATE] Overdue",
+    "overdueDesc": "[TRANSLATE] Past due date",
+    "paidLabel": "[TRANSLATE] Paid",
+    "paidDesc": "[TRANSLATE] Total paid",
+    "pending": "[TRANSLATE] Pending",
+    "pendingDesc": "[TRANSLATE] Awaiting payment"
+  },
+  "filters": {
+    "all": "[TRANSLATE] All",
+    "draft": "[TRANSLATE] Draft",
+    "sent": "[TRANSLATE] Sent",
+    "unpaid": "[TRANSLATE] Unpaid",
+    "paid": "[TRANSLATE] Paid",
+    "overdue": "[TRANSLATE] Overdue"
+  },
+  "table": {
+    "invoiceNumber": "[TRANSLATE] Invoice #",
+    "customer": "[TRANSLATE] Customer",
+    "issueDate": "[TRANSLATE] Issue Date",
+    "dueDate": "[TRANSLATE] Due Date",
+    "status": "[TRANSLATE] Status",
+    "total": "[TRANSLATE] Total",
+    "balanceDue": "[TRANSLATE] Balance Due",
+    "unknownCustomer": "[TRANSLATE] Unknown Customer"
+  },
+  "actionsMenu": {
+    "openMenu": "[TRANSLATE] Open menu",
+    "actions": "[TRANSLATE] Actions",
+    "viewInvoice": "[TRANSLATE] View Invoice",
+    "sendByEmail": "[TRANSLATE] Send by Email",
+    "duplicate": "[TRANSLATE] Duplicate",
+    "downloadPdf": "[TRANSLATE] Download PDF",
+    "recordPayment": "[TRANSLATE] Record Payment",
+    "duplicateFeature": "[TRANSLATE] Duplicate feature coming soon",
+    "pdfDownloadFeature": "[TRANSLATE] PDF download feature coming soon",
+    "paymentRecordingFeature": "[TRANSLATE] Payment recording feature coming soon"
+  },
+  "loadingInvoices": "[TRANSLATE] Loading invoices...",
+  "selectAdministration": "[TRANSLATE] Please select an administration to view invoices.",
+  "messages": {
+    "invoiceCreated": "[TRANSLATE] Invoice created successfully",
+    "invoiceSent": "[TRANSLATE] Invoice sent successfully",
+    "invoiceStatusUpdated": "[TRANSLATE] Invoice {status} successfully",
+    "paymentRecorded": "[TRANSLATE] Payment recorded successfully",
+    "cannotEditSent": "[TRANSLATE] Cannot edit invoice that has been sent",
+    "confirmSend": "[TRANSLATE] Are you sure you want to send this invoice?",
+    "updateFailed": "[TRANSLATE] Failed to update invoice"
+  }
+};

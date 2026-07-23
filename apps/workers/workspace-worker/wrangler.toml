@@ -1,0 +1,162 @@
+# WeldSuite Workspace Worker
+# Handles workspace lifecycle: onboarding, Clerk webhooks, database provisioning
+
+name = "weldsuite-workspace"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+
+# ============ LOCAL DEVELOPMENT ============
+# Required secrets (add via wrangler secret put):
+# - DATABASE_URL_MASTER: Neon serverless connection string for the master DB (replaces Hyperdrive)
+# - CLERK_SECRET_KEY: Clerk secret key (sk_...)
+# - CLERK_WEBHOOK_SECRET: Clerk webhook signing secret
+# - NEON_API_KEY: Neon database API key
+# - CLERK_MACHINE_SECRET_KEY: Clerk M2M machine secret key (ak_...)
+# - DATABASE_ENCRYPTION_KEY: 64-char hex key for AES-256-GCM encryption
+# - STRIPE_SECRET_KEY: Stripe secret key (optional)
+# - BETTERSTACK_TOKEN: Better Stack source token (from Better Stack > Sources)
+# - RESEND_API_KEY: Resend API key for the custom workspace invitation email
+# - RESEND_WORKSPACE_INVITATION_TEMPLATE_ID: Resend-hosted template id for the workspace invitation email
+
+[vars]
+ENVIRONMENT = "development"
+NEON_DEFAULT_REGION = "aws-eu-central-1"
+APP_URL = "http://localhost:3000"
+# Warm database pool watermarks (instant provisioning). Shared slots = free
+# workspaces (database inside a shared Neon project shard); dedicated = paid
+# (whole pre-created Neon project — costs a project each, keep low).
+POOL_TARGET_SHARED = "2"
+POOL_TARGET_DEDICATED = "0"
+# Local-dev master DB connection (Neon serverless HTTP driver). In test/preview/
+# production this is provided as the DATABASE_URL_MASTER secret instead.
+# Set your real local master DB URL in `.dev.vars` (gitignored) — do NOT hardcode here.
+DATABASE_URL_MASTER = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:5432/weldsuite_master?sslmode=require"
+
+[[workflows]]
+name = "provision-workspace-dev"
+binding = "PROVISION_WORKSPACE"
+class_name = "ProvisionWorkspaceWorkflow"
+
+[[workflows]]
+name = "refill-pool-dev"
+binding = "REFILL_POOL"
+class_name = "RefillPoolWorkflow"
+
+# Keep the warm database pool topped up (test locally with
+# `wrangler dev --test-scheduled` + GET /__scheduled). The daily entry runs
+# the scheduled-deletion sweep (services/deletion-sweep.ts) instead — branched
+# on event.cron in the `scheduled` handler (src/index.ts).
+[triggers]
+crons = ["*/5 * * * *", "0 3 * * *"]
+
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+name = "weldsuite-workspace-test"
+routes = [
+  { pattern = "workspace-worker-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+NEON_DEFAULT_REGION = "aws-eu-central-1"
+APP_URL = "https://app-test.weldsuite.org"
+POOL_TARGET_SHARED = "3"
+POOL_TARGET_DEDICATED = "1"
+
+[[env.test.workflows]]
+name = "provision-workspace-test"
+binding = "PROVISION_WORKSPACE"
+class_name = "ProvisionWorkspaceWorkflow"
+
+[[env.test.workflows]]
+name = "refill-pool-test"
+binding = "REFILL_POOL"
+class_name = "RefillPoolWorkflow"
+
+[env.test.triggers]
+crons = ["*/5 * * * *", "0 3 * * *"]
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# ============ PREVIEW ENVIRONMENT ============
+[env.preview]
+name = "weldsuite-workspace-preview"
+
+[env.preview.vars]
+ENVIRONMENT = "preview"
+NEON_DEFAULT_REGION = "aws-eu-central-1"
+APP_URL = "https://app-preview.weldsuite.org"
+POOL_TARGET_SHARED = "2"
+POOL_TARGET_DEDICATED = "0"
+
+[[env.preview.workflows]]
+name = "provision-workspace-preview"
+binding = "PROVISION_WORKSPACE"
+class_name = "ProvisionWorkspaceWorkflow"
+
+[[env.preview.workflows]]
+name = "refill-pool-preview"
+binding = "REFILL_POOL"
+class_name = "RefillPoolWorkflow"
+
+[env.preview.triggers]
+crons = ["*/5 * * * *", "0 3 * * *"]
+
+[[env.preview.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-workspace"
+routes = [
+  { pattern = "workspace-worker.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+NEON_DEFAULT_REGION = "aws-eu-central-1"
+POOL_TARGET_SHARED = "10"
+POOL_TARGET_DEDICATED = "2"
+
+[[env.production.workflows]]
+name = "provision-workspace"
+binding = "PROVISION_WORKSPACE"
+class_name = "ProvisionWorkspaceWorkflow"
+
+[[env.production.workflows]]
+name = "refill-pool"
+binding = "REFILL_POOL"
+class_name = "RefillPoolWorkflow"
+
+[env.production.triggers]
+crons = ["*/5 * * * *", "0 3 * * *"]
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# --- Persist Workers Logs across environments ---
+# observability is NOT inherited by named environments, so it must be set on each.
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.preview.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

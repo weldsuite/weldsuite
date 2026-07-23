@@ -1,0 +1,95 @@
+@keyframes fadeInSubtle {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted) / 0.5) 25%,
+    hsl(var(--muted) / 0.3) 50%,
+    hsl(var(--muted) / 0.5) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Table container styles */
+.table-container {
+  min-height: 400px;
+  transition: min-height 0.3s ease;
+}
+
+.table-wrapper {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Prevent layout shift */
+.table-body-wrapper {
+  position: relative;
+  transition: height 0.3s ease;
+}
+
+/* Smooth height transitions */
+.smooth-height {
+  transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Preserve scroll position */
+.preserve-scroll {
+  overflow-y: auto;
+  overflow-anchor: auto;
+}
+
+/* Prevent scrollbar during transitions */
+.no-scrollbar-transition {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+.no-scrollbar-transition::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+}
+
+/* Table overflow handling */
+.table-scroll-container {
+  position: relative;
+  width: 100%;
+}
+
+.table-scroll-wrapper {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Hide scrollbar during filtering */
+.filtering .table-scroll-wrapper {
+  overflow-x: hidden !important;
+}
+
+/* Ensure table takes full width */
+.data-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+/* Loading overlay - no animation to prevent shifts */
+.loading-overlay {
+  opacity: 1;
+}

@@ -1,0 +1,1 @@
+ALTER TABLE "ai_agent_definitions" ADD COLUMN "sub_agent_ids" text[] DEFAULT '{}';

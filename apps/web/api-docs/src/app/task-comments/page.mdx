@@ -1,0 +1,224 @@
+# Task Comments
+
+Task comments are threaded notes attached to a WeldFlow task. Comments can mention workspace members. Mutations require the `task_comments:write` scope; reads require `task_comments:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The task comment model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `tcomment_abc123`).</Property>
+  <Property name="taskId" type="string">ID of the parent task.</Property>
+  <Property name="authorId" type="string">User ID of the comment author.</Property>
+  <Property name="body" type="string">Comment body text.</Property>
+  <Property name="mentions" type="array">Array of mentioned user IDs.</Property>
+  <Property name="createdAt" type="timestamp">When the comment was posted.</Property>
+  <Property name="updatedAt" type="timestamp">When the comment was last updated.</Property>
+</Properties>
+
+---
+
+## List task comments {{ tag: 'GET', label: '/v1/task-comments' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of task comments.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="taskId" type="string">Filter by task.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/task-comments">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/task-comments \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d taskId=task_abc123
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "tcomment_abc123",
+          "taskId": "task_abc123",
+          "authorId": "user_xyz789",
+          "body": "Moving this to review, feedback welcome.",
+          "mentions": []
+        }
+      ],
+      "pagination": { "totalCount": 4, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a task comment {{ tag: 'POST', label: '/v1/task-comments' }}
+
+<Row>
+  <Col>
+
+    Post a comment on a task.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="taskId" type="string">ID of the task.</Property>
+      <Property name="body" type="string">Comment body.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="authorId" type="string">Author user ID (defaults to key owner).</Property>
+      <Property name="mentions" type="array">Array of mentioned user IDs.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/task-comments">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/task-comments \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "taskId": "task_abc123",
+        "body": "Blocked on design, pinging @jane.",
+        "mentions": ["user_jane001"]
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "tcomment_new456",
+        "taskId": "task_abc123",
+        "body": "Blocked on design, pinging @jane.",
+        "mentions": ["user_jane001"],
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a task comment {{ tag: 'GET', label: '/v1/task-comments/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single task comment by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/task-comments/tcomment_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/task-comments/tcomment_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "tcomment_abc123",
+        "taskId": "task_abc123",
+        "body": "Moving this to review, feedback welcome."
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a task comment {{ tag: 'PATCH', label: '/v1/task-comments/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a task comment.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/task-comments/tcomment_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/task-comments/tcomment_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "body": "Moving this to review, approved!" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "tcomment_abc123",
+        "body": "Moving this to review, approved!",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a task comment {{ tag: 'DELETE', label: '/v1/task-comments/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a task comment. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/task-comments/tcomment_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/task-comments/tcomment_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

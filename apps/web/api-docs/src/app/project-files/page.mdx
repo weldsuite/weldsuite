@@ -1,0 +1,235 @@
+# Project Files
+
+Project files are file attachments associated with a WeldFlow project. Each record stores the file metadata and storage reference. Mutations require the `project_files:write` scope; reads require `project_files:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The project file model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `pfile_abc123`).</Property>
+  <Property name="projectId" type="string">ID of the parent project.</Property>
+  <Property name="fileName" type="string">File display name (max 500 characters).</Property>
+  <Property name="contentType" type="string">MIME type of the file.</Property>
+  <Property name="size" type="integer">File size in bytes.</Property>
+  <Property name="url" type="string">Download or preview URL.</Property>
+  <Property name="storageKey" type="string">Internal storage key.</Property>
+  <Property name="uploadedBy" type="string">User ID of the uploader.</Property>
+  <Property name="createdAt" type="timestamp">When the file was attached.</Property>
+  <Property name="updatedAt" type="timestamp">When the record was last updated.</Property>
+</Properties>
+
+---
+
+## List project files {{ tag: 'GET', label: '/v1/project-files' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of project file attachments.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="projectId" type="string">Filter by project.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/project-files">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/project-files \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d projectId=proj_abc123
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "pfile_abc123",
+          "projectId": "proj_abc123",
+          "fileName": "requirements.pdf",
+          "contentType": "application/pdf",
+          "size": 204800,
+          "url": "https://cdn.weldsuite.org/files/requirements.pdf"
+        }
+      ],
+      "pagination": { "totalCount": 8, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Attach a project file {{ tag: 'POST', label: '/v1/project-files' }}
+
+<Row>
+  <Col>
+
+    Attach a file record to a project.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="projectId" type="string">ID of the project.</Property>
+      <Property name="fileName" type="string">File display name.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="contentType" type="string">MIME type.</Property>
+      <Property name="size" type="integer">File size in bytes.</Property>
+      <Property name="url" type="string">Download or preview URL.</Property>
+      <Property name="storageKey" type="string">Internal storage key.</Property>
+      <Property name="uploadedBy" type="string">Uploader user ID.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/project-files">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/project-files \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "projectId": "proj_abc123",
+        "fileName": "requirements.pdf",
+        "contentType": "application/pdf",
+        "size": 204800,
+        "url": "https://cdn.weldsuite.org/files/requirements.pdf"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "pfile_new456",
+        "projectId": "proj_abc123",
+        "fileName": "requirements.pdf",
+        "contentType": "application/pdf",
+        "size": 204800,
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a project file {{ tag: 'GET', label: '/v1/project-files/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single project file record by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/project-files/pfile_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/project-files/pfile_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "pfile_abc123",
+        "projectId": "proj_abc123",
+        "fileName": "requirements.pdf",
+        "url": "https://cdn.weldsuite.org/files/requirements.pdf"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a project file {{ tag: 'PATCH', label: '/v1/project-files/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a project file record.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/project-files/pfile_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/project-files/pfile_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "fileName": "requirements-v2.pdf" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "pfile_abc123",
+        "fileName": "requirements-v2.pdf",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Remove a project file {{ tag: 'DELETE', label: '/v1/project-files/:id' }}
+
+<Row>
+  <Col>
+
+    Remove a project file attachment. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/project-files/pfile_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/project-files/pfile_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

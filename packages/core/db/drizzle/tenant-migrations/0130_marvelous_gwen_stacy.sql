@@ -1,0 +1,1 @@
+ALTER TABLE "chat_drafts" ALTER COLUMN "workspace_id" SET DATA TYPE varchar(255);

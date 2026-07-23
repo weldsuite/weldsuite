@@ -1,0 +1,1 @@
+ALTER TABLE "grid_views" ADD COLUMN "column_widths" jsonb DEFAULT '{}'::jsonb NOT NULL;

@@ -1,0 +1,212 @@
+export const common = {
+  "ui": {
+    "pagination": {
+      "previous": "[TRANSLATE] Previous",
+      "next": "[TRANSLATE] Next",
+      "first": "[TRANSLATE] First",
+      "last": "[TRANSLATE] Last",
+      "page": "[TRANSLATE] Page",
+      "of": "[TRANSLATE] of",
+      "rows": "[TRANSLATE] rows",
+      "rowsPerPage": "[TRANSLATE] Rows per page",
+      "showing": "[TRANSLATE] Showing",
+      "to": "[TRANSLATE] to",
+      "results": "[TRANSLATE] results"
+    },
+    "table": {
+      "sortAscending": "[TRANSLATE] Sort ascending",
+      "sortDescending": "[TRANSLATE] Sort descending",
+      "unsorted": "[TRANSLATE] Unsorted",
+      "toggleColumns": "[TRANSLATE] Toggle columns",
+      "selectAll": "[TRANSLATE] Select all",
+      "selectRow": "[TRANSLATE] Select row",
+      "noResults": "[TRANSLATE] No results found",
+      "loading": "[TRANSLATE] Loading..."
+    },
+    "form": {
+      "required": "[TRANSLATE] Required",
+      "optional": "[TRANSLATE] Optional",
+      "select": "[TRANSLATE] Select...",
+      "selectOption": "[TRANSLATE] Select an option",
+      "clear": "[TRANSLATE] Clear",
+      "reset": "[TRANSLATE] Reset"
+    }
+  },
+  "actions": {
+    "copyTaskNumber": "Copier le numéro de tâche",
+    "save": "[TRANSLATE] Save",
+    "cancel": "[TRANSLATE] Cancel",
+    "delete": "[TRANSLATE] Delete",
+    "edit": "[TRANSLATE] Edit",
+    "create": "[TRANSLATE] Create",
+    "update": "[TRANSLATE] Update",
+    "search": "[TRANSLATE] Search",
+    "filter": "[TRANSLATE] Filter",
+    "export": "[TRANSLATE] Export",
+    "import": "[TRANSLATE] Import",
+    "print": "[TRANSLATE] Print",
+    "view": "[TRANSLATE] View",
+    "viewDetails": "[TRANSLATE] View Details",
+    "back": "[TRANSLATE] Back",
+    "next": "[TRANSLATE] Next",
+    "previous": "[TRANSLATE] Previous",
+    "confirm": "[TRANSLATE] Confirm",
+    "close": "[TRANSLATE] Close",
+    "add": "[TRANSLATE] Add",
+    "remove": "[TRANSLATE] Remove",
+    "sync": "[TRANSLATE] Sync",
+    "refresh": "[TRANSLATE] Refresh",
+    "submit": "[TRANSLATE] Submit",
+    "connect": "[TRANSLATE] Connect",
+    "disconnect": "[TRANSLATE] Disconnect",
+    "reconnect": "[TRANSLATE] Reconnect",
+    "viewAnalytics": "[TRANSLATE] View Analytics",
+    "openMenu": "[TRANSLATE] Open menu",
+    "selectRow": "[TRANSLATE] Select row",
+    "title": "[TRANSLATE] Actions",
+    "addKey": "[TRANSLATE] Add key",
+    "readWrite": "[TRANSLATE] Read/Write"
+  },
+  "status": {
+    "active": "[TRANSLATE] Active",
+    "inactive": "[TRANSLATE] Inactive",
+    "pending": "[TRANSLATE] Pending",
+    "completed": "[TRANSLATE] Completed",
+    "draft": "[TRANSLATE] Draft",
+    "sent": "[TRANSLATE] Sent",
+    "paid": "[TRANSLATE] Paid",
+    "overdue": "[TRANSLATE] Overdue",
+    "cancelled": "[TRANSLATE] Cancelled",
+    "partiallyPaid": "[TRANSLATE] Partially Paid"
+  },
+  "labels": {
+    "date": "[TRANSLATE] Date",
+    "amount": "[TRANSLATE] Amount",
+    "description": "[TRANSLATE] Description",
+    "notes": "[TRANSLATE] Notes",
+    "total": "[TRANSLATE] Total",
+    "subtotal": "[TRANSLATE] Subtotal",
+    "tax": "[TRANSLATE] Tax",
+    "balance": "[TRANSLATE] Balance",
+    "currency": "[TRANSLATE] Currency",
+    "status": "[TRANSLATE] Status",
+    "type": "[TRANSLATE] Type",
+    "category": "[TRANSLATE] Category",
+    "reference": "[TRANSLATE] Reference",
+    "createdAt": "[TRANSLATE] Created At",
+    "updatedAt": "[TRANSLATE] Updated At",
+    "from": "[TRANSLATE] From",
+    "to": "[TRANSLATE] To",
+    "noData": "[TRANSLATE] No data available",
+    "notAvailable": "[TRANSLATE] N/A",
+    "loading": "[TRANSLATE] Loading...",
+    "error": "[TRANSLATE] Error",
+    "success": "[TRANSLATE] Success",
+    "select": "[TRANSLATE] Select",
+    "name": "[TRANSLATE] Name",
+    "email": "[TRANSLATE] Email",
+    "phone": "[TRANSLATE] Phone",
+    "address": "[TRANSLATE] Address",
+    "city": "[TRANSLATE] City",
+    "country": "[TRANSLATE] Country",
+    "zipCode": "[TRANSLATE] Zip Code",
+    "priority": "[TRANSLATE] Priority",
+    "customer": "[TRANSLATE] Customer",
+    "vendor": "[TRANSLATE] Vendor",
+    "product": "[TRANSLATE] Product",
+    "quantity": "[TRANSLATE] Quantity",
+    "price": "[TRANSLATE] Price",
+    "discount": "[TRANSLATE] Discount",
+    "image": "[TRANSLATE] Image",
+    "url": "[TRANSLATE] URL",
+    "active": "[TRANSLATE] Active",
+    "visible": "[TRANSLATE] Visible",
+    "hidden": "[TRANSLATE] Hidden",
+    "settings": "[TRANSLATE] Settings",
+    "basicInformation": "[TRANSLATE] Basic Information",
+    "classification": "[TRANSLATE] Classification",
+    "media": "[TRANSLATE] Media",
+    "displaySettings": "[TRANSLATE] Display Settings",
+    "seoSettings": "[TRANSLATE] SEO Settings",
+    "search": "[TRANSLATE] Search",
+    "searchPlaceholder": "[TRANSLATE] Search..."
+  },
+  "messages": {
+    "confirmDelete": "[TRANSLATE] Are you sure you want to delete this item?",
+    "deleteSuccess": "[TRANSLATE] Item deleted successfully",
+    "createSuccess": "[TRANSLATE] Item created successfully",
+    "updateSuccess": "[TRANSLATE] Item updated successfully",
+    "errorOccurred": "[TRANSLATE] An error occurred",
+    "noResults": "[TRANSLATE] No results found",
+    "required": "[TRANSLATE] This field is required",
+    "invalid": "[TRANSLATE] Invalid value"
+  },
+  "tooltips": {
+    "requiredField": "[TRANSLATE] This field is required",
+    "optionalField": "[TRANSLATE] This field is optional",
+    "clickForMore": "[TRANSLATE] Click for more information",
+    "systemTheme": "[TRANSLATE] Automatically switch between light and dark mode based on your system preferences",
+    "lightTheme": "[TRANSLATE] Use light color scheme",
+    "darkTheme": "[TRANSLATE] Use dark color scheme",
+    "accountNumber": "[TRANSLATE] Enter a unique account code (e.g., 1000-9999)",
+    "normalBalance": "[TRANSLATE] Indicates whether this account normally has a debit or credit balance",
+    "vatNumber": "[TRANSLATE] Enter VAT number in format: XX999999999B99 (varies by country)",
+    "creditLimit": "[TRANSLATE] Maximum amount of credit allowed for this customer",
+    "paymentTerms": "[TRANSLATE] Number of days until payment is due",
+    "twoFactorAuth": "[TRANSLATE] Add an extra layer of security to your account"
+  },
+  "help": {
+    "general": {
+      "welcome": "[TRANSLATE] Welcome to WeldSuite! This platform helps you manage all aspects of your business from one unified interface.",
+      "gettingStarted": "[TRANSLATE] To get started, configure your workspace settings and add your team members.",
+      "needHelp": "[TRANSLATE] Need help? Click the help icon next to any field for more information."
+    },
+    "balancedEntry": "[TRANSLATE] A balanced entry means the total debits equal the total credits. This is a fundamental principle of double-entry bookkeeping.",
+    "sessionTimeout": "[TRANSLATE] For security reasons, you will be automatically logged out after a period of inactivity. Your work will be saved automatically."
+  },
+  "dialogs": {
+    "confirmTitle": "[TRANSLATE] Are you sure?",
+    "confirmDescription": "[TRANSLATE] This action cannot be undone.",
+    "yes": "[TRANSLATE] Yes",
+    "no": "[TRANSLATE] No"
+  },
+  "toast": {
+    "savedSuccessfully": "[TRANSLATE] Saved successfully",
+    "deletedSuccessfully": "[TRANSLATE] Deleted successfully",
+    "createdSuccessfully": "[TRANSLATE] Created successfully",
+    "updatedSuccessfully": "[TRANSLATE] Updated successfully",
+    "failedToSave": "[TRANSLATE] Failed to save",
+    "failedToDelete": "[TRANSLATE] Failed to delete",
+    "failedToLoad": "[TRANSLATE] Failed to load data",
+    "somethingWentWrong": "[TRANSLATE] Something went wrong",
+    "copiedToClipboard": "[TRANSLATE] Copied to clipboard"
+  },
+  "empty": {
+    "noResults": "[TRANSLATE] No results found",
+    "noData": "[TRANSLATE] No data available",
+    "noItems": "[TRANSLATE] No items yet",
+    "getStarted": "[TRANSLATE] Get started by creating your first item"
+  },
+  "time": {
+    "justNow": "[TRANSLATE] Just now",
+    "minutesAgo": "[TRANSLATE] {count} minutes ago",
+    "hoursAgo": "[TRANSLATE] {count} hours ago",
+    "daysAgo": "[TRANSLATE] {count} days ago",
+    "today": "[TRANSLATE] Today",
+    "yesterday": "[TRANSLATE] Yesterday"
+  },
+  "plurals": {
+    "searchResults": {
+      "one": "[TRANSLATE] {count} result found",
+      "other": "[TRANSLATE] {count} results found"
+    }
+  },
+  "legal": {
+    "termsAndPrivacyNotice": "[TRANSLATE] By proceeding, you agree to our {terms} and {privacy}.",
+    "terms": "[TRANSLATE] Terms",
+    "privacyPolicy": "[TRANSLATE] Privacy Policy"
+  },
+  "helpcenter": {
+    "searchPlaceholder": "Rechercher des articles..."
+  }
+};

@@ -1,0 +1,26 @@
+{
+  "name": "@weldsuite/feature-flags",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./flags": "./src/flags.ts",
+    "./attributes": "./src/attributes.ts",
+    "./server": "./src/server.ts"
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "hono": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "hono": { "optional": true }
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@weldsuite/typescript-config": "workspace:*",
+    "hono": "^4.0.0",
+    "typescript": "^5.9.2"
+  }
+}

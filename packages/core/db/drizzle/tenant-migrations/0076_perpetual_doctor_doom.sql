@@ -1,0 +1,1 @@
+ALTER TABLE "helpdesk_widget_settings" ADD COLUMN "email_collection" varchar(30) DEFAULT 'none';

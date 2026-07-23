@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Helpdesk Widget - Local Test Environment</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f8fafc;
+      color: #334155;
+    }
+
+    /* Simulate a real website */
+    .site-header {
+      background: white;
+      border-bottom: 1px solid #e2e8f0;
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .site-header h1 { font-size: 18px; font-weight: 600; color: #0f172a; }
+    .site-header nav a {
+      margin-left: 24px;
+      color: #64748b;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .site-header nav a:hover { color: #0f172a; }
+
+    .site-hero {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 80px 32px;
+      text-align: center;
+    }
+    .site-hero h2 { font-size: 36px; margin-bottom: 16px; }
+    .site-hero p { font-size: 18px; opacity: 0.9; max-width: 600px; margin: 0 auto; }
+
+    .site-content {
+      max-width: 960px;
+      margin: 40px auto;
+      padding: 0 32px;
+    }
+    .site-content .card {
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .site-content .card h3 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+    .site-content .card p { font-size: 14px; color: #64748b; line-height: 1.6; }
+
+    /* Dev toolbar */
+    .dev-toolbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: #1e293b;
+      color: #e2e8f0;
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      z-index: 2147483647;
+      font-size: 12px;
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+    }
+    .dev-toolbar .badge {
+      background: #22c55e;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .dev-toolbar .badge.disconnected { background: #ef4444; }
+    .dev-toolbar .sep { color: #475569; margin: 0 4px; }
+    .dev-toolbar button {
+      background: #334155;
+      color: #e2e8f0;
+      border: 1px solid #475569;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      font-family: inherit;
+    }
+    .dev-toolbar button:hover { background: #475569; }
+    .dev-toolbar input {
+      background: #0f172a;
+      color: #e2e8f0;
+      border: 1px solid #475569;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: inherit;
+      width: 220px;
+    }
+    .dev-toolbar label { color: #94a3b8; font-size: 11px; }
+
+    /* Push content down for dev toolbar */
+    .site-header { margin-top: 40px; }
+
+    /* Console panel */
+    .dev-console {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 400px;
+      max-height: 200px;
+      background: #0f172a;
+      color: #4ade80;
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+      font-size: 11px;
+      overflow-y: auto;
+      z-index: 2147483647;
+      border-top: 1px solid #1e293b;
+      border-right: 1px solid #1e293b;
+      border-top-right-radius: 8px;
+      display: none;
+    }
+    .dev-console.visible { display: block; }
+    .dev-console .header {
+      position: sticky;
+      top: 0;
+      background: #1e293b;
+      padding: 4px 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: #94a3b8;
+    }
+    .dev-console .header button {
+      background: none;
+      border: none;
+      color: #94a3b8;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .dev-console .entries { padding: 4px 8px; }
+    .dev-console .entry { padding: 2px 0; border-bottom: 1px solid #1e293b22; }
+    .dev-console .entry .time { color: #64748b; }
+    .dev-console .entry.warn { color: #facc15; }
+    .dev-console .entry.error { color: #f87171; }
+    .dev-console .entry.info { color: #38bdf8; }
+  </style>
+</head>
+<body>
+
+  <!-- Dev Toolbar -->
+  <div class="dev-toolbar">
+    <span class="badge" id="statusBadge">connecting</span>
+    <span class="sep">|</span>
+    <label>Widget ID:</label>
+    <input type="text" id="widgetIdInput" value="widget_mlmc1d4hncajqbqn" placeholder="widget_...">
+    <label>Port:</label>
+    <input type="text" id="portInput" value="3100" style="width:60px">
+    <span class="sep">|</span>
+    <button onclick="reloadWidget()">Reload</button>
+    <button onclick="openWidget()">Open</button>
+    <button onclick="closeWidget()">Close</button>
+    <button onclick="destroyWidget()">Destroy</button>
+    <button onclick="toggleConsole()">Console</button>
+  </div>
+
+  <!-- Simulated website content -->
+  <div class="site-header">
+    <h1>Acme Corp</h1>
+    <nav>
+      <a href="#" onclick="simulateNavigation('/products', 'Products - Acme Corp'); return false;">Products</a>
+      <a href="#" onclick="simulateNavigation('/pricing', 'Pricing - Acme Corp'); return false;">Pricing</a>
+      <a href="#" onclick="simulateNavigation('/about', 'About - Acme Corp'); return false;">About</a>
+      <a href="#" onclick="simulateNavigation('/contact', 'Contact - Acme Corp'); return false;">Contact</a>
+    </nav>
+  </div>
+
+  <div class="site-hero">
+    <h2>Welcome to Acme Corp</h2>
+    <p>This is a simulated website to test the helpdesk widget in a realistic environment. The widget loads from your local dev server.</p>
+  </div>
+
+  <div class="site-content">
+    <div class="card">
+      <h3>How it works</h3>
+      <p>
+        This page creates iframes pointing directly to your local Vite dev server (<code>localhost:3100</code>).
+        Any changes you make to the widget code are picked up instantly via HMR — no SDK rebuild needed.
+        The page mimics the same postMessage protocol the real SDK uses.
+      </p>
+    </div>
+    <div class="card">
+      <h3>Quick start</h3>
+      <p>
+        1. Run <code>pnpm dev</code> in <code>apps/web/helpdesk-widget</code> to start the widget dev server on port 3100.<br>
+        2. Open this file in a browser (or serve it with any static server).<br>
+        3. The launcher button should appear in the bottom-right corner.<br>
+        4. Use the dev toolbar to control the widget, change the widget ID, or view the message console.
+      </p>
+    </div>
+    <div class="card">
+      <h3>Sample page content</h3>
+      <p>
+        Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+        Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+        Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
+      </p>
+    </div>
+    <div class="card">
+      <h3>Another section</h3>
+      <p>
+        Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+        Curabitur pretium tincidunt lacus. Nulla gravida orci a odio. Nullam varius, turpis et commodo pharetra.
+      </p>
+    </div>
+  </div>
+
+  <!-- Console Panel -->
+  <div class="dev-console" id="devConsole">
+    <div class="header">
+      <span>Messages</span>
+      <button onclick="clearConsole()">Clear</button>
+    </div>
+    <div class="entries" id="consoleEntries"></div>
+  </div>
+
+  <script>
+    // ─── Configuration ───────────────────────────────────────────────
+    const getBaseUrl = () => 'https://f7s7fc2c-3100.euw.devtunnels.ms/';
+    const getWidgetId = () => document.getElementById('widgetIdInput').value;
+
+    // ─── State ───────────────────────────────────────────────────────
+    let launcherIframe = null;
+    let widgetIframe = null;
+    let launcherContainer = null;
+    let widgetContainer = null;
+    let backdropEl = null;
+    let rootContainer = null;
+    let widgetOpen = false;
+    let consoleVisible = false;
+
+    // ─── Logging ─────────────────────────────────────────────────────
+    function log(msg, level = 'log') {
+      const el = document.getElementById('consoleEntries');
+      const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 2 });
+      const entry = document.createElement('div');
+      entry.className = `entry ${level}`;
+      entry.innerHTML = `<span class="time">${time}</span> ${msg}`;
+      el.appendChild(entry);
+      el.parentElement.scrollTop = el.parentElement.scrollHeight;
+      console.log(`[widget-test] ${msg}`);
+    }
+
+    function clearConsole() {
+      document.getElementById('consoleEntries').innerHTML = '';
+    }
+
+    function toggleConsole() {
+      consoleVisible = !consoleVisible;
+      document.getElementById('devConsole').classList.toggle('visible', consoleVisible);
+    }
+
+    // ─── Status Badge ────────────────────────────────────────────────
+    function setStatus(status) {
+      const badge = document.getElementById('statusBadge');
+      badge.textContent = status;
+      badge.className = status === 'ready' ? 'badge' : 'badge disconnected';
+    }
+
+    // ─── Build iframe URLs (matches SDK protocol) ────────────────────
+    function buildUrl(mode) {
+      const base = getBaseUrl();
+      const widgetId = getWidgetId();
+      const params = new URLSearchParams({
+        mode,
+        widgetId,
+        parentOrigin: window.location.origin || 'null',
+        device: window.innerWidth > 768 ? 'desktop' : 'mobile',
+        mobile: window.innerWidth < 768 ? 'true' : 'false',
+      });
+      return `${base}?${params.toString()}`;
+    }
+
+    // ─── Singleton + sessionStorage persistence (mimics SDK) ──────────
+    const OPEN_STATE_KEY = () => `weld-widget-open-${getWidgetId()}`;
+
+    function persistOpenState(isOpen) {
+      try { sessionStorage.setItem(OPEN_STATE_KEY(), isOpen ? 'true' : 'false'); } catch {}
+    }
+
+    function getPersistedOpenState() {
+      try { return sessionStorage.getItem(OPEN_STATE_KEY()) === 'true'; } catch { return false; }
+    }
+
+    function clearPersistedState() {
+      try { sessionStorage.removeItem(OPEN_STATE_KEY()); } catch {}
+    }
+
+    // ─── Create iframes (mimics SDK IframeManager) ───────────────────
+    function createWidget() {
+      // Singleton: reuse existing container if it has the same widgetId
+      const existing = document.getElementById('weld-container');
+      if (existing && existing.getAttribute('data-widget-id') === getWidgetId()) {
+        log('Widget already exists (singleton), skipping recreation', 'info');
+        return;
+      }
+
+      destroyWidget();
+
+      log('Creating widget iframes...', 'info');
+      setStatus('connecting');
+
+      // Root container
+      rootContainer = document.createElement('div');
+      rootContainer.id = 'weld-container';
+      rootContainer.setAttribute('data-widget-id', getWidgetId());
+      rootContainer.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;z-index:2147483000;';
+      document.body.appendChild(rootContainer);
+
+      // Backdrop (disabled — allows interacting with page while widget is open)
+      backdropEl = document.createElement('div');
+      backdropEl.style.cssText = `display:none;`;
+
+      // Launcher iframe
+      launcherContainer = document.createElement('div');
+      launcherContainer.style.cssText = `
+        position:fixed;bottom:14px;right:14px;
+        width:80px;height:80px;z-index:2147483003;
+        pointer-events:none;
+      `;
+      launcherIframe = document.createElement('iframe');
+      launcherIframe.src = buildUrl('launcher');
+      launcherIframe.style.cssText = 'width:100%;height:100%;border:none;background:none;color-scheme:none;pointer-events:auto;border-radius:50%;filter:drop-shadow(rgba(9,14,21,0.54) 0px 1px 6px) drop-shadow(rgba(9,14,21,0.9) 0px 2px 32px);';
+      launcherIframe.allow = 'clipboard-read; clipboard-write';
+      launcherIframe.onload = () => {
+        log('Launcher iframe loaded');
+        sendInit(launcherIframe, 'launcher');
+      };
+      launcherContainer.appendChild(launcherIframe);
+      rootContainer.appendChild(launcherContainer);
+
+      // Widget iframe
+      const isMobile = window.innerWidth < 768;
+      widgetContainer = document.createElement('div');
+      if (isMobile) {
+        widgetContainer.style.cssText = `
+          position:fixed;top:0;left:0;width:100%;height:100%;
+          z-index:2147483001;display:none;
+        `;
+      } else {
+        widgetContainer.style.cssText = `
+          position:fixed;bottom:100px;right:24px;
+          width:400px;height:min(680px, calc(100vh - 120px));
+          z-index:2147483001;display:none;
+          border-radius:16px;overflow:hidden;
+          box-shadow:0 25px 50px -12px rgba(0,0,0,0.25);
+        `;
+      }
+      widgetIframe = document.createElement('iframe');
+      widgetIframe.src = buildUrl('widget');
+      widgetIframe.style.cssText = 'width:100%;height:100%;border:none;background:white;border-radius:inherit;';
+      widgetIframe.allow = 'clipboard-read; clipboard-write';
+      widgetIframe.onload = () => {
+        log('Widget iframe loaded');
+        sendInit(widgetIframe, 'widget');
+      };
+      widgetContainer.appendChild(widgetIframe);
+      rootContainer.appendChild(widgetContainer);
+    }
+
+    // ─── Send init message (SDK handshake) ───────────────────────────
+    function sendInit(iframe, iframeType) {
+      const msg = {
+        type: 'weld:init',
+        payload: {
+          widgetId: getWidgetId(),
+          iframeType,
+          config: {
+            widgetId: getWidgetId(),
+            baseUrl: getBaseUrl(),
+          },
+        },
+      };
+      iframe.contentWindow.postMessage(msg, '*');
+      log(`Sent weld:init to ${iframeType}`, 'info');
+    }
+
+    // ─── Widget controls ─────────────────────────────────────────────
+    function openWidget() {
+      if (!widgetContainer) { log('Widget not created', 'warn'); return; }
+      widgetOpen = true;
+      widgetContainer.style.display = 'block';
+
+      if (widgetIframe?.contentWindow) {
+        widgetIframe.contentWindow.postMessage({ type: 'weld:open' }, '*');
+      }
+      if (launcherIframe?.contentWindow) {
+        launcherIframe.contentWindow.postMessage({ type: 'weld:widget-opened' }, '*');
+      }
+      persistOpenState(true);
+      log('Widget opened');
+    }
+
+    function closeWidget() {
+      if (!widgetContainer) return;
+      widgetOpen = false;
+      widgetContainer.style.display = 'none';
+
+      if (widgetIframe?.contentWindow) {
+        widgetIframe.contentWindow.postMessage({ type: 'weld:close' }, '*');
+      }
+      if (launcherIframe?.contentWindow) {
+        launcherIframe.contentWindow.postMessage({ type: 'weld:widget-closed' }, '*');
+      }
+      persistOpenState(false);
+      log('Widget closed');
+    }
+
+    function reloadWidget() {
+      log('Reloading widget...', 'info');
+      createWidget();
+    }
+
+    function destroyWidget() {
+      if (rootContainer) {
+        rootContainer.remove();
+        rootContainer = null;
+        launcherIframe = null;
+        widgetIframe = null;
+        launcherContainer = null;
+        widgetContainer = null;
+        backdropEl = null;
+        widgetOpen = false;
+        clearPersistedState();
+        log('Widget destroyed');
+        setStatus('destroyed');
+      }
+    }
+
+    // ─── Listen for messages from iframes ────────────────────────────
+    window.addEventListener('message', (event) => {
+      const data = event.data;
+      if (!data || typeof data !== 'object' || !data.type) return;
+      // Only process weld messages
+      if (!data.type.startsWith('weld:') && !data.type.startsWith('launcher:')) return;
+
+      log(`← ${data.type}${data.payload ? ' ' + JSON.stringify(data.payload).slice(0, 80) : ''}`);
+
+      switch (data.type) {
+        case 'weld:ready':
+          setStatus('ready');
+          log('Widget is ready!', 'info');
+          break;
+
+        case 'launcher:clicked':
+          if (widgetOpen) {
+            closeWidget();
+          } else {
+            openWidget();
+          }
+          break;
+
+        case 'weld:close':
+          closeWidget();
+          break;
+
+        case 'weld:image:open':
+          if (data.payload?.url) {
+            window.open(data.payload.url, '_blank');
+          }
+          break;
+      }
+    });
+
+    // ─── Simulate SPA navigation ──────────────────────────────────
+    function simulateNavigation(path, title) {
+      document.title = title;
+      history.pushState({}, title, path);
+      log(`Navigated to ${path}`, 'info');
+    }
+
+    // ─── Page tracking (mimics SDK page change detection) ─────────
+    let lastTrackedUrl = '';
+
+    function sendPageChange() {
+      const url = window.location.href;
+      if (url === lastTrackedUrl) return;
+      lastTrackedUrl = url;
+      if (widgetIframe?.contentWindow) {
+        widgetIframe.contentWindow.postMessage({
+          type: 'weld:page:change',
+          url,
+          title: document.title,
+          timestamp: Date.now(),
+        }, '*');
+        log(`→ weld:page:change ${url}`, 'info');
+      }
+    }
+
+    // Monkey-patch history methods to detect SPA-style navigations
+    const origPushState = history.pushState.bind(history);
+    const origReplaceState = history.replaceState.bind(history);
+    history.pushState = function (...args) {
+      origPushState(...args);
+      setTimeout(sendPageChange, 50);
+    };
+    history.replaceState = function (...args) {
+      origReplaceState(...args);
+      setTimeout(sendPageChange, 50);
+    };
+    window.addEventListener('popstate', () => setTimeout(sendPageChange, 50));
+
+    // ─── Auto-init on load ───────────────────────────────────────────
+    window.addEventListener('DOMContentLoaded', () => {
+      log('Test page loaded', 'info');
+      consoleVisible = true;
+      document.getElementById('devConsole').classList.add('visible');
+      createWidget();
+
+      // Send initial page change once widget iframe is loaded
+      setTimeout(sendPageChange, 2000);
+
+      // Restore open state from sessionStorage after widget is ready
+      if (getPersistedOpenState()) {
+        log('Restoring previously open widget from sessionStorage', 'info');
+        // Delay to allow iframes to load before opening
+        setTimeout(() => openWidget(), 1500);
+      }
+    });
+  </script>
+</body>
+</html>

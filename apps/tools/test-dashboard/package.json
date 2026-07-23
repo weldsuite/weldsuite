@@ -1,0 +1,23 @@
+{
+  "name": "test-dashboard",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "aggregate": "tsx src/aggregate.ts",
+    "build": "tsx src/aggregate.ts",
+    "dev": "wrangler dev",
+    "type-check": "tsc --noEmit",
+    "deploy:test": "wrangler deploy --env test",
+    "deploy:preview": "wrangler deploy --env preview",
+    "deploy:production": "wrangler deploy --env production"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "fast-xml-parser": "^5.2.5",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.3",
+    "wrangler": "^4.59.1"
+  }
+}

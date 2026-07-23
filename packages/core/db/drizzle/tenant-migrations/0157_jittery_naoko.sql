@@ -1,0 +1,2 @@
+ALTER TABLE "mail_messages" ADD COLUMN "idempotency_key" varchar(64);--> statement-breakpoint
+CREATE UNIQUE INDEX "mail_messages_account_idempotency_idx" ON "mail_messages" USING btree ("account_id","idempotency_key");

@@ -1,0 +1,277 @@
+# Files
+
+Files represent file metadata records in WeldDrive. The API manages metadata only, file content upload and download are handled separately via your storage provider. Deleting a file is a soft delete (`deletedAt` is set, the record remains). Mutations require the `files:write` scope; reads require `files:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The file model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `file_abc123`).</Property>
+  <Property name="fileName" type="string">File display name (max 500 characters).</Property>
+  <Property name="originalName" type="string">Original filename at upload time.</Property>
+  <Property name="mimeType" type="string">MIME type (e.g. `image/png`).</Property>
+  <Property name="fileSize" type="integer">File size in bytes.</Property>
+  <Property name="fileType" type="string">Semantic type: `image`, `video`, `audio`, `pdf`, `document`, `spreadsheet`, `presentation`, `archive`, `code`, `file`, `recording`, `whiteboard`, or `rich-document`.</Property>
+  <Property name="storagePath" type="string">Internal storage path.</Property>
+  <Property name="fileKey" type="string">Storage provider key.</Property>
+  <Property name="bucket" type="string">Storage bucket name.</Property>
+  <Property name="url" type="string">Public or pre-signed download URL.</Property>
+  <Property name="thumbnailUrl" type="string">Thumbnail URL (images and videos).</Property>
+  <Property name="storageProvider" type="string">Storage provider identifier.</Property>
+  <Property name="folderId" type="string">ID of the containing folder. `null` for root-level files.</Property>
+  <Property name="uploadedById" type="string">User ID of the uploader.</Property>
+  <Property name="isPublic" type="boolean">Whether the file has a public URL.</Property>
+  <Property name="isStarred" type="boolean">Whether the file is starred by the requesting user.</Property>
+  <Property name="entityType" type="string">Entity type the file is attached to (e.g. `project`).</Property>
+  <Property name="entityId" type="string">Entity ID the file is attached to.</Property>
+  <Property name="createdAt" type="timestamp">When the file record was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the file record was last updated.</Property>
+  <Property name="deletedAt" type="timestamp">When the file was soft-deleted. `null` if not deleted.</Property>
+</Properties>
+
+---
+
+## List files {{ tag: 'GET', label: '/v1/files' }}
+
+<Row>
+  <Col>
+
+    Retrieve a paginated list of file records.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="search" type="string">Search by file name.</Property>
+      <Property name="type" type="string">Filter by semantic file type.</Property>
+      <Property name="source" type="string">Filter by source (e.g. `drive`, `projects`).</Property>
+      <Property name="folderId" type="string">Filter to files in a specific folder.</Property>
+      <Property name="dateFrom" type="string">ISO 8601 start date filter.</Property>
+      <Property name="dateTo" type="string">ISO 8601 end date filter.</Property>
+      <Property name="sortBy" type="string">Sort field.</Property>
+      <Property name="sortOrder" type="string">`asc` or `desc`.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/files">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/files \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d type=image \
+      -d sortOrder=desc
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "file_abc123",
+          "fileName": "company-logo.png",
+          "mimeType": "image/png",
+          "fileSize": 48200,
+          "fileType": "image",
+          "url": "https://cdn.weldsuite.org/files/company-logo.png",
+          "isPublic": true,
+          "deletedAt": null
+        }
+      ],
+      "pagination": { "totalCount": 230, "hasMore": true, "cursor": "file_abc123" }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a file record {{ tag: 'POST', label: '/v1/files' }}
+
+<Row>
+  <Col>
+
+    Create a new file metadata record. Upload the binary content to your storage provider separately and reference it here via `storagePath`.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="fileName" type="string">File display name (max 500 characters).</Property>
+      <Property name="mimeType" type="string">MIME type.</Property>
+      <Property name="fileSize" type="integer">File size in bytes.</Property>
+      <Property name="storagePath" type="string">Storage path.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="originalName" type="string">Original filename.</Property>
+      <Property name="fileType" type="string">Semantic file type (defaults to `file`).</Property>
+      <Property name="fileKey" type="string">Storage provider key.</Property>
+      <Property name="bucket" type="string">Storage bucket.</Property>
+      <Property name="url" type="string">Public URL.</Property>
+      <Property name="thumbnailUrl" type="string">Thumbnail URL.</Property>
+      <Property name="folderId" type="string">Containing folder ID.</Property>
+      <Property name="isPublic" type="boolean">Public flag.</Property>
+      <Property name="entityType" type="string">Attached entity type.</Property>
+      <Property name="entityId" type="string">Attached entity ID.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/files">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/files \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "fileName": "company-logo.png",
+        "mimeType": "image/png",
+        "fileSize": 48200,
+        "storagePath": "uploads/company-logo.png",
+        "fileType": "image",
+        "isPublic": true
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "file_new456",
+        "fileName": "company-logo.png",
+        "mimeType": "image/png",
+        "fileSize": 48200,
+        "fileType": "image",
+        "isPublic": true,
+        "deletedAt": null,
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a file {{ tag: 'GET', label: '/v1/files/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single file record by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/files/file_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/files/file_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "file_abc123",
+        "fileName": "company-logo.png",
+        "mimeType": "image/png",
+        "fileSize": 48200,
+        "fileType": "image",
+        "url": "https://cdn.weldsuite.org/files/company-logo.png",
+        "deletedAt": null
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a file {{ tag: 'PATCH', label: '/v1/files/:id' }}
+
+<Row>
+  <Col>
+
+    Update file metadata. You can rename the file, move it to a folder, toggle the starred flag, or make it public/private.
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="fileName" type="string">New file display name (max 500 characters).</Property>
+      <Property name="folderId" type="string">New containing folder ID. Pass `null` to move to root.</Property>
+      <Property name="isStarred" type="boolean">Starred flag.</Property>
+      <Property name="isPublic" type="boolean">Public flag.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/files/file_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/files/file_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "fileName": "company-logo-v2.png", "isStarred": true }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "file_abc123",
+        "fileName": "company-logo-v2.png",
+        "isStarred": true,
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a file {{ tag: 'DELETE', label: '/v1/files/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a file. The record is retained with `deletedAt` set. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/files/file_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/files/file_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

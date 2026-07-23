@@ -1,0 +1,36 @@
+export const sections = [{ title: 'v1', id: 'v1' }]
+
+# Changelog
+
+A history of notable changes to the WeldSuite External API. The API is served under the `/v1` path; see [Versioning](/versioning) for how path-based versioning works. {{ className: 'lead' }}
+
+<Note>
+  Within `v1` we only make additive changes (new endpoints, optional parameters, extra response fields, new enum values). Anything breaking would ship under a new version path.
+</Note>
+
+---
+
+## v1 {{ id: 'v1', tag: 'Current' }}
+
+The current stable version. All endpoints live under `https://api.weldsuite.org/v1`.
+
+### Conventions
+
+- **Authentication**, API keys (`wsk_` prefix) sent as `Authorization: Bearer` or `X-Api-Key`, with `resource:action` permission scopes.
+- **Pagination**, cursor-based on every list endpoint: `{ data, pagination: { totalCount, hasMore, cursor } }`.
+- **Mutations**, `POST` to create, `PATCH` to update (partial), `DELETE` to remove (returns `204`).
+- **Errors**, a single envelope: `{ error: { code, message, details? } }`.
+- **Rate limits**, per workspace, by plan tier, with `X-RateLimit-*` headers.
+
+### Resources
+
+- **WeldCRM**, Companies, People, Leads, Opportunities, Activities, Quotes, Pipelines, Pipeline Stages
+- **WeldFlow**, Projects, Tasks, Time Entries, Sprints, Milestones, Goals, Project Members, Project Files, Project Documents, Project Messages, Project Sheets (read-only), Project Labels, Task Comments, Task Tags, Whiteboards
+- **WeldChat**, Channels, Channel Members, Messages, Drafts, Bookmarks, Sections
+- **WeldCalendar**, Calendars, Events (with recurrence support)
+- **WeldDrive**, Files (soft delete), Folders (soft delete), Drive (unified feed + storage stats, read-only)
+
+### Notes
+
+- Mutations made through the API emit the same workspace events as the app, so audit logs, automations, and realtime updates stay in sync.
+- DNS records created through the API are stored in WeldSuite and are not pushed to an external DNS provider.

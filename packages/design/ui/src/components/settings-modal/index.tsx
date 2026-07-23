@@ -1,0 +1,7 @@
+export { AppearanceSection } from "./appearance-section"
+export { NotificationsSection } from "./notifications-section"
+export { SecuritySection } from "./security-section"
+export { UsersSection } from "./users-section"
+export { WorkspacesSection } from "./workspaces-section"
+export { ApiKeysSection } from "./api-keys-section"
+export { IntegrationsSection } from "./integrations-section"

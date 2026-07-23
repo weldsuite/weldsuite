@@ -1,0 +1,33 @@
+Line 292: <div className="flex h-full overflow-hidden">  // Main container
+  Line 294: <div ref={canvasRef}>  // Canvas
+    Line 311: <div className="absolute inset-0">  // Transform wrapper
+      Line 317: <div ref={contentRef}>  // Content with scale
+        Line 325: <div className="w-[800px] py-20">  // Fixed width container
+          Line 327: <div className="relative">  // Steps container
+            {steps.map ...}
+            Line 528: <div className="relative flex">  // Add button container
+              Line 530: <div className="absolute" />  // Line (self-closing)
+              <button>...</button>
+              {showAddStepMenu && (
+                Line 546: <div>  // Menu container
+                  Line 557: <div>Add step</div>
+                  Line 558: <div>  // Buttons container
+                    ...buttons...
+                  Line 624: </div>  // Close buttons container
+                Line 625: </div>  // Close menu container
+              )}
+            Line 627: </div>  // Close add button container
+          Line 628: </div>  // Close steps container
+        Line 629: </div>  // Close fixed width container
+      Line 630: </div>  // Close content with scale
+    Line 631: </div>  // Close transform wrapper
+  Line 631: </div>  // Close canvas
+  
+  {/* Right panel */}
+  {(selectedWaitId || selectedStepId) && (
+    Line 635: <div>  // Right panel
+      ...content...
+    Line 717: </div>  // Close right panel
+  )}
+  
+Line 719: </div>  // Close main container

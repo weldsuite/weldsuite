@@ -1,0 +1,11 @@
+src
+examples
+*.log
+.DS_Store
+tsconfig.json
+rollup.config.js
+.vscode
+.idea
+node_modules
+*.md
+!README.md

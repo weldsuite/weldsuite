@@ -1,0 +1,1 @@
+ALTER TABLE "mail_messages" ADD COLUMN "trigger_run_id" VARCHAR(255);

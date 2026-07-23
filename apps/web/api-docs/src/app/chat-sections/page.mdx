@@ -1,0 +1,221 @@
+# Sections
+
+Sections let users organise their WeldChat sidebar by grouping channels under named headings. Each section is user-scoped. Mutations require the `chat_sections:write` scope; reads require `chat_sections:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The section model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `csection_abc123`).</Property>
+  <Property name="name" type="string">Section display name (max 255 characters).</Property>
+  <Property name="userId" type="string">ID of the owning user.</Property>
+  <Property name="position" type="integer">Display order position (zero-based).</Property>
+  <Property name="createdAt" type="timestamp">When the section was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the section was last updated.</Property>
+</Properties>
+
+---
+
+## List sections {{ tag: 'GET', label: '/v1/chat-sections' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of sections.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="userId" type="string">Filter by user.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/chat-sections">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/chat-sections \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d userId=user_xyz789
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "csection_abc123",
+          "name": "Design",
+          "userId": "user_xyz789",
+          "position": 0
+        }
+      ],
+      "pagination": { "totalCount": 3, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a section {{ tag: 'POST', label: '/v1/chat-sections' }}
+
+<Row>
+  <Col>
+
+    Create a new sidebar section.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="name" type="string">Section display name (max 255 characters).</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="userId" type="string">Owning user ID (defaults to key owner).</Property>
+      <Property name="position" type="integer">Display order position.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/chat-sections">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/chat-sections \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Engineering",
+        "position": 0
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "csection_new456",
+        "name": "Engineering",
+        "userId": "user_xyz789",
+        "position": 0,
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a section {{ tag: 'GET', label: '/v1/chat-sections/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single section by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/chat-sections/csection_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/chat-sections/csection_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "csection_abc123",
+        "name": "Design",
+        "position": 0
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a section {{ tag: 'PATCH', label: '/v1/chat-sections/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a section.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/chat-sections/csection_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/chat-sections/csection_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "name": "Product Design", "position": 1 }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "csection_abc123",
+        "name": "Product Design",
+        "position": 1,
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a section {{ tag: 'DELETE', label: '/v1/chat-sections/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a section. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/chat-sections/csection_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/chat-sections/csection_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

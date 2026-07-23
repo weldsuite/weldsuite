@@ -1,0 +1,23 @@
+{
+  "name": "analytics-worker",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy:test": "wrangler deploy --env test",
+    "deploy:preview": "wrangler deploy --env preview",
+    "deploy:production": "wrangler deploy --env production",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@weldsuite/entity-events": "workspace:*",
+    "hono": "^4.7.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@types/node": "^20",
+    "typescript": "^5.7",
+    "wrangler": "^4.0.0"
+  }
+}

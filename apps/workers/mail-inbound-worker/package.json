@@ -1,0 +1,32 @@
+{
+  "name": "mail-inbound-worker",
+  "license": "AGPL-3.0-only",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy:test": "wrangler deploy --env test",
+    "deploy:preview": "wrangler deploy --env preview",
+    "deploy:production": "wrangler deploy --env production",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "^0.4.0",
+    "@neondatabase/serverless": "^1.0.1",
+    "@weldsuite/db": "workspace:*",
+    "@weldsuite/email": "workspace:*",
+    "@weldsuite/realtime": "workspace:*",
+    "drizzle-orm": "^0.45.1",
+    "hono": "^4.7.0",
+    "nanoid": "^5.1.5",
+    "postal-mime": "^2.7.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@types/node": "^20",
+    "typescript": "^5.7",
+    "wrangler": "^4.0.0"
+  }
+}

@@ -1,0 +1,232 @@
+# Messages
+
+Messages are the individual posts within a WeldChat channel. Messages can be filtered by channel or by a parent message (for threaded replies). Thread-related counters are server-maintained read-only fields. Mutations require the `chat_messages:write` scope; reads require `chat_messages:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The message model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `chatmsg_abc123`).</Property>
+  <Property name="channelId" type="string">ID of the channel the message belongs to.</Property>
+  <Property name="authorId" type="string">User ID of the message author.</Property>
+  <Property name="body" type="string">Message body text.</Property>
+  <Property name="parentId" type="string">Parent message ID for threaded replies. `null` for top-level messages.</Property>
+  <Property name="attachments" type="object">Optional attachments payload.</Property>
+  <Property name="threadReplyCount" type="integer">Number of replies in this message's thread. Server-maintained, read-only.</Property>
+  <Property name="threadLastReplyAt" type="timestamp">Timestamp of the most recent reply. Server-maintained, read-only.</Property>
+  <Property name="createdAt" type="timestamp">When the message was posted.</Property>
+  <Property name="updatedAt" type="timestamp">When the message was last updated.</Property>
+</Properties>
+
+---
+
+## List messages {{ tag: 'GET', label: '/v1/chat-messages' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of messages. Use `?channelId` to scope to a channel, or `?parentId` to retrieve replies in a thread.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="channelId" type="string">Filter to messages in a specific channel.</Property>
+      <Property name="parentId" type="string">Filter to replies of a specific parent message.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/chat-messages">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/chat-messages \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d channelId=channel_abc123
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "chatmsg_abc123",
+          "channelId": "channel_abc123",
+          "authorId": "user_xyz789",
+          "body": "Good morning team!",
+          "parentId": null,
+          "threadReplyCount": 3,
+          "threadLastReplyAt": "2024-12-01T09:15:00Z"
+        }
+      ],
+      "pagination": { "totalCount": 100, "hasMore": true, "cursor": "chatmsg_abc123" }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Post a message {{ tag: 'POST', label: '/v1/chat-messages' }}
+
+<Row>
+  <Col>
+
+    Post a new message to a channel or as a reply in a thread.
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="channelId" type="string">ID of the channel.</Property>
+      <Property name="authorId" type="string">Author user ID (defaults to key owner).</Property>
+      <Property name="body" type="string">Message body.</Property>
+      <Property name="parentId" type="string">Parent message ID for threaded replies.</Property>
+      <Property name="attachments" type="object">Attachments payload.</Property>
+    </Properties>
+
+    <Note>
+      `threadReplyCount` and `threadLastReplyAt` are server-maintained. Do not send them in create or update requests, they will be ignored.
+    </Note>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/chat-messages">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/chat-messages \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "channelId": "channel_abc123",
+        "body": "Standup in 5 minutes!"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "chatmsg_new456",
+        "channelId": "channel_abc123",
+        "body": "Standup in 5 minutes!",
+        "parentId": null,
+        "threadReplyCount": 0,
+        "threadLastReplyAt": null,
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a message {{ tag: 'GET', label: '/v1/chat-messages/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single message by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/chat-messages/chatmsg_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/chat-messages/chatmsg_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "chatmsg_abc123",
+        "channelId": "channel_abc123",
+        "body": "Good morning team!",
+        "threadReplyCount": 3
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a message {{ tag: 'PATCH', label: '/v1/chat-messages/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a message. `threadReplyCount` and `threadLastReplyAt` cannot be set via this endpoint.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/chat-messages/chatmsg_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/chat-messages/chatmsg_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "body": "Standup in 10 minutes (delayed)!" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "chatmsg_abc123",
+        "body": "Standup in 10 minutes (delayed)!",
+        "updatedAt": "2024-12-01T14:05:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a message {{ tag: 'DELETE', label: '/v1/chat-messages/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a message. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/chat-messages/chatmsg_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/chat-messages/chatmsg_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

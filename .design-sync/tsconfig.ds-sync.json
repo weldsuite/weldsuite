@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@weldsuite/ui/*": ["../packages/design/ui/src/*"],
+      "lucide-react/dynamic": ["../node_modules/lucide-react/dynamic.mjs"]
+    }
+  }
+}

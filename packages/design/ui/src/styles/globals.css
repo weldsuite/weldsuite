@@ -1,0 +1,268 @@
+@import "tailwindcss";
+@source "../../../apps/**/*.{ts,tsx}";
+@source "../../../components/**/*.{ts,tsx}";
+@source "../**/*.{ts,tsx}";
+@source "../../site-components/src/**/*.{ts,tsx}";
+
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: #2C7FFF;
+  --chart-2: #8EC5FF;
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.191 0.003 271);
+  --foreground: oklch(0.882 0.004 271);
+  --card: oklch(0.222 0.006 271);
+  --card-foreground: oklch(0.882 0.004 271);
+  --popover: oklch(0.222 0.006 271);
+  --popover-foreground: oklch(0.882 0.004 271);
+  --primary: oklch(0.546 0.192 262);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.244 0.006 271);
+  --secondary-foreground: oklch(0.882 0.004 271);
+  --muted: oklch(0.244 0.006 271);
+  --muted-foreground: oklch(0.649 0.015 262);
+  --accent: oklch(0.244 0.006 271);
+  --accent-foreground: oklch(0.882 0.004 271);
+  --destructive: oklch(0.671 0.204 25);
+  --destructive-foreground: oklch(0.985 0.004 271);
+  --border: oklch(0.290 0.007 275);
+  --input: oklch(0.367 0.010 261);
+  --ring: oklch(0.693 0.161 262);
+  --chart-1: #2C7FFF;
+  --chart-2: #8EC5FF;
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.191 0.003 271);
+  --sidebar-foreground: oklch(0.882 0.004 271);
+  --sidebar-primary: oklch(0.654 0.185 275);
+  --sidebar-primary-foreground: oklch(0.985 0.004 271);
+  --sidebar-accent: oklch(0.244 0.006 271);
+  --sidebar-accent-foreground: oklch(0.882 0.004 271);
+  --sidebar-border: oklch(0.290 0.007 275);
+  --sidebar-ring: oklch(0.693 0.161 262);
+}
+
+/* Custom Scrollbar Styles */
+.custom-scrollbar,
+.inbox-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(209 213 219) transparent;
+}
+
+/* Subtle scrollbar for inbox list */
+.inbox-list-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.inbox-list-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.inbox-list-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(156, 163, 175, 0.3);
+  border-radius: 3px;
+}
+
+/* Settings Modal Scrollbar - Always Visible */
+.settings-modal-scroll {
+  scrollbar-width: auto;
+  scrollbar-color: rgb(156 163 175) rgb(243 244 246);
+  scrollbar-gutter: stable;
+}
+
+.settings-modal-scroll::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+
+.settings-modal-scroll::-webkit-scrollbar-track {
+  background: rgb(243 244 246);
+  border-radius: 7px;
+  border: 1px solid rgb(229 231 235);
+}
+
+.settings-modal-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgb(156 163 175), rgb(107 114 128));
+  border-radius: 7px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.settings-modal-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgb(107 114 128), rgb(75 85 99));
+  background-clip: padding-box;
+}
+
+.settings-modal-scroll::-webkit-scrollbar-thumb:active {
+  background: rgb(55 65 81);
+  background-clip: padding-box;
+}
+
+/* Dark mode for settings modal scrollbar */
+.dark .settings-modal-scroll {
+  scrollbar-color: rgba(138, 143, 152, 0.4) #1a1b1e;
+}
+
+.dark .settings-modal-scroll::-webkit-scrollbar-track {
+  background: #1a1b1e;
+  border: 1px solid #2a2b2f;
+}
+
+.dark .settings-modal-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(138, 143, 152, 0.5), rgba(138, 143, 152, 0.35));
+}
+
+.dark .settings-modal-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(138, 143, 152, 0.65), rgba(138, 143, 152, 0.5));
+}
+
+.dark .settings-modal-scroll::-webkit-scrollbar-thumb:active {
+  background: rgba(138, 143, 152, 0.7);
+}
+
+.inbox-list-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(156, 163, 175, 0.5);
+}
+
+.dark .inbox-list-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(138, 143, 152, 0.15);
+}
+
+.dark .inbox-list-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(138, 143, 152, 0.3);
+}
+
+.custom-scrollbar::-webkit-scrollbar,
+.inbox-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track,
+.inbox-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 2px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb,
+.inbox-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgb(229 231 235);
+  border-radius: 2px;
+  border: none;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover,
+.inbox-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(209 213 219);
+}
+
+.dark .custom-scrollbar,
+.dark .inbox-scrollbar {
+  scrollbar-color: rgba(138, 143, 152, 0.2) transparent;
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-track,
+.dark .inbox-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb,
+.dark .inbox-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(138, 143, 152, 0.2);
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb:hover,
+.dark .inbox-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(138, 143, 152, 0.35);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Grid Background Pattern for Login/Auth Pages */
+.bg-grid-white\/\[0\.05\] {
+  background-image: linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+}

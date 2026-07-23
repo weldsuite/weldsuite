@@ -1,0 +1,1 @@
+ALTER TABLE "chat_channel_members" ADD COLUMN "unread_mention_count" integer DEFAULT 0 NOT NULL;

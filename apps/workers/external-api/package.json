@@ -1,0 +1,40 @@
+{
+  "name": "external-api",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "dev:bun": "bun run --hot src/index.ts",
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "deploy:test": "wrangler deploy --env test",
+    "deploy:preview": "wrangler deploy --env preview",
+    "deploy:production": "wrangler deploy --env production",
+    "type-check": "tsc --noEmit",
+    "cf-typegen": "wrangler types",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "hono": "4.11.4",
+    "@hono/zod-validator": "^0.4.0",
+    "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/core-api-client": "workspace:*",
+    "@weldsuite/db": "workspace:*",
+    "@weldsuite/entity-events": "workspace:*",
+    "@neondatabase/serverless": "^1.0.1",
+    "drizzle-orm": "^0.45.1",
+    "postgres": "^3.4.7",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@electric-sql/pglite": "^0.4.5",
+    "@types/node": "^20",
+    "@weldsuite/typescript-config": "workspace:*",
+    "typescript": "^5.9.2",
+    "vitest": "^2.1.8",
+    "wrangler": "^4.0.0"
+  }
+}

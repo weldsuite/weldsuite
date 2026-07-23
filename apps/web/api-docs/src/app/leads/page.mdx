@@ -1,0 +1,244 @@
+# Leads
+
+Leads represent potential customers who have shown interest but haven't been qualified or converted yet. This page covers the lead model and its endpoints. Mutations require the `leads:write` scope; reads require `leads:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The lead model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `lead_abc123`).</Property>
+  <Property name="firstName" type="string">Lead's first name.</Property>
+  <Property name="lastName" type="string">Lead's last name.</Property>
+  <Property name="fullName" type="string">Derived full name.</Property>
+  <Property name="email" type="string">Lead's email address.</Property>
+  <Property name="companyName" type="string">Company name (for B2B leads).</Property>
+  <Property name="title" type="string">Job title.</Property>
+  <Property name="phone" type="string">Phone number.</Property>
+  <Property name="source" type="string">Lead source (e.g. `website`, `referral`, `other`). Defaults to `other`.</Property>
+  <Property name="status" type="string">Lead status (e.g. `new`, `qualified`, `converted`). Defaults to `new`.</Property>
+  <Property name="rating" type="string">Lead rating.</Property>
+  <Property name="score" type="integer">Lead score (defaults to `0`).</Property>
+  <Property name="ownerId" type="string">Owner user ID.</Property>
+  <Property name="isQualified" type="boolean">Whether the lead has been qualified.</Property>
+  <Property name="createdAt" type="timestamp">When the lead was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the lead was last updated.</Property>
+</Properties>
+
+---
+
+## List leads {{ tag: 'GET', label: '/v1/leads' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of leads.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="search" type="string">Search across email, full name, company name, and first/last name.</Property>
+      <Property name="status" type="string">Filter by status.</Property>
+      <Property name="source" type="string">Filter by source.</Property>
+      <Property name="rating" type="string">Filter by rating.</Property>
+      <Property name="ownerId" type="string">Filter by owner.</Property>
+      <Property name="isQualified" type="boolean">Filter by qualification.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/leads">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/leads \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d status=new
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "lead_abc123",
+          "fullName": "John Smith",
+          "email": "john@smith.example",
+          "companyName": "Smith Industries",
+          "source": "website",
+          "status": "new",
+          "score": 75
+        }
+      ],
+      "pagination": { "totalCount": 89, "hasMore": true, "cursor": "lead_abc123" }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a lead {{ tag: 'POST', label: '/v1/leads' }}
+
+<Row>
+  <Col>
+
+    Create a lead.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="email" type="string">Lead's email address.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="firstName" type="string">First name.</Property>
+      <Property name="lastName" type="string">Last name.</Property>
+      <Property name="companyName" type="string">Company name.</Property>
+      <Property name="title" type="string">Job title.</Property>
+      <Property name="phone" type="string">Phone number.</Property>
+      <Property name="source" type="string">Lead source.</Property>
+      <Property name="status" type="string">Lead status.</Property>
+      <Property name="rating" type="string">Rating.</Property>
+      <Property name="score" type="integer">Initial score.</Property>
+      <Property name="ownerId" type="string">Owner user ID (defaults to the key's user).</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/leads">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/leads \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "firstName": "Jane",
+        "lastName": "Doe",
+        "email": "jane@doe.example",
+        "companyName": "Doe Manufacturing",
+        "source": "trade_show"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "lead_new456",
+        "fullName": "Jane Doe",
+        "email": "jane@doe.example",
+        "companyName": "Doe Manufacturing",
+        "source": "trade_show",
+        "status": "new",
+        "score": 0,
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a lead {{ tag: 'GET', label: '/v1/leads/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single lead by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/leads/lead_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/leads/lead_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": { "id": "lead_abc123", "fullName": "John Smith", "email": "john@smith.example", "status": "qualified", "score": 85 }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a lead {{ tag: 'PATCH', label: '/v1/leads/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a lead. Sending `firstName`/`lastName` recomputes `fullName`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/leads/lead_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/leads/lead_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "status": "qualified", "score": 85 }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": { "id": "lead_abc123", "status": "qualified", "score": 85, "updatedAt": "2024-12-01T15:00:00Z" }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a lead {{ tag: 'DELETE', label: '/v1/leads/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a lead. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/leads/lead_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/leads/lead_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

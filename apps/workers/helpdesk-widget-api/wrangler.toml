@@ -1,0 +1,188 @@
+# Helpdesk Widget API Worker
+# Serves the embeddable helpdesk chat widget with public-facing endpoints
+# authenticated via widget API keys (widgetId)
+
+name = "helpdesk-widget-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ LOCAL DEVELOPMENT ============
+# For local development, Hyperdrive bindings are simulated
+# Set DATABASE_URL_MASTER in .dev.vars for local database connections
+# Tenant databases are looked up per-workspace from master DB (each workspace has its own Neon DB)
+#
+# Required secrets (add via wrangler secret put or .dev.vars for local):
+# - WIDGET_TOKEN_SECRET: JWT signing secret for realtime-worker auth
+# - BETTERSTACK_TOKEN: Better Stack source token (from Better Stack > Sources)
+
+[vars]
+ENVIRONMENT = "development"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+CF_ACCOUNT_ID = "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID"
+
+[[hyperdrive]]
+binding = "HYPERDRIVE_MASTER"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:5432/weldsuite_master?sslmode=require"
+
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+
+# Cloudflare Queues for entity mutation events
+[[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
+[[queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events-dev"
+
+# Service binding to centralized workflow worker (direct DO calls, no queue delay)
+[[services]]
+binding = "WORKFLOW_WORKER"
+service = "helpdesk-workflow-worker"
+
+[[services]]
+binding = "REALTIME"
+service = "weldsuite-realtime"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+name = "helpdesk-widget-api-test"
+routes = [
+  { pattern = "helpdesk-widget-api-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+CF_ACCOUNT_ID = "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID"
+
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[[env.test.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
+
+[[env.test.queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events-test"
+
+[[env.test.services]]
+binding = "WORKFLOW_WORKER"
+service = "helpdesk-workflow-worker-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+
+# ============ PREVIEW ENVIRONMENT ============
+[env.preview]
+name = "helpdesk-widget-api-preview"
+
+[env.preview.vars]
+ENVIRONMENT = "preview"
+R2_PUBLIC_URL = "https://weldsuite-storage-preview.weldsuite.org"
+CF_ACCOUNT_ID = "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID"
+
+
+[[env.preview.hyperdrive]]
+binding = "HYPERDRIVE_MASTER"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[[env.preview.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[[env.preview.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-preview"
+
+[[env.preview.queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events-preview"
+
+[[env.preview.services]]
+binding = "WORKFLOW_WORKER"
+service = "helpdesk-workflow-worker-preview"
+
+[[env.preview.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-preview"
+
+[[env.preview.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "helpdesk-widget-api"
+routes = [
+  { pattern = "helpdesk-widget-api.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
+CF_ACCOUNT_ID = "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID"
+
+
+[[env.production.hyperdrive]]
+binding = "HYPERDRIVE_MASTER"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
+
+[[env.production.queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events"
+
+[[env.production.services]]
+binding = "WORKFLOW_WORKER"
+service = "helpdesk-workflow-worker"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "REPLACE_WITH_R2_BUCKET_NAME"
+
+# --- Persist Workers Logs across environments ---
+# observability is NOT inherited by named environments, so it must be set on each.
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.preview.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

@@ -1,0 +1,1 @@
+ALTER TABLE "mail_labels" ADD COLUMN "ai_confidence" integer DEFAULT 70;

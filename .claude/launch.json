@@ -1,0 +1,38 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "featured-graphic",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-l", "5555", "."],
+      "port": 5555
+    },
+    {
+      "name": "platform",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "platform", "dev", "--port", "3010"],
+      "port": 3010,
+      "autoPort": true
+    },
+    {
+      "name": "platform-e2e",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "platform", "dev", "--port", "5173"],
+      "port": 5173
+    },
+    {
+      "name": "admin",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "admin", "dev"],
+      "port": 3001,
+      "autoPort": true
+    },
+    {
+      "name": "storybook",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "storybook", "dev"],
+      "port": 6006,
+      "autoPort": true
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+export const sections = [
+  { title: 'How it works', id: 'how-it-works' },
+  { title: 'Backward compatibility', id: 'backward-compatibility' },
+  { title: 'Breaking changes', id: 'breaking-changes' },
+]
+
+# Versioning
+
+The WeldSuite API uses **path-based versioning**. The version is the first segment of every request path, currently `v1`, so the base URL for all endpoints is `https://api.weldsuite.org/v1`. {{ className: 'lead' }}
+
+---
+
+## How it works {{ id: 'how-it-works' }}
+
+The version lives in the URL. You opt into a version simply by calling its path; there is no version header to set and no per-key version pinning.
+
+```bash {{ title: 'All requests are under /v1' }}
+curl https://api.weldsuite.org/v1/people \
+  -H "Authorization: Bearer wsk_your_api_key"
+```
+
+When a future version introduces breaking changes, it will be served under a new path segment (for example `/v2`). The `v1` endpoints will keep working unchanged, so you upgrade by changing the base path when you are ready, not on our schedule.
+
+<Note>
+  There is no `WeldSuite-Version` header. The only thing that selects a version is the `/v1` segment in the URL.
+</Note>
+
+---
+
+## Backward compatibility {{ id: 'backward-compatibility' }}
+
+Within a version (`v1`), we only make **additive** changes. Your integration will not break from any of the following, so build your client to tolerate them:
+
+- New endpoints
+- New optional request parameters and filters
+- New fields on existing responses
+- New enum values
+- New error `code` values
+
+<Note>
+  Always ignore unknown response fields and handle unknown enum values gracefully. Branch on `error.code` (stable) rather than `error.message` (may be reworded).
+</Note>
+
+---
+
+## Breaking changes {{ id: 'breaking-changes' }}
+
+The following would only ever ship under a new version path (e.g. `/v2`), never inside `v1`:
+
+- Removing or renaming a response field
+- Changing the type of a field
+- Removing an endpoint or HTTP method
+- Making a previously optional parameter required
+- Changing the error envelope shape
+
+When a new version is released, the [changelog](/changelog) will document what changed and how to migrate. Until then, `v1` is the only version and the current, stable one.

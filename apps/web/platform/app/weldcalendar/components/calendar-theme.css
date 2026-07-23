@@ -1,0 +1,237 @@
+/* react-big-calendar theme overrides for WeldSuite dark/light mode */
+
+.rbc-calendar {
+  font-family: inherit;
+}
+
+.rbc-toolbar {
+  margin-bottom: 0;
+  padding: 0;
+}
+
+/* Header cells */
+.rbc-header {
+  padding: 8px 6px;
+  font-weight: 500;
+  font-size: 0.8125rem;
+  border-bottom: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+  background: transparent;
+}
+
+.rbc-header + .rbc-header {
+  border-left: 1px solid hsl(var(--border));
+}
+
+/* Month view */
+.rbc-month-view {
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.rbc-month-row {
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.rbc-month-row + .rbc-month-row {
+  border-top: none;
+}
+
+.rbc-day-bg {
+  background: hsl(var(--background));
+}
+
+.rbc-day-bg + .rbc-day-bg {
+  border-left: 1px solid hsl(var(--border));
+}
+
+.rbc-off-range-bg {
+  background: hsl(var(--muted) / 0.3);
+}
+
+.rbc-today {
+  background-color: hsl(var(--primary) / 0.05);
+}
+
+/* Date cell numbers */
+.rbc-date-cell {
+  padding: 4px 8px;
+  font-size: 0.8125rem;
+  color: hsl(var(--foreground));
+}
+
+.rbc-date-cell.rbc-off-range {
+  color: hsl(var(--muted-foreground));
+}
+
+.rbc-date-cell.rbc-now {
+  font-weight: 600;
+}
+
+.rbc-date-cell.rbc-now a {
+  color: hsl(var(--primary));
+}
+
+/* Events */
+.rbc-event {
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  border: none;
+  cursor: pointer;
+}
+
+.rbc-event:focus {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+
+.rbc-event.rbc-selected {
+  box-shadow: 0 0 0 2px hsl(var(--ring));
+}
+
+.rbc-event-label {
+  font-size: 0.6875rem;
+}
+
+.rbc-event-content {
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
+
+.rbc-show-more {
+  color: hsl(var(--primary));
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.rbc-show-more:hover {
+  text-decoration: underline;
+}
+
+/* Week / Day view */
+.rbc-time-view {
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.rbc-time-header-content {
+  border-left: 1px solid hsl(var(--border));
+}
+
+.rbc-time-content {
+  border-top: 1px solid hsl(var(--border));
+}
+
+.rbc-time-content > * + * > * {
+  border-left: 1px solid hsl(var(--border));
+}
+
+.rbc-timeslot-group {
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+}
+
+.rbc-time-slot {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+}
+
+.rbc-time-gutter {
+  background: hsl(var(--background));
+}
+
+.rbc-day-slot .rbc-time-slot {
+  border-top: 1px solid hsl(var(--border) / 0.3);
+}
+
+.rbc-current-time-indicator {
+  background-color: hsl(var(--destructive));
+  height: 2px;
+}
+
+/* Agenda view */
+.rbc-agenda-view {
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.rbc-agenda-view table.rbc-agenda-table {
+  border: none;
+}
+
+.rbc-agenda-view table.rbc-agenda-table thead > tr > th {
+  padding: 8px 12px;
+  border-bottom: 1px solid hsl(var(--border));
+  font-weight: 500;
+  font-size: 0.8125rem;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted) / 0.3);
+}
+
+.rbc-agenda-view table.rbc-agenda-table tbody > tr > td {
+  padding: 8px 12px;
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+  font-size: 0.8125rem;
+  color: hsl(var(--foreground));
+}
+
+.rbc-agenda-view table.rbc-agenda-table tbody > tr + tr {
+  border-top: none;
+}
+
+.rbc-agenda-date-cell,
+.rbc-agenda-time-cell {
+  white-space: nowrap;
+  color: hsl(var(--muted-foreground));
+}
+
+.rbc-agenda-event-cell {
+  color: hsl(var(--foreground));
+}
+
+/* Selection / drag */
+.rbc-slot-selection {
+  background-color: hsl(var(--primary) / 0.15);
+  border: 1px solid hsl(var(--primary) / 0.3);
+  border-radius: 4px;
+}
+
+.rbc-slot-selecting {
+  cursor: crosshair;
+}
+
+/* Overlay popup */
+.rbc-overlay {
+  background-color: hsl(var(--popover));
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  padding: 8px;
+  z-index: 50;
+}
+
+.rbc-overlay-header {
+  border-bottom: 1px solid hsl(var(--border));
+  padding: 4px 8px 8px;
+  font-weight: 500;
+  font-size: 0.8125rem;
+  color: hsl(var(--foreground));
+}
+
+/* Row segment */
+.rbc-row-segment {
+  padding: 0 2px;
+}
+
+/* All day */
+.rbc-allday-cell {
+  background: hsl(var(--background));
+}
+
+.rbc-row-bg {
+  background: hsl(var(--background));
+}

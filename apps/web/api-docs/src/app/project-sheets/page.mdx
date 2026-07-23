@@ -1,0 +1,79 @@
+# Project Sheets
+
+Project sheets expose the subset of a project's drive files that are WeldSheet spreadsheets (files where `fileType` is `spreadsheet`). This is a read-only resource. Reads require the `project_sheets:read` scope. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The project sheet model
+
+Project sheets are a filtered view of [Project Files](/project-files). The fields are identical to the project file model but only `spreadsheet`-type files are returned.
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `pfile_abc123`).</Property>
+  <Property name="projectId" type="string">ID of the parent project.</Property>
+  <Property name="fileName" type="string">Spreadsheet file name.</Property>
+  <Property name="contentType" type="string">MIME type (e.g. `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`).</Property>
+  <Property name="size" type="integer">File size in bytes.</Property>
+  <Property name="url" type="string">Download or preview URL.</Property>
+  <Property name="storageKey" type="string">Internal storage key.</Property>
+  <Property name="uploadedBy" type="string">User ID of the uploader.</Property>
+  <Property name="createdAt" type="timestamp">When the file was attached.</Property>
+  <Property name="updatedAt" type="timestamp">When the record was last updated.</Property>
+</Properties>
+
+---
+
+## List project sheets {{ tag: 'GET', label: '/v1/project-sheets/:projectId' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of spreadsheet files attached to a project.
+
+    ### Path parameters
+
+    <Properties>
+      <Property name="projectId" type="string">ID of the project.</Property>
+    </Properties>
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/project-sheets/proj_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/project-sheets/proj_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "pfile_abc123",
+          "projectId": "proj_abc123",
+          "fileName": "budget-tracker.xlsx",
+          "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "size": 51200,
+          "url": "https://cdn.weldsuite.org/files/budget-tracker.xlsx"
+        }
+      ],
+      "pagination": { "totalCount": 2, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>

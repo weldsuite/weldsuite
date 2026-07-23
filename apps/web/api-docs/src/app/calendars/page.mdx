@@ -1,0 +1,222 @@
+# Calendars
+
+Calendars are named collections of events in WeldCalendar. Each calendar has an owner and an optional colour. Mutations require the `calendars:write` scope; reads require `calendars:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The calendar model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `cal_abc123`).</Property>
+  <Property name="name" type="string">Calendar display name.</Property>
+  <Property name="description" type="string">Optional description.</Property>
+  <Property name="color" type="string">Brand colour (hex or named).</Property>
+  <Property name="ownerId" type="string">Owner user ID.</Property>
+  <Property name="createdAt" type="timestamp">When the calendar was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the calendar was last updated.</Property>
+</Properties>
+
+---
+
+## List calendars {{ tag: 'GET', label: '/v1/calendars' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of calendars.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="ownerId" type="string">Filter by owner.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/calendars">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/calendars \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "cal_abc123",
+          "name": "Team Calendar",
+          "color": "#10B981",
+          "ownerId": "user_xyz789"
+        }
+      ],
+      "pagination": { "totalCount": 4, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a calendar {{ tag: 'POST', label: '/v1/calendars' }}
+
+<Row>
+  <Col>
+
+    Create a new calendar.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="name" type="string">Calendar display name (max 255 characters).</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="description" type="string">Description.</Property>
+      <Property name="color" type="string">Brand colour.</Property>
+      <Property name="ownerId" type="string">Owner user ID.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/calendars">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/calendars \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Marketing Events",
+        "color": "#F59E0B",
+        "description": "All marketing team events"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "cal_new456",
+        "name": "Marketing Events",
+        "color": "#F59E0B",
+        "description": "All marketing team events",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a calendar {{ tag: 'GET', label: '/v1/calendars/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single calendar by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/calendars/cal_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/calendars/cal_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "cal_abc123",
+        "name": "Team Calendar",
+        "color": "#10B981"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a calendar {{ tag: 'PATCH', label: '/v1/calendars/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a calendar.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/calendars/cal_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/calendars/cal_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "color": "#6366F1" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "cal_abc123",
+        "color": "#6366F1",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a calendar {{ tag: 'DELETE', label: '/v1/calendars/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a calendar. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/calendars/cal_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/calendars/cal_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

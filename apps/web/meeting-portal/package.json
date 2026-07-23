@@ -1,0 +1,45 @@
+{
+  "name": "meeting-portal",
+  "license": "AGPL-3.0-only",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3020",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:report": "playwright show-report",
+    "postinstall": "df3-install-worklet public/df3-worklet-processor.js && df3-install-rnnoise-worker public/rnnoise-worker.js"
+  },
+  "dependencies": {
+    "@cloudflare/realtimekit": "^1.2.5",
+    "@cloudflare/realtimekit-virtual-background": "^0.0.2",
+    "@hookform/resolvers": "^5.2.1",
+    "@neondatabase/serverless": "^1.0.1",
+    "@tailwindcss/postcss": "^4.2.0",
+    "@weldsuite/cloudflare-realtime": "workspace:*",
+    "@weldsuite/db": "workspace:*",
+    "@weldsuite/df3-noise-suppression": "workspace:*",
+    "@weldsuite/ui": "workspace:*",
+    "@weldsuite/weldmeet-ui": "workspace:*",
+    "aws4fetch": "^1.0.20",
+    "drizzle-orm": "^0.45.1",
+    "lucide-react": "^0.544.0",
+    "next": "16.1.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "react-hook-form": "^7.62.0",
+    "tailwindcss": "^4.2.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.57.0",
+    "@types/node": "^24.1.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,0 +1,105 @@
+/**
+ * WeldDesk entity events.
+ *
+ * Derived subscription actions for ticket / conversation come from
+ * agent-dispatch's change-detection logic (status_changed, assigned,
+ * escalated, resolved) plus workflow-event-consumer's derivations
+ * (tagged, priority_changed).
+ */
+export const HELPDESK_ENTITY_EVENTS = {
+  // ── WeldDesk v2 (desk_* schema, Intercom model) ─────────────────────────
+  // Legacy entries below remain until their publishers are deleted
+  // (see .claude/welddesk-intercom-plan.md — removed in the cleanup sweep).
+  desk_conversation: [
+    'created',
+    'updated',
+    'state_changed', // open/close/reopen
+    'snoozed',
+    'unsnoozed',
+    'assigned',
+    'rated',
+    'converted_to_ticket',
+    'deleted',
+  ],
+  desk_conversation_part: ['created'],
+  desk_ticket: ['created', 'state_changed', 'attributes_updated', 'linked', 'unlinked'],
+  desk_ticket_type: ['created', 'updated', 'deleted'],
+  desk_team: ['created', 'updated', 'deleted'],
+  desk_view: ['created', 'updated', 'deleted'],
+  desk_macro: ['created', 'updated', 'deleted'],
+  desk_sla: ['created', 'updated', 'deleted', 'applied', 'breached', 'hit'],
+  desk_workflow: ['created', 'updated', 'published', 'paused', 'deleted'],
+  desk_ai_resolution: ['confirmed', 'assumed', 'escalated'],
+  desk_news: ['created', 'updated', 'deleted'],
+  desk_widget: ['updated'],
+  desk_ai_settings: ['updated'],
+  desk_conversation_attribute: ['created', 'updated', 'deleted'],
+  desk_office_hours: ['updated'],
+
+  // ── Legacy (v1) ─────────────────────────────────────────────────────────
+  ticket: [
+    'created',
+    'updated',
+    'deleted',
+    'archived',
+    'assigned',
+    'escalated',
+    'resolved',
+    'status_changed',
+    'tagged',
+    'priority_changed',
+  ],
+  conversation: [
+    'created',
+    'updated',
+    'deleted',
+    'assigned',
+    'escalated',
+    'resolved',
+    'closed',
+  ],
+  helpdesk_ticket: [
+    'created',
+    'updated',
+    'deleted',
+    'archived',
+    'assigned',
+    'escalated',
+    'resolved',
+    'status_changed',
+    'tagged',
+    'priority_changed',
+  ],
+  helpdesk_conversation: [
+    'created',
+    'updated',
+    'deleted',
+    'assigned',
+    'escalated',
+    'resolved',
+    'closed',
+  ],
+  helpdesk_conversation_message: ['created', 'updated', 'deleted'],
+  helpdesk_message: ['created', 'updated', 'deleted'],
+  helpdesk_agent: ['created', 'updated', 'deleted'],
+  helpdesk_article: ['created', 'updated', 'deleted', 'archived'],
+  helpdesk_contact: ['created', 'updated', 'deleted'],
+  helpdesk_folder: ['created', 'updated', 'deleted'],
+  helpdesk_news: ['created', 'updated', 'deleted'],
+  helpdesk_settings: ['updated'],
+  helpdesk_ticket_type: ['created', 'updated', 'deleted'],
+  helpdesk_widget: ['created', 'updated', 'deleted'],
+  helpdesk_workflow: ['created', 'updated', 'deleted', 'archived'],
+  department: ['created', 'updated', 'deleted'],
+  ticket_note: ['created', 'updated', 'deleted'],
+  canned_response: ['created', 'updated', 'deleted'],
+  sla: ['created', 'updated', 'deleted'],
+  satisfaction_survey: ['created', 'updated', 'deleted'],
+  helpdesk_announcement: ['created', 'updated', 'deleted'],
+  helpdesk_faq: ['created', 'updated', 'deleted'],
+  helpdesk_feedback: ['created', 'updated', 'deleted'],
+  helpdesk_review: ['created', 'updated', 'deleted'],
+  helpdesk_analytics_report: ['created', 'updated', 'deleted'],
+  helpdesk_email: ['created', 'deleted'],
+  helpcenter_settings: ['updated'],
+} as const;

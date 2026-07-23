@@ -1,0 +1,214 @@
+# Task Tags
+
+Task tags are workspace-level coloured labels applied to tasks for filtering and reporting. Mutations require the `task_tags:write` scope; reads require `task_tags:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The task tag model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `ttag_abc123`).</Property>
+  <Property name="name" type="string">Tag display name (max 100 characters).</Property>
+  <Property name="color" type="string">Brand colour (hex or named).</Property>
+  <Property name="createdAt" type="timestamp">When the tag was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the tag was last updated.</Property>
+</Properties>
+
+---
+
+## List task tags {{ tag: 'GET', label: '/v1/task-tags' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of task tags.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/task-tags">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/task-tags \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "ttag_abc123",
+          "name": "backend",
+          "color": "#6366F1"
+        }
+      ],
+      "pagination": { "totalCount": 10, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a task tag {{ tag: 'POST', label: '/v1/task-tags' }}
+
+<Row>
+  <Col>
+
+    Create a new task tag.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="name" type="string">Tag display name (max 100 characters).</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="color" type="string">Brand colour.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/task-tags">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/task-tags \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "frontend",
+        "color": "#F59E0B"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "ttag_new456",
+        "name": "frontend",
+        "color": "#F59E0B",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a task tag {{ tag: 'GET', label: '/v1/task-tags/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single task tag by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/task-tags/ttag_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/task-tags/ttag_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "ttag_abc123",
+        "name": "backend",
+        "color": "#6366F1"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a task tag {{ tag: 'PATCH', label: '/v1/task-tags/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a task tag.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/task-tags/ttag_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/task-tags/ttag_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "color": "#4F46E5" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "ttag_abc123",
+        "color": "#4F46E5",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a task tag {{ tag: 'DELETE', label: '/v1/task-tags/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a task tag. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/task-tags/ttag_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/task-tags/ttag_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

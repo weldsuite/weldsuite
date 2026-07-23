@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Helpdesk Widget - Embedding Example</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      margin: 0;
+      padding: 40px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 12px;
+      padding: 40px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    h1 {
+      color: #1a202c;
+      margin-bottom: 10px;
+    }
+    .subtitle {
+      color: #718096;
+      margin-bottom: 30px;
+    }
+    .example-section {
+      margin: 30px 0;
+      padding: 20px;
+      background: #f7fafc;
+      border-radius: 8px;
+      border-left: 4px solid #667eea;
+    }
+    .example-section h3 {
+      margin-top: 0;
+      color: #2d3748;
+    }
+    code {
+      background: #edf2f7;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 14px;
+      color: #d53f8c;
+    }
+    pre {
+      background: #2d3748;
+      color: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .params-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+    }
+    .params-table th,
+    .params-table td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .params-table th {
+      background: #edf2f7;
+      font-weight: 600;
+      color: #2d3748;
+    }
+    .button {
+      display: inline-block;
+      padding: 12px 24px;
+      background: #667eea;
+      color: white;
+      text-decoration: none;
+      border-radius: 6px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .button:hover {
+      background: #5a67d8;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102,126,234,0.4);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎯 Helpdesk Widget - Embedding Guide</h1>
+    <p class="subtitle">Integrate the helpdesk widget into your website with custom configuration</p>
+
+    <div class="example-section">
+      <h3>📦 Basic Embed (Default Configuration)</h3>
+      <p>The simplest way to embed the widget with default settings:</p>
+      <pre>&lt;iframe
+  src="http://localhost:3100/widget"
+  style="position: fixed; bottom: 0; right: 0; width: 100%; height: 100%; border: none; z-index: 999999;"
+  allow="clipboard-write"
+&gt;&lt;/iframe&gt;</pre>
+    </div>
+
+    <div class="example-section">
+      <h3>🎨 Custom Theme Configuration</h3>
+      <p>Customize colors, starting page, and enabled features:</p>
+      <pre>&lt;iframe
+  src="http://localhost:3100/widget?launcherColor=%23667eea&startingPage=messages&enabledPages=home,messages,help,status"
+  style="position: fixed; bottom: 0; right: 0; width: 100%; height: 100%; border: none; z-index: 999999;"
+  allow="clipboard-write"
+&gt;&lt;/iframe&gt;</pre>
+    </div>
+
+    <div class="example-section">
+      <h3>🚀 Advanced Configuration with All Options</h3>
+      <pre>&lt;iframe
+  src="http://localhost:3100/widget?defaultOpen=true&launcherColor=%23000000&startingPage=home&enabledPages=home,messages,help,status,changelog,news,feedback,appointments&borderRadius=24px&disableBackNavigation=false"
+  style="position: fixed; bottom: 0; right: 0; width: 100%; height: 100%; border: none; z-index: 999999;"
+  allow="clipboard-write"
+&gt;&lt;/iframe&gt;</pre>
+    </div>
+
+    <div class="example-section">
+      <h3>⚙️ Configuration Parameters</h3>
+      <table class="params-table">
+        <thead>
+          <tr>
+            <th>Parameter</th>
+            <th>Type</th>
+            <th>Default</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>defaultOpen</code></td>
+            <td>boolean</td>
+            <td>false</td>
+            <td>Opens the widget automatically on page load</td>
+          </tr>
+          <tr>
+            <td><code>launcherColor</code></td>
+            <td>color (hex)</td>
+            <td>#000000</td>
+            <td>Background color of the launcher button (URL encode: %23 for #)</td>
+          </tr>
+          <tr>
+            <td><code>startingPage</code></td>
+            <td>string</td>
+            <td>home</td>
+            <td>Page to show when widget opens: home, messages, help, status, changelog, news, feedback, appointments, announcements, events, parcel-tracking</td>
+          </tr>
+          <tr>
+            <td><code>enabledPages</code></td>
+            <td>string (comma-separated)</td>
+            <td>all pages</td>
+            <td>Pages to enable in the widget navigation</td>
+          </tr>
+          <tr>
+            <td><code>borderRadius</code></td>
+            <td>CSS value</td>
+            <td>20px</td>
+            <td>Border radius for the launcher button</td>
+          </tr>
+          <tr>
+            <td><code>disableBackNavigation</code></td>
+            <td>boolean</td>
+            <td>false</td>
+            <td>Disables back navigation between views</td>
+          </tr>
+          <tr>
+            <td><code>primaryColor</code></td>
+            <td>color (hex)</td>
+            <td>-</td>
+            <td>Primary theme color (URL encode: %23 for #)</td>
+          </tr>
+          <tr>
+            <td><code>backgroundColor</code></td>
+            <td>color (hex)</td>
+            <td>-</td>
+            <td>Background color (URL encode: %23 for #)</td>
+          </tr>
+          <tr>
+            <td><code>textColor</code></td>
+            <td>color (hex)</td>
+            <td>-</td>
+            <td>Text color (URL encode: %23 for #)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="example-section">
+      <h3>📝 Available Pages</h3>
+      <ul style="line-height: 2;">
+        <li><strong>home</strong> - Main dashboard with all features</li>
+        <li><strong>messages</strong> - View conversation history</li>
+        <li><strong>help</strong> - FAQ and knowledge base</li>
+        <li><strong>status</strong> - System status dashboard</li>
+        <li><strong>changelog</strong> - Product updates and releases</li>
+        <li><strong>news</strong> - Company news and announcements</li>
+        <li><strong>feedback</strong> - Submit feedback and ideas</li>
+        <li><strong>appointments</strong> - Book appointments with support</li>
+        <li><strong>announcements</strong> - System announcements</li>
+        <li><strong>events</strong> - Upcoming events</li>
+        <li><strong>parcel-tracking</strong> - Track parcels and deliveries</li>
+      </ul>
+    </div>
+
+    <div class="example-section">
+      <h3>💡 Pro Tips</h3>
+      <ul style="line-height: 2;">
+        <li>Always URL encode color values (replace <code>#</code> with <code>%23</code>)</li>
+        <li>Use comma-separated values for <code>enabledPages</code> without spaces</li>
+        <li>Set <code>z-index: 999999</code> to ensure widget appears above other content</li>
+        <li>Include <code>allow="clipboard-write"</code> for copy-paste functionality</li>
+        <li>The widget is fully responsive and works on mobile devices</li>
+      </ul>
+    </div>
+
+    <div class="example-section">
+      <h3>🌐 JavaScript Integration</h3>
+      <p>For dynamic configuration, you can use JavaScript to build the URL:</p>
+      <pre>const config = {
+  launcherColor: '#667eea',
+  startingPage: 'messages',
+  enabledPages: ['home', 'messages', 'help', 'status'],
+  defaultOpen: false
+};
+
+const params = new URLSearchParams();
+params.set('launcherColor', encodeURIComponent(config.launcherColor));
+params.set('startingPage', config.startingPage);
+params.set('enabledPages', config.enabledPages.join(','));
+params.set('defaultOpen', config.defaultOpen.toString());
+
+const iframe = document.createElement('iframe');
+iframe.src = `http://localhost:3100/widget?${params.toString()}`;
+iframe.style.cssText = 'position: fixed; bottom: 0; right: 0; width: 100%; height: 100%; border: none; z-index: 999999;';
+iframe.setAttribute('allow', 'clipboard-write');
+document.body.appendChild(iframe);</pre>
+    </div>
+
+    <p style="text-align: center; margin-top: 40px; color: #718096;">
+      <strong>Note:</strong> Replace <code>localhost:3100</code> with your production domain when deploying
+    </p>
+  </div>
+
+  <!-- Example widget embed (uncomment to test) -->
+  <!--
+  <iframe
+    src="http://localhost:3100/widget?launcherColor=%23667eea&startingPage=home"
+    style="position: fixed; bottom: 0; right: 0; width: 100%; height: 100%; border: none; z-index: 999999;"
+    allow="clipboard-write"
+  ></iframe>
+  -->
+</body>
+</html>

@@ -1,0 +1,52 @@
+# Static-assets Worker that serves the aggregated test dashboard.
+# `pnpm aggregate` regenerates ./public (index.html + data.json); deploy ships it.
+name = "weldsuite-test-dashboard"
+compatibility_date = "2024-12-30"
+
+[observability]
+enabled = true
+
+[assets]
+directory = "./public"
+# Unknown paths fall back to the dashboard page rather than a hard 404.
+not_found_handling = "single-page-application"
+
+# ── test (develop) ─────────────────────────────────────────────────────────
+[env.test]
+name = "weldsuite-test-dashboard-test"
+routes = [{ pattern = "test-dashboard-test.weldsuite.org", custom_domain = true }]
+
+[env.test.assets]
+directory = "./public"
+not_found_handling = "single-page-application"
+
+# ── preview (manual) ───────────────────────────────────────────────────────
+[env.preview]
+name = "weldsuite-test-dashboard-preview"
+
+[env.preview.assets]
+directory = "./public"
+not_found_handling = "single-page-application"
+
+# ── production (main) ──────────────────────────────────────────────────────
+[env.production]
+name = "weldsuite-test-dashboard"
+routes = [{ pattern = "test-dashboard.weldsuite.org", custom_domain = true }]
+
+[env.production.assets]
+directory = "./public"
+not_found_handling = "single-page-application"
+
+# --- Persist Workers Logs across environments ---
+# observability is NOT inherited by named environments, so it must be set on each.
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.preview.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

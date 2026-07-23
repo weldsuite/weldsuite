@@ -1,0 +1,14 @@
+{
+  "code": "{{APP_CODE}}",
+  "name": "{{APP_NAME}}",
+  "description": "A WeldSuite app built with @weldsuite/app-sdk.",
+  "version": "1.0.0",
+  "icon": "Puzzle",
+  "scopes": [],
+  "collections": [
+    {
+      "name": "items",
+      "description": "Demo items collection used by the scaffolded UI."
+    }
+  ]
+}

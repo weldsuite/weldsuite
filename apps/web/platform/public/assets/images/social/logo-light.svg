@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_2" data-name="Layer 2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640">
+  <defs>
+    <style>
+      .cls-tile {
+        fill: #f6b13f;
+      }
+
+      .cls-glyph {
+        fill: none;
+        stroke: #fff;
+        stroke-width: 34;
+        stroke-linecap: round;
+      }
+
+      .cls-node {
+        fill: #fff;
+      }
+    </style>
+  </defs>
+  <g id="Layer_1-2" data-name="Layer 1">
+    <rect class="cls-tile" x="0" y="0" width="640" height="640" rx="146" ry="146"/>
+    <line class="cls-glyph" x1="222" y1="320" x2="440" y2="196"/>
+    <line class="cls-glyph" x1="222" y1="320" x2="440" y2="444"/>
+    <circle class="cls-node" cx="210" cy="320" r="60"/>
+    <circle class="cls-node" cx="448" cy="188" r="60"/>
+    <circle class="cls-node" cx="448" cy="452" r="60"/>
+  </g>
+</svg>

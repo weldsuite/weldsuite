@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "1067915597271",
+    "firebase_url": "https://weldsuite-default-rtdb.europe-west1.firebasedatabase.app",
+    "project_id": "weldsuite",
+    "storage_bucket": "weldsuite.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1067915597271:android:964e766e01eb273f9b2792",
+        "android_client_info": {
+          "package_name": "com.weldsuite.weldsuiteapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCZXx1vHesMnSmCC9dcQdWsz0sQmOS6erI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

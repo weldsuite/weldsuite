@@ -1,0 +1,40 @@
+{
+  "cli": {
+    "version": ">= 18.0.5",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_APP_API_URL": "https://app-api-test.weldsuite.org",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk",
+        "EXPO_PUBLIC_CLERK_GOOGLE_WEB_CLIENT_ID": "283341122724-1t7p7cs9jtsp954c454tsos7blf7e1ek.apps.googleusercontent.com",
+        "EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID": "283341122724-5p3utk8muvrr3gjlb0rgm8nq7lgfqikj.apps.googleusercontent.com",
+        "EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME": "com.googleusercontent.apps.283341122724-5p3utk8muvrr3gjlb0rgm8nq7lgfqikj",
+        "EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID": "283341122724-77fit3q2nsv4ld0t2rfmglr1t6jembmm.apps.googleusercontent.com"
+      },
+      "channel": "development"
+    },
+    "preview": {
+      "distribution": "internal",
+      "channel": "preview"
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_APP_API_URL": "https://app-api.weldsuite.org",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ",
+        "EXPO_PUBLIC_CLERK_GOOGLE_WEB_CLIENT_ID": "283341122724-1t7p7cs9jtsp954c454tsos7blf7e1ek.apps.googleusercontent.com",
+        "EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID": "283341122724-5p3utk8muvrr3gjlb0rgm8nq7lgfqikj.apps.googleusercontent.com",
+        "EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME": "com.googleusercontent.apps.283341122724-5p3utk8muvrr3gjlb0rgm8nq7lgfqikj",
+        "EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID": "283341122724-77fit3q2nsv4ld0t2rfmglr1t6jembmm.apps.googleusercontent.com"
+      },
+      "channel": "production"
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

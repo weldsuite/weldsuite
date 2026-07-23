@@ -1,0 +1,1 @@
+ALTER TABLE "github_connections" ALTER COLUMN "created_by" SET DATA TYPE varchar(255);

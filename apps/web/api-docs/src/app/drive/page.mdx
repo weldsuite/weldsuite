@@ -1,0 +1,105 @@
+# Drive
+
+The Drive resource provides a unified, read-only view across all WeldDrive content, files from Drive, projects, documents, whiteboards, mail attachments, recordings, and more. It also exposes per-source storage counts. For creating, updating, or deleting files see [Files](/files); for folders see [Folders](/folders). Reads require the `drive:read` scope. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## List all items {{ tag: 'GET', label: '/v1/drive/all' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated unified feed of files and folders across all sources. Results are ordered newest-first.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="search" type="string">Full-text search across file names.</Property>
+      <Property name="type" type="string">Filter by semantic file type (e.g. `image`, `document`).</Property>
+      <Property name="source" type="string">Filter by source (e.g. `drive`, `projects`, `whiteboards`, `mail`, `meetings`).</Property>
+      <Property name="sortBy" type="string">Sort field.</Property>
+      <Property name="sortOrder" type="string">`asc` or `desc`.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/drive/all">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/drive/all \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d source=drive \
+      -d sortOrder=desc
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "file_abc123",
+          "name": "company-logo.png",
+          "fileType": "image",
+          "mimeType": "image/png",
+          "fileSize": 48200,
+          "url": "https://cdn.weldsuite.org/files/company-logo.png",
+          "thumbnailUrl": null,
+          "source": "drive",
+          "sourceLabel": "Drive",
+          "folderId": null,
+          "isStarred": false,
+          "createdAt": "2024-12-01T14:00:00Z",
+          "updatedAt": "2024-12-01T14:00:00Z"
+        }
+      ],
+      "pagination": { "totalCount": 450, "hasMore": true, "cursor": "file_abc123" }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Storage stats {{ tag: 'GET', label: '/v1/drive/stats' }}
+
+<Row>
+  <Col>
+
+    Retrieve per-source file counts and totals for the workspace.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/drive/stats">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/drive/stats \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "totalFiles": 450,
+        "recentCount": 12,
+        "bySource": {
+          "drive": 210,
+          "projects": 95,
+          "documents": 60,
+          "whiteboards": 18,
+          "mail": 42,
+          "meetings": 25
+        }
+      }
+    }
+    ```
+
+  </Col>
+</Row>

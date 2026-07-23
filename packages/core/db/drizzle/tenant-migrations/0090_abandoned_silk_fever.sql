@@ -1,0 +1,2 @@
+ALTER TABLE "chat_channels" ADD COLUMN "voice_calls_enabled" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE "chat_channels" ADD COLUMN "video_calls_enabled" boolean DEFAULT true NOT NULL;

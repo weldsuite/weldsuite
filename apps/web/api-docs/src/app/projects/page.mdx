@@ -1,0 +1,187 @@
+# Projects
+
+Projects organize work in WeldFlow. Mutations require the `projects:write` scope; reads require `projects:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The project model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `prj_abc123`).</Property>
+  <Property name="name" type="string">Project name.</Property>
+  <Property name="code" type="string">Short project code.</Property>
+  <Property name="description" type="string">Description.</Property>
+  <Property name="status" type="string">Status (e.g. `Planning`, `Active`, `Done`). Defaults to `Planning`.</Property>
+  <Property name="customerId" type="string">Associated customer ID.</Property>
+  <Property name="projectManagerId" type="string">Project manager's user ID.</Property>
+  <Property name="startDate" type="timestamp">Start date.</Property>
+  <Property name="endDate" type="timestamp">End date.</Property>
+  <Property name="isActive" type="boolean">Whether the project is active. Defaults to `true`.</Property>
+  <Property name="color" type="string">Display color.</Property>
+  <Property name="icon" type="string">Display icon.</Property>
+  <Property name="createdAt" type="timestamp">When created.</Property>
+  <Property name="updatedAt" type="timestamp">When last updated.</Property>
+</Properties>
+
+---
+
+## List projects {{ tag: 'GET', label: '/v1/projects' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `search` (by name), `status`, `ownerId` (matches `projectManagerId`), `isActive`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/projects">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/projects \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d isActive=true
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        { "id": "prj_abc123", "name": "Line 4 retrofit", "code": "L4R", "status": "Active", "isActive": true }
+      ],
+      "pagination": { "totalCount": 11, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a project {{ tag: 'POST', label: '/v1/projects' }}
+
+<Row>
+  <Col>
+
+    Create a project. **Required:** `name`. Optional: `code`, `description`, `status`, `customerId`, `projectManagerId`, `startDate`, `endDate`, `color`, `icon`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/projects">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/projects \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "name": "Line 4 retrofit", "code": "L4R", "startDate": "2025-01-06T00:00:00Z" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "prj_new456",
+        "name": "Line 4 retrofit",
+        "code": "L4R",
+        "status": "Planning",
+        "isActive": true,
+        "createdAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a project {{ tag: 'GET', label: '/v1/projects/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single project by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/projects/prj_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/projects/prj_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    { "data": { "id": "prj_abc123", "name": "Line 4 retrofit", "status": "Active" } }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a project {{ tag: 'PATCH', label: '/v1/projects/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a project.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/projects/prj_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/projects/prj_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "status": "Active" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    { "data": { "id": "prj_abc123", "status": "Active", "updatedAt": "2024-12-01T15:00:00Z" } }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a project {{ tag: 'DELETE', label: '/v1/projects/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a project. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/projects/prj_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/projects/prj_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

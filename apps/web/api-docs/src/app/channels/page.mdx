@@ -1,0 +1,226 @@
+# Channels
+
+Channels are the primary conversation spaces in WeldChat, analogous to rooms or topics. A channel can be public or private. Mutations require the `channels:write` scope; reads require `channels:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The channel model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `channel_abc123`).</Property>
+  <Property name="name" type="string">Channel display name.</Property>
+  <Property name="description" type="string">Optional channel description.</Property>
+  <Property name="type" type="string">Channel type (e.g. `public`, `private`, `dm`).</Property>
+  <Property name="isPrivate" type="boolean">Whether the channel is private (invite-only).</Property>
+  <Property name="createdAt" type="timestamp">When the channel was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the channel was last updated.</Property>
+</Properties>
+
+---
+
+## List channels {{ tag: 'GET', label: '/v1/channels' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of channels.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="type" type="string">Filter by channel type.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/channels">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/channels \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d type=public
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "channel_abc123",
+          "name": "general",
+          "type": "public",
+          "isPrivate": false
+        }
+      ],
+      "pagination": { "totalCount": 12, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a channel {{ tag: 'POST', label: '/v1/channels' }}
+
+<Row>
+  <Col>
+
+    Create a new channel.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="name" type="string">Channel display name (max 255 characters).</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="description" type="string">Channel description.</Property>
+      <Property name="type" type="string">Channel type.</Property>
+      <Property name="isPrivate" type="boolean">Whether the channel is private.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/channels">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/channels \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "engineering",
+        "description": "Engineering team discussions",
+        "type": "public",
+        "isPrivate": false
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "channel_new456",
+        "name": "engineering",
+        "description": "Engineering team discussions",
+        "type": "public",
+        "isPrivate": false,
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a channel {{ tag: 'GET', label: '/v1/channels/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single channel by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/channels/channel_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/channels/channel_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "channel_abc123",
+        "name": "general",
+        "type": "public",
+        "isPrivate": false
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a channel {{ tag: 'PATCH', label: '/v1/channels/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a channel.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/channels/channel_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/channels/channel_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "description": "Company-wide announcements" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "channel_abc123",
+        "description": "Company-wide announcements",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a channel {{ tag: 'DELETE', label: '/v1/channels/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a channel. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/channels/channel_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/channels/channel_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

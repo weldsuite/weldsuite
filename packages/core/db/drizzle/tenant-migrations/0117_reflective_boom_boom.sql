@@ -1,0 +1,2 @@
+ALTER TABLE "chat_channel_members" ADD COLUMN "member_type" varchar(20) DEFAULT 'user' NOT NULL;--> statement-breakpoint
+ALTER TABLE "chat_messages" ADD COLUMN "author_type" varchar(20) DEFAULT 'user' NOT NULL;

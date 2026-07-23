@@ -1,0 +1,233 @@
+# Goals
+
+Goals are measurable objectives attached to a WeldFlow project. Track progress against a due date and assign an owner. Mutations require the `goals:write` scope; reads require `goals:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The goal model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `goal_abc123`).</Property>
+  <Property name="title" type="string">Goal title.</Property>
+  <Property name="description" type="string">Optional description.</Property>
+  <Property name="projectId" type="string">ID of the parent project.</Property>
+  <Property name="status" type="string">Current status (e.g. `on_track`, `at_risk`, `completed`).</Property>
+  <Property name="progress" type="integer">Completion percentage (0–100).</Property>
+  <Property name="dueDate" type="string">ISO 8601 due date.</Property>
+  <Property name="ownerId" type="string">Owner user ID.</Property>
+  <Property name="createdAt" type="timestamp">When the goal was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the goal was last updated.</Property>
+</Properties>
+
+---
+
+## List goals {{ tag: 'GET', label: '/v1/goals' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of goals.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="projectId" type="string">Filter by project.</Property>
+      <Property name="status" type="string">Filter by status.</Property>
+      <Property name="ownerId" type="string">Filter by owner.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/goals">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/goals \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d projectId=proj_abc123
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "goal_abc123",
+          "title": "Reach 1,000 active users",
+          "projectId": "proj_abc123",
+          "status": "on_track",
+          "progress": 72,
+          "dueDate": "2024-12-31"
+        }
+      ],
+      "pagination": { "totalCount": 5, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a goal {{ tag: 'POST', label: '/v1/goals' }}
+
+<Row>
+  <Col>
+
+    Create a new goal.
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="title" type="string">Goal title.</Property>
+      <Property name="description" type="string">Description.</Property>
+      <Property name="projectId" type="string">Parent project ID.</Property>
+      <Property name="status" type="string">Initial status.</Property>
+      <Property name="progress" type="integer">Initial progress 0–100.</Property>
+      <Property name="dueDate" type="string">ISO 8601 due date.</Property>
+      <Property name="ownerId" type="string">Owner user ID.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/goals">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/goals \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "title": "Reach 1,000 active users",
+        "projectId": "proj_abc123",
+        "dueDate": "2024-12-31",
+        "status": "on_track"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "goal_new456",
+        "title": "Reach 1,000 active users",
+        "projectId": "proj_abc123",
+        "dueDate": "2024-12-31",
+        "status": "on_track",
+        "progress": 0,
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a goal {{ tag: 'GET', label: '/v1/goals/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single goal by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/goals/goal_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/goals/goal_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "goal_abc123",
+        "title": "Reach 1,000 active users",
+        "progress": 72,
+        "status": "on_track"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a goal {{ tag: 'PATCH', label: '/v1/goals/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a goal.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/goals/goal_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/goals/goal_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "progress": 85, "status": "on_track" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "goal_abc123",
+        "progress": 85,
+        "status": "on_track",
+        "updatedAt": "2024-12-15T10:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a goal {{ tag: 'DELETE', label: '/v1/goals/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a goal. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/goals/goal_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/goals/goal_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

@@ -1,0 +1,2 @@
+ALTER TABLE "integration_connections" ADD COLUMN "tasks_synced" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "integration_connections" ADD COLUMN "lists_synced" integer DEFAULT 0 NOT NULL;

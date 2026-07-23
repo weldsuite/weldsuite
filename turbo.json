@@ -1,0 +1,48 @@
+{
+  "$schema": "https://v2-9-16.turborepo.dev/schema.json",
+  "ui": "tui",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"],
+      "env": [
+        "AUTH0_DOMAIN",
+        "AUTH0_ISSUER_BASE_URL",
+        "AUTH0_CLIENT_ID",
+        "AUTH0_CLIENT_SECRET",
+        "AUTH0_SECRET",
+        "AUTH0_BASE_URL",
+        "AUTH0_AUDIENCE",
+        "AUTH0_SCOPE",
+        "APP_BASE_URL",
+        "UNIFIED_API_URL",
+        "NEXT_PUBLIC_SIGNALR_HUB_URL",
+        "NEXT_PUBLIC_API_BASE_URL",
+        "NEXT_PUBLIC_WIDGET_POSITION",
+        "NEXT_PUBLIC_WIDGET_THEME",
+        "BACKEND_API_URL"
+      ]
+    },
+    "lint": {
+      "dependsOn": ["^lint"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": ["test-results/**", "coverage/**"],
+      "cache": false
+    },
+    "check-types": {
+      "dependsOn": ["^check-types"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "storybook:build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"],
+      "inputs": ["$TURBO_DEFAULT$", "../../packages/design/ui/src/**"]
+    }
+  }
+}

@@ -1,0 +1,5 @@
+"Datum","Naam / Omschrijving","Rekening","Tegenrekening","Code","Af Bij","Bedrag (EUR)","Mutatiesoort","Mededelingen"
+"20260403","Acme Widgets BV","NL91ABNA0417164300","NL02RABO0123456789","OV","Bij","1815,00","Overschrijving","INV-0001 thanks"
+"20260405","Rent NL BV","NL91ABNA0417164300","NL22RABO0555555555","OV","Af","1500,00","Overschrijving","Rent April 2026"
+"20260408","Figma Inc","NL91ABNA0417164300","","DV","Af","49,00","Diversen","SaaS subscription"
+"20260412","Jane Doe Freelance","NL91ABNA0417164300","NL65INGB0001234567","OV","Bij","605,00","Overschrijving","INV-0002"

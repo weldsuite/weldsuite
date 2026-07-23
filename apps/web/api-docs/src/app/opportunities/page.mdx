@@ -1,0 +1,207 @@
+# Opportunities
+
+Opportunities are deals progressing through your sales pipeline. Mutations require the `opportunities:write` scope; reads require `opportunities:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The opportunity model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `opp_abc123`).</Property>
+  <Property name="name" type="string">Opportunity name.</Property>
+  <Property name="amount" type="string">Deal amount as a decimal string. Defaults to `"0"`.</Property>
+  <Property name="currency" type="string">ISO currency code. Defaults to `EUR`.</Property>
+  <Property name="expectedRevenue" type="string">Expected revenue (decimal string).</Property>
+  <Property name="recurringRevenue" type="string">Recurring revenue (decimal string).</Property>
+  <Property name="stage" type="string">Pipeline stage. Defaults to `prospecting`.</Property>
+  <Property name="status" type="string">`open`, `won`, or `lost`. Defaults to `open`.</Property>
+  <Property name="probability" type="integer">Win probability 0–100.</Property>
+  <Property name="pipeline" type="string">Pipeline key. Defaults to `default`.</Property>
+  <Property name="customerId" type="string">Associated company/customer ID.</Property>
+  <Property name="ownerId" type="string">Owner user ID.</Property>
+  <Property name="closeDate" type="timestamp">Expected close date. Defaults to 30 days out.</Property>
+  <Property name="createdAt" type="timestamp">When created.</Property>
+  <Property name="updatedAt" type="timestamp">When last updated.</Property>
+</Properties>
+
+<Note>
+  Monetary fields (`amount`, `expectedRevenue`, `recurringRevenue`) are decimal **strings**. Date fields accept ISO 8601 strings.
+</Note>
+
+---
+
+## List opportunities {{ tag: 'GET', label: '/v1/opportunities' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `search` (name + customer name), `status`, `stage`, `pipeline`, `ownerId`, `customerId`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/opportunities">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/opportunities \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d stage=negotiation
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "opp_abc123",
+          "name": "Smith Industries, Q1 retrofit",
+          "amount": "45000.00",
+          "currency": "EUR",
+          "stage": "negotiation",
+          "status": "open"
+        }
+      ],
+      "pagination": { "totalCount": 23, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create an opportunity {{ tag: 'POST', label: '/v1/opportunities' }}
+
+<Row>
+  <Col>
+
+    Create an opportunity. **Required:** `name`. You may set any writable model field; unset fields take the defaults above (`ownerId` defaults to the key's user, workspace keys must supply it).
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/opportunities">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/opportunities \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Doe Manufacturing, new line",
+        "amount": "45000.00",
+        "currency": "EUR",
+        "stage": "proposal",
+        "customerId": "company_def456"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "opp_new789",
+        "name": "Doe Manufacturing, new line",
+        "amount": "45000.00",
+        "currency": "EUR",
+        "stage": "proposal",
+        "status": "open",
+        "closeDate": "2024-12-31T14:00:00Z",
+        "createdAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve an opportunity {{ tag: 'GET', label: '/v1/opportunities/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single opportunity by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/opportunities/opp_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/opportunities/opp_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    { "data": { "id": "opp_abc123", "name": "Smith Industries, Q1 retrofit", "stage": "negotiation", "status": "open" } }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update an opportunity {{ tag: 'PATCH', label: '/v1/opportunities/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update an opportunity. Moving `stage` or flipping `status` to `won`/`lost` emits the corresponding workspace event.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/opportunities/opp_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/opportunities/opp_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "status": "won", "stage": "closed_won" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    { "data": { "id": "opp_abc123", "status": "won", "stage": "closed_won", "updatedAt": "2024-12-01T15:00:00Z" } }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete an opportunity {{ tag: 'DELETE', label: '/v1/opportunities/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete an opportunity. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/opportunities/opp_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/opportunities/opp_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

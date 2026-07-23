@@ -1,0 +1,12 @@
+name = "email-forwarder"
+main = "scripts/cloudflare-email-worker.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+WEBHOOK_URL_PROD = "https://app.weldsuite.org/api/mail/webhook/inbound"
+WEBHOOK_URL_PREVIEW = "https://app-preview.weldsuite.org/api/mail/webhook/inbound"
+WEBHOOK_URL_DEV = "https://app-test.weldsuite.org/api/mail/webhook/inbound"
+
+[observability]
+enabled = true
+head_sampling_rate = 1

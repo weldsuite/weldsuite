@@ -1,0 +1,1 @@
+ALTER TABLE "customers" ADD COLUMN "avatar_url" varchar(1000);

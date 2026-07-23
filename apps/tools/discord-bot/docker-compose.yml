@@ -1,0 +1,13 @@
+services:
+  discord-bot:
+    build: .
+    ports:
+      - "3060:3060"
+    env_file: .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3060/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

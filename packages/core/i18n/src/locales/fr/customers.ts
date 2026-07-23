@@ -1,0 +1,123 @@
+export const customers = {
+  "title": "[TRANSLATE] Customers",
+  "customer": "[TRANSLATE] Customer",
+  "company": "[TRANSLATE] Company",
+  "contactPerson": "[TRANSLATE] Contact Person",
+  "email": "[TRANSLATE] Email",
+  "phone": "[TRANSLATE] Phone",
+  "address": "[TRANSLATE] Address",
+  "city": "[TRANSLATE] City",
+  "state": "[TRANSLATE] State",
+  "postalCode": "[TRANSLATE] Postal Code",
+  "country": "[TRANSLATE] Country",
+  "taxId": "[TRANSLATE] Tax ID",
+  "website": "[TRANSLATE] Website",
+  "creditLimit": "[TRANSLATE] Credit Limit",
+  "paymentTerms": "[TRANSLATE] Payment Terms",
+  "notes": "[TRANSLATE] Notes",
+  "types": {
+    "b2b": "[TRANSLATE] Business (B2B)",
+    "b2c": "[TRANSLATE] Individual (B2C)",
+    "business": "[TRANSLATE] Business",
+    "individual": "[TRANSLATE] Individual"
+  },
+  "tabs": {
+    "general": "[TRANSLATE] General",
+    "contacts": "[TRANSLATE] Contacts",
+    "address": "[TRANSLATE] Address",
+    "financial": "[TRANSLATE] Financial"
+  },
+  "sections": {
+    "customerType": "[TRANSLATE] Customer Type",
+    "customerTypeDesc": "[TRANSLATE] Select whether this is a business or individual customer",
+    "generalInformation": "[TRANSLATE] General Information",
+    "addressInformation": "[TRANSLATE] Address Information",
+    "financialSettings": "[TRANSLATE] Financial Settings",
+    "contactManagement": "[TRANSLATE] Contacts",
+    "contactManagementDesc": "[TRANSLATE] Manage contact persons for this company"
+  },
+  "companyName": "[TRANSLATE] Company Name",
+  "vatNumber": "[TRANSLATE] VAT Number",
+  "chamberOfCommerce": "[TRANSLATE] Chamber of Commerce",
+  "registrationNumber": "[TRANSLATE] Registration Number",
+  "firstName": "[TRANSLATE] First Name",
+  "lastName": "[TRANSLATE] Last Name",
+  "emailAddress": "[TRANSLATE] Email Address",
+  "phoneNumber": "[TRANSLATE] Phone Number",
+  "addressLine1": "[TRANSLATE] Address Line 1",
+  "addressLine2": "[TRANSLATE] Address Line 2",
+  "stateProvince": "[TRANSLATE] State/Province",
+  "creditLimitLabel": "[TRANSLATE] Credit Limit",
+  "paymentTermsDays": "[TRANSLATE] Payment Terms (Days)",
+  "jobTitle": "[TRANSLATE] Job Title",
+  "department": "[TRANSLATE] Department",
+  "mobile": "[TRANSLATE] Mobile",
+  "primaryContact": "[TRANSLATE] Primary Contact",
+  "isActive": "[TRANSLATE] Active",
+  "placeholders": {
+    "selectCustomerType": "[TRANSLATE] Select customer type",
+    "companyName": "[TRANSLATE] Company name",
+    "vatNumber": "[TRANSLATE] VAT number",
+    "registrationNumber": "[TRANSLATE] Registration number",
+    "firstName": "[TRANSLATE] First name",
+    "lastName": "[TRANSLATE] Last name",
+    "emailAddress": "[TRANSLATE] Email address",
+    "phoneNumber": "[TRANSLATE] Phone number",
+    "addressLine1": "[TRANSLATE] Street address",
+    "addressLine2": "[TRANSLATE] Apartment, suite, etc.",
+    "city": "[TRANSLATE] City",
+    "stateProvince": "[TRANSLATE] State or Province",
+    "postalCode": "[TRANSLATE] Postal code",
+    "country": "[TRANSLATE] Country",
+    "notes": "[TRANSLATE] Additional notes",
+    "creditLimit": "[TRANSLATE] 0.00",
+    "paymentTerms": "[TRANSLATE] 30",
+    "jobTitle": "[TRANSLATE] Job title",
+    "department": "[TRANSLATE] Department"
+  },
+  "descriptions": {
+    "setActive": "[TRANSLATE] Set whether this customer is active",
+    "creditLimit": "[TRANSLATE] Maximum credit allowed for this customer",
+    "paymentTerms": "[TRANSLATE] Number of days for payment",
+    "primaryContact": "[TRANSLATE] Set as the main contact person"
+  },
+  "contacts": {
+    "contact": "[TRANSLATE] Contact",
+    "addContact": "[TRANSLATE] Add Contact",
+    "removeContact": "[TRANSLATE] Remove Contact",
+    "primary": "[TRANSLATE] Primary",
+    "noContacts": "[TRANSLATE] No contacts added yet. Click \"Add Contact\" to add a contact person."
+  },
+  "buttons": {
+    "cancel": "[TRANSLATE] Cancel",
+    "save": "[TRANSLATE] Save",
+    "saving": "[TRANSLATE] Saving...",
+    "createCustomer": "[TRANSLATE] Create Customer",
+    "updateCustomer": "[TRANSLATE] Update Customer"
+  },
+  "validation": {
+    "invalidEmail": "[TRANSLATE] Invalid email address",
+    "firstNameRequired": "[TRANSLATE] First name is required",
+    "lastNameRequired": "[TRANSLATE] Last name is required",
+    "fillRequired": "[TRANSLATE] Please fill in all required fields"
+  },
+  "actions": {
+    "newCustomer": "[TRANSLATE] New Customer",
+    "editCustomer": "[TRANSLATE] Edit Customer",
+    "deleteCustomer": "[TRANSLATE] Delete Customer",
+    "mergeCustomers": "[TRANSLATE] Merge Customers",
+    "viewHistory": "[TRANSLATE] View History",
+    "sendStatement": "[TRANSLATE] Send Statement"
+  },
+  "messages": {
+    "customerCreated": "[TRANSLATE] Customer created",
+    "customerCreatedDesc": "[TRANSLATE] The customer has been created successfully.",
+    "customerUpdated": "[TRANSLATE] Customer updated",
+    "customerUpdatedDesc": "[TRANSLATE] The customer has been updated successfully.",
+    "customerDeleted": "[TRANSLATE] Customer deleted successfully",
+    "cannotDeleteWithInvoices": "[TRANSLATE] Cannot delete customer with existing invoices",
+    "error": "[TRANSLATE] Error",
+    "failedToSave": "[TRANSLATE] Failed to save customer. Please try again.",
+    "validationError": "[TRANSLATE] Validation Error"
+  }
+};

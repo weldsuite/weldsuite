@@ -1,0 +1,30 @@
+{
+  "name": "mcp-server",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev --port 8789",
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "deploy:test": "wrangler deploy --env test",
+    "deploy:preview": "wrangler deploy --env preview",
+    "deploy:production": "wrangler deploy --env production",
+    "type-check": "tsc --noEmit",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@neondatabase/serverless": "^1.0.1",
+    "@weldsuite/db": "workspace:*",
+    "drizzle-orm": "^0.45.1",
+    "hono": "^4.0.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@weldsuite/typescript-config": "workspace:*",
+    "typescript": "^5.9.2",
+    "wrangler": "^4.0.0"
+  }
+}

@@ -1,0 +1,88 @@
+# WeldSuite Analytics Worker
+# Queue consumer for ANALYTICS_EVENTS — writes records to Cloudflare Pipeline (→ R2 Iceberg).
+
+name = "weldsuite-analytics"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ LOCAL DEVELOPMENT ============
+
+[vars]
+ENVIRONMENT = "development"
+
+[[queues.consumers]]
+queue = "analytics-events-dev"
+max_batch_size = 25
+max_batch_timeout = 5
+
+[[pipelines]]
+pipeline = "REPLACE_WITH_PIPELINE_ID"
+binding = "ANALYTICS_STREAM"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+name = "weldsuite-analytics-test"
+
+[env.test.vars]
+ENVIRONMENT = "test"
+
+[[env.test.queues.consumers]]
+queue = "analytics-events-test"
+max_batch_size = 25
+max_batch_timeout = 5
+
+[[env.test.pipelines]]
+pipeline = "REPLACE_WITH_PIPELINE_ID"
+binding = "ANALYTICS_STREAM"
+
+# ============ PREVIEW ENVIRONMENT ============
+[env.preview]
+name = "weldsuite-analytics-preview"
+
+[env.preview.vars]
+ENVIRONMENT = "preview"
+
+[[env.preview.queues.consumers]]
+queue = "analytics-events-preview"
+max_batch_size = 25
+max_batch_timeout = 5
+
+[[env.preview.pipelines]]
+pipeline = "REPLACE_WITH_PIPELINE_ID"
+binding = "ANALYTICS_STREAM"
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-analytics"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+
+[[env.production.queues.consumers]]
+queue = "analytics-events"
+max_batch_size = 25
+max_batch_timeout = 5
+
+[[env.production.pipelines]]
+pipeline = "REPLACE_WITH_PIPELINE_ID"
+binding = "ANALYTICS_STREAM"
+
+# --- Persist Workers Logs across environments ---
+# observability is NOT inherited by named environments, so it must be set on each.
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.preview.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

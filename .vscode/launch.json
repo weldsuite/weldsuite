@@ -1,0 +1,17 @@
+{
+    "configurations": [
+        {
+            "name": "Attach to app-api (Miniflare)",
+            "type": "node",
+            "request": "attach",
+            "port": 9229,
+            "cwd": "${workspaceFolder}/apps/workers/app-api",
+            "resolveSourceMapLocations": [
+                "${workspaceFolder}/**",
+                "!**/node_modules/**"
+            ],
+            "attachExistingChildren": false,
+            "autoAttachChildProcesses": false
+        }
+    ]
+}

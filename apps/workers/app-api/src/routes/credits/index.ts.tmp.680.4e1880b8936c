@@ -1,0 +1,596 @@
+/**
+ * Credits routes — /api/credits/* surface for the unified credits system.
+ * Ported from apps/api-worker/src/routes/credits/index.ts.
+ *
+ * All credit data lives in the MASTER database, scoped by the internal
+ * `workspaceId`. The `/api/*` middleware sets `c.get('workspaceId')` to the
+ * Clerk org id, so each handler resolves the internal workspace id from the
+ * master `workspaces` table first.
+ *
+ * Response shape preserved as `{ success, data }` to match the existing
+ * api-worker contract its platform consumers still expect. No object-level
+ * `requirePermission` (mirrors the source) — Clerk auth + org resolution is
+ * enforced by the shared `/api/*` middleware. No entity events: billing
+ * ledger writes live in master and are not fanned out over the entity bus.
+ */
+
+import { Hono } from 'hono';
+import { zValidator } from '@hono/zod-validator';
+import { z } from 'zod';
+import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
+import { nanoid } from 'nanoid';
+import { requirePermission } from '@weldsuite/permissions/server';
+import type { PlanFeatures } from '@weldsuite/db/schema/plans';
+import type { Env, Variables } from '../../types';
+import { getMasterDb, masterSchema, type MasterDatabase } from '../../db';
+import { getOrCreateWorkspaceCredits, updateSubscriptionCredits } from '../../services/credits';
+
+const { workspaceCredits, creditTransactions, creditPackages, workspaces, plans } = masterSchema;
+
+const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+/**
+ * Resolve the internal workspace id from the Clerk org id stored in
+ * `c.get('workspaceId')`. Credit data is keyed by the internal id, not the
+ * Clerk org id.
+ */
+async function resolveWorkspaceId(masterDb: MasterDatabase, clerkOrgId: string): Promise<string | null> {
+  const [row] = await masterDb
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(eq(workspaces.clerkOrgId, clerkOrgId))
+    .limit(1);
+  return row?.id ?? null;
+}
+
+function getDaysRemaining(periodEnd: Date): number {
+  const now = new Date();
+  const diff = periodEnd.getTime() - now.getTime();
+  return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+}
+
+const DEFAULT_CREDIT_RATES = {
+  aiTokens: 1,
+  parcelLabel: 10,
+  meetingBotMinute: 2,
+  callTranscriptionMinute: 2,
+  voipCallMinute: 3,
+  transcriptionProvider: 'assemblyai' as 'assemblyai' | 'openai',
+  hunterEmailFinder: 2,
+  hunterEmailVerifier: 1,
+  hunterDomainSearch: 5,
+};
+
+// ============================================================================
+// GET /balance
+// ============================================================================
+
+app.get('/balance', async (c) => {
+  try {
+    const masterDb = getMasterDb(c.env);
+    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
+    if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
+
+    const credits = await getOrCreateWorkspaceCredits(masterDb, workspaceId);
+
+    const daysRemaining = getDaysRemaining(new Date(credits.periodEnd));
+    const usagePercentage =
+      credits.monthlyAllocation > 0
+        ? Math.round(
+            ((credits.monthlyAllocation - credits.currentBalance + credits.rolledOverCredits) /
+              credits.monthlyAllocation) *
+              100,
+          )
+        : 0;
+
+    return c.json({
+      success: true,
+      data: {
+        currentBalance: credits.currentBalance,
+        planCredits: credits.planCredits || 0,
+        subscribedCredits: credits.subscribedCredits || 0,
+        monthlyAllocation: credits.monthlyAllocation,
+        rolledOverCredits: credits.rolledOverCredits,
+        periodStart: credits.periodStart,
+        periodEnd: credits.periodEnd,
+        daysRemaining,
+        usagePercentage: Math.max(0, Math.min(100, usagePercentage)),
+        isLow: credits.currentBalance < credits.monthlyAllocation * 0.1,
+        isExhausted: credits.currentBalance <= 0,
+      },
+    });
+  } catch (err) {
+    console.error('[app-api/credits] balance failed:', err);
+    return c.json({ error: 'internal_error', message: 'Failed to fetch balance' }, 500);
+  }
+});
+
+// ============================================================================
+// GET /transactions
+// ============================================================================
+
+const transactionsQuerySchema = z.object({
+  page: z.coerce.number().min(1).default(1),
+  pageSize: z.coerce.number().min(1).max(100).default(20),
+  type: z.string().optional(),
+  serviceType: z.string().optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+});
+
+app.get('/transactions', zValidator('query', transactionsQuerySchema), async (c) => {
+  const { page, pageSize, type, serviceType, from, to } = c.req.valid('query');
+
+  try {
+    const masterDb = getMasterDb(c.env);
+    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
+    if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
+
+    const conditions = [eq(creditTransactions.workspaceId, workspaceId)];
+    if (type) conditions.push(eq(creditTransactions.type, type));
+    if (serviceType) conditions.push(eq(creditTransactions.serviceType, serviceType));
+    if (from) conditions.push(gte(creditTransactions.createdAt, new Date(from)));
+    if (to) conditions.push(lte(creditTransactions.createdAt, new Date(to)));
+
+    const countResult = await masterDb
+      .select({ count: sql<number>`count(*)::int` })
+      .from(creditTransactions)
+      .where(and(...conditions));
+
+    const totalCount = countResult[0]?.count || 0;
+    const totalPages = Math.ceil(totalCount / pageSize);
+    const offset = (page - 1) * pageSize;
+
+    const transactions = await masterDb
+      .select()
+      .from(creditTransactions)
+      .where(and(...conditions))
+      .orderBy(desc(creditTransactions.createdAt))
+      .limit(pageSize)
+      .offset(offset);
+
+    return c.json({
+      success: true,
+      data: transactions.map((t) => ({ ...t, createdAt: t.createdAt?.toISOString() })),
+      pagination: { page, pageSize, totalCount, totalPages, hasMore: page < totalPages },
+    });
+  } catch (err) {
+    console.error('[app-api/credits] transactions failed:', err);
+    return c.json({ error: 'internal_error', message: 'Failed to fetch transactions' }, 500);
+  }
+});
+
+// ============================================================================
+// POST /check
+// ============================================================================
+
+const checkAvailabilitySchema = z.object({ amount: z.number().min(1) });
+
+app.post('/check', zValidator('json', checkAvailabilitySchema), async (c) => {
+  const { amount } = c.req.valid('json');
+
+  try {
+    const masterDb = getMasterDb(c.env);
+    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
+    if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
+
+    const credits = await getOrCreateWorkspaceCredits(masterDb, workspaceId);
+    const available = credits.currentBalance >= amount;
+    const shortfall = available ? 0 : amount - credits.currentBalance;
+
+    return c.json({
+      success: true,
+      data: {
+        available,
+        currentBalance: credits.currentBalance,
+        required: amount,
+        shortfall,
+        message: available ? undefined : `Insufficient credits. You need ${shortfall} more credits.`,
+      },
+    });
+  } catch (err) {
+    console.error('[app-api/credits] check failed:', err);
+    return c.json({ error: 'internal_error', message: 'Failed to check availability' }, 500);
+  }
+});
+
+// ============================================================================
+// POST /consume
+// ============================================================================
+
+const consumeSchema = z.object({
+  serviceType: z.enum(['ai_tokens', 'parcel_label', 'meeting_bot', 'call_transcription', 'sms', 'voip_call']),
+  amount: z.number().min(1),
+  referenceId: z.string(),
+  referenceType: z.string(),
+  description: z.string().optional(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+app.post('/consume', zValidator('json', consumeSchema), async (c) => {
+  const userId = c.get('userId');
+  const { serviceType, amount, referenceId, referenceType, description, metadata } = c.req.valid('json');
+
+  try {
+    const masterDb = getMasterDb(c.env);
+    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
+    if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
+
+    await getOrCreateWorkspaceCredits(masterDb, workspaceId);
+
+    const [updated] = await masterDb
+      .update(workspaceCredits)
+      .set({
+        currentBalance: sql`${workspaceCredits.currentBalance} - ${amount}`,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(workspaceCredits.workspaceId, workspaceId), gte(workspaceCredits.currentBalance, amount)))
+      .returning({ newBalance: workspaceCredits.currentBalance });
+
+    if (!updated) {
+      const credits = await getOrCreateWorkspaceCredits(masterDb, workspaceId);
+      return c.json({
+        success: false,
+        creditsDeducted: 0,
+        newBalance: credits.currentBalance,
+        error: 'insufficient_credits',
+        message: `Insufficient credits. Available: ${credits.currentBalance}, Required: ${amount}`,
+      });
+    }
+
+    const transactionId = nanoid();
+    await masterDb.insert(creditTransactions).values({
+      id: transactionId,
+      workspaceId,
+      type: 'consumption',
+      amount: -amount,
+      balanceAfter: updated.newBalance,
+      serviceType,
+      referenceId,
+      referenceType,
+      description: description || `${serviceType} consumption`,
+      metadata,
+      userId,
+    });
+
+    return c.json({ success: true, creditsDeducted: amount, newBalance: updated.newBalance, transactionId });
+  } catch (err) {
+    console.error('[app-api/credits] consume failed:', err);
+    return c.json(
+      { success: false, creditsDeducted: 0, newBalance: 0, error: 'service_error', message: 'Failed to consume credits' },
+      500,
+    );
+  }
+});
+
+// ============================================================================
+// POST /refund
+// ============================================================================
+
+const refundSchema = z.object({
+  amount: z.number().min(1),
+  referenceId: z.string(),
+  referenceType: z.string(),
+  reason: z.string().optional(),
+});
+
+app.post('/refund', zValidator('json', refundSchema), async (c) => {
+  const userId = c.get('userId');
+  const { amount, referenceId, referenceType, reason } = c.req.valid('json');
+
+  try {
+    const masterDb = getMasterDb(c.env);
+    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
+    if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
+
+    const credits = await getOrCreateWorkspaceCredits(masterDb, workspaceId);
+    const newBalance = credits.currentBalance + amount;
+    await masterDb
+      .update(workspaceCredits)
+      .set({ currentBalance: newBalance, updatedAt: new Date() })
+      .where(eq(workspaceCredits.workspaceId, workspaceId));
+
+    const transactionId = nanoid();
+    await masterDb.insert(creditTransactions).values({
+      id: transactionId,
+      workspaceId,
+      type: 'refund',
+      amount,
+      balanceAfter: newBalance,
+      referenceId,
+      referenceType,
+      description: reason || 'Credit refund',
+      metadata: { reason },
+      userId,
+    });
+
+    return c.json({ success: true, creditsRefunded: amount, newBalance, transactionId });
+  } catch (err) {
+    console.error('[app-api/credits] refund failed:', err);
+    return c.json({ error: 'internal_error', message: 'Failed to refund credits' }, 500);
+  }
+});
+
+// ============================================================================
+// GET /packages
+// ============================================================================
+
+app.get('/packages', async (c) => {
+  try {
+    const masterDb = getMasterDb(c.env);
+    const packages = await masterDb
+      .select()
+      .from(creditPackages)
+      .where(eq(creditPackages.isActive, 1))
+      .orderBy(creditPackages.sortOrder);
+
+    return c.json({
+      success: true,
+      data: packages.map((p) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        credits: p.credits,
+        price: Number(p.price),
+        currency: p.currency,
+        stripePriceId: p.stripePriceId,
+        isPopular: p.isPopular === 1,
+      })),
+    });
+  } catch (err) {
+    console.error('[app-api/credits] packages failed:', err);
+    return c.json({ error: 'internal_error', message: 'Failed to fetch packages' }, 500);
+  }
+});
+
+// ============================================================================
+// GET /rates
+// ============================================================================
+
+app.get('/rates', async (c) => {
+  try {
+    const masterDb = getMasterDb(c.env);
+    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
+    if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
+
+    const [workspace] = await masterDb
+      .select({ planId: workspaces.planId })
+      .from(workspaces)
+      .where(eq(workspaces.id, workspaceId));
+
+    let rates = DEFAULT_CREDIT_RATES;
+    if (workspace?.planId) {
+      const [plan] = await masterDb
+        .select({ features: plans.features })
+        .from(plans)
+        .where(eq(plans.id, workspace.planId));
+
+      const features = (plan?.features || {}) as PlanFeatures;
+      if (features.creditRates) {
+        rates = { ...DEFAULT_CREDIT_RATES, ...features.creditRates };
+      }
+    }
+
+    return c.json({ success: true, data: rates });
+  } catch (err) {
+    console.error('[app-api/credits] rates failed:', err);
+    return c.json({ success: true, data: DEFAULT_CREDIT_RATES });
+  }
+});
+
+// ============================================================================
+// GET /usage
+// ============================================================================
+
+app.get('/usage', async (c) => {
+  try {
+    const masterDb = getMasterDb(c.env);
+    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
+    if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
+
+    const credits = await getOrCreateWorkspaceCredits(masterDb, workspaceId);
+
+    const usageByService = await masterDb
+      .select({
+        serviceType: creditTransactions.serviceType,
+        totalCredits: sql<number>`SUM(ABS(${creditTransactions.amount}))::int`,
+        transactionCount: sql<number>`COUNT(*)::int`,
+      })
+      .from(creditTransactions)
+      .where(
+        and(
+          eq(creditTransactions.workspaceId, workspaceId),
+          eq(creditTransactions.type, 'consumption'),
+          gte(creditTransactions.createdAt, new Date(credits.periodStart)),
+        ),
+      )
+      .groupBy(creditTransactions.serviceType);
+
+    const usage: Record<string, { credits: number; count: number }> = {};
+    let totalConsumed = 0;
+    for (const row of usageByService) {
+      if (row.serviceType) {
+        usage[row.serviceType] = { credits: row.totalCredits || 0, count: row.transactionCount || 0 };
+        totalConsumed += row.totalCredits || 0;
+      }
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        periodStart: credits.periodStart,
+        periodEnd: credits.periodEnd,
+        totalAllocated: credits.monthlyAllocation + credits.rolledOverCredits,
+        totalConsumed,
+        totalRemaining: credits.currentBalance,
+        byService: usage,
+      },
+    });
+  } catch (err) {
+    console.error('[app-api/credits] usage failed:', err);
+    return c.json({ error: 'internal_error', message: 'Failed to fetch usage' }, 500);
+  }
+});
+
+// ============================================================================
+// POST /allocate-monthly
+// ============================================================================
+
+app.post('/allocate-monthly', requirePermission('billing:manage'), async (c) => {
+  try {
+    const masterDb = getMasterDb(c.env);
+    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
+    if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
+
+    const credits = await getOrCreateWorkspaceCredits(masterDb, workspaceId);
+
+    const now = new Date();
+    if (credits.periodEnd > now) {
+      return c.json({ success: false, message: 'Current period has not ended yet', periodEnd: credits.periodEnd });
+    }
+
+    const newPeriodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+    const newPeriodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0));
+    const newBalance = credits.monthlyAllocation;
+
+    await masterDb
+      .update(workspaceCredits)
+      .set({
+        currentBalance: newBalance,
+        rolledOverCredits: 0,
+        periodStart: newPeriodStart,
+        periodEnd: newPeriodEnd,
+        lastResetAt: now,
+        updatedAt: now,
+      })
+      .where(eq(workspaceCredits.workspaceId, workspaceId));
+
+    await masterDb.insert(creditTransactions).values({
+      id: nanoid(),
+      workspaceId,
+      type: 'monthly_allocation',
+      amount: credits.monthlyAllocation,
+      balanceAfter: newBalance,
+      description: `Monthly allocation of ${credits.monthlyAllocation} credits`,
+    });
+
+    return c.json({
+      success: true,
+      data: {
+        previousBalance: credits.currentBalance,
+        monthlyAllocation: credits.monthlyAllocation,
+        newBalance,
+        periodStart: newPeriodStart,
+        periodEnd: newPeriodEnd,
+      },
+    });
+  } catch (err) {
+    console.error('[app-api/credits] allocate-monthly failed:', err);
+    return c.json({ error: 'internal_error', message: 'Failed to allocate monthly credits' }, 500);
+  }
+});
+
+// ============================================================================
+// POST /subscription + GET /subscription
+// ============================================================================
+
+const updateSubscriptionCreditsSchema = z.object({
+  planCredits: z.number().min(0),
+  subscribedCredits: z.number().min(0),
+  stripeCreditsItemId: z.string().optional(),
+  stripeCreditsPriceId: z.string().optional(),
+  periodStart: z.string().optional(),
+  periodEnd: z.string().optional(),
+  resetPeriod: z.boolean().optional(),
+});
+
+app.post('/subscription', requirePermission('billing:manage'), zValidator('json', updateSubscriptionCreditsSchema), async (c) => {
+  const params = c.req.valid('json');
+
+  try {
+    const masterDb = getMasterDb(c.env);
+    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
+    if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
+
+    const result = await updateSubscriptionCredits(masterDb, workspaceId, params);
+    return c.json({ success: true, data: result });
+  } catch (err) {
+    console.error('[app-api/credits] subscription update failed:', err);
+    return c.json({ error: 'internal_error', message: 'Failed to update subscription credits' }, 500);
+  }
+});
+
+app.get('/subscription', async (c) => {
+  try {
+    const masterDb = getMasterDb(c.env);
+    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
+    if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
+
+    const credits = await getOrCreateWorkspaceCredits(masterDb, workspaceId);
+
+    return c.json({
+      success: true,
+      data: {
+        planCredits: credits.planCredits || 0,
+        subscribedCredits: credits.subscribedCredits || 0,
+        totalMonthly: credits.monthlyAllocation,
+        stripeItemId: credits.stripeCreditsItemId,
+        stripePriceId: credits.stripeCreditsPriceId,
+      },
+    });
+  } catch (err) {
+    console.error('[app-api/credits] subscription fetch failed:', err);
+    return c.json({ error: 'internal_error', message: 'Failed to fetch subscription credits' }, 500);
+  }
+});
+
+// ============================================================================
+// POST /adjust
+// ============================================================================
+
+const adjustSchema = z.object({
+  amount: z.number(),
+  reason: z.string(),
+  adminNote: z.string().optional(),
+});
+
+app.post('/adjust', zValidator('json', adjustSchema), async (c) => {
+  const userId = c.get('userId');
+  const { amount, reason, adminNote } = c.req.valid('json');
+
+  try {
+    const masterDb = getMasterDb(c.env);
+    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
+    if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
+
+    const credits = await getOrCreateWorkspaceCredits(masterDb, workspaceId);
+    const newBalance = Math.max(0, credits.currentBalance + amount);
+
+    await masterDb
+      .update(workspaceCredits)
+      .set({ currentBalance: newBalance, updatedAt: new Date() })
+      .where(eq(workspaceCredits.workspaceId, workspaceId));
+
+    const transactionId = nanoid();
+    await masterDb.insert(creditTransactions).values({
+      id: transactionId,
+      workspaceId,
+      type: 'adjustment',
+      amount,
+      balanceAfter: newBalance,
+      description: reason,
+      metadata: { reason, adminNote, adminUserId: userId },
+      userId,
+    });
+
+    return c.json({
+      success: true,
+      data: { previousBalance: credits.currentBalance, adjustment: amount, newBalance, transactionId },
+    });
+  } catch (err) {
+    console.error('[app-api/credits] adjust failed:', err);
+    return c.json({ error: 'internal_error', message: 'Failed to adjust credits' }, 500);
+  }
+});
+
+export const creditsRoutes = app;

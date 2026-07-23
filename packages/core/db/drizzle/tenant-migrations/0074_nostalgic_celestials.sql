@@ -1,0 +1,1 @@
+ALTER TABLE "helpdesk_settings" ADD COLUMN "automation" jsonb;

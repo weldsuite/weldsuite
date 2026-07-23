@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>XSS harness</title></head>
+<body>
+<div id="result">running…</div>
+<div id="frames"></div>
+<script>
+// Reproduce the EXACT security model of IsolatedHtmlContent: sandboxed iframe
+// with allow-same-origin allow-popups allow-popups-to-escape-sandbox and NO
+// allow-scripts, content injected via doc.open/write/close.
+window.__xss = {}; // any payload that executes will set a flag here
+
+const payloads = {
+  scriptTag: '<script>window.parent.__xss.scriptTag=1<\/script>',
+  imgOnerror: '<img src="x" onerror="window.parent.__xss.imgOnerror=1">',
+  svgOnload: '<svg onload="window.parent.__xss.svgOnload=1"></svg>',
+  bodyOnload: '<div>hi</div><script>0<\/script><body onload="window.parent.__xss.bodyOnload=1">',
+  iframeJs: '<iframe src="javascript:window.parent.__xss.iframeJs=1"></iframe>',
+  inputAutofocus: '<form><input autofocus onfocus="window.parent.__xss.inputAutofocus=1"></form>',
+  detailsToggle: '<details ontoggle="window.parent.__xss.detailsToggle=1" open></details>',
+  metaRefresh: '<meta http-equiv="refresh" content="0;url=https://evil.example.com/pwn">',
+};
+
+const baseStyles = '<style>body{font-family:sans-serif}</style>';
+const container = document.getElementById('frames');
+
+Object.entries(payloads).forEach(([name, html]) => {
+  const iframe = document.createElement('iframe');
+  iframe.setAttribute('sandbox', 'allow-same-origin allow-popups allow-popups-to-escape-sandbox');
+  iframe.style.cssText = 'width:200px;height:40px;display:block';
+  iframe.title = name;
+  container.appendChild(iframe);
+  const doc = iframe.contentDocument || iframe.contentWindow.document;
+  doc.open();
+  doc.write('<!DOCTYPE html><html><head><meta charset="utf-8">' + baseStyles + '</head><body>' + html + '</body></html>');
+  doc.close();
+});
+
+// Give any (would-be) async handlers a tick, then report.
+setTimeout(() => {
+  const fired = Object.keys(window.__xss);
+  // For metaRefresh, verify the top document did NOT navigate away.
+  const topStillHere = location.pathname.endsWith('_xss-harness.html');
+  document.getElementById('result').textContent =
+    'XSS_FIRED=' + JSON.stringify(fired) + ' TOP_NOT_NAVIGATED=' + topStillHere;
+  window.__report = { fired, topStillHere };
+}, 800);
+</script>
+</body>
+</html>

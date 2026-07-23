@@ -1,0 +1,41 @@
+name: i18n parity check
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'packages/core/i18n/**'
+      - 'apps/web/platform/lib/i18n/**'
+      - 'apps/web/platform/scripts/validate-translations.ts'
+      - '.github/workflows/i18n-check.yml'
+
+jobs:
+  parity:
+    name: EN/NL parity
+    if: false  # i18n parity check disabled — remove this line to re-enable
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
+
+      - name: Validate translation parity (stable locales)
+        working-directory: apps/web/platform
+        run: pnpm tsx scripts/validate-translations.ts --strict --stable-only --report ../../i18n-report.json
+
+      - name: Validate translation parity (including experimental, non-blocking)
+        working-directory: apps/web/platform
+        continue-on-error: true
+        run: pnpm tsx scripts/validate-translations.ts --report ../../i18n-report-all.json
+
+      - name: Upload validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: i18n-report
+          path: i18n-report.json
+          retention-days: 30

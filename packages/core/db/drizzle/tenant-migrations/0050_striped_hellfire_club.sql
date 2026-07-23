@@ -1,0 +1,1 @@
+ALTER TABLE "helpdesk_conversations" ADD COLUMN "visitor_location" jsonb;

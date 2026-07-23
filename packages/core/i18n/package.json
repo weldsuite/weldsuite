@@ -1,0 +1,36 @@
+{
+  "name": "@weldsuite/i18n",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./provider": "./src/provider.tsx",
+    "./types": "./src/types.ts",
+    "./adapter": "./src/adapter.ts",
+    "./adapters/cookie": "./src/adapters/cookie.ts",
+    "./adapters/header": "./src/adapters/header.ts",
+    "./adapters/async-storage": "./src/adapters/async-storage.ts",
+    "./plural": "./src/plural.ts",
+    "./trans": "./src/trans.tsx",
+    "./lazy": "./src/lazy.ts",
+    "./lazy-provider": "./src/lazy-provider.tsx",
+    "./client": "./src/client.tsx",
+    "./locales": "./src/locales/index.ts",
+    "./locales/en": "./src/locales/en/index.ts",
+    "./locales/nl": "./src/locales/nl/index.ts"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": { "optional": true }
+  },
+  "devDependencies": {
+    "@weldsuite/typescript-config": "workspace:*",
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
+    "typescript": "^5.7"
+  }
+}

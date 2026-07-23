@@ -1,0 +1,222 @@
+# Channel Members
+
+Channel members represent workspace users who are participants in a WeldChat channel. Mutations require the `channel_members:write` scope; reads require `channel_members:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The channel member model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `cmember_abc123`).</Property>
+  <Property name="channelId" type="string">ID of the channel.</Property>
+  <Property name="userId" type="string">ID of the workspace member.</Property>
+  <Property name="role" type="string">Member role within the channel (e.g. `admin`, `member`).</Property>
+  <Property name="createdAt" type="timestamp">When the member joined the channel.</Property>
+  <Property name="updatedAt" type="timestamp">When the membership was last updated.</Property>
+</Properties>
+
+---
+
+## List channel members {{ tag: 'GET', label: '/v1/channel-members' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of channel members.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="channelId" type="string">Filter by channel.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/channel-members">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/channel-members \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d channelId=channel_abc123
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "cmember_abc123",
+          "channelId": "channel_abc123",
+          "userId": "user_xyz789",
+          "role": "member"
+        }
+      ],
+      "pagination": { "totalCount": 8, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Add a channel member {{ tag: 'POST', label: '/v1/channel-members' }}
+
+<Row>
+  <Col>
+
+    Add a user to a channel.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="channelId" type="string">ID of the channel.</Property>
+      <Property name="userId" type="string">ID of the user to add.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="role" type="string">Role within the channel (max 30 characters).</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/channel-members">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/channel-members \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "channelId": "channel_abc123",
+        "userId": "user_xyz789",
+        "role": "member"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "cmember_new456",
+        "channelId": "channel_abc123",
+        "userId": "user_xyz789",
+        "role": "member",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a channel member {{ tag: 'GET', label: '/v1/channel-members/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single channel member record by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/channel-members/cmember_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/channel-members/cmember_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "cmember_abc123",
+        "channelId": "channel_abc123",
+        "userId": "user_xyz789",
+        "role": "member"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a channel member {{ tag: 'PATCH', label: '/v1/channel-members/:id' }}
+
+<Row>
+  <Col>
+
+    Update a channel member's role.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/channel-members/cmember_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/channel-members/cmember_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "role": "admin" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "cmember_abc123",
+        "role": "admin",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Remove a channel member {{ tag: 'DELETE', label: '/v1/channel-members/:id' }}
+
+<Row>
+  <Col>
+
+    Remove a user from a channel. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/channel-members/cmember_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/channel-members/cmember_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

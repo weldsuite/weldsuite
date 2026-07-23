@@ -1,0 +1,1 @@
+ALTER TABLE "helpdesk_widget_settings" ADD COLUMN "show_branding" boolean DEFAULT true;

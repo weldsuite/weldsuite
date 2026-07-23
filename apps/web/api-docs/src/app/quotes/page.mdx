@@ -1,0 +1,189 @@
+# Quotes
+
+Quotes are priced proposals you send to prospects and customers. Mutations require the `quotes:write` scope; reads require `quotes:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The quote model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `quote_abc123`).</Property>
+  <Property name="name" type="string">Quote name/title.</Property>
+  <Property name="quoteNumber" type="string">Human-readable quote number.</Property>
+  <Property name="counterpartyId" type="string">Company/customer the quote is for.</Property>
+  <Property name="personId" type="string">Contact person the quote is addressed to.</Property>
+  <Property name="opportunityId" type="string">Related opportunity ID.</Property>
+  <Property name="currency" type="string">ISO currency code.</Property>
+  <Property name="validFrom" type="timestamp">Start of the quote's validity window.</Property>
+  <Property name="validUntil" type="timestamp">End of the quote's validity window.</Property>
+  <Property name="lineItems" type="array">Array of line-item objects.</Property>
+  <Property name="notes" type="string">Free-form notes.</Property>
+  <Property name="createdAt" type="timestamp">When created.</Property>
+  <Property name="updatedAt" type="timestamp">When last updated.</Property>
+</Properties>
+
+---
+
+## List quotes {{ tag: 'GET', label: '/v1/quotes' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `search` (by name).
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/quotes">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/quotes \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        { "id": "quote_abc123", "name": "Retrofit proposal", "quoteNumber": "Q-2024-001", "currency": "EUR" }
+      ],
+      "pagination": { "totalCount": 7, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a quote {{ tag: 'POST', label: '/v1/quotes' }}
+
+<Row>
+  <Col>
+
+    Create a quote. **Required:** `name`. `validFrom` / `validUntil` accept ISO 8601 date-time strings.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/quotes">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/quotes \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Retrofit proposal",
+        "counterpartyId": "company_abc123",
+        "currency": "EUR",
+        "lineItems": [{ "description": "Robot cell", "quantity": 1, "unitPrice": "45000.00" }]
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "quote_new456",
+        "name": "Retrofit proposal",
+        "counterpartyId": "company_abc123",
+        "currency": "EUR",
+        "createdAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a quote {{ tag: 'GET', label: '/v1/quotes/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single quote by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/quotes/quote_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/quotes/quote_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    { "data": { "id": "quote_abc123", "name": "Retrofit proposal", "quoteNumber": "Q-2024-001" } }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a quote {{ tag: 'PATCH', label: '/v1/quotes/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a quote.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/quotes/quote_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/quotes/quote_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "notes": "Updated after site visit" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    { "data": { "id": "quote_abc123", "notes": "Updated after site visit", "updatedAt": "2024-12-01T15:00:00Z" } }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a quote {{ tag: 'DELETE', label: '/v1/quotes/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a quote. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/quotes/quote_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/quotes/quote_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

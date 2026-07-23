@@ -1,0 +1,40 @@
+# gitleaks configuration for the WeldSuite public repo.
+#
+# Extends the built-in ruleset and suppresses KNOWN, reviewed false-positives
+# and public-by-design values so the secret-scan gate (secret-scan.yml +
+# the pre-push `gitleaks` gate in .claude/export/) stays green AND meaningful —
+# a scan that's red for benign reasons trains people to ignore it.
+#
+# Reviewed 2026-07-22 against a full export scan (gitleaks 8.30.1): 187 raw hits,
+# all triaged. The two REAL secrets found (meeting-portal .env.local.example
+# REALTIME_INTERNAL_SECRET + R2_SECRET_ACCESS_KEY) were scrubbed at the source —
+# they are NOT allowlisted here. Only reviewed false-positives live below.
+#
+# Golden rule: never allowlist a real, exploitable secret. Fix the source.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "API-docs curl examples use a placeholder bearer token (apps/web/api-docs/**/page.mdx)"
+regexes = [
+  '''wsk_your_api_key''',
+]
+
+[[allowlists]]
+description = "Clerk PUBLISHABLE keys are public by design — they ship in every client bundle (eas.json, VITE_/EXPO_PUBLIC_ vars). Secret keys (sk_) are NOT covered by this."
+regexes = [
+  '''pk_(test|live)_[A-Za-z0-9._-]{8,}''',
+]
+
+[[allowlists]]
+description = "Obviously-fake mock API keys in UI component fixtures (truncated with '...', not real): packages/design/ui settings mock data"
+regexes = [
+  '''sk_(live|test|mob|old)_\.\.\.[A-Za-z0-9]+''',
+]
+
+[[allowlists]]
+description = "Firebase Android client API keys in google-services.json are public by design (they ship inside the APK). Restrict them by package name + SHA in the GCP console rather than hiding them. Remove this entry if you decide to gitignore google-services.json instead."
+paths = [
+  '''apps/mobile/[^/]+/google-services\.json''',
+]

@@ -1,0 +1,759 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+@source "../**/*.{ts,tsx}";
+@source "../../../../packages/design/site-components/src/**/*.{ts,tsx}";
+@source "../../../../packages/design/weldmeet-ui/src/**/*.{ts,tsx}";
+@source "../../../../packages/design/ui/src/**/*.{ts,tsx}";
+
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: #2C7FFF;
+  --chart-2: #8EC5FF;
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  /* Attio dark theme — exact palette from app.attio.com
+     black-50  #101113  primary-background  (sidebar / outer chrome)
+     black-100 #1c1d1f  secondary-background (main content)
+     black-300 #232529  surface-subtle      (cards / popovers / muted)
+     black-400 #2e3238  surface             (hover / accent / subtle stroke)
+     black-500 #383e47  input stroke
+     black-700 #6f7988  default stroke / disabled fg
+     white-100 #ffffff  primary fg
+     white-400 #edeff3  secondary fg
+     white-900 #b5bdc9  tertiary / muted fg
+     blue-500  #266df0  primary accent
+     blue-400  #709ff5  focus ring / link
+     red-500   #ff5b59  destructive
+     green-500 #0fc27b  success
+     yellow-500 #f5b900 warning */
+  --background: #1c1d1f;
+  --foreground: #ffffff;
+  --card: #232529;
+  --card-foreground: #ffffff;
+  --popover: #232529;
+  --popover-foreground: #ffffff;
+  --primary: #266df0;
+  --primary-foreground: #ffffff;
+  --secondary: #2e3238;
+  --secondary-foreground: #edeff3;
+  --muted: #232529;
+  --muted-foreground: #b5bdc9;
+  --accent: #2e3238;
+  --accent-foreground: #edeff3;
+  --destructive: #ff5b59;
+  --destructive-foreground: #ffffff;
+  --border: #2e3238;
+  --input: #383e47;
+  --ring: #709ff5;
+  --chart-1: #266df0;
+  --chart-2: #709ff5;
+  --chart-3: #0fc27b;
+  --chart-4: #f5b900;
+  --chart-5: #ff5b59;
+  --sidebar: #1c1d1f;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #266df0;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #2e3238;
+  --sidebar-accent-foreground: #edeff3;
+  --sidebar-border: #2e3238;
+  --sidebar-ring: #709ff5;
+}
+
+/* Gantt canvas — in dark mode the global --secondary (#2e3238) is too
+   light for a full-width canvas. Pull the canvas down to background-ish
+   and use a subtle stripe for alternating columns so the timeline reads
+   as a coherent dark surface. */
+.dark .gantt.bg-secondary,
+.dark .gantt-scroll.bg-secondary {
+  background-color: #17181a !important;
+}
+.dark .gantt .bg-secondary,
+.dark .gantt-scroll .bg-secondary {
+  background-color: #1f2023 !important;
+}
+
+/* Sidebar hover-only scrollbar.
+   `scrollbar-gutter: stable` keeps a fixed gutter on the right edge so the
+   content width stays constant whether the scrollbar is visible or not.
+   The scrollbar thumb is transparent by default and only fades in while
+   the user hovers anywhere inside the sidebar. WebKit `width:10px` is set
+   always (matches the reserved gutter) so the thumb can appear/disappear
+   without layout shift. */
+.sidebar-hover-scrollbar {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 150ms ease;
+}
+.sidebar-hover-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background: transparent;
+}
+.sidebar-hover-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-hover-scrollbar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 9999px;
+  transition: background-color 150ms ease;
+}
+.sidebar-hover-scrollbar:hover {
+  scrollbar-color: rgb(209 213 219) transparent;
+}
+.sidebar-hover-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: rgb(209 213 219);
+}
+.sidebar-hover-scrollbar:hover::-webkit-scrollbar-thumb:hover {
+  background: rgb(156 163 175);
+}
+:is(.dark) .sidebar-hover-scrollbar:hover {
+  scrollbar-color: rgba(143, 153, 168, 0.4) transparent;
+}
+:is(.dark) .sidebar-hover-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: rgba(143, 153, 168, 0.4);
+}
+:is(.dark) .sidebar-hover-scrollbar:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(143, 153, 168, 0.6);
+}
+
+/* Gantt Chart Scrollbar - adapts to dark mode */
+.gantt-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(209 213 219) rgb(243 244 246);
+}
+
+:is(.dark) .gantt-scroll {
+  scrollbar-color: rgba(143, 153, 168, 0.3) #1c1d1f;
+}
+
+.gantt-scroll::-webkit-scrollbar {
+  height: 12px;
+  width: 12px;
+}
+
+.gantt-scroll::-webkit-scrollbar-track {
+  background: rgb(243 244 246);
+}
+
+.gantt-scroll::-webkit-scrollbar-thumb {
+  background: rgb(209 213 219);
+  border-radius: 6px;
+  border: 2px solid rgb(243 244 246);
+}
+
+.gantt-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgb(156 163 175);
+}
+
+:is(.dark) .gantt-scroll::-webkit-scrollbar-track {
+  background: #1c1d1f;
+}
+
+:is(.dark) .gantt-scroll::-webkit-scrollbar-thumb {
+  background: rgba(143, 153, 168, 0.3);
+  border-color: #1c1d1f;
+}
+
+:is(.dark) .gantt-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(143, 153, 168, 0.45);
+}
+
+/* Custom Scrollbar Styles */
+.custom-scrollbar,
+.inbox-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(209 213 219) transparent;
+}
+
+/* Legacy scrollbar class aliases — now handled by global * rule */
+
+/* Settings Modal Scrollbar - Always Visible */
+.settings-modal-scroll {
+  scrollbar-width: auto;
+  scrollbar-color: rgb(156 163 175) rgb(243 244 246);
+  scrollbar-gutter: stable;
+}
+
+.settings-modal-scroll::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+
+.settings-modal-scroll::-webkit-scrollbar-track {
+  background: rgb(243 244 246);
+  border-radius: 7px;
+  border: 1px solid rgb(229 231 235);
+}
+
+.settings-modal-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgb(156 163 175), rgb(107 114 128));
+  border-radius: 7px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.settings-modal-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgb(107 114 128), rgb(75 85 99));
+  background-clip: padding-box;
+}
+
+.settings-modal-scroll::-webkit-scrollbar-thumb:active {
+  background: rgb(55 65 81);
+  background-clip: padding-box;
+}
+
+/* Dark mode for settings modal scrollbar */
+.dark .settings-modal-scroll {
+  scrollbar-color: rgba(143, 153, 168, 0.4) #1c1d1f;
+}
+
+.dark .settings-modal-scroll::-webkit-scrollbar-track {
+  background: #1c1d1f;
+  border: 1px solid #2e3238;
+}
+
+.dark .settings-modal-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(143, 153, 168, 0.5), rgba(143, 153, 168, 0.35));
+}
+
+.dark .settings-modal-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(143, 153, 168, 0.65), rgba(143, 153, 168, 0.5));
+}
+
+.dark .settings-modal-scroll::-webkit-scrollbar-thumb:active {
+  background: rgba(143, 153, 168, 0.7);
+}
+
+.inbox-list-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(156, 163, 175, 0.5);
+}
+
+.dark .inbox-list-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(143, 153, 168, 0.15);
+}
+
+.dark .inbox-list-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(143, 153, 168, 0.3);
+}
+
+.custom-scrollbar::-webkit-scrollbar,
+.inbox-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track,
+.inbox-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 2px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb,
+.inbox-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgb(229 231 235);
+  border-radius: 2px;
+  border: none;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover,
+.inbox-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(209 213 219);
+}
+
+.dark .custom-scrollbar,
+.dark .inbox-scrollbar {
+  scrollbar-color: rgba(143, 153, 168, 0.2) transparent;
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-track,
+.dark .inbox-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb,
+.dark .inbox-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(143, 153, 168, 0.2);
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb:hover,
+.dark .inbox-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(143, 153, 168, 0.35);
+}
+
+@theme inline {
+  --font-outfit: 'Outfit', ui-sans-serif, system-ui, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(156, 163, 175, 0.15) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 3px;
+    height: 3px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: rgba(156, 163, 175, 0.15);
+    border-radius: 3px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(156, 163, 175, 0.3);
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  }
+  button:not([disabled]),
+  [role="button"]:not([disabled]) {
+    cursor: pointer;
+  }
+}
+
+/* Grid Background Pattern for Login/Auth Pages */
+.bg-grid-white\/\[0\.05\] {
+  background-image: linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+}
+
+/* Platform-specific scrollbar styles */
+
+/* Custom scrollbar for pipeline kanban */
+.scrollbar-visible {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(156 163 175) rgb(243 244 246);
+}
+
+.scrollbar-visible::-webkit-scrollbar {
+  height: 12px;
+  display: block !important;
+}
+
+.scrollbar-visible::-webkit-scrollbar-track {
+  background: rgb(243 244 246);
+  border-radius: 6px;
+}
+
+.scrollbar-visible::-webkit-scrollbar-thumb {
+  background: rgb(156 163 175);
+  border-radius: 6px;
+  border: 2px solid rgb(243 244 246);
+}
+
+.scrollbar-visible::-webkit-scrollbar-thumb:hover {
+  background: rgb(107 114 128);
+}
+
+:is(.dark) .scrollbar-visible {
+  scrollbar-color: rgba(143, 153, 168, 0.3) #1c1d1f;
+}
+
+:is(.dark) .scrollbar-visible::-webkit-scrollbar-track {
+  background: #1c1d1f;
+}
+
+:is(.dark) .scrollbar-visible::-webkit-scrollbar-thumb {
+  background: rgba(143, 153, 168, 0.3);
+  border-color: #1c1d1f;
+}
+
+:is(.dark) .scrollbar-visible::-webkit-scrollbar-thumb:hover {
+  background: rgba(143, 153, 168, 0.45);
+}
+
+/* Hide scrollbar completely */
+.scrollbar-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
+/* Subtle scrollbar for sticky notes */
+.sticky-note-scrollbar {
+  direction: ltr;
+}
+
+.sticky-note-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sticky-note-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sticky-note-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(209, 213, 219, 0.4);
+  border-radius: 3px;
+}
+
+.sticky-note-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.6);
+}
+
+/* ---- Task completion animation ---- */
+/*
+ * Two phases:
+ *  1. CSS-driven green flash on the row (400ms) — just a background-color
+ *     pulse, nothing else. No height, no opacity, no transform.
+ *  2. The status commit is wrapped in document.startViewTransition, which
+ *     snapshots the DOM before and after the state change and animates the
+ *     transition on the compositor thread. This is the browser's native
+ *     solution for smooth DOM-state animations — everything below the
+ *     removed row moves in perfect sync without any JS orchestration.
+ */
+
+/* ---- Cell drag-selection: suppress hover-revealed UI during a drag ----
+ *
+ * While the user is drag-selecting a rectangle of cells in the entity
+ * grid, hover-only UI (favorite stars, ghost +Plus buttons, etc.) would
+ * otherwise blink in and out as the cursor crosses cells. The
+ * `cell-selection-context` toggles `body[data-grid-dragging]` for the
+ * lifetime of the drag; this rule hides anything explicitly tagged as
+ * "only show on hover" inside the table while the drag is in flight. */
+body[data-grid-dragging="true"] [data-grid-hover-only="true"] {
+  display: none !important;
+}
+
+@keyframes task-row-green-flash {
+  0% {
+    background-color: transparent;
+  }
+  30% {
+    background-color: rgb(134 239 172 / 0.3);
+  }
+  65% {
+    background-color: rgb(134 239 172 / 0.3);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.task-completing-inner {
+  animation: task-row-green-flash 400ms ease-in-out forwards;
+  pointer-events: none;
+}
+
+/* Three-dot "thinking" pulse for in-flight agent messages. Each dot is offset
+   by 0.15s so they bounce in sequence. See message-item.tsx. */
+@keyframes weldchat-bounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 320ms;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Embedded chat inside the task detail panel: remove the horizontal/outer
+   padding that the weldchat MessageItem and MessageInput ship with, so
+   messages align flush with the panel's own padding. */
+.chat-flush [data-message-id],
+.chat-flush [data-chat-divider] {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+.chat-flush div.p-4.flex-shrink-0 {
+  padding: 0 !important;
+}
+/* Like .chat-flush, but only removes the TOP padding of the standard
+   MessageInput wrapper. Used in the customer detail panel's expanded chat
+   sidebar where the composer should sit flush with the message list above
+   while keeping its horizontal and bottom padding. */
+.chat-flush-top div.p-4.flex-shrink-0 {
+  padding-top: 0 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-completing-inner {
+    animation-duration: 1ms !important;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 1ms !important;
+  }
+}
+
+/* BlockNote renders the empty-block placeholder (e.g. "Enter text or press
+   / for commands") in italic by default. Force upright text — scoped to
+   the ::before pseudo-element so user-applied italic formatting still
+   works on real content. */
+.bn-editor *::before,
+.bn-container *::before,
+.ProseMirror *::before,
+[class*="bn-"]::before {
+  font-style: normal !important;
+}
+
+/* BlockNote side menu (the hover + / drag controls next to each block)
+   — hide entirely. */
+.bn-container .bn-side-menu,
+.bn-container [class*="sideMenu"] {
+  display: none !important;
+}
+
+/* Toggle list — BlockNote renders a play-arrow SVG inline. We visually
+   hide it (without removing it from the DOM, because ProseMirror will
+   treat that as an unexpected mutation and crash on toggle click) and
+   paint a Lucide chevron via CSS background-image on the button. */
+.bn-editor .bn-toggle-button > svg {
+  visibility: hidden !important;
+}
+.bn-editor .bn-toggle-button {
+  position: relative;
+  width: 22px !important;
+  height: 22px !important;
+  padding: 0 !important;
+  margin-right: 6px !important;
+  border-radius: 7px !important;
+  background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 16px 16px;
+}
+.bn-editor .bn-toggle-wrapper[data-show-children="true"] .bn-toggle-button {
+  background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+/* Check list checkboxes — the default size (13px) is too small. Bump
+   to a slightly larger, more tappable 16px with a touch more spacing
+   from the line text. */
+/* Native checkboxes ignore border-radius unless appearance:none is set.
+   Replace the browser's chrome with a custom square so the radius and
+   sizing actually render, then paint our own check mark via an SVG
+   background on :checked. */
+.bn-editor [data-content-type="checkListItem"] input[type="checkbox"] {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  width: 15px !important;
+  height: 15px !important;
+  /* Zero out the user-agent's default 3-4px left margin so the
+     checkbox aligns with the rest of the block's left edge (matches
+     how bullet / numbered markers sit). */
+  margin: 0 8px 0 0 !important;
+  padding: 0 !important;
+  border: 1.5px solid color-mix(in oklch, var(--border), var(--foreground) 5%) !important;
+  border-radius: 5px !important;
+  background-color: transparent !important;
+  cursor: pointer;
+  display: inline-block;
+  vertical-align: middle;
+  transform: translateY(-1px);
+  transition: background-color 0.15s, border-color 0.15s;
+  box-sizing: border-box;
+}
+.bn-editor [data-content-type="checkListItem"] input[type="checkbox"]:hover {
+  border-color: color-mix(in oklch, var(--border), var(--foreground) 18%) !important;
+}
+.bn-editor [data-content-type="checkListItem"] input[type="checkbox"]:checked {
+  background-color: var(--primary) !important;
+  border-color: var(--primary) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
+  background-size: 12px 12px;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+/* ============================================================
+   BlockNote slash-command suggestion menu — compact redesign.
+   Without the description line each item should feel like a
+   standard command-palette row: one line, tight padding, icon
+   on the left, shortcut badge on the right. ============================================================ */
+
+/* Hide the description text (structural selector — see item source). */
+.bn-suggestion-menu [role="option"] > div:not([data-position]) > div:nth-child(2),
+.bn-suggestion-menu [role="option"] > div.flex-1 > div:nth-child(2) {
+  display: none !important;
+}
+
+/* Whole menu — narrower, less padding, scoped scrollbar. */
+.bn-suggestion-menu {
+  min-width: 240px !important;
+  max-width: 300px !important;
+  padding: 4px !important;
+}
+
+/* Group headers (Headings / Basic blocks / Media / …) — denser.
+   Extra top margin creates breathing room between categories, but the
+   first group shouldn't get it (would push it off the top of the menu). */
+.bn-suggestion-menu [class*="label"],
+.bn-suggestion-menu [role="group"] > [class*="label"] {
+  padding: 6px 8px 2px !important;
+  margin-top: 12px !important;
+  font-size: 11px !important;
+  letter-spacing: 0.03em !important;
+  text-transform: uppercase !important;
+  color: hsl(var(--muted-foreground, 220 9% 46%)) !important;
+}
+.bn-suggestion-menu [class*="label"]:first-child,
+.bn-suggestion-menu > :first-child [class*="label"] {
+  margin-top: 0 !important;
+}
+
+/* Each row — single line, smaller gap, smaller padding. */
+.bn-suggestion-menu [role="option"] {
+  gap: 8px !important;
+  padding: 6px 8px !important;
+  border-radius: 6px !important;
+  min-height: 0 !important;
+}
+
+/* Icon wrapper — drop the big p-3 and shrink to 20px square. */
+.bn-suggestion-menu [role="option"] > [data-position="left"] {
+  padding: 0 !important;
+  width: 22px !important;
+  height: 22px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: hsl(var(--muted-foreground, 220 9% 46%)) !important;
+}
+.bn-suggestion-menu [role="option"] > [data-position="left"] svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+/* Title text — tighter, matches row height. */
+.bn-suggestion-menu [role="option"] > div:not([data-position]) > div:first-child,
+.bn-suggestion-menu [role="option"] > div.flex-1 > div:first-child {
+  font-size: 13px !important;
+  line-height: 20px !important;
+  font-weight: 500 !important;
+}
+
+/* Right-side keyboard shortcut badge — monospaced, muted. */
+.bn-suggestion-menu [role="option"] > [data-position="right"] {
+  font-size: 11px !important;
+  color: hsl(var(--muted-foreground, 220 9% 46%)) !important;
+}
+.bn-suggestion-menu [role="option"] > [data-position="right"] [class*="badge"],
+.bn-suggestion-menu [role="option"] > [data-position="right"] .bg-secondary {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  padding: 1px 6px !important;
+  font-weight: 500 !important;
+  border-radius: 4px !important;
+}
+
+/* BlockNote tables: keep horizontal overflow contained inside the table
+   wrapper so adding/dragging columns never promotes a scrollbar to the
+   outer page. */
+.bn-container .tableWrapper {
+  overflow-x: auto !important;
+  max-width: 100% !important;
+}
+
+/* Top-edge navigation progress bar. Advances fast at first, then crawls —
+   it never reaches 100% on its own; NavigationProgressBar snaps it to full
+   width and fades it out when the router settles. See
+   components/layout/navigation-progress-bar.tsx. */
+@keyframes nav-progress-advance {
+  0% {
+    width: 0%;
+  }
+  15% {
+    width: 45%;
+  }
+  45% {
+    width: 72%;
+  }
+  100% {
+    width: 92%;
+  }
+}
+
+/* Delayed appearance for loading indicators: invisible for the first beat so
+   loads that resolve near-instantly (warm cache, fast network) never flash a
+   spinner. Pair with an `opacity-0` base class. See components/page-loader.tsx. */
+@keyframes loader-appear {
+  to {
+    opacity: 1;
+  }
+}

@@ -1,0 +1,100 @@
+# Integration Sync Scheduler Worker
+#
+# Runs on a cron trigger, checks all workspaces for integration connections
+# that are due for a sync, and calls app-api's internal sync endpoint via
+# service binding. Works for any integration type (CRM, e-commerce, etc.).
+#
+# The user configures the sync interval per connection via
+# syncSettings.syncIntervalHours (default: 6 hours, minimum: 1 hour).
+
+name = "integration-sync-scheduler"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+[triggers]
+crons = ["*/30 * * * *"]  # Every 30 minutes — only syncs connections that are actually due
+
+[vars]
+ENVIRONMENT = "development"
+
+[[hyperdrive]]
+binding = "HYPERDRIVE_MASTER"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:5432/weldsuite_master?sslmode=require"
+
+# app-api service binding. Calls POST /api/integrations/connections/:id/sync and
+# /renew-watch on the internal router (app-api routes/integrations/internal.ts),
+# which is mounted ABOVE the Clerk guard and authenticates on X-Internal-Secret.
+# This worker's INTERNAL_API_SECRET must match the target app-api env's secret —
+# the router fails closed with 401 otherwise.
+[[services]]
+binding = "APP_API"
+service = "weldsuite-app-api"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+name = "integration-sync-scheduler-test"
+
+[env.test.triggers]
+crons = []
+
+[env.test.vars]
+ENVIRONMENT = "test"
+
+[[env.test.services]]
+binding = "APP_API"
+service = "weldsuite-app-api-test"
+
+# ============ PREVIEW ENVIRONMENT ============
+[env.preview]
+name = "integration-sync-scheduler-preview"
+
+[env.preview.vars]
+ENVIRONMENT = "preview"
+
+[[env.preview.hyperdrive]]
+binding = "HYPERDRIVE_MASTER"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# app-api has no preview custom domain and preview is only ever deployed by a
+# manual workflow_dispatch, so preview borrows the TEST app-api — the same
+# pattern workflow-worker's [env.preview.vars] APP_API_URL uses. This worker's
+# preview INTERNAL_API_SECRET must therefore match the TEST app-api's secret.
+[[env.preview.services]]
+binding = "APP_API"
+service = "weldsuite-app-api-test"
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+name = "integration-sync-scheduler-production"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+
+[[env.production.hyperdrive]]
+binding = "HYPERDRIVE_MASTER"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# app-api's [env.production] name is "weldsuite-app-api" (no "-production" suffix).
+[[env.production.services]]
+binding = "APP_API"
+service = "weldsuite-app-api"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# --- Persist Workers Logs across environments ---
+# observability is NOT inherited by named environments, so it must be set on each.
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.preview.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

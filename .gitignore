@@ -1,0 +1,89 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Local env files — never commit real env files; *.example files stay tracked
+**/.env
+**/.env.local
+**/.env.test
+**/.env.development.local
+**/.env.test.local
+**/.env.production.local
+
+# Testing
+coverage
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Fallow analysis cache
+.fallow/
+
+# Turbo
+.turbo
+
+# Vercel
+.vercel
+
+# Build Outputs
+.next/
+out/
+build
+dist
+
+
+# Debug
+npm-debug.log*
+
+# Misc
+.DS_Store
+*.pem
+
+.trigger
+null
+/dev
+
+tmpclaude*
+.claude/worktrees/
+
+# Cloudflare Workers
+.wrangler
+.dev.vars
+**/.dev.vars
+**/.dev.vars.*
+
+# i18n validation patch artifacts (regenerable via scripts/validate-translations.ts --fix)
+apps/web/platform/lib/i18n/.patches/
+.open-next
+.mcp.json
+graphify-out
+/packages/design/weldmeet-ui/playwright/.cache/
+# GitHub App manifest-flow output (contains private key + webhook secret)
+scripts/secrets/.out/
+
+# design-sync (claude.ai/design sync) — transient build/verification state
+.design-sync/sb-reference/
+.design-sync/learnings/
+.design-sync/.cache/
+.design-sync/node_modules
+.ds-sync/
+ds-bundle/
+packages/design/ui/.ds-entry.ts
+packages/design/ui/index.d.ts
+packages/design/ui/.ds-styles.css
+.design-sync/*.log
+.design-sync/.cache/
+.design-sync/upload/
+
+# Firebase Admin SDK / GCP service-account private keys — NEVER commit.
+# (Client config google-services.json / GoogleService-Info.plist is safe and NOT ignored.)
+*-adminsdk-*.json
+*serviceAccount*.json
+service-account*.json
+gcp-*-key.json
+
+# TypeScript incremental build artifacts (regenerated on build)
+*.tsbuildinfo

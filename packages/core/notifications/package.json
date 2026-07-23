@@ -1,0 +1,26 @@
+{
+  "name": "@weldsuite/notifications",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "echo 'no lint configured'"
+  },
+  "dependencies": {
+    "@weldsuite/db": "workspace:*",
+    "@weldsuite/transactional-email": "workspace:*",
+    "drizzle-orm": "^0.45.1",
+    "nanoid": "^5.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@weldsuite/typescript-config": "workspace:*",
+    "typescript": "^5.9.2"
+  }
+}

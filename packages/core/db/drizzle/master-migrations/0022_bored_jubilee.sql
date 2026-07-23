@@ -1,0 +1,1 @@
+ALTER TABLE "workspaces" ADD COLUMN "elastic_email_api_key" text;

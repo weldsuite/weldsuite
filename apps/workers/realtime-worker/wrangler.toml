@@ -1,0 +1,147 @@
+# WeldSuite Real-Time Event System
+# Manages WebSocket connections via Durable Objects:
+# - WorkspaceHub: workspace-wide events (entity CRUD, notifications, mail)
+# - ConversationRoom: per-conversation helpdesk messaging
+# - ChatRoom: per-channel WeldChat messaging
+# - WhiteboardRoom: per-whiteboard collaboration (cursors, elements, presence)
+# - DocumentRoom: per-document collaboration (content sync, title, presence)
+# - SupportRoom: per-workspace enterprise support channel
+
+name = "weldsuite-realtime"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# Local dev on port 8790
+[dev]
+port = 8790
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# Required secrets (add via wrangler secret put):
+# - CLERK_JWT_KEY: Clerk JWT public key (PEM format) for verifying platform user tokens
+# - ADMIN_CLERK_JWT_KEY: Admin Clerk JWT public key (PEM format) for verifying admin app tokens
+# - WIDGET_TOKEN_SECRET: Shared secret for verifying helpdesk widget customer tokens
+# - DATABASE_URL_MASTER: Neon master DB connection string (used by WorkspaceHub
+#                        presence alarm to persist offline to tenant DBs).
+# - NEON_API_KEY: Neon API key — used to resolve tenant DB URLs on cache miss.
+# - DATABASE_ENCRYPTION_KEY: (optional) AES-256-GCM hex key for decrypting stored tenant DB URIs.
+
+[vars]
+CLERK_ISSUER = "https://definite-eagle-3.clerk.accounts.dev"
+
+[durable_objects]
+bindings = [
+  { name = "WORKSPACE_HUB", class_name = "WorkspaceHub" },
+  { name = "CONVERSATION_ROOM", class_name = "ConversationRoom" },
+  { name = "CHAT_ROOM", class_name = "ChatRoom" },
+  { name = "WHITEBOARD_ROOM", class_name = "WhiteboardRoom" },
+  { name = "DOCUMENT_ROOM", class_name = "DocumentRoom" },
+  { name = "SUPPORT_ROOM", class_name = "SupportRoom" },
+]
+
+# Shared KV namespace (same ID as api-worker) — used by the WorkspaceHub
+# presence alarm to resolve tenant DB URLs from workspace (Clerk org) IDs.
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["WorkspaceHub", "ConversationRoom", "ChatRoom"]
+
+[[migrations]]
+tag = "v2"
+new_classes = ["WhiteboardRoom"]
+
+[[migrations]]
+tag = "v3"
+new_classes = ["SupportRoom"]
+
+[[migrations]]
+tag = "v4"
+new_classes = ["DocumentRoom"]
+
+# ============ ENVIRONMENTS ============
+
+[env.test]
+name = "weldsuite-realtime-test"
+routes = [
+  { pattern = "realtime-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+CLERK_ISSUER = "https://definite-eagle-3.clerk.accounts.dev"
+
+[env.test.durable_objects]
+bindings = [
+  { name = "WORKSPACE_HUB", class_name = "WorkspaceHub" },
+  { name = "CONVERSATION_ROOM", class_name = "ConversationRoom" },
+  { name = "CHAT_ROOM", class_name = "ChatRoom" },
+  { name = "WHITEBOARD_ROOM", class_name = "WhiteboardRoom" },
+  { name = "DOCUMENT_ROOM", class_name = "DocumentRoom" },
+  { name = "SUPPORT_ROOM", class_name = "SupportRoom" },
+]
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[env.preview]
+name = "weldsuite-realtime-preview"
+
+[env.preview.vars]
+CLERK_ISSUER = "https://clerk.weldsuite.org"
+
+[env.preview.durable_objects]
+bindings = [
+  { name = "WORKSPACE_HUB", class_name = "WorkspaceHub" },
+  { name = "CONVERSATION_ROOM", class_name = "ConversationRoom" },
+  { name = "CHAT_ROOM", class_name = "ChatRoom" },
+  { name = "WHITEBOARD_ROOM", class_name = "WhiteboardRoom" },
+  { name = "DOCUMENT_ROOM", class_name = "DocumentRoom" },
+  { name = "SUPPORT_ROOM", class_name = "SupportRoom" },
+]
+
+[[env.preview.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[env.production]
+name = "weldsuite-realtime-production"
+routes = [
+  { pattern = "realtime.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+CLERK_ISSUER = "https://clerk.weldsuite.org"
+
+[env.production.durable_objects]
+bindings = [
+  { name = "WORKSPACE_HUB", class_name = "WorkspaceHub" },
+  { name = "CONVERSATION_ROOM", class_name = "ConversationRoom" },
+  { name = "CHAT_ROOM", class_name = "ChatRoom" },
+  { name = "WHITEBOARD_ROOM", class_name = "WhiteboardRoom" },
+  { name = "DOCUMENT_ROOM", class_name = "DocumentRoom" },
+  { name = "SUPPORT_ROOM", class_name = "SupportRoom" },
+]
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# --- Persist Workers Logs across environments ---
+# observability is NOT inherited by named environments, so it must be set on each.
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.preview.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

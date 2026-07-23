@@ -1,0 +1,252 @@
+# Events
+
+Events are time-bound occurrences on a WeldCalendar calendar. Events support recurrence via RRULE strings. Mutations require the `calendar_events:write` scope; reads require `calendar_events:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The event model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `cevent_abc123`).</Property>
+  <Property name="calendarId" type="string">ID of the parent calendar.</Property>
+  <Property name="title" type="string">Event title.</Property>
+  <Property name="description" type="string">Optional description.</Property>
+  <Property name="startTime" type="string">ISO 8601 start time (e.g. `2024-12-15T09:00:00Z`).</Property>
+  <Property name="endTime" type="string">ISO 8601 end time (e.g. `2024-12-15T10:00:00Z`).</Property>
+  <Property name="isAllDay" type="boolean">Whether the event spans the entire day.</Property>
+  <Property name="location" type="string">Physical or virtual location (max 500 characters).</Property>
+  <Property name="attendees" type="array">Array of attendee user IDs.</Property>
+  <Property name="recurrenceRule" type="string">RRULE string defining the recurrence pattern (e.g. `FREQ=WEEKLY;BYDAY=MO,WE,FR`).</Property>
+  <Property name="recurrenceId" type="string">For recurring event instances, the ISO 8601 date of the original occurrence this instance modifies.</Property>
+  <Property name="createdAt" type="timestamp">When the event was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the event was last updated.</Property>
+</Properties>
+
+<Note>
+  The API stores and returns the `recurrenceRule` string as-is. Expanding recurring events into individual instances is the client's responsibility, the list endpoint returns only the base event record, not expanded occurrences.
+</Note>
+
+---
+
+## List events {{ tag: 'GET', label: '/v1/calendar-events' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of events.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page (max 100).</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="calendarId" type="string">Filter by calendar.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/calendar-events">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/calendar-events \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d calendarId=cal_abc123
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "cevent_abc123",
+          "calendarId": "cal_abc123",
+          "title": "Weekly Standup",
+          "startTime": "2024-12-16T09:00:00Z",
+          "endTime": "2024-12-16T09:30:00Z",
+          "isAllDay": false,
+          "recurrenceRule": "FREQ=WEEKLY;BYDAY=MO"
+        }
+      ],
+      "pagination": { "totalCount": 15, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create an event {{ tag: 'POST', label: '/v1/calendar-events' }}
+
+<Row>
+  <Col>
+
+    Create a new calendar event.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="calendarId" type="string">ID of the calendar.</Property>
+      <Property name="title" type="string">Event title (max 255 characters).</Property>
+      <Property name="startTime" type="string">ISO 8601 start time.</Property>
+      <Property name="endTime" type="string">ISO 8601 end time.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="description" type="string">Description.</Property>
+      <Property name="isAllDay" type="boolean">All-day event flag.</Property>
+      <Property name="location" type="string">Location (max 500 characters).</Property>
+      <Property name="attendees" type="array">Array of attendee user IDs.</Property>
+      <Property name="recurrenceRule" type="string">RRULE string for recurring events.</Property>
+      <Property name="recurrenceId" type="string">Original occurrence ISO 8601 date (for instance overrides).</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/calendar-events">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/calendar-events \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "calendarId": "cal_abc123",
+        "title": "Weekly Standup",
+        "startTime": "2024-12-16T09:00:00Z",
+        "endTime": "2024-12-16T09:30:00Z",
+        "recurrenceRule": "FREQ=WEEKLY;BYDAY=MO"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "cevent_new456",
+        "calendarId": "cal_abc123",
+        "title": "Weekly Standup",
+        "startTime": "2024-12-16T09:00:00Z",
+        "endTime": "2024-12-16T09:30:00Z",
+        "isAllDay": false,
+        "recurrenceRule": "FREQ=WEEKLY;BYDAY=MO",
+        "recurrenceId": null,
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve an event {{ tag: 'GET', label: '/v1/calendar-events/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single event by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/calendar-events/cevent_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/calendar-events/cevent_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "cevent_abc123",
+        "calendarId": "cal_abc123",
+        "title": "Weekly Standup",
+        "startTime": "2024-12-16T09:00:00Z",
+        "endTime": "2024-12-16T09:30:00Z",
+        "recurrenceRule": "FREQ=WEEKLY;BYDAY=MO"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update an event {{ tag: 'PATCH', label: '/v1/calendar-events/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a calendar event.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/calendar-events/cevent_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/calendar-events/cevent_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "startTime": "2024-12-16T09:30:00Z", "endTime": "2024-12-16T10:00:00Z" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "cevent_abc123",
+        "startTime": "2024-12-16T09:30:00Z",
+        "endTime": "2024-12-16T10:00:00Z",
+        "updatedAt": "2024-12-15T08:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete an event {{ tag: 'DELETE', label: '/v1/calendar-events/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a calendar event. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/calendar-events/cevent_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/calendar-events/cevent_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

@@ -1,0 +1,209 @@
+# Quickstart
+
+Get up and running with the WeldSuite API in just a few minutes. This guide walks you through creating an API key with the right scopes and making your first requests against `https://api.weldsuite.org/v1`. {{ className: 'lead' }}
+
+## Step 1: Create an API key
+
+1. Log into your WeldSuite dashboard
+2. Navigate to **Settings → API Keys**
+3. Click **Create API Key**
+4. Give your key a name (e.g. "My Integration")
+5. Select the scopes your integration needs, for this quickstart, `people:read` and `people:write`
+6. Click **Create**
+
+<Note>
+  Your API key is shown only once and starts with `wsk_`. Copy it immediately and store it securely.
+</Note>
+
+## Step 2: Make your first request
+
+Send your key as a Bearer token (or in the `X-Api-Key` header) to list people:
+
+<CodeGroup tag="GET" label="/v1/people">
+
+```bash {{ title: 'cURL' }}
+curl https://api.weldsuite.org/v1/people \
+  -H "Authorization: Bearer wsk_your_api_key"
+```
+
+```js {{ title: 'JavaScript' }}
+const res = await fetch('https://api.weldsuite.org/v1/people', {
+  headers: { Authorization: 'Bearer wsk_your_api_key' },
+})
+
+const { data, pagination } = await res.json()
+console.log(`Found ${pagination.totalCount} people`)
+```
+
+```python {{ title: 'Python' }}
+import requests
+
+res = requests.get(
+    'https://api.weldsuite.org/v1/people',
+    headers={'Authorization': 'Bearer wsk_your_api_key'},
+)
+
+body = res.json()
+print(f"Found {body['pagination']['totalCount']} people")
+```
+
+</CodeGroup>
+
+You'll receive a cursor-paginated response:
+
+```json
+{
+  "data": [
+    {
+      "id": "person_abc123",
+      "firstName": "Jane",
+      "lastName": "Doe",
+      "fullName": "Jane Doe",
+      "email": "jane@doe.example",
+      "title": "Operations Director",
+      "createdAt": "2024-01-15T10:30:00Z"
+    }
+  ],
+  "pagination": {
+    "totalCount": 42,
+    "hasMore": false,
+    "cursor": null
+  }
+}
+```
+
+See [Pagination](/pagination) for how to walk through every page using the `cursor`.
+
+## Step 3: Create a person
+
+Creating a person requires the `people:write` scope. Note that updates use `PATCH` (partial update), not `PUT`.
+
+<CodeGroup tag="POST" label="/v1/people">
+
+```bash {{ title: 'cURL' }}
+curl -X POST https://api.weldsuite.org/v1/people \
+  -H "Authorization: Bearer wsk_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "firstName": "Jane",
+    "lastName": "Doe",
+    "email": "jane@doe.example",
+    "title": "Operations Director"
+  }'
+```
+
+```js {{ title: 'JavaScript' }}
+const res = await fetch('https://api.weldsuite.org/v1/people', {
+  method: 'POST',
+  headers: {
+    Authorization: 'Bearer wsk_your_api_key',
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    firstName: 'Jane',
+    lastName: 'Doe',
+    email: 'jane@doe.example',
+    title: 'Operations Director',
+  }),
+})
+
+const { data } = await res.json()
+console.log(`Created person: ${data.id}`)
+```
+
+</CodeGroup>
+
+The response wraps the created record in a `data` object:
+
+```json
+{
+  "data": {
+    "id": "person_new456",
+    "firstName": "Jane",
+    "lastName": "Doe",
+    "fullName": "Jane Doe",
+    "displayName": "Jane Doe",
+    "email": "jane@doe.example",
+    "title": "Operations Director",
+    "status": "active",
+    "createdAt": "2024-12-01T14:00:00Z",
+    "updatedAt": "2024-12-01T14:00:00Z"
+  }
+}
+```
+
+## A minimal client
+
+Here's a small wrapper that handles the base URL, auth, the `data` envelope, and errors:
+
+```js {{ title: 'JavaScript' }}
+class WeldSuiteClient {
+  constructor(apiKey) {
+    this.apiKey = apiKey
+    this.baseUrl = 'https://api.weldsuite.org/v1'
+  }
+
+  async request(path, options = {}) {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    })
+
+    if (res.status === 204) return null
+    const body = await res.json()
+    if (!res.ok) {
+      throw new Error(`${body.error.code}: ${body.error.message}`)
+    }
+    return body
+  }
+
+  listPeople(params = {}) {
+    const query = new URLSearchParams(params).toString()
+    return this.request(`/people${query ? `?${query}` : ''}`)
+  }
+
+  createPerson(data) {
+    return this.request('/people', { method: 'POST', body: JSON.stringify(data) })
+  }
+
+  updatePerson(id, data) {
+    return this.request(`/people/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+  }
+
+  deletePerson(id) {
+    return this.request(`/people/${id}`, { method: 'DELETE' })
+  }
+}
+
+const client = new WeldSuiteClient(process.env.WELDSUITE_API_KEY)
+const { data, pagination } = await client.listPeople({ limit: 10 })
+console.log(`Found ${pagination.totalCount} people`)
+```
+
+## Understanding scopes
+
+Every endpoint requires a scope. Reads need `<resource>:read`; create/update/delete need `<resource>:write`.
+
+```text
+people:read              → GET endpoints
+people:write             → POST / PATCH / DELETE endpoints
+people:*                 → both read and write on people
+*                        → full access (use sparingly)
+```
+
+See the [Authentication guide](/authentication) for the complete scope list.
+
+## Next steps
+
+- [Authentication](/authentication), API keys, scopes, and rate limits
+- [Pagination](/pagination), walking cursor-paginated lists
+- [Errors](/errors), the error envelope and how to handle it
+- [Versioning](/versioning), how the `/v1` path version works
+
+## Need help?
+
+- Contact [support@weldsuite.com](mailto:support@weldsuite.com) for assistance.

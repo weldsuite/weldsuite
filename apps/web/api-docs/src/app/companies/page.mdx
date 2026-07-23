@@ -1,0 +1,315 @@
+# Companies
+
+Companies are the organizations in your CRM, customers, suppliers, and prospects. This page covers the company model and its endpoints. Mutations require the `companies:write` scope; reads require `companies:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The company model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">
+    Unique identifier for the company (e.g. `company_abc123`).
+  </Property>
+  <Property name="name" type="string">
+    Legal/registered company name.
+  </Property>
+  <Property name="tradingName" type="string">
+    Trading (doing-business-as) name, if different from `name`.
+  </Property>
+  <Property name="displayName" type="string">
+    Server-derived display name (`tradingName` if set, otherwise `name`).
+  </Property>
+  <Property name="vatNumber" type="string">
+    VAT / tax registration number.
+  </Property>
+  <Property name="registrationNumber" type="string">
+    Company registration number.
+  </Property>
+  <Property name="industry" type="string">
+    Industry classification.
+  </Property>
+  <Property name="email" type="string">
+    Primary email address.
+  </Property>
+  <Property name="phone" type="string">
+    Primary phone number.
+  </Property>
+  <Property name="website" type="string">
+    Company website URL.
+  </Property>
+  <Property name="primaryAddress" type="object">
+    Primary address (`street`, `houseNumber`, `postalCode`, `city`, `state`, `country`, …).
+  </Property>
+  <Property name="ownerId" type="string">
+    ID of the user who owns this company.
+  </Property>
+  <Property name="status" type="string">
+    Lifecycle status (e.g. `prospect`, `customer`).
+  </Property>
+  <Property name="isSupplier" type="boolean">
+    Whether this company is also a supplier.
+  </Property>
+  <Property name="isLead" type="boolean">
+    Whether this company is a lead.
+  </Property>
+  <Property name="tags" type="array">
+    Free-form tags.
+  </Property>
+  <Property name="createdAt" type="timestamp">
+    When the company was created.
+  </Property>
+  <Property name="updatedAt" type="timestamp">
+    When the company was last updated.
+  </Property>
+</Properties>
+
+---
+
+## List companies {{ tag: 'GET', label: '/v1/companies' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of companies.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">
+        Items per page (max 100).
+      </Property>
+      <Property name="cursor" type="string">
+        Pagination cursor from the previous response.
+      </Property>
+      <Property name="search" type="string">
+        Search across display name, name, trading name, email, and VAT number.
+      </Property>
+      <Property name="status" type="string">
+        Filter by status.
+      </Property>
+      <Property name="ownerId" type="string">
+        Filter by owner.
+      </Property>
+      <Property name="industry" type="string">
+        Filter by industry.
+      </Property>
+      <Property name="isSupplier" type="boolean">
+        Filter by supplier flag.
+      </Property>
+      <Property name="isLead" type="boolean">
+        Filter by lead flag.
+      </Property>
+      <Property name="listId" type="string">
+        Restrict to members of a company list.
+      </Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/companies">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/companies \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d isSupplier=true
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "company_abc123",
+          "name": "Smith Industries BV",
+          "displayName": "Smith Industries",
+          "industry": "Manufacturing",
+          "email": "info@smith.example",
+          "isSupplier": true,
+          "status": "customer"
+        }
+      ],
+      "pagination": { "totalCount": 58, "hasMore": true, "cursor": "company_abc123" }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a company {{ tag: 'POST', label: '/v1/companies' }}
+
+<Row>
+  <Col>
+
+    Create a company. `displayName` is derived automatically from `tradingName`/`name`.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="name" type="string">
+        Company name.
+      </Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="tradingName" type="string">Trading name.</Property>
+      <Property name="vatNumber" type="string">VAT number.</Property>
+      <Property name="industry" type="string">Industry.</Property>
+      <Property name="email" type="string">Primary email.</Property>
+      <Property name="website" type="string">Website URL.</Property>
+      <Property name="primaryAddress" type="object">Primary address object.</Property>
+      <Property name="ownerId" type="string">Owner user ID.</Property>
+      <Property name="status" type="string">Lifecycle status.</Property>
+      <Property name="isSupplier" type="boolean">Supplier flag.</Property>
+      <Property name="isLead" type="boolean">Lead flag.</Property>
+      <Property name="tags" type="array">Tags.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/companies">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/companies \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Doe Manufacturing BV",
+        "tradingName": "Doe Manufacturing",
+        "industry": "Welding",
+        "email": "info@doe.example",
+        "isSupplier": true
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "company_new456",
+        "name": "Doe Manufacturing BV",
+        "tradingName": "Doe Manufacturing",
+        "displayName": "Doe Manufacturing",
+        "industry": "Welding",
+        "isSupplier": true,
+        "status": "prospect",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a company {{ tag: 'GET', label: '/v1/companies/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single company by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/companies/company_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/companies/company_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "company_abc123",
+        "name": "Smith Industries BV",
+        "displayName": "Smith Industries",
+        "industry": "Manufacturing",
+        "status": "customer"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a company {{ tag: 'PATCH', label: '/v1/companies/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a company. Only the fields you send are changed.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/companies/company_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/companies/company_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "status": "customer", "industry": "Heavy Manufacturing" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "company_abc123",
+        "status": "customer",
+        "industry": "Heavy Manufacturing",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a company {{ tag: 'DELETE', label: '/v1/companies/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a company. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/companies/company_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/companies/company_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

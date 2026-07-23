@@ -1,0 +1,42 @@
+{
+  "name": "@weldsuite/email",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./core": "./src/core/index.ts",
+    "./core/types": "./src/core/types.ts",
+    "./core/errors": "./src/core/errors.ts",
+    "./core/registry": "./src/core/registry.ts",
+    "./core/parse": "./src/core/parse.ts",
+    "./core/mime": "./src/core/mime.ts",
+    "./providers/cloudflare": "./src/providers/cloudflare/index.ts",
+    "./providers/cloudflare/send": "./src/providers/cloudflare/send.ts",
+    "./providers/cloudflare/receive": "./src/providers/cloudflare/receive.ts",
+    "./providers/cloudflare/domain": "./src/providers/cloudflare/domain.ts",
+    "./providers/cloudflare/addresses": "./src/providers/cloudflare/addresses.ts",
+    "./providers/gmail": "./src/providers/gmail/index.ts",
+    "./providers/outlook": "./src/providers/outlook/index.ts",
+    "./sanitize": "./src/sanitize.ts"
+  },
+  "dependencies": {
+    "postal-mime": "^2.4.4",
+    "mimetext": "^3.0.27",
+    "htmlparser2": "^10.1.0",
+    "dom-serializer": "^2.0.0",
+    "domhandler": "^5.0.3"
+  },
+  "peerDependencies": {
+    "@cloudflare/workers-types": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@cloudflare/workers-types": { "optional": true }
+  },
+  "devDependencies": {
+    "@weldsuite/typescript-config": "workspace:*",
+    "@cloudflare/workers-types": "^4.20241218.0",
+    "typescript": "^5.9.2"
+  }
+}

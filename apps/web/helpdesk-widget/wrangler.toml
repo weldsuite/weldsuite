@@ -1,0 +1,21 @@
+# Cloudflare Pages configuration for Helpdesk Widget
+# Note: For Pages, most configuration is done in the dashboard
+# This file is primarily for reference and local development with wrangler pages dev
+
+name = "helpdesk-widget"
+compatibility_date = "2024-01-01"
+
+# Build configuration
+[build]
+command = "pnpm build"
+cwd = "."
+
+[build.upload]
+format = "service-worker"
+
+# Site configuration (for static assets)
+[site]
+bucket = "./dist"
+
+# Environment variables (set these in Cloudflare Pages dashboard)
+# VITE_WIDGET_API_URL = "https://widget-api.weldsuite.com"

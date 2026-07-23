@@ -1,0 +1,1 @@
+ALTER TABLE "digest_schedules" ALTER COLUMN "enabled" SET DEFAULT true;

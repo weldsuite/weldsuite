@@ -1,0 +1,24 @@
+name: Question
+description: Ask a question about the WeldSuite codebase
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question about how something works? Please check the [README](../blob/main/README.md), [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md), and existing issues/discussions first.
+
+        ℹ️ Reminder: WeldSuite is source-visible and **not currently self-hostable**, so we can't help with running the full hosted product yourself.
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: What would you like to know?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What are you trying to do? Which files or areas are involved?
+    validations:
+      required: false
