@@ -58,8 +58,10 @@ describe('/api/projects · pglite integration', () => {
   });
 
   it('GET /:id returns 404 for missing project', async () => {
+    // An elevated (scope:all) caller passes the access gate, so a missing id
+    // resolves to a genuine 404 rather than the membership 403.
     const { request } = createTestApp('/api/projects', projectsRoutes, {
-      context: { permissions: permissions('projects:read'), tenantDb: db },
+      context: { permissions: permissions('projects:read', 'projects:scope:all'), tenantDb: db },
     });
     const res = await request('/api/projects/prj_missing');
     expect(res.status).toBe(404);

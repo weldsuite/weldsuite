@@ -49,7 +49,6 @@ import { customerStatusesRoutes } from './customer-statuses';
 import { crmAnalyticsRoutes } from './crm-analytics';
 import { helpdeskContactsRoutes } from './helpdesk-contacts';
 import { helpdeskAnalyticsRoutes } from './helpdesk-analytics';
-import { pipelineFieldVisibilityRoutes } from './pipeline-field-visibility';
 import { chatDmRoutes } from './chat-dm';
 import type { Env, Variables } from '../types';
 
@@ -69,6 +68,11 @@ interface RouteCase {
    * nested under another resource). Skip the GET assertion when set.
    */
   skipGet?: boolean;
+  /**
+   * A few routes lack a standard top-level POST / create (e.g. the resource is
+   * created elsewhere, or the route uses only sub-action POSTs). Opt out per case.
+   */
+  skipPost?: boolean;
   /** A few routes lack PATCH or DELETE — opt out per case. */
   skipPatch?: boolean;
   skipDelete?: boolean;
@@ -76,12 +80,16 @@ interface RouteCase {
 
 const cases: RouteCase[] = [
   { mount: '/api/orders', router: ordersRoutes, prefix: 'orders' },
-  { mount: '/api/projects', router: projectsRoutes, prefix: 'projects' },
+  // projects GET / is deliberately membership-filtered (scope-based), not
+  // hard-blocked by requirePermission — see the note at the top of projects/index.ts.
+  { mount: '/api/projects', router: projectsRoutes, prefix: 'projects', skipGet: true },
   { mount: '/api/tasks', router: tasksRoutes, prefix: 'tasks' },
   { mount: '/api/opportunities', router: opportunitiesRoutes, prefix: 'opportunities' },
   { mount: '/api/leads', router: leadsRoutes, prefix: 'leads' },
   { mount: '/api/conversations', router: conversationsRoutes, prefix: 'conversations' },
-  { mount: '/api/mail-messages', router: mailMessagesRoutes, prefix: 'messages' },
+  // mail-messages has no POST / create — messages arrive via the inbound worker,
+  // not a create endpoint. PATCH/DELETE /:id are gated normally.
+  { mount: '/api/mail-messages', router: mailMessagesRoutes, prefix: 'messages', skipPost: true },
   { mount: '/api/bills', router: billsRoutes, prefix: 'bills' },
   { mount: '/api/meetings', router: meetingsRoutes, prefix: 'meetings' },
   { mount: '/api/activities', router: activitiesRoutes, prefix: 'activities' },
@@ -91,8 +99,9 @@ const cases: RouteCase[] = [
   { mount: '/api/warehouse-locations', router: warehouseLocationsRoutes, prefix: 'locations' },
   { mount: '/api/warehouses', router: warehousesRoutes, prefix: 'warehouses' },
   { mount: '/api/warehouse-zones', router: warehouseZonesRoutes, prefix: 'warehouses' },
-  { mount: '/api/custom-fields', router: customFieldsRoutes, prefix: 'settings' },
-  { mount: '/api/enrich-fields', router: enrichFieldsRoutes, prefix: 'settings' },
+  // custom-fields / enrich-fields update via PUT /:id (not PATCH), gated on settings:manage.
+  { mount: '/api/custom-fields', router: customFieldsRoutes, prefix: 'settings', skipPatch: true },
+  { mount: '/api/enrich-fields', router: enrichFieldsRoutes, prefix: 'settings', skipPatch: true },
   { mount: '/api/wms-suppliers', router: wmsSuppliersRoutes, prefix: 'suppliers' },
   // stock-adjustments is append-only: no PATCH /:id or DELETE /:id
   { mount: '/api/stock-adjustments', router: stockAdjustmentsRoutes, prefix: 'inventory', skipPatch: true, skipDelete: true },
@@ -105,21 +114,17 @@ const cases: RouteCase[] = [
   { mount: '/api/meeting-bot-sessions', router: meetingBotSessionsRoutes, prefix: 'activities' },
   // customer-statuses uses customers:read for read, settings:manage for create/update/delete
   { mount: '/api/customer-statuses', router: customerStatusesRoutes, prefix: 'settings' },
-  // crm-analytics uses contacts:read for all operations
-  { mount: '/api/crm-analytics', router: crmAnalyticsRoutes, prefix: 'contacts' },
+  // crm-analytics (saved reports/charts) uses contacts:read for ALL operations,
+  // so only the GET-without-read gate fits this standard sweep; the mutations
+  // don't gate on create/update/delete.
+  { mount: '/api/crm-analytics', router: crmAnalyticsRoutes, prefix: 'contacts', skipPost: true, skipPatch: true, skipDelete: true },
   // helpdesk-contacts uses conversations:* permissions; no DELETE (contacts owned by CRM)
   { mount: '/api/helpdesk-contacts', router: helpdeskContactsRoutes, prefix: 'conversations', skipDelete: true },
   // helpdesk-analytics uses settings:* permissions; full CRUD at top level
   { mount: '/api/helpdesk-analytics', router: helpdeskAnalyticsRoutes, prefix: 'settings' },
-  // pipeline-field-visibility has no top-level GET / (nested under /:id)
-  {
-    mount: '/api/pipeline-field-visibility',
-    router: pipelineFieldVisibilityRoutes,
-    prefix: 'pipelines',
-    skipGet: true,
-    skipPatch: true,
-    skipDelete: true,
-  },
+  // pipeline-field-visibility is intentionally omitted: it is nested under
+  // /:id with no standard top-level GET / / POST / or /:id PATCH/DELETE, so no
+  // assertion in this standard CRUD sweep applies to it.
   // WeldChat DM: GET / + POST / under messages:*; no PATCH/DELETE /:id
   // (the only /:id route is a read-only get-or-create resolver).
   { mount: '/api/chat-dm', router: chatDmRoutes, prefix: 'messages', skipPatch: true, skipDelete: true },
@@ -138,17 +143,19 @@ describe.each(cases)('$mount · auth gates', (c) => {
     });
   }
 
-  it(`POST ${c.mount} returns 403 without ${c.prefix}:create`, async () => {
-    const { request } = createTestApp(c.mount, c.router, {
-      context: { permissions: permissions(`${c.prefix}:read`) },
+  if (!c.skipPost) {
+    it(`POST ${c.mount} returns 403 without ${c.prefix}:create`, async () => {
+      const { request } = createTestApp(c.mount, c.router, {
+        context: { permissions: permissions(`${c.prefix}:read`) },
+      });
+      const res = await request(c.mount, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(403);
     });
-    const res = await request(c.mount, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-    expect(res.status).toBe(403);
-  });
+  }
 
   if (!c.skipPatch) {
     it(`PATCH ${c.mount}/:id returns 403 without ${c.prefix}:update`, async () => {

@@ -115,7 +115,7 @@ describe('/api/tasks/:id/move · pglite integration', () => {
 
     mockedPublish.mockClear();
     const { request } = createTestApp('/api/tasks', tasksRoutes, {
-      context: { permissions: permissions('tasks:update'), tenantDb: db, flags: flagsOn },
+      context: { permissions: permissions('tasks:update', 'projects:scope:all'), tenantDb: db, flags: flagsOn },
     });
 
     const res = await request('/api/tasks/task_mv_parent/move', {
@@ -155,7 +155,7 @@ describe('/api/tasks/:id/move · pglite integration', () => {
 
   it('is forbidden (403) when the weldflow-move-task flag is off', async () => {
     const { request } = createTestApp('/api/tasks', tasksRoutes, {
-      context: { permissions: permissions('tasks:update'), tenantDb: db, flags: flagsOff },
+      context: { permissions: permissions('tasks:update', 'projects:scope:all'), tenantDb: db, flags: flagsOff },
     });
     const res = await request('/api/tasks/task_mv_parent/move', {
       method: 'POST',
@@ -172,7 +172,7 @@ describe('/api/tasks/:id/move · pglite integration', () => {
       .values({ id: 'task_404', title: 'T', projectId: 'proj_src_404' } as typeof schema.tasks.$inferInsert);
 
     const { request } = createTestApp('/api/tasks', tasksRoutes, {
-      context: { permissions: permissions('tasks:update'), tenantDb: db, flags: flagsOn },
+      context: { permissions: permissions('tasks:update', 'projects:scope:all'), tenantDb: db, flags: flagsOn },
     });
     const res = await request('/api/tasks/task_404/move', {
       method: 'POST',
@@ -189,7 +189,7 @@ describe('/api/tasks/:id/move · pglite integration', () => {
       .values({ id: 'task_same', title: 'T', projectId: 'proj_same' } as typeof schema.tasks.$inferInsert);
 
     const { request } = createTestApp('/api/tasks', tasksRoutes, {
-      context: { permissions: permissions('tasks:update'), tenantDb: db, flags: flagsOn },
+      context: { permissions: permissions('tasks:update', 'projects:scope:all'), tenantDb: db, flags: flagsOn },
     });
     const res = await request('/api/tasks/task_same/move', {
       method: 'POST',
@@ -203,7 +203,7 @@ describe('/api/tasks/:id/move · pglite integration', () => {
 
   it('rejects an empty projectId with 400', async () => {
     const { request } = createTestApp('/api/tasks', tasksRoutes, {
-      context: { permissions: permissions('tasks:update'), tenantDb: db, flags: flagsOn },
+      context: { permissions: permissions('tasks:update', 'projects:scope:all'), tenantDb: db, flags: flagsOn },
     });
     const res = await request('/api/tasks/task_same/move', {
       method: 'POST',

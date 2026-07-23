@@ -45,7 +45,9 @@ describe('/api/calendars · pglite integration', () => {
     expect(row?.ownerId).toBe('user_calendar_owner');
   });
 
-  it('POST / accepts an explicit ownerId override', async () => {
+  it('POST / ignores an explicit ownerId override and stamps the caller', async () => {
+    // A calendar is always owned by its creator; a body `ownerId` must not let
+    // a caller create a calendar owned by someone else.
     const { request } = createTestApp('/api/calendars', calendarsRoutes, {
       context: {
         permissions: permissions('calendars:create'),
@@ -66,7 +68,7 @@ describe('/api/calendars · pglite integration', () => {
       .from(schema.calendars)
       .where(eq(schema.calendars.id, body.data.id))
       .limit(1);
-    expect(row?.ownerId).toBe('user_team_lead');
+    expect(row?.ownerId).toBe('user_caller');
   });
 
   it('POST / rejects empty name', async () => {
@@ -120,7 +122,7 @@ describe('/api/calendars · pglite integration', () => {
     expect(listBody.data.every((r) => r.ownerId === aliceId)).toBe(true);
   });
 
-  it('GET /:id non-elevated user gets 404 for another owner\'s calendar', async () => {
+  it('GET /:id non-elevated user is forbidden from another owner\'s calendar', async () => {
     // Seed a calendar owned by user_charlie
     const charlieId = 'user_scope_charlie_cal';
     const { request: seed } = createTestApp('/api/calendars', calendarsRoutes, {
@@ -139,11 +141,13 @@ describe('/api/calendars · pglite integration', () => {
       context: { permissions: permissions('calendars:read'), userId: 'user_scope_dave_cal', tenantDb: db },
     });
     const res = await reqDave(`/api/calendars/${calId}`);
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(403);
   });
 
-  it('GET /:id elevated user (calendars:scope:all) can read any calendar', async () => {
-    // Seed a calendar owned by user_erin
+  it('GET /:id calendars:scope:all does NOT widen access to others\' calendars', async () => {
+    // Calendars deliberately do not honour `scope:all` — access is
+    // ownership/share-derived only, so an admin can't read a member's personal
+    // calendar (see the access-model note at the top of index.ts).
     const erinId = 'user_scope_erin_cal';
     const { request: seed } = createTestApp('/api/calendars', calendarsRoutes, {
       context: { permissions: permissions('calendars:create'), userId: erinId, tenantDb: db },
@@ -156,7 +160,7 @@ describe('/api/calendars · pglite integration', () => {
     const seedBody = (await seedRes.json()) as { data: { id: string } };
     const calId = seedBody.data.id;
 
-    // Admin reads it
+    // Admin with scope:all but no ownership/share is still forbidden.
     const { request: reqAdmin } = createTestApp('/api/calendars', calendarsRoutes, {
       context: {
         permissions: permissions('calendars:read', 'calendars:scope:all'),
@@ -165,8 +169,6 @@ describe('/api/calendars · pglite integration', () => {
       },
     });
     const res = await reqAdmin(`/api/calendars/${calId}`);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: { id: string; ownerId: string } };
-    expect(body.data.ownerId).toBe(erinId);
+    expect(res.status).toBe(403);
   });
 });

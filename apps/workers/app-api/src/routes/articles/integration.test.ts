@@ -46,7 +46,8 @@ describe('/api/articles · pglite integration', () => {
       .where(eq(schema.helpdeskArticles.id, body.data.id))
       .limit(1);
     expect(row?.title).toBe('How to start using WeldSuite');
-    expect(row?.slug).toBe('how-to-start-using-weldsuite');
+    // The route appends a short unique suffix (`-<id fragment>`) to every slug.
+    expect(row?.slug).toMatch(/^how-to-start-using-weldsuite-[a-z0-9]{6}$/);
     expect(row?.content).toBe('Sign up, pick a plan, go!');
   });
 
@@ -70,7 +71,8 @@ describe('/api/articles · pglite integration', () => {
       .from(schema.helpdeskArticles)
       .where(eq(schema.helpdeskArticles.id, body.data.id))
       .limit(1);
-    expect(row?.slug).toBe('custom-article-slug');
+    // Even an explicit slug gets the uniqueness suffix appended.
+    expect(row?.slug).toMatch(/^custom-article-slug-[a-z0-9]{6}$/);
     expect(row?.content).toBe('Explicit content');
   });
 

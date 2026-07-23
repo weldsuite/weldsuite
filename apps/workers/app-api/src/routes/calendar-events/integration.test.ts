@@ -21,17 +21,31 @@ beforeAll(async () => {
   db = handle.db;
 }, 60_000);
 
-/** Seed a calendar event row directly, bypassing the route. */
+/**
+ * Seed a calendar event row directly, bypassing the route. Events are reachable
+ * through the calendars the caller can access, so the event is placed in a fresh
+ * calendar OWNED by `organizerId` — otherwise even the organizer couldn't see it.
+ */
 async function seedEvent(ownDb: Database, organizerId: string, title: string): Promise<string> {
   const id = generateId('evt');
+  const calendarId = generateId('cal');
   const now = new Date();
+  await ownDb.insert(schema.calendars).values({
+    id: calendarId,
+    name: `${organizerId} calendar`,
+    ownerId: organizerId,
+    isDefault: false,
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+  });
   await ownDb.insert(schema.calendarEvents).values({
     id,
     title,
     type: 'meeting',
     startTime: now,
     endTime: new Date(now.getTime() + 30 * 60 * 1000),
-    calendarId: 'cal_test_fixture',
+    calendarId,
     organizerId,
     createdAt: now,
     updatedAt: now,
@@ -87,7 +101,10 @@ describe('/api/calendar-events · pglite integration', () => {
     expect(res.status).toBe(404);
   });
 
-  it('GET /:id elevated user (events:scope:all) can read any event', async () => {
+  it('GET /:id events:scope:all does NOT widen access to others\' events', async () => {
+    // Events are share-derived; `events:scope:all` is intentionally not consulted
+    // (see the access-model note in index.ts). An admin without calendar access
+    // gets a 404, not the event.
     const erinId = 'user_scope_erin_evt';
     const evtId = await seedEvent(db, erinId, 'Erin Event');
 
@@ -99,8 +116,6 @@ describe('/api/calendar-events · pglite integration', () => {
       },
     });
     const res = await reqAdmin(`/api/calendar-events/${evtId}`);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: { id: string; organizerId: string } };
-    expect(body.data.organizerId).toBe(erinId);
+    expect(res.status).toBe(404);
   });
 });
