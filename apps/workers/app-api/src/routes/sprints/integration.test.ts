@@ -29,8 +29,9 @@ async function seedProject(): Promise<string> {
 describe('/api/sprints · pglite integration', () => {
   it('POST / writes a sprint tied to a seeded project', async () => {
     const projectId = await seedProject();
+    // scope:all so the project-access boundary isn't what's under test here.
     const { request } = createTestApp('/api/sprints', sprintsRoutes, {
-      context: { permissions: permissions('projects:create'), tenantDb: db },
+      context: { permissions: permissions('projects:create', 'projects:scope:all'), tenantDb: db },
     });
 
     const res = await request('/api/sprints', {

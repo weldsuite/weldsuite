@@ -55,8 +55,10 @@ describe('/api/chat-drafts · owner boundary', () => {
   });
 
   it('POST / stamps the caller as owner, ignoring a body userId', async () => {
+    // Drafts are personal and low-privilege: every chat-drafts op (incl. create)
+    // gates on `channels:read`, not `channels:create`.
     const { request } = createTestApp('/api/chat-drafts', chatDraftsRoutes, {
-      context: { userId: ALICE, permissions: permissions('channels:create'), tenantDb: db },
+      context: { userId: ALICE, permissions: permissions('channels:read'), tenantDb: db },
     });
     const res = await request('/api/chat-drafts', {
       method: 'POST',

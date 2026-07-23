@@ -20,6 +20,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // `cloudflare:email` is a Workers-runtime module with no node resolution;
+      // point it at a test stub so route modules that import it can load.
+      'cloudflare:email': path.resolve(__dirname, './src/test/stubs/cloudflare-email.ts'),
     },
   },
 });

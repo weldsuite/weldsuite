@@ -39,8 +39,9 @@ async function seedProject(): Promise<string> {
 describe('/api/milestones · pglite integration', () => {
   it('POST / writes a milestone tied to a seeded project', async () => {
     const projectId = await seedProject();
+    // scope:all so the project-access boundary isn't what's under test here.
     const { request } = createTestApp('/api/milestones', milestonesRoutes, {
-      context: { permissions: permissions('milestones:create'), tenantDb: db },
+      context: { permissions: permissions('milestones:create', 'projects:scope:all'), tenantDb: db },
     });
 
     const res = await request('/api/milestones', {
@@ -82,8 +83,9 @@ describe('/api/milestones · pglite integration', () => {
 
   it('POST / returns 400 with missing dueDate', async () => {
     const projectId = await seedProject();
+    // scope:all so we reach the dueDate check rather than the project-access gate.
     const { request } = createTestApp('/api/milestones', milestonesRoutes, {
-      context: { permissions: permissions('milestones:create'), tenantDb: db },
+      context: { permissions: permissions('milestones:create', 'projects:scope:all'), tenantDb: db },
     });
     const res = await request('/api/milestones', {
       method: 'POST',

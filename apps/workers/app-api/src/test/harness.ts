@@ -140,13 +140,27 @@ export function createTestApp(
   app.use('*', stubAuth);
   app.route(basePath, router);
 
+  // Routes fire side effects (entity events, webhook fan-out, calendar sync)
+  // through `c.executionCtx.waitUntil(...)`. Outside the Workers runtime that
+  // getter throws "This context has no ExecutionContext", which would 500 every
+  // mutation. Supply a mock: run each task fire-and-forget and swallow
+  // rejections so a missing binding never surfaces as an unhandled rejection.
+  const executionCtx = {
+    waitUntil: (promise: Promise<unknown>) => {
+      if (promise && typeof promise.catch === 'function') promise.catch(() => {});
+    },
+    passThroughOnException: () => {},
+    props: {},
+  } as unknown as ExecutionContext;
+
   return {
     app,
     ctx,
     env,
-    /** Convenience wrapper around `app.request()` that injects env. */
+    executionCtx,
+    /** Convenience wrapper around `app.request()` that injects env + executionCtx. */
     request: (input: string, init?: RequestInit) =>
-      app.request(input, init, env as unknown as Record<string, unknown>),
+      app.request(input, init, env as unknown as Record<string, unknown>, executionCtx),
   };
 }
 

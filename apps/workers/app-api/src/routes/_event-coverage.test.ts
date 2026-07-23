@@ -117,6 +117,25 @@ const EXEMPT_ROUTES = new Set<string>([
   'auth-desktop',
   // wms-activity — read-only append-only audit log; no mutations, no entity events.
   'wms-activity',
+  // chat-calls — WeldChat call records, stream over the ChatRoom DO, not the entity-event bus.
+  'chat-calls',
+  // Inbound webhook RECEIVERS — they ingest external provider events; they are
+  // not entity CRUD and have nothing to fan out over the entity-event bus.
+  'webhooks-cloudflare-realtime',
+  'webhooks-meeting-bot',
+  'webhooks-telnyx',
+  // external-webhooks — user-managed outbound webhook subscriptions (integration
+  // config); no `external_webhook` entity type in the events catalog.
+  'external-webhooks',
+  // github-project-links — GitHub integration links (like github-connections /
+  // github-repo-links above): infra, no entity type in the catalog.
+  'github-project-links',
+  // push-tokens — device push-notification token registration; not a business entity.
+  'push-tokens',
+  // feature-requests — master-global product-feedback table; not a tenant entity.
+  'feature-requests',
+  // roles — RBAC role definitions: permissions infra, no `role` entity type in the catalog.
+  'roles',
 ]);
 
 interface Handler {
