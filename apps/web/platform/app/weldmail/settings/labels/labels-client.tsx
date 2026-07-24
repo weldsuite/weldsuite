@@ -62,6 +62,8 @@ const LABEL_COLORS = [
   { key: 'colorPink', value: '#EC4899' },
 ] as const;
 
+type LabelColorValue = (typeof LABEL_COLORS)[number]['value'];
+
 interface LabelsClientProps {
   initialLabels: Mail.Label[];
   accountId: string;
@@ -75,7 +77,7 @@ export function LabelsClient({ initialLabels, accountId }: LabelsClientProps) {
 
   useBreadcrumbs([
     { label: t.mail.inboxPage.mailBreadcrumb, href: '/weldmail' },
-    { label: t.mail.sidebar.settings, href: '/weldmail/settings' },
+    { label: t.mail.header.settings, href: '/weldmail/settings' },
     { label: t.mail.search.labels }
   ]);
 
@@ -85,7 +87,7 @@ export function LabelsClient({ initialLabels, accountId }: LabelsClientProps) {
   const [deleteLabel, setDeleteLabel] = useState<Mail.Label | null>(null);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newLabelName, setNewLabelName] = useState('');
-  const [newLabelColor, setNewLabelColor] = useState(LABEL_COLORS[5].value); // Default blue
+  const [newLabelColor, setNewLabelColor] = useState<LabelColorValue>(LABEL_COLORS[5].value); // Default blue
 
   // AI Auto-Labeling state
   const [aiEnabled, setAiEnabled] = useState(false);
@@ -136,16 +138,16 @@ export function LabelsClient({ initialLabels, accountId }: LabelsClientProps) {
       },
       {
         onSuccess: (result) => {
-          const created = result.data as Record<string, unknown>;
+          const created = result.data;
           const newLabel: Mail.Label = {
-            id: created.id as string,
-            name: created.name as string,
-            color: created.color as string,
-            count: (created.messageCount as number | undefined) ?? 0,
-            aiEnabled: created.aiEnabled as boolean | undefined,
-            aiKeywords: created.aiKeywords as string[] | undefined,
-            aiDescription: created.aiDescription as string | undefined,
-            aiConfidence: created.aiConfidence as number | undefined,
+            id: created.id,
+            name: created.name,
+            color: created.color ?? undefined,
+            count: created.messageCount ?? 0,
+            aiEnabled: created.aiEnabled ?? undefined,
+            aiKeywords: created.aiKeywords ?? undefined,
+            aiDescription: created.aiDescription,
+            aiConfidence: created.aiConfidence ?? undefined,
           };
           setLabels((prev) => [...prev, newLabel]);
           toast.success(t.mail.settingsLabels.labelCreatedSuccessfully);
@@ -212,21 +214,21 @@ export function LabelsClient({ initialLabels, accountId }: LabelsClientProps) {
         color: editDialogColor,
         aiEnabled: editDialogAiEnabled,
         aiKeywords: keywords,
-        aiDescription: editDialogAiDescription.trim() || null,
+        aiDescription: editDialogAiDescription.trim() || undefined,
         aiConfidence: editDialogAiEnabled ? editDialogAiConfidence : undefined,
       },
       {
         onSuccess: (result) => {
-          const updated = result.data as Record<string, unknown>;
+          const updated = result.data;
           const updatedLabel: Mail.Label = {
-            id: updated.id as string,
-            name: updated.name as string,
-            color: updated.color as string,
-            count: (updated.messageCount as number | undefined) ?? 0,
-            aiEnabled: updated.aiEnabled as boolean | undefined,
-            aiKeywords: updated.aiKeywords as string[] | undefined,
-            aiDescription: updated.aiDescription as string | undefined,
-            aiConfidence: updated.aiConfidence as number | undefined,
+            id: updated.id,
+            name: updated.name,
+            color: updated.color ?? undefined,
+            count: updated.messageCount ?? 0,
+            aiEnabled: updated.aiEnabled ?? undefined,
+            aiKeywords: updated.aiKeywords ?? undefined,
+            aiDescription: updated.aiDescription,
+            aiConfidence: updated.aiConfidence ?? undefined,
           };
           setLabels((prev) =>
             prev.map((l) => (l.id === editDialogLabel.id ? updatedLabel : l))

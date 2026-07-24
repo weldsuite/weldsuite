@@ -48,9 +48,8 @@ export default function NewNewsClient() {
         title,
         content,
         excerpt: excerpt || undefined,
-        category,
         tags: tags ? tags.split(',').map(tag => tag.trim()).filter(Boolean) : undefined,
-        coverImage: coverImage || undefined,
+        imageUrl: coverImage || undefined,
       },
       {
         onSuccess: () => {

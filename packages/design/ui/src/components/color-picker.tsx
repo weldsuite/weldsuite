@@ -80,10 +80,10 @@ export const ColorPicker = ({
     if (value) {
       const color = Color.rgb(value).rgb().object();
 
-      setHue(color.r);
-      setSaturation(color.g);
-      setLightness(color.b);
-      setAlpha(color.a);
+      setHue(color.r ?? 0);
+      setSaturation(color.g ?? 0);
+      setLightness(color.b ?? 0);
+      setAlpha(color.alpha ?? 0);
     }
   }, [value]);
 
@@ -202,7 +202,7 @@ export const ColorPickerHue = ({ className, ...props }: ColorPickerHueProps) => 
     <Slider.Root
       className={cn('relative flex h-4 w-full touch-none', className)}
       max={360}
-      onValueChange={([hue]) => setHue(hue)}
+      onValueChange={([hue]) => setHue(hue ?? 0)}
       step={1}
       value={[hue]}
       {...(props as any)}
@@ -224,7 +224,7 @@ export const ColorPickerAlpha = ({ className, ...props }: ColorPickerAlphaProps)
     <Slider.Root
       className={cn('relative flex h-4 w-full touch-none', className)}
       max={100}
-      onValueChange={([alpha]) => setAlpha(alpha)}
+      onValueChange={([alpha]) => setAlpha(alpha ?? 0)}
       step={1}
       value={[alpha]}
       {...(props as any)}
@@ -257,9 +257,9 @@ export const ColorPickerEyeDropper = ({ className, ...props }: ColorPickerEyeDro
       const color = Color(result.sRGBHex);
       const [h, s, l] = color.hsl().array();
 
-      setHue(h);
-      setSaturation(s);
-      setLightness(l);
+      setHue(h ?? 0);
+      setSaturation(s ?? 0);
+      setLightness(l ?? 0);
       setAlpha(100);
     } catch (error) {
       console.error('EyeDropper failed:', error);

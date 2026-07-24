@@ -201,8 +201,8 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: ServerHel
   const { data: foldersQuery, refetch: refetchFolders } = useHelpFolders(true);
 
   useEffect(() => {
-    if (foldersQuery?.success && foldersQuery?.folders) {
-      setFolders(foldersQuery.folders);
+    if (foldersQuery) {
+      setFolders(foldersQuery);
     }
   }, [foldersQuery]);
 
@@ -315,7 +315,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: ServerHel
     // Find the folder node matching current path
     const findFolder = (nodes: TreeNodeData[], targetPath: string): TreeNodeData | null => {
       for (const node of nodes) {
-        if (node.type === "category" && node.path === targetPath) {
+        if (node.type === "folder" && node.path === targetPath) {
           return node;
         }
         if (node.children) {
@@ -369,7 +369,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: ServerHel
     const ids: string[] = [];
     const traverse = (nodes: TreeNodeData[]) => {
       nodes.forEach((node) => {
-        if (node.type === "category") {
+        if (node.type === "folder") {
           ids.push(node.path);
           if (node.children) traverse(node.children);
         }
@@ -594,7 +594,6 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: ServerHel
       {
         name: newFolderName.trim(),
         parentId: selectedFolderId || undefined,
-        parentPath: selectedFolderPath || undefined,
       },
       {
         onSuccess: () => {
@@ -643,7 +642,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: ServerHel
     try {
       if (deleteTarget.type === "folder") {
         await new Promise<void>((resolve, reject) => {
-          deleteHelpFolderMutation.mutate({ id: deleteTarget.id }, {
+          deleteHelpFolderMutation.mutate(deleteTarget.id, {
             onSuccess: () => {
               toast.success(th.deletedFolderSuccess.replace('{name}', deleteTarget.name));
               refreshFolders();

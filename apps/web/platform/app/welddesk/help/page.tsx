@@ -13,6 +13,15 @@ import { useHelpArticleStats } from '@/hooks/queries/use-helpdesk-queries';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 
+interface HelpArticleStatsData {
+  totalArticles: number;
+  publishedCount: number;
+  draftCount: number;
+  archivedCount: number;
+  totalViews: number;
+  categories: number;
+}
+
 export default function HelpPage() {
   const searchParams = useSearchParams();
   const { t } = useI18n();
@@ -20,7 +29,8 @@ export default function HelpPage() {
   const status = searchParams.get('status') || 'all';
   const folder = searchParams.get('folder') || undefined;
 
-  const { data: stats, isLoading } = useHelpArticleStats();
+  const { data: statsResult, isLoading } = useHelpArticleStats();
+  const stats = statsResult as unknown as HelpArticleStatsData | undefined;
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 

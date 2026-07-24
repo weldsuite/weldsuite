@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, type ReactElement } from 'react';
 import { useRouter } from '@/lib/router';
 import {
   ChevronLeft,
@@ -42,7 +42,7 @@ export function ArticleViewer({ article }: ArticleViewerProps) {
   // Parse markdown content to HTML-like structure for display
   const renderContent = (content: string) => {
     const lines = content.split('\n');
-    const elements: JSX.Element[] = [];
+    const elements: ReactElement[] = [];
     let listItems: string[] = [];
     let listType: 'bullet' | 'numbered' | null = null;
     let codeBlock: string[] = [];

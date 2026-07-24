@@ -1,10 +1,10 @@
 "use client"
 
 import * as React from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card"
-import { Switch } from "./switch"
-import { Label } from "./label"
-import { Separator } from "./separator"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../card"
+import { Switch } from "../switch"
+import { Label } from "../label"
+import { Separator } from "../separator"
 
 interface NotificationsSectionProps {
   notifications: {

@@ -276,11 +276,14 @@ export const KanbanProvider = <
     const overColumn =
       overItem?.column || columns.find((col) => col.id === over.id)?.id || columns[0]?.id;
 
-    if (activeColumn !== overColumn) {
+    if (activeColumn !== overColumn && overColumn !== undefined) {
       let newData = [...data];
       const activeIndex = newData.findIndex((item) => item.id === active.id);
       const overIndex = newData.findIndex((item) => item.id === over.id);
-      newData[activeIndex].column = overColumn;
+      const activeEntry = newData[activeIndex];
+      if (activeEntry) {
+        activeEntry.column = overColumn;
+      }
       newData = arrayMove(newData, activeIndex, overIndex);
       onDataChange?.(newData);
     }

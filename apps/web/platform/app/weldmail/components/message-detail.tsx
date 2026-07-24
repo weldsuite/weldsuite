@@ -113,6 +113,26 @@ function extractName(sender: string): string {
   return sender;
 }
 
+// `from` may be a plain "Name <email>" string (legacy) or a structured
+// Mail.EmailAddress object (some app-api routes already return one); collapse
+// down to the string extractName/extractEmail already expect.
+function fromDisplayString(from: string | MailTypes.EmailAddress | undefined): string {
+  if (!from) return '';
+  if (typeof from === 'string') return from;
+  return from.name ? `${from.name} <${from.email}>` : from.email;
+}
+
+// `to`/`cc`/`bcc` entries may likewise be plain email strings or structured
+// Mail.EmailAddress objects; normalize a single entry down to its email.
+function addressToEmail(addr: string | MailTypes.EmailAddress | undefined): string {
+  if (!addr) return '';
+  return typeof addr === 'string' ? addr : addr.email;
+}
+
+function addressListToEmails(list?: string[] | MailTypes.EmailAddress[]): string[] {
+  return (list || []).map((item) => addressToEmail(item));
+}
+
 // Generate consistent label color based on label name
 function getLabelColor(labelName: string, labelData?: MailTypes.Label): string {
   // Use stored color if available
@@ -492,7 +512,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   // Compute the newest message (shown at top) and older messages (shown in thread)
   const { newestMessage, olderMessages } = useMemo(() => {
     const allMessages = [message, ...localThread];
-    allMessages.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    allMessages.sort((a, b) => (b.date?.getTime() ?? 0) - (a.date?.getTime() ?? 0));
     return {
       newestMessage: allMessages[0],
       olderMessages: allMessages.slice(1),
@@ -552,8 +572,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
         setReplyToMessageId(newestMessage.id);
         const allRecipients = action === 'replyAll';
         const to = allRecipients
-          ? [newestMessage.fromEmail || newestMessage.from || '', ...(newestMessage.cc || [])].filter(Boolean).join(', ')
-          : newestMessage.fromEmail || newestMessage.from || '';
+          ? [newestMessage.fromEmail || addressToEmail(newestMessage.from), ...addressListToEmails(newestMessage.cc)].filter(Boolean).join(', ')
+          : newestMessage.fromEmail || addressToEmail(newestMessage.from);
         setComposeData({ to, subject: `Re: ${message.subject}`, body: '' });
       } else if (action === 'forward' || action === 'forwardAttachment') {
         setIsForwarding(true);
@@ -588,7 +608,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
       messageId: '',
       subject: message.subject,
       from: newestMessage.to?.[0] || 'Me',
-      fromEmail: newestMessage.to?.[0] || '',
+      fromEmail: addressToEmail(newestMessage.to?.[0]),
       to: [to],
       cc: [],
       bcc: [],
@@ -855,9 +875,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   };
 
   const allRecipients = [
-    ...(Array.isArray(newestMessage.to) ? newestMessage.to : [newestMessage.to]).map(email => ({ email, type: 'To' as const })),
-    ...((newestMessage.cc || []) as string[]).map(email => ({ email, type: 'Cc' as const })),
+    ...addressListToEmails(newestMessage.to).map((email) => ({ email, type: 'To' as const })),
+    ...addressListToEmails(newestMessage.cc).map((email) => ({ email, type: 'Cc' as const })),
   ];
+  const primaryToEmail = addressToEmail(newestMessage.to[0]);
   const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899'];
 
   // Get the RFC messageId for the message being replied to (for inReplyTo header)
@@ -1551,15 +1572,15 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                 return avatarUrl ? (
                   <img
                     src={avatarUrl}
-                    alt={extractName(newestMessage.from || '')}
+                    alt={extractName(fromDisplayString(newestMessage.from))}
                     className="w-6 h-6 rounded-md object-cover flex-shrink-0"
                   />
                 ) : (
                   <div
                     className="w-6 h-6 rounded-md flex items-center justify-center text-white font-semibold text-xs flex-shrink-0"
-                    style={{ backgroundColor: getAvatarColor(newestMessage.from || '') }}
+                    style={{ backgroundColor: getAvatarColor(fromDisplayString(newestMessage.from)) }}
                   >
-                    {(newestMessage.from || '?').charAt(0).toUpperCase()}
+                    {(fromDisplayString(newestMessage.from) || '?').charAt(0).toUpperCase()}
                   </div>
                 );
               })()}
@@ -1567,22 +1588,21 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                 <div className="flex items-center gap-2 flex-wrap">
                   <Button
                     variant="ghost"
-                    onClick={() => customerPanel.openPanel(newestMessage.fromEmail || extractEmail(newestMessage.from || ''), extractName(newestMessage.from || ''))}
+                    onClick={() => customerPanel.openPanel(newestMessage.fromEmail || extractEmail(fromDisplayString(newestMessage.from)), extractName(fromDisplayString(newestMessage.from)))}
                     className="font-semibold text-gray-900 dark:text-foreground text-[14.5px] hover:underline focus:outline-none"
                   >
-                    {extractName(newestMessage.from || '')}
+                    {extractName(fromDisplayString(newestMessage.from))}
                   </Button>
                   <span className="text-[14.5px] text-gray-500 dark:text-muted-foreground">{t.mail.messageDetail.toWord}</span>
                   <Button
                     variant="ghost"
                     onClick={() => {
-                      const toEmail = (Array.isArray(newestMessage.to) ? newestMessage.to : [newestMessage.to])[0];
-                      const toName = toEmail.split('@')[0].split('.').map((p: string) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
-                      customerPanel.openPanel(toEmail, toName);
+                      const toName = primaryToEmail.split('@')[0].split('.').map((p: string) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+                      customerPanel.openPanel(primaryToEmail, toName);
                     }}
                     className="text-[14.5px] text-blue-600 hover:underline focus:outline-none"
                   >
-                    {(Array.isArray(newestMessage.to) ? newestMessage.to : [newestMessage.to])[0]}
+                    {primaryToEmail}
                   </Button>
                   {allRecipients.length > 1 && (
                     <Popover open={showAllRecipients} onOpenChange={setShowAllRecipients}>
@@ -1597,8 +1617,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                         </div>
                         <div className="p-2 space-y-1">
                           {allRecipients.map((recipient, index) => {
-                            const name = recipient.email.split('@')[0].split('.').map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
-                            const initials = name.split(' ').map(n => n[0]).join('').substring(0, 2);
+                            const name = recipient.email.split('@')[0].split('.').map((p: string) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+                            const initials = name.split(' ').map((n: string) => n[0]).join('').substring(0, 2);
                             return (
                               <Button
                                 variant="ghost"
@@ -1632,7 +1652,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
               </div>
             </div>
             <div className="flex items-center gap-2 text-gray-500 flex-shrink-0">
-              <span className="text-sm text-gray-700">{format(new Date(newestMessage.date), 'd MMM, HH:mm')}</span>
+              <span className="text-sm text-gray-700">{format(new Date(newestMessage.date ?? 0), 'd MMM, HH:mm')}</span>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="p-1 hover:bg-gray-100 data-[state=open]:bg-gray-100 rounded-md transition-colors focus:outline-none focus-visible:outline-none">
@@ -1765,7 +1785,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                 <CalendarInviteCard
                   key={att.id}
                   attachmentId={att.id}
-                  downloadUrl={att.downloadUrl}
+                  downloadUrl={att.downloadUrl ?? ''}
                   fileName={att.fileName}
                   size={att.size}
                 />
@@ -1787,7 +1807,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                       {otherAttachments.map((att) => (
                         <a
                           key={att.id}
-                          href={att.downloadUrl}
+                          href={att.downloadUrl ?? undefined}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-border bg-white dark:bg-card hover:bg-gray-50 dark:hover:bg-secondary transition-colors text-sm group"
@@ -1822,9 +1842,9 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                     setIsForwarding(false);
                     setReplyToMessageId(newestMessage.id);
                     setComposeData({
-                      to: newestMessage.fromEmail || newestMessage.from || '',
+                      to: newestMessage.fromEmail || addressToEmail(newestMessage.from),
                       subject: result.draft.subject || `Re: ${message.subject}`,
-                      body: result.draft.body,
+                      body: result.draft.body || '',
                     });
                     setIsAutoDraft(true);
                     setIsAgentInline(false);
@@ -1832,20 +1852,20 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                     setInlineAiPrompt('');
                     // If compose box was already open, update editor immediately
                     if (wasAlreadyReplying && editorRef.current) {
-                      editorRef.current.innerHTML = formatAiBody(result.draft.body);
+                      editorRef.current.innerHTML = formatAiBody(result.draft.body || '');
                       inlineAiInputRef.current?.focus();
                     } else {
                       // Wait for compose box to mount
                       setTimeout(() => {
                         if (editorRef.current) {
-                          editorRef.current.innerHTML = formatAiBody(result.draft!.body);
+                          editorRef.current.innerHTML = formatAiBody(result.draft!.body || '');
                         }
                         inlineAiInputRef.current?.focus();
                       }, 150);
                     }
                     toast.success(t.mail.messageDetail.draftUpdated);
                   } else {
-                    toast.error(result.error || t.mail.messageDetail.failedToUpdateDraft);
+                    toast.error(t.mail.messageDetail.failedToUpdateDraft);
                   }
                 } catch (err) {
                   if (!handleAiCreditsError(err)) toast.error(t.mail.messageDetail.failedToUpdateDraft);
@@ -1867,7 +1887,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                 setIsForwarding(false);
                 setReplyToMessageId(!wasReplying ? newestMessage.id : null);
                 if (!wasReplying) {
-                  setComposeData({ to: newestMessage.fromEmail || newestMessage.from || '', subject: `Re: ${message.subject}`, body: '' });
+                  setComposeData({ to: newestMessage.fromEmail || addressToEmail(newestMessage.from), subject: `Re: ${message.subject}`, body: '' });
                 }
               }}
               className="flex-1 md:flex-initial px-3 py-2 md:py-1.5 border border-gray-200 dark:border-border text-gray-600 dark:text-muted-foreground rounded-lg hover:bg-gray-50 dark:hover:bg-secondary transition-colors flex items-center justify-center gap-2"
@@ -1976,8 +1996,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            const email = threadMsg.fromEmail || extractEmail(threadMsg.from || '');
-                            customerPanel.openPanel(email, extractName(threadMsg.from || ''));
+                            const email = threadMsg.fromEmail || extractEmail(fromDisplayString(threadMsg.from));
+                            customerPanel.openPanel(email, extractName(fromDisplayString(threadMsg.from)));
                           }}
                           className="flex items-center gap-2 min-w-0 rounded-md focus:outline-none group/sender"
                           title={t.mail.messageDetail.viewContactDetails}
@@ -1987,20 +2007,20 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                             return threadAvatarUrl ? (
                               <img
                                 src={threadAvatarUrl}
-                                alt={extractName(threadMsg.from || '')}
+                                alt={extractName(fromDisplayString(threadMsg.from))}
                                 className="w-6 h-6 rounded-md object-cover flex-shrink-0"
                               />
                             ) : (
                               <div
                                 className="w-6 h-6 rounded-md flex items-center justify-center text-white text-xs font-medium flex-shrink-0"
-                                style={{ backgroundColor: getAvatarColor(threadMsg.from || '') }}
+                                style={{ backgroundColor: getAvatarColor(fromDisplayString(threadMsg.from)) }}
                               >
-                                {(threadMsg.from || 'U').charAt(0).toUpperCase()}
+                                {(fromDisplayString(threadMsg.from) || 'U').charAt(0).toUpperCase()}
                               </div>
                             );
                           })()}
                           <span className="text-sm font-medium text-foreground truncate group-hover/sender:underline">
-                            {threadMsg.from}
+                            {fromDisplayString(threadMsg.from)}
                           </span>
                         </Button>
                         {isSentMessage && (
@@ -2008,8 +2028,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                         )}
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        <span className="hidden md:inline text-xs text-muted-foreground">{format(new Date(threadMsg.date), 'MMM d, yyyy h:mm a')}</span>
-                        <span className="md:hidden text-xs text-muted-foreground">{format(new Date(threadMsg.date), 'MMM d')}</span>
+                        <span className="hidden md:inline text-xs text-muted-foreground">{format(new Date(threadMsg.date ?? 0), 'MMM d, yyyy h:mm a')}</span>
+                        <span className="md:hidden text-xs text-muted-foreground">{format(new Date(threadMsg.date ?? 0), 'MMM d')}</span>
                         <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", isExpanded && "rotate-180")} />
                       </div>
                     </div>
@@ -2025,7 +2045,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                           setIsReplying(true);
                           setIsForwarding(false);
                           setReplyToMessageId(threadMsg.id);
-                          setComposeData({ to: threadMsg.fromEmail || threadMsg.from || '', subject: `Re: ${threadMsg.subject || message.subject}`, body: '' });
+                          setComposeData({ to: threadMsg.fromEmail || addressToEmail(threadMsg.from), subject: `Re: ${threadMsg.subject || message.subject}`, body: '' });
                         }}
                         className="p-1.5 bg-white dark:bg-card border border-border rounded-md hover:bg-muted transition-colors"
                         title={t.mail.compose.reply}
@@ -2057,8 +2077,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
       {/* Customer Detail Panel - hidden on mobile */}
       <div className="hidden md:block">
         <CustomerDetailPanel
-          email={customerPanel.email || newestMessage.fromEmail || extractEmail(newestMessage.from || '')}
-          name={customerPanel.name || extractName(newestMessage.from || '')}
+          email={customerPanel.email || newestMessage.fromEmail || extractEmail(fromDisplayString(newestMessage.from))}
+          name={customerPanel.name || extractName(fromDisplayString(newestMessage.from))}
           customerId={customerPanel.customerId || undefined}
           isOpen={customerPanel.isOpen}
           onClose={() => customerPanel.closePanel()}

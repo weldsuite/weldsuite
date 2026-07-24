@@ -10,6 +10,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@weldsuite/db": "workspace:*",
     "@weldsuite/ui": "workspace:*",
     "embla-carousel-autoplay": "^8.6.0",
     "framer-motion": "^11.18.0",
@@ -24,6 +25,7 @@
     "@types/react-dom": "^19",
     "@weldsuite/eslint-config": "workspace:*",
     "@weldsuite/typescript-config": "workspace:*",
+    "styled-jsx": "^5.1.7",
     "typescript": "^5"
   }
 }

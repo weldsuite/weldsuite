@@ -38,7 +38,7 @@ export function TimePicker({
   const formatDisplayTime = () => {
     if (!value) return placeholder;
     const [h, m] = value.split(':');
-    const hour = parseInt(h, 10);
+    const hour = parseInt(h ?? '0', 10);
     const ampm = hour >= 12 ? 'PM' : 'AM';
     const hour12 = hour % 12 || 12;
     return `${hour12}:${m} ${ampm}`;

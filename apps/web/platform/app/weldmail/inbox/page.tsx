@@ -76,7 +76,7 @@ export default function InboxPage() {
     <InboxClient
       initialMessages={transformedMessages as unknown as MailTypes.Email[]}
       folders={[]}
-      currentFolder={{ id: 'inbox', name: 'Inbox', type: 'system' }}
+      currentFolder="Inbox"
       activeAccount={{
         id: activeAccount.id,
         email: activeAccount.email,

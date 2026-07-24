@@ -90,9 +90,9 @@ import {
   useMoveToTrash,
   useArchiveMailMessage,
 } from '@/hooks/queries/use-mail-queries';
-import type { Mail } from '@/lib/api/types/apps/mail.types';
+import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 
-type EmailMessage = Mail.Email;
+type EmailMessage = MailTypes.Email;
 type EmailFolder = string;
 
 // AI Assistant Panel removed - now using BreadcrumbHeader WeldAgent. Kept as a
@@ -326,7 +326,7 @@ export function InboxClient({
   };
 
   const handleMarkAsRead = async (messageId: string) => {
-    markReadMutation.mutate({ id: messageId, read: true, accountId: activeAccount.id }, {
+    markReadMutation.mutate({ id: messageId, isRead: true }, {
       onSuccess: () => {
         setMessages(prev => prev.map(msg =>
           msg.id === messageId ? { ...msg, isRead: true } : msg
@@ -352,8 +352,8 @@ export function InboxClient({
 
       toast.success(newStarredState ? t.mail.inboxPage.emailStarred : t.mail.inboxPage.emailUnstarred);
 
-      // Make API call in background - pass account ID for star toggle
-      toggleStarMutation.mutate({ id: messageId, isStarred: newStarredState, accountId: activeAccount.id }, {
+      // Make API call in background
+      toggleStarMutation.mutate({ id: messageId, isStarred: newStarredState }, {
         onError: () => {
           // Revert on error
           setMessages(prev => prev.map(m =>
@@ -383,7 +383,7 @@ export function InboxClient({
   };
 
   const handleDelete = async (messageId: string) => {
-    moveToTrashMutation.mutate({ id: messageId, accountId: activeAccount.id }, {
+    moveToTrashMutation.mutate(messageId, {
       onSuccess: () => {
         setMessages(prev => prev.filter(msg => msg.id !== messageId));
         setSelectedEmail(null);
@@ -396,7 +396,7 @@ export function InboxClient({
   };
 
   const handleArchive = async (messageId: string) => {
-    archiveMessageMutation.mutate({ id: messageId, accountId: activeAccount.id }, {
+    archiveMessageMutation.mutate(messageId, {
       onSuccess: () => {
         setMessages(prev => prev.filter(msg => msg.id !== messageId));
         setSelectedEmail(null);
@@ -1936,7 +1936,7 @@ export function InboxClient({
                           )}
                           <span className="text-[#007aff] text-sm ml-1">
                             to{' '}
-                            {selectedEmail.to.map((recipient, index) => (
+                            {selectedEmail.to.map((recipient: string | MailTypes.EmailAddress, index: number) => (
                               <span key={index}>
                                 <Button variant="ghost"
                                   onClick={(e) => {
@@ -2225,7 +2225,7 @@ export function InboxClient({
                               {t.mail.inboxPage.moveToFolder}
                             </DropdownMenuSubTrigger>
                             <DropdownMenuPortal>
-                              <DropdownMenuSubContent side="left" sideOffset={5}>
+                              <DropdownMenuSubContent sideOffset={5}>
                                 <DropdownMenuItem onClick={() => {
                                   toast.success(t.mail.inboxPage.movedToWorkFolder);
                                 }}>

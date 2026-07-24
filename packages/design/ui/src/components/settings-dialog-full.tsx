@@ -287,10 +287,8 @@ export function SettingsDialogFull({
   )
 
   const groupedTabs = filteredTabs.reduce((acc, tab) => {
-    if (!acc[tab.category]) {
-      acc[tab.category] = []
-    }
-    acc[tab.category].push(tab)
+    const group = acc[tab.category] ?? (acc[tab.category] = [])
+    group.push(tab)
     return acc
   }, {} as Record<string, typeof tabs>)
 

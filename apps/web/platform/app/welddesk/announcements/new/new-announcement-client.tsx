@@ -54,11 +54,9 @@ export default function NewAnnouncementClient() {
       {
         title,
         content,
-        excerpt: excerpt || undefined,
         type,
-        visibility,
-        isPinned,
-        expiresAt: expiresAt ? new Date(expiresAt) : undefined,
+        targetAudience: visibility,
+        expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined,
       },
       {
         onSuccess: () => {

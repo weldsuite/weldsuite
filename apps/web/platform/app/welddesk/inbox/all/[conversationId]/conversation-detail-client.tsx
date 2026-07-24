@@ -264,7 +264,7 @@ export default function ConversationDetailClient({
   // Sync conversation updates from real-time events
   useEffect(() => {
     if (weldDeskConversation) {
-      setConversation(prev => ({ ...prev, ...weldDeskConversation }));
+      setConversation(prev => ({ ...prev, ...weldDeskConversation } as unknown as Helpdesk.Conversation));
     }
   }, [weldDeskConversation]);
 
@@ -484,18 +484,21 @@ export default function ConversationDetailClient({
       conversationId: conversation.id,
       content: messageContent,
       authorType: 'agent',
-      authorName: conversation.assignedAgentName || 'You',
-      userId: conversation.assignedAgentId || 'current-agent',
+      authorName: conversation.assigneeName || 'You',
+      authorId: conversation.assigneeId || 'current-agent',
       type: sendingAsInternal ? 'note' : 'message',
       isInternal: sendingAsInternal,
       isPublic: !sendingAsInternal,
-      createdAt: new Date().toISOString(),
+      isRead: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
       attachments: uploadedAttachments?.map(a => ({
         id: a.id,
-        name: a.fileName,
+        fileName: a.fileName,
+        fileType: a.mimeType,
+        fileSize: a.fileSize,
         url: a.url,
-        type: a.mimeType,
-        size: a.fileSize,
+        uploadedAt: new Date(),
       })),
     };
 

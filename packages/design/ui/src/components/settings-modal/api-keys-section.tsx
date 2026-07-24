@@ -2,10 +2,10 @@
 
 import * as React from "react"
 import { Plus, Copy, MoreVertical } from "lucide-react"
-import { Button } from "./button"
-import { Card } from "./card"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./table"
-import { Badge } from "./badge"
+import { Button } from "../button"
+import { Card } from "../card"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../table"
+import { Badge } from "../badge"
 
 // Mock data
 const mockApiKeys = [

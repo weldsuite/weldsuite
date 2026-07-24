@@ -515,7 +515,7 @@ export function SettingsCommand({
                   Reset to Defaults
                 </Button>
               </div>
-            )}
+            </TabsContent>
 
             {/* Notifications Tab */}
             <TabsContent value="notifications" className="space-y-6 pb-6">
@@ -650,7 +650,7 @@ export function SettingsCommand({
                       <Label htmlFor={`cat-${key}`} className="capitalize">{key}</Label>
                       <Switch
                         id={`cat-${key}`}
-                        checked={value}
+                        checked={typeof value === 'boolean' ? value : false}
                         onCheckedChange={(v) => {
                           state.setNotifications({
                             ...state.notifications,
@@ -669,7 +669,7 @@ export function SettingsCommand({
                   Reset to Defaults
                 </Button>
               </div>
-            )}
+            </TabsContent>
 
             {/* Privacy Tab */}
             <TabsContent value="privacy" className="space-y-6 pb-6">
@@ -820,7 +820,7 @@ export function SettingsCommand({
                   Reset to Defaults
                 </Button>
               </div>
-            )}
+            </TabsContent>
 
             {/* Security Tab */}
             <TabsContent value="security" className="space-y-6 pb-6">
@@ -999,7 +999,7 @@ export function SettingsCommand({
                   Reset to Defaults
                 </Button>
               </div>
-            )}
+            </TabsContent>
 
             {/* Accessibility Tab */}
             <TabsContent value="accessibility" className="space-y-6 pb-6">
@@ -1175,7 +1175,7 @@ export function SettingsCommand({
                   Reset to Defaults
                 </Button>
               </div>
-            )}
+            </TabsContent>
 
             {/* Data & Storage Tab */}
             <TabsContent value="data" className="space-y-6 pb-6">
@@ -1337,7 +1337,7 @@ export function SettingsCommand({
                   Reset to Defaults
                 </Button>
               </div>
-            )}
+            </TabsContent>
 
             {/* Integrations Tab */}
             <TabsContent value="integrations" className="space-y-6 pb-6">
@@ -1563,7 +1563,7 @@ export function SettingsCommand({
                   Reset to Defaults
                 </Button>
               </div>
-            )}
+            </TabsContent>
 
             {/* Advanced Tab */}
             <TabsContent value="advanced" className="space-y-6 pb-6">
@@ -1750,7 +1750,7 @@ export function SettingsCommand({
                   Reset to Defaults
                 </Button>
               </div>
-            )}
+            </TabsContent>
           </ScrollArea>
 
           {/* Footer with Save/Cancel buttons */}

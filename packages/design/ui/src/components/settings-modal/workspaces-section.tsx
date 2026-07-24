@@ -2,10 +2,10 @@
 
 import * as React from "react"
 import { Plus } from "lucide-react"
-import { Button } from "./button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card"
-import { Badge } from "./badge"
-import { Progress } from "./progress"
+import { Button } from "../button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../card"
+import { Badge } from "../badge"
+import { Progress } from "../progress"
 
 // Mock data
 const mockWorkspaces = [

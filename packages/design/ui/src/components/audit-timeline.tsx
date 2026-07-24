@@ -37,15 +37,17 @@ const actionIcons: Record<string, typeof ArrowRightLeft> = {
   priority_changed: Flag,
 };
 
+const DEFAULT_ACTION_COLOR = { icon: 'text-gray-400', bg: 'bg-gray-500/10' };
+
 const actionColors: Record<string, { icon: string; bg: string }> = {
   created: { icon: 'text-emerald-500', bg: 'bg-emerald-500/10' },
   deleted: { icon: 'text-red-500', bg: 'bg-red-500/10' },
-  archived: { icon: 'text-gray-400', bg: 'bg-gray-500/10' },
+  archived: DEFAULT_ACTION_COLOR,
   status_changed: { icon: 'text-blue-500', bg: 'bg-blue-500/10' },
   assigned: { icon: 'text-green-500', bg: 'bg-green-500/10' },
   escalated: { icon: 'text-amber-500', bg: 'bg-amber-500/10' },
   priority_changed: { icon: 'text-orange-500', bg: 'bg-orange-500/10' },
-  updated: { icon: 'text-gray-400', bg: 'bg-gray-500/10' },
+  updated: DEFAULT_ACTION_COLOR,
 };
 
 function formatValue(value: unknown): string {
@@ -137,7 +139,7 @@ export function AuditTimeline({ logs, showEntityType }: AuditTimelineProps) {
     <div>
       {logs.map((log, index) => {
         const Icon = actionIcons[log.action] || Settings;
-        const colors = actionColors[log.action] || actionColors.updated;
+        const colors = actionColors[log.action] || DEFAULT_ACTION_COLOR;
         const hasChanges = log.changes && Object.keys(log.changes).length > 0;
         const hasData = log.data && Object.keys(log.data).length > 0;
         const hasDetails = hasChanges || hasData;

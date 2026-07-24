@@ -2,9 +2,12 @@
   "extends": "@weldsuite/typescript-config/react-library.json",
   "compilerOptions": {
     "baseUrl": ".",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "paths": {
       "@weldsuite/ui/*": ["./src/*"]
-    }
+    },
+    "types": ["node", "react", "react-dom", "color", "styled-jsx"]
   },
   "include": ["."],
   "exclude": ["node_modules", "dist"]

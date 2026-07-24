@@ -632,7 +632,9 @@ export namespace Helpdesk {
     | 'social'
     | 'api'
     | 'whatsapp'
-    | 'sms';
+    | 'sms'
+    | 'discord'
+    | 'slack';
 
   export type TicketCategory =
     | 'general'
@@ -1273,7 +1275,7 @@ export namespace Helpdesk {
       | 'outlook'
       | 'imap';
 
-    export type ChannelIntegrationStatus = 'connected' | 'disconnected' | 'error' | 'pending';
+    export type ChannelIntegrationStatus = 'connected' | 'disconnected' | 'error' | 'pending' | 'expired';
 
     /**
      * Channel integration - represents a connected channel (e.g., Discord server, Slack workspace)

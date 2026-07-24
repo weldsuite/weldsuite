@@ -115,12 +115,13 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: SetupAdd
     const timer = setTimeout(() => {
       if (weldmailAddress && weldmailAddress.length >= 3) {
         setCheckingAvailability(true);
-        checkAvailabilityMutation.mutateAsync(weldmailAddress)
+        checkAvailabilityMutation.mutateAsync({ address: weldmailAddress })
           .then((result) => {
-            setAvailabilityResult({
-              available: result.available,
-              message: result.message,
-            });
+            setAvailabilityResult(
+              result.data.available
+                ? { available: true }
+                : { available: false, message: t.mail.addAccount.addressNotAvailable },
+            );
           })
           .catch(() => setAvailabilityResult(null))
           .finally(() => setCheckingAvailability(false));
@@ -148,6 +149,15 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: SetupAdd
         name: displayName || emailPrefix,
         email: `${emailPrefix}@${selectedDomain}`,
         displayName: displayName || emailPrefix,
+        provider: 'resend',
+        authType: 'password',
+        imapSecure: true,
+        smtpSecure: true,
+        syncEnabled: true,
+        syncFrequency: 5,
+        dailySendLimit: 500,
+        isDefault: false,
+        isShared: true,
       });
       toast.success(t.mail.addAccount.emailAccountCreatedSuccessfully);
       setOpen(false);
@@ -178,13 +188,9 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: SetupAdd
         name: weldmailDisplayName || weldmailAddress,
         displayName: weldmailDisplayName || weldmailAddress,
       });
-      if (result.success) {
-        toast.success(t.mail.addAccount.emailCreatedSuccessfully.replace('{email}', result.data?.email || weldmailAddress));
-        setOpen(false);
-        window.dispatchEvent(new CustomEvent('mail-accounts-changed'));
-      } else {
-        toast.error(t.mail.addAccount.failedToCreateWeldMail);
-      }
+      toast.success(t.mail.addAccount.emailCreatedSuccessfully.replace('{email}', result.data.email || weldmailAddress));
+      setOpen(false);
+      window.dispatchEvent(new CustomEvent('mail-accounts-changed'));
     } catch {
       toast.error(t.mail.addAccount.unexpectedError);
     } finally {

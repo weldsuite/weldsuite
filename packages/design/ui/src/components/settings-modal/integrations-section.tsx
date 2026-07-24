@@ -10,12 +10,12 @@ import {
   Search,
   CheckCircle,
 } from "lucide-react"
-import { Button } from "./button"
-import { Switch } from "./switch"
-import { Input } from "./input"
-import { Badge } from "./badge"
-import { Card, CardContent, CardHeader, CardTitle } from "./card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./tabs"
+import { Button } from "../button"
+import { Switch } from "../switch"
+import { Input } from "../input"
+import { Badge } from "../badge"
+import { Card, CardContent, CardHeader, CardTitle } from "../card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../tabs"
 
 export function IntegrationsSection() {
   return (

@@ -1,6 +1,6 @@
 "use client";
 
-import { Product, Category } from "@weldsuite/database";
+import type { Product, Category } from "@weldsuite/db/schema";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@weldsuite/ui/components/card";
 import { Button } from "@weldsuite/ui/components/button";
 import { Badge } from "@weldsuite/ui/components/badge";
@@ -40,10 +40,10 @@ export default function ProductGridSection({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {displayProducts.map((product: Product & { category: Category | null }) => (
             <Card key={product.id} className="overflow-hidden">
-              {product.imageUrl && (
+              {product.featuredImageUrl && (
                 <div className="aspect-square relative">
                   <Image
-                    src={product.imageUrl}
+                    src={product.featuredImageUrl}
                     alt={product.name}
                     fill
                     className="object-cover"
@@ -70,9 +70,9 @@ export default function ProductGridSection({
                   <span className="text-2xl font-bold">
                     ${product.price.toString()}
                   </span>
-                  {product.stock > 0 && (
+                  {(product.inventoryQuantity ?? 0) > 0 && (
                     <span className="text-sm text-muted-foreground">
-                      {product.stock} in stock
+                      {product.inventoryQuantity} in stock
                     </span>
                   )}
                 </div>

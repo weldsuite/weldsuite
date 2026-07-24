@@ -130,14 +130,17 @@ export function FilterPills({
   };
 
   const updateFilterOperator = (index: number, newOperator: string) => {
+    const target = filters[index];
+    if (!target) return;
     const newFilters = [...filters];
-    newFilters[index] = { ...newFilters[index], operator: newOperator };
+    const updated = { ...target, operator: newOperator };
+    newFilters[index] = updated;
 
     setEditingOperatorIndex(null);
     onFiltersChange(newFilters);
 
-    if (!newFilters[index].value) {
-      const config = getFilterConfig(newFilters[index].field);
+    if (!updated.value) {
+      const config = getFilterConfig(updated.field);
       if (config?.filterType === 'text' || config?.filterType === 'number') {
         setTextInputValue('');
       }
@@ -148,8 +151,10 @@ export function FilterPills({
   };
 
   const updateFilterValue = (index: number, newValue: string) => {
+    const target = filters[index];
+    if (!target) return;
     const newFilters = [...filters];
-    newFilters[index] = { ...newFilters[index], value: newValue };
+    newFilters[index] = { ...target, value: newValue };
     onFiltersChange(newFilters);
     setEditingFilterIndex(null);
     setTextInputValue('');

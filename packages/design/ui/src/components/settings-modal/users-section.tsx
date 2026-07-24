@@ -10,15 +10,15 @@ import {
   Trash,
   Crown,
 } from "lucide-react"
-import { Button } from "./button"
-import { Input } from "./input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./select"
-import { Card } from "./card"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./table"
-import { Avatar, AvatarFallback } from "./avatar"
-import { Badge } from "./badge"
-import { Checkbox } from "./checkbox"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "./dropdown-menu"
+import { Button } from "../button"
+import { Input } from "../input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../select"
+import { Card } from "../card"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../table"
+import { Avatar, AvatarFallback } from "../avatar"
+import { Badge } from "../badge"
+import { Checkbox } from "../checkbox"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "../dropdown-menu"
 
 // Mock data
 const mockUsers = [

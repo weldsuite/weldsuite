@@ -129,9 +129,13 @@ function WeldMailContent({ onSuccess }: { onSuccess: () => void }) {
     const timer = setTimeout(() => {
       setCheckingAvailability(true);
       checkAvailabilityMutation
-        .mutateAsync(address)
+        .mutateAsync({ address })
         .then((result) => {
-          setAvailabilityResult({ available: result.available, message: result.message });
+          setAvailabilityResult(
+            result.data.available
+              ? { available: true }
+              : { available: false, message: t.mail.setupPage.addressNotAvailable },
+          );
         })
         .catch(() => setAvailabilityResult(null))
         .finally(() => setCheckingAvailability(false));
@@ -159,13 +163,9 @@ function WeldMailContent({ onSuccess }: { onSuccess: () => void }) {
         name: displayName || address,
         displayName: displayName || address,
       });
-      if (result.success) {
-        toast.success(t.mail.setupPage.emailCreatedSuccessfully.replace('{email}', result.data?.email || address));
-        window.dispatchEvent(new CustomEvent('mail-accounts-changed'));
-        onSuccess();
-      } else {
-        toast.error(t.mail.setupPage.failedToCreateWeldMail);
-      }
+      toast.success(t.mail.setupPage.emailCreatedSuccessfully.replace('{email}', result.data.email || address));
+      window.dispatchEvent(new CustomEvent('mail-accounts-changed'));
+      onSuccess();
     } catch {
       toast.error(t.mail.setupPage.unexpectedError);
     } finally {
@@ -298,17 +298,23 @@ function CustomDomainContent({ onSuccess }: { onSuccess: () => void }) {
     }
     setLoading(true);
     try {
-      const result = await createAccountMutation.mutateAsync({
+      await createAccountMutation.mutateAsync({
+        name: displayName || emailPrefix,
         email: `${emailPrefix}@${selectedDomain}`,
         displayName: displayName || emailPrefix,
+        provider: 'resend',
+        authType: 'password',
+        imapSecure: true,
+        smtpSecure: true,
+        syncEnabled: true,
+        syncFrequency: 5,
+        dailySendLimit: 500,
+        isDefault: false,
+        isShared: true,
       });
-      if (result.success) {
-        toast.success(t.mail.setupPage.emailAccountCreatedSuccessfully);
-        window.dispatchEvent(new CustomEvent('mail-accounts-changed'));
-        onSuccess();
-      } else {
-        toast.error(t.mail.setupPage.failedToCreateEmailAccount);
-      }
+      toast.success(t.mail.setupPage.emailAccountCreatedSuccessfully);
+      window.dispatchEvent(new CustomEvent('mail-accounts-changed'));
+      onSuccess();
     } catch {
       toast.error(t.mail.setupPage.unexpectedError);
     } finally {

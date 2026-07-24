@@ -3,6 +3,7 @@ import { LabelsClient } from './labels-client';
 import { useMailAccounts, useMailLabels } from '@/hooks/queries/use-mail-queries';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
+import type { Mail } from '@/lib/api/types/apps/mail.types';
 
 export default function LabelsPage() {
   const { t } = useI18n();
@@ -31,7 +32,16 @@ export default function LabelsPage() {
     );
   }
 
-  const labels = labelsData?.labels || [];
+  const labels: Mail.Label[] = (labelsData?.data || []).map((l) => ({
+    id: l.id,
+    name: l.name,
+    color: l.color ?? undefined,
+    count: l.messageCount || 0,
+    aiEnabled: l.aiEnabled ?? undefined,
+    aiKeywords: l.aiKeywords ?? undefined,
+    aiDescription: l.aiDescription,
+    aiConfidence: l.aiConfidence ?? undefined,
+  }));
 
   return (
     <div className="container max-w-4xl py-8">

@@ -797,10 +797,11 @@ export default function NewHelpArticlePage() {
 
     const range = selection.getRangeAt(0);
 
-    let parentElement = range.commonAncestorContainer;
-    if (parentElement.nodeType === Node.TEXT_NODE) {
-      parentElement = parentElement.parentElement!;
+    let parentNode: Node = range.commonAncestorContainer;
+    if (parentNode.nodeType === Node.TEXT_NODE) {
+      parentNode = parentNode.parentElement!;
     }
+    const parentElement = parentNode as Element;
 
     const textNode = range.startContainer;
     if (textNode.nodeType === Node.TEXT_NODE && textNode.textContent) {

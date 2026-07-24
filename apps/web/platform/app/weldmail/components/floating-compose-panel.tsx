@@ -115,7 +115,7 @@ export function FloatingComposePanel() {
   const [showAiInput, setShowAiInput] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [isAiGenerating, setIsAiGenerating] = useState(false);
-  const aiInputRef = useRef<HTMLTextAreaElement>(null);
+  const aiInputRef = useRef<HTMLInputElement>(null);
 
   // Person autocomplete
   const [showContactSuggestions, setShowContactSuggestions] = useState(false);
@@ -528,10 +528,16 @@ export function FloatingComposePanel() {
   };
 
   const handleSaveDraft = async () => {
+    if (!accountId) {
+      toast.error(t.mail.composePage.noAccountSelected);
+      return;
+    }
     try {
       const bodyContent = textareaRef.current?.innerHTML || composeData.body || '';
       const toAddresses = composeData.to ? composeData.to.split(/[,;]/).map(e => e.trim()).filter(e => e.length > 0) : [];
-      const result = await createDraftMutation.mutateAsync({
+      // `mutateAsync` rejects on failure (caught below), so reaching this line
+      // means the draft was created — there's no `success` flag to check.
+      await createDraftMutation.mutateAsync({
         accountId,
         subject: composeData.subject || undefined,
         to: toAddresses.length > 0 ? toAddresses : undefined,
@@ -541,11 +547,7 @@ export function FloatingComposePanel() {
         htmlBody: bodyContent.includes('<') ? bodyContent : undefined,
         inReplyTo: composeData.inReplyTo || undefined,
       });
-      if (result.success) {
-        toast.success(t.mail.floatingCompose.draftSaved);
-      } else {
-        toast.error(t.mail.floatingCompose.failedToSaveDraft);
-      }
+      toast.success(t.mail.floatingCompose.draftSaved);
     } catch (error) {
       console.error('Failed to save draft:', error);
       toast.error(t.mail.floatingCompose.failedToSaveDraft);

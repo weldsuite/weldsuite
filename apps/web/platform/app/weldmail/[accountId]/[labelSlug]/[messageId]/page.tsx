@@ -61,7 +61,7 @@ function mapMessage(msg: Record<string, unknown>, labelSlug: string, noSubject: 
     inReplyTo: msg.inReplyTo as string | undefined,
     references: msg.references as string[] | undefined,
     scheduledFor: msg.scheduledFor as string | undefined,
-    sendStatus: msg.sendStatus as string | undefined,
+    sendStatus: msg.sendStatus as 'scheduled' | 'sent' | 'cancelled' | null | undefined,
   };
 }
 
@@ -126,7 +126,7 @@ export default function LabelMessagePage() {
     return messages
       .filter((m) => m.id !== messageId)
       .map((m) => mapMessage(m as unknown as Record<string, unknown>, labelSlug, t.mail.shared.noSubject, t.mail.shared.unknown))
-      .sort((a, b) => a.date.getTime() - b.date.getTime());
+      .sort((a, b) => a.date!.getTime() - b.date!.getTime());
   }, [threadData, messageId, labelSlug, t.mail.shared.noSubject, t.mail.shared.unknown]);
 
   const availableLabels = useMemo<Mail.Label[]>(() => {

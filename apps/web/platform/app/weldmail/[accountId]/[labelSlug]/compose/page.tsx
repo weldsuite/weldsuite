@@ -587,7 +587,7 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
         window.dispatchEvent(new Event('mail:refresh'));
         router.push(returnUrl.current || `/weldmail/${accountId}/sent`);
       } else {
-        const errorMsg = typeof result.error === 'string' ? result.error : result.error?.message || t.mail.composePage.failedToSendEmail;
+        const errorMsg = result.error || t.mail.composePage.failedToSendEmail;
         toast.error(errorMsg);
       }
     } catch {

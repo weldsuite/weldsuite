@@ -195,6 +195,8 @@ const LABEL_COLORS = [
   { key: 'colorPink', value: '#EC4899' },
 ] as const;
 
+type LabelColorValue = (typeof LABEL_COLORS)[number]['value'];
+
 export function useMailSidebarItems(isActive: boolean): {
   menuGroups: MenuGroupProps[];
   dialogs: React.ReactNode;
@@ -215,7 +217,7 @@ export function useMailSidebarItems(isActive: boolean): {
 
   const [showCreateLabelDialog, setShowCreateLabelDialog] = useState(false);
   const [newLabelName, setNewLabelName] = useState('');
-  const [newLabelColor, setNewLabelColor] = useState(LABEL_COLORS[5].value);
+  const [newLabelColor, setNewLabelColor] = useState<LabelColorValue>(LABEL_COLORS[5].value);
   const [isCreatingLabel, setIsCreatingLabel] = useState(false);
   const [localLabels, setLocalLabels] = useState<MailTypes.Label[]>([]);
   // Edit label dialog state
@@ -322,10 +324,10 @@ export function useMailSidebarItems(isActive: boolean): {
         .map((l) => ({
           id: l.id,
           name: l.name,
-          color: l.color,
+          color: l.color ?? undefined,
           count: l.messageCount || 0,
-          aiEnabled: l.aiEnabled,
-          aiKeywords: l.aiKeywords,
+          aiEnabled: l.aiEnabled ?? undefined,
+          aiKeywords: l.aiKeywords ?? undefined,
           aiDescription: l.aiDescription,
         }));
 
@@ -457,12 +459,12 @@ export function useMailSidebarItems(isActive: boolean): {
       const newLabel: MailTypes.Label = {
         id: created.id,
         name: created.name,
-        color: created.color,
+        color: created.color ?? undefined,
         count: created.messageCount || 0,
-        aiEnabled: created.aiEnabled,
-        aiKeywords: created.aiKeywords,
+        aiEnabled: created.aiEnabled ?? undefined,
+        aiKeywords: created.aiKeywords ?? undefined,
         aiDescription: created.aiDescription,
-        aiConfidence: created.aiConfidence,
+        aiConfidence: created.aiConfidence ?? undefined,
       };
       setLocalLabels((prev) => [...prev, newLabel]);
       toast.success(t.mail.sidebar.labelCreated);
@@ -543,12 +545,12 @@ export function useMailSidebarItems(isActive: boolean): {
             ? {
                 ...l,
                 name: updated.name,
-                color: updated.color,
+                color: updated.color ?? undefined,
                 count: updated.messageCount || 0,
-                aiEnabled: updated.aiEnabled,
-                aiKeywords: updated.aiKeywords,
+                aiEnabled: updated.aiEnabled ?? undefined,
+                aiKeywords: updated.aiKeywords ?? undefined,
                 aiDescription: updated.aiDescription,
-                aiConfidence: updated.aiConfidence,
+                aiConfidence: updated.aiConfidence ?? undefined,
               }
             : l
         )

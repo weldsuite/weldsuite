@@ -296,7 +296,7 @@ function WorkflowCanvasInner({
         let prevNode: Node | undefined;
         let prevStepType = '';
         for (let i = index - 1; i >= 0; i--) {
-          const candidate = newNodes[i];
+          const candidate = newNodes[i]!;
           if (candidate.type === 'condition_branch') continue;
           const existing = currentNodes.find((n) => n.id === candidate.id);
           if (existing) {

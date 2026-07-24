@@ -159,7 +159,7 @@ const getAddRange = (range: Range) => {
 };
 
 const getDateByMousePosition = (context: GanttContextProps, mouseX: number) => {
-  const timelineStartDate = new Date(context.timelineData[0].year, 0, 1);
+  const timelineStartDate = new Date(context.timelineData.at(0)?.year ?? 0, 0, 1);
   const columnWidth = (context.columnWidth * context.zoom) / 100;
   const offset = Math.floor(mouseX / columnWidth);
   const daysIn = getsDaysIn(context.range);
@@ -427,12 +427,12 @@ const WeeklyHeader: FC = () => {
   const gantt = useContext(GanttContext);
   const startDate = useMemo(
     () =>
-      startOfWeek(new Date(gantt.timelineData[0].year, 0, 1), {
+      startOfWeek(new Date(gantt.timelineData.at(0)?.year ?? 0, 0, 1), {
         weekStartsOn: 1,
       }),
     [gantt.timelineData]
   );
-  const lastYear = gantt.timelineData[gantt.timelineData.length - 1].year;
+  const lastYear = gantt.timelineData.at(-1)?.year ?? 0;
   const endDate = useMemo(() => new Date(lastYear, 11, 31), [lastYear]);
   const totalWeeks = Math.ceil(differenceInDays(endDate, startDate) / 7) + 1;
 
@@ -1101,7 +1101,7 @@ export const GanttFeatureRow: FC<GanttFeatureRowProps> = ({
     let subRow = 0;
 
     // Find the first sub-row that's free (doesn't overlap)
-    while (subRow < subRowEndTimes.length && subRowEndTimes[subRow] > feature.startAt) {
+    while (subRow < subRowEndTimes.length && subRowEndTimes[subRow]! > feature.startAt) {
       subRow++;
     }
 
@@ -1570,7 +1570,7 @@ export const GanttProvider: FC<GanttProviderProps> = ({
     }
 
     // Calculate timeline start date from timelineData
-    const timelineStartDate = new Date(timelineData[0].year, 0, 1);
+    const timelineStartDate = new Date(timelineData.at(0)?.year ?? 0, 0, 1);
 
     // Calculate the horizontal offset for the feature's start date
     const offset = getOffset(feature.startAt, timelineStartDate, {

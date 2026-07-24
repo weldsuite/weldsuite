@@ -2,7 +2,7 @@
 import { Link, useRouter } from '@/lib/router';
 import { format, isValid } from 'date-fns';
 import { useI18n } from '@/lib/i18n/provider';
-import { EntityDataTable, type Column } from '@/components/entity-overview/entity-data-table';
+import { EntityDataTable, type Column, type PaginationData, type StatusFilter, type FilterOption } from '@/components/entity-overview/entity-data-table';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -23,19 +23,10 @@ function formatDate(date: Date | string | undefined, formatStr: string, fallback
 
 interface NewsClientProps {
   items: NewsArticle[];
-  pagination: {
-    page: number;
-    pageSize: number;
-    total: number;
-    totalPages: number;
-  };
+  pagination: PaginationData;
   params: Record<string, string>;
-  statusFilters: Array<{ label: string; value: string; count: number }>;
-  additionalFilters: Array<{
-    key: string;
-    label: string;
-    options: Array<{ label: string; value: string }>;
-  }>;
+  statusFilters: StatusFilter[];
+  additionalFilters: FilterOption[];
 }
 
 export function NewsClient({
@@ -208,7 +199,7 @@ export function NewsClient({
       columns={columns}
       data={items}
       pagination={pagination}
-      params={params}
+      searchParams={params}
       statusFilters={statusFilters}
       additionalFilters={additionalFilters}
       onRowClick={handleRowClick}

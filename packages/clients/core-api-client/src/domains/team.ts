@@ -14,7 +14,7 @@ import type {
 
 export function createTeamApi(api: ClientApi) {
   return {
-    listMembers(params: ListMembersQuery = {}): Promise<ListResponse<Member>> {
+    listMembers(params: ListMembersQuery = { limit: 25 }): Promise<ListResponse<Member>> {
       const query = buildQueryString(params as Record<string, unknown>);
       return api.get<ListResponse<Member>>(`/team/members${query}`);
     },

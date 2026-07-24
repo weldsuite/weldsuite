@@ -103,9 +103,9 @@ function emailToConversationItem(email: EmailMessage, scheduledLabel?: (date: st
     avatarUrl: fromAvatar,
     subject: email.subject || '',
     preview: isScheduled
-      ? (scheduledLabel ? scheduledLabel(format(new Date(email.scheduledFor), 'PPp')) : `Scheduled for ${format(new Date(email.scheduledFor), 'PPp')}`)
+      ? (scheduledLabel ? scheduledLabel(format(new Date(email.scheduledFor ?? 0), 'PPp')) : `Scheduled for ${format(new Date(email.scheduledFor ?? 0), 'PPp')}`)
       : email.preview || email.bodyText?.slice(0, 100) || '',
-    date: new Date(email.date),
+    date: new Date(email.date ?? 0),
     isRead: email.isRead,
     isStarred: email.isStarred,
     hasAttachments: email.hasAttachments,
@@ -481,27 +481,27 @@ export function MessageList({
           </ContextMenuSubTrigger>
           <ContextMenuSubContent className="w-48">
             <ContextMenuItem onClick={() => {
-              snoozeEmail.mutate({ messageId: thread.latestMessageId, until: addHours(new Date(), 1) }, {
+              snoozeEmail.mutate({ accountId: threadAccountId, messageId: thread.latestMessageId, data: { until: addHours(new Date(), 1).toISOString() } }, {
                 onSuccess: () => toast.success(t.mail.messageList.snoozed1Hour),
                 onError: () => toast.error(t.mail.messageList.failedToSnooze),
               });
             }}>{t.mail.messageList.laterToday1Hour}</ContextMenuItem>
             <ContextMenuItem onClick={() => {
-              snoozeEmail.mutate({ messageId: thread.latestMessageId, until: addHours(new Date(), 4) }, {
+              snoozeEmail.mutate({ accountId: threadAccountId, messageId: thread.latestMessageId, data: { until: addHours(new Date(), 4).toISOString() } }, {
                 onSuccess: () => toast.success(t.mail.messageList.snoozed4Hours),
                 onError: () => toast.error(t.mail.messageList.failedToSnooze),
               });
             }}>{t.mail.messageList.laterToday4Hours}</ContextMenuItem>
             <ContextMenuItem onClick={() => {
               const tomorrow = setMinutes(setHours(addDays(new Date(), 1), 8), 0);
-              snoozeEmail.mutate({ messageId: thread.latestMessageId, until: tomorrow }, {
+              snoozeEmail.mutate({ accountId: threadAccountId, messageId: thread.latestMessageId, data: { until: tomorrow.toISOString() } }, {
                 onSuccess: () => toast.success(t.mail.messageList.snoozedUntilTomorrow),
                 onError: () => toast.error(t.mail.messageList.failedToSnooze),
               });
             }}>{t.mail.messageList.tomorrowMorning}</ContextMenuItem>
             <ContextMenuItem onClick={() => {
               const monday = setMinutes(setHours(nextMonday(new Date()), 8), 0);
-              snoozeEmail.mutate({ messageId: thread.latestMessageId, until: monday }, {
+              snoozeEmail.mutate({ accountId: threadAccountId, messageId: thread.latestMessageId, data: { until: monday.toISOString() } }, {
                 onSuccess: () => toast.success(t.mail.messageList.snoozedUntilNextWeek),
                 onError: () => toast.error(t.mail.messageList.failedToSnooze),
               });
@@ -528,7 +528,7 @@ export function MessageList({
           </ContextMenuSubTrigger>
           <ContextMenuSubContent className="w-48">
             <ContextMenuItem onClick={() => {
-              bulkAction.mutate({ accountId: threadAccountId, messageIds: thread.messages.map((m) => m.id), action: 'inbox' }, {
+              bulkAction.mutate({ messageIds: thread.messages.map((m) => m.id), action: 'restore' }, {
                 onSuccess: () => toast.success(t.mail.messageList.movedToInbox),
                 onError: () => toast.error(t.mail.messageList.failedToMove),
               });
@@ -698,7 +698,7 @@ export function MessageList({
 
         {/* Archive / Delete / Mark read / Snooze / Add to Tasks */}
         <ContextMenuItem onClick={() => {
-          archiveMessage.mutate({ id: item.id, accountId }, {
+          archiveMessage.mutate(item.id, {
             onSuccess: () => toast.success(t.mail.messageList.emailArchived),
             onError: () => toast.error(t.mail.messageList.failedToArchive),
           });
@@ -707,7 +707,7 @@ export function MessageList({
           {t.mail.messageList.archive}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
-          trashMessage.mutate({ id: item.id, accountId }, {
+          trashMessage.mutate(item.id, {
             onSuccess: () => toast.success(t.mail.messageList.movedToTrashSingle),
             onError: () => toast.error(t.mail.messageList.failedToDelete),
           });
@@ -716,7 +716,7 @@ export function MessageList({
           {t.mail.messageList.delete}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
-          markMailRead.mutate({ id: item.id, read: hasUnread, accountId }, {
+          markMailRead.mutate({ id: item.id, isRead: hasUnread }, {
             onSuccess: () => toast.success(hasUnread ? t.mail.messageList.markedAsRead : t.mail.messageList.markedAsUnread),
           });
         }}>
@@ -730,27 +730,27 @@ export function MessageList({
           </ContextMenuSubTrigger>
           <ContextMenuSubContent className="w-48">
             <ContextMenuItem onClick={() => {
-              snoozeEmail.mutate({ messageId: item.id, until: addHours(new Date(), 1) }, {
+              snoozeEmail.mutate({ accountId, messageId: item.id, data: { until: addHours(new Date(), 1).toISOString() } }, {
                 onSuccess: () => toast.success(t.mail.messageList.snoozed1Hour),
                 onError: () => toast.error(t.mail.messageList.failedToSnooze),
               });
             }}>{t.mail.messageList.laterToday1Hour}</ContextMenuItem>
             <ContextMenuItem onClick={() => {
-              snoozeEmail.mutate({ messageId: item.id, until: addHours(new Date(), 4) }, {
+              snoozeEmail.mutate({ accountId, messageId: item.id, data: { until: addHours(new Date(), 4).toISOString() } }, {
                 onSuccess: () => toast.success(t.mail.messageList.snoozed4Hours),
                 onError: () => toast.error(t.mail.messageList.failedToSnooze),
               });
             }}>{t.mail.messageList.laterToday4Hours}</ContextMenuItem>
             <ContextMenuItem onClick={() => {
               const tomorrow = setMinutes(setHours(addDays(new Date(), 1), 8), 0);
-              snoozeEmail.mutate({ messageId: item.id, until: tomorrow }, {
+              snoozeEmail.mutate({ accountId, messageId: item.id, data: { until: tomorrow.toISOString() } }, {
                 onSuccess: () => toast.success(t.mail.messageList.snoozedUntilTomorrow),
                 onError: () => toast.error(t.mail.messageList.failedToSnooze),
               });
             }}>{t.mail.messageList.tomorrowMorning}</ContextMenuItem>
             <ContextMenuItem onClick={() => {
               const monday = setMinutes(setHours(nextMonday(new Date()), 8), 0);
-              snoozeEmail.mutate({ messageId: item.id, until: monday }, {
+              snoozeEmail.mutate({ accountId, messageId: item.id, data: { until: monday.toISOString() } }, {
                 onSuccess: () => toast.success(t.mail.messageList.snoozedUntilNextWeek),
                 onError: () => toast.error(t.mail.messageList.failedToSnooze),
               });
@@ -777,7 +777,7 @@ export function MessageList({
           </ContextMenuSubTrigger>
           <ContextMenuSubContent className="w-48">
             <ContextMenuItem onClick={() => {
-              bulkAction.mutate({ accountId, messageIds: [item.id], action: 'inbox' }, {
+              bulkAction.mutate({ messageIds: [item.id], action: 'restore' }, {
                 onSuccess: () => toast.success(t.mail.messageList.movedToInbox),
                 onError: () => toast.error(t.mail.messageList.failedToMove),
               });
@@ -785,7 +785,7 @@ export function MessageList({
               <Inbox className="h-4 w-4 mr-0.5" /> {t.mail.messageList.labelInbox}
             </ContextMenuItem>
             <ContextMenuItem onClick={() => {
-              markAsSpam.mutate({ id: item.id, isSpam: true, accountId }, {
+              markAsSpam.mutate(item.id, {
                 onSuccess: () => toast.success(t.mail.messageList.markedAsSpam),
                 onError: () => toast.error(t.mail.messageList.failedToMarkAsSpam),
               });
@@ -793,7 +793,7 @@ export function MessageList({
               <AlertCircle className="h-4 w-4 mr-0.5" /> {t.mail.messageList.labelSpam}
             </ContextMenuItem>
             <ContextMenuItem onClick={() => {
-              trashMessage.mutate({ id: item.id, accountId }, {
+              trashMessage.mutate(item.id, {
                 onSuccess: () => toast.success(t.mail.messageList.movedToTrashSingle),
                 onError: () => toast.error(t.mail.messageList.failedToMove),
               });

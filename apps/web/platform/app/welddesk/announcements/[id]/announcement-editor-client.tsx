@@ -339,9 +339,9 @@ export function AnnouncementEditorClient({ announcementId }: AnnouncementEditorC
     const range = selection.getRangeAt(0);
 
     // Get the parent element where we'll insert
-    let parentElement = range.commonAncestorContainer;
+    let parentElement = range.commonAncestorContainer as HTMLElement;
     if (parentElement.nodeType === Node.TEXT_NODE) {
-      parentElement = parentElement.parentElement!;
+      parentElement = parentElement.parentElement as HTMLElement;
     }
 
     // Delete the slash command text

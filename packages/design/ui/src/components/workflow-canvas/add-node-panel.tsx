@@ -155,11 +155,11 @@ export function AddNodePanel({ onAddAction, module, labels = {} }: AddNodePanelP
   const actionLocales = labels.actions || DEFAULT_ACTION_LABELS;
 
   const actionTypes = useMemo<ActionTypeOption[]>(() => {
-    return Object.keys(ACTION_ICONS).map((id) => ({
+    return Object.entries(ACTION_ICONS).map(([id, icon]) => ({
       id,
       name: actionLocales[id]?.name ?? DEFAULT_ACTION_LABELS[id]?.name ?? id,
       description: actionLocales[id]?.description ?? DEFAULT_ACTION_LABELS[id]?.description ?? '',
-      icon: ACTION_ICONS[id],
+      icon,
       category: ACTION_CATEGORIES[id] as ActionTypeOption['category'],
     }));
   }, [actionLocales]);
@@ -176,10 +176,8 @@ export function AddNodePanel({ onAddAction, module, labels = {} }: AddNodePanelP
 
   const groupedActions = filteredActions.reduce(
     (acc, action) => {
-      if (!acc[action.category]) {
-        acc[action.category] = [];
-      }
-      acc[action.category].push(action);
+      const group = acc[action.category] ?? (acc[action.category] = []);
+      group.push(action);
       return acc;
     },
     {} as Record<string, ActionTypeOption[]>
