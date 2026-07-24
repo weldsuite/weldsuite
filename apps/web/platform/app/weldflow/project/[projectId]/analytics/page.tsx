@@ -1,54 +1,30 @@
-
-import { useEffect, useState } from 'react';
-import { useParams, useRouter } from '@/lib/router';
-import { analyticsApi } from '@/app/weldflow/lib/api-client';
+import { AnalyticsListClient } from '@/app/weldflow/analytics/_components/analytics-list-client';
+import { AnalyticsDashboardClient } from '@/app/weldflow/analytics/_components/analytics-dashboard-client';
+import { useAnalyticsReports } from '@/hooks/queries/use-projects-queries';
 import { PageLoader } from '@/components/page-loader';
-import { useTranslations } from '@weldsuite/i18n/client';
+import { useI18n } from '@/lib/i18n/provider';
+import { useParams } from '@/lib/router';
 
 export default function ProjectAnalyticsPage() {
+  const { t } = useI18n();
   const params = useParams();
-  const router = useRouter();
-  const st = useTranslations();
   const projectId = params.projectId as string;
-  const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    async function init() {
-      try {
-        // Fetch existing reports
-        const reportsResult = await analyticsApi.getReports();
+  const { data, isLoading } = useAnalyticsReports();
+  const reports = data?.data || [];
+  const basePath = `/weldflow/project/${projectId}/analytics`;
 
-        if (reportsResult.success && reportsResult.data && reportsResult.data.length > 0) {
-          router.replace(`/weldflow/project/${projectId}/analytics/${reportsResult.data[0].id}`);
-          return;
-        }
+  if (isLoading) return <PageLoader fullScreen={false} />;
 
-        // No reports exist, create a default one
-        const createResult = await analyticsApi.createReport({
-          title: st('sweep.weldflow.analytics.defaultReportTitle'),
-          description: st('sweep.weldflow.analytics.defaultReportDescription'),
-        });
-
-        if (createResult.success && createResult.data) {
-          router.replace(`/weldflow/project/${projectId}/analytics/${createResult.data.id}`);
-          return;
-        }
-
-        // Fallback
-        router.replace(`/weldflow/project/${projectId}`);
-      } catch (error) {
-        console.error('Failed to load analytics:', error);
-        router.replace(`/weldflow/project/${projectId}`);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    init();
-  }, [projectId, router, st]);
-
-  if (isLoading) {
-    return <PageLoader fullScreen={false} />;
-  }
-
-  return null;
+  return (
+    <div className="container mx-auto space-y-10 py-6">
+      <AnalyticsDashboardClient projectId={projectId} />
+      <AnalyticsListClient
+        reports={reports}
+        basePath={basePath}
+        embedded
+        sectionTitle={t.projects.dashboard.customReports}
+      />
+    </div>
+  );
 }

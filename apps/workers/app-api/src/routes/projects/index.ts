@@ -15,6 +15,7 @@ import { createProjectSchema, updateProjectSchema } from '@weldsuite/app-api-cli
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
+import { projectAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import { schema } from '../../db';
 import { canAccessProject, canManageProject } from '../../lib/project-access';
 
@@ -599,7 +600,7 @@ app.post('/', requirePermission('projects:create'), zValidator('json', createPro
       entityType: 'project',
       entityId: id,
       action: 'created',
-      data: { id, name: (data as any).name },
+      data: projectAnalyticsPayload({ id, ...(data as Record<string, unknown>) }),
     });
     return success(c, { id }, 201);
   } catch (err) {
@@ -628,7 +629,9 @@ app.patch('/:id', requirePermission('projects:update'), zValidator('json', updat
       entityType: 'project',
       entityId: id,
       action: 'updated',
-      data: { id, name: (data as any).name ?? existing.name },
+      data: projectAnalyticsPayload(
+        { ...(existing as Record<string, unknown>), ...(data as Record<string, unknown>), id },
+      ),
     });
     return success(c, { id });
   } catch (err) {

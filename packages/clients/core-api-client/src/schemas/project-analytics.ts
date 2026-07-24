@@ -106,3 +106,42 @@ export interface AnalyticsChart {
   updatedAt: Date;
   deletedAt: Date | null;
 }
+
+// ============================================================================
+// KPI summary schemas
+// ============================================================================
+
+export const projectKpiPeriodSchema = z.enum(['7d', '30d', '90d']);
+export type ProjectKpiPeriod = z.infer<typeof projectKpiPeriodSchema>;
+
+export const projectKpiSummaryQuerySchema = z.object({
+  period: projectKpiPeriodSchema.optional().default('30d'),
+  projectId: z.string().min(1).optional(),
+});
+
+export type ProjectKpiSummaryQuery = z.infer<typeof projectKpiSummaryQuerySchema>;
+
+export const projectKpiThroughputDaySchema = z.object({
+  date: z.string(),
+  completed: z.number(),
+});
+
+export const projectKpiSummarySchema = z.object({
+  activeProjects: z.number(),
+  tasksDueToday: z.number(),
+  overdueTasks: z.number(),
+  totalTasks: z.number(),
+  completedTasks: z.number(),
+  completionRate: z.number(),
+  hoursLoggedMinutes: z.number(),
+  billableHoursMinutes: z.number(),
+  projectsByStatus: z.record(z.string(), z.number()),
+  projectsByHealth: z.record(z.string(), z.number()),
+  tasksByPriority: z.record(z.string(), z.number()),
+  throughputByDay: z.array(projectKpiThroughputDaySchema),
+  period: projectKpiPeriodSchema,
+  from: z.string(),
+  to: z.string(),
+});
+
+export type ProjectKpiSummary = z.infer<typeof projectKpiSummarySchema>;

@@ -50,11 +50,15 @@ const ENTITY_MODULE_MAP: Record<string, { module: string; entityType: string }> 
   customers: { module: 'crm', entityType: 'customer' },
   contact: { module: 'crm', entityType: 'contact' },
   contacts: { module: 'crm', entityType: 'contact' },
-  // Projects (singular + plural)
+  // Projects / WeldFlow (singular + plural)
+  project: { module: 'projects', entityType: 'project' },
+  projects: { module: 'projects', entityType: 'project' },
   task: { module: 'projects', entityType: 'task' },
   tasks: { module: 'projects', entityType: 'task' },
   time_entry: { module: 'projects', entityType: 'time_entry' },
   time_entries: { module: 'projects', entityType: 'time_entry' },
+  milestone: { module: 'projects', entityType: 'milestone' },
+  milestones: { module: 'projects', entityType: 'milestone' },
 };
 
 // Metric → SQL expression mapping (using named columns)
@@ -134,6 +138,44 @@ const COMPOUND_METRICS: Record<string, ResolvedMetric> = {
   satisfaction_trend:   { metric: 'score', groupByOverride: 'day' },
   ratings_distribution: { metric: 'score', groupByOverride: 'category' },
   satisfaction_by_agent:{ metric: 'score', groupByOverride: 'assignee' },
+
+  // WeldFlow — projects
+  total_projects:        { metric: 'count' },
+  active_projects:       { metric: 'count', filterOverride: { status: "IN ('Active','Planning')" } },
+  projects_by_status:    { metric: 'count', groupByOverride: 'status' },
+  projects_by_health:    { metric: 'count', groupByOverride: 'health' },
+  projects_by_day:       { metric: 'count', groupByOverride: 'day' },
+  completion_rate:       { metric: 'avg_progress' },
+  budget_utilization:    { metric: 'amount' },
+  hours_utilization:     { metric: 'actual_hours' },
+  avg_progress:          { metric: 'avg_progress' },
+
+  // WeldFlow — tasks
+  total_tasks:           { metric: 'count' },
+  completed_tasks:       { metric: 'completed' },
+  overdue_tasks:         { metric: 'overdue' },
+  tasks_by_status:       { metric: 'count', groupByOverride: 'status' },
+  tasks_by_priority:     { metric: 'count', groupByOverride: 'priority' },
+  tasks_by_type:         { metric: 'count', groupByOverride: 'category' },
+  throughput:            { metric: 'completed', groupByOverride: 'day' },
+  estimation_accuracy:   { metric: 'actual_hours' },
+  tasks_by_day:          { metric: 'count', groupByOverride: 'day' },
+
+  // WeldFlow — time entries
+  total_hours:           { metric: 'actual_hours' },
+  billable_hours:        { metric: 'actual_hours', filterOverride: { is_billable: '= 1' } },
+  non_billable_hours:    { metric: 'actual_hours', filterOverride: { is_billable: '= 0' } },
+  utilization_rate:      { metric: 'billable' },
+  total_cost:            { metric: 'amount' },
+  hours_by_day:          { metric: 'actual_hours', groupByOverride: 'day' },
+
+  // WeldFlow — milestones
+  total_milestones:      { metric: 'count' },
+  milestones_by_status:  { metric: 'count', groupByOverride: 'status' },
+  completed_milestones:  { metric: 'completed' },
+  overdue_milestones:    { metric: 'overdue' },
+  on_time_milestones:    { metric: 'completed' },
+  avg_milestone_progress:{ metric: 'avg_progress' },
 };
 
 // GroupBy → column mapping (using named columns)
@@ -144,6 +186,7 @@ const GROUP_BY_MAP: Record<string, { column: string; isDate: boolean }> = {
   priority: { column: 'priority', isDate: false },
   channel: { column: 'channel', isDate: false },
   category: { column: 'category', isDate: false },
+  health: { column: 'category', isDate: false },
   assignee: { column: 'assignee_id', isDate: false },
   source: { column: 'source', isDate: false },
   stage: { column: 'stage', isDate: false },
