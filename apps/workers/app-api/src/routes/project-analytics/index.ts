@@ -19,16 +19,88 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema } from '../../db';
+import { accessibleProjectIds, canAccessProject } from '../../lib/project-access';
+import { getProjectKpiSummary } from '../../services/project-kpi-summary';
 import {
   createReportSchema,
   updateReportSchema,
   createChartSchema,
   updateChartLayoutsSchema,
+  projectKpiSummaryQuerySchema,
 } from '@weldsuite/core-api-client/schemas/project-analytics';
 
 const APP_NAME = 'projects';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// ============================================================================
+// KPI summary (fixed dashboard aggregates)
+// ============================================================================
+
+/**
+ * GET /summary — workspace-level WeldFlow KPI overview.
+ * Query: period=7d|30d|90d
+ */
+app.get(
+  '/summary',
+  requirePermission('projects:read'),
+  zValidator('query', projectKpiSummaryQuerySchema),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const { period, projectId } = c.req.valid('query');
+    const userId = c.get('userId');
+    if (!userId) return error.unauthorized(c);
+
+    try {
+      if (projectId && !(await canAccessProject(c, projectId))) {
+        return error.forbidden(c, 'You are not a member of this project');
+      }
+
+      const projectIds = await accessibleProjectIds(c);
+      const summary = await getProjectKpiSummary(db, {
+        period,
+        projectIds,
+        projectId,
+      });
+      return success(c, summary);
+    } catch (err) {
+      console.error('[app-api/project-analytics] summary failed:', err);
+      return error.internal(c, 'Failed to load analytics summary');
+    }
+  },
+);
+
+/**
+ * GET /projects/:projectId/summary — project-scoped KPI overview.
+ */
+app.get(
+  '/projects/:projectId/summary',
+  requirePermission('projects:read'),
+  zValidator('query', projectKpiSummaryQuerySchema.omit({ projectId: true })),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const projectId = c.req.param('projectId');
+    const { period } = c.req.valid('query');
+    const userId = c.get('userId');
+    if (!userId) return error.unauthorized(c);
+
+    try {
+      if (!(await canAccessProject(c, projectId))) {
+        return error.forbidden(c, 'You are not a member of this project');
+      }
+
+      const summary = await getProjectKpiSummary(db, {
+        period,
+        projectIds: [projectId],
+        projectId,
+      });
+      return success(c, summary);
+    } catch (err) {
+      console.error('[app-api/project-analytics] project summary failed:', err);
+      return error.internal(c, 'Failed to load project analytics summary');
+    }
+  },
+);
 
 // ============================================================================
 // Report Routes

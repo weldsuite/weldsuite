@@ -29,6 +29,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, list, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
+import { timeEntryAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import { schema } from '../../db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -240,6 +241,7 @@ app.post(
       const taskId = overrides.taskId ?? running.taskId;
       const id = generateId('time');
 
+      const costStr = computeCost(rate, duration);
       await db.insert(t).values({
         id,
         projectId: projectId ?? null,
@@ -254,7 +256,7 @@ app.post(
         activity: overrides.activity ?? running.activity,
         billable,
         rate: rate ?? null,
-        cost: computeCost(rate, duration),
+        cost: costStr,
         status: 'draft',
         createdAt: now,
         updatedAt: now,
@@ -268,13 +270,17 @@ app.post(
         entityId: id,
         action: 'created',
         data: {
-          id,
-          projectId: projectId ?? null,
-          taskId: taskId ?? null,
-          userId,
-          duration: Number(duration),
+          ...timeEntryAnalyticsPayload({
+            id,
+            projectId: projectId ?? null,
+            taskId: taskId ?? null,
+            userId,
+            durationMinutes: Number(duration),
+            billable,
+          }),
           startedAt: startedAt.toISOString(),
           endedAt: now.toISOString(),
+          cost: costStr != null ? Number(costStr) : undefined,
         },
       });
 
@@ -366,13 +372,14 @@ app.post(
         entityType: 'project_time_entry',
         entityId: id,
         action: 'created',
-        data: {
+        data: timeEntryAnalyticsPayload({
           id,
           projectId: data.projectId ?? null,
           taskId: data.taskId ?? null,
           userId,
-          duration: Number(data.duration),
-        },
+          durationMinutes: Number(data.duration),
+          billable: data.billable ?? true,
+        }),
       });
 
       return success(c, { id }, 201);
@@ -433,11 +440,15 @@ app.patch(
         entityId: id,
         action: 'updated',
         data: {
-          id,
-          projectId: (data.projectId ?? existing.projectId) ?? null,
-          taskId: (data.taskId ?? existing.taskId) ?? null,
-          userId: existing.userId,
-          duration: Number(data.duration ?? existing.duration),
+          ...timeEntryAnalyticsPayload({
+            id,
+            projectId: (data.projectId ?? existing.projectId) ?? null,
+            taskId: (data.taskId ?? existing.taskId) ?? null,
+            userId: existing.userId,
+            durationMinutes: Number(data.duration ?? existing.duration),
+            billable: (data.billable ?? existing.billable) as boolean,
+          }),
+          cost: update.cost != null ? Number(update.cost) : existing.cost != null ? Number(existing.cost) : undefined,
         },
       });
 

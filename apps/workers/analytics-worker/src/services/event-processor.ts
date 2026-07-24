@@ -212,6 +212,7 @@ const ENTITY_CONFIG: Record<string, EntityConfig> = {
     strings: [
       { source: 'status', target: 'status' },
       { source: 'priority', target: 'priority' },
+      { source: 'type', target: 'category' },
       { source: 'assigneeId', target: 'assignee_id' },
       { source: 'projectId', target: 'project_id' },
     ],
@@ -234,6 +235,36 @@ const ENTITY_CONFIG: Record<string, EntityConfig> = {
       { target: 'duration_seconds', field: 'durationSeconds' },
       { target: 'is_billable', field: 'isBillable', boolean: true },
       { target: 'actual_hours', field: 'actualHours' },
+      { target: 'amount', field: 'cost' },
+    ],
+  },
+  project: {
+    module: 'projects',
+    entityType: 'project',
+    strings: [
+      { source: 'status', target: 'status' },
+      { source: 'priority', target: 'priority' },
+      { source: 'health', target: 'category' },
+    ],
+    numerics: [
+      { target: 'is_completed', statusCheck: ['completed', 'cancelled'] },
+      { target: 'progress', field: 'progress' },
+      { target: 'amount', field: 'actualAmount' },
+      { target: 'actual_hours', field: 'actualHours' },
+      { target: 'estimated_hours', field: 'budgetedHours' },
+    ],
+  },
+  project_milestone: {
+    module: 'projects',
+    entityType: 'milestone',
+    strings: [
+      { source: 'status', target: 'status' },
+      { source: 'projectId', target: 'project_id' },
+    ],
+    numerics: [
+      { target: 'is_completed', statusCheck: ['completed', 'done'] },
+      { target: 'is_overdue', field: 'isOverdue', boolean: true },
+      { target: 'progress', field: 'progress' },
     ],
   },
 };

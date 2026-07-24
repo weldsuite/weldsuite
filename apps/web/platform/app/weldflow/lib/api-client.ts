@@ -1480,4 +1480,23 @@ export const analyticsApi = {
       `/project-analytics/reports/${reportId}/charts/${chartId}/duplicate`,
       {},
     ),
+
+  getSummary: (params?: { period?: '7d' | '30d' | '90d'; projectId?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.period) qs.set('period', params.period);
+    if (params?.projectId) qs.set('projectId', params.projectId);
+    const query = qs.toString();
+    return appApiGet<import('@weldsuite/core-api-client/schemas/project-analytics').ProjectKpiSummary>(
+      `/project-analytics/summary${query ? `?${query}` : ''}`,
+    );
+  },
+
+  getProjectSummary: (projectId: string, params?: { period?: '7d' | '30d' | '90d' }) => {
+    const qs = new URLSearchParams();
+    if (params?.period) qs.set('period', params.period);
+    const query = qs.toString();
+    return appApiGet<import('@weldsuite/core-api-client/schemas/project-analytics').ProjectKpiSummary>(
+      `/project-analytics/projects/${projectId}/summary${query ? `?${query}` : ''}`,
+    );
+  },
 };

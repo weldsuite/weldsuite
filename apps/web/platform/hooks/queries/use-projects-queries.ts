@@ -31,6 +31,8 @@ export const projectKeys = {
   analyticsReport: (id: string) => [...projectKeys.analytics(), 'reports', id] as const,
   analyticsCharts: (reportId: string) => [...projectKeys.analytics(), 'reports', reportId, 'charts'] as const,
   analyticsChartsData: (reportId: string) => [...projectKeys.analytics(), 'reports', reportId, 'charts-data'] as const,
+  kpiSummary: (period: string, projectId?: string) =>
+    [...projectKeys.analytics(), 'kpi-summary', period, projectId ?? 'workspace'] as const,
 };
 
 // =============================================================================
@@ -841,6 +843,28 @@ function useCreateProjectMessage() {
 // =============================================================================
 // Analytics Queries
 // =============================================================================
+
+export function useProjectKpiSummary(
+  opts?: { projectId?: string; period?: '7d' | '30d' | '90d'; enabled?: boolean },
+) {
+  const { getClient } = useAppApiClient();
+  const period = opts?.period ?? '30d';
+  const projectId = opts?.projectId;
+  return useQuery({
+    queryKey: projectKeys.kpiSummary(period, projectId),
+    queryFn: async () => {
+      const client = await getClient();
+      const qs = buildQueryString({ period, projectId });
+      const path = projectId
+        ? `/project-analytics/projects/${projectId}/summary?period=${period}`
+        : `/project-analytics/summary${qs}`;
+      return client.get<{
+        data: import('@weldsuite/core-api-client/schemas/project-analytics').ProjectKpiSummary;
+      }>(path);
+    },
+    enabled: opts?.enabled !== false,
+  });
+}
 
 export function useAnalyticsReports() {
   const { getClient } = useAppApiClient();
