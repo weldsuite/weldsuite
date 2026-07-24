@@ -16,7 +16,7 @@
     "framer-motion": "^12.23.22",
     "lucide-react": "^0.544.0",
     "mapbox-gl": "^3.14.0",
-    "next": "15.4.8",
+    "next": "15.5.21",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.49.3",
