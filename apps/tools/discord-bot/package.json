@@ -11,7 +11,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@hono/node-server": "^1.13.0",
+    "@hono/node-server": "^2.0.10",
     "@neondatabase/serverless": "^1.0.1",
     "@weldsuite/db": "workspace:*",
     "discord.js": "^14.16.0",
