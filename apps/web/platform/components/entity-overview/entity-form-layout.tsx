@@ -4,7 +4,6 @@ import { useRouter, Link } from '@/lib/router';
 import { Button } from "@weldsuite/ui/components/button";
 import { LucideIcon, Loader2, ChevronLeft } from "lucide-react";
 import { useTranslations } from '@weldsuite/i18n/client';
-import { type ActionButton } from "./entity-page-header";
 
 export interface FormSection {
   /** Section title */
@@ -65,10 +64,8 @@ export interface EntityFormLayoutProps {
 
 export function EntityFormLayout({
   title,
-  subtitle,
   sections,
   summaryTitle,
-  summaryIcon: SummaryIcon,
   summaryFields,
   summaryContent,
   onSubmit,

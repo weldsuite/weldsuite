@@ -13,8 +13,6 @@ import {
   Clock,
   Code,
   FileText,
-  Package,
-  RefreshCw,
   GitBranch,
   Plus,
   Pencil,
@@ -26,22 +24,42 @@ import {
   Wand2,
   Repeat,
   Trash2,
-  Settings,
 } from 'lucide-react';
-import { Link, useRouter } from '@/lib/router';
+import { Link } from '@/lib/router';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useUpdateTemplate } from '@/hooks/queries/use-automation-queries';
 import { ActionConfigForm } from '@/components/workflow-editor/components/action-config-form';
-import { WorkflowCanvas } from '@weldsuite/ui/components/workflow-canvas';
+import { WorkflowCanvas, type WorkflowStep, type TriggerConfig } from '@weldsuite/ui/components/workflow-canvas';
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
-import { cn } from '@/lib/utils';
+
+// Templates persist loosely-typed trigger/step JSON (backend declares them as
+// `unknown[]`); these describe the raw shape before normalization below fills
+// in the fields WorkflowCanvas's stricter contract requires.
+export interface RawTemplateStep {
+  id?: string;
+  type: string;
+  name: string;
+  config?: Record<string, unknown>;
+  parentBranchId?: string;
+  [key: string]: unknown;
+}
+
+export interface RawTemplateTrigger {
+  type: string;
+  [key: string]: unknown;
+}
 
 interface TemplateEditorClientProps {
-  template: any;
-  actionTypes: any[];
-  triggerTypes: any[];
-  entityEvents: any[];
+  template: {
+    id: string;
+    name: string;
+    description?: string | null;
+    category?: string | null;
+    triggers?: RawTemplateTrigger[];
+    steps?: RawTemplateStep[];
+    workflow?: { steps?: RawTemplateStep[] };
+  };
   emailAccounts?: Array<{ id: string; email: string; displayName?: string }>;
   workspaceMembers?: Array<{ id: string; name: string; email: string; avatar?: string }>;
 }
@@ -77,9 +95,6 @@ const SIDEBAR_ACTION_META: Array<{ id: string; icon: React.ElementType; category
 
 export function TemplateEditorClient({
   template: initialTemplate,
-  actionTypes,
-  triggerTypes,
-  entityEvents,
   emailAccounts = [],
   workspaceMembers = [],
 }: TemplateEditorClientProps) {
@@ -108,18 +123,34 @@ export function TemplateEditorClient({
     { label: initialTemplate.name },
   ]);
 
-  const router = useRouter();
-
-  // Convert template to workflow-like structure for editing
-  const [template, setTemplate] = useState({
-    ...initialTemplate,
-    triggers: initialTemplate.triggers || [],
-    steps: initialTemplate.steps || initialTemplate.workflow?.steps || [],
+  // Convert template to workflow-like structure for editing, filling in the
+  // fields WorkflowCanvas's stricter contract requires but templates don't
+  // always persist (id, isEnabled, inputs).
+  const [template, setTemplate] = useState(() => {
+    const rawTriggers = initialTemplate.triggers ?? [];
+    const rawSteps = initialTemplate.steps ?? initialTemplate.workflow?.steps ?? [];
+    return {
+      ...initialTemplate,
+      triggers: rawTriggers.map((trig): TriggerConfig => ({
+        ...trig,
+        id: typeof trig.id === 'string' ? trig.id : 'trigger',
+        type: trig.type as TriggerConfig['type'],
+        name: typeof trig.name === 'string' ? trig.name : trig.type,
+        isEnabled: typeof trig.isEnabled === 'boolean' ? trig.isEnabled : true,
+        config: (trig.config as Record<string, unknown> | undefined) ?? {},
+      })),
+      steps: rawSteps.map((step, index): WorkflowStep => ({
+        ...step,
+        id: step.id ?? `step-${index}`,
+        config: step.config ?? {},
+        inputs: {},
+      })),
+    };
   });
 
   const updateTemplateMutation = useUpdateTemplate();
   const isSaving = updateTemplateMutation.isPending;
-  const [editingStep, setEditingStep] = useState<any | null>(null);
+  const [editingStep, setEditingStep] = useState<WorkflowStep | null>(null);
   const [selectedStepIndex, setSelectedStepIndex] = useState<number | null>(null);
   const [showAddActionPanel, setShowAddActionPanel] = useState(false);
   const [addStepSourceNodeId, setAddStepSourceNodeId] = useState<string | null>(null);
@@ -130,8 +161,8 @@ export function TemplateEditorClient({
       id: template.id,
       data: {
         name: template.name,
-        description: template.description,
-        category: template.category,
+        description: template.description ?? undefined,
+        category: template.category ?? undefined,
         triggers: template.triggers,
         steps: template.steps,
       },
@@ -146,14 +177,14 @@ export function TemplateEditorClient({
   };
 
   // Handle step selection from flow editor
-  const handleStepSelect = useCallback((step: any, index: number) => {
+  const handleStepSelect = useCallback((step: WorkflowStep, index: number) => {
     setEditingStep(step);
     setSelectedStepIndex(index);
     setShowAddActionPanel(false);
   }, []);
 
   // Handle step config update
-  const handleStepConfigChange = useCallback((config: Record<string, any>) => {
+  const handleStepConfigChange = useCallback((config: Record<string, unknown>) => {
     if (selectedStepIndex === null || !editingStep) return;
 
     const updatedSteps = [...template.steps];
@@ -184,7 +215,7 @@ export function TemplateEditorClient({
   const handleDeleteStep = useCallback(() => {
     if (selectedStepIndex === null) return;
 
-    const updatedSteps = template.steps.filter((_: any, i: number) => i !== selectedStepIndex);
+    const updatedSteps = template.steps.filter((_: WorkflowStep, i: number) => i !== selectedStepIndex);
     setTemplate({ ...template, steps: updatedSteps });
     setEditingStep(null);
     setSelectedStepIndex(null);
@@ -192,18 +223,19 @@ export function TemplateEditorClient({
 
   // Handle adding a new step
   const handleAddStep = useCallback((actionType: string) => {
-    const newStep = {
+    const newStep: WorkflowStep = {
       id: `step_${Date.now()}`,
       name: sidebarActionTypes.find(a => a.id === actionType)?.name || actionType,
       type: actionType,
       config: {},
+      inputs: {},
     };
 
     let insertIndex = template.steps.length;
 
     // If adding from a specific node, insert after that node
     if (addStepSourceNodeId) {
-      const sourceIndex = template.steps.findIndex((s: any) => s.id === addStepSourceNodeId);
+      const sourceIndex = template.steps.findIndex((s: WorkflowStep) => s.id === addStepSourceNodeId);
       if (sourceIndex !== -1) {
         insertIndex = sourceIndex + 1;
       }
@@ -219,10 +251,10 @@ export function TemplateEditorClient({
     // Select the new step
     setEditingStep(newStep);
     setSelectedStepIndex(insertIndex);
-  }, [template, addStepSourceNodeId]);
+  }, [template, addStepSourceNodeId, sidebarActionTypes]);
 
   // Handle steps reorder from flow editor
-  const handleStepsChange = useCallback((newSteps: any[]) => {
+  const handleStepsChange = useCallback((newSteps: WorkflowStep[]) => {
     setTemplate({ ...template, steps: newSteps });
   }, [template]);
 
@@ -233,15 +265,6 @@ export function TemplateEditorClient({
     setEditingStep(null);
     setSelectedStepIndex(null);
   }, []);
-
-  // Get previous steps for variable picker
-  const previousSteps = selectedStepIndex !== null
-    ? template.steps.slice(0, selectedStepIndex).map((s: any) => ({
-        id: s.id,
-        name: s.name,
-        type: s.type,
-      }))
-    : [];
 
   return (
     <div className="flex flex-col h-screen bg-background">
@@ -368,10 +391,10 @@ export function TemplateEditorClient({
                     actionType={editingStep.type}
                     config={editingStep.config || {}}
                     onChange={handleStepConfigChange}
-                    entityEvents={entityEvents}
                     emailAccounts={emailAccounts}
                     workspaceMembers={workspaceMembers}
-                    steps={previousSteps}
+                    workflowSteps={template.steps}
+                    currentStepIndex={selectedStepIndex ?? 0}
                   />
                 </div>
               </ScrollArea>

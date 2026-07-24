@@ -4,7 +4,6 @@ import {
   getUniqueVariableNames,
   hasVariables,
   validateVariableName,
-  validateModifier,
   createVariable,
   replaceVariables,
   getMissingVariables,

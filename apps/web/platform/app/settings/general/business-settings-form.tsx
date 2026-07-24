@@ -15,7 +15,6 @@ import {
 } from '@weldsuite/ui/components/dialog';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
-import { Label } from '@weldsuite/ui/components/label';
 import { Separator } from '@weldsuite/ui/components/separator';
 import {
   Form,
@@ -25,13 +24,6 @@ import {
   FormLabel,
   FormMessage,
 } from '@weldsuite/ui/components/form';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
 import {
   Popover,
   PopoverContent,
@@ -223,6 +215,25 @@ function LogoUpload({ currentLogoUrl, companyName, onLogoUploaded, onLogoRemoved
   );
 }
 
+interface WorkspaceBusinessSettingsData {
+  timezone?: string;
+  legalName?: string;
+  tradingName?: string;
+  contactFirstName?: string;
+  contactLastName?: string;
+  email?: string;
+  phone?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+  vatNumber?: string;
+  registrationNumber?: string;
+  logoUrl?: string | null;
+}
+
 export function BusinessSettingsForm() {
   const { t } = useI18n();
   const st = useTranslations();
@@ -258,7 +269,7 @@ export function BusinessSettingsForm() {
 
   useEffect(() => {
     if (settingsData?.data) {
-      const ws = settingsData.data as any;
+      const ws = settingsData.data as WorkspaceBusinessSettingsData;
       form.reset({
         timezone: ws.timezone || 'Europe/Amsterdam',
         legalName: ws.legalName || '',
@@ -708,7 +719,7 @@ export function BusinessSettingsForm() {
                         <PopoverContent
                           className="w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)] p-0"
                           align="start"
-                          onOpenAutoFocus={(e) => {
+                          onOpenAutoFocus={() => {
                             requestAnimationFrame(() => {
                               const list = document.querySelector<HTMLDivElement>(
                                 '[data-business-country-list]'

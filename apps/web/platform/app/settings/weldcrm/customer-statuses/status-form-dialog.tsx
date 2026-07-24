@@ -19,10 +19,7 @@ import {
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
 import { cn } from '@/lib/utils';
-import {
-  createCustomerStatusSchema,
-  updateCustomerStatusSchema,
-} from '@weldsuite/core-api-client/schemas/customer-statuses';
+import { createCustomerStatusSchema } from '@weldsuite/core-api-client/schemas/customer-statuses';
 import type { CustomerStatus } from '@weldsuite/core-api-client/schemas/customer-statuses';
 import { COLOR_OPTIONS, COLOR_SWATCH_MAP } from '@/hooks/queries/use-weldcrm-customer-statuses';
 import { useI18n } from '@/lib/i18n/provider';
@@ -75,7 +72,6 @@ export function StatusFormDialog({
   }, [open, status, form]);
 
   const nameValue = form.watch('name');
-  const slugValue = form.watch('slug');
   const colorValue = form.watch('color');
 
   // Auto-derive slug from name only while the user hasn't manually changed it.

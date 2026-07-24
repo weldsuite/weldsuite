@@ -30,7 +30,6 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import {
-  Eye,
   ImageIcon,
   X,
   Type,
@@ -58,7 +57,6 @@ import {
   FileText,
   Plus,
   ChevronLeft,
-  Save,
   Globe,
   Tag,
   FolderOpen,
@@ -776,7 +774,7 @@ export default function NewHelpArticlePage() {
       span.style.fontSize = size + 'px';
       try {
         range.surroundContents(span);
-      } catch (e) {
+      } catch {
         // If surroundContents fails, just apply the command
       }
     }
@@ -799,10 +797,11 @@ export default function NewHelpArticlePage() {
 
     const range = selection.getRangeAt(0);
 
-    let parentElement = range.commonAncestorContainer;
-    if (parentElement.nodeType === Node.TEXT_NODE) {
-      parentElement = parentElement.parentElement!;
+    let parentNode: Node = range.commonAncestorContainer;
+    if (parentNode.nodeType === Node.TEXT_NODE) {
+      parentNode = parentNode.parentElement!;
     }
+    const parentElement = parentNode as Element;
 
     const textNode = range.startContainer;
     if (textNode.nodeType === Node.TEXT_NODE && textNode.textContent) {
@@ -1860,7 +1859,7 @@ export default function NewHelpArticlePage() {
       )}
 
       {/* Custom Styles for contenteditable */}
-      <style jsx global>{`
+      <style>{`
         [contenteditable]:focus {
           outline: none;
         }

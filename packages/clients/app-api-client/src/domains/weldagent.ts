@@ -102,7 +102,7 @@ export function createWeldAgentApi(api: ClientApi) {
     // --- Mentions ---
     searchMentions(params: MentionSearchQuery): Promise<DataResponse<MentionSearchResult[]>> {
       return api.get<DataResponse<MentionSearchResult[]>>(
-        `/weldagent/mentions/search${buildQueryString(params as Record<string, unknown>)}`,
+        `/weldagent/mentions/search${buildQueryString({ ...params })}`,
       );
     },
   };

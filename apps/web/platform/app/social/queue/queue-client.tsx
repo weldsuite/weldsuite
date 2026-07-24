@@ -14,12 +14,17 @@ import {
   useRescheduleSocialPost,
 } from '@/hooks/queries/use-social-queries';
 import { ComposerDialog } from '@/app/social/components/composer-dialog';
+import type { SocialPost } from '@weldsuite/app-api-client/domains/social';
+
+// The composer dialog also reads `accountIds`, not yet reflected in the
+// shared SocialPost type.
+type QueuePost = SocialPost & { accountIds?: string[] };
 
 export function QueueClient() {
   const { t } = useI18n();
   const st = useTranslations();
   const [composeOpen, setComposeOpen] = useState(false);
-  const [editPost, setEditPost] = useState<any>(null);
+  const [editPost, setEditPost] = useState<QueuePost | null>(null);
   const [reschedulePostId, setReschedulePostId] = useState<string | null>(null);
   const [rescheduleValue, setRescheduleValue] = useState('');
 
@@ -31,7 +36,7 @@ export function QueueClient() {
   const posts = data?.data || [];
 
   // Group by date
-  const grouped: Record<string, any[]> = {};
+  const grouped: Record<string, QueuePost[]> = {};
   for (const post of posts) {
     const dateKey = post.scheduledAt
       ? formatDate(new Date(post.scheduledAt), 'PPP')
@@ -74,7 +79,7 @@ export function QueueClient() {
           <div key={date}>
             <h2 className="text-sm font-semibold text-muted-foreground uppercase mb-3">{date}</h2>
             <div className="space-y-3">
-              {datePosts.map((post: any) => (
+              {datePosts.map((post: QueuePost) => (
                 <Card key={post.id}>
                   <CardContent className="p-4">
                     <div className="flex items-start gap-3">
@@ -85,9 +90,9 @@ export function QueueClient() {
                             {formatDate(new Date(post.scheduledAt), 'h:mm a')}
                           </p>
                         )}
-                        {post.accountIds?.length > 0 && (
+                        {(post.accountIds?.length ?? 0) > 0 && (
                           <div className="flex gap-1 mt-2">
-                            {post.accountIds.map((id: string) => (
+                            {post.accountIds?.map((id: string) => (
                               <Badge key={id} variant="outline" className="text-xs">{id}</Badge>
                             ))}
                           </div>

@@ -27,7 +27,6 @@ import {
 } from '@weldsuite/ui/components/collapsible';
 import {
   Plus,
-  Trash2,
   GripVertical,
   X,
   ChevronDown,

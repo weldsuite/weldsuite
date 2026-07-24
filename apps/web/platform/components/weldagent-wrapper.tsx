@@ -6,7 +6,7 @@ export interface EntityContext {
   id: string;
   title?: string;
   customSystemPrompt?: string;
-  data?: Record<string, any>;
+  data?: Record<string, unknown>;
   suggestedTools?: string[];
   /** Short chat-starter prompts shown as suggestion chips on the empty panel. */
   suggestedPrompts?: string[];
@@ -20,14 +20,6 @@ interface WeldAgentContextType {
 }
 
 const WeldAgentContext = createContext<WeldAgentContextType | null>(null);
-
-function useWeldAgent() {
-  const context = useContext(WeldAgentContext);
-  if (!context) {
-    throw new Error('useWeldAgent must be used within WeldAgentProvider');
-  }
-  return context;
-}
 
 // Safe version that returns null instead of throwing when provider is missing
 export function useWeldAgentSafe() {

@@ -7,6 +7,16 @@ import { useHelpdeskAgent, useAgentTickets } from '@/hooks/queries/use-helpdesk-
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 
+interface RawAgentTicket {
+  id: string;
+  ticketNumber?: string;
+  subject: string;
+  customerName?: string;
+  priority: string;
+  status: string;
+  createdAt: string;
+}
+
 export default function MemberDetailPage() {
   const { t } = useI18n();
   const mdp = t.helpdesk.memberDetailPage;
@@ -43,10 +53,10 @@ export default function MemberDetailPage() {
   };
 
   // Map tickets to expected format
-  const recentTickets = tickets.map((ticket: any) => ({
+  const recentTickets = tickets.map((ticket: RawAgentTicket) => ({
     id: ticket.ticketNumber || ticket.id,
     subject: ticket.subject,
-    customer: ticket.customerName,
+    customer: ticket.customerName || '',
     priority: ticket.priority,
     status: ticket.status,
     createdAt: new Date(ticket.createdAt),
@@ -80,7 +90,7 @@ export default function MemberDetailPage() {
     { icon: MessageSquare, label: mdp.activeTicketsStat, count: memberData.activeTickets, color: 'text-orange-600' },
     { icon: CheckCircle, label: mdp.resolvedTodayStat, count: memberData.resolvedToday, color: 'text-green-600' },
     { icon: Clock, label: mdp.avgResponseStat, value: memberData.avgResponseTime, color: 'text-blue-600' },
-    { icon: Star, label: mdp.satisfactionRatingMetric, count: memberData.performanceMetrics.avgSatisfactionRating, color: 'text-yellow-600', isDecimal: true },
+    { icon: Star, label: mdp.satisfactionRatingMetric, value: String(memberData.performanceMetrics.avgSatisfactionRating), color: 'text-yellow-600' },
   ];
 
   return (

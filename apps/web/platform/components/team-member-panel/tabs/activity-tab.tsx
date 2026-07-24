@@ -194,15 +194,6 @@ function getEntityStyle(entityType?: string) {
   return { icon: Tag, tone: 'slate', labelKey: null as string | null, fallbackLabel: humanEntity(entityType), classes: ENTITY_TONE.slate };
 }
 
-const PERSON_ENTITIES = new Set(['contact', 'person', 'customer', 'user', 'member']);
-
-function initialsOf(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
-}
-
 function EntityChip({ name, entityType }: { name: string; entityType?: string }) {
   const t = useTranslations();
   const style = getEntityStyle(entityType);
@@ -355,7 +346,10 @@ function smartTime(date: Date, t: Translator, now: Date = new Date()): string {
 export function ActivityTab({ userId, canView }: ActivityTabProps) {
   const t = useTranslations();
   const query = useMemberActivity(userId, { limit: 50 }, { enabled: canView });
-  const items = (query.data?.data ?? []) as MemberActivityItem[];
+  const items = React.useMemo(
+    () => (query.data?.data ?? []) as MemberActivityItem[],
+    [query.data],
+  );
 
   const grouped = React.useMemo<DayBucket[]>(() => {
     const map = new Map<string, DayBucket>();

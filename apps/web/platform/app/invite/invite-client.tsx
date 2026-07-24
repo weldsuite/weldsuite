@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from '@/lib/router';
 import { useSignIn, useSignUp, useOrganizationList, useAuth, useClerk } from '@clerk/clerk-react';
+import { isClerkAPIResponseError } from '@clerk/clerk-react/errors';
 import { Loader2, CheckCircle, XCircle, Lock, Mail, User, Clock, UserCheck } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { PageLoader } from '@/components/page-loader';
@@ -116,11 +117,11 @@ export function InviteClient({
             router.push(`/auth/login?__clerk_ticket=${encodeURIComponent(clerkTicket)}`);
           }
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Clerk ticket error:', err);
 
-        const errorCode = err?.errors?.[0]?.code;
-        const errorMessage = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || '';
+        const errorCode = isClerkAPIResponseError(err) ? err.errors[0]?.code : undefined;
+        const errorMessage = isClerkAPIResponseError(err) ? (err.errors[0]?.longMessage || err.errors[0]?.message || '') : '';
 
         // Check if invitation is expired
         if (errorCode === 'ticket_expired' ||
@@ -153,7 +154,24 @@ export function InviteClient({
     };
 
     handleClerkTicket();
-  }, [clerkTicket, clerkStatus, signIn, signUp, signInLoaded, signUpLoaded, setSignInActive, setSignUpActive, router, ticketStatus, isSignedIn]);
+  }, [
+    clerkTicket,
+    clerkStatus,
+    signIn,
+    signUp,
+    signInLoaded,
+    signUpLoaded,
+    setSignInActive,
+    setSignUpActive,
+    router,
+    ticketStatus,
+    isSignedIn,
+    t.invite.errors.additionalVerificationRequired,
+    t.invite.errors.failedToProcessInvitation,
+    t.invite.errors.signInWithPassword,
+    t.invite.errors.twoFactorRequired,
+    t.invite.errors.unableToProcess,
+  ]);
 
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -197,9 +215,11 @@ export function InviteClient({
         }
         setIsLoading(false);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Password submit error:', err);
-      const errorMessage = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || t.invite.errors.failedToCreateAccount;
+      const errorMessage = isClerkAPIResponseError(err)
+        ? err.errors[0]?.longMessage || err.errors[0]?.message || t.invite.errors.failedToCreateAccount
+        : t.invite.errors.failedToCreateAccount;
       setError(errorMessage);
       setIsLoading(false);
     }
@@ -389,9 +409,9 @@ export function InviteClient({
             window.location.href = '/';
           }, 1500);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Accept invitation error:', err);
-        setError(err?.errors?.[0]?.message || t.invite.errors.failedToAcceptInvitation);
+        setError(isClerkAPIResponseError(err) ? err.errors[0]?.message || t.invite.errors.failedToAcceptInvitation : t.invite.errors.failedToAcceptInvitation);
         setIsLoading(false);
       }
     };

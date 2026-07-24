@@ -6,17 +6,13 @@ import {
   startOfWeek,
   addDays,
   isToday,
-  setHours,
-  setMinutes,
 } from 'date-fns';
-import { ArrowLeft, Clock, ChevronLeft, ChevronRight, Plus, Trash2, Ban, Copy, X, Timer, CalendarClock, Settings2, Calendar as LucideCalendar, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2, Copy, X, CalendarClock, Settings2, Calendar as LucideCalendar, Search } from 'lucide-react';
 import { FilterPills } from '@/components/entity-list';
 import type { ActiveFilter, FilterConfig } from '@/components/entity-list';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
-import { Checkbox } from '@weldsuite/ui/components/checkbox';
-import { Switch } from '@weldsuite/ui/components/switch';
 import { Separator } from '@weldsuite/ui/components/separator';
 import {
   Select,
@@ -46,7 +42,7 @@ import {
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
 import { cn } from '@/lib/utils';
-import { useCreateBookingPage, useUpdateBookingPage, useUserCalendars } from '@/hooks/queries/use-calendar-queries';
+import { useCreateBookingPage, useUserCalendars } from '@/hooks/queries/use-calendar-queries';
 import type { WeeklyAvailability, TimeRange } from '@/hooks/queries/use-calendar-queries';
 import { DEFAULT_AVAILABILITY, DURATION_OPTIONS } from '../../types';
 import {
@@ -57,7 +53,6 @@ import {
   TimeGridScroll,
   TimeGridInner,
 } from '@/app/weldcalendar/components/calendar-shared';
-import { toast } from 'sonner';
 import { useSetAtom } from 'jotai';
 import { draftBookingPageTitleAtom } from '../../lib/draft-booking-page';
 
@@ -77,8 +72,6 @@ const DAY_NAMES: (keyof WeeklyAvailability)[] = [
   'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
 ];
 
-
-const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
 export default function NewBookingPage() {
   return <BookingPageEditor mode="create" />;
@@ -103,7 +96,6 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
   };
   const navigate = useNavigate();
   const createBookingPage = useCreateBookingPage();
-  const updateBookingPage = useUpdateBookingPage();
   const { data: calendarsData } = useUserCalendars();
   const calendars = calendarsData?.data || [];
   const [selectedCalendarId, setSelectedCalendarId] = useState<string>('');
@@ -245,7 +237,12 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
   // navigate to. Does NOT navigate — callers decide.
   const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-  const persistBookingPage = async (): Promise<{ to: any; params?: any }> => {
+  type BookingPageDestination =
+    | { to: '/weldcalendar/scheduling/$id'; params: { id: string } }
+    | { to: '/weldcalendar/scheduling/$id/view'; params: { id: string } }
+    | { to: '/weldcalendar' };
+
+  const persistBookingPage = async (): Promise<BookingPageDestination> => {
     const name = title.trim() || 'New Booking Page';
     const slug = slugify(name) || 'booking';
 
@@ -264,16 +261,10 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
       bufferAfter,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
-    const newId = result?.data?.data?.id || result?.data?.id;
+    const newId = result?.data?.id;
     return newId
       ? { to: '/weldcalendar/scheduling/$id/view', params: { id: newId } }
       : { to: '/weldcalendar' };
-  };
-
-  const handleSave = async () => {
-    const destination = await persistBookingPage();
-    savedRef.current = true;
-    navigate(destination);
   };
 
   // In edit mode, behaves like the old "Next" — persist to sessionStorage and
@@ -520,8 +511,8 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
           {/* Horizontal icon+text tabs (same PageTabs primitive the task detail
               panel uses) — rendered identically in create AND edit mode so the
               page never visually shifts between flows. In create mode the
-              "Details" tab triggers handleSave first (since the Details page
-              needs a saved booking page id to exist). */}
+              "Details" tab triggers handleContinue first (since the Details
+              page needs a saved booking page id to exist). */}
           <PageTabs
             tabs={[
               { id: 'schedule', label: t.bookingEditor.tabSchedule, icon: CalendarClock },
@@ -716,7 +707,7 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
                               className="w-[70px]"
                               autoFocus
                             />
-                            <Select value={customRepeatUnit} onValueChange={(v) => setCustomRepeatUnit(v as any)}>
+                            <Select value={customRepeatUnit} onValueChange={(v) => setCustomRepeatUnit(v as 'weeks' | 'months')}>
                               <SelectTrigger className="w-[110px]">
                                 <SelectValue />
                               </SelectTrigger>
@@ -743,7 +734,7 @@ export function BookingPageEditor({ mode = 'create', bookingPageId, initialData 
                         <div className="space-y-2">
                           <Label>{t.bookingEditor.ends}</Label>
                           <div className="flex items-center gap-2">
-                            <Select value={customRepeatEndType} onValueChange={(v) => setCustomRepeatEndType(v as any)}>
+                            <Select value={customRepeatEndType} onValueChange={(v) => setCustomRepeatEndType(v as 'never' | 'date')}>
                               <SelectTrigger className="w-[120px]">
                                 <SelectValue />
                               </SelectTrigger>

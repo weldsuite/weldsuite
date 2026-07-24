@@ -24,7 +24,6 @@ import {
   type ActiveFilter,
   type FilterConfig,
   type GroupConfig,
-  type RowHandlers,
 } from '@/components/entity-list';
 
 type BookmarkItem = {
@@ -46,14 +45,14 @@ export function BookmarksPanel({ embedded = false }: { embedded?: boolean } = {}
   const { data, isLoading } = useBookmarks();
   const { mutate: deleteBookmark, isPending: isDeleting } = useDeleteBookmark();
   const navigate = useNavigate();
-  const bookmarks: BookmarkItem[] = data?.data || [];
+  const bookmarks: BookmarkItem[] = useMemo(() => data?.data || [], [data]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
   const [groupBy, setGroupBy] = useState<'channel' | 'none'>('channel');
   const [removingId, setRemovingId] = useState<string | null>(null);
 
-  const jumpToMessage = (channelId: string, messageId: string) => {
+  const jumpToMessage = useCallback((channelId: string, messageId: string) => {
     navigate({ to: '/weldchat/$channelId', params: { channelId } });
     let attempts = 0;
     const tick = () => {
@@ -75,7 +74,7 @@ export function BookmarksPanel({ embedded = false }: { embedded?: boolean } = {}
       if (attempts++ < 40) setTimeout(tick, 100);
     };
     setTimeout(tick, 100);
-  };
+  }, [navigate]);
 
   const channelFilterConfigs: FilterConfig[] = useMemo(() => {
     const byChannel = new Map<string, string>();
@@ -93,7 +92,7 @@ export function BookmarksPanel({ embedded = false }: { embedded?: boolean } = {}
         })),
       },
     ];
-  }, [bookmarks]);
+  }, [bookmarks, t.weldchat.bookmarksGroupBy.channel]);
 
   const groupConfigs: GroupConfig<BookmarkItem>[] = useMemo(() => {
     if (groupBy === 'none') return [];
@@ -167,7 +166,7 @@ export function BookmarksPanel({ embedded = false }: { embedded?: boolean } = {}
     return items;
   }, [bookmarks, searchQuery, activeFilters]);
 
-  const renderRow = useCallback((bk: BookmarkItem, _handlers: RowHandlers<BookmarkItem>) => (
+  const renderRow = useCallback((bk: BookmarkItem) => (
     <div
       key={bk.id}
       role="button"
@@ -228,7 +227,7 @@ export function BookmarksPanel({ embedded = false }: { embedded?: boolean } = {}
         </Button>
       </div>
     </div>
-  ), [navigate, t, st]);
+  ), [jumpToMessage, t, st]);
 
   return (
     <>

@@ -12,6 +12,8 @@ import {
   useSensors,
   pointerWithin,
   rectIntersection,
+  type CollisionDetection,
+  type Collision,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -41,7 +43,6 @@ import {
   UserCheck,
   UserX,
   Minus,
-  Check,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { toast } from 'sonner';
@@ -63,24 +64,10 @@ import {
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Badge } from '@weldsuite/ui/components/badge';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@weldsuite/ui/components/popover';
 import { cn } from '@/lib/utils';
 import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
-import { type TaskComment } from '@/components/task-detail';
 import { useObjectPanel } from '@/components/object-panel';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
-import { useAuth } from '@clerk/clerk-react';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import { FilterPills } from '@/components/entity-list';
 import type { FilterConfig, ActiveFilter } from '@/components/entity-list';
@@ -136,6 +123,14 @@ interface StageColumn {
   systemStatus: string;
 }
 
+// Raw stage shape as returned by the app-api project-pipeline-stages endpoint
+interface RawPipelineStage {
+  id: string;
+  name?: string;
+  color?: string;
+  systemStatus?: string;
+}
+
 interface ProjectMember {
   id: string;
   userId: string;
@@ -156,7 +151,31 @@ const stageColors = [
 
 // ---------- Helpers ----------
 
-function mapTaskToFeature(task: any, statusToStageId?: Map<string, string>): TaskFeature {
+// Raw task shape as returned by the app-api tasks endpoints
+interface RawPipelineTask {
+  id: string;
+  title?: string;
+  description?: string;
+  startDate?: string | null;
+  dueDate?: string | null;
+  duration?: number | null;
+  estimatedHours?: number | null;
+  stageId?: string | null;
+  status?: string;
+  priority?: string;
+  key?: string;
+  commentsCount?: number;
+  attachmentsCount?: number;
+  _count?: { comments?: number; attachments?: number };
+  tags?: (string | Tag)[];
+  labels?: string[];
+  assigneeId?: string;
+  assigneeName?: string;
+  assignee?: { id?: string; name?: string; avatar?: string; image?: string } | null;
+  assignees?: { id: string; name: string; avatar?: string; image?: string }[];
+}
+
+function mapTaskToFeature(task: RawPipelineTask, statusToStageId?: Map<string, string>): TaskFeature {
   const startDate = task.startDate ? new Date(task.startDate) : new Date();
   const endDate = task.dueDate ? new Date(task.dueDate) : new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
 
@@ -179,12 +198,12 @@ function mapTaskToFeature(task: any, statusToStageId?: Map<string, string>): Tas
     estimatedHours: task.estimatedHours ?? undefined,
     column: resolvedColumn,
     owner: task.assignee ? {
-      id: task.assignee.id || task.assigneeId,
+      id: task.assignee.id || task.assigneeId || '',
       name: task.assignee.name || task.assigneeName || 'Unknown',
       image: task.assignee.avatar || task.assignee.image,
     } : undefined,
     owners: Array.isArray(task.assignees) && task.assignees.length > 0
-      ? task.assignees.map((a: any) => ({ id: a.id, name: a.name, image: a.avatar || a.image }))
+      ? task.assignees.map((a) => ({ id: a.id, name: a.name, image: a.avatar || a.image }))
       : undefined,
     priority: task.priority,
     taskKey: task.key,
@@ -195,7 +214,9 @@ function mapTaskToFeature(task: any, statusToStageId?: Map<string, string>): Tas
       try {
         const parsed = JSON.parse(tag);
         if (parsed.name && parsed.color) return parsed as Tag;
-      } catch {}
+      } catch {
+        // Not valid JSON — fall through to the plain-string tag below.
+      }
       return { name: String(tag), color: '#94a3b8' };
     }),
     labels: task.labels || undefined,
@@ -203,7 +224,6 @@ function mapTaskToFeature(task: any, statusToStageId?: Map<string, string>): Tas
 }
 
 const shortDateFormatter = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
-const dateFormatter = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
 // ---------- DroppableStage ----------
 
@@ -601,27 +621,14 @@ const PipelinePage = () => {
   const { open: openTaskPanel } = useObjectPanel();
   useEffect(() => {
     if (selectedFeature) openTaskPanel({ type: 'task', id: selectedFeature.id });
+    // Deliberately keyed on the id, not the whole `selectedFeature` object — several
+    // handlers below replace it with a new object for the same id (optimistic
+    // updates), which would otherwise re-open the panel on every such update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFeature?.id, openTaskPanel]);
-  const [comments, setComments] = useState<TaskComment[]>([]);
-  const { userId } = useAuth();
-
-  // Fetch comments when a feature is selected
-  useEffect(() => {
-    if (!selectedFeature) {
-      setComments([]);
-      return;
-    }
-    async function loadComments() {
-      const result = await tasksApi.listComments(projectId, selectedFeature!.id);
-      if (result.success && result.data) {
-        setComments(Array.isArray(result.data) ? result.data : []);
-      }
-    }
-    loadComments();
-  }, [selectedFeature?.id, projectId]);
   // Drag state
   const [activeDealId, setActiveDealId] = useState<string | null>(null);
-  const [activeStageId, setActiveStageId] = useState<string | null>(null);
+  const [, setActiveStageId] = useState<string | null>(null);
   const [draggedFeatureOriginalColumn, setDraggedFeatureOriginalColumn] = useState<{ id: string; column: string } | null>(null);
 
   // Search
@@ -651,12 +658,14 @@ const PipelinePage = () => {
     useSensor(PointerSensor, { activationConstraint: { distance: 3 } })
   );
 
-  const customCollisionDetection = (args: any) => {
+  const isStageCollision = (c: Collision) => c.id?.toString().startsWith('stage-');
+
+  const customCollisionDetection: CollisionDetection = (args) => {
     const pointerCollisions = pointerWithin(args);
-    const stageCollisions = pointerCollisions.filter((c: any) => c.id?.toString().startsWith('stage-'));
+    const stageCollisions = pointerCollisions.filter(isStageCollision);
     if (stageCollisions.length > 0) return stageCollisions;
     const rectCollisions = rectIntersection(args);
-    const rectStageCollisions = rectCollisions.filter((c: any) => c.id?.toString().startsWith('stage-'));
+    const rectStageCollisions = rectCollisions.filter(isStageCollision);
     if (rectStageCollisions.length > 0) return rectStageCollisions;
     return rectCollisions;
   };
@@ -674,25 +683,31 @@ const PipelinePage = () => {
       ]);
       const statusToStageId = new Map<string, string>();
       if (stagesResult.success && stagesResult.data) {
-        for (const s of stagesResult.data as any[]) {
+        const stages = stagesResult.data as RawPipelineStage[];
+        for (const s of stages) {
           statusToStageId.set(s.id, s.id);
           if (s.systemStatus) statusToStageId.set(s.systemStatus, s.id);
         }
-        setColumns(stagesResult.data.map((s: any) => ({ id: s.id, name: s.name, color: s.color || '#94a3b8', systemStatus: s.systemStatus || s.id })));
+        setColumns(stages.map((s) => ({ id: s.id, name: s.name || '', color: s.color || '#94a3b8', systemStatus: s.systemStatus || s.id })));
       }
       if (tasksResult.success && tasksResult.data) {
-        setFeatures(tasksResult.data.map((t: any) => mapTaskToFeature(t, statusToStageId)));
+        const tasks = tasksResult.data as RawPipelineTask[];
+        setFeatures(tasks.map((task) => mapTaskToFeature(task, statusToStageId)));
       } else {
         setError(tasksResult.error || t.projects.pipeline.failedToLoadData);
       }
       if (membersResult.success && membersResult.data) {
         setProjectMembers(membersResult.data);
       }
-    } catch (err) {
+    } catch {
       setError(t.projects.pipeline.failedToLoadData);
     } finally {
       setIsLoading(false);
     }
+    // `t` intentionally excluded — loadData is a dependency of the mount effect
+    // below, and keying it on the translation object would re-fetch on every
+    // locale switch instead of just re-translating the (rare) error string.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -885,7 +900,8 @@ const PipelinePage = () => {
         duration: data.duration,
       });
       if (result.success && result.data) {
-        setFeatures(prev => [...prev, mapTaskToFeature(result.data, statusToStageId)]);
+        const newTask = result.data;
+        setFeatures(prev => [...prev, mapTaskToFeature(newTask, statusToStageId)]);
         setShowCreateDialog(false);
         toast.success(t.projects.pipeline.taskCreated);
       } else {
@@ -969,37 +985,6 @@ const PipelinePage = () => {
     persistStageOrder(next);
   };
 
-  // Detail panel
-  const handleToggleComplete = async (feature: TaskFeature) => {
-    const newColumn = feature.column === 'done' ? 'todo' : 'done';
-    setFeatures(features.map(f => f.id === feature.id ? { ...f, column: newColumn } : f));
-    setSelectedFeature(prev => prev?.id === feature.id ? { ...prev, column: newColumn } : prev);
-    const result = await tasksApi.update(projectId, feature.id, { status: newColumn });
-    if (!result.success) {
-      setFeatures(features.map(f => f.id === feature.id ? { ...f, column: feature.column } : f));
-      setSelectedFeature(prev => prev?.id === feature.id ? { ...prev, column: feature.column } : prev);
-      toast.error(t.projects.pipeline.taskStatusUpdateFailed);
-    }
-  };
-
-  const handleUpdateDescription = async (feature: TaskFeature, description: string) => {
-    setFeatures(features.map(f => f.id === feature.id ? { ...f, description } : f));
-    setSelectedFeature(prev => prev?.id === feature.id ? { ...prev, description } : prev);
-    const result = await tasksApi.update(projectId, feature.id, { description });
-    if (!result.success) toast.error(t.projects.pipeline.descriptionUpdateFailed);
-  };
-
-  const handleDeleteTask = async (featureId: string) => {
-    if (!confirm(t.projects.pipeline.confirmDeleteTask)) return;
-    const result = await tasksApi.delete(projectId, featureId);
-    if (result.success) {
-      setFeatures(features.filter(f => f.id !== featureId));
-      setSelectedFeature(null);
-      toast.success(t.projects.pipeline.taskDeleted);
-    } else {
-      toast.error(t.projects.pipeline.taskDeleteFailed);
-    }
-  };
 
   // Calculation display
   const getCalculationDisplay = (columnId: string) => {
@@ -1250,7 +1235,7 @@ const PipelinePage = () => {
         hideRecord
         onSave={handleTaskDialogSave}
         onUpdate={(taskId, data) => {
-          const updateData: Record<string, any> = {};
+          const updateData: Parameters<typeof tasksApi.update>[2] = {};
           if (data.title) updateData.title = data.title;
           if (data.description !== undefined) updateData.description = data.description;
           if (data.status) {

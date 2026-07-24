@@ -8,6 +8,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
+import type { RTKParticipant, RTKSelf } from '@cloudflare/realtimekit';
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -24,7 +25,7 @@ function formatDuration(seconds: number): string {
  * this sink the user would see the PiP but hear no one. Only mounted while the
  * PiP is the active surface, so it never double-plays alongside the tiles.
  */
-function RemotePiPAudio({ participant }: { participant: any }) {
+function RemotePiPAudio({ participant }: { participant: RTKParticipant | RTKSelf }) {
   const ref = useRef<HTMLAudioElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -63,10 +64,8 @@ function PiPCallWidgetInner() {
   const {
     status,
     channelId,
-    callType,
     duration,
     isMuted,
-    isVideoOff,
     isFullscreen,
     isPiP,
     meeting,
@@ -86,7 +85,7 @@ function PiPCallWidgetInner() {
   const channel = channelData?.data;
   const isDm = channel?.type === 'dm';
   const members = membersData?.data || [];
-  const otherMember = isDm ? members.find((m: any) => m.userId !== user?.id) : null;
+  const otherMember = isDm ? members.find((m) => m.userId !== user?.id) : null;
 
   const callLabel = isDm
     ? otherMember?.name || otherMember?.email || t.weldchat.pipCallWidget.call
@@ -173,7 +172,7 @@ function PiPCallWidgetInner() {
     } catch (err) {
       console.error('[PiP] Failed to enter PiP:', err);
     }
-  }, [videoTrack, callLabel]);
+  }, [videoTrack, callLabel, t.weldchat.pipCallWidget.call]);
 
   const exitNativePiP = useCallback(() => {
     if (document.pictureInPictureElement && pipActiveRef.current) {
@@ -283,7 +282,7 @@ function PiPCallWidgetInner() {
     {/* Remote audio — only while the PiP is the active surface (MeetingRoomView
         is unmounted then, so its tiles aren't also playing). Without this the
         minimized call is silent. */}
-    {shouldShow && remoteParticipants.map((p: any) => (
+    {shouldShow && remoteParticipants.map((p) => (
       <RemotePiPAudio key={p.id} participant={p} />
     ))}
     <div className={cn(

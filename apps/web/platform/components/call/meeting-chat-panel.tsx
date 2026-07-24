@@ -19,18 +19,24 @@ import {
   type ChatParticipant,
 } from '@weldsuite/weldmeet-ui';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import type {
+  GenerateUploadUrlResponse,
+  ConfirmUploadResponse,
+} from '@weldsuite/core-api-client/schemas/storage';
 import {
   useMeetingMessages,
   useSendMeetingMessage,
   usePinMeetingMessage,
   useUnpinMeetingMessage,
   usePinnedMeetingMessages,
-  meetingChatKeys,
   mergeMeetingMessageIntoCache,
   removeMeetingMessageFromCache,
 } from '@/hooks/queries/use-meeting-chat-queries';
 import { useMeetingChatRoom } from '@/hooks/weldmeet/use-meeting-chat-room';
-import { useWeldChatMessagesRealtime } from '@/hooks/weldchat/use-weldchat-messages-realtime';
+import {
+  useWeldChatMessagesRealtime,
+  type WeldChatRealtimeMessage,
+} from '@/hooks/weldchat/use-weldchat-messages-realtime';
 
 // ============================================================================
 // Props
@@ -62,18 +68,6 @@ export function MeetingChatPanel({ meetingId, isOpen, onClose, onOpen, notificat
       notificationHost={notificationHost}
       onClickAuthor={onClickAuthor}
       participants={participants}
-    />
-  );
-}
-
-/** Inline variant — embeds chat inside another panel, no outer border/width shell */
-function MeetingChatContent({ meetingId }: { meetingId: string }) {
-  return (
-    <MeetingChatDataProvider
-      meetingId={meetingId}
-      isOpen={true}
-      onClose={() => {}}
-      inlineMode
     />
   );
 }
@@ -120,8 +114,8 @@ function MeetingChatDataProvider({
     useMeetingMessages(meetingId);
 
   const onMessageCreated = useCallback(
-    (message: any) => {
-      mergeMeetingMessageIntoCache(queryClient, meetingId, message);
+    (message: WeldChatRealtimeMessage) => {
+      mergeMeetingMessageIntoCache(queryClient, meetingId, message as unknown as Record<string, unknown>);
     },
     [meetingId, queryClient],
   );
@@ -158,14 +152,13 @@ function MeetingChatDataProvider({
   // ── Derived data ──────────────────────────────────────────────────────────
   // API returns newest-first; reverse to chronological for the shared component.
   const messages = useMemo((): ChatMessage[] => {
-    const raw: any[] =
-      data?.pages?.flatMap((page: any) => page.data?.messages || []) || [];
+    const raw = data?.pages?.flatMap((page) => page.data?.messages || []) ?? [];
     return [...raw].reverse();
   }, [data]);
 
   const pinnedMessages = useMemo(() => {
-    const pins: any[] = pinnedData?.data?.messages ?? [];
-    return pins.map((p: any) => ({ id: p.id, content: p.content }));
+    const pins = (pinnedData?.data?.messages ?? []) as ChatMessage[];
+    return pins.map((p) => ({ id: p.id, content: p.content }));
   }, [pinnedData]);
 
   // ── Callbacks ─────────────────────────────────────────────────────────────
@@ -199,7 +192,7 @@ function MeetingChatDataProvider({
     async (file: File): Promise<ChatMessageAttachment | null> => {
       try {
         const client = await getClient();
-        const urlRes = await client.post<any>('/storage/generate-upload-url', {
+        const urlRes = await client.post<GenerateUploadUrlResponse>('/storage/generate-upload-url', {
           fileName: file.name,
           fileSize: file.size,
           contentType: file.type,
@@ -210,7 +203,7 @@ function MeetingChatDataProvider({
           body: file,
           headers: { 'Content-Type': file.type },
         });
-        const confirmRes = await client.post<any>('/storage/confirm-upload', {
+        const confirmRes = await client.post<ConfirmUploadResponse>('/storage/confirm-upload', {
           uploadToken,
           fileKey,
         });

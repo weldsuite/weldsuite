@@ -43,7 +43,7 @@ function formatTemplate(
 
 export function WorkspaceSlugCard() {
   const { t } = useI18n();
-  const ts = (t.settings.generalSettings as any).workspaceSlug as Record<string, string>;
+  const ts = t.settings.generalSettings.workspaceSlug;
   const { organization } = useOrganization();
   const { workspaceSettings } = useAppApi();
   const { data: member } = useCurrentMember();

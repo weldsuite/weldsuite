@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pin, X } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { usePinnedMessages, useUnpinMessage } from '@/hooks/queries/use-weldchat-queries';
+import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 
@@ -15,7 +16,7 @@ export function PinnedMessagesBar({ channelId }: PinnedMessagesBarProps) {
   const { mutate: unpinMessage } = useUnpinMessage();
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const pinnedMessages: any[] = data?.data ?? [];
+  const pinnedMessages: ChatMessage[] = data?.data ?? [];
   if (pinnedMessages.length === 0) return null;
 
   const safeIndex = activeIndex >= pinnedMessages.length ? 0 : activeIndex;

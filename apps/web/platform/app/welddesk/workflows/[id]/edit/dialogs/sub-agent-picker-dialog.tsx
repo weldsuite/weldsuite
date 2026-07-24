@@ -4,11 +4,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@weldsuite/ui/
 import { Button } from '@weldsuite/ui/components/button';
 import { Link } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
+import type { HelpdeskWorkflow } from '../types';
 
 interface SubAgentPickerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  workflow: any;
+  workflow: HelpdeskWorkflow;
   stepId: string | null;
   savedAgents: Array<{ id: string; name: string; description?: string }> | undefined;
   onSelectAgent: (agentId: string, agentName: string) => void;
@@ -25,9 +26,9 @@ export function SubAgentPickerDialog({
   const { t } = useI18n();
   const sapd = t.helpdesk.subAgentPickerDialog;
 
-  const step = stepId ? workflow.steps.find((s: any) => s.id === stepId) : null;
-  const currentSubIds: string[] = (step?.config as any)?.subAgentIds || [];
-  const headAgentId = (step?.config as any)?.agentDefinitionId;
+  const step = stepId ? workflow.steps.find((s) => s.id === stepId) : null;
+  const currentSubIds: string[] = (step?.config?.subAgentIds as string[] | undefined) || [];
+  const headAgentId = step?.config?.agentDefinitionId as string | undefined;
   const available = (savedAgents || []).filter(
     (a) => a.id !== headAgentId && !currentSubIds.includes(a.id)
   );

@@ -36,7 +36,7 @@ export default function EditBillPage() {
       { id, data: formData as unknown as Record<string, unknown> },
       {
         onSuccess: () => {
-          navigate({ to: `/weldbooks/bills/${id}` as any });
+          navigate({ to: '/weldbooks/bills/$id', params: { id } });
         },
       },
     );
@@ -45,7 +45,7 @@ export default function EditBillPage() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-4">
-        <Link to={`/weldbooks/bills/${id}` as any}>
+        <Link to="/weldbooks/bills/$id" params={{ id }}>
           <Button variant="ghost" size="icon">
             <ArrowLeft className="h-4 w-4" />
           </Button>

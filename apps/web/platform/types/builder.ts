@@ -137,10 +137,25 @@ interface AnimationSettings {
   custom?: string;
 }
 
+/**
+ * Builder element content is a free-form JSON value whose shape depends on
+ * `ElementType`: plain text (heading/paragraph), a structured object
+ * (button `{ text, url }`, image `{ src, alt }`, form field `{ label,
+ * placeholder, type }`, ...), a list of section entries (accordion/tabs), or
+ * `null` for content-less elements (rows/columns/dividers).
+ */
+export type ElementContent =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: ElementContent }
+  | ElementContent[];
+
 interface Element {
   id: string;
   type: ElementType;
-  content?: any;
+  content?: ElementContent;
   settings: ElementSettings;
   children?: Element[];
   parent?: string;
@@ -158,11 +173,11 @@ export interface ElementCategory {
 export interface ElementDefinition {
   type: ElementType;
   name: string;
-  icon: string | any;
+  icon: string;
   description: string;
   category: string;
   defaultSettings?: Partial<ElementSettings>;
-  defaultContent?: any;
+  defaultContent?: ElementContent;
   presets?: ElementPreset[];
   configurable?: ElementConfig[];
 }
@@ -173,7 +188,7 @@ interface ElementPreset {
   thumbnail?: string;
   preview?: string;
   settings: Partial<ElementSettings>;
-  content?: any;
+  content?: ElementContent;
   children?: Element[];
 }
 
@@ -186,32 +201,5 @@ interface ElementConfig {
   min?: number;
   max?: number;
   step?: number;
-  defaultValue?: any;
-}
-
-interface BuilderSection {
-  id: string;
-  name: string;
-  type: string;
-  elements: Element[];
-  settings: ElementSettings;
-  template?: string;
-  locked?: boolean;
-}
-
-interface BuilderTemplate {
-  id: string;
-  name: string;
-  category: string;
-  thumbnail?: string;
-  sections: BuilderSection[];
-}
-
-interface DragData {
-  type: 'section' | 'element';
-  sectionType?: string;
-  elementType?: ElementType;
-  preset?: ElementPreset;
-  sourceId?: string;
-  targetPosition?: number;
+  defaultValue?: string | number | boolean;
 }

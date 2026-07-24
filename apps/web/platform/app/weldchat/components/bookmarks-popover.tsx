@@ -13,7 +13,6 @@ import {
   type ActiveFilter,
   type FilterConfig,
   type GroupConfig,
-  type RowHandlers,
 } from '@/components/entity-list';
 
 type BookmarkItem = {
@@ -39,13 +38,13 @@ export function BookmarksPopover({ onClose }: { onClose?: () => void } = {}) {
   const { data, isLoading } = useBookmarks();
   const { mutate: deleteBookmark } = useDeleteBookmark();
   const navigate = useNavigate();
-  const bookmarks: BookmarkItem[] = data?.data || [];
+  const bookmarks: BookmarkItem[] = useMemo(() => data?.data || [], [data]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
   const [groupBy, setGroupBy] = useState<'channel' | 'none'>('channel');
 
-  const jumpToMessage = (channelId: string, messageId: string) => {
+  const jumpToMessage = useCallback((channelId: string, messageId: string) => {
     onClose?.();
     navigate({ to: '/weldchat/$channelId', params: { channelId } });
     let attempts = 0;
@@ -68,7 +67,7 @@ export function BookmarksPopover({ onClose }: { onClose?: () => void } = {}) {
       if (attempts++ < 40) setTimeout(tick, 100);
     };
     setTimeout(tick, 100);
-  };
+  }, [onClose, navigate]);
 
   const channelFilterConfigs: FilterConfig[] = useMemo(() => {
     const byChannel = new Map<string, string>();
@@ -160,7 +159,7 @@ export function BookmarksPopover({ onClose }: { onClose?: () => void } = {}) {
     return items;
   }, [bookmarks, searchQuery, activeFilters]);
 
-  const renderRow = useCallback((bk: BookmarkItem, _handlers: RowHandlers<BookmarkItem>) => (
+  const renderRow = useCallback((bk: BookmarkItem) => (
     <div
       key={bk.id}
       role="button"
@@ -221,7 +220,7 @@ export function BookmarksPopover({ onClose }: { onClose?: () => void } = {}) {
         </Button>
       </div>
     </div>
-  ), [deleteBookmark, navigate, onClose, t, st]);
+  ), [deleteBookmark, jumpToMessage, t, st]);
 
   return (
     <>

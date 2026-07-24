@@ -46,15 +46,28 @@ const NOISE_SUPPRESSION_ENABLED =
  * stays lit after the user leaves the meeting. Each getter can throw when the
  * corresponding media is disabled, so every read is guarded.
  */
+/**
+ * RealtimeKit's public `Self` type doesn't expose these fields/methods, but
+ * the SDK's runtime object does. Used for hardware track cleanup and
+ * screen-share quality tuning that has no first-class typed API.
+ */
+interface RealtimeKitSelfInternal {
+  videoTrack?: MediaStreamTrack;
+  audioTrack?: MediaStreamTrack;
+  rawVideoTrack?: MediaStreamTrack;
+  rawAudioTrack?: MediaStreamTrack;
+  screenShareTracks?: { video?: MediaStreamTrack; audio?: MediaStreamTrack };
+  screenShareEnabled?: boolean;
+  updateScreenshareConstraints?: (constraints: {
+    width?: { ideal: number };
+    height?: { ideal: number };
+    frameRate?: { ideal: number };
+  }) => Promise<void>;
+}
+
 function stopLocalMediaTracks(meeting: RealtimeKitClient | null) {
   if (!meeting) return;
-  const self = meeting.self as unknown as {
-    videoTrack?: MediaStreamTrack;
-    audioTrack?: MediaStreamTrack;
-    rawVideoTrack?: MediaStreamTrack;
-    rawAudioTrack?: MediaStreamTrack;
-    screenShareTracks?: { video?: MediaStreamTrack; audio?: MediaStreamTrack };
-  };
+  const self = meeting.self as unknown as RealtimeKitSelfInternal;
   const stop = (read: () => MediaStreamTrack | undefined) => {
     try {
       read()?.stop();
@@ -404,7 +417,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
   // unconditional means flipping the host toggle has zero latency.
   useEffect(() => {
     if (!meeting) return;
-    const ai = (meeting as any).ai;
+    const ai = meeting.ai;
     if (!ai?.on) return;
     const onTranscript = (t: {
       id?: string;
@@ -595,6 +608,9 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
       const suppressor = createRnnoiseSuppressor({
         workerUrl: rnnoiseWorkerUrl,
         workletUrl: '/df3-worklet-processor.js',
+        // `import.meta.env.PROD` is Vite's build-time boolean, not a turbo-tracked
+        // process.env var — eslint-plugin-turbo doesn't distinguish the two.
+        // eslint-disable-next-line turbo/no-undeclared-env-vars
         logRtf: !import.meta.env.PROD,
       });
       suppressorRef.current = suppressor;
@@ -676,12 +692,12 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
 
       // Legacy path: late joiners + page reloads land here.
       let sId: string;
-      let activeRes;
+      let activeRes: { data: { id: string; status: string } | null } | undefined;
       try {
-        activeRes = await client.get(`/meeting-sessions/active?meetingId=${encodeURIComponent(mId)}`);
+        activeRes = await client.get<{ data: { id: string; status: string } | null }>(`/meeting-sessions/active?meetingId=${encodeURIComponent(mId)}`);
       } catch { /* no active session */ }
 
-      const activeSession = (activeRes as any)?.data;
+      const activeSession = activeRes?.data;
       if (activeSession && activeSession.status !== 'ended') {
         sId = activeSession.id;
       } else {
@@ -703,7 +719,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
       console.error('[WeldMeet] Failed to connect to meeting:', err);
       setStatus('idle');
     }
-  }, [getClient, initMeeting]);
+  }, [getClient, initMeeting, queryClient]);
 
   const joinMeeting = useCallback(async (
     mId: string,
@@ -858,7 +874,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     // Now the device list will include real entries with labels.
     try {
       const all = await meeting.self.getAllDevices();
-      const videos = (all ?? []).filter((d: any) => d.kind === 'videoinput') as MediaDeviceInfo[];
+      const videos = (all ?? []).filter((d) => d.kind === 'videoinput');
       console.log('[WeldMeet] toggleVideo: available video inputs=', videos.map((v) => v.label || v.deviceId));
 
       const current = meeting.self.getCurrentDevices?.();
@@ -893,13 +909,15 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
       // so the active track is reconfigured in place.
       await meeting.self.enableScreenShare();
 
+      const self = meeting.self as unknown as RealtimeKitSelfInternal;
+
       // RTK's enableScreenShare() SWALLOWS the getDisplayMedia rejection when the
       // user cancels the browser's screen picker (empty internal catch), so the
       // promise resolves normally but with NO active screen-share track — and the
       // NotAllowedError/AbortError catch below never fires. Detect the no-track
       // case and bail, otherwise the toolbar button sticks in the "Stop sharing"
       // state and the screen-share chime plays for a share that never started.
-      if (!(meeting.self as any).screenShareEnabled) {
+      if (!self.screenShareEnabled) {
         setIsScreenSharing(false);
         return;
       }
@@ -909,8 +927,8 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
         : undefined;
       const pickIdeal = (v: unknown): number | undefined => {
         if (typeof v === 'number') return v;
-        if (v && typeof v === 'object' && 'ideal' in (v as any) && typeof (v as any).ideal === 'number') {
-          return (v as any).ideal as number;
+        if (v && typeof v === 'object' && 'ideal' in v && typeof (v as { ideal: unknown }).ideal === 'number') {
+          return (v as { ideal: number }).ideal;
         }
         return undefined;
       };
@@ -920,7 +938,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
 
       if (width && height) {
         try {
-          await (meeting.self as any).updateScreenshareConstraints({
+          await self.updateScreenshareConstraints?.({
             width: { ideal: width },
             height: { ideal: height },
             ...(frameRate ? { frameRate: { ideal: frameRate } } : {}),
@@ -937,9 +955,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
       // smooth movement at the cost of sharpness, which produces a mushy
       // image on typical screen share content (docs, code, dashboards).
       try {
-        const track = (meeting.self as any).screenShareTracks?.video as
-          | MediaStreamTrack
-          | undefined;
+        const track = self.screenShareTracks?.video;
         if (track && 'contentHint' in track) {
           track.contentHint = 'detail';
         }
@@ -959,9 +975,9 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
 
       setIsScreenSharing(true);
       playScreenShareSound();
-    } catch (err: any) {
+    } catch (err) {
       // NotAllowedError / AbortError = user cancelled the picker — not an error.
-      const name = err?.name as string | undefined;
+      const name = err instanceof Error ? err.name : undefined;
       if (name !== 'NotAllowedError' && name !== 'AbortError') {
         console.error('[WeldMeet] startScreenShare failed:', err);
       }

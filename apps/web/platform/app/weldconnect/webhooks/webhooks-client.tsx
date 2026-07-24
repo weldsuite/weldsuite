@@ -35,8 +35,24 @@ import { toast } from 'sonner';
 import { useCreateWebhook, useDeleteWebhook, useRotateWebhookSecret } from '@/hooks/queries/use-automation-queries';
 import { Link } from '@/lib/router';
 
+// The workflow-webhooks endpoint returns a loosely-typed record (no shared
+// schema yet); this describes the fields the list view actually reads.
+export interface WebhookView {
+  id: string;
+  name: string;
+  isEnabled: boolean;
+  workflowName?: string;
+  createdAt: string;
+  url: string;
+  secret: string;
+  totalCalls?: number;
+  successfulCalls?: number;
+  failedCalls?: number;
+  lastCalledAt?: string | null;
+}
+
 interface WebhooksClientProps {
-  webhooks: any[];
+  webhooks: WebhookView[];
 }
 
 export function WebhooksClient({ webhooks: initialWebhooks }: WebhooksClientProps) {

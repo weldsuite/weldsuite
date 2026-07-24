@@ -11,9 +11,7 @@ import {
   Check,
   User,
   History,
-  SquareCheckBig,
   Mail,
-  File,
   ChevronLeft,
   ChevronDown,
   ChevronRight,
@@ -22,7 +20,6 @@ import {
   UserPlus,
   Link2,
   Bug,
-  ShieldAlert,
   Users,
   Plus,
   Tag,
@@ -39,7 +36,6 @@ import { cn } from '@/lib/utils';
 import { format, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
-import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import type {
   TicketMessage,
@@ -1267,11 +1263,11 @@ export default function TicketDetailClient({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [notes, setNotes] = useState<InternalNote[]>([]);
   const [weldAgentPrompt, setWeldAgentPrompt] = useState('');
-  const [isPending, startTransition] = useTransition();
+  const [isPending] = useTransition();
   const [showCreateTicket, setShowCreateTicket] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isEditingSubject, setIsEditingSubject] = useState(false);
-  const [editedSubject, setEditedSubject] = useState(ticket.subject || '');
+  const [, setEditedSubject] = useState(ticket.subject || '');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const subjectInputRef = useRef<HTMLInputElement>(null);
 

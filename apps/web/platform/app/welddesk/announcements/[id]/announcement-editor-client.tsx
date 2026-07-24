@@ -1,9 +1,7 @@
 
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
-import { useRouter } from '@/lib/router';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { format } from 'date-fns';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
@@ -22,26 +20,10 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@weldsuite/ui/components/dropdown-menu';
-import {
-  ArrowLeft,
-  EllipsisVertical,
   Eye,
-  Trash2,
-  Copy,
   Calendar as CalendarIcon,
-  User,
-  Tag as TagIcon,
   Image as ImageIcon,
-  Star,
-  StarOff,
   X,
-  Plus,
   Type,
   Heading1,
   Heading2,
@@ -69,11 +51,13 @@ interface AnnouncementEditorClientProps {
   announcementId: string;
 }
 
+// announcementId is not yet used: the editor currently seeds itself with mock
+// data instead of fetching the announcement by id.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function AnnouncementEditorClient({ announcementId }: AnnouncementEditorClientProps) {
   const { t } = useI18n();
   const st = useTranslations();
   const ta = t.helpdesk.announcements;
-  const router = useRouter();
   const titleRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -85,18 +69,12 @@ export function AnnouncementEditorClient({ announcementId }: AnnouncementEditorC
 
   // Mock data - in real app, fetch from API based on announcementId
   const [title, setTitle] = useState('System Maintenance Scheduled for Next Week');
-  const [excerpt, setExcerpt] = useState('We will be performing scheduled system maintenance next week to improve performance and add new features.');
   const [content, setContent] = useState('<p dir="ltr">Full announcement content here...</p><p dir="ltr"><br></p><p dir="ltr">This is where you can write your announcement content. The editor provides a clean, distraction-free writing experience similar to Notion.</p><p dir="ltr"><br></p><p dir="ltr">You can write multiple paragraphs, and the content will automatically expand as you type.</p>');
   const [author, setAuthor] = useState('Sarah Williams');
   const [category, setCategory] = useState<string>('company');
   const [status, setStatus] = useState<string>('published');
   const [publishDate, setPublishDate] = useState(new Date('2024-01-20'));
-  const [featured, setFeatured] = useState(true);
-  const [tags, setTags] = useState(['milestone', 'growth', 'users']);
-  const [newTag, setNewTag] = useState('');
-  const [isAddingTag, setIsAddingTag] = useState(false);
   const [coverImage, setCoverImage] = useState<string | undefined>(undefined);
-  const [showMetadata, setShowMetadata] = useState(false);
   const [showCommandMenu, setShowCommandMenu] = useState(false);
   const [commandMenuPosition, setCommandMenuPosition] = useState({ top: 0, left: 0 });
   const [commandFilter, setCommandFilter] = useState('');
@@ -120,6 +98,9 @@ export function AnnouncementEditorClient({ announcementId }: AnnouncementEditorC
         titleRef.current.textContent = title;
       }
     }
+    // Mount-only: re-running on every `title` change would clobber the user's
+    // in-progress edits inside the contentEditable title element.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Initialize content on mount only
@@ -131,6 +112,9 @@ export function AnnouncementEditorClient({ announcementId }: AnnouncementEditorC
         p.setAttribute('dir', 'ltr');
       });
     }
+    // Mount-only: re-running on every `content` change would overwrite the
+    // user's in-progress edits inside the contentEditable body.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleTitleInput = (e: React.FormEvent<HTMLDivElement>) => {
@@ -323,25 +307,6 @@ export function AnnouncementEditorClient({ announcementId }: AnnouncementEditorC
     }
   };
 
-  const handleRemoveTag = (tagToRemove: string) => {
-    setTags(tags.filter(tag => tag !== tagToRemove));
-  };
-
-  const handleAddTag = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && newTag.trim()) {
-      e.preventDefault();
-      const tagValue = newTag.trim().toLowerCase();
-      if (!tags.includes(tagValue)) {
-        setTags([...tags, tagValue]);
-      }
-      setNewTag('');
-      setIsAddingTag(false);
-    } else if (e.key === 'Escape') {
-      setNewTag('');
-      setIsAddingTag(false);
-    }
-  };
-
   const handleCoverImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -374,9 +339,9 @@ export function AnnouncementEditorClient({ announcementId }: AnnouncementEditorC
     const range = selection.getRangeAt(0);
 
     // Get the parent element where we'll insert
-    let parentElement = range.commonAncestorContainer;
+    let parentElement = range.commonAncestorContainer as HTMLElement;
     if (parentElement.nodeType === Node.TEXT_NODE) {
-      parentElement = parentElement.parentElement!;
+      parentElement = parentElement.parentElement as HTMLElement;
     }
 
     // Delete the slash command text
@@ -582,25 +547,6 @@ export function AnnouncementEditorClient({ announcementId }: AnnouncementEditorC
     cmd.label.toLowerCase().includes(commandFilter.toLowerCase()) ||
     cmd.description.toLowerCase().includes(commandFilter.toLowerCase())
   );
-
-  const getCategoryColor = (cat: string) => {
-    switch (cat) {
-      case 'company': return 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-400 dark:border-blue-900';
-      case 'product': return 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-400 dark:border-green-900';
-      case 'industry': return 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-400 dark:border-purple-900';
-      case 'announcement': return 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950 dark:text-yellow-400 dark:border-yellow-900';
-      default: return 'bg-gray-50 text-gray-700 border-gray-200 dark:bg-background dark:text-muted-foreground dark:border-background';
-    }
-  };
-
-  const getStatusColor = (stat: string) => {
-    switch (stat) {
-      case 'published': return 'default';
-      case 'draft': return 'secondary';
-      case 'scheduled': return 'outline';
-      default: return 'secondary';
-    }
-  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -944,7 +890,7 @@ export function AnnouncementEditorClient({ announcementId }: AnnouncementEditorC
       )}
 
       {/* Custom Styles for contenteditable */}
-      <style jsx global>{`
+      <style>{`
         /* Subtle scrollbar styles */
         * {
           scrollbar-width: thin;

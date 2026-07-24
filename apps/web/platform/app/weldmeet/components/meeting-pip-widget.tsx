@@ -9,6 +9,7 @@ import { Mic, MicOff, VideoOff, Phone, MonitorUp, MoreVertical, Hand, Maximize, 
 import { useWeldMeetCall } from '@/contexts/weldmeet-call-context';
 import { useMeeting } from '@/hooks/queries/use-weldmeet-queries';
 import { useWorkspaceId } from '@/contexts/workspace-context';
+import type { RTKParticipant } from '@cloudflare/realtimekit';
 import { ParticipantAvatar, getPersonTheme, getInitials } from '@weldsuite/weldmeet-ui';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -19,6 +20,11 @@ import {
 } from '@weldsuite/ui/components/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { usePipCornerDrag } from './use-pip-corner-drag';
+
+// Chrome-only Document Picture-in-Picture API — not yet in standard DOM lib types.
+interface DocumentPictureInPictureAPI {
+  requestWindow(options?: { width?: number; height?: number }): Promise<Window>;
+}
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -158,7 +164,7 @@ export function MeetingPiPWidget() {
 
   // Pick the most relevant participant — first remote (active speaker proxy)
   // or fall back to self.
-  const remoteParticipants: any[] = meeting?.participants?.joined?.toArray?.() ?? [];
+  const remoteParticipants: RTKParticipant[] = meeting?.participants?.joined?.toArray?.() ?? [];
   const focused = remoteParticipants[0] ?? meeting?.self ?? null;
   const focusedIsSelf = !remoteParticipants[0];
   const focusedName = focused?.name || (focusedIsSelf ? t.pipWidget.you : t.pipWidget.participant);
@@ -262,7 +268,7 @@ export function MeetingPiPWidget() {
   // pop-out has the EXACT same design (Tailwind classes, theme tokens, all
   // interactive controls work).
   const openDocumentPip = useCallback(async () => {
-    const dpip = (window as any).documentPictureInPicture;
+    const dpip = (window as Window & { documentPictureInPicture?: DocumentPictureInPictureAPI }).documentPictureInPicture;
     if (!dpip) {
       // Fallback: legacy native video PiP (just a video tile, no UI)
       return enterNativePiP();
@@ -543,8 +549,8 @@ export function MeetingPiPWidget() {
     document.addEventListener('pointerdown', onUserGesture, { capture: true });
     document.addEventListener('keydown', onUserGesture, { capture: true });
     return () => {
-      document.removeEventListener('pointerdown', onUserGesture, { capture: true } as any);
-      document.removeEventListener('keydown', onUserGesture, { capture: true } as any);
+      document.removeEventListener('pointerdown', onUserGesture, { capture: true });
+      document.removeEventListener('keydown', onUserGesture, { capture: true });
     };
   }, []);
 

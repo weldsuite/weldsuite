@@ -1,8 +1,7 @@
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
-import { Input } from '@weldsuite/ui/components/input';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,7 +23,6 @@ import {
   Reply,
   XCircle,
   CircleDot,
-  Filter,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -96,18 +94,8 @@ function getAvatarColor(name: string): string {
   return AVATAR_COLORS[hashString(name) % AVATAR_COLORS.length];
 }
 
-function getInitials(name: string): string {
-  return name
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
-}
-
 export function PeopleTab({
   sequenceId,
-  sequenceStatus,
   initialEnrollments,
   initialPagination,
 }: PeopleTabProps) {

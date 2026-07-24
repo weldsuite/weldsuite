@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   Zap, X, Plus, Trash2, Filter, Lock,
   Globe, Mail, Phone, MessageCircle, Share2, Code, Smartphone,
-  UserPlus, Users, Eye,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
@@ -15,19 +14,16 @@ import {
 } from '@weldsuite/ui/components/select';
 import { Input } from '@weldsuite/ui/components/input';
 import { cn } from '@/lib/utils';
-import { HELPDESK_ROUTING_TRIGGERS, WORKFLOW_CHANNELS, WORKFLOW_AUDIENCES } from '../helpdesk-workflow-constants';
+import { HELPDESK_ROUTING_TRIGGERS, WORKFLOW_CHANNELS } from '../helpdesk-workflow-constants';
 import { useI18n } from '@/lib/i18n/provider';
+import type { HelpdeskWorkflow } from '../types';
 
 // ============================================================================
-// Channel / Audience icon map
+// Channel icon map
 // ============================================================================
 
 const CHANNEL_ICONS: Record<string, React.ElementType> = {
   Globe, Mail, Phone, MessageCircle, Share2, Code, Smartphone,
-};
-
-const AUDIENCE_ICONS: Record<string, React.ElementType> = {
-  UserPlus, Users, Eye,
 };
 
 // ============================================================================
@@ -63,7 +59,7 @@ export interface TriggerConfigUpdate {
 }
 
 interface TriggerFilterPanelProps {
-  workflow: any;
+  workflow: HelpdeskWorkflow;
   onUpdateTriggerConfig: (config: TriggerConfigUpdate) => void;
   onClose: () => void;
 }
@@ -191,13 +187,15 @@ export function TriggerFilterPanel({
 
   // Resolve existing state from trigger config
   const existingFilters: TriggerFilter[] =
-    trigger?.config?.filters || trigger?.filters || [];
-  const existingChannels: string[] = trigger?.config?.channels || [];
-  const existingAudience: string[] = trigger?.config?.audience || [];
+    (trigger?.config?.filters as TriggerFilter[] | undefined) ||
+    (trigger?.filters as TriggerFilter[] | undefined) ||
+    [];
+  const existingChannels: string[] = (trigger?.config?.channels as string[] | undefined) || [];
+  const existingAudience: string[] = (trigger?.config?.audience as string[] | undefined) || [];
 
   const [filters, setFilters] = useState<TriggerFilter[]>(existingFilters);
   const [channels, setChannels] = useState<string[]>(existingChannels);
-  const [audience, setAudience] = useState<string[]>(existingAudience);
+  const [audience] = useState<string[]>(existingAudience);
 
   const fieldDefs = getFieldDefs(entityType, CONVERSATION_FILTER_FIELDS, TICKET_FILTER_FIELDS);
 
@@ -225,15 +223,6 @@ export function TriggerFilterPanel({
       : [...channels, value];
     setChannels(next);
     emitUpdate(next, audience, filters);
-  };
-
-  // Audience toggle
-  const toggleAudience = (value: string) => {
-    const next = audience.includes(value)
-      ? audience.filter((a) => a !== value)
-      : [...audience, value];
-    setAudience(next);
-    emitUpdate(channels, next, filters);
   };
 
   // Filter CRUD

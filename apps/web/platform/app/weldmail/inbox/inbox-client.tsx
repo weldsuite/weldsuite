@@ -1,18 +1,16 @@
 
-import React, { useState, useTransition, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
 import {
   Search,
-  RefreshCw,
   Archive,
   Trash,
   Star,
   MoreVertical,
   Reply,
-  ReplyAll,
   Forward,
   Clock,
   Mail,
@@ -25,16 +23,11 @@ import {
   Filter,
   Plus,
   MessageSquare,
-  ArrowUp,
-  ArrowDown,
-  Sparkles,
-  Bot,
   Check,
   Edit,
   Minimize2,
   Maximize2,
   Expand,
-  MessageSquarePlus,
   PenSquare,
   Library,
   FileText,
@@ -56,18 +49,14 @@ import {
   ExternalLink,
   Copy,
   Eye,
-  Share2,
   Flag,
   AlertTriangle,
-  UserPlus,
   FileDown,
   Shield,
   StickyNote,
   ListTodo,
   Pin,
-  Inbox,
   CornerDownRight,
-  PanelRightClose,
   PictureInPicture2,
   Minus,
   Link,
@@ -76,38 +65,49 @@ import {
   Image,
   Bell,
   ShieldAlert,
-  Calendar
+  Calendar,
+  type LucideIcon
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
-import { Checkbox } from '@weldsuite/ui/components/checkbox';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { ButtonGroup } from '@weldsuite/ui/components/button-group';
-import { Textarea } from '@weldsuite/ui/components/textarea';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { Separator } from '@weldsuite/ui/components/separator';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
+import { Card, CardContent, CardDescription, CardTitle } from '@weldsuite/ui/components/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuGroup, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuPortal } from '@weldsuite/ui/components/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Label } from '@weldsuite/ui/components/label';
 import { Calendar as CalendarComponent } from '@weldsuite/ui/components/calendar';
 import { cn } from '@/lib/utils';
-import { format, formatDistanceToNow, isToday, isYesterday } from 'date-fns';
+import { format, isToday, isYesterday } from 'date-fns';
 import { toast } from 'sonner';
 import { mailApi } from '../lib/api-client';
 import { IsolatedHtmlContent } from '../components/isolated-html-content';
 import {
-  useMailMessage,
   useMarkMailRead,
   useToggleMailStar,
   useMoveToTrash,
   useArchiveMailMessage,
 } from '@/hooks/queries/use-mail-queries';
-import type { Mail } from '@/lib/api/types/apps/mail.types';
+import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 
-type EmailMessage = Mail.Email;
+type EmailMessage = MailTypes.Email;
 type EmailFolder = string;
+
+// `from` may be a plain "Name <email>" string (legacy) or a structured
+// Mail.EmailAddress object (some app-api routes already return one); collapse
+// down to a display string wherever this component treats it as text.
+function fromDisplayString(from: string | MailTypes.EmailAddress | undefined): string {
+  if (!from) return '';
+  if (typeof from === 'string') return from;
+  return from.name ? `${from.name} <${from.email}>` : from.email;
+}
+
+// AI Assistant Panel removed - now using BreadcrumbHeader WeldAgent. Kept as a
+// disabled flag (rather than deleting the JSX) since `showAiPanel` still
+// drives layout elsewhere (width/flex classes further down).
+const AI_PANEL_ENABLED = false;
 
 interface InboxClientProps {
   initialMessages: EmailMessage[];
@@ -122,7 +122,6 @@ interface InboxClientProps {
 
 export function InboxClient({
   initialMessages,
-  folders,
   currentFolder,
   activeAccount
 }: InboxClientProps) {
@@ -143,10 +142,8 @@ export function InboxClient({
   const archiveMessageMutation = useArchiveMailMessage();
 
   const [messages, setMessages] = useState<EmailMessage[]>(initialMessages);
-  const [selectedEmails, setSelectedEmails] = useState<string[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<EmailMessage | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isPending, startTransition] = useTransition();
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [isAiPanelFullscreen, setIsAiPanelFullscreen] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
@@ -154,7 +151,7 @@ export function InboxClient({
   const [isComposeMinimized, setIsComposeMinimized] = useState(false);
   const [showCompletedEmails, setShowCompletedEmails] = useState(false);
   const [completedEmails, setCompletedEmails] = useState<Set<string>>(new Set());
-  const [setAsideEmails, setSetAsideEmails] = useState<Set<string>>(new Set());
+  const [setAsideEmails] = useState<Set<string>>(new Set());
   const [pinnedEmails, setPinnedEmails] = useState<Set<string>>(new Set());
   const [snoozedEmails, setSnoozedEmails] = useState<Set<string>>(new Set());
   const [snoozeCalendarOpen, setSnoozeCalendarOpen] = useState(false);
@@ -179,10 +176,10 @@ export function InboxClient({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [showPreferencesModal, setShowPreferencesModal] = useState(false);
   const [showAppDetailModal, setShowAppDetailModal] = useState(false);
-  const [selectedApp, setSelectedApp] = useState<{ name: string; icon: any } | null>(null);
+  const [selectedApp, setSelectedApp] = useState<{ name: string; icon: LucideIcon } | null>(null);
   const [isEmailCollapsed, setIsEmailCollapsed] = useState(false);
   const [isLoadingEmail, setIsLoadingEmail] = useState(false);
-  const [collapsedPreviews, setCollapsedPreviews] = useState<Set<string>>(new Set());
+  const [collapsedPreviews] = useState<Set<string>>(new Set());
   const [showAllRecipients, setShowAllRecipients] = useState(false);
   const [hoveredWeldMailTeam, setHoveredWeldMailTeam] = useState(false);
   const [hoveredWeldMailTeamList, setHoveredWeldMailTeamList] = useState(false);
@@ -226,8 +223,8 @@ export function InboxClient({
   const filteredMessages = messages
     .filter(msg => {
       const matchesSearch = msg.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        msg.from.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        msg.preview.toLowerCase().includes(searchQuery.toLowerCase());
+        fromDisplayString(msg.from).toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (msg.preview || '').toLowerCase().includes(searchQuery.toLowerCase());
 
       const isCompleted = completedEmails.has(msg.id);
       const isSetAside = setAsideEmails.has(msg.id);
@@ -249,8 +246,8 @@ export function InboxClient({
     });
 
   // Helper function to get date label
-  const getDateLabel = (dateString: string) => {
-    const messageDate = new Date(dateString);
+  const getDateLabel = (dateInput: Date | string | undefined) => {
+    const messageDate = dateInput ? new Date(dateInput) : new Date();
     const today = new Date();
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
@@ -286,8 +283,8 @@ export function InboxClient({
     const filteredEmails = emails
       .filter(msg => {
         const matchesSearch = msg.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          msg.from.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          msg.preview.toLowerCase().includes(searchQuery.toLowerCase());
+          fromDisplayString(msg.from).toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (msg.preview || '').toLowerCase().includes(searchQuery.toLowerCase());
 
         const isCompleted = completedEmails.has(msg.id);
         const isSetAside = setAsideEmails.has(msg.id);
@@ -337,24 +334,8 @@ export function InboxClient({
     return colors[index];
   };
 
-  const toggleEmailSelection = (emailId: string) => {
-    setSelectedEmails(prev =>
-      prev.includes(emailId)
-        ? prev.filter(id => id !== emailId)
-        : [...prev, emailId]
-    );
-  };
-
-  const toggleAllSelection = () => {
-    if (selectedEmails.length === filteredMessages.length) {
-      setSelectedEmails([]);
-    } else {
-      setSelectedEmails(filteredMessages.map(e => e.id));
-    }
-  };
-
   const handleMarkAsRead = async (messageId: string) => {
-    markReadMutation.mutate({ id: messageId, read: true, accountId: activeAccount.id }, {
+    markReadMutation.mutate({ id: messageId, isRead: true }, {
       onSuccess: () => {
         setMessages(prev => prev.map(msg =>
           msg.id === messageId ? { ...msg, isRead: true } : msg
@@ -380,8 +361,8 @@ export function InboxClient({
 
       toast.success(newStarredState ? t.mail.inboxPage.emailStarred : t.mail.inboxPage.emailUnstarred);
 
-      // Make API call in background - pass account ID for star toggle
-      toggleStarMutation.mutate({ id: messageId, isStarred: newStarredState, accountId: activeAccount.id }, {
+      // Make API call in background
+      toggleStarMutation.mutate({ id: messageId, isStarred: newStarredState }, {
         onError: () => {
           // Revert on error
           setMessages(prev => prev.map(m =>
@@ -411,7 +392,7 @@ export function InboxClient({
   };
 
   const handleDelete = async (messageId: string) => {
-    moveToTrashMutation.mutate({ id: messageId, accountId: activeAccount.id }, {
+    moveToTrashMutation.mutate(messageId, {
       onSuccess: () => {
         setMessages(prev => prev.filter(msg => msg.id !== messageId));
         setSelectedEmail(null);
@@ -424,29 +405,13 @@ export function InboxClient({
   };
 
   const handleArchive = async (messageId: string) => {
-    archiveMessageMutation.mutate({ id: messageId, accountId: activeAccount.id }, {
+    archiveMessageMutation.mutate(messageId, {
       onSuccess: () => {
         setMessages(prev => prev.filter(msg => msg.id !== messageId));
         setSelectedEmail(null);
         toast.success(t.mail.inboxPage.archived);
       },
     });
-  };
-
-  const handleSetAside = (messageId: string) => {
-    setSetAsideEmails(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(messageId)) {
-        newSet.delete(messageId);
-        toast.success(t.mail.inboxPage.removedFromSetAside);
-      } else {
-        newSet.add(messageId);
-        toast.success(t.mail.inboxPage.setAside);
-      }
-      return newSet;
-    });
-    // Close the email view after setting aside
-    setSelectedEmail(null);
   };
 
   const handlePin = (messageId: string) => {
@@ -491,8 +456,8 @@ export function InboxClient({
     }, 200);
   };
 
-  const formatEmailDate = (date: Date) => {
-    const emailDate = new Date(date);
+  const formatEmailDate = (date: Date | undefined) => {
+    const emailDate = date ? new Date(date) : new Date();
     
     if (isToday(emailDate)) {
       return format(emailDate, 'h:mm a');
@@ -500,19 +465,6 @@ export function InboxClient({
       return 'Yesterday';
     } else {
       return format(emailDate, 'MMM d');
-    }
-  };
-
-  const getLabelColor = (label: string) => {
-    switch (label.toLowerCase()) {
-      case 'work':
-        return 'bg-blue-500';
-      case 'personal':
-        return 'bg-green-500';
-      case 'important':
-        return 'bg-purple-500';
-      default:
-        return 'bg-gray-500';
     }
   };
 
@@ -532,7 +484,7 @@ export function InboxClient({
     }
 
     // Fetch full content if not already loaded
-    if (!email.body && !email.bodyHtml) {
+    if (!email.bodyText && !email.bodyHtml) {
       setIsLoadingEmail(true);
       try {
         const result = await mailApi.messages.get(activeAccount.id, email.id);
@@ -568,19 +520,6 @@ export function InboxClient({
     if (!email.isRead) {
       handleMarkAsRead(email.id);
     }
-  };
-
-  const togglePreviewCollapse = (emailId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setCollapsedPreviews(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(emailId)) {
-        newSet.delete(emailId);
-      } else {
-        newSet.add(emailId);
-      }
-      return newSet;
-    });
   };
 
   const handleAiSend = () => {
@@ -1032,12 +971,12 @@ export function InboxClient({
                         )}
                         <div
                           className="w-6 h-6 rounded-md flex items-center justify-center text-white font-semibold text-[10px]"
-                          style={{ backgroundColor: getAvatarColor(email.from) }}
+                          style={{ backgroundColor: getAvatarColor(fromDisplayString(email.from)) }}
                         >
-                          {email.from.charAt(0).toUpperCase()}
+                          {fromDisplayString(email.from).charAt(0).toUpperCase()}
                         </div>
                       </div>
-                    
+
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between gap-2">
                         <div className="flex-1">
@@ -1048,7 +987,7 @@ export function InboxClient({
                                   "text-sm truncate flex-1",
                                   !email.isRead ? "font-semibold text-gray-900 dark:text-foreground" : "font-normal text-gray-500 dark:text-muted-foreground"
                                 )}>
-                                  {email.fromEmail || `${email.from.toLowerCase().replace(/\s+/g, '.')}@gmail.com`}
+                                  {email.fromEmail || `${fromDisplayString(email.from).toLowerCase().replace(/\s+/g, '.')}@gmail.com`}
                                 </div>
                                 <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
                                   {email.isStarred && (
@@ -1104,7 +1043,7 @@ export function InboxClient({
                                           }, 100);
                                         }}
                                       >
-                                        {email.from}
+                                        {fromDisplayString(email.from)}
                                       </span>
                                     </PopoverTrigger>
                                     <PopoverContent 
@@ -1226,7 +1165,7 @@ export function InboxClient({
                                     </PopoverContent>
                                   </Popover>
                                 ) : (
-                                  email.from
+                                  fromDisplayString(email.from)
                                 )}
                               </div>
                               <span className={cn(
@@ -1842,7 +1781,7 @@ export function InboxClient({
                 <div className="flex items-start justify-between">
                   <div className="flex items-center">
                     <div className="w-7 h-7 rounded-md bg-[#fbbf24] flex items-center justify-center text-white font-semibold text-xs">
-                      {selectedEmail.from.charAt(0).toUpperCase()}
+                      {fromDisplayString(selectedEmail.from).charAt(0).toUpperCase()}
                     </div>
                     <div className="ml-1">
                       {!isEmailCollapsed && (
@@ -1871,11 +1810,11 @@ export function InboxClient({
                                     hoveredWeldMailTeam ? "bg-gray-100 dark:bg-secondary" : "hover:bg-gray-100 dark:hover:bg-accent"
                                   )}
                                 >
-                                  {selectedEmail.from}
+                                  {fromDisplayString(selectedEmail.from)}
                                 </Button>
                               </PopoverTrigger>
-                              <PopoverContent 
-                                className="w-80 p-0" 
+                              <PopoverContent
+                                className="w-80 p-0"
                                 align="start" 
                                 sideOffset={8}
                                 onOpenAutoFocus={(e) => e.preventDefault()}
@@ -2001,12 +1940,12 @@ export function InboxClient({
                               }}
                               className="font-semibold text-gray-900 dark:text-foreground text-sm hover:bg-gray-100 dark:hover:bg-accent px-2 py-1 rounded-md transition-colors"
                             >
-                              {selectedEmail.from}
+                              {fromDisplayString(selectedEmail.from)}
                             </Button>
                           )}
                           <span className="text-[#007aff] text-sm ml-1">
                             to{' '}
-                            {selectedEmail.to.map((recipient, index) => (
+                            {selectedEmail.to.map((recipient: string | MailTypes.EmailAddress, index: number) => (
                               <span key={index}>
                                 <Button variant="ghost"
                                   onClick={(e) => {
@@ -2015,7 +1954,7 @@ export function InboxClient({
                                   }}
                                   className="hover:bg-gray-100 dark:hover:bg-accent px-1 py-0.5 rounded-md transition-colors"
                                 >
-                                  {recipient}
+                                  {fromDisplayString(recipient)}
                                 </Button>
                                 {index < selectedEmail.to.length - 1 && ', '}
                               </span>
@@ -2097,12 +2036,12 @@ export function InboxClient({
                                   hoveredWeldMailTeamCollapsed ? "bg-gray-100 dark:bg-secondary" : "hover:bg-gray-100 dark:hover:bg-accent"
                                 )}
                               >
-                                {selectedEmail.from}
+                                {fromDisplayString(selectedEmail.from)}
                               </Button>
                             </PopoverTrigger>
-                            <PopoverContent 
-                              className="w-80 p-0" 
-                              align="start" 
+                            <PopoverContent
+                              className="w-80 p-0"
+                              align="start"
                               sideOffset={8}
                               onOpenAutoFocus={(e) => e.preventDefault()}
                               onMouseEnter={() => {
@@ -2224,7 +2163,7 @@ export function InboxClient({
                             }}
                             className="font-semibold text-gray-900 dark:text-foreground text-sm hover:bg-gray-100 dark:hover:bg-accent px-2 py-1 rounded-md transition-colors"
                           >
-                            {selectedEmail.from}
+                            {fromDisplayString(selectedEmail.from)}
                           </Button>
                         )
                       )}
@@ -2235,7 +2174,7 @@ export function InboxClient({
                       onClick={() => setIsEmailCollapsed(!isEmailCollapsed)}
                       className="text-sm hover:bg-gray-100 dark:hover:bg-accent px-2 py-1 rounded-md transition-colors cursor-pointer"
                     >
-                      {format(new Date(selectedEmail.date), 'd MMM, HH:mm')}
+                      {format(selectedEmail.date ? new Date(selectedEmail.date) : new Date(), 'd MMM, HH:mm')}
                     </Button>
                     {!isEmailCollapsed && (
                       <DropdownMenu>
@@ -2295,7 +2234,7 @@ export function InboxClient({
                               {t.mail.inboxPage.moveToFolder}
                             </DropdownMenuSubTrigger>
                             <DropdownMenuPortal>
-                              <DropdownMenuSubContent side="left" sideOffset={5}>
+                              <DropdownMenuSubContent sideOffset={5}>
                                 <DropdownMenuItem onClick={() => {
                                   toast.success(t.mail.inboxPage.movedToWorkFolder);
                                 }}>
@@ -2398,7 +2337,7 @@ export function InboxClient({
                       setIsReplying(!isReplying);
                       if (!isReplying && selectedEmail) {
                         setComposeData({
-                          to: selectedEmail.fromEmail || selectedEmail.from,
+                          to: selectedEmail.fromEmail || fromDisplayString(selectedEmail.from),
                           subject: `Re: ${selectedEmail.subject}`,
                           body: ''
                         });
@@ -2537,8 +2476,8 @@ export function InboxClient({
                         const input = document.createElement('input');
                         input.type = 'file';
                         input.multiple = true;
-                        input.onchange = (e: any) => {
-                          const files = Array.from(e.target.files);
+                        input.onchange = (e: Event) => {
+                          const files = Array.from((e.target as HTMLInputElement).files ?? []);
                           toast.success(t.mail.inboxPage.filesAttached.replace('{n}', String(files.length)));
                         };
                         input.click();
@@ -2580,8 +2519,8 @@ export function InboxClient({
                         input.type = 'file';
                         input.accept = 'image/*';
                         input.multiple = true;
-                        input.onchange = (e: any) => {
-                          const files = Array.from(e.target.files);
+                        input.onchange = (e: Event) => {
+                          const files = Array.from((e.target as HTMLInputElement).files ?? []);
                           toast.success(t.mail.inboxPage.imagesAttached.replace('{n}', String(files.length)));
                         };
                         input.click();
@@ -2631,7 +2570,7 @@ export function InboxClient({
                         }
                         try {
                           const result = await mailApi.messages.send(activeAccount.id, {
-                            to: [selectedEmail?.from || ''],
+                            to: [selectedEmail?.fromEmail || fromDisplayString(selectedEmail?.from)],
                             subject: composeData.subject || `Re: ${selectedEmail?.subject || ''}`,
                             body: composeData.body.trim(),
                             htmlBody: composeData.body.trim().replace(/\n/g, '<br>'),
@@ -2687,8 +2626,7 @@ export function InboxClient({
 
           </div>
 
-          {/* AI Assistant Panel removed - now using BreadcrumbHeader WeldAgent */}
-          {false && showAiPanel && (
+          {AI_PANEL_ENABLED && showAiPanel && (
             <>
               {/* Overlay for fullscreen mode */}
               <div 
@@ -2875,7 +2813,7 @@ export function InboxClient({
                         <div className="flex items-start gap-2">
                           <div className="flex-1">
                             <div className="text-xs font-medium text-gray-500 dark:text-muted-foreground mb-1">{t.mail.inboxPage.selectedText}</div>
-                            <div className="text-sm text-gray-700 dark:text-muted-foreground italic line-clamp-3">"{selectedText}"</div>
+                            <div className="text-sm text-gray-700 dark:text-muted-foreground italic line-clamp-3">&ldquo;{selectedText}&rdquo;</div>
                           </div>
                           <Button variant="ghost"
                             onClick={() => {
@@ -3793,8 +3731,8 @@ export function InboxClient({
                       const input = document.createElement('input');
                       input.type = 'file';
                       input.multiple = true;
-                      input.onchange = (e: any) => {
-                        const files = Array.from(e.target.files);
+                      input.onchange = (e: Event) => {
+                        const files = Array.from((e.target as HTMLInputElement).files ?? []);
                         toast.success(t.mail.inboxPage.filesAttached.replace('{n}', String(files.length)));
                       };
                       input.click();
@@ -3836,8 +3774,8 @@ export function InboxClient({
                       input.type = 'file';
                       input.accept = 'image/*';
                       input.multiple = true;
-                      input.onchange = (e: any) => {
-                        const files = Array.from(e.target.files);
+                      input.onchange = (e: Event) => {
+                        const files = Array.from((e.target as HTMLInputElement).files ?? []);
                         toast.success(t.mail.inboxPage.imagesAttached.replace('{n}', String(files.length)));
                       };
                       input.click();
@@ -3869,7 +3807,7 @@ export function InboxClient({
                     try {
                       const toAddresses = popupComposeData.to.split(/[,;]/).map((e: string) => e.trim()).filter((e: string) => e.length > 0);
                       const result = await mailApi.messages.send(activeAccount.id, {
-                        to: toAddresses.length > 0 ? toAddresses : [selectedEmail?.from || ''],
+                        to: toAddresses.length > 0 ? toAddresses : [selectedEmail?.fromEmail || fromDisplayString(selectedEmail?.from)],
                         subject: popupComposeData.subject || `Re: ${selectedEmail?.subject || ''}`,
                         body: popupComposeData.body.trim(),
                         htmlBody: popupComposeData.body.trim().replace(/\n/g, '<br>'),

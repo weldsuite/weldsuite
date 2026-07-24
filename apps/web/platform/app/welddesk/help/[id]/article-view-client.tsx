@@ -1,5 +1,5 @@
 
-import { useRouter, Link } from '@/lib/router';
+import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { format } from 'date-fns';

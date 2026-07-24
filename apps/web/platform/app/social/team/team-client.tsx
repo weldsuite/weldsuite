@@ -28,6 +28,7 @@ import {
   useUpdateSocialTeamMember,
   useDeleteSocialTeamMember,
 } from '@/hooks/queries/use-social-queries';
+import type { SocialTeamMember } from '@weldsuite/app-api-client/domains/social';
 
 const roles = ['owner', 'admin', 'manager', 'editor', 'contributor', 'viewer'];
 
@@ -43,7 +44,7 @@ export function TeamClient() {
   const { t } = useI18n();
   const st = useTranslations();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editMember, setEditMember] = useState<any>(null);
+  const [editMember, setEditMember] = useState<SocialTeamMember | null>(null);
   const [form, setForm] = useState<MemberForm>(emptyForm);
 
   const { data, isLoading } = useSocialTeam();
@@ -59,7 +60,7 @@ export function TeamClient() {
     setDialogOpen(true);
   };
 
-  const openEdit = (member: any) => {
+  const openEdit = (member: SocialTeamMember) => {
     setEditMember(member);
     setForm({ email: member.email || '', name: member.name || '', role: member.role || 'editor' });
     setDialogOpen(true);
@@ -103,7 +104,7 @@ export function TeamClient() {
         </div>
       ) : (
         <div className="space-y-3">
-          {members.map((member: any) => (
+          {members.map((member: SocialTeamMember) => (
             <Card key={member.id}>
               <CardContent className="p-4 flex items-center gap-3">
                 <div className="flex-1 min-w-0">

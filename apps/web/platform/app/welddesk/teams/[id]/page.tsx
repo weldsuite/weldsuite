@@ -5,6 +5,26 @@ import { useDepartment, useHelpdeskAgents, useHelpdeskUsers } from '@/hooks/quer
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 
+interface RawTeamUser {
+  id: string;
+  email: string;
+  fullName?: string;
+  firstName?: string;
+  lastName?: string;
+}
+
+interface RawTeamAgent {
+  id: string;
+  name: string;
+  email: string;
+  role?: string;
+  currentActiveTickets?: number;
+  ticketsResolved?: number;
+  averageResponseTime?: number;
+  isOnline?: boolean;
+  availability?: string;
+}
+
 export default function TeamDetailPage() {
   const { t } = useI18n();
   const params = useParams();
@@ -28,7 +48,7 @@ export default function TeamDetailPage() {
 
   const department = deptResult.data;
   const agents = agentsResult?.data || [];
-  const users = (usersResult?.data || []).map((u: any) => ({
+  const users = (usersResult?.data || []).map((u: RawTeamUser) => ({
     id: u.id,
     email: u.email,
     fullName: u.fullName,
@@ -47,7 +67,7 @@ export default function TeamDetailPage() {
     return `${(minutes / 60).toFixed(1)}h`;
   };
 
-  const members = agents.map((agent: any) => ({
+  const members = agents.map((agent: RawTeamAgent) => ({
     id: agent.id,
     name: agent.name,
     email: agent.email,

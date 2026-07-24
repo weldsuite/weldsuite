@@ -6,60 +6,19 @@
  * Includes both a generated tone and support for custom audio files.
  */
 
+interface WindowWithWebkitAudio extends Window {
+  webkitAudioContext?: typeof AudioContext;
+}
+
 let audioContext: AudioContext | null = null;
 
 function getAudioContext(): AudioContext {
   if (!audioContext) {
-    audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const AudioContextCtor =
+      window.AudioContext || (window as WindowWithWebkitAudio).webkitAudioContext;
+    audioContext = new AudioContextCtor();
   }
   return audioContext;
-}
-
-/**
- * Play a simple notification tone using Web Audio API
- * This doesn't require any external audio files
- */
-function playNotificationTone(options?: {
-  frequency?: number;
-  duration?: number;
-  volume?: number;
-  type?: OscillatorType;
-}): void {
-  const {
-    frequency = 800,
-    duration = 150,
-    volume = 0.3,
-    type = 'sine',
-  } = options || {};
-
-  try {
-    const ctx = getAudioContext();
-
-    // Resume context if suspended (browsers require user interaction)
-    if (ctx.state === 'suspended') {
-      ctx.resume();
-    }
-
-    const oscillator = ctx.createOscillator();
-    const gainNode = ctx.createGain();
-
-    oscillator.connect(gainNode);
-    gainNode.connect(ctx.destination);
-
-    oscillator.frequency.value = frequency;
-    oscillator.type = type;
-
-    // Fade in and out to avoid clicks
-    const now = ctx.currentTime;
-    gainNode.gain.setValueAtTime(0, now);
-    gainNode.gain.linearRampToValueAtTime(volume, now + 0.01);
-    gainNode.gain.linearRampToValueAtTime(0, now + duration / 1000);
-
-    oscillator.start(now);
-    oscillator.stop(now + duration / 1000);
-  } catch (error) {
-    console.warn('Failed to play notification tone:', error);
-  }
 }
 
 /**
@@ -80,24 +39,6 @@ function playNotificationChime(): void {
     playTone(ctx, 554, 0.12, 0.2, 0.12, 'sine');
   } catch (error) {
     console.warn('Failed to play notification chime:', error);
-  }
-}
-
-/**
- * Play a subtle single-note notification (even softer)
- */
-function playNotificationPing(): void {
-  try {
-    const ctx = getAudioContext();
-
-    if (ctx.state === 'suspended') {
-      ctx.resume();
-    }
-
-    // Single soft ping
-    playTone(ctx, 520, 0, 0.25, 0.12, 'sine');
-  } catch (error) {
-    console.warn('Failed to play notification ping:', error);
   }
 }
 

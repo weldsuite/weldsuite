@@ -164,7 +164,7 @@ export function ReportViewClient({ report, charts }: ReportViewClientProps) {
               cx="50%"
               cy="50%"
               labelLine={chart.showDataLabels}
-              label={chart.showDataLabels ? (({ name, percent }: { name: string; percent?: number }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`) as any : undefined}
+              label={chart.showDataLabels ? ({ name, percent }: { name?: string | number; percent?: number }) => `${name ?? ''} ${((percent ?? 0) * 100).toFixed(0)}%` : undefined}
               outerRadius={100}
               innerRadius={chartType.includes('donut') ? 60 : 0}
               fill="#8884d8"

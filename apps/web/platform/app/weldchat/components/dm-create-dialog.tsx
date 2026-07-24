@@ -32,12 +32,12 @@ export function DmCreateDialog({ open, onOpenChange }: DmCreateDialogProps) {
   const { data: membersData } = useWorkspaceMembers();
   const { mutate: createDm, isPending } = useCreateDm();
 
-  const members = membersData?.data || [];
+  const members = useMemo(() => membersData?.data || [], [membersData]);
   const filtered = useMemo(() => {
     if (!search) return members;
     const q = search.toLowerCase();
     return members.filter(
-      (m: any) =>
+      (m) =>
         m.name?.toLowerCase().includes(q) || m.email?.toLowerCase().includes(q)
     );
   }, [members, search]);
@@ -67,7 +67,7 @@ export function DmCreateDialog({ open, onOpenChange }: DmCreateDialogProps) {
     createDm(
       { userIds: selectedIds },
       {
-        onSuccess: (data: any) => {
+        onSuccess: (data) => {
           onOpenChange(false);
           setSearch('');
           setSelectedIds([]);
@@ -98,7 +98,7 @@ export function DmCreateDialog({ open, onOpenChange }: DmCreateDialogProps) {
           />
           <ScrollArea className="h-[300px]">
             <div className="space-y-0.5">
-              {filtered.map((member: any) => (
+              {filtered.map((member) => (
                 <Button
                   key={member.userId || member.id}
                   variant="ghost"

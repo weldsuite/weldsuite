@@ -5,7 +5,7 @@ import { getTranslations } from '@/lib/i18n';
 import { useUser, useOrganizationList } from '@clerk/clerk-react';
 import { track } from '@/lib/analytics';
 import { motion } from 'framer-motion';
-import { Check, ChevronLeft, Plus, Loader2, Info, ChevronsUpDown, Search } from 'lucide-react';
+import { Check, ChevronLeft, Plus, Loader2, Info, ChevronsUpDown } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
@@ -37,28 +37,18 @@ import {
   CommandItem,
   CommandList,
 } from '@weldsuite/ui/components/command';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@weldsuite/ui/components/table';
 import { useCompleteOnboarding } from '@/hooks/use-onboarding';
 import { ProvisioningScreen } from './provisioning-screen';
 import type { AppDefinition } from '@/lib/apps/catalog';
 import {
-  ORGANIZATION_TYPES,
   ORGANIZATION_SIZES,
   ROLES,
   COUNTRIES,
-  REFERRAL_SOURCES,
   NEON_REGIONS,
   getDefaultRegionForCountry,
   type OnboardingFormData,
 } from '../types';
-import { getAppIcon, getAppLucideIcon, getAppShortName, isHiddenFromOnboarding } from '@/lib/apps/app-registry';
+import { getAppIcon, getAppShortName, isHiddenFromOnboarding } from '@/lib/apps/app-registry';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
 
 // Dynamic icon component for database icon names (e.g. "ShoppingCart")
@@ -264,7 +254,6 @@ const StepRightWrapper = ({
 };
 
 interface DashboardIllustrationProps {
-  image?: string | null;
   variant?: 'zoomed-in' | 'zoomed-out';
   title?: string;
   transformOrigin?: string;
@@ -276,7 +265,6 @@ interface DashboardIllustrationProps {
 }
 
 const DashboardIllustration = ({
-  image,
   variant = 'zoomed-out',
   title = 'Workspace',
   transformOrigin = '-20% -10%',
@@ -1035,15 +1023,6 @@ function AppsStepContent({
 }: AppsStepContentProps) {
   const t = getTranslations('common');
   const visibleApps = availableApps.filter((app) => !isHiddenFromOnboarding(app.code));
-
-  // Group apps by category
-  const appsByCategory = visibleApps.reduce((acc, app) => {
-    if (!acc[app.category]) {
-      acc[app.category] = [];
-    }
-    acc[app.category].push(app);
-    return acc;
-  }, {} as Record<string, AppDefinition[]>);
 
   return (
     <StepLeftWrapper

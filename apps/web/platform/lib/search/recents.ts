@@ -51,12 +51,3 @@ export function pushRecent(
     // ignore quota errors etc.
   }
 }
-
-function clearRecents(workspaceId: string | null | undefined): void {
-  if (!workspaceId || !isBrowser()) return;
-  try {
-    window.localStorage.removeItem(KEY(workspaceId));
-  } catch {
-    // ignore
-  }
-}

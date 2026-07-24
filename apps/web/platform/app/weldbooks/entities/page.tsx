@@ -156,7 +156,7 @@ export default function EntitiesPage() {
       searchPlaceholder={te.colName}
       createButton={{
         label: te.newEntity2,
-        onClick: () => navigate({ to: '/weldbooks/entities/add' as any }),
+        onClick: () => navigate({ to: '/weldbooks/entities/add' }),
       }}
       emptyState={{
         icon: (
@@ -168,7 +168,7 @@ export default function EntitiesPage() {
         description: te.newLegalEntityDesc,
         action: {
           label: te.newEntity2,
-          onClick: () => navigate({ to: '/weldbooks/entities/add' as any }),
+          onClick: () => navigate({ to: '/weldbooks/entities/add' }),
         },
       }}
     />

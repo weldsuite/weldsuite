@@ -25,7 +25,7 @@ export function createWeldmailApi(api: ClientApi) {
     },
 
     // Accounts
-    listAccounts(params: ListAccountsQuery = {}): Promise<ListResponse<MailAccount>> {
+    listAccounts(params: ListAccountsQuery = { limit: 50 }): Promise<ListResponse<MailAccount>> {
       const query = buildQueryString(params as Record<string, unknown>);
       return api.get<ListResponse<MailAccount>>(`/weldmail/accounts${query}`);
     },

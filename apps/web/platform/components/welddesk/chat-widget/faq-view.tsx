@@ -9,9 +9,7 @@ import {
   Search,
   ChevronRight,
   ChevronLeft,
-  ChevronDown,
   Calendar,
-  FileText,
   Sparkles,
   Megaphone,
   Package
@@ -70,7 +68,7 @@ export function FAQView({
 }: FAQViewProps) {
   const [activeTab] = useState('help');
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchFocused, setSearchFocused] = useState(false);
+  const [, setSearchFocused] = useState(false);
   const [selectedArticle, setSelectedArticle] = useState<FAQItem | null>(null);
   const [selectedCollection, setSelectedCollection] = useState<HelpCollection | null>(null);
   const [selectedHelpArticle, setSelectedHelpArticle] = useState<HelpArticle | null>(null);
@@ -138,57 +136,9 @@ export function FAQView({
     }
   ];
 
-  const faqItems: FAQItem[] = [
-    {
-      id: '1',
-      question: 'Connect your email support channel',
-      answer: 'To connect your email support channel, go to Settings > Email Integration and follow the setup wizard. You\'ll need to provide your email server details and authentication credentials.'
-    },
-    {
-      id: '2',
-      question: 'How to set up automated responses',
-      answer: 'Navigate to Automation > Auto-responses and create rules based on keywords, time of day, or customer segments. You can customize messages and set conditions for when they should trigger.'
-    },
-    {
-      id: '3',
-      question: 'Managing team permissions and roles',
-      answer: 'Access Teams > Permissions to assign roles to team members. You can control access to specific features, data, and customer interactions based on each team member\'s responsibilities.'
-    },
-    {
-      id: '4',
-      question: 'Integrating with third-party tools',
-      answer: 'Visit Integrations > Browse Apps to connect with popular tools like Slack, Salesforce, and Zapier. Each integration has a setup guide and configuration options.'
-    },
-    {
-      id: '5',
-      question: 'Understanding your analytics dashboard',
-      answer: 'The Analytics section provides insights into response times, customer satisfaction, and team performance. You can customize reports and export data for further analysis.'
-    },
-    {
-      id: '6',
-      question: 'Setting up chatbot workflows',
-      answer: 'Go to WeldAgent > Workflows to create conversation flows. Use the visual builder to design paths based on customer responses and integrate with your knowledge base.'
-    },
-    {
-      id: '7',
-      question: 'Customizing your chat widget appearance',
-      answer: 'In Chat Widget > Appearance, you can modify colors, positioning, welcome messages, and branding to match your website\'s design and tone.'
-    },
-    {
-      id: '8',
-      question: 'Managing customer data and privacy',
-      answer: 'Review Settings > Privacy & Data to configure data retention policies, GDPR compliance settings, and customer data export options. Ensure your practices align with local regulations.'
-    }
-  ];
-
   const filteredCollections = helpCollections.filter(collection =>
     collection.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     collection.description.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const filteredFAQs = faqItems.filter(item =>
-    item.question.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.answer.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   // If an article is selected, show the article view

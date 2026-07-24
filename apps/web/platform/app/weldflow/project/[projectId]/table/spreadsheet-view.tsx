@@ -5,9 +5,9 @@ import { SheetTabBar } from './sheet-tab-bar';
 import { FormulaBar } from './formula-bar';
 import { SpreadsheetContextMenu } from './spreadsheet-context-menu';
 import { PageLoader } from '@/components/page-loader';
-import type { CellCoord, CellFormat, RichTextRun } from './types';
+import type { CellCoord, CellFormat, RichTextRun, CellDataValue } from './types';
 import { normRange, colLabel } from './types';
-import { formatKey, getCellFormat, getCellStyle, mergeFormat, noteKey, linkKey, getCellNote, getCellLink } from './cell-format';
+import { formatKey, getCellFormat, mergeFormat, noteKey, linkKey, getCellNote, getCellLink } from './cell-format';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -55,13 +55,9 @@ import {
   Grid3X3,
   Merge,
   SquareFunction,
-  ZoomIn,
-  ZoomOut,
   Minus,
   Plus,
   Paintbrush,
-  ArrowLeft,
-  ChevronLeft,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -114,7 +110,19 @@ interface ToolbarProps {
 const TB = { height: 28, width: 28, minHeight: 28 } as const;
 const Sep = () => <div className="w-px h-5 bg-border mx-0.5" />;
 
-function SpreadsheetToolbar({ onFormat, onUndo, onRedo, canUndo, canRedo, paintFormatActive, onPaintFormat, onBack, tableName, showFormulaBar, onToggleFormulaBar, zoom, onZoomChange, activeFormat, onMergeCells, mergeActive, onInsertLink, onComment, onInsertFunction }: ToolbarProps) {
+// Assigns a single CellFormat field by a dynamically-known key, correlating the
+// key and value types so callers looping over `Object.keys(...)` don't need `any`.
+function setFormatKey<K extends keyof CellFormat>(
+  target: Partial<CellFormat>,
+  key: K,
+  value: CellFormat[K] | undefined,
+): void {
+  target[key] = value;
+}
+
+// `onBack` / `tableName` are part of the shared ToolbarProps contract but this
+// toolbar doesn't render a back button or title — kept for callers that pass them.
+function SpreadsheetToolbar({ onFormat, onUndo, onRedo, canUndo, canRedo, paintFormatActive, onPaintFormat, showFormulaBar, onToggleFormulaBar, zoom, onZoomChange, activeFormat, onMergeCells, mergeActive, onInsertLink, onComment, onInsertFunction }: ToolbarProps) {
   const [fontFamily, setFontFamily] = useState('sans-serif');
   const [fontSize, setFontSize] = useState('10');
   const [fontFamilyOpen, setFontFamilyOpen] = useState(false);
@@ -157,10 +165,10 @@ function SpreadsheetToolbar({ onFormat, onUndo, onRedo, canUndo, canRedo, paintF
         <Button variant="ghost" size="sm" className="p-0" style={TB} onClick={() => onFormat({ numberFormat: 'percent' })} title={t.projects.table.percentTitle}>
           <Percent className="h-3.5 w-3.5" />
         </Button>
-        <Button variant="ghost" size="sm" className="p-0" style={TB} onClick={() => onFormat({ decimalPlaces: -1 } as any)} title={t.projects.table.decreaseFontTitle}>
+        <Button variant="ghost" size="sm" className="p-0" style={TB} onClick={() => onFormat({ decimalPlaces: -1 })} title={t.projects.table.decreaseFontTitle}>
           <span className="text-xs font-mono">.0</span>
         </Button>
-        <Button variant="ghost" size="sm" className="p-0" style={TB} onClick={() => onFormat({ decimalPlaces: 1 } as any)} title={t.projects.table.increaseFontTitle}>
+        <Button variant="ghost" size="sm" className="p-0" style={TB} onClick={() => onFormat({ decimalPlaces: 1 })} title={t.projects.table.increaseFontTitle}>
           <span className="text-xs font-mono">.00</span>
         </Button>
 
@@ -184,7 +192,7 @@ function SpreadsheetToolbar({ onFormat, onUndo, onRedo, canUndo, canRedo, paintF
                 variant="ghost"
                 size="sm"
                 className="w-full justify-start text-xs h-7"
-                onClick={() => { onFormat({ numberFormat: f.value as any }); setMoreFormatsOpen(false); }}
+                onClick={() => { onFormat({ numberFormat: f.value as CellFormat['numberFormat'] }); setMoreFormatsOpen(false); }}
               >
                 {f.label}
               </Button>
@@ -363,7 +371,7 @@ function SpreadsheetToolbar({ onFormat, onUndo, onRedo, canUndo, canRedo, paintF
                 variant="ghost"
                 size="sm"
                 className="w-full justify-start text-xs h-7"
-                onClick={() => { onFormat({ border: b.value as any }); setBordersOpen(false); }}
+                onClick={() => { onFormat({ border: b.value as CellFormat['border'] }); setBordersOpen(false); }}
               >
                 {b.label}
               </Button>
@@ -474,7 +482,7 @@ function SpreadsheetToolbar({ onFormat, onUndo, onRedo, canUndo, canRedo, paintF
 // --- Status Bar ---
 function StatusBar({ columns, rows, selBounds }: {
   columns: { id: string; position: number }[];
-  rows: { id: string; position: number; data: Record<string, any> }[];
+  rows: { id: string; position: number; data: Record<string, CellDataValue> }[];
   selBounds: { minCol: number; maxCol: number; minRow: number; maxRow: number } | null;
 }) {
   const stats = useMemo(() => {
@@ -592,7 +600,7 @@ export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Sprea
     setIsEditing(false);
   }, [activeSheetId]);
 
-  const handleUpdateRow = useCallback(async (rowId: string, data: Record<string, any>) => {
+  const handleUpdateRow = useCallback(async (rowId: string, data: Record<string, CellDataValue>) => {
     return updateRow.mutateAsync({ rowId, data: { data } });
   }, [updateRow]);
 
@@ -604,7 +612,7 @@ export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Sprea
     return bulkDeleteRows.mutateAsync(ids);
   }, [bulkDeleteRows]);
 
-  const handleCreateRow = useCallback((initialData?: { data?: Record<string, any>; position?: number }) => {
+  const handleCreateRow = useCallback((initialData?: { data?: Record<string, CellDataValue>; position?: number }) => {
     createRow.mutate(initialData);
   }, [createRow]);
 
@@ -636,16 +644,17 @@ export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Sprea
       if (!row) continue;
       const existing = getCellFormat(row.data, colId);
       const updates: Partial<CellFormat> = {};
-      for (const [key, value] of Object.entries(format)) {
+      for (const key of Object.keys(format) as (keyof CellFormat)[]) {
+        const value = format[key];
         if (typeof value === 'boolean' && (key === 'bold' || key === 'italic' || key === 'strikethrough')) {
-          (updates as any)[key] = !existing?.[key as keyof CellFormat];
+          updates[key] = !existing?.[key];
         } else if (key === 'decimalPlaces' && (value === -1 || value === 1)) {
           const current = existing?.decimalPlaces ?? 2;
-          (updates as any)[key] = Math.max(0, Math.min(10, current + (value as number)));
+          updates.decimalPlaces = Math.max(0, Math.min(10, current + value));
         } else if (key === 'border' && value === 'none') {
-          (updates as any)[key] = undefined;
+          updates.border = undefined;
         } else {
-          (updates as any)[key] = value;
+          setFormatKey(updates, key, value);
         }
       }
       const merged = mergeFormat(existing, updates);
@@ -654,7 +663,7 @@ export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Sprea
   }, [rows, updateRow]);
 
   // Toolbar format handler — supports both cell-level and inline rich text formatting
-  const cellLevelKeys = new Set(['fillColor','textAlign','verticalAlign','numberFormat','decimalPlaces','currencySymbol','border','merge','textWrap','textRotation']);
+  const cellLevelKeys = useMemo(() => new Set(['fillColor','textAlign','verticalAlign','numberFormat','decimalPlaces','currencySymbol','border','merge','textWrap','textRotation']), []);
 
   const handleToolbarFormat = useCallback((format: Partial<CellFormat>) => {
     if (!selectedCell) return;
@@ -677,15 +686,19 @@ export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Sprea
 
       // For boolean toggles, check if selection is already formatted
       const inlineFormat: Partial<RichTextRun> = {};
-      for (const [key, value] of Object.entries(format)) {
+      for (const key of Object.keys(format) as (keyof CellFormat)[]) {
         if (key === 'bold') {
           inlineFormat.bold = !isAllBold(runs, start, end);
         } else if (key === 'italic') {
           inlineFormat.italic = !isAllItalic(runs, start, end);
         } else if (key === 'strikethrough') {
           inlineFormat.strikethrough = !isAllStrikethrough(runs, start, end);
-        } else if (key === 'textColor' || key === 'fontFamily' || key === 'fontSize') {
-          (inlineFormat as any)[key] = value;
+        } else if (key === 'textColor') {
+          inlineFormat.textColor = format.textColor;
+        } else if (key === 'fontFamily') {
+          inlineFormat.fontFamily = format.fontFamily;
+        } else if (key === 'fontSize') {
+          inlineFormat.fontSize = format.fontSize;
         }
       }
 
@@ -739,7 +752,7 @@ export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Sprea
     }
 
     if (cells.length > 0) applyFormat(cells, format);
-  }, [selectedCell, selectionEnd, columns, rows, applyFormat, createRow, isEditing, inlineSelection, editValue]);
+  }, [selectedCell, selectionEnd, columns, rows, applyFormat, createRow, isEditing, inlineSelection, editValue, cellLevelKeys]);
 
   // Keep old name for context menu and paint format usage
   const handleFormatCells = applyFormat;
@@ -778,6 +791,13 @@ export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Sprea
       }
     }
     setPaintFormat(null);
+    // Intentionally scoped to `selectedCell` only: this must fire exactly once, on the
+    // click that picks the *target* cell after format-painter activation. Adding
+    // `paintFormat` (or `rows`/`columns`/`updateRow`, which change as a result of the
+    // mutate() below) would also re-run this on activation itself — immediately
+    // re-applying to the source cell and cancelling painter mode before the user can
+    // pick a target.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCell]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, type: 'cell' | 'column-header' | 'row-number', coord: CellCoord) => {
@@ -883,7 +903,7 @@ export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Sprea
     (col: number, row: number, extras: { value?: string; link?: string | null; note?: string | null }) => {
       const colObj = columns[col];
       if (!colObj) return;
-      const data: Record<string, any> = {};
+      const data: Record<string, CellDataValue> = {};
       if (extras.value !== undefined) data[colObj.id] = extras.value || null;
       if (extras.link !== undefined) data[linkKey(colObj.id)] = extras.link || null;
       if (extras.note !== undefined) data[noteKey(colObj.id)] = extras.note || null;
@@ -1134,7 +1154,7 @@ export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Sprea
   }, [activeSheetId, activeFilter, columns, updateSheetSettings]);
 
   // Merged cell ranges + whether the current selection sits on one.
-  const activeMerges = activeSheetSettings?.merges ?? [];
+  const activeMerges = useMemo(() => activeSheetSettings?.merges ?? [], [activeSheetSettings]);
   const mergeActive = useMemo(() => {
     if (activeMerges.length === 0 || !selectedCell) return false;
     const r = normRange({ start: selectedCell, end: selectionEnd ?? selectedCell });

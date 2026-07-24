@@ -54,7 +54,7 @@ export function TeamMemberPanelHeader({ profile, onClose, isSelf }: TeamMemberPa
 
   const handleMessage = () => {
     if (!dmChannelId) return;
-    navigate({ to: `/weldchat/c/${dmChannelId}` as any });
+    navigate({ to: '/weldchat/$channelId', params: { channelId: dmChannelId } });
     onClose();
   };
 

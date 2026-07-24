@@ -20,6 +20,34 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Loader2 } from 'lucide-react';
 import type { RoomClient } from '@weldsuite/realtime/client';
 import { useChatContext } from './chat-context';
+import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
+import type { ChatCall } from '@weldsuite/db/schema/chat-calls';
+
+/** A message row as this list's cache-merge + filter pipeline builds it. */
+interface ListMessage extends ChatMessage {
+  isBookmarked: boolean;
+}
+
+/** Normalizes `useMessages()` (infinite, channel view) and `useThreadMessages()`
+ * (flat, thread view) — only one is ever actually enabled at a time — onto a
+ * single shape. `fetchNextPage`/`hasNextPage`/`isFetchingNextPage` only exist
+ * on the infinite-query result; they're simply absent (falsy) in thread mode. */
+interface MessagesQueryResult {
+  data?: {
+    pages?: Array<{ data?: { messages?: ChatMessage[] } | ChatMessage[] }>;
+    data?: ChatMessage[];
+  };
+  isLoading: boolean;
+  fetchNextPage?: () => void;
+  hasNextPage?: boolean;
+  isFetchingNextPage?: boolean;
+}
+
+interface ReadReceiptEntry {
+  userId: string;
+  userName?: string;
+  userAvatar?: string;
+}
 
 interface MessageListProps {
   channelId: string;
@@ -33,7 +61,6 @@ export function MessageList({
   channelId,
   parentId,
   showChannel,
-  client,
   isDm,
 }: MessageListProps) {
   const t = getTranslations('weldchat');
@@ -46,7 +73,7 @@ export function MessageList({
     queryKey: weldchatKeys.activeCall(channelId),
     queryFn: async () => {
       const c = await getClient();
-      return c.get<any>(`/chat-calls/active/${channelId}`);
+      return c.get<{ data: ChatCall | null }>(`/chat-calls/active/${channelId}`);
     },
     refetchInterval: 10000,
     enabled: !parentId,
@@ -57,12 +84,12 @@ export function MessageList({
   const threadResult = useThreadMessages(channelId, parentId || '');
 
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
-    parentId ? threadResult as any : messagesResult;
+    (parentId ? threadResult : messagesResult) as MessagesQueryResult;
 
   // Channel info — used by the empty state. Hits the same cache the page
   // already populated, so no extra fetch in normal navigation.
   const { data: channelData } = useChannel(parentId ? '' : channelId);
-  const channel = (channelData as any)?.data;
+  const channel = channelData?.data;
 
   // Workspace members + agent members for resolving @mention badges
   const { data: membersData } = useWorkspaceMembers();
@@ -94,13 +121,13 @@ export function MessageList({
     const grouped = readReceiptsData?.data;
     if (!grouped) return map;
     for (const [messageId, readers] of Object.entries(grouped)) {
-      const filtered = (readers as any[]).filter(
-        (r: any) => r.userId !== currentUserId
+      const filtered = (readers as ReadReceiptEntry[]).filter(
+        (r) => r.userId !== currentUserId
       );
       if (filtered.length > 0) {
         map.set(
           messageId,
-          filtered.map((r: any) => ({
+          filtered.map((r) => ({
             userId: r.userId,
             userName: r.userName || '',
             userAvatar: r.userAvatar || undefined,
@@ -114,10 +141,13 @@ export function MessageList({
   const { filters } = useChatContext();
 
   // API returns newest-first; reverse to chronological (oldest first, newest at bottom)
-  const allMessages = useMemo(() => {
+  const allMessages = useMemo((): ListMessage[] => {
     const raw =
-      data?.pages?.flatMap((page: any) => page.data?.messages || page.data || []) || data?.data || [];
-    return [...raw].reverse().map((m: any) => ({
+      data?.pages?.flatMap((page) => {
+        const d = page.data;
+        return Array.isArray(d) ? d : (d?.messages ?? []);
+      }) ?? data?.data ?? [];
+    return [...raw].reverse().map((m) => ({
       ...m,
       isBookmarked: bookmarkedIds.has(m.id),
     }));
@@ -129,25 +159,25 @@ export function MessageList({
 
     // Type filter
     if (filters.type === 'messages') {
-      filtered = filtered.filter((m: any) => !m.attachments?.length && m.content?.trim());
+      filtered = filtered.filter((m) => !m.attachments?.length && m.content?.trim());
     } else if (filters.type === 'files') {
-      filtered = filtered.filter((m: any) => m.attachments?.some((a: any) => !a.mimeType?.startsWith('image/')));
+      filtered = filtered.filter((m) => m.attachments?.some((a) => !a.mimeType?.startsWith('image/')));
     } else if (filters.type === 'images') {
-      filtered = filtered.filter((m: any) => m.attachments?.some((a: any) => a.mimeType?.startsWith('image/')));
+      filtered = filtered.filter((m) => m.attachments?.some((a) => a.mimeType?.startsWith('image/')));
     } else if (filters.type === 'links') {
-      filtered = filtered.filter((m: any) => m.content && /https?:\/\/[^\s]+/.test(m.content));
+      filtered = filtered.filter((m) => m.content && /https?:\/\/[^\s]+/.test(m.content));
     }
 
     // Keyword search
     if (filters.search) {
       const q = filters.search.toLowerCase();
-      filtered = filtered.filter((m: any) => m.content?.toLowerCase().includes(q));
+      filtered = filtered.filter((m) => m.content?.toLowerCase().includes(q));
     }
 
     // From filter
     if (filters.from.length > 0) {
       const names = new Set(filters.from.map((n) => n.toLowerCase()));
-      filtered = filtered.filter((m: any) => {
+      filtered = filtered.filter((m) => {
         const name = m.authorName?.toLowerCase();
         return name ? names.has(name) : false;
       });
@@ -156,7 +186,7 @@ export function MessageList({
     // Date filter
     if (filters.date) {
       const filterDateStr = filters.date.toDateString();
-      filtered = filtered.filter((m: any) => new Date(m.createdAt).toDateString() === filterDateStr);
+      filtered = filtered.filter((m) => new Date(m.createdAt ?? '').toDateString() === filterDateStr);
     }
 
     return filtered;
@@ -227,7 +257,7 @@ export function MessageList({
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => fetchNextPage()}
+              onClick={() => fetchNextPage?.()}
               disabled={isFetchingNextPage}
             >
               {isFetchingNextPage ? (
@@ -240,16 +270,16 @@ export function MessageList({
         {!parentId && !hasNextPage && messages.length === 0 && channel && (
           <ChannelEmptyState channel={channel} />
         )}
-        {messages.map((message: any, index: number) => {
+        {messages.map((message, index) => {
           const prevMessage = messages[index - 1];
-          const msgTime = new Date(message.createdAt).getTime();
-          const prevTime = prevMessage ? new Date(prevMessage.createdAt).getTime() : 0;
+          const msgTime = new Date(message.createdAt ?? '').getTime();
+          const prevTime = prevMessage ? new Date(prevMessage.createdAt ?? '').getTime() : 0;
           const timeDiff = msgTime - prevTime;
 
           const showDate =
             !prevMessage ||
-            new Date(message.createdAt).toDateString() !==
-              new Date(prevMessage.createdAt).toDateString();
+            new Date(message.createdAt ?? '').toDateString() !==
+              new Date(prevMessage.createdAt ?? '').toDateString();
 
           // Compact (no avatar/name) only if same author, same date, within 10 min, and valid timestamps
           const isCompact =
@@ -267,7 +297,7 @@ export function MessageList({
                 <div data-chat-divider="date" className="flex items-center gap-4 my-4 px-2 md:px-4">
                   <div className="flex-1 border-t" />
                   <span className="text-xs text-muted-foreground font-medium">
-                    {new Date(message.createdAt).toLocaleDateString(undefined, {
+                    {new Date(message.createdAt ?? '').toLocaleDateString(undefined, {
                       weekday: 'long',
                       month: 'long',
                       day: 'numeric',
@@ -282,7 +312,7 @@ export function MessageList({
                 showChannel={showChannel}
                 channelId={channelId}
                 membersMap={membersMap}
-                replyToMessage={message.parentId ? messages.find((m: any) => m.id === message.parentId) : undefined}
+                replyToMessage={message.parentId ? messages.find((m) => m.id === message.parentId) : undefined}
                 readBy={readByMap.get(message.id)}
                 isDm={isDm}
                 hasActiveCall={hasActiveCall && message.id === lastCallStartedId}

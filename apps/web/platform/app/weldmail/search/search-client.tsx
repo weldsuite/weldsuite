@@ -10,11 +10,9 @@ import {
   Tag,
   Paperclip,
   Star,
-  Clock,
   ChevronDown,
   X,
   Mail,
-  FileText,
   AlertCircle
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -23,13 +21,6 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@weldsuite/ui/components/select';
 import {
   Popover,
   PopoverContent,
@@ -79,7 +70,7 @@ export function SearchClient({ initialEmails }: SearchClientProps) {
 
   const handleSearch = () => {
     // Filter sample emails based on search criteria
-    let results = initialEmails.filter(email => {
+    const results = initialEmails.filter(email => {
       const matchesQuery = !searchQuery ||
         email.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
         email.from.toLowerCase().includes(searchQuery.toLowerCase()) ||

@@ -1,13 +1,13 @@
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useSignUp, useAuth } from '@clerk/clerk-react';
-import { useRouter, useSearchParams, Link } from '@/lib/router';
+import { useSearchParams, Link } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@weldsuite/ui/components/input-otp';
 import { Label } from '@weldsuite/ui/components/label';
-import { Loader2, Mail, Lock, User, CheckCircle, Eye, EyeOff, ChevronLeft } from 'lucide-react';
-import { getSafeCallbackUrl } from '../../utils';
+import { Loader2, Mail, Lock, User, Eye, EyeOff, ChevronLeft } from 'lucide-react';
+import { getClerkErrorMessage } from '../../utils';
 import { getTranslations } from '@/lib/i18n';
 
 function GoogleIcon({ className }: { className?: string }) {
@@ -25,10 +25,7 @@ type RegisterStep = 'form' | 'verify';
 
 export default function RegisterPage() {
   const t = getTranslations('common');
-  const router = useRouter();
   const searchParams = useSearchParams();
-  // Use sanitized callback URL to prevent redirect loops to auth pages
-  const callbackUrl = useMemo(() => getSafeCallbackUrl(searchParams), [searchParams]);
   const prefillEmail = searchParams.get('email');
   const prefillName = searchParams.get('name');
 
@@ -80,8 +77,8 @@ export default function RegisterPage() {
         // account to sign up with instead of Google auto-selecting one.
         oidcPrompt: 'select_account',
       });
-    } catch (err: any) {
-      const errorMessage = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || t.auth.register.googleSignUpFailed;
+    } catch (err) {
+      const errorMessage = getClerkErrorMessage(err, t.auth.register.googleSignUpFailed);
       setError(errorMessage);
       setIsGoogleLoading(false);
     }
@@ -136,8 +133,8 @@ export default function RegisterPage() {
 
       setStep('verify');
       setIsLoading(false);
-    } catch (err: any) {
-      const errorMessage = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || t.auth.register.registrationFailed;
+    } catch (err) {
+      const errorMessage = getClerkErrorMessage(err, t.auth.register.registrationFailed);
       setError(errorMessage);
       setIsLoading(false);
     }
@@ -171,8 +168,8 @@ export default function RegisterPage() {
         setError(t.auth.register.verificationFailed);
         setIsLoading(false);
       }
-    } catch (err: any) {
-      const errorMessage = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || t.auth.register.invalidVerificationCode;
+    } catch (err) {
+      const errorMessage = getClerkErrorMessage(err, t.auth.register.invalidVerificationCode);
       setError(errorMessage);
       setIsLoading(false);
     }
@@ -189,8 +186,8 @@ export default function RegisterPage() {
     try {
       await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
       setIsLoading(false);
-    } catch (err: any) {
-      const errorMessage = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || t.auth.register.failedToResend;
+    } catch (err) {
+      const errorMessage = getClerkErrorMessage(err, t.auth.register.failedToResend);
       setError(errorMessage);
       setIsLoading(false);
     }

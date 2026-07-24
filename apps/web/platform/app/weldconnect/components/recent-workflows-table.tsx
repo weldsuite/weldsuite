@@ -12,7 +12,7 @@ import {
   useReactTable,
   VisibilityState,
 } from "@tanstack/react-table"
-import { EllipsisVertical, GitBranch, Zap, CheckCircle2, XCircle, Clock } from "lucide-react"
+import { EllipsisVertical } from "lucide-react"
 
 import { Button } from "@weldsuite/ui/components/button"
 import {

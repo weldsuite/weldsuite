@@ -105,7 +105,7 @@ export function AiSettingsDialog({
         modelPreference: defaultValues?.modelPreference || '',
       });
     }
-  }, [open, defaultValues]);
+  }, [open, defaultValues, form]);
 
   const onSubmit = async (values: AiSettingsFormValues) => {
     try {

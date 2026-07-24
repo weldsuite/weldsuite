@@ -16,7 +16,6 @@ import {
   Webhook as WebhookIcon,
 } from "lucide-react"
 import { Button } from "@weldsuite/ui/components/button"
-import { Card, CardContent } from "@weldsuite/ui/components/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@weldsuite/ui/components/table"
 import { Badge } from "@weldsuite/ui/components/badge"
 import {
@@ -131,13 +130,13 @@ export function ExternalWebhooksSection() {
   const testMutation = useSendTestWebhook()
 
   const catalogEvents = eventsData?.data ?? []
-  const webhooks = webhooksData?.data ?? []
 
   const filteredWebhooks = React.useMemo(() => {
+    const webhooks = webhooksData?.data ?? []
     const q = searchQuery.trim().toLowerCase()
     if (!q) return webhooks
     return webhooks.filter((w) => [w.name, w.description, w.url].filter(Boolean).join(" ").toLowerCase().includes(q))
-  }, [webhooks, searchQuery])
+  }, [webhooksData, searchQuery])
 
   // Create dialog state
   const [createOpen, setCreateOpen] = React.useState(false)

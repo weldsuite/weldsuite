@@ -36,7 +36,7 @@ export default function ForgotPasswordPage() {
 
       setSuccess(true);
       setIsLoading(false);
-    } catch (err: any) {
+    } catch {
       // Always show success to prevent email enumeration
       setSuccess(true);
       setIsLoading(false);

@@ -4,7 +4,6 @@ import {
   Home,
   LayoutDashboard,
   Calculator,
-  ShoppingBag,
   UserCircle,
   Warehouse,
   Mail,

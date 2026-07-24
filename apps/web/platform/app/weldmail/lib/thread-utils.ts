@@ -5,6 +5,8 @@
  * and stored in the database for efficient querying.
  */
 
+import type { MailMessageRow } from '@weldsuite/app-api-client/domains/mail-messages';
+
 /**
  * Thread summary interface representing a grouped conversation
  */
@@ -30,7 +32,7 @@ export interface ThreadSummary {
   labels: string[]; // Union of all message labels
   scheduledFor?: string | Date | null; // Scheduling time
   sendStatus?: string | null; // 'scheduled' | 'sent' | 'cancelled'
-  messages: any[]; // All messages in thread (for detail view)
+  messages: MailMessageRow[]; // All messages in thread (for detail view)
   accountId?: string; // Present in unified view
   accountEmail?: string; // Present in unified view
   accountDisplayName?: string; // Present in unified view
@@ -92,9 +94,9 @@ export function normalizeSubject(subject: string): string {
  * @param messages - Array of messages (must have threadId populated)
  * @returns Array of ThreadSummary objects sorted by latest message date
  */
-export function groupMessagesIntoThreads(messages: any[]): ThreadSummary[] {
+export function groupMessagesIntoThreads(messages: MailMessageRow[]): ThreadSummary[] {
   // Group messages by threadId
-  const threadMap = new Map<string, any[]>();
+  const threadMap = new Map<string, MailMessageRow[]>();
 
   for (const msg of messages) {
     const threadId = msg.threadId || computeThreadId(msg);
@@ -110,8 +112,8 @@ export function groupMessagesIntoThreads(messages: any[]): ThreadSummary[] {
     // Sort messages by date (oldest first within thread)
     threadMessages.sort(
       (a, b) =>
-        new Date(a.receivedDate || a.sentDate || a.createdAt).getTime() -
-        new Date(b.receivedDate || b.sentDate || b.createdAt).getTime()
+        new Date(a.receivedDate ?? a.sentDate ?? a.createdAt).getTime() -
+        new Date(b.receivedDate ?? b.sentDate ?? b.createdAt).getTime()
     );
 
     const firstMessage = threadMessages[0];
@@ -120,44 +122,35 @@ export function groupMessagesIntoThreads(messages: any[]): ThreadSummary[] {
     // Collect unique participants (senders)
     const participantSet = new Set<string>();
     for (const msg of threadMessages) {
-      const sender =
-        typeof msg.from === 'object' ? msg.from?.name || msg.from?.email : msg.fromName || msg.from;
+      const sender = msg.from?.name || msg.from?.email;
       if (sender) participantSet.add(sender);
     }
 
     // Compute aggregate values
-    const unreadCount = threadMessages.filter((m: any) => !m.isRead).length;
-    const hasAttachments = threadMessages.some((m: any) => m.hasAttachments);
-    const isStarred = threadMessages.some((m: any) => m.isStarred);
+    const unreadCount = threadMessages.filter((m) => !m.isRead).length;
+    const hasAttachments = threadMessages.some((m) => m.hasAttachments);
+    const isStarred = threadMessages.some((m) => m.isStarred);
 
     // Collect all labels (union)
     const labelSet = new Set<string>();
     for (const msg of threadMessages) {
-      if (msg.labels && Array.isArray(msg.labels)) {
-        msg.labels.forEach((l: string) => labelSet.add(l));
+      if (msg.labels) {
+        msg.labels.forEach((l) => labelSet.add(l));
       }
     }
 
     // Get sender info from latest message
-    const latestSender =
-      typeof latestMessage.from === 'object'
-        ? latestMessage.from?.name || latestMessage.from?.email
-        : latestMessage.fromName || latestMessage.from || 'Unknown';
-    const latestSenderEmail =
-      typeof latestMessage.from === 'object'
-        ? latestMessage.from?.email
-        : latestMessage.fromEmail || latestMessage.from || '';
+    const latestSender = latestMessage.from?.name || latestMessage.from?.email || 'Unknown';
+    const latestSenderEmail = latestMessage.from?.email || '';
 
     threads.push({
       threadId,
-      subject: normalizeSubject(firstMessage.subject),
+      subject: normalizeSubject(firstMessage.subject || ''),
       participants: Array.from(participantSet),
       latestMessageId: latestMessage.id,
       latestSender,
       latestSenderEmail,
-      latestDate: new Date(
-        latestMessage.receivedDate || latestMessage.sentDate || latestMessage.createdAt
-      ),
+      latestDate: new Date(latestMessage.receivedDate ?? latestMessage.sentDate ?? latestMessage.createdAt),
       preview: latestMessage.preview || latestMessage.textBody?.substring(0, 150) || '',
       messageCount: threadMessages.length,
       unreadCount,

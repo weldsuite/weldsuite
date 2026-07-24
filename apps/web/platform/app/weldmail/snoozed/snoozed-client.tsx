@@ -6,13 +6,10 @@ import {
   Calendar,
   Bell,
   BellOff,
-  Mail,
-  ChevronRight,
   MoreVertical
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import {
   DropdownMenu,
@@ -51,7 +48,7 @@ export function SnoozedClient({ initialEmails }: SnoozedClientProps) {
 
   const [snoozedEmails] = useState(initialEmails);
 
-  const handleUnsnooze = (id: string) => {
+  const handleUnsnooze = () => {
     toast.success(t.mail.snoozed.emailMovedBackToInbox);
   };
 
@@ -198,7 +195,7 @@ export function SnoozedClient({ initialEmails }: SnoozedClientProps) {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => handleUnsnooze(email.id)}
+                        onClick={handleUnsnooze}
                       >
                         <BellOff className="h-4 w-4" />
                       </Button>
@@ -287,7 +284,7 @@ export function SnoozedClient({ initialEmails }: SnoozedClientProps) {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => handleUnsnooze(email.id)}
+                        onClick={handleUnsnooze}
                       >
                         <BellOff className="h-4 w-4" />
                       </Button>

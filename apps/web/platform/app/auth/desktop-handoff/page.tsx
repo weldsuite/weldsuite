@@ -61,7 +61,7 @@ export default function DesktopHandoffPage() {
         setPhase('error');
       }
     })();
-  }, [isLoaded, isSignedIn, returnTo, getClient]);
+  }, [isLoaded, isSignedIn, returnTo, getClient, t.auth.desktop.error.failedToComplete]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-white px-6">

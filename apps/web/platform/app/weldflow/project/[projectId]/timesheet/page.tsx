@@ -1,27 +1,14 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useParams } from '@/lib/router';
-import { useUser } from '@clerk/clerk-react';
 import { format } from 'date-fns';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
-  DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
-import { Label } from '@weldsuite/ui/components/label';
-import { Textarea } from '@weldsuite/ui/components/textarea';
-import { Checkbox } from '@weldsuite/ui/components/checkbox';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
 import {
   Popover,
   PopoverContent,
@@ -29,7 +16,6 @@ import {
 } from '@weldsuite/ui/components/popover';
 import { Calendar } from '@weldsuite/ui/components/calendar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import {
   ChevronDown,
   ChevronLeft,
@@ -37,15 +23,11 @@ import {
   Plus,
   Play,
   Square,
-  Clock,
-  CalendarIcon,
   Loader2,
   AlertCircle,
-  User,
   X,
   Trash2,
   Check,
-  ChevronsUpDown,
   Search,
   Link2,
   FileText,
@@ -101,6 +83,29 @@ interface ProjectTask {
   title: string;
 }
 
+// Raw shapes as returned by the app-api time-entries / tasks endpoints
+interface RawTimeEntry {
+  id: string;
+  taskId?: string;
+  description?: string;
+  date: string;
+  duration?: number;
+  durationMinutes?: number;
+  startTime?: string | null;
+  endTime?: string | null;
+  userId: string;
+  billable?: boolean;
+  isBillable?: boolean;
+  status?: string;
+  task?: { id: string; title: string };
+  user?: { id: string; name: string; email: string };
+}
+
+interface RawProjectTask {
+  id: string;
+  title: string;
+}
+
 interface ProjectMember {
   id: string;
   userId: string;
@@ -124,10 +129,7 @@ interface WeekDay {
 
 export default function TimesheetPage() {
   const params = useParams();
-  const { user } = useUser();
   const projectId = params.projectId as string;
-  const currentUserId = user?.id;
-  const currentUserName = user?.fullName || 'User';
 
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [tasks, setTasks] = useState<ProjectTask[]>([]);
@@ -254,10 +256,10 @@ export default function TimesheetPage() {
       ]);
 
       if (entriesResult.success) {
-        const rawEntries = Array.isArray(entriesResult.data)
+        const rawEntries = (Array.isArray(entriesResult.data)
           ? entriesResult.data
-          : entriesResult.data?.items || [];
-        const transformedEntries = rawEntries.map((entry: any) => ({
+          : entriesResult.data?.items || []) as unknown as RawTimeEntry[];
+        const transformedEntries = rawEntries.map((entry) => ({
           id: entry.id,
           taskId: entry.taskId,
           taskName: entry.task?.title || entry.description || 'Untitled',
@@ -279,7 +281,7 @@ export default function TimesheetPage() {
       }
 
       if (tasksResult.success) {
-        setTasks((tasksResult.data || []).map((task: any) => ({
+        setTasks(((tasksResult.data || []) as RawProjectTask[]).map((task) => ({
           id: task.id,
           title: task.title,
         })));
@@ -379,7 +381,7 @@ export default function TimesheetPage() {
   };
 
   // Calculate total hours for a date
-  const getTotalHoursForDate = (date: Date): number => {
+  const getTotalHoursForDate = useCallback((date: Date): number => {
     return entries
       .filter(entry => {
         const entryDate = new Date(entry.date);
@@ -389,7 +391,7 @@ export default function TimesheetPage() {
         return entryDate.getTime() === targetDate.getTime();
       })
       .reduce((sum, entry) => sum + (entry.duration / 60), 0);
-  };
+  }, [entries]);
 
   // Calculate total hours for a task in current week
   const getTotalHoursForTask = (taskId: string, taskName: string): number => {
@@ -399,7 +401,7 @@ export default function TimesheetPage() {
   // Calculate weekly total
   const weeklyTotal = useMemo(() => {
     return weekDays.reduce((sum, day) => sum + getTotalHoursForDate(day.date), 0);
-  }, [weekDays, entries]);
+  }, [weekDays, getTotalHoursForDate]);
 
   // Navigate weeks
   const goToPreviousWeek = () => {
@@ -515,7 +517,7 @@ export default function TimesheetPage() {
       } else {
         toast.error(result.error || st('sweep.weldflow.timesheetPage.saveFailed'));
       }
-    } catch (err) {
+    } catch {
       toast.error(st('sweep.weldflow.timesheetPage.saveFailed'));
     } finally {
       setIsSubmitting(false);
@@ -648,9 +650,10 @@ export default function TimesheetPage() {
       });
 
       if (result.success && result.data) {
-        setTasks((prev) => [...prev, { id: result.data.id, title: result.data.title }]);
-        setNewEntryTaskId(result.data.id);
-        setNewEntryTaskName(result.data.title);
+        const newTask = result.data;
+        setTasks((prev) => [...prev, { id: newTask.id, title: newTask.title }]);
+        setNewEntryTaskId(newTask.id);
+        setNewEntryTaskName(newTask.title);
         setShowCreateTaskDialog(false);
         setShowAddDialog(true);
         toast.success(st('sweep.weldflow.timesheetPage.taskCreated'));
@@ -692,7 +695,7 @@ export default function TimesheetPage() {
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
 
-    let startDate = new Date(firstDay);
+    const startDate = new Date(firstDay);
     const dayOfWeek = firstDay.getDay();
     const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
     startDate.setDate(firstDay.getDate() + diff);

@@ -1,7 +1,5 @@
 
-import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { Button } from '@weldsuite/ui/components/button';
-import { ChevronLeft } from 'lucide-react';
+import React, { useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { WysiwygEditor, DefaultToolbar } from '@/components/wysiwyg-editor/wysiwyg-editor';
 import type { ToolbarProps } from '@/components/wysiwyg-editor/wysiwyg-editor';

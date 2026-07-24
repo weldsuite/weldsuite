@@ -19,7 +19,7 @@ import { useI18n } from '@/lib/i18n/provider';
 
 export function WorkspaceNameSection() {
   const { t } = useI18n();
-  const ts = (t.settings.generalSettings as any).workspaceName as Record<string, string>;
+  const ts = t.settings.generalSettings.workspaceName;
   const { organization } = useOrganization();
   const { workspaceSettings } = useAppApi();
   const { data: member } = useCurrentMember();

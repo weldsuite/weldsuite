@@ -17,6 +17,12 @@ export interface ChatSection {
   name: string;
 }
 
+/** `/chat-sections` row as `useSections()` projects it — only `id`/`name` read here. */
+interface RawSectionRow {
+  id: string;
+  name?: string;
+}
+
 export function useChatSections() {
   const { data: sectionsData } = useSections();
   const { data: channelsData } = useChannels();
@@ -27,7 +33,7 @@ export function useChatSections() {
   const removeMutation = useRemoveChannelFromSection();
 
   const sections: ChatSection[] = useMemo(
-    () => (sectionsData?.data || []).map((s: any) => ({ id: s.id, name: s.name })),
+    () => ((sectionsData?.data ?? []) as RawSectionRow[]).map((s) => ({ id: s.id, name: s.name ?? '' })),
     [sectionsData],
   );
 

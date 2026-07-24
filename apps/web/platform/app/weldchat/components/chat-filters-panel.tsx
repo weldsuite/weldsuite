@@ -32,14 +32,27 @@ import { cn } from '@/lib/utils';
 import { useMessages, useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import { useChatContext, type FilterType, type ChatFilters } from './chat-context';
 
-function applyFilters(messages: any[], filters: ChatFilters): any[] {
+interface RawChatFilterAttachment {
+  mimeType?: string;
+}
+
+interface RawChatFilterMessage {
+  id: string;
+  content?: string;
+  authorName?: string;
+  authorAvatar?: string | null;
+  createdAt?: string;
+  attachments?: RawChatFilterAttachment[];
+}
+
+function applyFilters(messages: RawChatFilterMessage[], filters: ChatFilters): RawChatFilterMessage[] {
   let out = messages;
   if (filters.type === 'messages') {
     out = out.filter((m) => !m.attachments?.length && m.content?.trim());
   } else if (filters.type === 'files') {
-    out = out.filter((m) => m.attachments?.some((a: any) => !a.mimeType?.startsWith('image/')));
+    out = out.filter((m) => m.attachments?.some((a) => !a.mimeType?.startsWith('image/')));
   } else if (filters.type === 'images') {
-    out = out.filter((m) => m.attachments?.some((a: any) => a.mimeType?.startsWith('image/')));
+    out = out.filter((m) => m.attachments?.some((a) => a.mimeType?.startsWith('image/')));
   } else if (filters.type === 'links') {
     out = out.filter((m) => m.content && /https?:\/\/[^\s]+/.test(m.content));
   }
@@ -56,7 +69,7 @@ function applyFilters(messages: any[], filters: ChatFilters): any[] {
   }
   if (filters.date) {
     const filterDateStr = filters.date.toDateString();
-    out = out.filter((m) => new Date(m.createdAt).toDateString() === filterDateStr);
+    out = out.filter((m) => new Date(m.createdAt ?? '').toDateString() === filterDateStr);
   }
   return out;
 }
@@ -117,7 +130,13 @@ export function ChatFiltersPanel({ embedded = false }: { embedded?: boolean } = 
     useMessages(activeChannelId ?? '');
 
   const filteredMessages = useMemo(() => {
-    const raw = messagesData?.pages?.flatMap((p: any) => p.data?.messages || p.data || []) || [];
+    const pages = messagesData?.pages as
+      | Array<{ data?: { messages?: RawChatFilterMessage[] } | RawChatFilterMessage[] }>
+      | undefined;
+    const raw = pages?.flatMap((p) => {
+      const d = p.data;
+      return Array.isArray(d) ? d : (d?.messages ?? []);
+    }) ?? [];
     return applyFilters(raw, filters);
   }, [messagesData, filters]);
   const members = (() => {
@@ -431,8 +450,8 @@ export function ChatFiltersPanel({ embedded = false }: { embedded?: boolean } = 
           </div>
         )}
         {hasActiveFilters && activeChannelId && filteredMessages.map((msg) => {
-          const hasImage = msg.attachments?.some((a: any) => a.mimeType?.startsWith('image/'));
-          const hasFile = msg.attachments?.some((a: any) => !a.mimeType?.startsWith('image/'));
+          const hasImage = msg.attachments?.some((a) => a.mimeType?.startsWith('image/'));
+          const hasFile = msg.attachments?.some((a) => !a.mimeType?.startsWith('image/'));
           const hasLink = msg.content && /https?:\/\/[^\s]+/.test(msg.content);
           const CategoryIcon =
             hasImage ? ImageIcon :
@@ -493,9 +512,9 @@ export function ChatFiltersPanel({ embedded = false }: { embedded?: boolean } = 
                       {msg.content}
                     </div>
                   )}
-                  {msg.attachments?.length > 0 && (
+                  {(msg.attachments?.length ?? 0) > 0 && (
                     <div className="text-xs text-muted-foreground mt-1">
-                      {msg.attachments.length} {msg.attachments.length === 1 ? t.weldchat.chatFiltersPanel.attachment : t.weldchat.chatFiltersPanel.attachments}
+                      {msg.attachments!.length} {msg.attachments!.length === 1 ? t.weldchat.chatFiltersPanel.attachment : t.weldchat.chatFiltersPanel.attachments}
                     </div>
                   )}
                 </div>

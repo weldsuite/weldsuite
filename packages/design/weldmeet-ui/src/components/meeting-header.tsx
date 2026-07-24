@@ -16,7 +16,7 @@ export interface MeetingHeaderProps {
   participantsCount?: number;
   rightPanel: RightPanelKind;
   showChat: boolean;
-  onToggleRightPanel: (panel: 'info' | 'people' | 'settings') => void;
+  onToggleRightPanel: (panel: 'info' | 'people' | 'settings' | 'tools') => void;
   onToggleChat: () => void;
   onRenameMeeting?: (newTitle: string) => void;
 

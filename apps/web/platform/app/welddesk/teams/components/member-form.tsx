@@ -3,7 +3,6 @@ import { UserPlus, User, Settings, Building2, Award } from 'lucide-react';
 import { EntityFormLayout, type FormSection } from '@/components/entity-overview';
 import { Field, FieldLabel, FieldError } from '@weldsuite/ui/components/field';
 import { Input } from '@weldsuite/ui/components/input';
-import { Label } from '@weldsuite/ui/components/label';
 import { Badge } from '@weldsuite/ui/components/badge';
 import {
   Select,

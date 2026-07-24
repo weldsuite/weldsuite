@@ -10,7 +10,6 @@ import {
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@/lib/utils';
 import { useDriveFolders } from '@/hooks/queries/use-drive-queries';
-import type { DriveFolder } from '@/lib/api/domains/welddrive';
 import { useI18n } from '@/lib/i18n/provider';
 
 interface MoveToFolderDialogProps {

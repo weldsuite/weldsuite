@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { cn } from '../lib/utils';
+import { cn } from '../../lib/utils';
 import { Trophy, X, ChevronRight } from 'lucide-react';
 import { RewardBadge } from './reward-badge';
 

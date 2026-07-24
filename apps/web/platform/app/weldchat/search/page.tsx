@@ -3,9 +3,10 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useQuery } from '@tanstack/react-query';
 import { Input } from '@weldsuite/ui/components/input';
 import { Button } from '@weldsuite/ui/components/button';
-import { Search, User, Hash, Calendar, Paperclip, Pin, X } from 'lucide-react';
+import { Search, Calendar, Paperclip, Pin, X } from 'lucide-react';
 import { MessageItem } from '../components/message-item';
 import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
+import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -30,8 +31,6 @@ export default function SearchPage() {
   const { getClient } = useAppApiClient();
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState<SearchFilters>({});
-  const [activeFilter, setActiveFilter] = useState<string | null>(null);
-  const [filterInput, setFilterInput] = useState('');
 
   const searchEnabled = query.length >= 2;
 
@@ -46,7 +45,7 @@ export default function SearchPage() {
       if (filters.isPinned) params.set('isPinned', 'true');
       if (filters.before) params.set('before', filters.before);
       if (filters.after) params.set('after', filters.after);
-      return client.get<{ data: { messages: any[]; total: number } }>(
+      return client.get<{ data: { messages: ChatMessage[]; total: number } }>(
         `/chat-search?${params.toString()}`,
       );
     },
@@ -72,7 +71,7 @@ export default function SearchPage() {
   const removeFilter = (key: string) => {
     setFilters((prev) => {
       const next = { ...prev };
-      delete (next as any)[key];
+      delete next[key as keyof SearchFilters];
       return next;
     });
   };
@@ -155,7 +154,7 @@ export default function SearchPage() {
           <div className="text-center text-muted-foreground py-8">{t.weldchat.search.noResults}</div>
         )}
         <div className="space-y-1">
-          {messages.map((msg: any) => (
+          {messages.map((msg) => (
             <MessageItem key={msg.id} message={msg} showChannel />
           ))}
         </div>

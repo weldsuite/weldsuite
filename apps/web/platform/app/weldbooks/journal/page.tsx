@@ -112,12 +112,12 @@ export default function JournalEntriesPage() {
       isLoading={isLoading}
       columns={columns}
       groups={buildMonthGroups(entries, tjp.ungrouped)}
-      onRowClick={(e) => navigate({ to: `/weldbooks/journal/${e.id}` as any })}
+      onRowClick={(e) => navigate({ to: '/weldbooks/journal/$id', params: { id: e.id } })}
       filters={[]}
       searchFields={['reference', 'description']}
       createButton={{
         label: tjp.newEntry,
-        onClick: () => navigate({ to: '/weldbooks/journal/add' as any }),
+        onClick: () => navigate({ to: '/weldbooks/journal/add' }),
       }}
       emptyState={{
         icon: (
@@ -129,7 +129,7 @@ export default function JournalEntriesPage() {
         description: t.accounting.description,
         action: {
           label: tjp.newEntry,
-          onClick: () => navigate({ to: '/weldbooks/journal/add' as any }),
+          onClick: () => navigate({ to: '/weldbooks/journal/add' }),
         },
       }}
     />

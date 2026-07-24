@@ -18,9 +18,9 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import {
   useSocialPosts,
-  useRescheduleSocialPost,
 } from '@/hooks/queries/use-social-queries';
 import { ComposerDialog } from '@/app/social/components/composer-dialog';
+import type { SocialPost } from '@weldsuite/app-api-client/domains/social';
 
 export function CalendarClient() {
   const { t } = useI18n();
@@ -30,7 +30,6 @@ export function CalendarClient() {
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
 
   const { data, isLoading } = useSocialPosts({ status: 'scheduled' });
-  const reschedulePost = useRescheduleSocialPost();
 
   const posts = data?.data || [];
 
@@ -42,7 +41,7 @@ export function CalendarClient() {
 
   const getPostsForDay = (day: Date) =>
     posts.filter(
-      (p: any) => p.scheduledAt && isSameDay(new Date(p.scheduledAt), day)
+      (p: SocialPost) => p.scheduledAt && isSameDay(new Date(p.scheduledAt), day)
     );
 
   const selectedDayPosts = selectedDay ? getPostsForDay(selectedDay) : [];
@@ -104,7 +103,7 @@ export function CalendarClient() {
                     {formatDate(day, 'd')}
                   </span>
                   <div className="mt-1 space-y-0.5">
-                    {dayPosts.slice(0, 3).map((post: any) => (
+                    {dayPosts.slice(0, 3).map((post: SocialPost) => (
                       <div
                         key={post.id}
                         className="text-xs bg-primary/10 text-primary rounded px-1 py-0.5 truncate"
@@ -130,7 +129,7 @@ export function CalendarClient() {
               {selectedDayPosts.length === 0 ? (
                 <p className="text-sm text-muted-foreground">{t.social.calendar.noScheduledPosts}</p>
               ) : (
-                selectedDayPosts.map((post: any) => (
+                selectedDayPosts.map((post: SocialPost) => (
                   <div key={post.id} className="flex items-start justify-between gap-3 py-2 border-b last:border-0">
                     <p className="text-sm line-clamp-2 flex-1">{post.content || '—'}</p>
                     <div className="flex items-center gap-2 shrink-0">

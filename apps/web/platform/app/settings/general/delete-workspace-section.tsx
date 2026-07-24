@@ -34,7 +34,7 @@ export function DeleteWorkspaceSection() {
   const { organization } = useOrganization();
   const orgList = useOrganizationList({ userMemberships: true });
   const { t } = useI18n();
-  const td = (t.settings.generalSettings as any).deleteWorkspace as Record<string, any>;
+  const td = t.settings.generalSettings.deleteWorkspace;
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [status, setStatus] = useState<WorkspaceDeletionStatus | null>(null);

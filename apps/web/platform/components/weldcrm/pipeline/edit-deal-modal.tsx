@@ -189,7 +189,7 @@ export function EditDealModal({
               </AvatarFallback>
             </Avatar>
             <div>
-              <DialogTitle className="text-base">{t.crm.deals.editModal?.title || st('sweep.weldcrm.editDealModal.title')}</DialogTitle>
+              <DialogTitle className="text-base">{st('sweep.weldcrm.editDealModal.title')}</DialogTitle>
               <DialogDescription className="text-xs">
                 {deal.company?.name || deal.title}
               </DialogDescription>
@@ -334,7 +334,7 @@ export function EditDealModal({
                   open={showDeleteConfirm}
                   onOpenChange={setShowDeleteConfirm}
                   title={t.common.messages.confirmDelete}
-                  description={t.crm.deals.editModal?.deleteConfirmation || st('sweep.weldcrm.editDealModal.deleteConfirmation')}
+                  description={st('sweep.weldcrm.editDealModal.deleteConfirmation')}
                   variant="destructive"
                   confirmLabel={t.common.actions.delete}
                   cancelLabel={t.common.actions.cancel}

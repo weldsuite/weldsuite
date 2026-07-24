@@ -51,6 +51,12 @@ interface HelpcenterSettingsData {
   customDomain?: string | null;
 }
 
+interface HelpcenterDomain {
+  id: string;
+  domain: string;
+  isVerified: boolean;
+}
+
 interface Props {
   initialSettings: HelpcenterSettingsData | null;
 }
@@ -98,7 +104,7 @@ export function HelpcenterSettingsClient({ initialSettings }: Props) {
 
   const isEnabled = settings.isEnabled === 1;
 
-  const updateField = (field: string, value: any) => {
+  const updateField = <K extends keyof HelpcenterSettingsData>(field: K, value: HelpcenterSettingsData[K]) => {
     setSettings((prev) => ({ ...prev, [field]: value }));
     setHasChanges(true);
   };
@@ -346,7 +352,7 @@ export function HelpcenterSettingsClient({ initialSettings }: Props) {
         )}
 
         {/* Custom domains */}
-        {!domainsLoading && domains?.map((domain: any) => (
+        {!domainsLoading && domains?.map((domain: HelpcenterDomain) => (
           <div key={domain.id} className="flex items-center justify-between p-3 rounded-lg border">
             <div className="flex items-center gap-2">
               {domain.isVerified ? (
@@ -383,7 +389,7 @@ export function HelpcenterSettingsClient({ initialSettings }: Props) {
         ))}
 
         {/* DNS instructions for unverified domains */}
-        {domains?.some((d: any) => !d.isVerified) && (
+        {domains?.some((d: HelpcenterDomain) => !d.isVerified) && (
           <div className="rounded-lg border border-yellow-200 bg-yellow-50 dark:border-yellow-900 dark:bg-yellow-950/20 p-4 text-sm space-y-2">
             <p className="font-medium">{th.dnsRequired}</p>
             <p className="text-muted-foreground">

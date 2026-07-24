@@ -77,8 +77,8 @@ export function MentionAutocomplete({
   const { data: membersData } = useWorkspaceMembers();
   const { data: channelMembersData } = useChannelMembers(channelId || '');
   const { data: channelData } = useChannel(channelId || '');
-  const members = membersData?.data ?? [];
-  const channelMembers = channelMembersData?.data ?? [];
+  const members = useMemo(() => membersData?.data ?? [], [membersData]);
+  const channelMembers = useMemo(() => channelMembersData?.data ?? [], [channelMembersData]);
   const channelType: string | undefined = channelData?.data?.type;
   const ref = useRef<HTMLDivElement>(null);
 
@@ -116,7 +116,7 @@ export function MentionAutocomplete({
           }),
         )
         .filter((m: PersonItem) => !!m.userId),
-    [channelMembers],
+    [channelMembers, t.weldchat.mentionAutocomplete.agent],
   );
 
   const userSuggestions: PersonItem[] = useMemo(
@@ -141,7 +141,7 @@ export function MentionAutocomplete({
   }, [agentSuggestions, userSuggestions, trimmed]);
 
   // -- Records section -----------------------------------------------------
-  const groups = searchData?.data ?? [];
+  const groups = useMemo(() => searchData?.data ?? [], [searchData]);
   const entityGroups = useMemo(
     () =>
       groups

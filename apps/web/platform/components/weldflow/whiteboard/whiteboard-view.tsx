@@ -1953,7 +1953,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
         setSelectedElement(null);
       }
       return;
-    } else if (tool === 'pan' || (tool === 'select' && e.shiftKey)) {
+    } else if (tool === 'pan') {
       setIsPanning(true);
       setPanStart({
         x: e.clientX - panPosition.x,
@@ -6222,7 +6222,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   />
-                  {arrowType !== 'line' && renderArrowHead(
+                  {renderArrowHead(
                     startPoint.x + (currentPoint.x - startPoint.x) / 2,
                     currentPoint.y,
                     currentPoint.x,

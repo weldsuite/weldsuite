@@ -16,7 +16,6 @@ import {
   Monitor,
   Headphones,
   Users,
-  ShoppingCart,
   FolderKanban,
   Package,
   Workflow,
@@ -24,7 +23,6 @@ import {
   MessageSquare,
   type LucideIcon,
 } from 'lucide-react';
-import { useAuth } from '@clerk/clerk-react';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { useI18n } from '@/lib/i18n/provider';
 import { PageLoader } from '@/components/page-loader';
@@ -36,8 +34,6 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
-  TableHeader,
   TableRow,
 } from '@weldsuite/ui/components/table';
 import {
@@ -52,7 +48,6 @@ import {
   useUpdateGlobalNotificationSettings,
   useUpdateNotificationPreferences,
   useUpdateModulePreferences,
-  type ModuleChannelPreferences as ModuleChannelPreferencesType,
 } from '@/hooks/queries/use-notifications-queries';
 import {
   useTaskDigestSettings,
@@ -161,10 +156,6 @@ export default function NotificationsSettingsPage() {
     }
   };
 
-  const getModuleEnabled = (moduleKey: string): boolean => {
-    return prefs.modulePreferences[moduleKey]?.enabled ?? true;
-  };
-
   const handleDigestUpdate = async (updates: Partial<{
     enabled: boolean;
     sendHour: number;
@@ -190,6 +181,7 @@ export default function NotificationsSettingsPage() {
     { id: 'email', label: ts.channels.email, icon: Mail, checked: prefs.defaultEmail, onChange: (v) => handleDefaultChange('email', v) },
     { id: 'push', label: ts.channels.push, icon: Smartphone, checked: prefs.defaultPush, onChange: (v) => handleDefaultChange('push', v) },
     { id: 'desktop', label: ts.channels.desktop, icon: Monitor, checked: prefs.defaultDesktop, onChange: (v) => handleDefaultChange('desktop', v) },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleDefaultChange is a fresh closure every render; including it would defeat this memo's caching without changing behavior.
   ], [ts.channels.inApp, ts.channels.email, ts.channels.push, ts.channels.desktop, prefs.defaultInApp, prefs.defaultEmail, prefs.defaultPush, prefs.defaultDesktop]);
 
   const channelColumns = React.useMemo<ColumnDef<ChannelRow>[]>(() => [
@@ -283,6 +275,7 @@ export default function NotificationsSettingsPage() {
         </div>
       ),
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleModuleToggle is a fresh closure every render; including it would defeat this memo's caching without changing behavior.
   ], [saving, prefs.doNotDisturb]);
 
   const moduleTable = useReactTable({

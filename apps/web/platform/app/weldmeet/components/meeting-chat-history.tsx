@@ -3,7 +3,7 @@
  * Used both as a sidebar in MeetingIntelligence and as a standalone Card.
  */
 
-import { useMemo, useRef, useEffect } from 'react';
+import { useMemo } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
 import { EmptyStateIllustration } from '@/components/entity-list';
@@ -16,13 +16,27 @@ interface MeetingChatHistoryProps {
   hideHeader?: boolean;
 }
 
+interface MeetingChatMessage {
+  id: string;
+  type?: string;
+  authorId: string;
+  authorName?: string;
+  authorAvatar?: string;
+  content: string;
+  createdAt: string;
+}
+
+interface MeetingMessagesPage {
+  data?: { messages?: MeetingChatMessage[] };
+}
+
 export function MeetingChatHistory({ meetingId, hideHeader }: MeetingChatHistoryProps) {
   const t = getTranslations('weldmeet');
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useMeetingMessages(meetingId);
 
   const messages = useMemo(() => {
-    const raw = data?.pages?.flatMap((page: any) => page.data?.messages || []) || [];
+    const raw = data?.pages?.flatMap((page: MeetingMessagesPage) => page.data?.messages || []) || [];
     return [...raw].reverse();
   }, [data]);
 
@@ -77,7 +91,7 @@ export function MeetingChatHistory({ meetingId, hideHeader }: MeetingChatHistory
               </Button>
             </div>
           )}
-          {messages.map((message: any, index: number) => {
+          {messages.map((message: MeetingChatMessage, index: number) => {
             const prevMessage = messages[index - 1];
             const msgTime = new Date(message.createdAt).getTime();
             const prevTime = prevMessage ? new Date(prevMessage.createdAt).getTime() : 0;
@@ -133,7 +147,7 @@ function ChatHistoryHeader({ count }: { count: number }) {
   );
 }
 
-function ChatHistoryMessage({ message, compact }: { message: any; compact?: boolean }) {
+function ChatHistoryMessage({ message, compact }: { message: MeetingChatMessage; compact?: boolean }) {
   const timeStr = new Date(message.createdAt).toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',

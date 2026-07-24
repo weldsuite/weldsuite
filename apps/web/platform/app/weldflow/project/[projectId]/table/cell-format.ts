@@ -1,4 +1,4 @@
-import type { CellFormat } from './types';
+import type { CellFormat, CellValue } from './types';
 
 const FORMAT_PREFIX = '__fmt__';
 const NOTE_PREFIX = '__note__';
@@ -17,7 +17,7 @@ export function noteKey(colId: string): string {
   return NOTE_PREFIX + colId;
 }
 
-export function getCellNote(rowData: Record<string, any> | undefined, colId: string): string | undefined {
+export function getCellNote(rowData: Record<string, unknown> | undefined, colId: string): string | undefined {
   const v = rowData?.[noteKey(colId)];
   return typeof v === 'string' && v.length > 0 ? v : undefined;
 }
@@ -27,12 +27,12 @@ export function linkKey(colId: string): string {
   return LINK_PREFIX + colId;
 }
 
-export function getCellLink(rowData: Record<string, any> | undefined, colId: string): string | undefined {
+export function getCellLink(rowData: Record<string, unknown> | undefined, colId: string): string | undefined {
   const v = rowData?.[linkKey(colId)];
   return typeof v === 'string' && v.length > 0 ? v : undefined;
 }
 
-export function getCellFormat(rowData: Record<string, any> | undefined, colId: string): CellFormat | undefined {
+export function getCellFormat(rowData: Record<string, unknown> | undefined, colId: string): CellFormat | undefined {
   if (!rowData) return undefined;
   const fmt = rowData[formatKey(colId)];
   return fmt && typeof fmt === 'object' ? fmt as CellFormat : undefined;
@@ -40,7 +40,7 @@ export function getCellFormat(rowData: Record<string, any> | undefined, colId: s
 
 export function getCellStyle(format: CellFormat | undefined): React.CSSProperties {
   if (!format) return {};
-  const style: React.CSSProperties = {};
+  const style: React.CSSProperties & { '--cell-rotation'?: string } = {};
   if (format.bold) style.fontWeight = 'bold';
   if (format.italic) style.fontStyle = 'italic';
   if (format.strikethrough) style.textDecoration = 'line-through';
@@ -83,7 +83,7 @@ export function getCellStyle(format: CellFormat | undefined): React.CSSPropertie
       style.alignItems = 'flex-end';
       style.overflow = 'visible';
       // Use a CSS custom property so the cell renderer can apply rotation to inner text
-      (style as any)['--cell-rotation'] = `${deg}deg`;
+      style['--cell-rotation'] = `${deg}deg`;
     }
   }
   // Borders
@@ -118,7 +118,7 @@ export function getDefaultAlign(value: string, format?: CellFormat): 'left' | 'r
   return type === 'number' || type === 'date' ? 'right' : 'left';
 }
 
-export function formatCellDisplay(rawValue: any, format?: CellFormat): string {
+export function formatCellDisplay(rawValue: CellValue | undefined, format?: CellFormat): string {
   if (rawValue === null || rawValue === undefined) return '';
   const str = String(rawValue);
   if (!format?.numberFormat || format.numberFormat === 'general') return str;

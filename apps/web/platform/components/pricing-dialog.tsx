@@ -13,7 +13,6 @@ import {
 } from '@weldsuite/ui/components/dialog';
 import { Alert, AlertDescription } from '@weldsuite/ui/components/alert';
 import { Badge } from '@weldsuite/ui/components/badge';
-import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Separator } from '@weldsuite/ui/components/separator';
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
@@ -67,16 +66,6 @@ const getEmailPrice = (planName: string, emailCount: number): number => {
   return Math.round((emailCount / 1000) * pricePerThousand);
 };
 
-// WeldSuite apps included in plans (same as settings/plans page)
-const includedApps = [
-  { id: 'crm', name: 'WeldCRM', logo: '/assets/images/weldcrm/logo-light.png', logoClass: 'h-4 w-4' },
-  { id: 'mail', name: 'WeldMail', logo: '/assets/images/weldmail/logo-light.png', logoClass: 'h-4 w-4' },
-  { id: 'helpdesk', name: 'WeldDesk', logo: '/assets/images/welddesk/logo-light.png', logoClass: 'h-4 w-4' },
-  { id: 'projects', name: 'WeldFlow', logo: '/assets/images/weldflow/logo-light.png', logoClass: 'h-[18px] w-[18px]' },
-  { id: 'task', name: 'WeldConnect', logo: '/assets/images/weldconnect/logo-light.png', logoClass: 'h-[17px] w-[17px]' },
-  { id: 'host', name: 'WeldHost', logo: '/assets/images/weldhost/logo-light.png', logoClass: 'h-[17px] w-[17px]' },
-];
-
 // Curated feature lists per plan (matching settings/plans page)
 const PLAN_FEATURES: Record<string, string[]> = {
   business: [
@@ -119,7 +108,7 @@ interface PricingDialogProps {
   };
 }
 
-export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans = [], highlightPlan, hideHeaderBar = false, featureHighlight }: PricingDialogProps) {
+export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans = [], highlightPlan, featureHighlight }: PricingDialogProps) {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [allPlans, setAllPlans] = useState<Billing.BillingPlan[]>([]);
   const [subscription, setSubscription] = useState<Billing.Subscription | null>(null);
@@ -130,7 +119,6 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
   const [isPending, startTransition] = useTransition();
   const changePlanMutation = useChangePlan();
   const { getClient } = useAppApiClient();
-  const [seatCounts, setSeatCounts] = useState<Record<string, number>>({});
   const [viewMode, setViewMode] = useState<'plans' | 'checkout'>('plans');
   const [selectedPlanForCheckout, setSelectedPlanForCheckout] = useState<Billing.BillingPlan | null>(null);
 
@@ -138,7 +126,10 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
   const [checkoutBillingCycle, setCheckoutBillingCycle] = useState<'monthly' | 'annually'>('monthly');
   const [checkoutSeatCount, setCheckoutSeatCount] = useState(1);
   const [checkoutEmailCredits, setCheckoutEmailCredits] = useState(0);
-  // Fetch plans and subscription on open
+  // Fetch plans and subscription on open. `loadData` is intentionally
+  // excluded — it's a plain function recreated every render (and itself
+  // triggers state updates), so including it would refetch on every render
+  // while the dialog is open instead of only when it opens.
   useEffect(() => {
     if (open) {
       loadData();
@@ -146,6 +137,7 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
       setSelectedPlanForCheckout(null);
       track('Pricing Viewed');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const loadData = async () => {
@@ -170,44 +162,11 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
       } else {
         setError('Failed to load plans');
       }
-    } catch (err) {
+    } catch {
       setError('Failed to load pricing data');
     } finally {
       setLoading(false);
     }
-  };
-
-  const getSeatCount = (planId: string) => seatCounts[planId] || 1;
-
-  const setSeatCount = (planId: string, count: number) => {
-    setSeatCounts(prev => ({ ...prev, [planId]: Math.max(1, count) }));
-  };
-
-  const getPrice = (plan: Billing.BillingPlan) => {
-    if (plan.requiresContact) return null;
-    // Prices are stored in cents
-    const monthlyPrice = plan.monthlyPrice / 100;
-    const yearlyPrice = plan.yearlyPrice ? plan.yearlyPrice / 100 : monthlyPrice * 10;
-    const basePrice = billingCycle === 'monthly' ? monthlyPrice : yearlyPrice / 12;
-
-    // For per-seat pricing, multiply by seat count
-    if (plan.isPerSeatPricing) {
-      return basePrice * getSeatCount(plan.id);
-    }
-    return basePrice;
-  };
-
-  const getPricePerSeat = (plan: Billing.BillingPlan) => {
-    if (plan.requiresContact || !plan.isPerSeatPricing) return null;
-    const monthlyPrice = plan.monthlyPrice / 100;
-    const yearlyPrice = plan.yearlyPrice ? plan.yearlyPrice / 100 : monthlyPrice * 10;
-    return billingCycle === 'monthly' ? monthlyPrice : yearlyPrice / 12;
-  };
-
-  const getSavingsPercent = (plan: Billing.BillingPlan) => {
-    if (!plan.yearlyPrice || plan.monthlyPrice === 0) return 0;
-    const monthlyTotal = plan.monthlyPrice * 12;
-    return Math.round((1 - plan.yearlyPrice / monthlyTotal) * 100);
   };
 
   // Filter excluded plans for display (show all plans including current)
@@ -272,8 +231,8 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
         }
         setProcessingPlanId(null);
       });
-    } catch (err: any) {
-      setError(err.message || 'An error occurred');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
       setProcessingPlanId(null);
     }
   };
@@ -310,9 +269,9 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
           cycle,
         });
 
-        if ((result as any).url) {
+        if (result.url) {
           // Redirect to Stripe Checkout
-          window.location.href = (result as any).url;
+          window.location.href = result.url;
         } else if (result.success) {
           // Free plan change (no checkout URL needed)
           setViewMode('plans');
@@ -324,8 +283,8 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
         }
         setProcessingPlanId(null);
       });
-    } catch (err: any) {
-      setError(err.message || 'An error occurred');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
       setProcessingPlanId(null);
     }
   };
@@ -748,7 +707,6 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
                 'grid-cols-1 sm:grid-cols-2'
               )}>
               {displayPlans.map((plan) => {
-                const price = getPrice(plan);
                 const isProcessing = processingPlanId === plan.id;
                 const features = getPlanFeatures(plan);
                 const highlighted = isPlanHighlighted(plan);

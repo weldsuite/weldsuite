@@ -18,7 +18,7 @@ interface NotificationsSectionProps {
   onNotificationChange: (key: keyof NotificationPreferences, value: boolean) => void
 }
 
-function NotificationsSection({
+export function NotificationsSection({
   notifications,
   onNotificationChange,
 }: NotificationsSectionProps) {

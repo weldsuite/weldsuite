@@ -30,14 +30,14 @@ export default function AddBillPage() {
     if (fromDocument) payload.sourceDocumentId = fromDocument;
     createBill.mutate(payload, {
       onSuccess: () => {
-        navigate({ to: '/weldbooks/bills' as any });
+        navigate({ to: '/weldbooks/bills' });
       },
     });
   };
 
   if (fromDocument && prefillQuery.isLoading) return <PageLoader fullScreen={false} />;
 
-  const prefill = (prefillQuery.data as any)?.data as BillPrefill | undefined;
+  const prefill = prefillQuery.data?.data as BillPrefill | undefined;
   const confidence: number | undefined = prefill?.confidence?.overall;
 
   return (

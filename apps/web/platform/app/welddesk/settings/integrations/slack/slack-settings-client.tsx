@@ -13,10 +13,25 @@ import { useI18n } from '@/lib/i18n/provider';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 import { useUpdateSlackSettings, useSlackChannels } from '@/hooks/queries/use-helpdesk-integration-queries';
 
+/**
+ * Older/alternate response shape seen from this endpoint, where the channel
+ * list is nested under `data` instead of top-level. Narrowed via `unknown`
+ * rather than trusted, since the real runtime shape can drift from the
+ * declared `SlackWorkspaceInfo` type.
+ */
+function extractSlackChannels(
+  channelInfo: Helpdesk.Api.SlackWorkspaceInfo | undefined,
+): Helpdesk.Api.SlackChannelInfo[] | undefined {
+  if (!channelInfo) return undefined;
+  if (channelInfo.channels) return channelInfo.channels;
+  const nested = channelInfo as unknown as { data?: { channels?: Helpdesk.Api.SlackChannelInfo[] } };
+  return nested.data?.channels;
+}
+
 interface SlackSettingsClientProps {
   integration: Helpdesk.Api.ChannelIntegration;
-  initialSettings?: any;
-  channelInfo?: any;
+  initialSettings?: Helpdesk.Api.SlackIntegrationSettings;
+  channelInfo?: Helpdesk.Api.SlackWorkspaceInfo;
 }
 
 export function SlackSettingsClient({
@@ -28,12 +43,12 @@ export function SlackSettingsClient({
   const updateSettingsMutation = useUpdateSlackSettings();
   const slackChannelsQuery = useSlackChannels(false);
 
-  const [supportChannels, setSupportChannels] = useState<Array<{ channelId: string; channelName?: string; enabled: boolean }>>(
+  const [supportChannels, setSupportChannels] = useState<Helpdesk.Api.SlackChannelInfo[]>(
     initialSettings?.supportChannels || [],
   );
   const [ignoreBots, setIgnoreBots] = useState(initialSettings?.ignoreBots ?? true);
-  const [availableChannels, setAvailableChannels] = useState<Array<{ channelId: string; channelName: string; enabled: boolean }>>(
-    channelInfo?.channels || (channelInfo as any)?.data?.channels || [],
+  const [availableChannels, setAvailableChannels] = useState<Helpdesk.Api.SlackChannelInfo[]>(
+    extractSlackChannels(channelInfo) || [],
   );
   const [hasChanges, setHasChanges] = useState(false);
 
@@ -62,7 +77,7 @@ export function SlackSettingsClient({
 
   // Sync available channels when data loads — handle multiple response shapes
   useEffect(() => {
-    const channels = channelInfo?.channels || (channelInfo as any)?.data?.channels;
+    const channels = extractSlackChannels(channelInfo);
     if (channels?.length) {
       setAvailableChannels(channels);
     }

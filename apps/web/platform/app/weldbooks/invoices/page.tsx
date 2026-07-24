@@ -108,7 +108,7 @@ export default function InvoicesPage() {
         isLoading={isLoading}
         columns={columns}
         groups={groups}
-        onRowClick={(inv) => navigate({ to: `/weldbooks/invoices/${inv.id}` as any })}
+        onRowClick={(inv) => navigate({ to: '/weldbooks/invoices/$id', params: { id: inv.id } })}
         filters={[]}
         searchQuery={search}
         onSearchChange={setSearch}
@@ -135,7 +135,7 @@ export default function InvoicesPage() {
       <InvoiceDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        onCreated={(inv) => navigate({ to: `/weldbooks/invoices/${inv.id}` as any })}
+        onCreated={(inv) => navigate({ to: '/weldbooks/invoices/$id', params: { id: inv.id } })}
       />
     </>
   );

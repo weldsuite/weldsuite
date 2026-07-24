@@ -66,7 +66,7 @@ export function TeamMemberPanelProvider({ children }: { children: React.ReactNod
   );
 }
 
-function useTeamMemberPanel(): TeamMemberPanelContextValue {
+export function useTeamMemberPanel(): TeamMemberPanelContextValue {
   const ctx = React.useContext(TeamMemberPanelContext);
   if (!ctx) {
     throw new Error('useTeamMemberPanel must be used within TeamMemberPanelProvider');
@@ -78,7 +78,7 @@ function useTeamMemberPanel(): TeamMemberPanelContextValue {
  * Fires the legacy event that the provider bridges — handy for non-React code
  * or module boundaries where the hook can't be imported.
  */
-function openTeamMemberPanelEvent(userId: string, defaultTab?: TeamMemberPanelTab) {
+export function openTeamMemberPanelEvent(userId: string, defaultTab?: TeamMemberPanelTab) {
   window.dispatchEvent(
     new CustomEvent(EVENT_NAME, { detail: { userId, defaultTab } }),
   );

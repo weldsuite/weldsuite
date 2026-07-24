@@ -8,7 +8,8 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { useWeldMeetCall } from '@/contexts/weldmeet-call-context';
-import { useMeeting, useUpdateMeeting, useLatestSession, useUpdateHostControls } from '@/hooks/queries/use-weldmeet-queries';
+import { useMeeting, useUpdateMeeting, useLatestSession, useUpdateHostControls, type MeetingSession } from '@/hooks/queries/use-weldmeet-queries';
+import type { RTKParticipant, RTKSelf } from '@cloudflare/realtimekit';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import { useWeldAgentDrawerOpen } from '@/hooks/use-weldagent-drawer-open';
@@ -33,19 +34,48 @@ import { getTranslations } from '@/lib/i18n';
 // Platform-specific bits the shared component takes as slots
 // ============================================================================
 
+/** A single RTK meeting participant — either the local user (Self) or a remote peer. */
+type RtkPerson = RTKParticipant | RTKSelf;
+
+/** Minimal shape needed to resolve/display a participant-details target — real
+ * RTK participants and the synthetic object built from a chat author both
+ * satisfy this. */
+interface ParticipantDetailsTarget {
+  id?: string;
+  userId?: string;
+  customParticipantId?: string;
+  name?: string;
+  picture?: string | null;
+}
+
+/** Session participant record with the workspace-member/person/contact links
+ * the resolver writes — not yet reflected in the shared MeetingSession type. */
+type SessionParticipantWithLinks = MeetingSession['participants'][number] & {
+  workspaceMemberId?: string;
+  personId?: string;
+  contactId?: string;
+  customParticipantId?: string;
+};
+
+interface WorkspaceMemberOption {
+  userId: string;
+  name?: string | null;
+  email?: string | null;
+}
+
 function AddPeopleDialogContent({ shareUrl }: { shareUrl: string }) {
   const t = getTranslations('weldmeet');
   const { data: membersData } = useWorkspaceMembers(1, 50);
   const [search, setSearch] = useState('');
   const [invited, setInvited] = useState<Set<string>>(new Set());
 
-  const members = (membersData?.data ?? []).filter((m: any) => {
+  const members = (membersData?.data ?? []).filter((m: WorkspaceMemberOption) => {
     if (!search) return true;
     const q = search.toLowerCase();
     return (m.name?.toLowerCase().includes(q) || m.email?.toLowerCase().includes(q));
   });
 
-  const handleInvite = (member: any) => {
+  const handleInvite = (member: WorkspaceMemberOption) => {
     setInvited(prev => new Set(prev).add(member.userId));
     try { navigator.clipboard.writeText(shareUrl); } catch { /* ignore */ }
   };
@@ -71,7 +101,7 @@ function AddPeopleDialogContent({ shareUrl }: { shareUrl: string }) {
         {members.length === 0 && (
           <p className="text-xs text-muted-foreground text-center py-6">{t.overlay.addPeople.noMembersFound}</p>
         )}
-        {members.map((m: any) => {
+        {members.map((m: WorkspaceMemberOption) => {
           const isInvited = invited.has(m.userId);
           return (
             <div key={m.userId} className="flex items-center gap-3 py-2.5">
@@ -111,13 +141,13 @@ function InvitePopoverContent({ shareUrl }: { shareUrl: string }) {
   const [search, setSearch] = useState('');
   const [invited, setInvited] = useState<Set<string>>(new Set());
 
-  const members = (membersData?.data ?? []).filter((m: any) => {
+  const members = (membersData?.data ?? []).filter((m: WorkspaceMemberOption) => {
     if (!search) return true;
     const q = search.toLowerCase();
     return (m.name?.toLowerCase().includes(q) || m.email?.toLowerCase().includes(q));
   });
 
-  const handleInvite = (member: any) => {
+  const handleInvite = (member: WorkspaceMemberOption) => {
     setInvited(prev => new Set(prev).add(member.userId));
     try { navigator.clipboard.writeText(shareUrl); } catch { /* ignore */ }
   };
@@ -145,7 +175,7 @@ function InvitePopoverContent({ shareUrl }: { shareUrl: string }) {
         {members.length === 0 && (
           <p className="text-xs text-muted-foreground text-center py-4">{t.overlay.invitePopover.noMembersFound}</p>
         )}
-        {members.map((m: any) => {
+        {members.map((m: WorkspaceMemberOption) => {
           const isInvited = invited.has(m.userId);
           return (
             <div key={m.userId} className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-muted/50">
@@ -237,7 +267,7 @@ function MeetingRoomAdapter() {
   // participant — we need it to open the right details sheet on click.
   const { data: latestSession } = useLatestSession(activeMeetingId ?? '');
 
-  const [participants, setParticipants] = useState<any[]>([]);
+  const [participants, setParticipants] = useState<RtkPerson[]>([]);
   const [waitlistedCount, setWaitlistedCount] = useState(0);
   // Snapshot of the local screen-share state sourced directly from the RTK
   // `screenShareUpdate` event payload.  We keep this separately because RTK
@@ -277,7 +307,7 @@ function MeetingRoomAdapter() {
   // session rows; new writes target `personId`.
   const participantLinks = useMemo(() => {
     const map = new Map<string, { workspaceMemberId?: string; personId?: string; contactId?: string }>();
-    const sessionParticipants = (latestSession as any)?.participants ?? [];
+    const sessionParticipants = (latestSession?.participants ?? []) as SessionParticipantWithLinks[];
     for (const sp of sessionParticipants) {
       const entry = {
         workspaceMemberId: sp?.workspaceMemberId,
@@ -292,7 +322,7 @@ function MeetingRoomAdapter() {
     return map;
   }, [latestSession]);
 
-  const handleClickParticipantDetails = useCallback((p: any) => {
+  const handleClickParticipantDetails = useCallback((p: ParticipantDetailsTarget) => {
     // RTK doesn't expose a single canonical identifier — try every key the
     // map might be indexed by until one hits.
     const candidates = [p?.customParticipantId, p?.userId, p?.id] as Array<string | undefined>;
@@ -319,7 +349,7 @@ function MeetingRoomAdapter() {
       return;
     }
     // Unlinked guest — offer to save as a person.
-    setGuestTarget({ name: p?.name, picture: p?.picture });
+    setGuestTarget({ name: p?.name, picture: p?.picture ?? undefined });
   }, [participantLinks, openObjectPanel]);
 
   const joinCode = meetingData?.joinCode ?? '';
@@ -366,7 +396,7 @@ function MeetingRoomAdapter() {
     // outside the start-event window the getter is settled.
     setSelfScreenShare({
       enabled: !!meeting.self?.screenShareEnabled,
-      videoTrack: (meeting.self?.screenShareTracks as any)?.video ?? null,
+      videoTrack: meeting.self?.screenShareTracks?.video ?? null,
     });
 
     updateParticipants();
@@ -430,8 +460,8 @@ function MeetingRoomAdapter() {
   const mentionParticipants = useMemo(
     () =>
       participants
-        .filter((p: any) => p?.id && p.id !== meeting?.self?.id)
-        .map((p: any) => ({ id: p.id, name: p.name || 'Guest', avatar: p.picture ?? null })),
+        .filter((p: RtkPerson) => p?.id && p.id !== meeting?.self?.id)
+        .map((p: RtkPerson) => ({ id: p.id, name: p.name || 'Guest', avatar: p.picture ?? null })),
     [participants, meeting],
   );
 
@@ -581,15 +611,16 @@ function MeetingRoomAdapter() {
       // already-running share still renders locally after a remount.
       screenShareEnabled: selfScreenShare.enabled || !!s.screenShareEnabled,
       screenShareTracks: {
-        video: selfScreenShare.videoTrack ?? (s.screenShareTracks as any)?.video ?? null,
-        audio: (s.screenShareTracks as any)?.audio ?? null,
+        video: selfScreenShare.videoTrack ?? s.screenShareTracks?.video ?? null,
+        audio: s.screenShareTracks?.audio ?? null,
       },
       // RTK action methods — proxied through so context-menu actions still work
       pin: s.pin?.bind(s),
       unpin: s.unpin?.bind(s),
       disableAudio: s.disableAudio?.bind(s),
       disableVideo: s.disableVideo?.bind(s),
-      kick: s.kick?.bind(s),
+      // `kick` only exists on remote participants (Self can't kick itself).
+      kick: (s as RTKParticipant).kick?.bind(s),
     };
   }, [participants, meeting?.self, selfScreenShare]);
 

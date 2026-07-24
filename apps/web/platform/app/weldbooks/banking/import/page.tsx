@@ -20,6 +20,16 @@ import { useTranslations } from '@weldsuite/i18n/client';
 
 type Step = 'select' | 'upload' | 'result';
 
+interface BankImportResult {
+  batchId: string;
+  format: string;
+  totalParsed: number;
+  imported: number;
+  duplicates: number;
+  autoReconciled: number;
+  errors: Array<{ line?: number; message: string }>;
+}
+
 export default function BankImportPage() {
   const navigate = useNavigate();
   const { data: bankAccountsData } = useAccountingBankAccounts();
@@ -33,7 +43,7 @@ export default function BankImportPage() {
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [fileName, setFileName] = useState('');
   const [fileContent, setFileContent] = useState('');
-  const [importResult, setImportResult] = useState<any>(null);
+  const [importResult, setImportResult] = useState<BankImportResult | null>(null);
 
   const importMutation = useMutation({
     mutationFn: (data: { bankAccountId: string; content: string; fileName: string }) =>
@@ -88,7 +98,7 @@ export default function BankImportPage() {
                   <SelectValue placeholder={tbp.selectBankAccount} />
                 </SelectTrigger>
                 <SelectContent>
-                  {bankAccounts.map((ba: any) => (
+                  {bankAccounts.map((ba) => (
                     <SelectItem key={ba.id} value={ba.id}>
                       {ba.name} — {ba.iban}
                     </SelectItem>
@@ -152,7 +162,7 @@ export default function BankImportPage() {
             {importMutation.isError && (
               <p className="text-sm text-destructive flex items-center gap-1">
                 <AlertCircle className="h-4 w-4" />
-                {tbp.importFailed.replace('{error}', (importMutation.error as any)?.message || st('sweep.weldbooks.common.unknownError'))}
+                {tbp.importFailed.replace('{error}', importMutation.error?.message || st('sweep.weldbooks.common.unknownError'))}
               </p>
             )}
           </CardContent>
@@ -193,7 +203,7 @@ export default function BankImportPage() {
             {importResult.errors?.length > 0 && (
               <div className="mt-2">
                 <p className="text-sm font-medium text-destructive">{tbp.parseErrors}</p>
-                {importResult.errors.map((err: any, i: number) => (
+                {importResult.errors.map((err, i: number) => (
                   <p key={i} className="text-xs text-muted-foreground">
                     {err.line ? st('sweep.weldbooks.bankImport.lineLabel', { line: err.line }) : ''}{err.message}
                   </p>

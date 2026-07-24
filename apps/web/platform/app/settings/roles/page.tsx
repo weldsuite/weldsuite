@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useRouter } from '@/lib/router';
-import { Plus, EllipsisVertical, Pencil, Trash2, Crown, Search, Eye } from 'lucide-react';
+import { Plus, EllipsisVertical, Pencil, Trash2, Crown, Eye } from 'lucide-react';
 import { PageLoader } from '@/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
@@ -20,13 +20,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { toast } from 'sonner';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { Role } from '@/lib/api/types/rbac.types';
 import { CreateRoleDialog } from '@/components/settings/create-role-dialog';
 import { usePermissions } from '@weldsuite/permissions/react';
-import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { ExpandingSearchInput } from '@/components/settings/expanding-search-input';
 

@@ -39,7 +39,7 @@ export default function EmailSummaryPage() {
   // The hook returns { success, data?: { summary?: ... } }.
   const rawSummary =
     data?.success && data.data?.summary
-      ? (data.data.summary as Record<string, unknown>)
+      ? (data.data.summary as unknown as Record<string, unknown>)
       : null;
 
   const summary = rawSummary

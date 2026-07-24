@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useAtomValue } from 'jotai';
 import { getTranslations } from '@/lib/i18n';
@@ -14,7 +14,7 @@ import {
 import { useIntegrationConnections } from '@/hooks/queries/use-integration-queries';
 import { CalendarSidebarSection } from '../components/calendar-sidebar-section';
 import { MiniCalendar } from '../components/calendar-sidebar-mini-calendar';
-import { BookingPagesSidebarSection } from '../components/booking-pages-sidebar-section';
+import { BookingPagesSidebarSection, type BookingPageSidebarItem } from '../components/booking-pages-sidebar-section';
 import { GoogleCalendarSidebarSection } from '../components/google-calendar-sidebar-section';
 import { CreateCalendarDialog } from '../components/create-calendar-dialog';
 
@@ -35,7 +35,7 @@ export function useCalendarSidebarItems(enabled: boolean): { menuGroups: MenuGro
   const draftTitle = useAtomValue(draftBookingPageTitleAtom);
 
   const gcalConnected = React.useMemo(() => {
-    const connections = ((integrationConnectionsResult as any)?.data ?? []) as Array<{ provider: string; status: string }>;
+    const connections = integrationConnectionsResult?.data ?? [];
     return connections.some(c => c.provider === 'google_calendar' && c.status !== 'inactive');
   }, [integrationConnectionsResult]);
 
@@ -48,10 +48,10 @@ export function useCalendarSidebarItems(enabled: boolean): { menuGroups: MenuGro
   }, [enabled, isLoading, data, ensured, ensureDefault]);
 
   const calendars = data?.data || [];
-  const bookingPagesRaw = bookingPagesData?.data?.data || bookingPagesData?.data || [];
+  const bookingPagesRaw = bookingPagesData?.data ?? [];
   // Sort oldest → newest so newly-created pages append at the bottom of the
   // sidebar list (and the draft entry naturally sits at the end).
-  const bookingPages = [...(bookingPagesRaw as any[])].sort((a: any, b: any) => {
+  const bookingPages = [...bookingPagesRaw].sort((a, b) => {
     const ta = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
     const tb = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
     return ta - tb;
@@ -82,7 +82,7 @@ export function useCalendarSidebarItems(enabled: boolean): { menuGroups: MenuGro
         group: t.calendarSidebar.myCalendars,
         customContent: (
           <>
-            <CalendarSidebarSection calendars={ownCalendars} isOwn={false} />
+            <CalendarSidebarSection calendars={ownCalendars} />
             <GoogleCalendarSidebarSection isConnected={gcalConnected} />
           </>
         ),
@@ -93,7 +93,7 @@ export function useCalendarSidebarItems(enabled: boolean): { menuGroups: MenuGro
       if (sharedCalendars.length > 0) {
         menuGroups.push({
           group: t.calendarSidebar.sharedWithMe,
-          customContent: <CalendarSidebarSection calendars={sharedCalendars} isOwn={false} />,
+          customContent: <CalendarSidebarSection calendars={sharedCalendars} />,
           items: sharedCalendars.map((c) => ({ title: c.name, href: `/weldcalendar?calendarId=${c.id}` })),
         });
       }
@@ -104,7 +104,7 @@ export function useCalendarSidebarItems(enabled: boolean): { menuGroups: MenuGro
     // booking-page view (where calendar-view.tsx isn't mounted) silently
     // dropped on the floor. Navigate directly instead.
     const handleAddBookingPage = () => navigate({ to: '/weldcalendar/scheduling/new' });
-    const draftBookingPage = isCreatingBookingPage
+    const draftBookingPage: BookingPageSidebarItem | null = isCreatingBookingPage
       ? {
           id: '__draft__',
           name: (draftTitle?.trim() || t.bookingPagesSidebar.newBookingPage),
@@ -112,13 +112,16 @@ export function useCalendarSidebarItems(enabled: boolean): { menuGroups: MenuGro
           isDraft: true,
         }
       : null;
-    const sidebarBookingPages = draftBookingPage
-      ? [...(bookingPages as any[]), draftBookingPage]
-      : (bookingPages as any[]);
+    const realBookingPages: BookingPageSidebarItem[] = bookingPages
+      .filter((bp): bp is typeof bp & { id: string } => !!bp.id)
+      .map((bp) => ({ id: bp.id, name: bp.name, slug: bp.slug }));
+    const sidebarBookingPages: BookingPageSidebarItem[] = draftBookingPage
+      ? [...realBookingPages, draftBookingPage]
+      : realBookingPages;
     menuGroups.push({
       group: t.calendarSidebar.bookingPages,
       customContent: <BookingPagesSidebarSection bookingPages={sidebarBookingPages} onAdd={handleAddBookingPage} />,
-      items: sidebarBookingPages.map((bp: any) => ({
+      items: sidebarBookingPages.map((bp) => ({
         title: bp.name,
         href: bp.isDraft ? '/weldcalendar/scheduling/new' : `/weldcalendar/scheduling/${bp.id}/view`,
       })),

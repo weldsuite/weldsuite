@@ -34,7 +34,6 @@ import {
   Trash2,
   TrendingUp,
   User,
-  Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';

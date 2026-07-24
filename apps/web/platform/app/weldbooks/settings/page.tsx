@@ -9,6 +9,18 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 
+interface AccountingCompanyDetails {
+  name?: string;
+  btwNumber?: string;
+  kvkNumber?: string;
+  iban?: string;
+}
+
+interface AccountingEmailSettings {
+  inboxAddress?: string;
+  autoScanEnabled?: boolean;
+}
+
 export default function AccountingSettingsPage() {
   const { data, isLoading } = useAccountingSettings();
   const qc = useQueryClient();
@@ -34,7 +46,8 @@ export default function AccountingSettingsPage() {
   if (isLoading) return <PageLoader fullScreen={false} />;
 
   const settings = data?.data;
-  const emailSettings = (settings?.emailSettings as any) || {};
+  const companyDetails = (settings?.companyDetails ?? {}) as AccountingCompanyDetails;
+  const emailSettings = (settings?.emailSettings ?? {}) as AccountingEmailSettings;
 
   const handleXafDownload = async () => {
     setXafDownloading(true);
@@ -64,19 +77,19 @@ export default function AccountingSettingsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>{ts.companyName}</Label>
-              <Input defaultValue={(settings?.companyDetails as any)?.name ?? ''} placeholder={ts.companyNamePlaceholder} />
+              <Input defaultValue={companyDetails.name ?? ''} placeholder={ts.companyNamePlaceholder} />
             </div>
             <div className="space-y-2">
               <Label>{ts.vatNumber}</Label>
-              <Input defaultValue={(settings?.companyDetails as any)?.btwNumber ?? ''} placeholder={ts.vatNumberPlaceholder} />
+              <Input defaultValue={companyDetails.btwNumber ?? ''} placeholder={ts.vatNumberPlaceholder} />
             </div>
             <div className="space-y-2">
               <Label>{ts.chamberOfCommerce}</Label>
-              <Input defaultValue={(settings?.companyDetails as any)?.kvkNumber ?? ''} placeholder={ts.cocPlaceholder} />
+              <Input defaultValue={companyDetails.kvkNumber ?? ''} placeholder={ts.cocPlaceholder} />
             </div>
             <div className="space-y-2">
               <Label>{ts.iban}</Label>
-              <Input defaultValue={(settings?.companyDetails as any)?.iban ?? ''} placeholder={ts.ibanPlaceholder} />
+              <Input defaultValue={companyDetails.iban ?? ''} placeholder={ts.ibanPlaceholder} />
             </div>
           </div>
           <Button>{ts.saveCompanyDetails}</Button>
@@ -165,7 +178,7 @@ export default function AccountingSettingsPage() {
           </div>
           {seedWorkflows.isSuccess && (
             <p className="text-sm text-green-600">
-              {ts.workflowsSeeded.replace('{count}', String((seedWorkflows.data as any)?.data?.templatesCreated ?? 0))}
+              {ts.workflowsSeeded.replace('{count}', String(seedWorkflows.data?.data?.templatesCreated ?? 0))}
             </p>
           )}
         </CardContent>

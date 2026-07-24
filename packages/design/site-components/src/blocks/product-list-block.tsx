@@ -232,13 +232,13 @@ export function ProductListBlock({
       if (storeProduct) return storeProduct;
     }
     // Return default product for this slot index
-    return DEFAULT_PRODUCTS[index % DEFAULT_PRODUCTS.length];
+    return DEFAULT_PRODUCTS[index % DEFAULT_PRODUCTS.length]!;
   };
 
   const getProductImage = (product: Product | null): string => {
     if (!product) return '';
     if (product.image) return product.image;
-    if (product.images && product.images.length > 0) return product.images[0].url;
+    if (product.images && product.images.length > 0) return product.images[0]?.url ?? '';
     return '';
   };
 

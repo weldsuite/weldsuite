@@ -1,7 +1,6 @@
 
 import { useState } from 'react';
 import { Copy, Check, ChevronDown, ChevronRight, Code2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';
 

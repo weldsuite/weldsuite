@@ -6,9 +6,9 @@ import {
   type WorkflowStep,
   type WorkflowTrigger,
   type CanvasEdge,
-  type LayoutResult,
 } from './canvas-utils';
 import { TriggerNode, PathNode } from './canvas-nodes';
+import type { VariableItem } from '@weldsuite/ui/components/workflow-canvas/parts/variable-picker';
 
 // ============================================================================
 // Types
@@ -24,14 +24,14 @@ export interface ConversationFlowBuilderProps {
   onStepsChange: (steps: WorkflowStep[]) => void;
   onAddStep: (sourceNodeId?: string) => void;
   onAddActionInline?: (actionType: string, sourceNodeId?: string) => void;
-  onUpdateConfig: (stepId: string, config: Record<string, any>) => void;
+  onUpdateConfig: (stepId: string, config: Record<string, unknown>) => void;
   onAddSubAgent?: (stepId: string) => void;
   onEditSubAgent?: (subAgentId: string) => void;
   onDeselect: () => void;
   selectedNodeId: string | null;
   showAddPlaceholder?: boolean;
   addStepSourceNodeId?: string | null;
-  variableItems?: any[];
+  variableItems?: Array<VariableItem & { group: string }>;
   className?: string;
 }
 
@@ -115,13 +115,10 @@ export function ConversationFlowBuilder({
   onSelectTrigger,
   onSelectStep,
   onSelectBranch,
-  onDeleteStep,
   onStepsChange,
   onAddStep,
   onAddActionInline,
   onUpdateConfig,
-  onAddSubAgent,
-  onEditSubAgent,
   onDeselect,
   selectedNodeId,
   className,
@@ -129,8 +126,8 @@ export function ConversationFlowBuilder({
   const canvasLayerRef = useRef<HTMLDivElement>(null);
 
   // Derived layout
-  const { paths, edges } = useMemo(() => derivePaths(steps, trigger), [steps, trigger]);
-  const layout = useMemo(() => computeLayout(paths, trigger), [paths, trigger]);
+  const { paths, edges } = useMemo(() => derivePaths(steps), [steps]);
+  const layout = useMemo(() => computeLayout(paths), [paths]);
 
   // Measure connector dot positions from DOM after render
   const [connectors, setConnectors] = useState<Map<string, { x: number; y: number }>>(new Map());
@@ -144,7 +141,7 @@ export function ConversationFlowBuilder({
     prevLayoutKey.current = key;
     const measured = measureConnectors(el);
     setConnectors(measured);
-  });
+  }, [layout.trigger, layout.paths, steps.length]);
 
   const handleBgClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget || (e.target as HTMLElement).dataset.canvasBg) {

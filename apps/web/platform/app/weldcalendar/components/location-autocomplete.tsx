@@ -1,6 +1,4 @@
 import { useState, useRef, useCallback } from 'react';
-import { MapPin, Globe, Building2, Map } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { getTranslations } from '@/lib/i18n';
 import { Input } from '@weldsuite/ui/components/input';
 import {
@@ -33,19 +31,6 @@ interface LocationAutocompleteProps {
   popoverAlignOffset?: number;
   /** Fires when the underlying input loses focus (after the suggestion-click grace period). */
   onBlurAfterGrace?: () => void;
-}
-
-function getIconForType(featureType?: string) {
-  switch (featureType) {
-    case 'country':
-      return Globe;
-    case 'region':
-      return Map;
-    case 'poi':
-      return Building2;
-    default:
-      return MapPin;
-  }
 }
 
 function formatDisplay(s: MapboxSuggestion): string {

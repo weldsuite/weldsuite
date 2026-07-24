@@ -42,7 +42,6 @@ import {
   type FilterConfig,
   type GroupConfig,
   type ActiveFilter,
-  type RowHandlers,
 } from '@/components/entity-list';
 import { cn } from '@/lib/utils';
 import type { VoipCall } from '@/lib/api/domains/call-intelligence';
@@ -277,7 +276,7 @@ export function CallHistoryList({
   ], [tc]);
 
   // Row renderer
-  const renderCallRow = useCallback((call: VoipCall, _handlers: RowHandlers<VoipCall>) => (
+  const renderCallRow = useCallback((call: VoipCall) => (
     <div
       key={call.id}
       onClick={() => handleCallClick(call)}
@@ -387,7 +386,7 @@ export function CallHistoryList({
         </DropdownMenu>
       </div>
     </div>
-  ), [handleCallClick]);
+  ), [handleCallClick, tc]);
 
   return (
     <EntityList<VoipCall>

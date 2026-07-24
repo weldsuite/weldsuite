@@ -18,7 +18,11 @@ import { format } from 'date-fns';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
-import { useHelpdeskContactDetailData, useUpdateHelpdeskContact } from '@/hooks/queries/use-helpdesk-queries';
+import {
+  useHelpdeskContactDetailData,
+  useUpdateHelpdeskContact,
+} from '@/hooks/queries/use-helpdesk-queries';
+import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 import {
   useCustomerComments,
   useCreateCustomerComment,
@@ -36,9 +40,29 @@ import { useTranslations } from '@weldsuite/i18n/client';
 type ContactTab = 'overview' | 'conversations';
 type SidebarTab = 'details' | 'comments';
 
+/**
+ * `GET /helpdesk-contacts/:id` — `useHelpdeskContactDetailData` types this
+ * `any` at the hook layer; narrow it here to just the fields this view reads.
+ */
+interface HelpdeskContactRow {
+  id: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  fullName?: string | null;
+  email?: string | null;
+  directPhone?: string | null;
+  mobilePhone?: string | null;
+  status?: string | null;
+  notes?: string | null;
+  interests?: string[] | null;
+  avatarUrl?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 interface ContactDetailData {
-  contact: any;
-  conversations: any[];
+  contact: HelpdeskContactRow;
+  conversations: Helpdesk.Conversation[];
   fullName: string;
 }
 
@@ -94,9 +118,11 @@ function ContactDetailProvider({
   const [activeTab, setActiveTab] = useState<ContactTab>(defaultTab);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('details');
 
-  const contact = raw?.contactResult?.success ? raw.contactResult.data : null;
-  const conversations = raw?.conversationsResult?.success
-    ? (Array.isArray(raw.conversationsResult.data) ? raw.conversationsResult.data : [])
+  const contact: HelpdeskContactRow | null = raw?.contactResult?.success
+    ? (raw.contactResult.data as HelpdeskContactRow)
+    : null;
+  const conversations: Helpdesk.Conversation[] = raw?.conversationsResult?.success
+    ? (Array.isArray(raw.conversationsResult.data) ? (raw.conversationsResult.data as Helpdesk.Conversation[]) : [])
     : [];
   const fullName = contact
     ? (contact.fullName || `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || t('sweep.weldcrm.contactDetailView.unknown'))
@@ -315,7 +341,13 @@ function ContactEditableFields() {
     if (value === orig) return;
 
     try {
-      const payload: any = {};
+      const payload: {
+        firstName?: string;
+        lastName?: string;
+        email?: string;
+        phone?: string;
+        notes?: string;
+      } = {};
       if (key === 'firstName') payload.firstName = value;
       else if (key === 'lastName') payload.lastName = value;
       else if (key === 'email') payload.email = value || undefined;
@@ -325,7 +357,7 @@ function ContactEditableFields() {
 
       const result = await updateMutation.mutateAsync({ id: contactId, data: payload });
       if (!result.success) {
-        toast.error((result as any).error || t('sweep.weldcrm.contactDetailView.failedToSave'));
+        toast.error((result as { error?: string }).error || t('sweep.weldcrm.contactDetailView.failedToSave'));
         return;
       }
       refresh();
@@ -430,7 +462,7 @@ function HighlightCard({ label, value }: { label: string; value: string | null }
 
 function OverviewContent() {
   const t = useTranslations();
-  const { data, mode, visitorLocation } = useContactDetailContext();
+  const { data, mode } = useContactDetailContext();
   if (!data) return null;
 
   const { contact, conversations, fullName } = data;
@@ -505,7 +537,7 @@ function ConversationList() {
 
   return (
     <div className="divide-y divide-border">
-      {conversations.map((conv: any) => (
+      {conversations.map((conv: Helpdesk.Conversation) => (
         <div key={conv.id} className="px-4 py-3 hover:bg-muted/50 transition-colors">
           <div className="flex items-center justify-between mb-1">
             <span className="text-sm font-medium text-foreground truncate">{conv.subject || t('sweep.weldcrm.contactDetailView.noSubject')}</span>
@@ -556,7 +588,7 @@ function ContactSidebar() {
     { id: 'details', label: t('sweep.weldcrm.contactDetailView.details'), icon: ListCollapse },
     { id: 'comments', label: t('sweep.weldcrm.contactDetailView.comments'), icon: MessagesSquare },
   ];
-  const { sidebarTab, setSidebarTab, contactId, data, refresh } = useContactDetailContext();
+  const { sidebarTab, setSidebarTab, contactId, data } = useContactDetailContext();
   const fullName = data?.fullName || '';
 
   return (
@@ -601,6 +633,14 @@ function RecordDetailsSection() {
   );
 }
 
+interface CustomerCommentActivity {
+  id: string;
+  content?: string;
+  createdAt: string;
+  authorId?: string;
+  authorName?: string;
+}
+
 function CommentsSection({ contactId, contactName }: { contactId: string; contactName: string }) {
   const t = useTranslations();
   const { user } = useUser();
@@ -608,7 +648,7 @@ function CommentsSection({ contactId, contactName }: { contactId: string; contac
   const createCommentMutation = useCreateCustomerComment();
   const [commentInput, setCommentInput] = useState('');
 
-  const comments = (commentsData?.success && commentsData.data ? commentsData.data : []).map((c: any) => ({
+  const comments = ((commentsData?.data ?? []) as CustomerCommentActivity[]).map((c) => ({
     ...c,
     createdAt: new Date(c.createdAt),
     isCurrentUser: c.authorId === user?.id,
@@ -632,7 +672,7 @@ function CommentsSection({ contactId, contactName }: { contactId: string; contac
       {/* Comments List */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {comments.length > 0 ? (
-          comments.map((comment: any) => (
+          comments.map((comment) => (
             <div key={comment.id} className={cn('flex gap-2 items-end', comment.isCurrentUser ? 'justify-end' : 'justify-start')}>
               {!comment.isCurrentUser && (
                 <div className="h-6 w-6 rounded-md flex items-center justify-center text-[10px] font-semibold text-white flex-shrink-0" style={{ backgroundColor: comment.author.color }}>

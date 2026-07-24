@@ -1,7 +1,7 @@
 
 import { useState, useMemo, useCallback } from 'react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { Link, useRouter } from '@/lib/router';
+import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
@@ -27,7 +27,7 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useRetryExecution, useCancelExecution } from '@/hooks/queries/use-automation-queries';
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
+import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 
 interface Execution {
   id: string;
@@ -116,7 +116,7 @@ export function ExecutionsClient({ initialExecutions }: ExecutionsClientProps) {
   const retryExecutionMutation = useRetryExecution();
   const cancelExecutionMutation = useCancelExecution();
 
-  const handleRetry = (executionId: string) => {
+  const handleRetry = useCallback((executionId: string) => {
     retryExecutionMutation.mutate(executionId, {
       onSuccess: () => {
         toast.success(t.weldconnect.executions.toasts.retried);
@@ -125,13 +125,13 @@ export function ExecutionsClient({ initialExecutions }: ExecutionsClientProps) {
         toast.error(t.weldconnect.executions.toasts.retryFailed);
       },
     });
-  };
+  }, [retryExecutionMutation, t.weldconnect.executions.toasts.retried, t.weldconnect.executions.toasts.retryFailed]);
 
-  const handleCancel = (executionId: string) => {
+  const handleCancel = useCallback((executionId: string) => {
     cancelExecutionMutation.mutate(executionId, {
       onSuccess: () => {
-        setExecutions(
-          executions.map((e) => (e.id === executionId ? { ...e, status: 'cancelled' as const } : e))
+        setExecutions((prev) =>
+          prev.map((e) => (e.id === executionId ? { ...e, status: 'cancelled' as const } : e))
         );
         toast.success(t.weldconnect.executions.toasts.cancelled);
       },
@@ -139,7 +139,7 @@ export function ExecutionsClient({ initialExecutions }: ExecutionsClientProps) {
         toast.error(t.weldconnect.executions.toasts.cancelFailed);
       },
     });
-  };
+  }, [cancelExecutionMutation, t.weldconnect.executions.toasts.cancelled, t.weldconnect.executions.toasts.cancelFailed]);
 
   // Filter configs
   const filterConfigs: FilterConfig[] = useMemo(() => [
@@ -250,7 +250,7 @@ export function ExecutionsClient({ initialExecutions }: ExecutionsClientProps) {
   };
 
   // Render row
-  const renderRow = useCallback((execution: Execution, handlers: RowHandlers<Execution>) => {
+  const renderRow = useCallback((execution: Execution) => {
     const config = statusClassConfig[execution.status] || statusClassConfig.pending;
     const statusLabel = (t.weldconnect.executions.statuses as Record<string, string>)[execution.status] || execution.status;
     const progress =
@@ -357,7 +357,17 @@ export function ExecutionsClient({ initialExecutions }: ExecutionsClientProps) {
         </div>
       </div>
     );
-  }, [router, handleRetry, handleCancel]);
+  }, [
+    router,
+    handleRetry,
+    handleCancel,
+    st,
+    t.weldconnect.executions.actions.cancel,
+    t.weldconnect.executions.actions.retry,
+    t.weldconnect.executions.actions.viewDetails,
+    t.weldconnect.executions.justNow,
+    t.weldconnect.executions.statuses,
+  ]);
 
   return (
     <EntityList<Execution>

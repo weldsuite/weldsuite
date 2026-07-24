@@ -40,8 +40,8 @@ export function SettingsClient() {
   const { data: timezonesData } = useSocialTimezones();
   const updateSettings = useUpdateSocialSettings();
 
-  const settings = (settingsData as any)?.data;
-  const timezones = (timezonesData as any)?.data || [];
+  const settings = settingsData?.data;
+  const timezones = timezonesData?.data || [];
 
   const { handleSubmit, setValue, watch, reset } = useForm<SettingsForm>({
     resolver: zodResolver(settingsSchema),

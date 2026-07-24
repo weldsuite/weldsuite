@@ -1,12 +1,11 @@
 
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { formatAiBody } from '@/app/weldmail/lib/format-ai-body';
 import { useParams, useRouter, useSearchParams } from '@/lib/router';
 import {
   X,
   ArrowUp,
   Paperclip,
-  Send,
   Loader2,
   Link,
   Smile,
@@ -14,8 +13,6 @@ import {
   UserPlus,
   CircleCheck,
   Trash2,
-  ChevronDown,
-  Minus,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
@@ -43,6 +40,7 @@ import { toast } from 'sonner';
 import { format, addDays } from 'date-fns';
 import { mailApi } from '../../../lib/api-client';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import type { MailDraftRow } from '@weldsuite/app-api-client/domains/mail-drafts';
 import {
   usePersonSearch,
   useRecentCorrespondents,
@@ -106,7 +104,7 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
   const [ccRecipients, setCcRecipients] = useState('');
   const [bccRecipients, setBccRecipients] = useState('');
   const [fontSize, setFontSize] = useState('14');
-  const [textAlignment, setTextAlignment] = useState<'left' | 'center' | 'right'>('left');
+  const [textAlignment] = useState<'left' | 'center' | 'right'>('left');
   const [scheduledTime, setScheduledTime] = useState<Date | null>(null);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
 
@@ -144,8 +142,10 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
         }
         toast.success(t.mail.composePage.aiDraftGenerated);
       }
-    } catch (err: any) {
-      const status = err?.status || err?.response?.status;
+    } catch (err) {
+      const status =
+        (err as { status?: number; response?: { status?: number } } | undefined)?.status ||
+        (err as { status?: number; response?: { status?: number } } | undefined)?.response?.status;
       if (status === 402) {
         toast.error(t.mail.composePage.insufficientAiCredits);
       } else {
@@ -158,7 +158,7 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
 
   // Use URL params (most reliable) with compose context as fallback
   const returnUrl = useRef<string | null>(returnUrlParam || composeContext?.previousUrl || null);
-  const [currentDraftId, setCurrentDraftId] = useState<string | null>(draftId);
+  const [currentDraftId] = useState<string | null>(draftId);
   const [inReplyTo, setInReplyTo] = useState<string | undefined>(inReplyToParam || composeContext?.composeData.inReplyTo || undefined);
 
   // Sync from compose context if URL params were not provided
@@ -177,7 +177,7 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
     if (draftId && !hasLoadedDraft.current) {
       hasLoadedDraft.current = true;
       getClient().then((client) =>
-        client.get<{ success: boolean; data: any }>(`/mail-drafts/${draftId}`)
+        client.get<{ success: boolean; data: MailDraftRow }>(`/mail-drafts/${draftId}`)
       ).then((result) => {
         if (result.success && result.data) {
           const draft = result.data;
@@ -206,7 +206,7 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
         }
       });
     }
-  }, [draftId]);
+  }, [draftId, getClient]);
 
   // Initialize editor with body from compose context
   const hasInitializedFromContext = useRef(false);
@@ -319,9 +319,6 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
   const handleUnderline = () => { executeCommand('underline'); checkFormatting(); };
   const handleBulletList = () => { executeCommand('insertUnorderedList'); checkFormatting(); };
   const handleNumberedList = () => { executeCommand('insertOrderedList'); checkFormatting(); };
-  const handleAlignLeft = () => { executeCommand('justifyLeft'); setTextAlignment('left'); checkFormatting(); };
-  const handleAlignCenter = () => { executeCommand('justifyCenter'); setTextAlignment('center'); checkFormatting(); };
-  const handleAlignRight = () => { executeCommand('justifyRight'); setTextAlignment('right'); checkFormatting(); };
   const handleLink = () => { const url = prompt('Enter URL:'); if (url) executeCommand('createLink', url); checkFormatting(); };
   const insertEmoji = (emoji: string) => { executeCommand('insertText', emoji); checkFormatting(); };
 
@@ -449,7 +446,7 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
           return;
         }
 
-        let uploadedAttachments: Array<{
+        const uploadedAttachments: Array<{
           filename: string;
           contentType: string;
           size: number;
@@ -507,7 +504,7 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
           window.dispatchEvent(new Event('mail:refresh'));
           router.push(returnUrl.current || `/weldmail/${accountId}/sent`);
         } else {
-          toast.error((result as any).error || t.mail.composePage.failedToScheduleEmail);
+          toast.error(result.error || t.mail.composePage.failedToScheduleEmail);
         }
       } catch {
         toast.error(t.mail.composePage.failedToScheduleEmail);
@@ -532,7 +529,7 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
         return;
       }
 
-      let uploadedAttachments: Array<{
+      const uploadedAttachments: Array<{
         filename: string;
         contentType: string;
         size: number;
@@ -590,10 +587,10 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
         window.dispatchEvent(new Event('mail:refresh'));
         router.push(returnUrl.current || `/weldmail/${accountId}/sent`);
       } else {
-        const errorMsg = typeof result.error === 'string' ? result.error : result.error?.message || t.mail.composePage.failedToSendEmail;
+        const errorMsg = result.error || t.mail.composePage.failedToSendEmail;
         toast.error(errorMsg);
       }
-    } catch (error) {
+    } catch {
       toast.error(t.mail.composePage.failedToSendEmail);
     } finally {
       setIsSending(false);

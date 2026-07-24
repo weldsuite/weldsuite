@@ -6,7 +6,6 @@ import { Button } from '@weldsuite/ui/components/button';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -19,7 +18,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
+import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig } from '@/components/entity-list';
 import { useParams, useRouter } from '@/lib/router';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { whiteboardApi } from '@/app/weldflow/lib/api-client';
@@ -106,7 +105,7 @@ export default function WhiteboardPage() {
     ];
   }, [st]);
 
-  const applyFilters = useCallback((items: WhiteboardItem[], _filters: ActiveFilter[]) => {
+  const applyFilters = useCallback((items: WhiteboardItem[]) => {
     return items;
   }, []);
 
@@ -136,7 +135,7 @@ export default function WhiteboardPage() {
     }
   }, [projectId, st]);
 
-  const renderRow = useCallback((item: WhiteboardItem, _handlers: RowHandlers<WhiteboardItem>) => {
+  const renderRow = useCallback((item: WhiteboardItem) => {
     return (
       <div
         key={item.id}
@@ -187,7 +186,7 @@ export default function WhiteboardPage() {
         </div>
       </div>
     );
-  }, [canWrite, handleDeleteWhiteboard, handleDuplicateWhiteboard]);
+  }, [canWrite, handleDeleteWhiteboard, handleDuplicateWhiteboard, projectId, router, st]);
 
   const openCreateDialog = () => {
     setNewWhiteboardName('');

@@ -2,7 +2,6 @@
 import { useState } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Badge } from '@weldsuite/ui/components/badge';
@@ -10,34 +9,38 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/componen
 import {
   Search,
   Zap,
-  Calendar,
   Database,
   Webhook,
   Play,
   Clock,
-  GitBranch,
   Mail,
   ShoppingCart,
   Package,
   Users,
   FileText,
-  AlertCircle,
-  CheckCircle,
   Globe,
+  type LucideIcon,
 } from 'lucide-react';
+import type { TriggerType } from '@/hooks/queries/use-automation-queries';
 
-interface EventTypeDefinition {
+export interface EventTypeDefinition {
   id: string;
   name: string;
   description: string;
 }
 
+// The trigger-types endpoint doesn't currently report `isPremium`; keep it
+// optional here so the UI can render the badge once the API adds it.
+interface DisplayTriggerType extends TriggerType {
+  isPremium?: boolean;
+}
+
 interface TriggersClientProps {
-  triggerTypes: any[];
+  triggerTypes: DisplayTriggerType[];
   entityEvents: Array<{ entityType: string; events: EventTypeDefinition[] }>;
 }
 
-const TRIGGER_ICONS: Record<string, any> = {
+const TRIGGER_ICONS: Record<string, LucideIcon> = {
   schedule: Clock,
   entity_event: Database,
   webhook: Webhook,
@@ -45,7 +48,7 @@ const TRIGGER_ICONS: Record<string, any> = {
   api: Globe,
 };
 
-const ENTITY_ICONS: Record<string, any> = {
+const ENTITY_ICONS: Record<string, LucideIcon> = {
   customer: Users,
   order: ShoppingCart,
   parcel: Package,
@@ -62,7 +65,7 @@ export function TriggersClient({ triggerTypes, entityEvents }: TriggersClientPro
   ]);
 
   const [search, setSearch] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedCategory] = useState<string>('all');
 
   // Filter trigger types
   const filteredTriggers = triggerTypes.filter((trigger) => {
@@ -86,7 +89,7 @@ export function TriggersClient({ triggerTypes, entityEvents }: TriggersClientPro
       acc[category] = filteredTriggers.filter((t) => t.category === category);
       return acc;
     },
-    {} as Record<string, any[]>
+    {} as Record<string, DisplayTriggerType[]>
   );
 
   const getCategoryColor = (category: string) => {

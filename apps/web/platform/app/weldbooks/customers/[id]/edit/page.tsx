@@ -65,8 +65,7 @@ export default function EditContactPage() {
     resolver: zodResolver(contactSchema),
     values: contact
       ? {
-          role:
-            ((contact as any).role as ContactFormValues['role']) ?? 'customer',
+          role: (contact.role as ContactFormValues['role']) ?? 'customer',
           name: contact.name ?? '',
           companyName: contact.companyName ?? '',
           firstName: contact.firstName ?? '',
@@ -76,9 +75,9 @@ export default function EditContactPage() {
           taxNumber: contact.taxNumber ?? '',
           kvkNumber: contact.kvkNumber ?? '',
           iban: contact.iban ?? '',
-          bic: (contact as any).bic ?? '',
-          paymentTermsDays: (contact as any).paymentTermsDays ?? 30,
-          notes: (contact as any).notes ?? '',
+          bic: contact.bic ?? '',
+          paymentTermsDays: contact.paymentTermsDays ?? 30,
+          notes: contact.notes ?? '',
         }
       : undefined,
   });
@@ -95,13 +94,13 @@ export default function EditContactPage() {
 
   const onSubmit = async (values: ContactFormValues) => {
     await updateContact.mutateAsync({ id, data: values as Record<string, unknown> });
-    navigate({ to: `/weldbooks/customers/${id}` as any });
+    navigate({ to: '/weldbooks/customers/$id', params: { id } });
   };
 
   return (
     <div className="p-6 max-w-3xl space-y-6">
       <div className="flex items-center gap-4">
-        <Link to={`/weldbooks/customers/${id}` as any}>
+        <Link to="/weldbooks/customers/$id" params={{ id }}>
           <Button variant="ghost" size="icon">
             <ArrowLeft className="h-4 w-4" />
           </Button>
@@ -228,7 +227,7 @@ export default function EditContactPage() {
         </Card>
 
         <div className="flex justify-end gap-3">
-          <Link to={`/weldbooks/customers/${id}` as any}>
+          <Link to="/weldbooks/customers/$id" params={{ id }}>
             <Button type="button" variant="outline">{tc.cancel}</Button>
           </Link>
           <Button type="submit" disabled={updateContact.isPending}>

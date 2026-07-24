@@ -1,12 +1,25 @@
 
-import { useSearchParams, Link } from '@/lib/router';
+import { useSearchParams } from '@/lib/router';
 import { Megaphone, PlusCircle, Download, Eye, TrendingUp } from 'lucide-react';
-import { EntityPageHeader, type StatItem } from '@/components/entity-overview/entity-page-header';
-import { Button } from '@weldsuite/ui/components/button';
-import { useAnnouncements } from '@/hooks/queries/use-helpdesk-queries';
+import { EntityPageHeader, type StatItem, type ActionButton } from '@/components/entity-overview/entity-page-header';
+import { useAnnouncements, type Announcement } from '@/hooks/queries/use-helpdesk-queries';
 import { AnnouncementsClient } from './announcements-client';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
+
+/** Raw row shape returned by `GET /helpdesk-announcements` (app-api). */
+interface RawAnnouncement {
+  id?: string;
+  title?: string;
+  content?: string;
+  type?: 'info' | 'warning' | 'success' | 'error';
+  publishedAt?: string | Date;
+  createdAt?: string | Date;
+  expiresAt?: string | Date | null;
+  status?: string;
+  audience?: string;
+  authorName?: string;
+}
 
 export default function AnnouncementsPage() {
   const { t } = useI18n();
@@ -15,7 +28,7 @@ export default function AnnouncementsPage() {
   const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : 1;
 
   const currentParams: Record<string, string> = {};
-  searchParams.forEach((value, key) => {
+  searchParams.forEach((value: string, key: string) => {
     currentParams[key] = value;
   });
 
@@ -27,8 +40,8 @@ export default function AnnouncementsPage() {
   if (isLoading) return <PageLoader fullScreen={false} />;
 
   // Transform API items to Announcement format
-  const rawItems = data?.data || [];
-  const items = rawItems.map((item: any) => ({
+  const rawItems: RawAnnouncement[] = data?.data || [];
+  const items: Announcement[] = rawItems.map((item) => ({
     id: item.id || '',
     title: item.title || '',
     message: item.content || '',
@@ -43,22 +56,22 @@ export default function AnnouncementsPage() {
     clicks: 0,
   }));
 
-  const pagination = data?.pagination || {
-    page: 1,
-    pageSize: 20,
-    total: 0,
-    totalPages: 0,
+  const pagination = {
+    page: data?.pagination?.page ?? 1,
+    pageSize: data?.pagination?.pageSize ?? 20,
+    totalCount: data?.pagination?.totalCount ?? 0,
+    totalPages: data?.pagination?.totalPages ?? 0,
+    hasMore: data?.pagination?.hasMore ?? false,
   };
 
   // Calculate stats from items
   const stats = {
-    total: pagination.totalCount || pagination.total || items.length,
-    published: items.filter((item: any) => item.published).length,
-    draft: items.filter((item: any) => !item.published).length,
-    active: items.filter((item: any) => item.published && (!item.endDate || new Date(item.endDate) > new Date())).length,
+    total: pagination.totalCount || items.length,
+    published: items.filter((item) => item.published).length,
+    draft: items.filter((item) => !item.published).length,
+    active: items.filter((item) => item.published && (!item.endDate || new Date(item.endDate) > new Date())).length,
   };
 
-  /* eslint-disable */
   const headerStats: StatItem[] = [
     { icon: Megaphone, label: ta.totalAnnouncements, count: stats.total, color: 'text-blue-600' },
     { icon: Eye, label: ta.published, count: stats.published, color: 'text-green-600' },
@@ -66,31 +79,22 @@ export default function AnnouncementsPage() {
     { icon: TrendingUp, label: ta.active, count: stats.active, color: 'text-purple-600' },
   ];
 
-  const actions = (
-    <div className="flex gap-2">
-      <Button variant="outline" size="sm">
-        <Download className="h-4 w-4 mr-0.5" />
-        {t.common.actions.export}
-      </Button>
-      <Button size="sm" asChild>
-        <Link href="/welddesk/announcements/new">
-          <PlusCircle className="h-4 w-4 mr-0.5" />
-          {ta.newAnnouncement}
-        </Link>
-      </Button>
-    </div>
-  );
+  const actions: ActionButton[] = [
+    { label: t.common.actions.export, icon: Download, variant: 'outline' },
+    { label: ta.newAnnouncement, icon: PlusCircle, href: '/welddesk/announcements/new' },
+  ];
 
   const statusFilters = [
-    { label: ta.all, value: 'all', count: stats.total },
-    { label: ta.published, value: 'published', count: stats.published },
-    { label: ta.draft, value: 'draft', count: stats.draft },
+    { key: 'all', label: ta.all, value: 'all', count: stats.total },
+    { key: 'published', label: ta.published, value: 'published', count: stats.published },
+    { key: 'draft', label: ta.draft, value: 'draft', count: stats.draft },
   ];
 
   const additionalFilters = [
     {
       key: 'type',
       label: ta.type,
+      type: 'select' as const,
       options: [
         { label: ta.allTypes, value: 'all' },
         { label: ta.info, value: 'info' },
@@ -102,6 +106,7 @@ export default function AnnouncementsPage() {
     {
       key: 'priority',
       label: ta.priority,
+      type: 'select' as const,
       options: [
         { label: ta.allPriorities, value: 'all' },
         { label: ta.critical, value: 'critical' },
@@ -111,7 +116,6 @@ export default function AnnouncementsPage() {
       ],
     },
   ];
-  /* eslint-enable */
 
   return (
     <EntityPageHeader

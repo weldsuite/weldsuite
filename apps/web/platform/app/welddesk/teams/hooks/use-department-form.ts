@@ -98,7 +98,7 @@ export function useDepartmentForm({
 }: UseDepartmentFormProps): UseDepartmentFormReturn {
   const { t } = useI18n();
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [isPending] = useTransition();
   const createDepartmentMutation = useCreateDepartment();
   const updateDepartmentMutation = useUpdateDepartment();
 
@@ -161,7 +161,7 @@ export function useDepartmentForm({
         toast.success(t.helpdesk.teamsPage.departmentUpdated);
         router.push(`/welddesk/teams/${department.id}`);
       } else {
-        const result = await createDepartmentMutation.mutateAsync({
+        const createPayload = {
           name: data.name,
           description: data.description || undefined,
           email: data.email || undefined,
@@ -171,22 +171,23 @@ export function useDepartmentForm({
           isActive: data.isActive,
           replyTime: data.replyTime,
           businessHours: data.businessHours,
-        });
+        };
+        const result = await createDepartmentMutation.mutateAsync(createPayload);
 
         toast.success(t.helpdesk.teamsPage.departmentCreated);
 
         // Navigate to the new department or back to the list
-        if (result?.id) {
-          router.push(`/welddesk/teams/${result.id}`);
+        if (result?.data?.id) {
+          router.push(`/welddesk/teams/${result.data.id}`);
         } else {
           router.push('/welddesk/teams');
         }
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error saving department:', error);
       toast.error(
         mode === 'edit' ? t.helpdesk.teamsPage.failedToUpdateDepartment : t.helpdesk.teamsPage.failedToCreateDepartment,
-        { description: error.message }
+        { description: error instanceof Error ? error.message : undefined }
       );
     }
   };

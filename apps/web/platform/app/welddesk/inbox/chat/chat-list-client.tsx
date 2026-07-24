@@ -77,19 +77,25 @@ export default function ChatListClient({ initialConversations, workspaceId }: Ch
     // Invalidate TanStack Query cache so the list refetches from DB
     queryClient.invalidateQueries({ queryKey: helpdeskExtraKeys.conversations() });
 
+    const now = new Date();
     const newConversation: Helpdesk.Conversation = {
       id: conversation.id || '',
       conversationNumber: conversation.id || '',
       subject: conversation.subject || 'New conversation',
       status: conversation.status || 'active',
-      priority: conversation.priority || 'normal',
+      priority: conversation.priority || 'medium',
       channel: conversation.channel || 'chat',
-      createdAt: conversation.createdAt || new Date().toISOString(),
+      createdAt: conversation.createdAt || now,
+      updatedAt: conversation.updatedAt || now,
       isRead: false,
-      preview: conversation.preview,
-      lastMessageAt: conversation.lastMessageAt || conversation.createdAt,
-      customerName: conversation.customerName,
-      customerEmail: conversation.customerEmail,
+      isStarred: conversation.isStarred || false,
+      isArchived: conversation.isArchived || false,
+      hasAttachments: conversation.hasAttachments || false,
+      messageCount: conversation.messageCount || 1,
+      preview: conversation.preview || '',
+      lastMessageAt: conversation.lastMessageAt || conversation.createdAt || now,
+      customerName: conversation.customerName || 'Unknown Customer',
+      customerEmail: conversation.customerEmail || '',
     };
 
     setConversations(prev => [newConversation, ...prev]);
@@ -101,7 +107,7 @@ export default function ChatListClient({ initialConversations, workspaceId }: Ch
       body: ti.newConversationFrom.replace('{name}', senderName),
       playSound: true,
     });
-  }, [queryClient]);
+  }, [queryClient, ti.newChat, ti.newConversationFrom, ti.newLiveChat]);
 
   const handleAgentAssigned = useCallback((data: { conversationId: string; agentId: string; agentName: string }) => {
     queryClient.invalidateQueries({ queryKey: helpdeskExtraKeys.conversations() });
@@ -111,7 +117,7 @@ export default function ChatListClient({ initialConversations, workspaceId }: Ch
     toast.info(ti.conversationAssigned, { description: ti.conversationAssignedTo.replace('{name}', data.agentName) });
   }, [queryClient, ti]);
 
-  const { isConnected } = useHelpdeskWebSocket({
+  useHelpdeskWebSocket({
     workspaceId,
     onNewConversation: handleNewConversation,
     onAgentAssigned: handleAgentAssigned,

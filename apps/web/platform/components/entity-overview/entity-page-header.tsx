@@ -60,7 +60,7 @@ export function EntityPageHeader({ title, description, titlePrefix, stats = [], 
                 <div className="flex items-center gap-4 text-sm">
                   {stats
                     .filter((stat) => stat.show !== false)
-                    .map((stat, index, arr) => (
+                    .map((stat, index) => (
                       <React.Fragment key={stat.label}>
                         {index > 0 && <span className="text-muted-foreground">•</span>}
                         <span

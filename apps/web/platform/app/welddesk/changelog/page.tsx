@@ -1,8 +1,7 @@
 
-import { useSearchParams, Link } from '@/lib/router';
+import { useSearchParams } from '@/lib/router';
 import { FileText, PlusCircle, Download, Eye } from 'lucide-react';
-import { EntityPageHeader, type StatItem } from '@/components/entity-overview/entity-page-header';
-import { Button } from '@weldsuite/ui/components/button';
+import { EntityPageHeader, type StatItem, type ActionButton } from '@/components/entity-overview/entity-page-header';
 import { useChangelog } from '@/hooks/queries/use-helpdesk-queries';
 import { ChangelogClient } from './changelog-client';
 import { PageLoader } from '@/components/page-loader';
@@ -16,7 +15,7 @@ export default function ChangelogPage() {
   const search = searchParams.get('search') || undefined;
 
   const currentParams: Record<string, string> = {};
-  searchParams.forEach((value, key) => {
+  searchParams.forEach((value: string, key: string) => {
     currentParams[key] = value;
   });
 
@@ -29,11 +28,12 @@ export default function ChangelogPage() {
   if (isLoading) return <PageLoader fullScreen={false} />;
 
   const items = data?.data || [];
-  const pagination = data?.pagination || {
-    page: 1,
-    pageSize: 20,
-    total: 0,
-    totalPages: 0,
+  const pagination = {
+    page: data?.pagination?.page ?? 1,
+    pageSize: data?.pagination?.pageSize ?? 20,
+    totalCount: data?.pagination?.totalCount ?? 0,
+    totalPages: data?.pagination?.totalPages ?? 0,
+    hasMore: data?.pagination?.hasMore ?? false,
   };
 
   // Calculate stats from items
@@ -42,13 +42,12 @@ export default function ChangelogPage() {
   thisMonth.setHours(0, 0, 0, 0);
 
   const stats = {
-    total: pagination.totalCount || pagination.total || items.length,
-    published: items.filter((item: any) => item.status === 'published').length,
-    draft: items.filter((item: any) => item.status === 'draft').length,
-    thisMonth: items.filter((item: any) => new Date(item.createdAt) >= thisMonth).length,
+    total: pagination.totalCount || items.length,
+    published: items.filter((item) => item.status === 'published').length,
+    draft: items.filter((item) => item.status === 'draft').length,
+    thisMonth: items.filter((item) => new Date(item.createdAt) >= thisMonth).length,
   };
 
-  /* eslint-disable */
   const headerStats: StatItem[] = [
     { icon: FileText, label: tc.totalEntries, count: stats.total, color: 'text-blue-600' },
     { icon: Eye, label: tc.published, count: stats.published, color: 'text-green-600' },
@@ -56,31 +55,22 @@ export default function ChangelogPage() {
     { icon: FileText, label: tc.thisMonth, count: stats.thisMonth, color: 'text-purple-600' },
   ];
 
-  const actions = (
-    <div className="flex gap-2">
-      <Button variant="outline" size="sm">
-        <Download className="h-4 w-4 mr-0.5" />
-        {t.common.actions.export}
-      </Button>
-      <Button size="sm" asChild>
-        <Link href="/welddesk/changelog/new">
-          <PlusCircle className="h-4 w-4 mr-0.5" />
-          {tc.newEntry}
-        </Link>
-      </Button>
-    </div>
-  );
+  const actions: ActionButton[] = [
+    { label: t.common.actions.export, icon: Download, variant: 'outline' },
+    { label: tc.newEntry, icon: PlusCircle, href: '/welddesk/changelog/new' },
+  ];
 
   const statusFilters = [
-    { label: tc.all, value: 'all', count: stats.total },
-    { label: tc.published, value: 'published', count: stats.published },
-    { label: tc.draft, value: 'draft', count: stats.draft },
+    { key: 'all', label: tc.all, value: 'all', count: stats.total },
+    { key: 'published', label: tc.published, value: 'published', count: stats.published },
+    { key: 'draft', label: tc.draft, value: 'draft', count: stats.draft },
   ];
 
   const additionalFilters = [
     {
       key: 'type',
       label: tc.type,
+      type: 'select' as const,
       options: [
         { label: tc.allTypes, value: 'all' },
         { label: tc.feature, value: 'feature' },
@@ -90,7 +80,6 @@ export default function ChangelogPage() {
       ],
     },
   ];
-  /* eslint-enable */
 
   const counts = {
     total: stats.total,

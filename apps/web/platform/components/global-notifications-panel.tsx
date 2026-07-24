@@ -235,7 +235,7 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
               No notifications
             </p>
             <p className="text-[12px] text-gray-500 dark:text-muted-foreground mt-1">
-              You'll see notifications here
+              You&apos;ll see notifications here
             </p>
           </div>
         ) : (

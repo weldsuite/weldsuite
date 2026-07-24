@@ -13,11 +13,10 @@ export default function ProjectFilesPage() {
   if (isLoading) return <PageLoader fullScreen={false} />;
 
   const initialFiles = data?.data || [];
-  const initialTotal = initialFiles.length;
 
   return (
     <div className="-mt-3 md:-mt-4">
-      <FilesComponent projectId={projectId} initialFiles={initialFiles} initialTotal={initialTotal} />
+      <FilesComponent projectId={projectId} initialFiles={initialFiles} />
     </div>
   );
 }

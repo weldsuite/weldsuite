@@ -50,10 +50,6 @@ interface AppApiSuccess<T> {
   /** Single-item envelope shape. */
   data: T;
 }
-interface AppApiList<T> {
-  data: T[];
-  pagination?: { totalCount: number; hasMore: boolean; cursor: string | null };
-}
 interface AppApiError {
   error: { code: string; message: string; details?: unknown };
 }
@@ -456,7 +452,12 @@ export const mailApi = {
         `/mail-messages/stats${buildQuery({ accountId })}`,
       );
       if (!result.success || !result.data) {
-        return result as ApiResponse<{
+        return {
+          success: result.success,
+          error: result.error,
+          errorCode: result.errorCode,
+          errorDetails: result.errorDetails,
+        } as ApiResponse<{
           total: number; unread: number; inboxUnread: number; starredUnread: number;
           sentUnread: number; drafts: number; spam: number; trashUnread: number;
           snoozed: number; scheduled: number; importantUnread: number; archiveUnread: number;

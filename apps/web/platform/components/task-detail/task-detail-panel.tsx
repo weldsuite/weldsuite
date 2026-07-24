@@ -30,14 +30,14 @@ import {
 import { cn } from '@/lib/utils';
 import type { Task } from '@/hooks/use-crm-tasks';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
-import { TaskDetailContent, DescriptionField, CommentsList, type TaskAttachment, type TaskComment, type SubtaskItem, type DependencyTask } from './task-detail-content';
+import { TaskDetailContent, DescriptionField, type TaskAttachment, type TaskComment, type SubtaskItem, type DependencyTask, type TaskUpdateData } from './task-detail-content';
 import { TaskChat } from './task-chat';
 
 export interface TaskDetailPanelProps {
   task: Task;
   isOpen: boolean;
   onClose: () => void;
-  onUpdate: (taskId: string, data: any) => void;
+  onUpdate: (taskId: string, data: TaskUpdateData) => void;
   onDelete: (taskId: string) => void;
   onToggle: (taskId: string) => void;
   onDuplicate: (task: Task) => void;
@@ -218,7 +218,6 @@ export function TaskDetailPanel({
   const isDraggingRef = useRef(false);
   const startYRef = useRef(0);
   const startHeightRef = useRef(0);
-  const panelRef = useRef<HTMLDivElement>(null);
 
   const commentsContainerRef = useRef<HTMLDivElement>(null);
 
@@ -257,7 +256,7 @@ export function TaskDetailPanel({
       setAttachments(fromFiles as TaskAttachment[]);
       return;
     }
-    const stored = (task as any).customFields?.attachments;
+    const stored = (task as unknown as { customFields?: { attachments?: unknown } }).customFields?.attachments;
     setAttachments(Array.isArray(stored) ? stored : []);
   }, [task]);
 
@@ -287,7 +286,7 @@ export function TaskDetailPanel({
         toast.error(st('sweep.shared.failedToSaveAttachment'));
       }
     },
-    [addAttachmentMutation],
+    [addAttachmentMutation, st],
   );
 
   const handleAttachmentRemove = useCallback(
@@ -304,7 +303,7 @@ export function TaskDetailPanel({
         toast.error(st('sweep.shared.failedToRemoveAttachment'));
       }
     },
-    [removeAttachmentMutation],
+    [removeAttachmentMutation, st],
   );
 
   // Close WeldAgent when this panel opens

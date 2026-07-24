@@ -4,6 +4,13 @@ import { TeamsClient } from './teams-client';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 
+interface RawDepartment {
+  id: string;
+  name: string;
+  description?: string;
+  agentCount?: number;
+}
+
 export default function TeamsPage() {
   const { t } = useI18n();
   const { data, isLoading } = useDepartments();
@@ -25,7 +32,7 @@ export default function TeamsPage() {
   ];
 
   // Transform departments to team format
-  const teams = departments.map((dept: any, index: number) => ({
+  const teams = departments.map((dept: RawDepartment, index: number) => ({
     id: dept.id,
     name: dept.name,
     description: dept.description || t.helpdesk.teams.noDescription,

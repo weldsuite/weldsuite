@@ -18,7 +18,7 @@
  * inline-editing / related-list tabs are needed.
  */
 
-import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   LayoutGrid,

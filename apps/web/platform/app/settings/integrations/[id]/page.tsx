@@ -1,6 +1,5 @@
 
-import { useParams, useRouter } from '@/lib/router';
-import { BreadcrumbHeader } from '@/components/breadcrumb-header';
+import { useParams } from '@/lib/router';
 import { IntegrationDetailClient } from './integration-detail-client';
 
 export default function IntegrationDetailPage() {

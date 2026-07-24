@@ -1,4 +1,4 @@
-import { Package, type LucideIcon } from 'lucide-react';
+import { Package } from 'lucide-react';
 import { APP_REGISTRY, getAppIcon } from '@/lib/apps/app-registry';
 
 interface AppIconProps {
@@ -36,11 +36,4 @@ export function AppIcon({ icon, className = 'h-6 w-6', fallbackClassName }: AppI
 
   // Fallback
   return <Package className={className} />;
-}
-
-/**
- * Get the list of available icon names for selection
- */
-function getAvailableIcons(): string[] {
-  return Object.keys(APP_REGISTRY);
 }

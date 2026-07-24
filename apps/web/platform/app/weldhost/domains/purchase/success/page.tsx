@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   Loader2,
   AlertCircle,
-  ArrowRight,
   Globe,
   XCircle,
   ExternalLink,
@@ -27,7 +26,6 @@ export default function DomainPurchaseSuccessPage() {
   const tse = t.host.purchaseSuccessExtra;
   const st = useTranslations();
   const registrationIdsParam = searchParams.get('registration_ids');
-  const sessionId = searchParams.get('session_id');
 
   const [statuses, setStatuses] = useState<Map<string, DomainPurchaseStatusResponse>>(new Map());
   const [isPolling, setIsPolling] = useState(true);
@@ -87,7 +85,6 @@ export default function DomainPurchaseSuccessPage() {
   const failedCount = Array.from(statuses.values()).filter(s => s.status === 'failed').length;
   const processingCount = totalDomains - completedCount - failedCount;
   const allCompleted = completedCount === totalDomains;
-  const anyFailed = failedCount > 0;
   const allFailed = failedCount === totalDomains;
 
   const getStatusBadge = (status?: string) => {

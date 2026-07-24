@@ -8,7 +8,7 @@ import {
   useDisconnectChannel,
 } from '@/hooks/queries/use-helpdesk-integration-queries';
 import { DiscordSettingsClient } from './discord-settings-client';
-import { Globe, FileText, Loader2 } from 'lucide-react';
+import { Globe, FileText } from 'lucide-react';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -38,6 +38,11 @@ export default function DiscordSettingsPage() {
       toast.error(st('sweep.welddesk.discordIntegration.connectionFailed', { error: oauthError }));
       router.replace('/settings/integrations/discord');
     }
+    // `router`, `t`, and `st` are recreated every render (unmemoized context
+    // values) — including them would re-fire this OAuth-callback handler
+    // (toast + redirect) on every unrelated re-render instead of only when
+    // the query params change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, oauthError]);
 
   const { data: integration, isLoading: integrationLoading } = useChannelIntegrationStatus('discord');
@@ -107,9 +112,9 @@ export default function DiscordSettingsPage() {
       >
         {isConnected && integration && (
           <DiscordSettingsClient
-            integration={integration as any}
-            initialSettings={settings as any}
-            guildInfo={guildInfo as any}
+            integration={integration}
+            initialSettings={settings}
+            guildInfo={guildInfo}
             isNewSetup={isNewSetup}
           />
         )}

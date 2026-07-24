@@ -1,8 +1,25 @@
 
 import { useSearchParams } from '@/lib/router';
 import { KnowledgeClient } from "./knowledge-client";
-import { useArticles } from '@/hooks/queries/use-helpdesk-queries';
+import { useArticles, type KnowledgeArticle } from '@/hooks/queries/use-helpdesk-queries';
 import { PageLoader } from '@/components/page-loader';
+
+interface RawArticle {
+  id: string;
+  title: string;
+  excerpt?: string;
+  summary?: string;
+  categoryName?: string;
+  categoryId?: string;
+  tags?: string[];
+  authorName?: string;
+  viewCount?: number;
+  updatedAt?: string;
+  status?: KnowledgeArticle['status'];
+  visibility?: KnowledgeArticle['visibility'];
+  helpfulCount?: number;
+  notHelpfulCount?: number;
+}
 
 export default function KnowledgePage() {
   const searchParams = useSearchParams();
@@ -24,7 +41,7 @@ export default function KnowledgePage() {
 
   // Map response to expected format
   const rawItems = data?.data || [];
-  const items = rawItems.map((article: any) => ({
+  const items = rawItems.map((article: RawArticle) => ({
     id: article.id,
     title: article.title,
     excerpt: article.excerpt || article.summary || '',
@@ -55,9 +72,9 @@ export default function KnowledgePage() {
   // Calculate counts for status filters
   const counts = {
     total: items.length,
-    published: items.filter((item: any) => item.status === 'published').length,
-    draft: items.filter((item: any) => item.status === 'draft').length,
-    archived: items.filter((item: any) => item.status === 'archived').length,
+    published: items.filter((item) => item.status === 'published').length,
+    draft: items.filter((item) => item.status === 'draft').length,
+    archived: items.filter((item) => item.status === 'archived').length,
   };
 
   return (

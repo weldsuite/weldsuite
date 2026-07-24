@@ -15,7 +15,9 @@ export interface TicketSuggestion {
  * still imports it for its canned local preview flow.
  */
 export function detectTicketSuggestion(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept for call-site signature compat, see doc comment above
   _message: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept for call-site signature compat, see doc comment above
   _role: 'user' | 'assistant'
 ): TicketSuggestion {
   return { shouldCreateTicket: false };

@@ -8,9 +8,9 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
-import { useConversation } from './use-conversation';
-import { detectEscalation, cleanAiResponse } from '@/lib/ai/escalation-detector';
-import { detectTicketSuggestion, cleanTicketMarkers } from '@/lib/ai/ticket-suggestion-detector';
+import { useConversation, type ConversationMessage } from './use-conversation';
+import { detectEscalation } from '@/lib/ai/escalation-detector';
+import { detectTicketSuggestion } from '@/lib/ai/ticket-suggestion-detector';
 
 // Temporarily disabled emoji picker due to missing dependency
 // const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
@@ -74,7 +74,7 @@ interface ExactIntercomWidgetProps {
   customerEmail?: string;
   customerName?: string;
   onEscalationRequested?: (reason: string) => void;
-  onTicketCreationRequested?: (data: any) => void;
+  onTicketCreationRequested?: (data: { conversationId: string; messages: ConversationMessage[] }) => void;
   // Preview mode props - for testing draft settings before saving
   previewSystemInstructions?: string;
   previewKnowledgePermissions?: Record<string, boolean>;
@@ -100,7 +100,6 @@ export function ExactIntercomWidget({
   previewKnowledgePermissions,
   previewWelcomeMessage,
   allowHumanEscalation = true,
-  showBranding,
 }: ExactIntercomWidgetProps = {}) {
   const startingPage = themeSettings?.startingPage || 'home';
 
@@ -150,7 +149,7 @@ export function ExactIntercomWidget({
   const [inputValue, setInputValue] = useState('');
   // Use isLoading from AI conversation for typing indicator
   const isTyping = enableAi ? aiConversation.isSendingMessage : false;
-  const [isFocused, setIsFocused] = useState(false);
+  const [, setIsFocused] = useState(false);
   const [isMultiLine, setIsMultiLine] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -236,13 +235,6 @@ export function ExactIntercomWidget({
         setEscalationReason('AI assistant is not enabled. Would you like to speak with a human agent?');
       }
     }
-  };
-
-  // Emoji picker is temporarily disabled
-  const onEmojiClick = (emojiData: any) => {
-    setInputValue(prev => prev + emojiData.emoji);
-    // Focus back on input
-    inputRef.current?.focus();
   };
 
   const openChatView = () => {
@@ -1080,7 +1072,7 @@ export function ExactIntercomWidget({
       )}
 
       {/* Custom scrollbar styles */}
-      <style jsx>{`
+      <style>{`
         .widget-scrollbar::-webkit-scrollbar {
           width: 6px;
         }

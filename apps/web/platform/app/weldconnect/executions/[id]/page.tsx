@@ -2,8 +2,9 @@
 import { useParams } from '@/lib/router';
 import { PageLoader } from '@/components/page-loader';
 import { useExecution, useExecutionLogs, useExecutionSteps } from '@/hooks/queries/use-automation-queries';
-import { ExecutionDetailClient } from './execution-detail-client';
+import { ExecutionDetailClient, type ExecutionStepView } from './execution-detail-client';
 import { useI18n } from '@/lib/i18n/provider';
+import type { ExecutionStep } from '@weldsuite/core-api-client/schemas/weldconnect';
 
 export default function ExecutionDetailPage() {
   const { t } = useI18n();
@@ -34,7 +35,7 @@ export default function ExecutionDetailPage() {
   const executionWithSteps = {
     ...execution,
     // Map steps from the execution steps table
-    steps: steps.map((step: any) => ({
+    steps: steps.map((step: ExecutionStep): ExecutionStepView => ({
       id: step.id,
       name: step.stepName,
       type: step.stepType,

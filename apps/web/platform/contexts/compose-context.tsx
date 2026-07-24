@@ -83,14 +83,6 @@ export function ComposeProvider({ children }: { children: ReactNode }) {
   );
 }
 
-function useCompose() {
-  const context = useContext(ComposeContext);
-  if (context === undefined) {
-    throw new Error('useCompose must be used within a ComposeProvider');
-  }
-  return context;
-}
-
 export function useComposeSafe() {
   return useContext(ComposeContext);
 }

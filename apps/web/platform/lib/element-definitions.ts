@@ -1059,11 +1059,3 @@ export const elementCategories: ElementCategory[] = [
     elements: elementDefinitions.filter(e => e.category === 'utility')
   }
 ];
-
-function getElementDefinition(type: string): ElementDefinition | undefined {
-  return elementDefinitions.find(e => e.type === type);
-}
-
-function getElementsByCategory(category: string): ElementDefinition[] {
-  return elementDefinitions.filter(e => e.category === category);
-}

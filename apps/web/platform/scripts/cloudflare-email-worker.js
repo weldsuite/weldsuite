@@ -1,5 +1,5 @@
 export default {
-    async email(message, env, ctx) {
+    async email(message, env) {
         // Determine environment from +suffix in email
         let targetEnv = 'production';
         let webhookUrl = env.WEBHOOK_URL_PRODUCTION;

@@ -283,7 +283,10 @@ export const ChatInput = React.forwardRef<HTMLTextAreaElement, ChatInputProps>(
           }
           if (e.key === "Enter" || e.key === "Tab") {
             e.preventDefault();
-            insertMention(filteredMentions[mentionActive]);
+            const activeMention = filteredMentions[mentionActive];
+            if (activeMention) {
+              insertMention(activeMention);
+            }
             return;
           }
           if (e.key === "Escape") {

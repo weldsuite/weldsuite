@@ -214,7 +214,6 @@ export function DomainAvailabilityChecker({
             <div className="bg-white rounded-lg border border-border">
               <div className="divide-y divide-border">
                 {domainResults.map((result) => {
-                  const isAvailable = result.status === 1;
                   const isUnavailable = result.status === 2;
                   const hasPrice = result.price != null;
                   const isSelected = selectedDomainNames.includes(result.domain_name);

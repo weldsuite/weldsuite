@@ -1,7 +1,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSignIn, useAuth, useOrganizationList } from '@clerk/clerk-react';
-import { useRouter, useSearchParams, Link } from '@/lib/router';
+import { useSearchParams, Link } from '@/lib/router';
 import { isDesktop, getDesktop } from '@/lib/desktop';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -13,7 +13,7 @@ import {
 } from '@weldsuite/ui/components/input-otp';
 import { REGEXP_ONLY_DIGITS } from 'input-otp';
 import { Loader2, Mail, Lock, KeyRound, ChevronLeft } from 'lucide-react';
-import { getSafeCallbackUrl } from '../../utils';
+import { getSafeCallbackUrl, getClerkErrorMessage } from '../../utils';
 import { getTranslations } from '@/lib/i18n';
 
 type LoginStep = 'credentials' | 'two-factor' | 'email-verify' | 'first-factor-verify';
@@ -31,7 +31,6 @@ function GoogleIcon({ className }: { className?: string }) {
 
 export default function LoginPage() {
   const t = getTranslations('common');
-  const router = useRouter();
   const searchParams = useSearchParams();
   // Use sanitized callback URL to prevent redirect loops to auth pages
   const callbackUrl = useMemo(() => getSafeCallbackUrl(searchParams), [searchParams]);
@@ -110,7 +109,7 @@ export default function LoginPage() {
           path: `/auth/login?desktop=1&provider=google&return_to=${encodeURIComponent(returnTo)}`,
           returnTo,
         });
-      } catch (err) {
+      } catch {
         setError(t.auth.login.couldNotOpenBrowser);
         setIsGoogleLoading(false);
       }
@@ -131,8 +130,8 @@ export default function LoginPage() {
         // Google accounts can never switch which one they sign in with.
         oidcPrompt: 'select_account',
       });
-    } catch (err: any) {
-      const errorMessage = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || t.auth.login.googleSignInFailed;
+    } catch (err) {
+      const errorMessage = getClerkErrorMessage(err, t.auth.login.googleSignInFailed);
       setError(errorMessage);
       setIsGoogleLoading(false);
     }
@@ -217,8 +216,8 @@ export default function LoginPage() {
         setError(t.auth.login.signInFailed);
         setIsLoading(false);
       }
-    } catch (err: any) {
-      const errorMessage = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || t.auth.login.invalidEmailOrPassword;
+    } catch (err) {
+      const errorMessage = getClerkErrorMessage(err, t.auth.login.invalidEmailOrPassword);
       setError(errorMessage);
       setIsLoading(false);
     }
@@ -250,8 +249,8 @@ export default function LoginPage() {
         setError(t.auth.login.twoFactor.verificationFailed);
         setIsLoading(false);
       }
-    } catch (err: any) {
-      const errorMessage = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || t.auth.login.twoFactor.invalidCode;
+    } catch (err) {
+      const errorMessage = getClerkErrorMessage(err, t.auth.login.twoFactor.invalidCode);
       setError(errorMessage);
       setIsLoading(false);
     }
@@ -283,8 +282,8 @@ export default function LoginPage() {
         setError(t.auth.login.emailVerify.verificationFailed);
         setIsLoading(false);
       }
-    } catch (err: any) {
-      const errorMessage = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || t.auth.login.emailVerify.invalidCode;
+    } catch (err) {
+      const errorMessage = getClerkErrorMessage(err, t.auth.login.emailVerify.invalidCode);
       setError(errorMessage);
       setIsLoading(false);
     }
@@ -301,8 +300,8 @@ export default function LoginPage() {
     try {
       await signIn.prepareSecondFactor({ strategy: 'email_code' });
       setIsLoading(false);
-    } catch (err: any) {
-      const errorMessage = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || t.auth.login.emailVerify.failedToResend;
+    } catch (err) {
+      const errorMessage = getClerkErrorMessage(err, t.auth.login.emailVerify.failedToResend);
       setError(errorMessage);
       setIsLoading(false);
     }
@@ -343,8 +342,8 @@ export default function LoginPage() {
         setError(t.auth.login.emailVerify.verificationFailed);
         setIsLoading(false);
       }
-    } catch (err: any) {
-      const errorMessage = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || t.auth.login.emailVerify.invalidCode;
+    } catch (err) {
+      const errorMessage = getClerkErrorMessage(err, t.auth.login.emailVerify.invalidCode);
       setError(errorMessage);
       setIsLoading(false);
     }
@@ -368,8 +367,8 @@ export default function LoginPage() {
         });
       }
       setIsLoading(false);
-    } catch (err: any) {
-      const errorMessage = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || t.auth.login.twoFactor.failedToResend;
+    } catch (err) {
+      const errorMessage = getClerkErrorMessage(err, t.auth.login.twoFactor.failedToResend);
       setError(errorMessage);
       setIsLoading(false);
     }

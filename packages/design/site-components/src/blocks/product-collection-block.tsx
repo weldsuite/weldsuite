@@ -269,7 +269,7 @@ export function ProductCollectionBlock({
 
   const getProductImage = (product: Product): string => {
     if (product.image) return product.image;
-    if (product.images && product.images.length > 0) return product.images[0].url;
+    if (product.images && product.images.length > 0) return product.images[0]?.url ?? '';
     return '';
   };
 

@@ -6,9 +6,6 @@ import {
   ChevronLeft,
   Loader2,
   CheckCircle,
-  Globe,
-  FileText,
-  Mail,
   TrendingUp,
   Headphones,
   MessageSquare,
@@ -166,7 +163,7 @@ export function IntegrationDetailLayout({
                   alt="WeldSuite"
                   className="h-4 w-4 hidden dark:block"
                 />
-                <span className="text-sm text-foreground">WeldSuite</span>
+                <span className="text-sm text-foreground">{provider}</span>
               </div>
             </div>
 

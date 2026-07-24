@@ -21,7 +21,6 @@ import {
   LogOut,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Badge } from '@weldsuite/ui/components/badge';
 import {
   Table,
   TableBody,
@@ -112,6 +111,7 @@ export default function SecuritySettingsPage() {
     } finally {
       setIsLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ts.messages.loadFailed shouldn't trigger a session refetch on locale change.
   }, [user]);
 
   useEffect(() => {

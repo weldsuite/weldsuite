@@ -38,6 +38,7 @@ import { RenameDialog } from '@/app/weldcrm/components/rename-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { MoveToFolderDialog } from './move-to-folder-dialog';
 import { FileDetailPanel } from './file-detail-panel';
+import type { TaskComment } from '@/components/task-detail/task-detail-content';
 import { DriveFileCard, downloadFile, fileTypeIcons, sourceBadgeStyles, driveLabelClass, formatFileSize, formatDate } from './drive-file-card';
 import {
   DropdownMenu,
@@ -47,11 +48,11 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { DriveFolderCard } from './drive-folder-card';
-import { useAllFiles, useDriveFiles, useDriveFolders, useAllDriveFolders, useDriveStats, useStarDriveFile, useUpdateDriveFile, useDeleteDriveFile, useMoveDriveFile, useCreateDriveFile, useCreateDriveFolder, useUpdateDriveFolder, useDeleteDriveFolder, useDriveTrash, useRestoreDriveFile, useRestoreDriveFolder, usePermanentDeleteDriveFile, usePermanentDeleteDriveFolder, useEmptyDriveTrash } from '@/hooks/queries/use-drive-queries';
+import { useAllFiles, useDriveFiles, useDriveFolders, useAllDriveFolders, useStarDriveFile, useUpdateDriveFile, useDeleteDriveFile, useMoveDriveFile, useCreateDriveFile, useCreateDriveFolder, useUpdateDriveFolder, useDeleteDriveFolder, useDriveTrash, useRestoreDriveFile, useRestoreDriveFolder, usePermanentDeleteDriveFile, usePermanentDeleteDriveFolder, useEmptyDriveTrash } from '@/hooks/queries/use-drive-queries';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { toast } from 'sonner';
 import type { UnifiedFile, DriveFolder, DriveFilesParams } from '@/lib/api/domains/welddrive';
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type ActiveFilter, type SortState, type RowHandlers } from '@/components/entity-list';
+import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type ActiveFilter, type SortState } from '@/components/entity-list';
 import { FilterPills } from '@/components/entity-list';
 import { createDocument } from '@/lib/documents/api';
 
@@ -184,8 +185,8 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
   const { t } = useI18n();
 
   const [viewMode, setViewMode] = useState<ViewMode>('list');
-  const [sortBy, setSortBy] = useState<string>('createdAt');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const sortBy = 'createdAt';
+  const sortOrder: 'asc' | 'desc' = 'desc';
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(initialFolderId || null);
   const sidebarView: DriveView = view;
   const activeTypeFilter = typeFilter || '';
@@ -202,7 +203,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
   const [moveFile, setMoveFile] = useState<UnifiedFile | null>(null);
   const [renameFolder, setRenameFolder] = useState<DriveFolder | null>(null);
   const [deleteFolder, setDeleteFolder] = useState<DriveFolder | null>(null);
-  const [fileComments, setFileComments] = useState<Record<string, any[]>>({});
+  const [fileComments, setFileComments] = useState<Record<string, TaskComment[]>>({});
   const [fileDescriptions, setFileDescriptions] = useState<Record<string, string>>({});
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -319,7 +320,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
       }
     }
     toast.success(t.welddrive.toasts.uploadSuccess.replace('{count}', String(files.length)).replace('{plural}', files.length > 1 ? 's' : ''));
-  }, [uploadFile, createFileMutation, currentFolderId]);
+  }, [uploadFile, createFileMutation, currentFolderId, t]);
 
   const handleUploadClick = useCallback(() => {
     fileInputRef.current?.click();
@@ -351,7 +352,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
     }
 
     await uploadFiles(Array.from(e.dataTransfer.files));
-  }, [uploadFiles, moveMutation]);
+  }, [uploadFiles, moveMutation, t]);
 
   // Listen for create-folder event from sidebar
   useEffect(() => {
@@ -385,18 +386,24 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
     }
 
     return params;
-  }, [page, sortBy, sortOrder, activeTypeFilter, activeSourceFilter, sidebarView, showFolders]);
+  }, [page, sortBy, sortOrder, activeTypeFilter, activeSourceFilter, sidebarView]);
 
   const allFilesQuery = useAllFiles(useAggregated ? buildParams() : undefined);
   const driveFilesQuery = useDriveFiles(!useAggregated ? buildParams() : undefined);
   const foldersQuery = useDriveFolders(showFolders ? currentFolderId : undefined);
   const allFoldersQuery = useAllDriveFolders();
-  const allFolders = allFoldersQuery.data?.data || [];
+  const allFolders = useMemo(() => allFoldersQuery.data?.data || [], [allFoldersQuery.data]);
 
   const activeQuery = useAggregated ? allFilesQuery : driveFilesQuery;
-  const rawFiles = activeQuery.data?.data || [];
-  const nonTrashFolders = (showFolders ? foldersQuery.data?.data : []) || [];
-  const folders = isTrashView ? (trashData?.folders || []) : nonTrashFolders;
+  const rawFiles = useMemo(() => activeQuery.data?.data || [], [activeQuery.data]);
+  const nonTrashFolders = useMemo(
+    () => (showFolders ? foldersQuery.data?.data : []) || [],
+    [showFolders, foldersQuery.data]
+  );
+  const folders = useMemo(
+    () => (isTrashView ? (trashData?.folders || []) : nonTrashFolders),
+    [isTrashView, trashData, nonTrashFolders]
+  );
   const isLoading = isTrashView ? false : activeQuery.isLoading;
 
   // Apply client-side view filters
@@ -424,7 +431,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
       return (trashData?.files || []).map((f): UnifiedFile => ({
         id: f.id,
         name: f.fileName,
-        fileType: (f.fileType || 'file') as any,
+        fileType: f.fileType || 'file',
         mimeType: f.mimeType,
         fileSize: f.fileSize,
         url: f.url,
@@ -483,7 +490,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
     }
   }, [currentFolderId, navigate, t]);
 
-  const handleFileClick = (file: UnifiedFile) => {
+  const handleFileClick = useCallback((file: UnifiedFile) => {
     if (file.isWeldDoc) {
       openDocument(file.id);
     } else if (file.navigateTo) {
@@ -495,7 +502,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
     } else {
       setPreviewFile(file);
     }
-  };
+  }, [openDocument, navigate]);
 
   const toggleFolderExpanded = useCallback((folderId: string) => {
     setExpandedFolders(prev => {
@@ -552,7 +559,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
     } else if (item._file) {
       handleFileClick(item._file);
     }
-  }, [toggleFolderExpanded]);
+  }, [toggleFolderExpanded, handleFileClick]);
 
   // Filter configs
   const filterConfigs: FilterConfig[] = useMemo(() => [
@@ -794,7 +801,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
       },
       onError: () => toast.error(t.welddrive.toasts.failedToRenameFile),
     });
-  }, [renameFile, updateMutation]);
+  }, [renameFile, updateMutation, t]);
 
   const handleMoveToFolder = useCallback((file: UnifiedFile) => {
     if (file.source !== 'drive') {
@@ -831,7 +838,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
       },
       onError: () => toast.error(t.welddrive.toasts.failedToMoveToTrash),
     });
-  }, [deleteFile, deleteMutation]);
+  }, [deleteFile, deleteMutation, t]);
 
   const handleDuplicateFolder = useCallback((folder: DriveFolder) => {
     createFolderMutation.mutate(
@@ -841,7 +848,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
         onError: () => toast.error(t.welddrive.toasts.failedToDuplicateFolder),
       }
     );
-  }, [createFolderMutation]);
+  }, [createFolderMutation, t]);
 
   // Render row for list view
   const renderRow = useCallback((item: DriveItem) => {
@@ -862,9 +869,6 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
     const typeConfig = fileTypeIcons[item.fileType] || fileTypeIcons.file;
     const isFolder = item.kind === 'folder';
     const isExpanded = isFolder && item._folder ? expandedFolders.has(item._folder.id) : false;
-    const hasChildren = isFolder && item._folder
-      ? allFolders.some(f => f.parentId === item._folder!.id) || files.some(f => f.folderId === item._folder!.id)
-      : false;
     const FolderIcon = isExpanded ? FolderOpen : Folder;
     const FileIcon = isFolder ? FolderIcon : (typeConfig.icon);
     const badgeClass = sourceBadgeStyles[item.source] || sourceBadgeStyles.drive;
@@ -1123,7 +1127,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
         </div>
       </div>
     );
-  }, [handleItemClick, handleItemDoubleClick, selectedIds, handleToggleStar, handleRename, handleMoveToFolder, handleCopyLink, handleDeleteFile, handleDuplicateFolder, expandedFolders, allFolders, files, dragOverFolderId, moveMutation, isTrashView, restoreFileMutation, restoreFolderMutation, permanentDeleteFileMutation, permanentDeleteFolderMutation, t]);
+  }, [handleItemClick, handleItemDoubleClick, selectedIds, handleToggleStar, handleRename, handleMoveToFolder, handleCopyLink, handleDeleteFile, handleDuplicateFolder, expandedFolders, dragOverFolderId, draggingFileId, moveMutation, isTrashView, restoreFileMutation, restoreFolderMutation, permanentDeleteFileMutation, permanentDeleteFolderMutation, openDocument, t]);
 
   // Google-Drive-style "New" menu: a single primary button that opens a
   // dropdown with create + upload actions. Reused by both the list (EntityList)
@@ -1330,7 +1334,6 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
           folders={folders}
           files={files}
           isLoading={isLoading}
-          isAllFiles={!showFolders}
           filterConfigs={filterConfigs}
           viewToggle={viewToggle}
           newMenu={newMenu}
@@ -1382,13 +1385,13 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
         comments={detailFile ? (fileComments[detailFile.id] || []) : []}
         onAddComment={(content) => {
           if (!detailFile) return;
-          const newComment = {
+          const newComment: TaskComment = {
             id: Date.now().toString(),
             content,
             authorId: 'current-user',
             authorName: 'You',
-            authorAvatar: null,
             createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
           };
           setFileComments(prev => ({
             ...prev,
@@ -1586,7 +1589,6 @@ function DriveGridView({
   folders,
   files,
   isLoading,
-  isAllFiles,
   filterConfigs,
   viewToggle,
   selectedIds,
@@ -1609,7 +1611,6 @@ function DriveGridView({
   folders: DriveFolder[];
   files: UnifiedFile[];
   isLoading: boolean;
-  isAllFiles: boolean;
   filterConfigs: FilterConfig[];
   viewToggle: React.ReactNode;
   newMenu: React.ReactNode;

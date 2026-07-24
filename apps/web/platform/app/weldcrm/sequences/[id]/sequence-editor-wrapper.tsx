@@ -1,5 +1,5 @@
 
-import { Users, User } from 'lucide-react';
+import { Users, User, type LucideIcon } from 'lucide-react';
 import { WorkflowEditorClient } from '@/components/workflow-editor';
 import type { ComponentProps } from 'react';
 import type { VariableGroup } from '@weldsuite/ui/components/workflow-canvas/parts/variable-picker';
@@ -36,7 +36,7 @@ export function SequenceEditorWrapper({ sequenceId, isDraft = false, actionsPort
     ? {
         hideNavTabs: true,
         hidePublish: true,
-        replaceExecutionsTab: undefined as { label: string; href: string; icon: any } | undefined,
+        replaceExecutionsTab: undefined as { label: string; href: string; icon: LucideIcon } | undefined,
       }
     : {
         hideNavTabs: true,

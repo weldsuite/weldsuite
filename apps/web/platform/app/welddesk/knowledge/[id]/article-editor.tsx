@@ -22,8 +22,7 @@ import {
 } from '@weldsuite/ui/components/select';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
-import { useCreateArticle, useUpdateArticle, useDeleteArticle, useHelpdeskFolders } from '@/hooks/queries/use-helpdesk-queries';
-import { useQueryClient } from '@tanstack/react-query';
+import { useCreateArticle, useUpdateArticle, useHelpdeskFolders } from '@/hooks/queries/use-helpdesk-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { DocumentEditorPage } from '@/components/document-editor-page';
 
@@ -55,7 +54,6 @@ interface ArticleEditorProps {
 export function ArticleEditor({ article: initialArticle }: ArticleEditorProps) {
   const { t } = useI18n();
   const router = useRouter();
-  const queryClient = useQueryClient();
   const [article, setArticle] = useState(initialArticle);
   const [isSaving, setIsSaving] = useState(false);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(initialArticle.categoryId ?? null);
@@ -70,7 +68,6 @@ export function ArticleEditor({ article: initialArticle }: ArticleEditorProps) {
 
   const createArticleMutation = useCreateArticle();
   const updateArticleMutation = useUpdateArticle();
-  const deleteArticleMutation = useDeleteArticle();
 
   // Fetch folders via hook
   const { data: foldersData } = useHelpdeskFolders();
@@ -91,7 +88,7 @@ export function ArticleEditor({ article: initialArticle }: ArticleEditorProps) {
     setArticle(prev => ({ ...prev, title: text }));
   }, []);
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     setIsSaving(true);
 
     try {
@@ -110,45 +107,45 @@ export function ArticleEditor({ article: initialArticle }: ArticleEditorProps) {
         visibility: article.visibility,
       };
 
-      const mutation = isNewArticle ? createArticleMutation : updateArticleMutation;
-      const mutationArgs = isNewArticle
-        ? articleData
-        : { id: article.id, data: articleData };
+      const onSaveSuccess = (result: unknown) => {
+        toast.success(isNewArticle ? t.helpdesk.knowledgeEditor.articleCreated : t.helpdesk.knowledgeEditor.articleSaved);
 
-      mutation.mutate(mutationArgs as any, {
-        onSuccess: (result: any) => {
-          toast.success(isNewArticle ? t.helpdesk.knowledgeEditor.articleCreated : t.helpdesk.knowledgeEditor.articleSaved);
+        const response = result as { article?: { id: string; updatedAt?: string }; data?: { id: string; updatedAt?: string } } | undefined;
+        const savedArticle = response?.article || response?.data;
+        if (savedArticle) {
+          setArticle(prev => ({
+            ...prev,
+            id: savedArticle.id,
+            content,
+            excerpt,
+            lastUpdated: savedArticle.updatedAt ? new Date(savedArticle.updatedAt) : new Date(),
+          }));
 
-          if (result?.article || result?.data) {
-            const savedArticle = result.article || result.data;
-            setArticle(prev => ({
-              ...prev,
-              id: savedArticle.id,
-              content,
-              excerpt,
-              lastUpdated: savedArticle.updatedAt ? new Date(savedArticle.updatedAt) : new Date(),
-            }));
-
-            if (isNewArticle) {
-              setTimeout(() => {
-                router.push(`/welddesk/knowledge/${savedArticle.id}`);
-              }, 500);
-            }
+          if (isNewArticle) {
+            setTimeout(() => {
+              router.push(`/welddesk/knowledge/${savedArticle.id}`);
+            }, 500);
           }
-        },
-        onError: (error: any) => {
-          toast.error(error instanceof Error ? error.message : t.helpdesk.knowledgeEditor.failedToSaveArticle);
-        },
-        onSettled: () => {
-          setIsSaving(false);
-        },
-      });
+        }
+      };
+      const onSaveError = (error: unknown) => {
+        toast.error(error instanceof Error ? error.message : t.helpdesk.knowledgeEditor.failedToSaveArticle);
+      };
+      const onSaveSettled = () => {
+        setIsSaving(false);
+      };
+
+      if (isNewArticle) {
+        createArticleMutation.mutate(articleData, { onSuccess: onSaveSuccess, onError: onSaveError, onSettled: onSaveSettled });
+      } else {
+        updateArticleMutation.mutate({ id: article.id, data: articleData }, { onSuccess: onSaveSuccess, onError: onSaveError, onSettled: onSaveSettled });
+      }
       return;
     } catch (error) {
       toast.error(error instanceof Error ? (error as Error).message : t.helpdesk.knowledgeEditor.failedToSaveArticle);
       setIsSaving(false);
     }
-  };
+  }, [article, selectedFolderId, isNewArticle, createArticleMutation, updateArticleMutation, router, t]);
 
   // Keyboard shortcut for save
   useEffect(() => {
@@ -160,37 +157,7 @@ export function ArticleEditor({ article: initialArticle }: ArticleEditorProps) {
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [article]);
-
-  const handleDelete = async () => {
-    if (!confirm(t.helpdesk.knowledgeEditor.confirmDeleteArticle)) {
-      return;
-    }
-
-    setIsSaving(true);
-    deleteArticleMutation.mutate(article.id, {
-      onSuccess: () => {
-        toast.success(t.helpdesk.knowledgeEditor.articleDeleted);
-        router.push('/welddesk/knowledge');
-      },
-      onError: (error: any) => {
-        toast.error(error instanceof Error ? error.message : t.helpdesk.knowledgeEditor.failedToDeleteArticle);
-      },
-      onSettled: () => {
-        setIsSaving(false);
-      },
-    });
-  };
-
-  const getStatusColor = (status: Article['status']) => {
-    switch (status) {
-      case 'published': return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400';
-      case 'draft': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400';
-      case 'archived': return 'bg-gray-100 text-gray-800 dark:bg-background/20 dark:text-muted-foreground';
-      case 'review': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400';
-      case 'outdated': return 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400';
-    }
-  };
+  }, [handleSave]);
 
   // ── Sidebar ──────────────────────────────────────────────────────────────
 

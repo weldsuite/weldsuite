@@ -10,6 +10,9 @@ export function useRouter() {
   const router = useTanStackRouter();
 
   const push = useCallback(
+    // `options` kept for next/navigation signature compat — TanStack Router
+    // has no scroll-restoration option to forward it to.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     (href: string, options?: { scroll?: boolean }) => {
       navigate({ to: href });
     },
@@ -17,6 +20,7 @@ export function useRouter() {
   );
 
   const replace = useCallback(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     (href: string, options?: { scroll?: boolean }) => {
       navigate({ to: href, replace: true });
     },

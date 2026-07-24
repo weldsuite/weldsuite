@@ -11,6 +11,21 @@ import {
 import { useAgedReceivablesReport } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
 
+interface AgedReceivablesInvoiceRow {
+  id: string;
+  invoiceNumber: string | null;
+  contactName: string | null;
+  dueDate: string;
+  daysOverdue: number;
+  balanceDue: string | null;
+}
+
+interface AgedReceivablesReport {
+  buckets?: Record<string, unknown>;
+  total?: string;
+  invoices?: AgedReceivablesInvoiceRow[];
+}
+
 function fmt(value: string | number | null | undefined): string {
   return new Intl.NumberFormat('nl-NL', {
     style: 'currency',
@@ -26,7 +41,7 @@ export default function AgedReceivablesReportPage() {
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
-  const report = data?.data as any;
+  const report = data?.data as AgedReceivablesReport | undefined;
 
   const buckets: Array<{ key: string; label: string }> = [
     { key: 'current', label: tr.bucketCurrent },
@@ -49,7 +64,7 @@ export default function AgedReceivablesReportPage() {
                   <CardTitle className="text-xs text-muted-foreground">{label}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-lg font-semibold">{fmt(report.buckets?.[key])}</p>
+                  <p className="text-lg font-semibold">{fmt(report.buckets?.[key] as string | number | undefined)}</p>
                 </CardContent>
               </Card>
             ))}
@@ -75,7 +90,7 @@ export default function AgedReceivablesReportPage() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    (report.invoices ?? []).map((inv: any) => (
+                    (report.invoices ?? []).map((inv) => (
                       <TableRow key={inv.id}>
                         <TableCell>{inv.invoiceNumber}</TableCell>
                         <TableCell>{inv.contactName}</TableCell>

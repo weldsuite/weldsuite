@@ -8,9 +8,11 @@ export interface WorkflowStep {
   id: string;
   type: string;
   name: string;
+  description?: string;
   order?: number;
-  config?: Record<string, any>;
+  config?: Record<string, unknown>;
   parentBranchId?: string;
+  [key: string]: unknown;
 }
 
 export interface WorkflowTrigger {
@@ -18,7 +20,9 @@ export interface WorkflowTrigger {
   type?: string;
   entityType?: string;
   eventType?: string;
-  [key: string]: any;
+  config?: Record<string, unknown>;
+  filters?: unknown[];
+  [key: string]: unknown;
 }
 
 export interface DerivedPath {
@@ -82,7 +86,7 @@ function indexToLetter(i: number): string {
 
 // ── Path height estimation ─────────────────────────────────────────────────
 
-export function estimatePathHeight(path: DerivedPath, allPaths: DerivedPath[]): number {
+export function estimatePathHeight(path: DerivedPath): number {
   let h = TAB_H + 16; // tab label above the card + body padding (py-2 = 8px top + 8px bottom)
 
   for (const { step } of path.steps) {
@@ -90,7 +94,7 @@ export function estimatePathHeight(path: DerivedPath, allPaths: DerivedPath[]): 
 
     // Reply buttons below send_choices
     if (step.type === 'send_choices') {
-      const opts: any[] = Array.isArray(step.config?.options) ? step.config!.options : [];
+      const opts = Array.isArray(step.config?.options) ? (step.config!.options as unknown[]) : [];
       h += opts.length * REPLY_BTN_H;
       h += ADD_BTN_ROW_H; // "+ Add button" row
     }
@@ -102,7 +106,7 @@ export function estimatePathHeight(path: DerivedPath, allPaths: DerivedPath[]): 
 
     // Branch labels below condition
     if (step.type === 'condition') {
-      const branches: any[] = Array.isArray(step.config?.branches) ? step.config!.branches : [];
+      const branches = Array.isArray(step.config?.branches) ? (step.config!.branches as unknown[]) : [];
       const count = branches.length > 0 ? branches.length : 2; // default True/False
       h += count * BRANCH_LABEL_H;
     }
@@ -131,7 +135,7 @@ function stepHasWarning(step: WorkflowStep): boolean {
   const config = step.config || {};
   if (Object.keys(config).length === 0) return true;
   if (step.type === 'condition' && !config.expression && !config.field) return true;
-  if (step.type === 'delay' && (!config.duration || config.duration <= 0)) return true;
+  if (step.type === 'delay' && (!config.duration || (config.duration as number) <= 0)) return true;
   return false;
 }
 
@@ -139,7 +143,6 @@ function stepHasWarning(step: WorkflowStep): boolean {
 
 export function derivePaths(
   steps: WorkflowStep[],
-  _trigger: WorkflowTrigger | null,
 ): { paths: DerivedPath[]; edges: CanvasEdge[] } {
   const paths: DerivedPath[] = [];
   const edges: CanvasEdge[] = [];
@@ -296,7 +299,6 @@ export function derivePaths(
 
 export function computeLayout(
   paths: DerivedPath[],
-  _trigger: WorkflowTrigger | null,
 ): LayoutResult {
   // Group paths by generation
   const genMap = new Map<number, DerivedPath[]>();
@@ -315,7 +317,7 @@ export function computeLayout(
     let curY = PADDING;
 
     for (const p of genPaths) {
-      const h = estimatePathHeight(p, paths);
+      const h = estimatePathHeight(p);
       pathLayouts.push({
         id: p.id,
         x: colX,
@@ -383,8 +385,10 @@ export function computeConnectorPositions(
       yOffset += STEP_H + 4;
 
       if (step.type === 'send_choices') {
-        const opts: any[] = Array.isArray(step.config?.options) ? step.config!.options : [];
-        opts.forEach((opt: any, oi: number) => {
+        const opts = Array.isArray(step.config?.options)
+          ? (step.config!.options as Array<{ value?: string }>)
+          : [];
+        opts.forEach((opt, oi) => {
           const btnY = yOffset + oi * REPLY_BTN_H + REPLY_BTN_H / 2;
           map.set(`step:${step.id}:opt:${opt.value || oi}`, {
             x: pathLayout.x + pathLayout.width + DOT_OFFSET,
@@ -411,15 +415,15 @@ export function computeConnectorPositions(
       }
 
       if (step.type === 'condition') {
-        const branches: any[] = Array.isArray(step.config?.branches)
-          ? step.config!.branches
+        const branches = Array.isArray(step.config?.branches)
+          ? (step.config!.branches as Array<{ value: string; label: string }>)
           : [];
-        const defs =
+        const defs: Array<{ value: string; label: string }> =
           branches.length > 0
             ? branches
             : [{ value: 'if', label: 'True' }, { value: 'if_not', label: 'False' }];
 
-        defs.forEach((bd: any, bi: number) => {
+        defs.forEach((bd, bi) => {
           const labelY = yOffset + bi * BRANCH_LABEL_H + BRANCH_LABEL_H / 2;
           map.set(`step:${step.id}:branch:${bd.value}`, {
             x: pathLayout.x + pathLayout.width + DOT_OFFSET,

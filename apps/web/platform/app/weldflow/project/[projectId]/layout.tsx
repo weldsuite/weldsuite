@@ -74,22 +74,6 @@ interface ProjectTab {
   icon: LucideIcon;
 }
 
-const defaultProjectTabs: ProjectTab[] = [
-  { id: 'tasks', name: 'Tasks', href: '/tasks', icon: SquareCheck },
-  { id: 'gantt', name: 'Gantt', href: '/gantt', icon: GanttChart },
-  { id: 'table', name: 'Sheets', href: '/table', icon: Table2 },
-  { id: 'whiteboard', name: 'Whiteboard', href: '/whiteboard', icon: SquareDashedMousePointer },
-  { id: 'workload', name: 'Workload', href: '/workload', icon: Users },
-  { id: 'files', name: 'Files', href: '/files', icon: Folder },
-  { id: 'timesheet', name: 'Timesheet', href: '/timesheet', icon: Timer },
-  { id: 'pipeline', name: 'Pipeline', href: '/pipeline', icon: SquareKanban },
-  { id: 'documents', name: 'Documents', href: '/documents', icon: File },
-  { id: 'goals', name: 'Goals', href: '/goals', icon: Target },
-  { id: 'settings', name: 'Settings', href: '/settings', icon: Settings },
-];
-// Note: defaultProjectTabs uses English names at module level; the layout component
-// maps these to translated names via the tabs lookup below.
-
 function SortableTab({ id, children }: { id: string; children: React.ReactNode }) {
   const {
     attributes,

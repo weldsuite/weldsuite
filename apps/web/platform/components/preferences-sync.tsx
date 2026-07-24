@@ -50,7 +50,7 @@ export function PreferencesSync() {
     if (resolvedLang && language !== resolvedLang) {
       setLanguage(resolvedLang);
     }
-  }, [preferences, workspaceSettings]);
+  }, [preferences, workspaceSettings, language, setLanguage, setTheme]);
 
   return null;
 }

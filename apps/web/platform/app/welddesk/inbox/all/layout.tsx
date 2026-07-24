@@ -15,7 +15,7 @@ export default function AllInboxLayout({
   const [accessToken, setAccessToken] = useState<string>();
 
   const { data: conversationsResult } = useConversations({ page: 1, pageSize: 50, myConversations: true, excludeStatus: 'closed' });
-  const conversations: Helpdesk.Conversation[] = conversationsResult?.data || conversationsResult?.conversations || [];
+  const conversations: Helpdesk.Conversation[] = conversationsResult?.data || [];
 
   useEffect(() => {
     getToken().then(token => {

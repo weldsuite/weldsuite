@@ -1,8 +1,8 @@
 /**
  * Billing Worker Client
  *
- * Client for calling the Billing Worker (Cloudflare Worker) from Next.js server actions.
- * Handles ONLY phone billing operations and internal pricing sync.
+ * Client for calling the Billing Worker (Cloudflare Worker) from the browser.
+ * Handles ONLY phone billing operations and prepaid credit topups.
  *
  * All other billing operations (subscription reads, plan writes, checkout, portal,
  * seats, cancel, reactivate) are handled by the api-worker via
@@ -10,7 +10,6 @@
  */
 
 import { getAccessToken } from '@/lib/auth';
-import { createM2MToken } from '@/lib/api/m2m';
 
 const BILLING_WORKER_URL = import.meta.env.VITE_BILLING_WORKER_URL || 'http://localhost:8788';
 const API_PREFIX = '/api/billing';
@@ -24,7 +23,7 @@ class BillingWorkerClient {
     };
   }
 
-  private async post<T>(path: string, data?: any): Promise<T> {
+  private async post<T>(path: string, data?: unknown): Promise<T> {
     const headers = await this.getAuthHeaders();
     const response = await fetch(`${BILLING_WORKER_URL}${API_PREFIX}${path}`, {
       method: 'POST',
@@ -46,25 +45,6 @@ class BillingWorkerClient {
       method: 'GET',
       headers,
       cache: 'no-store',
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Request failed' }));
-      throw new Error(error.error || error.message || `Request failed with status ${response.status}`);
-    }
-
-    return response.json();
-  }
-
-  private async internalPost<T>(path: string, data?: any): Promise<T> {
-    const m2mToken = await createM2MToken();
-    const response = await fetch(`${BILLING_WORKER_URL}${path}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${m2mToken}`,
-      },
-      body: data ? JSON.stringify(data) : undefined,
     });
 
     if (!response.ok) {
@@ -128,43 +108,6 @@ class BillingWorkerClient {
     cancelUrl?: string;
   }): Promise<{ url: string }> {
     return this.post<{ url: string }>('/credits/checkout', params);
-  }
-
-  // ==========================================
-  // Internal: Pricing Sync (M2M auth)
-  // ==========================================
-
-  async syncPhonePricing(params: {
-    countryCode: string;
-    numberType: string;
-    monthlyPrice: string;
-    currency: string;
-    existingProductId?: string | null;
-    existingPriceId?: string | null;
-  }): Promise<{ stripeProductId: string; stripePriceId: string }> {
-    return this.internalPost<{ stripeProductId: string; stripePriceId: string }>(
-      '/api/internal/pricing/sync-price',
-      params
-    );
-  }
-
-  async syncAllPhonePricing(prices: Array<{
-    countryCode: string;
-    numberType: string;
-    monthlyPrice: string;
-    currency: string;
-    existingProductId?: string | null;
-    existingPriceId?: string | null;
-  }>): Promise<{
-    results: Array<{
-      countryCode: string;
-      numberType: string;
-      stripeProductId?: string;
-      stripePriceId?: string;
-      error?: string;
-    }>;
-  }> {
-    return this.internalPost('/api/internal/pricing/sync-all-prices', { prices });
   }
 }
 

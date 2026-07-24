@@ -2,7 +2,6 @@
 import { useState, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { useRouter } from '@/lib/router';
 import {
   EntityGrid,
   type EntityGridActions,
@@ -68,7 +67,6 @@ export function CompaniesGrid({
   toolbarActions,
 }: CompaniesGridProps) {
   const t = useTranslations();
-  const router = useRouter();
   const updateMut = useUpdateCompany();
   const deleteMut = useDeleteCompany();
   const exportMut = useExportCompanies();

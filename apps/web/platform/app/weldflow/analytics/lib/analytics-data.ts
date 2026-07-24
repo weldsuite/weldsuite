@@ -5,10 +5,6 @@ import {
   mvTasksDaily,
   mvTimeEntriesDaily,
   mvMilestoneStats,
-  projects,
-  tasks,
-  timeEntries,
-  milestones,
 } from '@/lib/db/schema';
 
 // ============ CONFIGURATION ============
@@ -85,10 +81,11 @@ function getDateRangeFromTimeRange(timeRange: string): { start: Date; end: Date 
       start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       end.setDate(0);
       break;
-    case 'this_quarter':
+    case 'this_quarter': {
       const quarter = Math.floor(now.getMonth() / 3);
       start = new Date(now.getFullYear(), quarter * 3, 1);
       break;
+    }
     case 'this_year':
       start = new Date(now.getFullYear(), 0, 1);
       break;
@@ -202,7 +199,9 @@ function formatHealthLabel(health: string): string {
 // ============ PROJECT METRICS ============
 
 async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[]> {
-  const { workspaceId, metric, timeRange, groupBy, sortOrder, limit, projectId } = config;
+  // workspaceId is not destructured here — mvProjectsSummaryDaily has no workspaceId
+  // column, since getScopedDb() already connects to this workspace's own tenant DB.
+  const { metric, timeRange, groupBy, sortOrder, limit, projectId } = config;
   const { start, end } = getDateRangeFromTimeRange(timeRange);
   const truncUnit = getDateTruncUnit(groupBy);
   const startIso = start.toISOString();
@@ -212,7 +211,6 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
   if (USE_MATERIALIZED_VIEWS) {
     // Build base conditions with optional projectId filter
     const mvBaseConditions = and(
-      eq(mvProjectsSummaryDaily.workspaceId, workspaceId),
       gte(mvProjectsSummaryDaily.period, sql`${startIso}::timestamp`),
       lte(mvProjectsSummaryDaily.period, sql`${endIso}::timestamp`),
       projectId ? eq(mvProjectsSummaryDaily.projectId, projectId) : undefined
@@ -411,7 +409,9 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
 // ============ TASK METRICS ============
 
 async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[]> {
-  const { workspaceId, metric, timeRange, groupBy, sortOrder, limit, projectId } = config;
+  // workspaceId is not destructured here — mvTasksDaily has no workspaceId column,
+  // since getScopedDb() already connects to this workspace's own tenant DB.
+  const { metric, timeRange, groupBy, sortOrder, limit, projectId } = config;
   const { start, end } = getDateRangeFromTimeRange(timeRange);
   const truncUnit = getDateTruncUnit(groupBy);
   const startIso = start.toISOString();
@@ -420,7 +420,6 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
 
   if (USE_MATERIALIZED_VIEWS) {
     const mvBaseConditions = and(
-      eq(mvTasksDaily.workspaceId, workspaceId),
       gte(mvTasksDaily.period, sql`${startIso}::timestamp`),
       lte(mvTasksDaily.period, sql`${endIso}::timestamp`),
       projectId ? eq(mvTasksDaily.projectId, projectId) : undefined
@@ -609,7 +608,9 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
 // ============ TIME ENTRY METRICS ============
 
 async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[]> {
-  const { workspaceId, metric, timeRange, groupBy, sortOrder, limit, projectId } = config;
+  // workspaceId is not destructured here — mvTimeEntriesDaily has no workspaceId
+  // column, since getScopedDb() already connects to this workspace's own tenant DB.
+  const { metric, timeRange, groupBy, sortOrder, limit, projectId } = config;
   const { start, end } = getDateRangeFromTimeRange(timeRange);
   const truncUnit = getDateTruncUnit(groupBy);
   const startIso = start.toISOString();
@@ -618,7 +619,6 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
 
   if (USE_MATERIALIZED_VIEWS) {
     const mvBaseConditions = and(
-      eq(mvTimeEntriesDaily.workspaceId, workspaceId),
       gte(mvTimeEntriesDaily.period, sql`${startIso}::timestamp`),
       lte(mvTimeEntriesDaily.period, sql`${endIso}::timestamp`),
       projectId ? eq(mvTimeEntriesDaily.projectId, projectId) : undefined
@@ -742,14 +742,13 @@ async function getTimeEntryMetrics(config: ChartQueryConfig): Promise<ChartDataP
 // ============ MILESTONE METRICS ============
 
 async function getMilestoneMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[]> {
-  const { workspaceId, metric, sortOrder, limit, projectId } = config;
+  // workspaceId is not destructured here — mvMilestoneStats has no workspaceId
+  // column, since getScopedDb() already connects to this workspace's own tenant DB.
+  const { metric, sortOrder, limit, projectId } = config;
   const { db } = await getScopedDb();
 
   if (USE_MATERIALIZED_VIEWS) {
-    const mvBaseConditions = and(
-      eq(mvMilestoneStats.workspaceId, workspaceId),
-      projectId ? eq(mvMilestoneStats.projectId, projectId) : undefined
-    );
+    const mvBaseConditions = projectId ? eq(mvMilestoneStats.projectId, projectId) : undefined;
 
     switch (metric) {
       case 'total_milestones': {

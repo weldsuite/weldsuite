@@ -20,6 +20,7 @@
 
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
+import type { UpdateTaskInput } from '@weldsuite/app-api-client/schemas/tasks';
 
 /**
  * Broad invalidation predicate — bumps every React-Query cache entry whose
@@ -155,8 +156,8 @@ export function useUpdateTask(taskId: string) {
   const api = useAppApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: Record<string, any>) => {
-      await api.tasks.update(taskId, data as any);
+    mutationFn: async (data: UpdateTaskInput) => {
+      await api.tasks.update(taskId, data);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: taskPanelKeys.task(taskId) });

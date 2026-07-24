@@ -24,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
-import { Pencil, Download, Zap, Users, HelpCircle, Mail, Phone, Globe, Plus, Star } from 'lucide-react';
+import { Download, Plus, Star } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -35,7 +35,6 @@ import {
 } from '@weldsuite/ui/components/table';
 import { PageLoader } from '@/components/page-loader';
 import { AccessDeniedEmptyState } from '@/components/access-denied-empty-state';
-import { useAuth } from '@clerk/clerk-react';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { BillingSubscriptionResponse, BillingInvoiceResponse } from '@/lib/api/domains/billing';
@@ -56,6 +55,25 @@ import {
 import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+
+interface WorkspaceBusinessSettings {
+  email?: string;
+  legalName?: string;
+  name?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  country?: string;
+  city?: string;
+  postalCode?: string;
+  state?: string;
+  vatNumber?: string;
+}
+
+interface WorkspaceSettingsData extends WorkspaceBusinessSettings {
+  settings?: {
+    business?: WorkspaceBusinessSettings;
+  };
+}
 
 function PhoneNumbersTable({
   phoneNumbers,
@@ -124,7 +142,7 @@ function PhoneNumbersTable({
         </Badge>
       ),
     },
-  ], [ts]);
+  ], [ts, st]);
 
   const table = useReactTable({
     data: phoneNumbers,
@@ -372,14 +390,17 @@ export default function BillingSettingsPage() {
         ]);
         if (phoneResult.data) setPhoneNumbers(phoneResult.data);
         if (domainResult.data) setDomains(domainResult.data);
-      } catch {}
+      } catch {
+        // Best-effort load — phone numbers/domains are supplementary billing info.
+      }
     });
   }, [canReadBilling, getClient]);
 
   // Sync billing details from workspace settings
   useEffect(() => {
     if (settingsData?.data) {
-      const ws = (settingsData.data as any)?.settings?.business || settingsData.data;
+      const data = settingsData.data as WorkspaceSettingsData;
+      const ws = data.settings?.business || data;
       setBillingDetails({
         email: ws.email || '',
         company: ws.legalName || ws.name || '',
@@ -437,7 +458,7 @@ export default function BillingSettingsPage() {
       } else {
         toast.error(ts.messages.cancelFailed);
       }
-    } catch (error) {
+    } catch {
       toast.error(ts.messages.cancelFailed);
     }
   };
@@ -450,7 +471,7 @@ export default function BillingSettingsPage() {
       } else {
         toast.error(ts.messages.reactivateFailed);
       }
-    } catch (error) {
+    } catch {
       toast.error(ts.messages.reactivateFailed);
     }
   };
@@ -474,7 +495,7 @@ export default function BillingSettingsPage() {
       });
       toast.success(ts.messages.updateSuccess);
       setBillingDialogOpen(false);
-    } catch (error) {
+    } catch {
       toast.error(ts.messages.updateFailed);
     }
   };
@@ -511,7 +532,6 @@ export default function BillingSettingsPage() {
   const creditsUsed = planLimits?.currentUsage?.aiCreditsUsedThisMonth || 0;
   const creditsTotal = planLimits?.currentUsage?.creditsMonthlyAllocation || planLimits?.aiCreditsPerMonth || 250;
   const creditsBalance = planLimits?.currentUsage?.creditsBalance ?? (creditsTotal - creditsUsed);
-  const creditsPercentage = creditsTotal > 0 ? (creditsUsed / creditsTotal) * 100 : 0;
 
   return (
     <div className="space-y-10 max-w-4xl">

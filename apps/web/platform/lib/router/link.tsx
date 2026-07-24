@@ -14,7 +14,21 @@ interface LinkProps extends Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, 
  * Maps `href` prop to TanStack Router's `to` prop.
  */
 export const Link = forwardRef<HTMLAnchorElement, LinkProps>(
-  ({ href, replace, children, prefetch, scroll, ...rest }, ref) => {
+  (
+    {
+      href,
+      replace,
+      children,
+      // Destructured only to keep them out of `...rest` (they're not valid
+      // DOM anchor attributes) — TanStack Router doesn't need them either.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      prefetch,
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      scroll,
+      ...rest
+    },
+    ref,
+  ) => {
     // Handle external links
     if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:') || href.startsWith('tel:')) {
       return (
@@ -29,6 +43,10 @@ export const Link = forwardRef<HTMLAnchorElement, LinkProps>(
         ref={ref}
         to={href}
         replace={replace}
+        // TanStackLink's props are inferred per-route (heavily generic); the
+        // leftover DOM anchor attributes in `rest` don't structurally match
+        // any single inferred route shape, so a precise cast isn't possible here.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         {...(rest as any)}
       >
         {children}

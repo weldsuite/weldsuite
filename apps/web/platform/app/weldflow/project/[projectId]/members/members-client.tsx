@@ -48,7 +48,6 @@ import {
   TableHeader,
   TableRow,
 } from '@weldsuite/ui/components/table';
-import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Badge } from '@weldsuite/ui/components/badge';
 import {

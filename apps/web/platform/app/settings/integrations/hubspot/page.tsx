@@ -29,11 +29,12 @@ import {
   useIntegrationSyncLogs,
   useUpdateConnectionSettings,
   type IntegrationConnection,
-  type SyncLog,
 } from '@/hooks/queries/use-integration-queries';
 
 const PROVIDER = 'hubspot';
 const PROVIDER_LABEL = 'HubSpot';
+
+type HubspotConnection = IntegrationConnection & { opportunitiesSynced?: number };
 
 function formatDate(dateStr: string | null): string | null {
   if (!dateStr) return null;
@@ -85,7 +86,7 @@ function ConnectionCard({
   const t = useTranslations();
   const { data: logsResult } = useIntegrationSyncLogs(connection.id);
   const updateSettings = useUpdateConnectionSettings();
-  const syncLogs = ((logsResult as any)?.data as SyncLog[] | undefined)?.slice(0, 5);
+  const syncLogs = logsResult?.data?.slice(0, 5);
   const syncSettings = connection.syncSettings as { syncIntervalHours?: number } | null;
   const currentInterval = String(syncSettings?.syncIntervalHours || 6);
 
@@ -120,7 +121,7 @@ function ConnectionCard({
           <p className="text-xs text-muted-foreground">{t('sweep.settings.crmSync.contacts')}</p>
         </div>
         <div className="text-center">
-          <p className="text-lg font-semibold">{(connection as any).opportunitiesSynced || 0}</p>
+          <p className="text-lg font-semibold">{(connection as HubspotConnection).opportunitiesSynced || 0}</p>
           <p className="text-xs text-muted-foreground">{t('sweep.settings.crmSync.deals')}</p>
         </div>
         <div className="text-center">
@@ -236,14 +237,14 @@ export default function HubSpotSettingsPage() {
   const disconnectMutation = useDisconnectIntegration();
   const syncMutation = useTriggerSync();
 
-  const connections = ((connectionsResult as any)?.data as IntegrationConnection[] | undefined)
+  const connections = connectionsResult?.data
     ?.filter(c => c.provider === PROVIDER) || [];
 
   const handleConnect = async () => {
     const redirectUri = `${window.location.origin}/settings/integrations/${PROVIDER}/callback`;
     try {
       const result = await connectMutation.mutateAsync({ provider: PROVIDER, redirectUri });
-      const authorizeUrl = (result as any)?.data?.authorizeUrl;
+      const authorizeUrl = result?.data?.authorizeUrl;
       if (authorizeUrl) {
         window.location.href = authorizeUrl;
       } else {

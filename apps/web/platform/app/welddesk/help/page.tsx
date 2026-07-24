@@ -7,12 +7,20 @@ import {
   CheckCircle,
   FolderOpen,
   Eye,
-  Loader2,
 } from "lucide-react";
 import { ServerHelpArticlesDataTable } from "./server-help-articles-data-table";
 import { useHelpArticleStats } from '@/hooks/queries/use-helpdesk-queries';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
+
+interface HelpArticleStatsData {
+  totalArticles: number;
+  publishedCount: number;
+  draftCount: number;
+  archivedCount: number;
+  totalViews: number;
+  categories: number;
+}
 
 export default function HelpPage() {
   const searchParams = useSearchParams();
@@ -21,11 +29,12 @@ export default function HelpPage() {
   const status = searchParams.get('status') || 'all';
   const folder = searchParams.get('folder') || undefined;
 
-  const { data: stats, isLoading } = useHelpArticleStats();
+  const { data: statsResult, isLoading } = useHelpArticleStats();
+  const stats = statsResult as unknown as HelpArticleStatsData | undefined;
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
-  const { totalArticles, publishedCount, draftCount, archivedCount, totalViews, categories } = stats || {
+  const { publishedCount, draftCount, totalViews, categories } = stats || {
     totalArticles: 0,
     publishedCount: 0,
     draftCount: 0,

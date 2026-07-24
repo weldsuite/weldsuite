@@ -65,7 +65,7 @@ export default function EmailListClient({ initialConversations, accessToken }: E
     setConversations(initialConversations);
   }, [initialConversations]);
 
-  const { isConnected } = useHelpdeskWebSocket({
+  useHelpdeskWebSocket({
     isAgent: true,
     accessToken,
     onNewConversation: (newConversation) => {
@@ -95,8 +95,8 @@ export default function EmailListClient({ initialConversations, accessToken }: E
   const loadConversations = async () => {
     try {
       const client = await getClient();
-      const result = await client.get<{ data: any[] }>('/conversations?limit=50&channel=email');
-      if (result.data) setConversations(result.data as Helpdesk.Conversation[]);
+      const result = await client.get<{ data: Helpdesk.Conversation[] }>('/conversations?limit=50&channel=email');
+      if (result.data) setConversations(result.data);
     } catch { /* ignore */ }
   };
 

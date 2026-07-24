@@ -88,7 +88,7 @@ export function PendingInvitationsSection({
           <TableBody className="[&_tr]:border-border/70">
             {members.map((member) => {
               const email = 'email' in member ? member.email : null;
-              const invitedAt = 'invitedAt' in member ? (member as any).invitedAt : null;
+              const invitedAt = 'invitedAt' in member ? member.invitedAt : null;
               const roleKey = member.role.toUpperCase();
 
               return (

@@ -10,7 +10,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Calendar,
-  FileText,
   Sparkles,
   Megaphone,
   Package
@@ -57,7 +56,7 @@ export function StatusView({
   const [hoveredSegment, setHoveredSegment] = useState<{ service: number; day: number } | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
   const [hideTimeout, setHideTimeout] = useState<NodeJS.Timeout | null>(null);
-  const [hoveredService, setHoveredService] = useState<number | null>(null);
+  const [, setHoveredService] = useState<number | null>(null);
 
   // Generate mock uptime data for each service
   const generateUptimeData = (): ('operational' | 'minor' | 'moderate' | 'major')[] => {

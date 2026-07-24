@@ -130,6 +130,12 @@ export function useMailRealtime(options: UseMailRealtimeOptions = {}): UseMailRe
     onEmailStarred,
   });
 
+  // `useTranslations()` returns a new function every render; keep the latest
+  // in a ref so the subscribe effect below doesn't need to re-run (and
+  // re-subscribe to the realtime topic) on every render.
+  const tRef = useRef(t);
+  tRef.current = t;
+
   useEffect(() => {
     callbacksRef.current = {
       onNewEmail,
@@ -177,7 +183,7 @@ export function useMailRealtime(options: UseMailRealtimeOptions = {}): UseMailRe
 
           if (showToasts) {
             toast.info(
-              t('sweep.weldmail.realtime.newEmailFrom', {
+              tRef.current('sweep.weldmail.realtime.newEmailFrom', {
                 sender: email.from.name || email.from.email,
               }),
               {

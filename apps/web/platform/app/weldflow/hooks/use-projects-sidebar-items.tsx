@@ -25,9 +25,9 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@/lib/utils';
-import { projectsApi } from '../lib/api-client';
+import { projectsApi, type ApiProject } from '../lib/api-client';
 import { toast } from 'sonner';
-import { useDataEvent, dataEvents } from '@/lib/events/data-events';
+import { useDataEvent } from '@/lib/events/data-events';
 import { useTopic } from '@weldsuite/realtime/react';
 
 // Helper to find LucideIcon by label name
@@ -89,8 +89,8 @@ export function useProjectsSidebarItems(isActive: boolean): {
   const handleMoveProjectRef = React.useRef<(projectHref: string, direction: 'up' | 'down') => void>(() => {});
 
   // Transform API projects to menu items
-  const transformProjectsToMenuItems = React.useCallback((projects: any[]) => {
-    return projects.map((project: any) => {
+  const transformProjectsToMenuItems = React.useCallback((projects: ApiProject[]) => {
+    return projects.map((project) => {
       const projectId = project.id;
       const canWrite = project.canWrite ?? true;
       const isAdmin = project.isAdmin ?? true;
@@ -215,7 +215,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
         });
       }
     },
-    [reloadProjects]
+    [reloadProjects, t.projects.sidebar.projectDeleted, t.projects.sidebar.projectDeletedDescription, t.projects.sidebar.error, t.projects.sidebar.projectDeleteFailed]
   );
 
   React.useEffect(() => {
@@ -253,7 +253,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
         return project;
       })
     );
-  }, []);
+  }, [t.projects.sidebar.newSubProject, t.projects.sidebar.duplicate, t.projects.sidebar.rename, t.projects.sidebar.delete]);
 
   React.useEffect(() => {
     handleAddSubProjectRef.current = handleAddSubProject;

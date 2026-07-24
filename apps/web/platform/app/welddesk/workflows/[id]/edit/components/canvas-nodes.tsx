@@ -4,16 +4,9 @@ import { useI18n } from '@/lib/i18n/provider';
 import {
   Target,
   Plus,
-  Clock,
   GitBranch,
-  Bot,
-  ChevronDown,
   GripVertical,
-  MessageSquareDashed,
   Search,
-  ListChecks,
-  BookOpen,
-  CornerDownRight,
   AlertTriangle,
   X,
 } from 'lucide-react';
@@ -23,16 +16,12 @@ import {
   HELPDESK_ROUTING_TRIGGERS,
   WORKFLOW_CHANNELS,
   WORKFLOW_AUDIENCES,
-  ACTION_CATEGORIES,
   getAvailableActions,
   getHelpdeskActionTypes,
   getHelpdeskActionCategories,
-  getWorkflowChannels,
-  getWorkflowAudiences,
   isTerminalAction,
 } from '../helpdesk-workflow-constants';
 import type { WorkflowStep, WorkflowTrigger, DerivedPath } from './canvas-utils';
-import { STEP_H, REPLY_BTN_H, BRANCH_LABEL_H, ADD_BTN_ROW_H } from './canvas-utils';
 
 // ============================================================================
 // Helper functions
@@ -49,11 +38,11 @@ export function getTriggerLabel(trigger: WorkflowTrigger | null, fallbackSelect 
 }
 
 export function getTriggerChannels(trigger: WorkflowTrigger | null): string[] {
-  return trigger?.config?.channels || [];
+  return (trigger?.config?.channels as string[] | undefined) || [];
 }
 
 export function getTriggerAudience(trigger: WorkflowTrigger | null): string[] {
-  return trigger?.config?.audience || [];
+  return (trigger?.config?.audience as string[] | undefined) || [];
 }
 
 export function ChannelPills({ channels, allChannelsLabel = 'All channels', channelDefs }: { channels: string[]; allChannelsLabel?: string; channelDefs?: Array<{ value: string; label: string }> }) {
@@ -98,7 +87,16 @@ export function AudiencePills({ audience, everyoneLabel = 'Everyone', audienceDe
   );
 }
 
-export function formatDuration(c: Record<string, any> | undefined, notSetLabel = 'Not set'): string {
+interface DurationConfig {
+  days?: number;
+  hours?: number;
+  minutes?: number;
+  seconds?: number;
+  duration?: number;
+  durationUnit?: string;
+}
+
+export function formatDuration(c: DurationConfig | undefined, notSetLabel = 'Not set'): string {
   if (!c) return notSetLabel;
   if (c.days) return `${c.days}d`;
   if (c.hours) return `${c.hours}h`;
@@ -131,21 +129,21 @@ export function previewText(step: WorkflowStep): string {
 export function actionSummary(step: WorkflowStep): string {
   const c = step.config || {};
   switch (step.type) {
-    case 'assign_conversation': return c.assigneeName || c.strategy || 'Not configured';
+    case 'assign_conversation': return (c.assigneeName as string) || (c.strategy as string) || 'Not configured';
     case 'unassign_conversation': return 'Remove assignment';
     case 'tag_conversation': return Array.isArray(c.tags) ? c.tags.join(', ') : 'No tags';
     case 'change_conversation_status': return (c.status as string) || 'Not set';
     case 'close_conversation': return 'Close';
-    case 'snooze_conversation': return c.duration ? `${c.duration} ${c.durationUnit || 'min'}` : 'Not set';
+    case 'snooze_conversation': return c.duration ? `${c.duration as string | number} ${(c.durationUnit as string) || 'min'}` : 'Not set';
     case 'change_priority': return (c.priority as string) || 'Not set';
     case 'add_internal_note': return (c.content as string)?.slice(0, 40) || 'Note';
     case 'create_ticket_from_conversation': return 'Create ticket';
     case 'apply_sla': return (c.slaName as string) || 'Apply SLA';
     case 'trigger_csat': return 'Send survey';
     case 'trigger_webhook': return (c.url as string)?.slice(0, 40) || 'Not configured';
-    case 'set_conversation_attribute': return c.attribute ? `${c.attribute}` : 'Not set';
-    case 'set_contact_attribute': return c.attribute ? `${c.attribute}` : 'Not set';
-    case 'set_variable': return c.name ? `${c.name}` : 'Not set';
+    case 'set_conversation_attribute': return c.attribute ? `${c.attribute as string}` : 'Not set';
+    case 'set_contact_attribute': return c.attribute ? `${c.attribute as string}` : 'Not set';
+    case 'set_variable': return c.name ? `${c.name as string}` : 'Not set';
     case 'send_notification': return (c.title as string) || 'Notification';
     case 'send_email': return (c.subject as string) || 'Email';
     case 'manual_step': return 'Waiting for teammate';
@@ -161,23 +159,6 @@ function getStepSummary(step: WorkflowStep): string {
     'send_email', 'ai_classify', 'ai_summarize', 'ai_translate', 'ai_sentiment',
   ]);
   return messageTypes.has(step.type) ? previewText(step) : actionSummary(step);
-}
-
-// ── Path colors ────────────────────────────────────────────────────────────
-
-const PATH_COLORS = [
-  { bg: 'bg-blue-500', text: 'text-white' },
-  { bg: 'bg-emerald-500', text: 'text-white' },
-  { bg: 'bg-amber-500', text: 'text-white' },
-  { bg: 'bg-violet-500', text: 'text-white' },
-  { bg: 'bg-rose-500', text: 'text-white' },
-  { bg: 'bg-cyan-500', text: 'text-white' },
-  { bg: 'bg-orange-500', text: 'text-white' },
-  { bg: 'bg-teal-500', text: 'text-white' },
-];
-
-function getPathColor(index: number) {
-  return PATH_COLORS[index % PATH_COLORS.length];
 }
 
 // ============================================================================
@@ -201,7 +182,6 @@ export function InlineAddStepPopover({
   sourceNodeId,
   onAddAction,
   variant = 'circle',
-  sourceStepType,
   showSuggestions,
   trigger,
 }: {
@@ -570,11 +550,9 @@ export function PathNode({
   selectedNodeId,
   onSelectStep,
   onSelectBranch,
-  onAddActionInline,
   onAddStep,
   onUpdateConfig,
   onReorderSteps,
-  trigger,
   onDragStart,
   style,
 }: {
@@ -586,7 +564,7 @@ export function PathNode({
   onSelectBranch: (branchNodeId: string, branchType: string, parentConditionId: string, parentConditionStepIndex: number) => void;
   onAddActionInline?: (actionType: string, sourceNodeId?: string) => void;
   onAddStep?: (sourceNodeId?: string) => void;
-  onUpdateConfig?: (stepId: string, config: Record<string, any>) => void;
+  onUpdateConfig?: (stepId: string, config: Record<string, unknown>) => void;
   onReorderSteps?: (reordered: WorkflowStep[]) => void;
   trigger?: { entityType?: string; eventType?: string } | null;
   onDragStart?: (e: React.MouseEvent) => void;
@@ -594,11 +572,10 @@ export function PathNode({
 }) {
   const { t } = useI18n();
   const cn_ = t.helpdesk.canvasNodes;
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const isSelected = selectedNodeId === path.id;
-  const color = getPathColor(pathIndex);
   const lastStepId = path.steps.length > 0 ? path.steps[path.steps.length - 1].step.id : path.id;
   const lastStepType = path.steps.length > 0 ? path.steps[path.steps.length - 1].step.type : undefined;
   const lastStepIsTerminal = lastStepType ? isTerminalAction(lastStepType) : false;

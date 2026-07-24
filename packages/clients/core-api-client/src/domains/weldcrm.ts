@@ -1,12 +1,4 @@
-import type { ClientApi, DataResponse, ListResponse } from '../types';
-import { buildQueryString } from '../types';
-import type {
-  Contact,
-  ContactDetail,
-  CreateContactInput,
-  UpdateContactInput,
-  ListContactsQuery,
-} from '../schemas/contacts';
+import type { ClientApi, DataResponse } from '../types';
 import type {
   CustomerStatus,
   CreateCustomerStatusInput,
@@ -17,47 +9,14 @@ import type {
   UpdatePipelineFieldVisibilityInput,
 } from '../schemas/pipelines';
 
+// Note: the legacy contacts CRUD surface (`listContacts`/`getContact`/
+// `createContact`/`updateContact`/`deleteContact`) was removed here along
+// with `../schemas/contacts` in the companies/people migration. Use the
+// canonical hooks in
+// apps/web/platform/components/objects/{company,person}/use-{company,person}-data.ts.
+
 export function createWeldcrmApi(api: ClientApi) {
   return {
-    listContacts(params: ListContactsQuery = {}): Promise<ListResponse<Contact>> {
-      const query = buildQueryString(params as Record<string, unknown>);
-      return api.get<ListResponse<Contact>>(`/weldcrm/contacts${query}`);
-    },
-
-    lookupContactsByEmails(emails: string[]): Promise<DataResponse<Array<{
-      id: string;
-      email: string;
-      fullName: string | null;
-      firstName: string;
-      lastName: string;
-      avatarUrl: string | null;
-    }>>> {
-      return api.post<DataResponse<Array<{
-        id: string;
-        email: string;
-        fullName: string | null;
-        firstName: string;
-        lastName: string;
-        avatarUrl: string | null;
-      }>>>('/weldcrm/contacts/lookup-by-emails', { emails });
-    },
-
-    getContact(id: string): Promise<DataResponse<ContactDetail>> {
-      return api.get<DataResponse<ContactDetail>>(`/weldcrm/contacts/${id}`);
-    },
-
-    createContact(data: CreateContactInput): Promise<DataResponse<{ id: string; customerIds: string[]; supplierIds: string[] }>> {
-      return api.post<DataResponse<{ id: string; customerIds: string[]; supplierIds: string[] }>>('/weldcrm/contacts', data);
-    },
-
-    updateContact(id: string, data: UpdateContactInput): Promise<DataResponse<{ id: string }>> {
-      return api.put<DataResponse<{ id: string }>>(`/weldcrm/contacts/${id}`, data);
-    },
-
-    deleteContact(id: string): Promise<void> {
-      return api.delete<void>(`/weldcrm/contacts/${id}`);
-    },
-
     customerStatuses: {
       list(): Promise<DataResponse<CustomerStatus[]>> {
         return api.get<DataResponse<CustomerStatus[]>>('/weldcrm/customer-statuses');

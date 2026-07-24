@@ -9,7 +9,6 @@ import {
   Trash2,
   EllipsisVertical,
   Link,
-  Maximize,
   History,
   Upload,
   Edit,
@@ -17,7 +16,6 @@ import {
   HardDrive,
   FileText,
   Copy,
-  Users,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -28,7 +26,6 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { fileTypeIcons, sourceBadgeStyles, driveLabelClass, formatFileSize, formatDate, downloadFile } from './drive-file-card';
 import { CommentsList, DescriptionField, type TaskComment } from '@/components/task-detail/task-detail-content';
@@ -38,6 +35,15 @@ import type { UnifiedFile } from '@/lib/api/domains/welddrive';
 import { useI18n } from '@/lib/i18n/provider';
 
 // ---------- Types ----------
+
+// Shape of a `/team-members` row as consumed here — see `useWorkspaceMembers`
+// for the full (visibility-projected) field set; only what this panel reads.
+interface DriveAccessMember {
+  id?: string;
+  userId: string;
+  name: string;
+  picture?: string | null;
+}
 
 interface FileDetailPanelProps {
   file: UnifiedFile | null;
@@ -62,15 +68,6 @@ interface FileDetailPanelProps {
 // ---------- Constants ----------
 
 // Tabs are built inside the component so labels can be translated
-
-function getFileColor(fileType: string): string {
-  const colors: Record<string, string> = {
-    image: '#EF4444', video: '#7C3AED', audio: '#EAB308', pdf: '#EF4444',
-    document: '#3B82F6', spreadsheet: '#22C55E', presentation: '#F97316',
-    recording: '#F59E0B', whiteboard: '#8B5CF6', file: '#6B7280',
-  };
-  return colors[fileType] || '#6B7280';
-}
 
 function formatActivityDate(dateStr: string, justNowLabel: string, minutesAgoTemplate: string, hoursAgoTemplate: string, daysAgoTemplate: string): string {
   const date = new Date(dateStr);
@@ -157,17 +154,12 @@ export function FileDetailPanel({
     return () => window.removeEventListener('close-detail-panels', handler);
   }, [onClose]);
 
-  const hasAnimatedRef = React.useRef(false);
-  const shouldAnimate = !hasAnimatedRef.current;
-  if (isOpen) hasAnimatedRef.current = true;
-
   if (!isOpen || !file) return null;
 
   const typeConfig = fileTypeIcons[file.fileType] || fileTypeIcons.file;
   const Icon = typeConfig.icon;
   const badgeClass = sourceBadgeStyles[file.source] || sourceBadgeStyles.drive;
   const isImage = file.fileType === 'image' && (file.url || file.thumbnailUrl);
-  const fileColor = getFileColor(file.fileType);
 
   const detailFields = [
     { icon: typeConfig.icon, label: t.welddrive.fileDetail.fields.type, value: <span className="capitalize">{file.fileType}</span> },
@@ -307,9 +299,9 @@ export function FileDetailPanel({
 
               {/* Who has access */}
               {(() => {
-                const members = membersData?.data || [];
+                const members = (membersData?.data || []) as DriveAccessMember[];
                 const owner = file.uploadedById
-                  ? members.find((m: any) => m.userId === file.uploadedById) || null
+                  ? members.find((m) => m.userId === file.uploadedById) || null
                   : null;
 
                 return (
@@ -353,9 +345,9 @@ export function FileDetailPanel({
                         </div>
                       )}
                       {members
-                        .filter((m: any) => m.userId !== file.uploadedById && m.userId !== user?.id)
+                        .filter((m) => m.userId !== file.uploadedById && m.userId !== user?.id)
                         .slice(0, 5)
-                        .map((m: any) => (
+                        .map((m) => (
                           <div key={m.userId || m.id} className="flex items-center gap-2.5">
                             {m.picture ? (
                               <img src={m.picture} alt={m.name} className="w-[22px] h-[22px] rounded-[8px] object-cover shrink-0" />
@@ -372,9 +364,9 @@ export function FileDetailPanel({
                             <span className={cn(driveLabelClass, 'text-gray-600 dark:text-muted-foreground bg-gray-100 dark:bg-secondary')}>{t.welddrive.fileDetail.accessRoles.canView}</span>
                           </div>
                         ))}
-                      {members.filter((m: any) => m.userId !== file.uploadedById && m.userId !== user?.id).length > 5 && (
+                      {members.filter((m) => m.userId !== file.uploadedById && m.userId !== user?.id).length > 5 && (
                         <span className="text-xs text-muted-foreground pl-8">
-                          {t.welddrive.fileDetail.moreMembers.replace('{count}', String(members.filter((m: any) => m.userId !== file.uploadedById && m.userId !== user?.id).length - 5))}
+                          {t.welddrive.fileDetail.moreMembers.replace('{count}', String(members.filter((m) => m.userId !== file.uploadedById && m.userId !== user?.id).length - 5))}
                         </span>
                       )}
                     </div>

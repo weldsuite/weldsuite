@@ -8,11 +8,12 @@ import {
 } from '@weldsuite/ui/components/dialog';
 import { Button } from '@weldsuite/ui/components/button';
 import { useI18n } from '@/lib/i18n/provider';
+import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 
 interface ReplacePinDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  pinnedMessages: any[];
+  pinnedMessages: ChatMessage[];
   onReplace: (messageIdToUnpin: string) => void;
 }
 
@@ -33,7 +34,7 @@ export function ReplacePinDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
-          {pinnedMessages.map((msg: any) => (
+          {pinnedMessages.map((msg) => (
             <Button
               key={msg.id}
               variant="ghost"

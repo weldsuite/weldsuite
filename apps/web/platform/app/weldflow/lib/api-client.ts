@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Projects API Client
  *
  * Client-side helper for calling the WeldFlow (projects) surface on app-api
@@ -12,6 +12,9 @@
  * helpers, leaving the legacy set with no call sites.
  */
 
+import type { Projects } from '@/lib/api/types/apps/projects.types';
+import type { ProjectGoals } from '@/lib/api/domains/weldflow';
+
 interface ApiResponse<T> {
   success: boolean;
   data?: T;
@@ -20,6 +23,295 @@ interface ApiResponse<T> {
   status?: number;
   /** `error.details` from the app-api envelope, when the route supplies one. */
   details?: unknown;
+}
+
+// ============ SHARED ENTITY TYPES ============
+// Model the actual `/api/*` JSON responses consumed by the WeldFlow UI. Where a
+// richer typed client already exists (`hooks/queries/use-projects-queries.ts`,
+// `Projects.ProjectTask`) these reuse it instead of redeclaring it.
+
+/** `GET /projects` + `GET /projects/:id` row — richer than the app-api-client's
+ * `ProjectRow` (adds fields the WeldFlow UI actually reads: priority,
+ * health/derived status+progress from the summary view, and the caller's
+ * per-project permissions). */
+export interface ApiProject {
+  id: string;
+  workspaceId?: string;
+  name: string;
+  description?: string | null;
+  status: string;
+  priority?: string;
+  health?: string | null;
+  derivedStatus?: string;
+  progress?: number;
+  derivedProgress?: number;
+  color?: string | null;
+  icon?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  canWrite?: boolean;
+  isAdmin?: boolean;
+  /** Linked customer/client display name, when the project is tied to a CRM record. */
+  clientName?: string | null;
+}
+
+/** `/tasks` responses also carry `duration`/`repeat`/`customFields` (and,
+ * on mutations that complete a recurring task, `nextTaskId`) — fields not
+ * modeled on the shared `Projects.ProjectTask` type. All additions are
+ * optional so a plain `Projects.ProjectTask` still satisfies it. */
+export type ApiTask = Projects.ProjectTask & {
+  duration?: number;
+  repeat?: { frequency: string; interval?: number; unit?: string } | null;
+  customFields?: Record<string, unknown> | null;
+  nextTaskId?: string;
+};
+
+/** `GET /project-members` — project_members row joined with workspaceMembers. */
+export interface ApiProjectMember {
+  id: string;
+  projectId: string;
+  userId: string;
+  role: string;
+  permissions?: string[];
+  isActive: boolean;
+  joinedAt: string;
+  leftAt?: string;
+  allocationPercentage?: number;
+  hourlyRate?: number;
+  createdAt: string;
+  updatedAt: string;
+  user?: { id: string; name: string; email: string; avatar?: string };
+}
+
+/** `GET /project-members/available` — workspace users not yet on the project. */
+export interface ApiAvailableProjectUser {
+  id: string;
+  name: string;
+  email: string;
+  image?: string;
+}
+
+/** `GET /time-entries` — full `time_entries` row. */
+export interface ApiTimeEntry {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  projectId: string | null;
+  taskId: string | null;
+  userId: string;
+  date: string;
+  startTime: string | null;
+  endTime: string | null;
+  duration: string;
+  description: string | null;
+  activity: string | null;
+  billable: boolean;
+  rate: string | null;
+  cost: string | null;
+  status: string;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  location: string | null;
+  isRemote: boolean | null;
+}
+
+export interface ApiTaskComment {
+  id: string;
+  content: string;
+  authorId: string;
+  authorName: string;
+  authorAvatar?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ApiProjectLabel {
+  id: string;
+  name: string;
+  color: string;
+  projectId?: string | null;
+}
+
+export interface ApiPipelineStage {
+  id: string;
+  projectId?: string;
+  name: string;
+  color?: string | null;
+  position?: number;
+  systemStatus?: string | null;
+}
+
+export interface GanttMilestone {
+  id: string;
+  projectId?: string;
+  name: string;
+  dueDate: string;
+  description?: string | null;
+  status?: string;
+}
+
+export interface ApiMemberStats {
+  tasksAssigned: number;
+  tasksCompleted: number;
+  hoursLogged: number;
+  recentTasks: { id: string; title: string; status: string; updatedAt?: string }[];
+}
+
+export interface WhiteboardElement {
+  id: string;
+  type: 'rectangle' | 'circle' | 'text' | 'sticky' | 'path' | 'arrow';
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  radius?: number;
+  radiusX?: number;
+  radiusY?: number;
+  text?: string;
+  color?: string;
+  strokeColor?: string;
+  strokeWidth?: number;
+  points?: { x: number; y: number }[];
+  fontSize?: number;
+  fontWeight?: 'normal' | 'bold';
+  fontStyle?: 'normal' | 'italic';
+  textDecoration?: 'none' | 'underline';
+  textAlign?: 'left' | 'center' | 'right';
+  link?: string;
+  locked?: boolean;
+  endX?: number;
+  endY?: number;
+  erasedPaths?: { points: { x: number; y: number }[]; size: number }[];
+  arrowType?: 'line' | 'arrow' | 'elbow';
+  startElementId?: string;
+  startConnectionPoint?: 'top' | 'right' | 'bottom' | 'left';
+  endElementId?: string;
+  endConnectionPoint?: 'top' | 'right' | 'bottom' | 'left';
+  curveControlX?: number;
+  curveControlY?: number;
+  borderRadius?: number;
+}
+
+export interface ApiWhiteboard {
+  id: string;
+  projectId?: string;
+  name: string;
+  elements: WhiteboardElement[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** `GET /project-files` — full `project_files` row. */
+export interface ApiProjectFile {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  projectId: string | null;
+  fileName: string;
+  originalName: string | null;
+  mimeType: string;
+  fileSize: number;
+  storagePath: string;
+  fileKey: string | null;
+  bucket: string | null;
+  url: string | null;
+  thumbnailUrl: string | null;
+  storageProvider: string;
+  uploadedById: string | null;
+  fileType: string;
+  isFolder: boolean;
+  isPublic: boolean;
+  expiresAt: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+/** `GET /project-messages` — full `project_messages` row. */
+export interface ApiProjectMessage {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  projectId: string | null;
+  conversationId: string;
+  senderId: string;
+  message: string;
+  messageType: string;
+  replyToId: string | null;
+  attachments?: unknown[];
+  editedAt?: string;
+  isRead: boolean;
+  readBy: string[] | null;
+  reactions?: Record<string, string[]>;
+  metadata: Record<string, unknown> | null;
+}
+
+/** `GET /project-analytics/reports/:id/charts`. */
+export interface ApiAnalyticsChart {
+  id: string;
+  reportId: string;
+  title: string;
+  description?: string;
+  chartType: string;
+  entity: string;
+  metric: string;
+  color: string;
+  timeRange?: string;
+  groupBy?: string;
+  aggregation?: string;
+  sortOrder?: string;
+  limit?: number;
+  compareWith?: string;
+  smoothCurve?: boolean;
+  fillArea?: boolean;
+  showDataLabels?: boolean;
+  showLegend?: boolean;
+  layout: { x: number; y: number; w: number; h: number; minW?: number; minH?: number };
+  sortIndex: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Normalized (`.docx` suffix stripped) row returned by `documentsApi`'s
+ * list/create helpers, which wrap the underlying `files` rows. */
+export interface DocumentSummary {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  isPinned: boolean;
+}
+
+/** Normalized (`.xlsx` suffix stripped) row returned by `tablesApi`'s
+ * list/create helpers, which wrap the underlying `files` rows. */
+export interface SheetSummary {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Config accepted by `analyticsApi.getChartsData` — one entry per chart. */
+export interface ChartDataQueryConfig {
+  chartId: string;
+  entity: string;
+  metric: string;
+  timeRange: string;
+  groupBy: string;
+  aggregation: string;
+  sortOrder?: string;
+  limit?: number;
+  projectId?: string;
+}
+
+export interface ChartDataPoint {
+  label: string;
+  value: number;
+  fill?: string;
+  [key: string]: string | number | undefined;
 }
 
 const APP_API_URL = import.meta.env.VITE_APP_API_URL || 'http://localhost:8789';
@@ -41,7 +333,7 @@ async function getAuthToken(): Promise<string | null> {
   }
   // Fallback: get token from Clerk's global client (available after Clerk loads)
   if (typeof window !== 'undefined') {
-    const clerk = (window as any).Clerk;
+    const clerk = (window as unknown as { Clerk?: { session?: { getToken: () => Promise<string | null> } } }).Clerk;
     if (clerk?.session) {
       return clerk.session.getToken();
     }
@@ -55,7 +347,7 @@ async function getAuthToken(): Promise<string | null> {
  * the create/createGlobal methods which have been migrated off the legacy
  * api-worker `/projects/*` surface.
  */
-async function appApiPost<T>(path: string, data?: any): Promise<ApiResponse<T>> {
+async function appApiPost<T>(path: string, data?: unknown): Promise<ApiResponse<T>> {
   try {
     const token = await getAuthToken();
     const res = await fetch(`${APP_API_URL}/api${path}`, {
@@ -103,7 +395,7 @@ async function appApiGet<T>(path: string): Promise<ApiResponse<T>> {
   }
 }
 
-async function appApiPatch<T>(path: string, data?: any): Promise<ApiResponse<T>> {
+async function appApiPatch<T>(path: string, data?: unknown): Promise<ApiResponse<T>> {
   try {
     const token = await getAuthToken();
     const res = await fetch(`${APP_API_URL}/api${path}`, {
@@ -126,7 +418,7 @@ async function appApiPatch<T>(path: string, data?: any): Promise<ApiResponse<T>>
   }
 }
 
-async function appApiPut<T>(path: string, data?: any): Promise<ApiResponse<T>> {
+async function appApiPut<T>(path: string, data?: unknown): Promise<ApiResponse<T>> {
   try {
     const token = await getAuthToken();
     const res = await fetch(`${APP_API_URL}/api${path}`, {
@@ -258,15 +550,15 @@ export const labelsApi = {
   // app-api also returns workspace-wide labels (projectId IS NULL) when projectId is set,
   // matching the legacy behaviour the UI depends on.
   list: (projectId?: string) =>
-    appApiGet<any[]>(
+    appApiGet<ApiProjectLabel[]>(
       `/project-labels${projectId ? `?projectId=${encodeURIComponent(projectId)}&limit=100` : '?limit=100'}`,
     ),
 
   create: (data: { name: string; color: string; projectId?: string }) =>
-    appApiPost<any>('/project-labels', data),
+    appApiPost<ApiProjectLabel>('/project-labels', data),
 
   update: (id: string, data: { name?: string; color?: string }) =>
-    appApiPatch<any>(`/project-labels/${id}`, data),
+    appApiPatch<ApiProjectLabel>(`/project-labels/${id}`, data),
 
   delete: (id: string) =>
     appApiDelete<{ success: boolean }>(`/project-labels/${id}`),
@@ -276,18 +568,18 @@ export const labelsApi = {
 
 export const stagesApi = {
   list: (projectId: string) =>
-    appApiGet<any[]>(`/project-pipeline-stages?projectId=${encodeURIComponent(projectId)}`),
+    appApiGet<ApiPipelineStage[]>(`/project-pipeline-stages?projectId=${encodeURIComponent(projectId)}`),
 
   create: (
     projectId: string,
     data: { id?: string; name: string; color?: string; position?: number; systemStatus?: string },
-  ) => appApiPost<any>('/project-pipeline-stages', { projectId, ...data }),
+  ) => appApiPost<ApiPipelineStage>('/project-pipeline-stages', { projectId, ...data }),
 
   update: (
     _projectId: string,
     stageId: string,
     data: { name?: string; color?: string; systemStatus?: string },
-  ) => appApiPatch<any>(`/project-pipeline-stages/${stageId}`, data),
+  ) => appApiPatch<ApiPipelineStage>(`/project-pipeline-stages/${stageId}`, data),
 
   delete: (_projectId: string, stageId: string, moveTasksToStageId?: string) => {
     const qs = moveTasksToStageId
@@ -305,9 +597,9 @@ export const stagesApi = {
 // ============ PROJECTS ============
 
 export const projectsApi = {
-  list: () => appApiGet<any[]>('/projects?limit=100'),
+  list: () => appApiGet<ApiProject[]>('/projects?limit=100'),
 
-  get: (projectId: string) => appApiGet<any>(`/projects/${projectId}`),
+  get: (projectId: string) => appApiGet<ApiProject>(`/projects/${projectId}`),
 
   create: (data: {
     name: string;
@@ -315,7 +607,7 @@ export const projectsApi = {
     priority?: string;
     color?: string;
     icon?: string;
-  }) => appApiPost<any>('/projects', data),
+  }) => appApiPost<ApiProject>('/projects', data),
 
   update: (
     projectId: string,
@@ -329,7 +621,7 @@ export const projectsApi = {
       startDate?: string | null;
       endDate?: string | null;
     },
-  ) => appApiPatch<any>(`/projects/${projectId}`, data),
+  ) => appApiPatch<ApiProject>(`/projects/${projectId}`, data),
 
   delete: (projectId: string) => appApiDelete<{ deleted: boolean }>(`/projects/${projectId}`),
 
@@ -338,7 +630,7 @@ export const projectsApi = {
       `/projects/${projectId}/permissions`,
     ),
 
-  search: (query: string) => appApiGet<any[]>(`/projects/search?q=${encodeURIComponent(query)}`),
+  search: (query: string) => appApiGet<ApiProject[]>(`/projects/search?q=${encodeURIComponent(query)}`),
 };
 
 // ============ TASKS ============
@@ -372,10 +664,10 @@ export const tasksApi = {
     if (params?.includeSubtasks) qs.set('includeSubtasks', 'true');
     if (params?.page) qs.set('page', String(params.page));
     if (params?.pageSize) qs.set('pageSize', String(params.pageSize));
-    return appApiGet<any[]>(`/tasks?${qs}`);
+    return appApiGet<ApiTask[]>(`/tasks?${qs}`);
   },
 
-  get: (_projectId: string, taskId: string) => appApiGet<any>(`/tasks/${taskId}`),
+  get: (_projectId: string, taskId: string) => appApiGet<ApiTask>(`/tasks/${taskId}`),
 
   create: (projectId: string, data: {
     title: string;
@@ -392,8 +684,8 @@ export const tasksApi = {
     labels?: string[];
     parentTaskId?: string;
     repeat?: { frequency: string; interval?: number; unit?: string };
-    customFields?: Record<string, any> | null;
-  }) => appApiPost<any>(`/tasks/projects/${projectId}`, data),
+    customFields?: Record<string, unknown> | null;
+  }) => appApiPost<ApiTask>(`/tasks/projects/${projectId}`, data),
 
   update: (_projectId: string, taskId: string, data: {
     title?: string;
@@ -409,12 +701,12 @@ export const tasksApi = {
     customerId?: string | null;
     tags?: string[];
     labels?: string[];
-    customFields?: Record<string, any> | null;
+    customFields?: Record<string, unknown> | null;
     parentTaskId?: string | null;
     dependsOn?: string[];
     blocks?: string[];
     repeat?: { frequency: string; interval?: number; unit?: string } | null;
-  }) => appApiPatch<any>(`/tasks/${taskId}`, data),
+  }) => appApiPatch<ApiTask>(`/tasks/${taskId}`, data),
 
   delete: (_projectId: string, taskId: string) =>
     appApiDelete<void>(`/tasks/${taskId}`),
@@ -438,9 +730,9 @@ export const tasksApi = {
     ),
 
   // Global task operations (across all projects)
-  listAll: () => appApiGet<any[]>('/tasks?limit=1000'),
+  listAll: () => appApiGet<ApiTask[]>('/tasks?limit=1000'),
 
-  getById: (taskId: string) => appApiGet<any>(`/tasks/${taskId}`),
+  getById: (taskId: string) => appApiGet<ApiTask>(`/tasks/${taskId}`),
 
   createGlobal: (data: {
     projectId?: string;
@@ -457,8 +749,10 @@ export const tasksApi = {
     labels?: string[];
     parentTaskId?: string;
     repeat?: { frequency: string; interval?: number; unit?: string } | null;
-  }) => appApiPost<any>('/tasks', data),
+  }) => appApiPost<ApiTask>('/tasks', data),
 
+  // `nextTaskId` (on `ApiTask`) is present when this update completed a
+  // recurring task (server-side creation of the next occurrence).
   updateById: (taskId: string, data: {
     title?: string;
     description?: string;
@@ -470,7 +764,7 @@ export const tasksApi = {
     tags?: string[];
     labels?: string[];
     repeat?: { frequency: string; interval?: number; unit?: string } | null;
-  }) => appApiPatch<any>(`/tasks/${taskId}`, data),
+  }) => appApiPatch<ApiTask>(`/tasks/${taskId}`, data),
 
   deleteById: (taskId: string) =>
     appApiDelete<void>(`/tasks/${taskId}`),
@@ -483,7 +777,7 @@ export const tasksApi = {
 
   // Task comments — app-api uses /api/task-comments with taskId query / body
   listComments: (_projectId: string, taskId: string) =>
-    appApiGet<any[]>(
+    appApiGet<ApiTaskComment[]>(
       `/task-comments?taskId=${encodeURIComponent(taskId)}&taskType=project&limit=200`,
     ),
 
@@ -495,28 +789,28 @@ export const tasksApi = {
     _taskId: string,
     commentId: string,
     data: { content: string },
-  ) => appApiPatch<any>(`/task-comments/${commentId}`, data),
+  ) => appApiPatch<ApiTaskComment>(`/task-comments/${commentId}`, data),
 
   deleteComment: (_projectId: string, _taskId: string, commentId: string) =>
     appApiDelete<{ success: boolean }>(`/task-comments/${commentId}`),
 
   listSubtasks: (_projectId: string, taskId: string) =>
-    appApiGet<any[]>(`/tasks/${taskId}/subtasks`),
+    appApiGet<ApiTask[]>(`/tasks/${taskId}/subtasks`),
 
   updateDependencies: (
     _projectId: string,
     taskId: string,
     data: { dependsOn?: string[]; blocks?: string[] },
-  ) => appApiPut<any>(`/tasks/${taskId}/dependencies`, data),
+  ) => appApiPut<ApiTask>(`/tasks/${taskId}/dependencies`, data),
 };
 
 // ============ GANTT ============
 
 export const ganttApi = {
   // Read endpoints — served by app-api.
-  getTasks: (projectId: string) => appApiGet<any[]>(`/projects/${projectId}/gantt/tasks`),
+  getTasks: (projectId: string) => appApiGet<ApiTask[]>(`/projects/${projectId}/gantt/tasks`),
 
-  getMilestones: (projectId: string) => appApiGet<any[]>(`/projects/${projectId}/gantt/milestones`),
+  getMilestones: (projectId: string) => appApiGet<GanttMilestone[]>(`/projects/${projectId}/gantt/milestones`),
 
   // Mutations route through the existing /api/tasks and /api/milestones app-api surfaces.
   createTask: (projectId: string, data: {
@@ -526,7 +820,7 @@ export const ganttApi = {
     status?: string;
     priority?: string;
     parentTaskId?: string;
-  }) => appApiPost<any>(`/tasks/projects/${projectId}`, data),
+  }) => appApiPost<ApiTask>(`/tasks/projects/${projectId}`, data),
 
   updateTask: (_projectId: string, taskId: string, data: { startDate?: string; dueDate?: string; status?: string }) =>
     appApiPatch<{ id: string }>(`/tasks/${taskId}`, data),
@@ -541,7 +835,7 @@ export const ganttApi = {
     appApiDelete<{ deleted: boolean }>(`/tasks/${taskId}`),
 
   createMilestone: (projectId: string, data: { name: string; dueDate: string; description?: string }) =>
-    appApiPost<any>('/milestones', { projectId, ...data }),
+    appApiPost<GanttMilestone>('/milestones', { projectId, ...data }),
 
   updateMilestone: (_projectId: string, milestoneId: string, data: { name?: string; dueDate?: string; status?: string }) =>
     appApiPatch<{ id: string }>(`/milestones/${milestoneId}`, data),
@@ -554,26 +848,26 @@ export const ganttApi = {
 
 export const membersApi = {
   list: (projectId: string) =>
-    appApiGet<any[]>(`/project-members?projectId=${encodeURIComponent(projectId)}`),
+    appApiGet<ApiProjectMember[]>(`/project-members?projectId=${encodeURIComponent(projectId)}`),
 
   // `memberId` is a Clerk userId (members-client passes member.userId).
   get: (projectId: string, userId: string) =>
-    appApiGet<any>(`/project-members/by-user/${projectId}/${userId}`),
+    appApiGet<ApiProjectMember>(`/project-members/by-user/${projectId}/${userId}`),
 
   getStats: (projectId: string, userId: string) =>
-    appApiGet<any>(`/project-members/by-user/${projectId}/${userId}/stats`),
+    appApiGet<ApiMemberStats>(`/project-members/by-user/${projectId}/${userId}/stats`),
 
   available: (projectId: string) =>
-    appApiGet<any[]>(`/project-members/available?projectId=${encodeURIComponent(projectId)}`),
+    appApiGet<ApiAvailableProjectUser[]>(`/project-members/available?projectId=${encodeURIComponent(projectId)}`),
 
-  add: (projectId: string, data: { userId: string; role?: string }) =>
-    appApiPost<any>('/project-members', { projectId, ...data }),
+  add: (projectId: string, data: { userId: string; role?: string; allocationPercentage?: number }) =>
+    appApiPost<ApiProjectMember>('/project-members', { projectId, ...data }),
 
   update: (
     projectId: string,
     userId: string,
     data: { role?: string; allocationPercentage?: number },
-  ) => appApiPatch<any>(`/project-members/by-user/${projectId}/${userId}`, data),
+  ) => appApiPatch<ApiProjectMember>(`/project-members/by-user/${projectId}/${userId}`, data),
 
   remove: (projectId: string, userId: string) =>
     appApiDelete<{ deleted: boolean }>(`/project-members/by-user/${projectId}/${userId}`),
@@ -585,7 +879,7 @@ export const messagesApi = {
   list: (projectId: string, limit?: number) => {
     const params = new URLSearchParams({ projectId });
     if (limit) params.set('limit', String(limit));
-    return appApiGet<any[]>(`/project-messages?${params}`);
+    return appApiGet<ApiProjectMessage[]>(`/project-messages?${params}`);
   },
 
   send: (
@@ -594,24 +888,29 @@ export const messagesApi = {
       message: string;
       messageType?: string;
       replyToId?: string;
-      attachments?: any[];
+      attachments?: unknown[];
       metadata?: Record<string, unknown>;
     },
-  ) => appApiPost<any>('/project-messages', { projectId, ...data }),
+  ) => appApiPost<ApiProjectMessage>('/project-messages', { projectId, ...data }),
 
   update: (_projectId: string, messageId: string, data: { message?: string; isPinned?: boolean }) =>
-    appApiPatch<any>(`/project-messages/${messageId}`, data),
+    appApiPatch<ApiProjectMessage>(`/project-messages/${messageId}`, data),
 
   delete: (_projectId: string, messageId: string) =>
     appApiDelete<{ deleted: boolean }>(`/project-messages/${messageId}`),
 
   addReaction: (_projectId: string, messageId: string, emoji: string) =>
-    appApiPost<any>(`/project-messages/${messageId}/reactions`, { emoji }),
+    appApiPost<ApiProjectMessage>(`/project-messages/${messageId}/reactions`, { emoji }),
 };
 
 // ============ FILES ============
 
 export const filesApi = {
+  // The response shape here is intentionally loose: callers (`files-component.tsx`)
+  // already handle both a bare array and an `{ items }` envelope, and read
+  // either the legacy `contentType`/`size` fields or the raw `project_files`
+  // row's `mimeType`/`fileSize` — the same pre-existing legacy-shape gap noted
+  // in `hooks/queries/use-projects-queries.ts`'s `useProjectFiles`.
   list: (
     projectId: string,
     params?: { page?: number; limit?: number; search?: string; fileType?: string },
@@ -619,11 +918,11 @@ export const filesApi = {
     const searchParams = new URLSearchParams();
     searchParams.set('projectId', projectId);
     if (params?.limit) searchParams.set('limit', String(params.limit));
-    return appApiGet<any>(`/project-files?${searchParams}`);
+    return appApiGet<Record<string, unknown>[] | { items: Record<string, unknown>[]; total?: number }>(`/project-files?${searchParams}`);
   },
 
   get: (_projectId: string, fileId: string) =>
-    appApiGet<any>(`/project-files/${fileId}`),
+    appApiGet<ApiProjectFile>(`/project-files/${fileId}`),
 
   // The app-api storage flow is workspace-scoped; entityType+entityId tag the
   // upload so a follow-up confirmUpload can find it. Same shape as the
@@ -724,10 +1023,10 @@ export const filesApi = {
         const message =
           (body && typeof body.error === 'string' ? body.error : null) ??
           `Upload confirmation failed (${res.status})`;
-        return { success: false, error: message } as ApiResponse<any>;
+        return { success: false, error: message } as ApiResponse<ApiProjectFile>;
       }
       const f = body.file;
-      return appApiPost<any>('/project-files', {
+      return appApiPost<ApiProjectFile>('/project-files', {
         projectId,
         fileName: f.fileName,
         originalName: f.fileName,
@@ -743,7 +1042,7 @@ export const filesApi = {
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Network error',
-      } as ApiResponse<any>;
+      } as ApiResponse<ApiProjectFile>;
     }
   },
 
@@ -773,7 +1072,7 @@ const stripDocx = (name: string) => name.replace(/\.docx$/i, '');
 export const documentsApi = {
   listDocuments: async (projectId: string) => {
     const res = await appApiGet<DocumentFileRow[]>(`/project-documents/${projectId}`);
-    if (!res.success || !res.data) return res as ApiResponse<any[]>;
+    if (!res.success || !res.data) return res as unknown as ApiResponse<DocumentSummary[]>;
     return {
       success: true,
       data: res.data.map((f) => ({
@@ -783,14 +1082,14 @@ export const documentsApi = {
         updatedAt: f.updatedAt,
         isPinned: f.isPinned ?? false,
       })),
-    } as ApiResponse<any[]>;
+    } as ApiResponse<DocumentSummary[]>;
   },
 
   createDocument: async (projectId: string, data: { name: string }) => {
     const res = await appApiPost<DocumentFileRow>(`/project-documents/${projectId}`, {
       name: data.name,
     });
-    if (!res.success || !res.data) return res as ApiResponse<any>;
+    if (!res.success || !res.data) return res as unknown as ApiResponse<DocumentSummary>;
     return {
       success: true,
       data: {
@@ -798,14 +1097,15 @@ export const documentsApi = {
         name: stripDocx(res.data.fileName),
         createdAt: res.data.createdAt,
         updatedAt: res.data.updatedAt,
+        isPinned: res.data.isPinned ?? false,
       },
-    } as ApiResponse<any>;
+    } as ApiResponse<DocumentSummary>;
   },
 
   updateDocument: async (_projectId: string, fileId: string, data: { name?: string }) => {
-    if (data.name === undefined) return { success: true } as ApiResponse<any>;
+    if (data.name === undefined) return { success: true } as ApiResponse<DocumentSummary>;
     const fileName = data.name.endsWith('.docx') ? data.name : `${data.name}.docx`;
-    return appApiPatch<any>(`/files/${fileId}`, { fileName });
+    return appApiPatch<DocumentSummary>(`/files/${fileId}`, { fileName });
   },
 
   deleteDocument: (_projectId: string, fileId: string) =>
@@ -819,9 +1119,9 @@ export const documentsApi = {
 // ============ GOALS ============
 
 export const goalsApi = {
-  get: (projectId: string) => appApiGet<any>(`/goals/by-project/${projectId}`),
+  get: (projectId: string) => appApiGet<ProjectGoals>(`/goals/by-project/${projectId}`),
 
-  save: (projectId: string, data: { mission?: any; goals: any[] }) =>
+  save: (projectId: string, data: { mission?: ProjectGoals['mission']; goals: unknown[] }) =>
     appApiPut<{ saved: boolean }>(`/goals/by-project/${projectId}`, data),
 };
 
@@ -831,20 +1131,20 @@ export const whiteboardApi = {
   /** @deprecated Use list + get by ID instead — kept for compat with the
    *  old single-whiteboard-per-project shape. Returns the first whiteboard. */
   get: async (projectId: string) => {
-    const res = await appApiGet<any[]>(
+    const res = await appApiGet<ApiWhiteboard[]>(
       `/whiteboards?projectId=${encodeURIComponent(projectId)}&limit=1`,
     );
     if (!res.success || !res.data || res.data.length === 0) {
-      return { success: true, data: { elements: [] } } as ApiResponse<{ elements: any[] }>;
+      return { success: true, data: { elements: [] } } as ApiResponse<{ elements: WhiteboardElement[] }>;
     }
     return { success: true, data: { elements: res.data[0].elements ?? [] } } as ApiResponse<{
-      elements: any[];
+      elements: WhiteboardElement[];
     }>;
   },
 
   /** @deprecated Use saveById instead */
-  save: async (projectId: string, elements: any[]) => {
-    const list = await appApiGet<any[]>(
+  save: async (projectId: string, elements: WhiteboardElement[]) => {
+    const list = await appApiGet<ApiWhiteboard[]>(
       `/whiteboards?projectId=${encodeURIComponent(projectId)}&limit=1`,
     );
     const first = list.success && list.data?.[0];
@@ -856,19 +1156,19 @@ export const whiteboardApi = {
 
   // Multi-whiteboard endpoints
   list: (projectId: string) =>
-    appApiGet<any[]>(`/whiteboards?projectId=${encodeURIComponent(projectId)}&limit=100`),
+    appApiGet<ApiWhiteboard[]>(`/whiteboards?projectId=${encodeURIComponent(projectId)}&limit=100`),
 
   create: (projectId: string, data: { name: string }) =>
-    appApiPost<any>('/whiteboards', { projectId, ...data }),
+    appApiPost<ApiWhiteboard>('/whiteboards', { projectId, ...data }),
 
   getById: (_projectId: string, whiteboardId: string) =>
-    appApiGet<any>(`/whiteboards/${whiteboardId}`),
+    appApiGet<ApiWhiteboard>(`/whiteboards/${whiteboardId}`),
 
-  saveById: (_projectId: string, whiteboardId: string, elements: any[]) =>
+  saveById: (_projectId: string, whiteboardId: string, elements: WhiteboardElement[]) =>
     appApiPatch<{ id: string }>(`/whiteboards/${whiteboardId}`, { elements }),
 
   rename: (_projectId: string, whiteboardId: string, name: string) =>
-    appApiPatch<any>(`/whiteboards/${whiteboardId}`, { name }),
+    appApiPatch<ApiWhiteboard>(`/whiteboards/${whiteboardId}`, { name }),
 
   delete: (_projectId: string, whiteboardId: string) =>
     appApiDelete<{ success: boolean }>(`/whiteboards/${whiteboardId}`),
@@ -883,7 +1183,7 @@ export const timeEntriesApi = {
     if (params?.page) searchParams.set('page', String(params.page));
     if (params?.limit) searchParams.set('limit', String(params.limit));
     if (params?.search) searchParams.set('search', params.search);
-    return appApiGet<any>(`/time-entries?${searchParams}`);
+    return appApiGet<ApiTimeEntry[] | { items: ApiTimeEntry[]; total?: number }>(`/time-entries?${searchParams}`);
   },
 
   create: (
@@ -899,7 +1199,7 @@ export const timeEntriesApi = {
       hourlyRate?: number;
     },
   ) =>
-    appApiPost<any>('/time-entries', {
+    appApiPost<ApiTimeEntry>('/time-entries', {
       projectId,
       taskId: data.taskId,
       description: data.description,
@@ -924,7 +1224,7 @@ export const timeEntriesApi = {
       hourlyRate?: number;
     },
   ) =>
-    appApiPatch<any>(`/time-entries/${entryId}`, {
+    appApiPatch<ApiTimeEntry>(`/time-entries/${entryId}`, {
       description: data.description,
       date: data.date,
       startTime: data.startTime,
@@ -938,7 +1238,7 @@ export const timeEntriesApi = {
     appApiDelete<{ deleted: boolean }>(`/time-entries/${entryId}`),
 
   approve: (_projectId: string, entryId: string) =>
-    appApiPatch<any>(`/time-entries/${entryId}/approve`),
+    appApiPatch<ApiTimeEntry>(`/time-entries/${entryId}/approve`),
 };
 
 // ============ RUNNING TIMER ============
@@ -998,11 +1298,43 @@ export const timerApi = {
 
 // ============ WORKLOAD ============
 
+export interface ApiTeamMemberWorkload {
+  userId: string;
+  name: string;
+  email: string;
+  avatar: string;
+  initials: string;
+  role: string;
+  capacity: number;
+  tasks: {
+    id: string;
+    title: string;
+    projectId: string | null;
+    projectName: string;
+    estimatedHours: number;
+    actualHours: number;
+    priority: string;
+    status: string;
+    startDate: string | null;
+    dueDate: string | null;
+  }[];
+}
+
+export interface ApiWorkloadOverview {
+  startDate: string;
+  endDate: string;
+  totalCapacity: number;
+  totalAllocated: number;
+  utilization: number;
+  overallocatedCount: number;
+  teamMembers: ApiTeamMemberWorkload[];
+}
+
 export const workloadApi = {
   // Both endpoints are now served by app-api.
-  getOverview: () => appApiGet<any>('/projects/workload/overview'),
+  getOverview: () => appApiGet<ApiWorkloadOverview>('/projects/workload/overview'),
 
-  getProject: (projectId: string) => appApiGet<any>(`/projects/${projectId}/workload`),
+  getProject: (projectId: string) => appApiGet<ApiTeamMemberWorkload[]>(`/projects/${projectId}/workload`),
 };
 
 // ============ TABLES (Spreadsheet workbooks) ============
@@ -1030,7 +1362,7 @@ const stripXlsx = (name: string) => name.replace(/\.xlsx$/i, '');
 export const tablesApi = {
   listTables: async (projectId: string) => {
     const res = await appApiGet<SheetFileRow[]>(`/project-sheets/${projectId}`);
-    if (!res.success || !res.data) return res as ApiResponse<any[]>;
+    if (!res.success || !res.data) return res as unknown as ApiResponse<SheetSummary[]>;
     return {
       success: true,
       data: res.data.map((f) => ({
@@ -1039,12 +1371,12 @@ export const tablesApi = {
         createdAt: f.createdAt,
         updatedAt: f.updatedAt,
       })),
-    } as ApiResponse<any[]>;
+    } as ApiResponse<SheetSummary[]>;
   },
 
   createTable: async (projectId: string, data: { name: string }) => {
     const res = await appApiPost<SheetFileRow>(`/project-sheets/${projectId}`, data);
-    if (!res.success || !res.data) return res as ApiResponse<any>;
+    if (!res.success || !res.data) return res as unknown as ApiResponse<SheetSummary>;
     return {
       success: true,
       data: {
@@ -1053,24 +1385,26 @@ export const tablesApi = {
         createdAt: res.data.createdAt,
         updatedAt: res.data.updatedAt,
       },
-    } as ApiResponse<any>;
+    } as ApiResponse<SheetSummary>;
   },
 
   updateTable: async (
     _projectId: string,
     fileId: string,
-    data: { name?: string; position?: number; settings?: any },
+    data: { name?: string; position?: number; settings?: Record<string, unknown> },
   ) => {
-    if (data.name === undefined) return { success: true } as ApiResponse<any>;
+    if (data.name === undefined) return { success: true } as ApiResponse<SheetSummary>;
     const fileName = data.name.endsWith('.xlsx') ? data.name : `${data.name}.xlsx`;
-    return appApiPatch<any>(`/files/${fileId}`, { fileName });
+    return appApiPatch<SheetSummary>(`/files/${fileId}`, { fileName });
   },
 
   deleteTable: (_projectId: string, fileId: string) =>
     appApiDelete<{ success: boolean }>(`/files/${fileId}`),
 
   // No-op for now — reordering xlsx files would require a new column on `files`
-  // (e.g. listPosition). Kept on the API so call sites don't break.
+  // (e.g. listPosition). Kept on the API (with its real signature) so future
+  // call sites can adopt it without an API shape change.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   reorderTables: async (_projectId: string, _fileIds: string[]) =>
     ({ success: true, data: { reordered: true } }) as ApiResponse<{ reordered: boolean }>,
 };
@@ -1079,25 +1413,41 @@ export const tablesApi = {
 // Rewired to app-api (/api/project-analytics/*). Exported signature is
 // unchanged so all call sites compile without modification.
 
+// Report/chart create+update payload — mirrors `ApiAnalyticsChart` minus
+// the server-assigned fields.
+export type ChartInput = Omit<ApiAnalyticsChart, 'id' | 'reportId' | 'layout' | 'sortIndex' | 'createdAt' | 'updatedAt'>;
+
 export const analyticsApi = {
+  // getReports/getReport/createReport/updateReport/getCharts/createChart/
+  // updateChartLayouts/duplicateChart: the only consumer outside this module
+  // (`app/weldflow/project/[projectId]/analytics/**`) declares its own local
+  // `AnalyticsReport`/`AnalyticsChart` types with `createdAt`/`updatedAt` typed
+  // as `Date` (the wire shape is actually `string`, same pre-existing
+  // legacy-shape gap noted in `hooks/queries/use-projects-queries.ts`) — typing
+  // these precisely here would surface a type error in that file, which is
+  // outside this pass's scope.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getReports: () => appApiGet<any[]>('/project-analytics/reports'),
 
-  getReport: (reportId: string) =>
-    appApiGet<any>(`/project-analytics/reports/${reportId}`),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getReport: (reportId: string) => appApiGet<any>(`/project-analytics/reports/${reportId}`),
 
   createReport: (data: { title: string; description?: string }) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     appApiPost<any>('/project-analytics/reports', data),
 
   updateReport: (reportId: string, data: { title?: string; description?: string }) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     appApiPut<any>(`/project-analytics/reports/${reportId}`, data),
 
   deleteReport: (reportId: string) =>
     appApiDelete<{ deleted: boolean }>(`/project-analytics/reports/${reportId}`),
 
-  getCharts: (reportId: string) =>
-    appApiGet<any[]>(`/project-analytics/reports/${reportId}/charts`),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getCharts: (reportId: string) => appApiGet<any[]>(`/project-analytics/reports/${reportId}/charts`),
 
-  createChart: (reportId: string, data: any) =>
+  createChart: (reportId: string, data: ChartInput) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     appApiPost<any>(`/project-analytics/reports/${reportId}/charts`, data),
 
   deleteChart: (reportId: string, chartId: string) =>
@@ -1105,11 +1455,11 @@ export const analyticsApi = {
       `/project-analytics/reports/${reportId}/charts/${chartId}`,
     ),
 
-  getChartData: (reportId: string, config: any) =>
-    appApiPost<any>(`/project-analytics/reports/${reportId}/charts-data`, config),
+  getChartData: (reportId: string, config: ChartDataQueryConfig) =>
+    appApiPost<Record<string, ChartDataPoint[]>>(`/project-analytics/reports/${reportId}/charts-data`, config),
 
-  getChartsData: (reportId: string, configs: any[]) =>
-    appApiPost<Record<string, any[]>>(
+  getChartsData: (reportId: string, configs: ChartDataQueryConfig[]) =>
+    appApiPost<Record<string, ChartDataPoint[]>>(
       `/project-analytics/reports/${reportId}/charts-data`,
       { charts: configs },
     ),
@@ -1118,12 +1468,14 @@ export const analyticsApi = {
     reportId: string,
     layouts: Array<{ chartId: string; layout: { x: number; y: number; w: number; h: number; minW?: number; minH?: number } }>,
   ) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     appApiPatch<any>(
       `/project-analytics/reports/${reportId}/charts/layouts`,
       { layouts },
     ),
 
   duplicateChart: (reportId: string, chartId: string) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     appApiPost<any>(
       `/project-analytics/reports/${reportId}/charts/${chartId}/duplicate`,
       {},

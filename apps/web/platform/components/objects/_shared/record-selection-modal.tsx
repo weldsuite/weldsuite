@@ -6,7 +6,7 @@
  * discriminated record; callers branch on `kind`.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Input } from '@weldsuite/ui/components/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
@@ -111,15 +111,18 @@ export function RecordSelectionModal({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const toggleSelection = (id: string) => {
-    if (existingIds.includes(id)) return;
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
+  const toggleSelection = useCallback(
+    (id: string) => {
+      if (existingIds.includes(id)) return;
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    },
+    [existingIds],
+  );
 
   const handleMultiConfirm = async () => {
     if (selectedIds.size === 0 || !onSelectMultiple) return;
@@ -133,13 +136,16 @@ export function RecordSelectionModal({
     }
   };
 
-  const handleSingleSelect = (record: SelectableRecord) => {
-    if (multiSelect) {
-      toggleSelection(record.id);
-    } else if (onSelectRecord) {
-      onSelectRecord(record);
-    }
-  };
+  const handleSingleSelect = useCallback(
+    (record: SelectableRecord) => {
+      if (multiSelect) {
+        toggleSelection(record.id);
+      } else if (onSelectRecord) {
+        onSelectRecord(record);
+      }
+    },
+    [multiSelect, onSelectRecord, toggleSelection],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -215,7 +221,7 @@ export function RecordSelectionModal({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open, selectedIndex, records, onSelectRecord]);
+  }, [open, selectedIndex, records, onSelectRecord, handleSingleSelect]);
 
   useEffect(() => {
     if (listRef.current) {

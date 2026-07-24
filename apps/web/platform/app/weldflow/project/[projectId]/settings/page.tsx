@@ -18,7 +18,7 @@ export default function ProjectSettingsPage() {
   const members = membersData?.data || [];
   const availableUsers = availableData?.data || [];
 
-  const currentUserMember = members.find((m: any) => m.userId === userId);
+  const currentUserMember = members.find((m) => m.userId === userId);
   const isAdmin = currentUserMember?.role === 'owner' || currentUserMember?.role === 'admin';
   const canWrite = isAdmin || currentUserMember?.role === 'member';
   const isViewer = currentUserMember?.role === 'viewer';

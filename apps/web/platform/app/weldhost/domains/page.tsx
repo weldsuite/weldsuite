@@ -14,7 +14,7 @@ export default function DomainsPage() {
     page: currentPage,
     pageSize: 10,
     search,
-    status: status as any,
+    status,
   });
 
   return <DomainsClient domains={(data?.domains ?? []) as unknown as HostDomain[]} />;

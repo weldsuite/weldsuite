@@ -35,9 +35,9 @@ export default function ConversationPage() {
     <ConversationDetailClient
       key={conversationId}
       conversation={conversationResult.data}
-      initialMessages={messagesResult?.data || messagesResult?.messages || []}
+      initialMessages={messagesResult?.data || []}
       accessToken={undefined}
-      review={reviewResult?.data || reviewResult?.review || undefined}
+      review={reviewResult?.data || undefined}
       userId={userId || undefined}
       userName={user?.fullName || user?.primaryEmailAddress?.emailAddress || ti.agentFallback}
       userAvatar={user?.imageUrl}

@@ -37,8 +37,18 @@ export async function searchLocation(
 
   if (!res.ok) return [];
 
-  const data = await res.json();
-  return (data.suggestions ?? []).map((s: any) => ({
+  interface MapboxSuggestResponse {
+    suggestions?: Array<{
+      mapbox_id: string;
+      name: string;
+      full_address?: string;
+      place_formatted?: string;
+      feature_type?: string;
+    }>;
+  }
+
+  const data: MapboxSuggestResponse = await res.json();
+  return (data.suggestions ?? []).map((s) => ({
     mapbox_id: s.mapbox_id,
     name: s.name,
     full_address: s.full_address ?? '',

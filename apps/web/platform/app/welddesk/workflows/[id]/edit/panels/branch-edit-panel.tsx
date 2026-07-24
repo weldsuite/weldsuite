@@ -13,6 +13,7 @@ import { Label } from '@weldsuite/ui/components/label';
 import { cn } from '@/lib/utils';
 import { getActionMeta } from '../helpdesk-workflow-constants';
 import { useI18n } from '@/lib/i18n/provider';
+import type { HelpdeskWorkflow } from '../types';
 
 interface BranchEditPanelProps {
   editingBranch: {
@@ -21,7 +22,7 @@ interface BranchEditPanelProps {
     parentConditionId: string;
     parentConditionStepIndex: number;
   };
-  workflow: any;
+  workflow: HelpdeskWorkflow;
   onSelectStep: (index: number) => void;
   onAddStepToBranch: (branchNodeId: string) => void;
   onClose: () => void;
@@ -38,13 +39,13 @@ export function BranchEditPanel({
   const bep = t.helpdesk.branchEditPanel;
 
   const parentStep = workflow.steps[editingBranch.parentConditionStepIndex];
-  const branchChildren = workflow.steps.filter((s: any) => s.parentBranchId === editingBranch.branchNodeId);
+  const branchChildren = workflow.steps.filter((s) => s.parentBranchId === editingBranch.branchNodeId);
   const conditionExpression = parentStep?.config?.field
-    ? `${parentStep.config.field} ${parentStep.config.operator || ''} ${parentStep.config.value || ''}`
-    : parentStep?.config?.expression || '';
+    ? `${parentStep.config.field as string} ${(parentStep.config.operator as string) || ''} ${(parentStep.config.value as string) || ''}`
+    : (parentStep?.config?.expression as string) || '';
 
   // Branch display styling
-  const branchStyleMap: Record<string, { bg: string; icon: any; iconColor: string; label: string; borderColor: string; description: string }> = {
+  const branchStyleMap: Record<string, { bg: string; icon: React.ElementType; iconColor: string; label: string; borderColor: string; description: string }> = {
     if: { bg: 'bg-green-100 dark:bg-green-900/30', icon: CheckCircle2, iconColor: 'text-green-600', label: bep.ifTrueLabel, borderColor: 'border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-900', description: bep.ifTrueDesc },
     if_not: { bg: 'bg-gray-100 dark:bg-secondary', icon: X, iconColor: 'text-gray-500 dark:text-muted-foreground', label: bep.ifFalseLabel, borderColor: 'border-gray-200 bg-gray-50 dark:bg-background/20 dark:border-border', description: bep.ifFalseDesc },
     escalated: { bg: 'bg-amber-100 dark:bg-amber-900/30', icon: ArrowUpRight, iconColor: 'text-amber-600', label: bep.escalatedLabel, borderColor: 'border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-900', description: bep.escalatedDesc },
@@ -124,10 +125,10 @@ export function BranchEditPanel({
               </div>
             ) : (
               <div className="space-y-2">
-                {branchChildren.map((childStep: any) => {
+                {branchChildren.map((childStep) => {
                   const meta = getActionMeta(childStep.type);
                   const Icon = meta.icon;
-                  const stepIndex = workflow.steps.findIndex((s: any) => s.id === childStep.id);
+                  const stepIndex = workflow.steps.findIndex((s) => s.id === childStep.id);
                   return (
                     <Button
                       key={childStep.id}

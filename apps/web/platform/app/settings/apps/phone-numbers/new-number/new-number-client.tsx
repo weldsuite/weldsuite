@@ -33,7 +33,6 @@ import {
   MapPin,
   Check,
   AlertTriangle,
-  CheckCircle2,
   ChevronsUpDown,
   ChevronUp,
   ChevronDown,
@@ -75,10 +74,18 @@ interface PricingEntry {
   stripePriceId?: string;
 }
 
+interface ProviderBundle {
+  id: string;
+  country_code?: string;
+  iso_country?: string;
+  friendly_name?: string;
+  description?: string;
+}
+
 interface NewNumberClientProps {
   isConfigured: boolean;
   addresses: ProviderAddress[];
-  bundles: any[];
+  bundles: ProviderBundle[];
   pricingData: PricingEntry[];
 }
 
@@ -125,7 +132,6 @@ const NUMBER_TYPES = [
 ];
 
 export function NewNumberClient({
-  isConfigured,
   addresses: initialAddresses,
   bundles: initialBundles,
   pricingData,
@@ -552,7 +558,7 @@ export function NewNumberClient({
                       {countryAddresses.length > 0 && (
                         <div className="mt-3 space-y-2">
                           <Label className="text-yellow-800 dark:text-yellow-200">{tn.selectAddress}</Label>
-                          <Select value={selectedAddressId} onValueChange={setSelectedAddressSid}>
+                          <Select value={selectedAddressId} onValueChange={setSelectedAddressId}>
                             <SelectTrigger className="bg-white dark:bg-secondary">
                               <SelectValue placeholder={tn.selectAddressPlaceholder} />
                             </SelectTrigger>
@@ -573,7 +579,7 @@ export function NewNumberClient({
                       {countryBundles.length > 0 && (
                         <div className="mt-3 space-y-2">
                           <Label className="text-yellow-800 dark:text-yellow-200">{tn.selectBundle}</Label>
-                          <Select value={selectedBundleId} onValueChange={setSelectedBundleSid}>
+                          <Select value={selectedBundleId} onValueChange={setSelectedBundleId}>
                             <SelectTrigger className="bg-white dark:bg-secondary">
                               <SelectValue placeholder={tn.selectBundlePlaceholder} />
                             </SelectTrigger>

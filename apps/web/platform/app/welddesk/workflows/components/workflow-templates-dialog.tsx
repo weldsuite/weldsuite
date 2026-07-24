@@ -4,6 +4,7 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Bot, UserPlus, Star, MessageSquare } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { useI18n } from '@/lib/i18n/provider';
+import type { WorkflowStep, WorkflowTrigger } from '../[id]/edit/types';
 
 interface WorkflowTemplate {
   id: string;
@@ -11,8 +12,8 @@ interface WorkflowTemplate {
   description: string;
   icon: React.ElementType;
   badge?: string;
-  steps: any[];
-  triggers: any[];
+  steps: WorkflowStep[];
+  triggers: WorkflowTrigger[];
 }
 
 const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
@@ -248,7 +249,7 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
 interface WorkflowTemplatesDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSelect: (template: { name: string; steps: any[]; triggers: any[] }) => void;
+  onSelect: (template: { name: string; description: string; steps: WorkflowStep[]; triggers: WorkflowTrigger[] }) => void;
 }
 
 export function WorkflowTemplatesDialog({ open, onOpenChange, onSelect }: WorkflowTemplatesDialogProps) {

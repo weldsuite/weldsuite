@@ -17,7 +17,8 @@
 //
 // Exit 0 = consistent. Exit 1 = dangling reference(s) — do NOT deploy.
 
-import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
+/* global process */
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 

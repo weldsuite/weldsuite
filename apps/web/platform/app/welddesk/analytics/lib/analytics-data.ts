@@ -10,7 +10,7 @@ import {
   mvHelpdeskSatisfactionDaily,
   mvHelpdeskAgentStats,
 } from '@/lib/db/schema/helpdesk-analytics-views';
-import { and, eq, gte, lte, isNull, count, avg, sql, inArray, desc, asc, sum } from 'drizzle-orm';
+import { and, eq, gte, lte, isNull, count, avg, sql, inArray, desc, asc } from 'drizzle-orm';
 
 // Flag to use materialized views (set to false to fallback to base tables)
 const USE_MATERIALIZED_VIEWS = true;
@@ -94,8 +94,7 @@ export function getDateRangeFromTimeRange(timeRange: string): { start: Date; end
 // ============ GROUPING HELPERS ============
 
 // Valid date truncation units (whitelisted to prevent SQL injection)
-const VALID_TRUNC_UNITS = ['hour', 'day', 'week', 'month', 'quarter', 'year'] as const;
-type TruncUnit = (typeof VALID_TRUNC_UNITS)[number];
+type TruncUnit = 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year';
 
 // Returns validated date truncation unit
 export function getDateTruncUnit(groupBy: string): TruncUnit {
@@ -129,17 +128,19 @@ export function formatDateLabel(date: Date | null, groupBy: string): string {
                d.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true });
       case 'day':
         return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      case 'week':
+      case 'week': {
         // Get ISO week number
         const startOfYear = new Date(d.getFullYear(), 0, 1);
         const days = Math.floor((d.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
         const weekNum = Math.ceil((days + startOfYear.getDay() + 1) / 7);
         return `Week ${weekNum}`;
+      }
       case 'month':
         return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-      case 'quarter':
+      case 'quarter': {
         const quarter = Math.floor(d.getMonth() / 3) + 1;
         return `Q${quarter} ${d.getFullYear()}`;
+      }
       case 'year':
         return d.getFullYear().toString();
       default:
@@ -219,7 +220,6 @@ export async function getTicketMetrics(config: ChartQueryConfig): Promise<ChartD
     const startIso = start.toISOString();
     const endIso = end.toISOString();
     const mvBaseConditions = and(
-      eq(mvHelpdeskTicketsDaily.workspaceId, workspaceId),
       gte(mvHelpdeskTicketsDaily.period, sql`${startIso}::timestamp`),
       lte(mvHelpdeskTicketsDaily.period, sql`${endIso}::timestamp`)
     );
@@ -440,7 +440,6 @@ export async function getTicketMetrics(config: ChartQueryConfig): Promise<ChartD
 
   // Fallback to base tables if MVs not enabled or metric not covered
   const baseConditions = and(
-    eq(helpdeskTickets.workspaceId, workspaceId),
     isNull(helpdeskTickets.deletedAt),
     gte(helpdeskTickets.createdAt, start),
     lte(helpdeskTickets.createdAt, end)
@@ -663,7 +662,6 @@ export async function getConversationMetrics(config: ChartQueryConfig): Promise<
     const startIso = start.toISOString();
     const endIso = end.toISOString();
     const mvBaseConditions = and(
-      eq(mvHelpdeskConversationsDaily.workspaceId, workspaceId),
       gte(mvHelpdeskConversationsDaily.period, sql`${startIso}::timestamp`),
       lte(mvHelpdeskConversationsDaily.period, sql`${endIso}::timestamp`)
     );
@@ -833,7 +831,6 @@ export async function getConversationMetrics(config: ChartQueryConfig): Promise<
 
   // Fallback to base tables
   const baseConditions = and(
-    eq(helpdeskConversations.workspaceId, workspaceId),
     isNull(helpdeskConversations.deletedAt),
     gte(helpdeskConversations.createdAt, start),
     lte(helpdeskConversations.createdAt, end)
@@ -1005,8 +1002,6 @@ export async function getAgentMetrics(config: ChartQueryConfig): Promise<ChartDa
 
   // Use materialized views for better performance
   if (USE_MATERIALIZED_VIEWS) {
-    const mvBaseConditions = eq(mvHelpdeskAgentStats.workspaceId, workspaceId);
-
     switch (metric) {
       case 'total_agents':
       case 'active_agents': {
@@ -1020,7 +1015,7 @@ export async function getAgentMetrics(config: ChartQueryConfig): Promise<ChartDa
             ticketsResolved: mvHelpdeskAgentStats.ticketsResolved,
           })
           .from(mvHelpdeskAgentStats)
-          .where(additionalCondition ? and(mvBaseConditions, additionalCondition) : mvBaseConditions)
+          .where(additionalCondition)
           .orderBy(sortOrder === 'desc'
             ? sql`${mvHelpdeskAgentStats.ticketsResolved} DESC NULLS LAST`
             : sql`${mvHelpdeskAgentStats.ticketsResolved} ASC NULLS LAST`
@@ -1044,7 +1039,6 @@ export async function getAgentMetrics(config: ChartQueryConfig): Promise<ChartDa
             ticketsAssigned: mvHelpdeskAgentStats.ticketsAssigned,
           })
           .from(mvHelpdeskAgentStats)
-          .where(mvBaseConditions)
           .orderBy(sortOrder === 'desc'
             ? sql`${mvHelpdeskAgentStats.ticketsResolved} DESC NULLS LAST`
             : sql`${mvHelpdeskAgentStats.ticketsResolved} ASC NULLS LAST`
@@ -1067,7 +1061,6 @@ export async function getAgentMetrics(config: ChartQueryConfig): Promise<ChartDa
             avgResponseTime: mvHelpdeskAgentStats.averageResponseTime,
           })
           .from(mvHelpdeskAgentStats)
-          .where(mvBaseConditions)
           .orderBy(sortOrder === 'desc'
             ? sql`${mvHelpdeskAgentStats.averageResponseTime} DESC NULLS LAST`
             : sql`${mvHelpdeskAgentStats.averageResponseTime} ASC NULLS LAST`
@@ -1085,10 +1078,7 @@ export async function getAgentMetrics(config: ChartQueryConfig): Promise<ChartDa
   }
 
   // Fallback to base tables
-  const baseConditions = and(
-    eq(helpdeskAgents.workspaceId, workspaceId),
-    isNull(helpdeskAgents.deletedAt)
-  );
+  const baseConditions = isNull(helpdeskAgents.deletedAt);
 
   switch (metric) {
     case 'total_agents':
@@ -1184,7 +1174,6 @@ export async function getResponseTimeMetrics(config: ChartQueryConfig): Promise<
     const startIso = start.toISOString();
     const endIso = end.toISOString();
     const mvBaseConditions = and(
-      eq(mvHelpdeskTicketsDaily.workspaceId, workspaceId),
       gte(mvHelpdeskTicketsDaily.period, sql`${startIso}::timestamp`),
       lte(mvHelpdeskTicketsDaily.period, sql`${endIso}::timestamp`)
     );
@@ -1272,7 +1261,6 @@ export async function getResponseTimeMetrics(config: ChartQueryConfig): Promise<
 
   // Fallback to base tables
   const baseConditions = and(
-    eq(helpdeskTickets.workspaceId, workspaceId),
     isNull(helpdeskTickets.deletedAt),
     gte(helpdeskTickets.createdAt, start),
     lte(helpdeskTickets.createdAt, end)
@@ -1394,7 +1382,6 @@ export async function getSatisfactionMetrics(config: ChartQueryConfig): Promise<
     const startIso = start.toISOString();
     const endIso = end.toISOString();
     const mvBaseConditions = and(
-      eq(mvHelpdeskSatisfactionDaily.workspaceId, workspaceId),
       gte(mvHelpdeskSatisfactionDaily.period, sql`${startIso}::timestamp`),
       lte(mvHelpdeskSatisfactionDaily.period, sql`${endIso}::timestamp`)
     );
@@ -1527,7 +1514,6 @@ export async function getSatisfactionMetrics(config: ChartQueryConfig): Promise<
 
   // Fallback to base tables
   const baseConditions = and(
-    eq(helpdeskSatisfactionSurveys.workspaceId, workspaceId),
     isNull(helpdeskSatisfactionSurveys.deletedAt),
     gte(helpdeskSatisfactionSurveys.sentAt, start),
     lte(helpdeskSatisfactionSurveys.sentAt, end)
@@ -1608,10 +1594,10 @@ export async function getSatisfactionMetrics(config: ChartQueryConfig): Promise<
         .orderBy(sortOrder === 'desc' ? desc(count()) : asc(helpdeskSatisfactionSurveys.rating))
         .limit(limit || 10);
 
-      return results.map((row, index) => ({
+      return results.map((row) => ({
         label: `${row.rating} Star${row.rating !== 1 ? 's' : ''}`,
         value: Number(row.count),
-        fill: getRatingColor(row.rating || 0, index),
+        fill: getRatingColor(row.rating || 0),
         name: `${row.rating} Star${row.rating !== 1 ? 's' : ''}`,
       }));
     }
@@ -1626,7 +1612,6 @@ export async function getSatisfactionMetrics(config: ChartQueryConfig): Promise<
         .from(helpdeskSatisfactionSurveys)
         .innerJoin(helpdeskTickets, eq(helpdeskSatisfactionSurveys.ticketId, helpdeskTickets.id))
         .where(and(
-          eq(helpdeskSatisfactionSurveys.workspaceId, workspaceId),
           isNull(helpdeskSatisfactionSurveys.deletedAt),
           eq(helpdeskSatisfactionSurveys.status, 'completed'),
           sql`${helpdeskSatisfactionSurveys.rating} IS NOT NULL`,
@@ -1761,13 +1746,11 @@ export async function getCustomerMetrics(config: ChartQueryConfig): Promise<Char
         })
         .from(helpdeskTickets)
         .where(and(
-          eq(helpdeskTickets.workspaceId, workspaceId),
           isNull(helpdeskTickets.deletedAt),
           gte(helpdeskTickets.createdAt, start),
           lte(helpdeskTickets.createdAt, end),
           sql`${helpdeskTickets.customerEmail} IN (
             SELECT customer_email FROM helpdesk_tickets
-            WHERE workspace_id = ${workspaceId}
             GROUP BY customer_email
             HAVING COUNT(*) > 1
           )`
@@ -1793,7 +1776,6 @@ export async function getCustomerMetrics(config: ChartQueryConfig): Promise<Char
         })
         .from(helpdeskTickets)
         .where(and(
-          eq(helpdeskTickets.workspaceId, workspaceId),
           isNull(helpdeskTickets.deletedAt),
           gte(helpdeskTickets.createdAt, start),
           lte(helpdeskTickets.createdAt, end)
@@ -1898,7 +1880,7 @@ function getPriorityColor(priority: string, fallbackIndex: number): string {
   return colors[priority] || getChartColor(fallbackIndex);
 }
 
-function getRatingColor(rating: number, fallbackIndex: number): string {
+function getRatingColor(rating: number): string {
   if (rating >= 4) return 'var(--chart-3)'; // Green for good
   if (rating >= 3) return 'var(--chart-4)'; // Yellow for neutral
   return 'var(--chart-1)'; // Red for bad

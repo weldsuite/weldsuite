@@ -1,4 +1,4 @@
-import { useMemo, useTransition } from 'react';
+import { useCallback, useMemo, useTransition } from 'react';
 import { toast } from 'sonner';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -29,6 +29,7 @@ import {
   useAccountingTaxRates,
 } from '@/hooks/queries/use-accounting-queries';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
+import type { Customer } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 
@@ -83,10 +84,10 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: InvoiceDialogPr
   const { data: contactsData } = useAccountingCustomers({ role: 'customer' });
   const { data: taxRatesData } = useAccountingTaxRates();
 
-  const contacts = (contactsData as any)?.data ?? [];
-  const taxRates = (taxRatesData as any)?.data ?? [];
+  const contacts = useMemo(() => contactsData?.data ?? [], [contactsData]);
+  const taxRates = useMemo(() => taxRatesData?.data ?? [], [taxRatesData]);
 
-  const toContactOption = (c: any): AutocompleteOption => {
+  const toContactOption = useCallback((c: Customer): AutocompleteOption => {
     const fullName = [c.firstName, c.lastName].filter(Boolean).join(' ');
     const label = c.name || c.companyName || fullName || c.email || st('sweep.weldbooks.invoiceDialog.unnamedContact');
     return {
@@ -94,19 +95,19 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: InvoiceDialogPr
       label,
       description: c.email && c.email !== label ? c.email : undefined,
     };
-  };
+  }, [st]);
 
   const contactOptions: AutocompleteOption[] = useMemo(
     () => contacts.map(toContactOption),
-    [contacts],
+    [contacts, toContactOption],
   );
 
   const searchContacts = async (query: string): Promise<AutocompleteOption[]> => {
-    const res = (await accountingApi.listCustomers({
+    const res = await accountingApi.listCustomers({
       role: 'customer',
       search: query,
       pageSize: 50,
-    })) as { data?: any[] };
+    });
     return (res?.data ?? []).map(toContactOption);
   };
 
@@ -346,7 +347,7 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: InvoiceDialogPr
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="none">{tid.noTax}</SelectItem>
-                        {taxRates.map((tr: any) => (
+                        {taxRates.map((tr) => (
                           <SelectItem key={tr.id} value={tr.id}>
                             {tr.name ?? tr.rate + '%'}
                           </SelectItem>

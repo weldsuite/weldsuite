@@ -5,7 +5,6 @@ import { getTranslations } from '@/lib/i18n';
 import { Link } from '@/lib/router';
 import { useRouter } from '@/lib/router/use-router';
 import {
-  Plus,
   Trash2,
   FolderKanban,
   EllipsisVertical,
@@ -20,7 +19,6 @@ import {
 import { Button } from "@weldsuite/ui/components/button";
 import { Input } from "@weldsuite/ui/components/input";
 import { Label } from "@weldsuite/ui/components/label";
-import { Badge } from "@weldsuite/ui/components/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,11 +43,11 @@ import {
 } from "@weldsuite/ui/components/dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type ActiveFilter, type RowHandlers, type SortState } from '@/components/entity-list';
+import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type ActiveFilter, type SortState } from '@/components/entity-list';
 import { coloredSquareColors, coloredSquareIcons } from "@/components/app-sidebar-layout";
 import type { LucideIcon } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { projectsApi, membersApi } from "@/app/weldflow/lib/api-client";
+import { projectsApi, membersApi, type ApiProject } from "@/app/weldflow/lib/api-client";
 import { projectKeys } from "@/hooks/queries/use-projects-queries";
 import { useTopic } from "@weldsuite/realtime/react";
 import { TeamMemberDetailsPanel, type TeamMemberDetail } from "@/components/team-member-details-panel";
@@ -108,23 +106,9 @@ function getInitials(name: string): string {
 // Status and priority configs are now built inside the component using i18n
 // (moved below the component definition start)
 
-const avatarColors = [
-  '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981',
-  '#06b6d4', '#f43f5e', '#6366f1', '#84cc16', '#a855f7',
-];
-
-const getAvatarColor = (name: string) => {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return avatarColors[Math.abs(hash) % avatarColors.length];
-};
-
 interface AllProjectsClientProps {
-  initialProjects: any[];
+  initialProjects: ApiProject[];
   error?: string | null;
-  initialCustomFieldDefs?: any[];
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
   onLoadMore?: () => void;
@@ -152,20 +136,20 @@ export function AllProjectsClient({
 }: AllProjectsClientProps) {
   const t = getTranslations('projects');
 
-  const statusConfig: Record<TableStatus, { label: string; color: string; bg: string; icon: React.ElementType }> = {
+  const statusConfig: Record<TableStatus, { label: string; color: string; bg: string; icon: React.ElementType }> = useMemo(() => ({
     'on-track': { label: t.allProjects.statusOnTrack, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950', icon: CheckCircle2 },
     'at-risk': { label: t.allProjects.statusAtRisk, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950', icon: AlertCircle },
     'off-track': { label: t.allProjects.statusOffTrack, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950', icon: XCircle },
     'on-hold': { label: t.allProjects.statusOnHold, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary', icon: Pause },
     'completed': { label: t.allProjects.statusCompleted, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary', icon: CheckCircle2 },
-  };
+  }), [t]);
 
-  const priorityConfig: Record<string, { label: string; color: string; bg: string }> = {
+  const priorityConfig: Record<string, { label: string; color: string; bg: string }> = useMemo(() => ({
     'critical': { label: t.allProjects.priorityCritical, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950' },
     'high': { label: t.allProjects.priorityHigh, color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-950' },
     'medium': { label: t.allProjects.priorityMedium, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950' },
     'low': { label: t.allProjects.priorityLow, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
-  };
+  }), [t]);
 
   useBreadcrumbs([
     { label: t.allProjects.breadcrumbProjects, href: '/weldflow' },
@@ -176,14 +160,14 @@ export function AllProjectsClient({
   const isSortControlled = onSortChange !== undefined;
   const [internalSortState, setInternalSortState] = useState<SortState | null>(null);
   const sortState = isSortControlled ? (sortStateProp ?? null) : internalSortState;
-  const setSortState = (next: SortState | null | ((prev: SortState | null) => SortState | null)) => {
+  const setSortState = useCallback((next: SortState | null | ((prev: SortState | null) => SortState | null)) => {
     if (isSortControlled) {
       const resolved = typeof next === 'function' ? (next as (prev: SortState | null) => SortState | null)(sortState) : next;
       onSortChange!(resolved);
     } else {
       setInternalSortState(next);
     }
-  };
+  }, [isSortControlled, sortState, onSortChange]);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectPriority, setNewProjectPriority] = useState("medium");
@@ -196,7 +180,7 @@ export function AllProjectsClient({
   const [selectedMember, setSelectedMember] = useState<TeamMemberDetail | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const router = useRouter();
 
   // Transform initial projects
@@ -205,7 +189,7 @@ export function AllProjectsClient({
       const transformedProjects: Project[] = initialProjects.map((project) => ({
         id: project.id,
         name: project.name,
-        status: project.derivedStatus ?? (project.health ? mapHealthToTableStatus(project.health) : mapApiStatusToTableStatus(project.status)),
+        status: (project.derivedStatus as TableStatus | undefined) ?? (project.health ? mapHealthToTableStatus(project.health) : mapApiStatusToTableStatus(project.status)),
         progress: project.derivedProgress ?? project.progress ?? 0,
         owner: {
           name: t.allProjects.unassigned,
@@ -224,7 +208,7 @@ export function AllProjectsClient({
         initialProjects.map(async (project) => {
           const result = await membersApi.list(project.id);
           if (result.success && result.data) {
-            const owner = result.data.find((m: any) => m.role === 'owner');
+            const owner = result.data.find((m) => m.role === 'owner');
             if (owner?.user?.name) {
               return {
                 projectId: project.id,
@@ -269,7 +253,7 @@ export function AllProjectsClient({
         }
       });
     }
-  }, [initialProjects]);
+  }, [initialProjects, t.allProjects.unassigned]);
 
   useEffect(() => {
     if (error) toast.error(error);
@@ -343,7 +327,7 @@ export function AllProjectsClient({
         }),
       );
     }
-  }, []);
+  }, [t.allProjects.projectUpdateFailed]);
 
   // Delete project
   const deleteProject = useCallback(async (projectId: string) => {
@@ -356,7 +340,7 @@ export function AllProjectsClient({
         toast.error(t.allProjects.projectDeleteFailed);
       }
     });
-  }, []);
+  }, [t.allProjects.projectDeleted, t.allProjects.projectDeleteFailed]);
 
   // Bulk delete
   const confirmBulkDelete = async () => {
@@ -442,10 +426,10 @@ export function AllProjectsClient({
       }
       return { columnId, direction: 'asc' as const };
     });
-  }, []);
+  }, [setSortState]);
 
-  const priorityOrder = ['low', 'medium', 'high', 'critical'];
-  const statusOrder = ['on-track', 'at-risk', 'off-track', 'on-hold', 'completed'];
+  const priorityOrder = useMemo(() => ['low', 'medium', 'high', 'critical'], []);
+  const statusOrder = useMemo(() => ['on-track', 'at-risk', 'off-track', 'on-hold', 'completed'], []);
 
   const sortedProjects = useMemo(() => {
     if (!sortState) return projects;
@@ -471,7 +455,7 @@ export function AllProjectsClient({
           return 0;
       }
     });
-  }, [projects, sortState]);
+  }, [projects, sortState, priorityOrder, statusOrder]);
 
   // Header columns
   const headerColumns: HeaderColumn[] = useMemo(() => [
@@ -484,7 +468,7 @@ export function AllProjectsClient({
   ], [t]);
 
   // Render row
-  const renderRow = useCallback((project: Project, handlers: RowHandlers<Project>) => {
+  const renderRow = useCallback((project: Project) => {
     const status = statusConfig[project.status];
     const priority = priorityConfig[project.priority];
 
@@ -660,7 +644,7 @@ export function AllProjectsClient({
         </div>
       </div>
     );
-  }, [deleteProject, setSelectedMember, router, updateProjectInline]);
+  }, [deleteProject, setSelectedMember, router, updateProjectInline, priorityConfig, statusConfig, t.allProjects.actionDelete, t.allProjects.actionOpen, t.allProjects.clearDate]);
 
   return (
     <div className="-mx-3 md:-mx-4 -mt-3 md:-mt-4">

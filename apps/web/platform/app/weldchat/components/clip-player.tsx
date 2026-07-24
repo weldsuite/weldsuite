@@ -132,13 +132,6 @@ function AudioClipPlayer({ attachment, channelId, messageId }: ClipPlayerProps) 
     }
   }, [rateIndex]);
 
-  const seekTo = useCallback((time: number) => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = time;
-      if (!isPlaying) audioRef.current.play();
-    }
-  }, [isPlaying]);
-
   const progress = duration > 0 ? currentTime / duration : 0;
 
   return (
@@ -290,9 +283,9 @@ function VideoClipPlayer({ attachment, channelId, messageId }: ClipPlayerProps) 
   const [duration, setDuration] = useState(attachment.durationSeconds || 0);
   const [rateIndex, setRateIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
-  const [showOverlay, setShowOverlay] = useState(true);
+  const [, setShowOverlay] = useState(true);
   const [isLightbox, setIsLightbox] = useState(false);
-  const [videoLoaded, setVideoLoaded] = useState(false);
+  const [, setVideoLoaded] = useState(false);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -359,13 +352,6 @@ function VideoClipPlayer({ attachment, channelId, messageId }: ClipPlayerProps) 
       setIsMuted(!isMuted);
     }
   }, [isMuted]);
-
-  const seekTo = useCallback((time: number) => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = time;
-      if (!isPlaying) videoRef.current.play();
-    }
-  }, [isPlaying]);
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 

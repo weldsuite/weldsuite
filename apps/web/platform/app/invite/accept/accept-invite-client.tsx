@@ -61,7 +61,7 @@ export function AcceptInviteClient({ token, initialInvitation, initialError }: A
       setError(t.invite.errors.failedToLoadDetails);
       setStatus('error');
     }
-  }, [fetchedInvitation, fetchError, isFetching, shouldFetch]);
+  }, [fetchedInvitation, fetchError, isFetching, shouldFetch, t.invite.errors.failedToLoadDetails]);
 
   const handleAcceptInvitation = () => {
     setStatus('accepting');

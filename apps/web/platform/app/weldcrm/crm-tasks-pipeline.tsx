@@ -11,6 +11,8 @@ import {
   useSensors,
   pointerWithin,
   rectIntersection,
+  type Collision,
+  type CollisionDetection,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -304,12 +306,12 @@ export function CrmTasksPipeline({
   );
 
   // Collision detection: prefer stage droppables
-  const customCollisionDetection = useCallback((args: any) => {
+  const customCollisionDetection: CollisionDetection = useCallback((args) => {
     const pointerCollisions = pointerWithin(args);
-    const stageCollisions = pointerCollisions.filter((c: any) => c.id?.toString().startsWith('stage-'));
+    const stageCollisions = pointerCollisions.filter((c: Collision) => c.id?.toString().startsWith('stage-'));
     if (stageCollisions.length > 0) return stageCollisions;
     const rectCollisions = rectIntersection(args);
-    const rectStageCollisions = rectCollisions.filter((c: any) => c.id?.toString().startsWith('stage-'));
+    const rectStageCollisions = rectCollisions.filter((c: Collision) => c.id?.toString().startsWith('stage-'));
     if (rectStageCollisions.length > 0) return rectStageCollisions;
     return rectCollisions;
   }, []);

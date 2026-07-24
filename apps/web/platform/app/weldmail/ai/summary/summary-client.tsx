@@ -4,20 +4,16 @@ import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import {
   FileSearch,
   RefreshCw,
-  Filter,
   Download,
-  Share2,
   Clock,
   TrendingUp,
-  BarChart3,
   AlertCircle,
   CheckCircle,
   XCircle,
   Info,
   Mail,
   Calendar,
-  Users,
-  Hash
+  Users
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';

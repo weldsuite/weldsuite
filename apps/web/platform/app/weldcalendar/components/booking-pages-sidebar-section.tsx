@@ -19,8 +19,15 @@ import { usePathname } from '@/lib/router';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
 
+export interface BookingPageSidebarItem {
+  id: string;
+  name: string;
+  slug: string;
+  isDraft?: boolean;
+}
+
 interface BookingPagesSidebarSectionProps {
-  bookingPages: any[];
+  bookingPages: BookingPageSidebarItem[];
   onAdd?: () => void;
 }
 

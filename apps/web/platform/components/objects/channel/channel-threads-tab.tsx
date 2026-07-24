@@ -7,12 +7,12 @@ import {
   EntityList,
   type ActiveFilter,
   type FilterConfig,
-  type RowHandlers,
 } from '@/components/entity-list';
+import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 
 interface ChannelThreadsTabProps {
   channelId: string;
-  messages: any[];
+  messages: ChatMessage[];
 }
 
 type ThreadItem = {
@@ -101,7 +101,7 @@ export function ChannelThreadsTab({ channelId, messages }: ChannelThreadsTabProp
   }, [threads, searchQuery, activeFilters]);
 
   const renderRow = useCallback(
-    (t: ThreadItem, _handlers: RowHandlers<ThreadItem>) => (
+    (t: ThreadItem) => (
       <div
         key={t.id}
         role="button"

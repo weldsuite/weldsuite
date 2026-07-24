@@ -102,8 +102,8 @@ export function CallDetailClient({ call, transcription }: CallDetailClientProps)
       try {
         await transcribeMut.mutateAsync({ callId: id });
         return { success: true };
-      } catch (error: any) {
-        return { success: false, error: error?.message || 'Failed to start transcription' };
+      } catch (error: unknown) {
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to start transcription' };
       }
     },
     onFetchTranscription: async (id) => {
@@ -135,8 +135,8 @@ export function CallDetailClient({ call, transcription }: CallDetailClientProps)
     try {
       await deleteCallMut.mutateAsync(id);
       return { success: true };
-    } catch (error: any) {
-      return { success: false, error: error.message || 'Failed to delete call' };
+    } catch (error: unknown) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to delete call' };
     }
   };
 

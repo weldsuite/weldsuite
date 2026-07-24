@@ -88,7 +88,8 @@ export default function AccountingDashboardPage() {
                     <TableRow key={inv.id}>
                       <TableCell>
                         <Link
-                          to={`/weldbooks/invoices/${inv.id}` as any}
+                          to="/weldbooks/invoices/$id"
+                          params={{ id: inv.id }}
                           className="text-primary hover:underline text-sm"
                         >
                           {inv.invoiceNumber}
@@ -125,7 +126,7 @@ export default function AccountingDashboardPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {dashboard.recentPayments.slice(0, 10).map((p: any) => (
+                  {dashboard.recentPayments.slice(0, 10).map((p) => (
                     <TableRow key={p.id}>
                       <TableCell className="text-sm">{p.date}</TableCell>
                       <TableCell>

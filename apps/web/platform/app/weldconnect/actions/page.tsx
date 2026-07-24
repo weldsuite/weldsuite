@@ -1,6 +1,6 @@
 
 import { PageLoader } from '@/components/page-loader';
-import { useActionTypes } from '@/hooks/queries/use-automation-queries';
+import { useActionTypes, type ActionType } from '@/hooks/queries/use-automation-queries';
 import { ActionsClient } from './actions-client';
 import { useI18n } from '@/lib/i18n/provider';
 
@@ -16,7 +16,7 @@ export default function ActionsPage() {
 
   // Derive categories from action types
   const categoryCounts = actions.reduce(
-    (acc: Record<string, number>, action: any) => {
+    (acc: Record<string, number>, action: ActionType) => {
       acc[action.category] = (acc[action.category] || 0) + 1;
       return acc;
     },

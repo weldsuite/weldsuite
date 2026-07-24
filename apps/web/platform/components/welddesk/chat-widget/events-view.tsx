@@ -9,7 +9,6 @@ import {
   Activity,
   Sparkles,
   Calendar,
-  FileText,
   Megaphone,
   MapPin,
   Users,

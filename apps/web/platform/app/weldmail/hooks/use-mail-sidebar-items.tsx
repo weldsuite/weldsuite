@@ -21,6 +21,7 @@ import {
   X,
   PencilLine,
   MoreVertical,
+  type LucideIcon,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -44,13 +45,6 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Slider } from '@weldsuite/ui/components/slider';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
 import {
   Tooltip,
   TooltipContent,
@@ -76,6 +70,7 @@ import {
 } from '@/hooks/queries/use-settings-queries';
 import { useAppApi } from '@/lib/api/use-app-api';
 import type { MailLabelRow as MailLabel } from '@weldsuite/app-api-client/domains/mail-labels';
+import type { MailAccountRow } from '@weldsuite/app-api-client/domains/mail-accounts';
 import { isSystemLabel } from '../lib/label-config';
 import { getLabelColor } from '@/components/shared/conversation-list';
 import { toast } from 'sonner';
@@ -174,6 +169,21 @@ function KeywordTagInput({
   );
 }
 
+interface MailStats {
+  total: number;
+  unread: number;
+  inboxUnread: number;
+  starredUnread: number;
+  sentUnread: number;
+  drafts: number;
+  spam: number;
+  trashUnread: number;
+  snoozed: number;
+  scheduled: number;
+  importantUnread: number;
+  archiveUnread: number;
+}
+
 const LABEL_COLORS = [
   { key: 'colorRed', value: '#EF4444' },
   { key: 'colorOrange', value: '#F97316' },
@@ -184,6 +194,8 @@ const LABEL_COLORS = [
   { key: 'colorPurple', value: '#8B5CF6' },
   { key: 'colorPink', value: '#EC4899' },
 ] as const;
+
+type LabelColorValue = (typeof LABEL_COLORS)[number]['value'];
 
 export function useMailSidebarItems(isActive: boolean): {
   menuGroups: MenuGroupProps[];
@@ -205,7 +217,7 @@ export function useMailSidebarItems(isActive: boolean): {
 
   const [showCreateLabelDialog, setShowCreateLabelDialog] = useState(false);
   const [newLabelName, setNewLabelName] = useState('');
-  const [newLabelColor, setNewLabelColor] = useState(LABEL_COLORS[5].value);
+  const [newLabelColor, setNewLabelColor] = useState<LabelColorValue>(LABEL_COLORS[5].value);
   const [isCreatingLabel, setIsCreatingLabel] = useState(false);
   const [localLabels, setLocalLabels] = useState<MailTypes.Label[]>([]);
   // Edit label dialog state
@@ -220,7 +232,7 @@ export function useMailSidebarItems(isActive: boolean): {
   const [isUpdatingLabel, setIsUpdatingLabel] = useState(false);
 
   // Map label name (lowercase) → accountIds that own this label (for unified mode cross-account check)
-  const [labelAccountMap, setLabelAccountMap] = useState<Record<string, string[]>>({});
+  const [labelAccountMap] = useState<Record<string, string[]>>({});
   const [folderCounts, setFolderCounts] = useState<Record<string, number>>({});
   const [showMore, setShowMore] = useState(false);
 
@@ -230,13 +242,13 @@ export function useMailSidebarItems(isActive: boolean): {
   const [aiDescription, setAiDescription] = useState('');
   const [aiConfidence, setAiConfidence] = useState(70);
   // Agent Auto-Draft settings
-  const [aiAutoDraft, setAiAutoDraft] = useState(false);
-  const [aiDraftTone, setAiDraftTone] = useState<'professional' | 'friendly' | 'casual'>('professional');
-  const [aiDraftLength, setAiDraftLength] = useState<'short' | 'medium' | 'detailed'>('medium');
-  const [aiDraftInstructions, setAiDraftInstructions] = useState('');
+  const [, setAiAutoDraft] = useState(false);
+  const [, setAiDraftTone] = useState<'professional' | 'friendly' | 'casual'>('professional');
+  const [, setAiDraftLength] = useState<'short' | 'medium' | 'detailed'>('medium');
+  const [, setAiDraftInstructions] = useState('');
 
   // Local state for email accounts
-  const [localEmailAccounts, setLocalEmailAccounts] = useState<MailTypes.EmailAccount[]>([]);
+  const [localEmailAccounts, setLocalEmailAccounts] = useState<MailAccountRow[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(true);
 
   // User-pinned default landing account (personal, server-backed per user).
@@ -263,7 +275,7 @@ export function useMailSidebarItems(isActive: boolean): {
   ]);
 
   // Extract accountId from pathname (not present in unified mode or static routes)
-  const accountIdMatch = !isUnified ? pathname?.match(/^\/weldmail\/([^\/]+)/) : null;
+  const accountIdMatch = !isUnified ? pathname?.match(/^\/weldmail\/([^/]+)/) : null;
   const rawAccountId = accountIdMatch?.[1];
   const accountId = rawAccountId && !STATIC_MAIL_ROUTES.has(rawAccountId)
     ? rawAccountId
@@ -282,7 +294,7 @@ export function useMailSidebarItems(isActive: boolean): {
     mailAccounts.list()
       .then((result) => {
         if (result.data) {
-          setLocalEmailAccounts(result.data as any);
+          setLocalEmailAccounts(result.data);
         }
       })
       .catch(() => {})
@@ -312,10 +324,10 @@ export function useMailSidebarItems(isActive: boolean): {
         .map((l) => ({
           id: l.id,
           name: l.name,
-          color: l.color,
+          color: l.color ?? undefined,
           count: l.messageCount || 0,
-          aiEnabled: l.aiEnabled,
-          aiKeywords: l.aiKeywords,
+          aiEnabled: l.aiEnabled ?? undefined,
+          aiKeywords: l.aiKeywords ?? undefined,
           aiDescription: l.aiDescription,
         }));
 
@@ -348,7 +360,7 @@ export function useMailSidebarItems(isActive: boolean): {
       return;
     }
 
-    const applyStats = (data: any) => {
+    const applyStats = (data: MailStats) => {
       const counts: Record<string, number> = {};
       if (data.inboxUnread > 0) counts['inbox'] = data.inboxUnread;
       if (data.starredUnread > 0) counts['starred'] = data.starredUnread;
@@ -366,12 +378,16 @@ export function useMailSidebarItems(isActive: boolean): {
     if (isUnified && localEmailAccounts.length > 0) {
       Promise.all(localEmailAccounts.map((acc) => mailApi.messages.stats(acc.id)))
         .then((results) => {
-          const aggregated: Record<string, number> = {};
-          const keys = ['inboxUnread', 'starredUnread', 'sentUnread', 'drafts', 'scheduled', 'snoozed', 'importantUnread', 'archiveUnread', 'spam', 'trashUnread'];
+          const aggregated: MailStats = {
+            total: 0, unread: 0, inboxUnread: 0, starredUnread: 0,
+            sentUnread: 0, drafts: 0, spam: 0, trashUnread: 0,
+            snoozed: 0, scheduled: 0, importantUnread: 0, archiveUnread: 0,
+          };
+          const keys = Object.keys(aggregated) as Array<keyof MailStats>;
           for (const result of results) {
             if (result.success && result.data) {
               for (const key of keys) {
-                aggregated[key] = (aggregated[key] || 0) + ((result.data as any)[key] || 0);
+                aggregated[key] += result.data[key] || 0;
               }
             }
           }
@@ -443,18 +459,18 @@ export function useMailSidebarItems(isActive: boolean): {
       const newLabel: MailTypes.Label = {
         id: created.id,
         name: created.name,
-        color: created.color,
+        color: created.color ?? undefined,
         count: created.messageCount || 0,
-        aiEnabled: created.aiEnabled,
-        aiKeywords: created.aiKeywords,
+        aiEnabled: created.aiEnabled ?? undefined,
+        aiKeywords: created.aiKeywords ?? undefined,
         aiDescription: created.aiDescription,
-        aiConfidence: created.aiConfidence,
+        aiConfidence: created.aiConfidence ?? undefined,
       };
       setLocalLabels((prev) => [...prev, newLabel]);
       toast.success(t.mail.sidebar.labelCreated);
       resetLabelDialog();
-    } catch (err: any) {
-      toast.error(err?.message || t.mail.sidebar.failedToCreateLabel);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t.mail.sidebar.failedToCreateLabel);
     }
     setIsCreatingLabel(false);
   };
@@ -529,20 +545,20 @@ export function useMailSidebarItems(isActive: boolean): {
             ? {
                 ...l,
                 name: updated.name,
-                color: updated.color,
+                color: updated.color ?? undefined,
                 count: updated.messageCount || 0,
-                aiEnabled: updated.aiEnabled,
-                aiKeywords: updated.aiKeywords,
+                aiEnabled: updated.aiEnabled ?? undefined,
+                aiKeywords: updated.aiKeywords ?? undefined,
                 aiDescription: updated.aiDescription,
-                aiConfidence: updated.aiConfidence,
+                aiConfidence: updated.aiConfidence ?? undefined,
               }
             : l
         )
       );
       toast.success(t.mail.sidebar.labelUpdated);
       resetEditLabelDialog();
-    } catch (err: any) {
-      toast.error(err?.message || t.mail.sidebar.failedToUpdateLabel);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t.mail.sidebar.failedToUpdateLabel);
     }
     setIsUpdatingLabel(false);
   };
@@ -589,7 +605,13 @@ export function useMailSidebarItems(isActive: boolean): {
     return `/weldmail/${resolvedAccountId}${path}`;
   };
 
-  const importantMailboxItems = [
+  const importantMailboxItems: Array<{
+    title: string;
+    href: string;
+    icon: LucideIcon;
+    count: number;
+    iconClassName?: string;
+  }> = [
     { title: t.mail.sidebar.inbox, href: getMailUrl('/inbox'), icon: Inbox, count: folderCounts['inbox'] || 0 },
     { title: t.mail.sidebar.starred, href: getMailUrl('/starred'), icon: Star, count: folderCounts['starred'] || 0 },
     { title: t.mail.sidebar.sent, href: getMailUrl('/sent'), icon: SendHorizontal, iconClassName: 'opacity-80', count: folderCounts['sent'] || 0 },
@@ -633,7 +655,7 @@ export function useMailSidebarItems(isActive: boolean): {
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild isActive={isActive}>
                     <Link href={item.href}>
-                      <Icon className={`h-4 w-4 ${(item as any).iconClassName || ''}`} />
+                      <Icon className={`h-4 w-4 ${item.iconClassName || ''}`} />
                       <span>{item.title}</span>
                     </Link>
                   </SidebarMenuButton>
@@ -795,7 +817,7 @@ export function useMailSidebarItems(isActive: boolean): {
     ...localEmailAccounts.map((acc) => ({
       id: acc.id,
       email: acc.email,
-      displayName: acc.displayName,
+      displayName: acc.displayName ?? undefined,
     })),
   ];
 
@@ -805,7 +827,7 @@ export function useMailSidebarItems(isActive: boolean): {
       ? {
           id: currentAccount.id,
           email: currentAccount.email,
-          displayName: currentAccount.displayName,
+          displayName: currentAccount.displayName ?? undefined,
         }
       : null;
 

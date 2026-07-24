@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import * as XLSX from 'xlsx-js-style';
 import { fetchSheetContent, putSheetContent } from '@/app/weldflow/lib/api-client';
 import { useTranslations } from '@weldsuite/i18n/client';
+import type { CellDataValue } from './types';
 
 // ---------------------------------------------------------------------------
 // Types — kept identical in shape to the previous DB-backed hook so the rest
@@ -16,7 +17,7 @@ export interface SpreadsheetTable {
   projectId: string;
   name: string;
   position: number;
-  settings: any;
+  settings: SheetSettings | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -25,7 +26,7 @@ export interface SpreadsheetRow {
   id: string;
   sheetId: string;
   position: number;
-  data: Record<string, any>;
+  data: Record<string, CellDataValue>;
   createdAt: string;
   updatedAt: string;
 }
@@ -37,8 +38,8 @@ export interface SpreadsheetColumn {
   fieldType: string;
   position: number;
   width: number | null;
-  options: any;
-  config: any;
+  options: string[] | null;
+  config: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -49,7 +50,7 @@ export interface SpreadsheetSheet {
   tableId: string | null;
   name: string;
   position: number;
-  settings: any;
+  settings: SheetSettings | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -158,7 +159,7 @@ function writeWorkbook(model: WorkbookModel): ArrayBuffer {
   for (const s of sortedSheets) {
     const cols = (model.columnsBySheet[s.id] ?? []).slice().sort((a, b) => a.position - b.position);
     const rows = (model.rowsBySheet[s.id] ?? []).slice().sort((a, b) => a.position - b.position);
-    const aoa: any[][] = [cols.map((c) => c.name)];
+    const aoa: CellDataValue[][] = [cols.map((c) => c.name)];
     for (const r of rows) {
       aoa.push(cols.map((c) => r.data?.[c.id] ?? ''));
     }
@@ -420,7 +421,7 @@ export function useSpreadsheet(projectId: string, fileId: string) {
 
   const updateSheet = useMemo(
     () =>
-      makeMutation<{ sheetId: string; data: { name?: string; position?: number; settings?: any } }>(
+      makeMutation<{ sheetId: string; data: { name?: string; position?: number; settings?: SheetSettings } }>(
         ({ sheetId, data }) => {
           mutate((m) => ({
             ...m,
@@ -438,8 +439,10 @@ export function useSpreadsheet(projectId: string, fileId: string) {
       makeMutation<string>((sheetId) => {
         mutate((m) => {
           if (m.sheets.length <= 1) return m;
-          const { [sheetId]: _c, ...restCols } = m.columnsBySheet;
-          const { [sheetId]: _r, ...restRows } = m.rowsBySheet;
+          const restCols = { ...m.columnsBySheet };
+          delete restCols[sheetId];
+          const restRows = { ...m.rowsBySheet };
+          delete restRows[sheetId];
           return {
             ...m,
             sheets: m.sheets.filter((s) => s.id !== sheetId),
@@ -492,7 +495,7 @@ export function useSpreadsheet(projectId: string, fileId: string) {
           const colIdMap = new Map<string, string>();
           (m.columnsBySheet[sheetId] ?? []).forEach((c, i) => colIdMap.set(c.id, cols[i].id));
           const rows = (m.rowsBySheet[sheetId] ?? []).map((r) => {
-            const newData: Record<string, any> = {};
+            const newData: Record<string, CellDataValue> = {};
             for (const [k, v] of Object.entries(r.data ?? {})) {
               const mapped = colIdMap.get(k);
               newData[mapped ?? k] = v;
@@ -520,7 +523,7 @@ export function useSpreadsheet(projectId: string, fileId: string) {
   // ---------- Column mutations ------------------------------------------
   const createColumn = useMemo(
     () =>
-      makeMutation<{ name: string; fieldType: string; width?: number; options?: any }>((data) => {
+      makeMutation<{ name: string; fieldType: string; width?: number; options?: string[] }>((data) => {
         if (!effectiveSheetId) return;
         mutate((m) => {
           const cols = m.columnsBySheet[effectiveSheetId] ?? [];
@@ -549,7 +552,7 @@ export function useSpreadsheet(projectId: string, fileId: string) {
     () =>
       makeMutation<{
         colId: string;
-        data: { name?: string; fieldType?: string; width?: number; options?: any };
+        data: { name?: string; fieldType?: string; width?: number; options?: string[] | null };
       }>(({ colId, data }) => {
         if (!effectiveSheetId) return;
         mutate((m) => ({
@@ -603,7 +606,7 @@ export function useSpreadsheet(projectId: string, fileId: string) {
   // ---------- Row mutations ---------------------------------------------
   const createRow = useMemo(
     () =>
-      makeMutation<{ data?: Record<string, any>; position?: number } | undefined, SpreadsheetRow | null>(
+      makeMutation<{ data?: Record<string, CellDataValue>; position?: number } | undefined, SpreadsheetRow | null>(
         (args) => {
           let created: SpreadsheetRow | null = null;
           if (!effectiveSheetId) return null;
@@ -655,7 +658,7 @@ export function useSpreadsheet(projectId: string, fileId: string) {
 
   const updateRow = useMemo(
     () =>
-      makeMutation<{ rowId: string; data: { data?: Record<string, any>; position?: number } }>(
+      makeMutation<{ rowId: string; data: { data?: Record<string, CellDataValue>; position?: number } }>(
         ({ rowId, data }) => {
           if (!effectiveSheetId) return;
           mutate((m) => ({
@@ -853,7 +856,7 @@ export function useSpreadsheet(projectId: string, fileId: string) {
             const sid = effectiveSheetId;
             const rowsArr = m.rowsBySheet[sid] ?? [];
             const maxPos = rowsArr.reduce((a, r) => Math.max(a, r.position), -1);
-            const snap = new Map<string, any>();
+            const snap = new Map<string, CellDataValue>();
             for (const r of rowsArr) {
               for (const cid of colIds) {
                 if (r.data && cid in r.data) snap.set(`${r.position}|${cid}`, r.data[cid]);
@@ -918,7 +921,7 @@ export function useSpreadsheet(projectId: string, fileId: string) {
               [sid]: (m.rowsBySheet[sid] ?? []).map((r) => {
                 if (r.position < minRow || r.position > maxRow) return r;
                 const data = { ...r.data };
-                const before: Record<string, any> = {};
+                const before: Record<string, CellDataValue> = {};
                 for (const cid of orderedColIds) before[cid] = data[cid];
                 for (let i = anchorIndex; i < len; i++) {
                   const cid = orderedColIds[i];
@@ -942,7 +945,7 @@ export function useSpreadsheet(projectId: string, fileId: string) {
   // the column filter, which persist their state in sheet.settings).
   const updateSheetSettings = useMemo(
     () =>
-      makeMutation<{ sheetId: string; settings: Record<string, any> }>(({ sheetId, settings }) => {
+      makeMutation<{ sheetId: string; settings: Partial<SheetSettings> }>(({ sheetId, settings }) => {
         mutate((m) => ({
           ...m,
           sheets: m.sheets.map((s) =>
@@ -1038,5 +1041,5 @@ export interface SheetSettings {
   table?: TableDescriptor;
   filter?: FilterDescriptor;
   merges?: MergeRange[];
-  [key: string]: any;
+  [key: string]: unknown;
 }

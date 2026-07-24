@@ -20,8 +20,30 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
+import type { Account } from '@/lib/api/domains/weldbooks';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
+
+interface GeneralLedgerLineRow {
+  id: string;
+  date: string;
+  entryNumber: string | null;
+  description: string | null;
+  debit: string | number | null;
+  credit: string | number | null;
+  runningBalance: string | number | null;
+}
+
+interface GeneralLedgerReport {
+  account?: { code: string; name: string; type: string; subtype?: string | null };
+  lines?: GeneralLedgerLineRow[];
+  totals?: {
+    openingBalance: string | number | null;
+    totalDebits: string | number | null;
+    totalCredits: string | number | null;
+    closingBalance: string | number | null;
+  };
+}
 
 function fmt(value: string | number | null | undefined): string {
   return new Intl.NumberFormat('nl-NL', {
@@ -47,7 +69,7 @@ export default function GeneralLedgerReportPage() {
     queryFn: () => accountingApi.listAccounts(),
   });
 
-  const accounts = (accountsData?.data as any[]) ?? [];
+  const accounts: Account[] = accountsData?.data ?? [];
 
   const {
     data,
@@ -60,7 +82,7 @@ export default function GeneralLedgerReportPage() {
     enabled: false,
   });
 
-  const report = data?.data as any;
+  const report = data?.data as GeneralLedgerReport | undefined;
 
   const handleGenerate = () => {
     if (!accountId) return;
@@ -80,7 +102,7 @@ export default function GeneralLedgerReportPage() {
               <SelectValue placeholder={tr.selectAccount} />
             </SelectTrigger>
             <SelectContent>
-              {accounts.map((a: any) => (
+              {accounts.map((a) => (
                 <SelectItem key={a.id} value={a.id}>
                   {a.code} — {a.name}
                 </SelectItem>
@@ -138,7 +160,7 @@ export default function GeneralLedgerReportPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(report.lines ?? []).map((line: any, idx: number) => (
+                  {(report.lines ?? []).map((line, idx: number) => (
                     <TableRow key={idx}>
                       <TableCell>{line.date}</TableCell>
                       <TableCell>{line.entryNumber ?? '-'}</TableCell>

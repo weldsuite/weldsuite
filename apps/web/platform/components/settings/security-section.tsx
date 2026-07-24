@@ -21,7 +21,7 @@ interface SecuritySectionProps {
   }) => void
 }
 
-function SecuritySection({
+export function SecuritySection({
   security,
   onSecurityChange
 }: SecuritySectionProps) {

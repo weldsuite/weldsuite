@@ -7,8 +7,6 @@ import {
   BackgroundVariant,
   useReactFlow,
   Panel,
-  type Node,
-  type Edge,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
@@ -91,7 +89,7 @@ export interface TemplateStep {
   type: string;
   name: string;
   description?: string;
-  config: Record<string, any>;
+  config: Record<string, unknown>;
   parentBranchId?: string;
 }
 
@@ -108,7 +106,7 @@ export interface WorkflowTemplate {
   requiredIntegrations?: string[];
   trigger: {
     type: string;
-    [key: string]: any;
+    [key: string]: unknown;
   };
   workflowSteps: TemplateStep[];
 }
@@ -1909,7 +1907,7 @@ function templateToFlowData(template: WorkflowTemplate): { trigger: TriggerConfi
     } as TriggerConfig['config'],
   };
 
-  const steps: WorkflowStep[] = template.workflowSteps.map((step, i) => ({
+  const steps: WorkflowStep[] = template.workflowSteps.map((step) => ({
     id: step.id,
     type: step.type,
     name: step.name,
@@ -2040,7 +2038,32 @@ export function LargeWorkflowPreview({ template }: { template: WorkflowTemplate 
   );
 }
 
-export function resolveTemplateForApply(template: WorkflowTemplate): { trigger: any; steps: any[] } {
+export interface ResolvedTemplateTrigger {
+  id: string;
+  type: string;
+  entityType?: string;
+  eventType?: string;
+  scheduleType?: 'one_time' | 'recurring';
+  cronExpression?: string;
+  timezone?: string;
+  executeAt?: string;
+  method?: string;
+  sourceWorkflowId?: string;
+  triggerOn?: string;
+  [key: string]: unknown;
+}
+
+export interface ResolvedTemplateStep {
+  id: string;
+  type: string;
+  name: string;
+  description?: string;
+  config: Record<string, unknown>;
+  order: number;
+  parentBranchId?: string;
+}
+
+export function resolveTemplateForApply(template: WorkflowTemplate): { trigger: ResolvedTemplateTrigger; steps: ResolvedTemplateStep[] } {
   const now = Date.now();
   const idMap = new Map<string, string>();
 
@@ -2078,7 +2101,7 @@ export function resolveTemplateForApply(template: WorkflowTemplate): { trigger: 
 interface WorkflowTemplateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSelectTemplate: (template: { id: string; name: string; trigger?: any; steps?: any[] }) => void;
+  onSelectTemplate: (template: { id: string; name: string; trigger?: ResolvedTemplateTrigger; steps?: ResolvedTemplateStep[] }) => void;
 }
 
 function TemplateCard({ template, onClick }: { template: WorkflowTemplate; onClick: () => void }) {

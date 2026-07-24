@@ -29,8 +29,6 @@ import {
   useTriggerSync,
   useConnectAttio,
   useIntegrationSyncLogs,
-  type IntegrationConnection,
-  type SyncLog,
 } from '@/hooks/queries/use-integration-queries';
 import { PageLoader } from '@/components/page-loader';
 
@@ -73,24 +71,24 @@ export default function AttioSettingsPage() {
   const disconnectMutation = useDisconnectIntegration();
   const syncMutation = useTriggerSync();
 
-  const connections = (connectionsResult as any)?.data as IntegrationConnection[] | undefined;
+  const connections = connectionsResult?.data;
   const attioConnection = connections?.find(c => c.provider === 'attio');
 
   // Fetch logs if connected
   const { data: logsResult } = useIntegrationSyncLogs(attioConnection?.id || '');
-  const syncLogs = (logsResult as any)?.data as SyncLog[] | undefined;
+  const syncLogs = logsResult?.data;
 
   const handleConnect = async () => {
     const redirectUri = `${window.location.origin}/settings/integrations/attio/callback`;
     try {
       const result = await connectMutation.mutateAsync(redirectUri);
-      const authorizeUrl = (result as any)?.data?.authorizeUrl;
+      const authorizeUrl = result?.data?.authorizeUrl;
       if (authorizeUrl) {
         window.location.href = authorizeUrl;
       } else {
         toast.error(ts.messages.connectFailed);
       }
-    } catch (err) {
+    } catch {
       toast.error(ts.messages.connectFailed);
     }
   };
@@ -101,7 +99,7 @@ export default function AttioSettingsPage() {
       await disconnectMutation.mutateAsync(attioConnection.id);
       toast.success(ts.messages.disconnected);
       setDisconnectOpen(false);
-    } catch (err) {
+    } catch {
       toast.error(ts.messages.disconnectFailed);
     }
   };

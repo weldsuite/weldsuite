@@ -1,2 +1,2 @@
-export * from './resend';
-export * from './ics';
+export * from './resend.js';
+export * from './ics.js';

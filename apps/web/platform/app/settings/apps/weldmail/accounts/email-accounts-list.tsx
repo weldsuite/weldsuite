@@ -12,7 +12,6 @@ import {
   useReactTable,
 } from '@tanstack/react-table';
 import { Button } from '@weldsuite/ui/components/button';
-import { Badge } from '@weldsuite/ui/components/badge';
 import {
   Table,
   TableBody,
@@ -33,7 +32,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import {
@@ -41,9 +39,6 @@ import {
   Users,
   Loader2,
   EllipsisVertical,
-  Sparkles,
-  Shield,
-  Lock,
   Pencil,
 } from 'lucide-react';
 import { useDeleteMailAccount } from '@/hooks/queries/use-mail-queries';
@@ -74,6 +69,20 @@ interface EmailAccountsListProps {
   accounts: EmailAccount[];
 }
 
+interface RawWorkspaceMember {
+  id: string;
+  auth0Id?: string | null;
+  userId?: string | null;
+  email?: string;
+  name?: string | null;
+  picture?: string | null;
+  role?: string;
+  workspaceRole?: string;
+  status?: string;
+  hoursPerWeek?: string | null;
+  createdAt?: string;
+}
+
 export function EmailAccountsList({ accounts }: EmailAccountsListProps) {
   const ts = getTranslations('settings');
   const ta = ts.weldmail.accounts;
@@ -92,8 +101,8 @@ export function EmailAccountsList({ accounts }: EmailAccountsListProps) {
   const { data: membersData } = useWorkspaceMembers(1, 100);
 
   const rawMemberByUserId = useMemo(() => {
-    const map = new Map<string, any>();
-    for (const m of membersData?.data ?? []) {
+    const map = new Map<string, RawWorkspaceMember>();
+    for (const m of (membersData?.data ?? []) as RawWorkspaceMember[]) {
       if (m.userId) map.set(m.userId, m);
     }
     return map;
@@ -118,9 +127,9 @@ export function EmailAccountsList({ accounts }: EmailAccountsListProps) {
     };
   }, [rawMemberByUserId, selectedMemberUserId]);
   const allMembers: { userId: string; name: string; avatar?: string }[] = useMemo(() => {
-    return (membersData?.data ?? [])
-      .filter((m: any) => !!m.userId)
-      .map((m: any) => ({
+    return ((membersData?.data ?? []) as RawWorkspaceMember[])
+      .filter((m): m is RawWorkspaceMember & { userId: string } => !!m.userId)
+      .map((m) => ({
         userId: m.userId,
         name: m.name || m.email || 'Member',
         avatar: m.picture || undefined,
@@ -146,7 +155,7 @@ export function EmailAccountsList({ accounts }: EmailAccountsListProps) {
         toast.success(ta.messages.deleted);
         setDeleteDialogOpen(false);
         setDeletingAccount(null);
-      } catch (error) {
+      } catch {
         toast.error(ta.messages.deleteFailed);
       }
     });

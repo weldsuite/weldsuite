@@ -2,7 +2,7 @@
 import { ReactNode } from "react";
 import { useRouter, Link } from '@/lib/router';
 import { Button } from "@weldsuite/ui/components/button";
-import { LucideIcon, Loader2, ChevronLeft } from "lucide-react";
+import { LucideIcon, ChevronLeft } from "lucide-react";
 import { useTranslations } from '@weldsuite/i18n/client';
 
 export interface HostFormSection {
@@ -18,7 +18,7 @@ export interface HostFormSection {
 
 export interface HostSummaryField {
   /** Field label */
-  label: string;
+  label: ReactNode;
   /** Field value (ReactNode for flexibility) */
   value: ReactNode;
   /** Show border on top */
@@ -136,6 +136,9 @@ export function HostEntityFormLayout({
                     {backButton}
                   </div>
                   <h2 className="text-xl md:text-2xl font-semibold">{title}</h2>
+                  {subtitle && (
+                    <p className="text-sm text-muted-foreground -mt-2">{subtitle}</p>
+                  )}
                   {sections.map((section, index) => {
                     const hasHeader = section.title || section.description;
 
@@ -177,7 +180,8 @@ export function HostEntityFormLayout({
             {/* Mobile Summary Panel - shown at bottom on mobile (unless hideMobileSummary is true) */}
             {!hideMobileSummary && (
             <div className="md:hidden mt-6 bg-background rounded-lg border border-border">
-              <div className="p-4 border-b border-border">
+              <div className="p-4 border-b border-border flex items-center gap-2">
+                <SummaryIcon className="h-4 w-4 text-muted-foreground shrink-0" />
                 <h3 className="text-base font-semibold">
                   {summaryTitle}
                 </h3>
@@ -270,9 +274,12 @@ export function HostEntityFormLayout({
               <div className="flex-1 overflow-y-auto">
                 <div className="mb-6">
                   <div className="flex items-center justify-between px-4 pt-2.5 mb-2.5">
-                    <h3 className="text-lg font-semibold">
-                      {summaryTitle}
-                    </h3>
+                    <div className="flex items-center gap-2">
+                      <SummaryIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <h3 className="text-lg font-semibold">
+                        {summaryTitle}
+                      </h3>
+                    </div>
                     {summaryHeaderAction}
                   </div>
                   <div className="border-t border-border" />

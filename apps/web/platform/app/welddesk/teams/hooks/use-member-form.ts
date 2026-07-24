@@ -138,11 +138,11 @@ export function useMemberForm({
         toast.success(t.helpdesk.teamsPage.teamMemberAdded);
         router.push(`/welddesk/teams/${departmentId}`);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error saving member:', error);
       toast.error(
         mode === 'edit' ? t.helpdesk.teamsPage.failedToUpdateTeamMember : t.helpdesk.teamsPage.failedToAddTeamMember,
-        { description: error.message }
+        { description: error instanceof Error ? error.message : undefined }
       );
     } finally {
       setIsSubmitting(false);

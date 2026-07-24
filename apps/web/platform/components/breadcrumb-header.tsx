@@ -1,18 +1,17 @@
 
 import { useState, useRef, useEffect, Fragment } from 'react';
-import { useRouter, usePathname, Link } from '@/lib/router';
+import { useRouter, Link } from '@/lib/router';
 import { SidebarTrigger } from '@weldsuite/ui/components/sidebar';
 import { Input } from '@weldsuite/ui/components/input';
 import { Button } from '@weldsuite/ui/components/button';
-import { Search, Loader2, Check, Bell, Calendar } from 'lucide-react';
-import { useUpcomingCalendarEvents } from '@/hooks/queries/use-calendar-queries';
+import { Search, Loader2, Bell, Calendar } from 'lucide-react';
+import { useUpcomingCalendarEvents, type CalendarEvent } from '@/hooks/queries/use-calendar-queries';
 import { useUnifiedNotifications } from '@/contexts/unified-notification-context';
 import { useCalendarDrawerOpen } from '@/hooks/use-calendar-drawer-open';
 import { useNotificationsPanelOpen } from '@/hooks/use-notifications-panel-open';
 import { useSidebarBadges } from '@/hooks/use-sidebar-badges';
 import { cn } from '@/lib/utils';
 import { Kbd } from '@weldsuite/ui/components/kbd';
-import { useWeldAgentSafe } from '@/components/weldagent-wrapper';
 import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
 import { useWeldAgentDrawerOpen } from '@/hooks/use-weldagent-drawer-open';
 import { useMeetingPanelOpen } from '@/hooks/use-meeting-panel-open';
@@ -82,18 +81,10 @@ export function BreadcrumbHeader({
   onSearch,
   searchPlaceholder = 'Search anything…',
   hideSearch = false,
-  showBackButton = false,
-  onBack,
   actions,
   onWeldAgentToggle,
   onCalendarToggle,
   onNotificationsToggle,
-  weldAgentWidth = 480,
-  calendarWidth = 480,
-  notificationsWidth = 480,
-  initialShowWeldAgent = false,
-  disableWeldAgentAnimation = false,
-  moduleKey,
   calendarOpen,
 }: BreadcrumbHeaderProps) {
   // When no `onSearch` callback is supplied, drive the dropdown from the same
@@ -120,52 +111,13 @@ export function BreadcrumbHeader({
   const [showCalendar, setShowCalendar] = useCalendarDrawerOpen();
   const [showNotifications, setShowNotifications] = useNotificationsPanelOpen();
   const { unreadCount: notificationUnreadCount } = useUnifiedNotifications();
-  const { counts: badgeCounts } = useSidebarBadges();
+  useSidebarBadges();
   const { data: todayEventsData } = useUpcomingCalendarEvents({ days: 1 });
-  const todayEventCount = todayEventsData?.data?.filter((e: any) => e.status !== 'cancelled').length ?? 0;
+  const todayEventCount = todayEventsData?.data?.filter((e: CalendarEvent) => e.status !== 'cancelled').length ?? 0;
   const router = useRouter();
-  const pathname = usePathname();
   const commandRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Get entity context from WeldAgent provider (safe version returns null if provider missing)
-  const weldAgentContext = useWeldAgentSafe();
-  const entityContext = weldAgentContext?.entityContext;
-
-  // Sample data for each mention type
-  const mentionData = {
-    products: [
-      { id: '1', name: 'Product A' },
-      { id: '2', name: 'Product B' },
-      { id: '3', name: 'Product C' },
-    ],
-    orders: [
-      { id: '1', name: 'Order #1001' },
-      { id: '2', name: 'Order #1002' },
-      { id: '3', name: 'Order #1003' },
-    ],
-    customers: [
-      { id: '1', name: 'John Doe' },
-      { id: '2', name: 'Jane Smith' },
-      { id: '3', name: 'Bob Johnson' },
-    ],
-    collections: [
-      { id: '1', name: 'Summer Collection' },
-      { id: '2', name: 'Winter Collection' },
-      { id: '3', name: 'Spring Collection' },
-    ],
-    invoices: [
-      { id: '1', name: 'Invoice #INV-001' },
-      { id: '2', name: 'Invoice #INV-002' },
-      { id: '3', name: 'Invoice #INV-003' },
-    ],
-    companies: [
-      { id: '1', name: 'Acme Corp' },
-      { id: '2', name: 'Tech Solutions Inc' },
-      { id: '3', name: 'Global Industries' },
-    ],
-  };
 
   const toggleWeldAgent = () => {
     const newState = !showWeldAgent;
@@ -242,20 +194,21 @@ export function BreadcrumbHeader({
     };
     window.addEventListener('close-weldagent', handler);
     return () => window.removeEventListener('close-weldagent', handler);
-  }, [showCalendar, showNotifications, onCalendarToggle, onNotificationsToggle]);
-
-  // Check if we're on a detail page
-  const isDetailPage = pathname?.split('/').length > 3;
+  }, [showCalendar, showNotifications, onCalendarToggle, onNotificationsToggle, setShowCalendar, setShowNotifications]);
 
   // initialShowWeldAgent is now driven by the parent layout via setShowWeldAgent (which routes through the
   // shared hook). No manual sync needed — every consumer of useWeldAgentDrawerOpen receives the same value.
 
-  // Sync showCalendar state with external calendarOpen prop
+  // Sync showCalendar state with external calendarOpen prop. Intentionally
+  // one-way (external prop → internal state): `showCalendar` is deliberately
+  // excluded so a user-driven toggle isn't immediately bounced back by a
+  // stale `calendarOpen` prop value.
   useEffect(() => {
     if (calendarOpen !== undefined && showCalendar !== calendarOpen) {
       setShowCalendar(calendarOpen);
     }
-  }, [calendarOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calendarOpen, setShowCalendar]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -380,15 +333,21 @@ export function BreadcrumbHeader({
     }
   };
 
-  // Immediately fetch results when dropdown opens (custom-search mode only)
+  // Immediately fetch results when dropdown opens (custom-search mode only).
+  // `fetchSuggestions`/`onSearch` are intentionally excluded — they're
+  // recreated every render, so including them would refire this effect (and
+  // refetch) on every keystroke instead of only when `open` toggles.
   useEffect(() => {
     if (open && onSearch) {
       fetchSuggestions();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // Debounced refetch on query change (custom-search mode only — global search
   // is debounced by TanStack Query / React's batching of `search` state writes).
+  // `fetchSearchResults` is intentionally excluded — it's recreated every
+  // render, so including it would reset the debounce timer on every render.
   useEffect(() => {
     if (useGlobal) return;
     if (searchTimeoutRef.current) {
@@ -404,15 +363,8 @@ export function BreadcrumbHeader({
         clearTimeout(searchTimeoutRef.current);
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, useGlobal]);
-
-  const handleBack = () => {
-    if (onBack) {
-      onBack();
-    } else {
-      router.back();
-    }
-  };
 
   return (
     <>

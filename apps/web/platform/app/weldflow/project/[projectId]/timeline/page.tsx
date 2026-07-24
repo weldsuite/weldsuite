@@ -7,10 +7,6 @@ import {
   ChevronRight,
   ChevronDown,
   Plus,
-  Calendar,
-  Users,
-  Flag,
-  EllipsisVertical,
   ZoomIn,
   ZoomOut,
   Maximize2,
@@ -19,19 +15,11 @@ import {
   Download,
   Share2,
   Search,
-  Home,
   Star,
   CheckCircle2,
   Circle,
   AlertCircle,
   Clock,
-  User,
-  Hash,
-  Link2,
-  Milestone,
-  ListFilter,
-  SortDesc,
-  Group,
   Layers,
 } from "lucide-react";
 import {
@@ -56,7 +44,6 @@ import {
   TooltipTrigger,
 } from "@weldsuite/ui/components/tooltip";
 import { Badge } from "@weldsuite/ui/components/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@weldsuite/ui/components/avatar";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "@weldsuite/i18n/client";
 
@@ -209,14 +196,13 @@ const flattenTasks = (tasks: Task[]): Task[] => {
 
 export default function TimelinePage() {
   const st = useTranslations();
-  const [tasks, setTasks] = useState<Task[]>(mockTasks);
-  const [flatTasks, setFlatTasks] = useState<Task[]>(flattenTasks(mockTasks));
+  const [flatTasks] = useState<Task[]>(flattenTasks(mockTasks));
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set(["1", "2"]));
   const [viewMode, setViewMode] = useState<"day" | "week" | "month" | "quarter">("month");
   const [zoomLevel, setZoomLevel] = useState(1);
   const [showWeekends, setShowWeekends] = useState(true);
-  const [groupBy, setGroupBy] = useState<"none" | "assignee" | "priority" | "status">("none");
+  const [, setGroupBy] = useState<"none" | "assignee" | "priority" | "status">("none");
   const [searchQuery, setSearchQuery] = useState("");
   const [sidebarWidth, setSidebarWidth] = useState(400);
   
@@ -376,7 +362,7 @@ export default function TimelinePage() {
       {/* Toolbar */}
       <div className="timeline-toolbar">
         <div className="flex items-center gap-4">
-          <Select value={viewMode} onValueChange={(value: any) => setViewMode(value)}>
+          <Select value={viewMode} onValueChange={(value: "day" | "week" | "month" | "quarter") => setViewMode(value)}>
             <SelectTrigger className="h-7 w-[100px]">
               <SelectValue />
             </SelectTrigger>
@@ -491,11 +477,11 @@ export default function TimelinePage() {
             </div>
           </div>
           <div className="overflow-y-auto">
-            {visibleTasks.map((task, index) => {
+            {visibleTasks.map((task) => {
               const isParent = task.subtasks && task.subtasks.length > 0;
               const isExpanded = expandedTasks.has(task.id);
               const indentLevel = task.parent ? 1 : 0;
-              
+
               return (
                 <div
                   key={task.id}
@@ -614,7 +600,7 @@ export default function TimelinePage() {
 
             {/* Task Rows */}
             <div className="timeline-rows">
-              {visibleTasks.map((task, index) => {
+              {visibleTasks.map((task) => {
                 const position = calculateTaskPosition(task);
                 const getTaskColor = () => {
                   if (task.color) return task.color;

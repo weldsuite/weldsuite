@@ -4,9 +4,10 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { useParams } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDmByUser, useMarkChannelAsRead, weldchatKeys, mergeMessageIntoCache, updateMessageInCache, removeMessageFromCache, useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
+import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useWeldChatRoom } from '@/hooks/weldchat/use-weldchat-room';
-import { useWeldChatMessagesRealtime } from '@/hooks/weldchat/use-weldchat-messages-realtime';
+import { useWeldChatMessagesRealtime, type WeldChatRealtimeMessage } from '@/hooks/weldchat/use-weldchat-messages-realtime';
 import { useWeldChatRealtime } from '@/hooks/weldchat/use-weldchat-realtime';
 import { useWeldChatPresence } from '@/hooks/weldchat/use-weldchat-presence';
 
@@ -84,7 +85,7 @@ export default function DmConversationPage() {
   const dmDisplayName = useMemo(() => {
     if (channel?.type === 'dm') {
       const other = channel.otherMembers?.[0];
-      return other?.name || other?.email || channel.name;
+      return other?.name || other?.email || channel.name || st('sweep.weldchat.dmConversation.defaultName');
     }
     return channel?.name || st('sweep.weldchat.dmConversation.defaultName');
   }, [channel, st]);
@@ -102,21 +103,21 @@ export default function DmConversationPage() {
 
   const targetMember: TeamMemberDetail | null = useMemo(() => {
     const members = membersData?.data || [];
-    const found = members.find((m: any) => m.userId === targetUserId);
+    const found = members.find((m) => m.userId === targetUserId);
     if (!found) return null;
     return fromTeamMember(found);
   }, [membersData, targetUserId]);
 
-  const { client, isConnected } = useWeldChatRoom(channelId ?? null);
+  const { client } = useWeldChatRoom(channelId ?? null);
 
   // Auto mark DM as read on open
   useEffect(() => {
     if (channelId) markAsRead(channelId);
   }, [channelId, markAsRead]);
 
-  const onMessageCreated = useCallback((message: any) => {
+  const onMessageCreated = useCallback((message: WeldChatRealtimeMessage) => {
     if (!channelId) return;
-    mergeMessageIntoCache(queryClient, channelId, message);
+    mergeMessageIntoCache(queryClient, channelId, message as unknown as ChatMessage);
     queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
     queryClient.invalidateQueries({ queryKey: weldchatKeys.dms() });
 
@@ -126,9 +127,9 @@ export default function DmConversationPage() {
     }
   }, [channelId, queryClient, markAsRead]);
 
-  const onMessageUpdated = useCallback((message: any) => {
+  const onMessageUpdated = useCallback((message: WeldChatRealtimeMessage) => {
     if (!channelId) return;
-    updateMessageInCache(queryClient, channelId, message.id, message);
+    updateMessageInCache(queryClient, channelId, message.id, message as unknown as Record<string, unknown>);
   }, [channelId, queryClient]);
 
   const onMessageDeleted = useCallback((messageId: string) => {

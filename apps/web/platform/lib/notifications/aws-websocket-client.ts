@@ -59,7 +59,7 @@ export class AwsWebSocketClient {
           resolve();
         };
 
-        this.ws.onclose = (event) => {
+        this.ws.onclose = () => {
           this.updateStatus('disconnected');
           this.scheduleReconnect();
         };

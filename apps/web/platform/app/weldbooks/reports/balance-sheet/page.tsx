@@ -14,6 +14,22 @@ import {
 import { useBalanceSheetReport } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
 
+interface BalanceSheetAccountRow {
+  accountId: string;
+  accountCode: string;
+  accountName: string;
+  balance: string | number | null;
+}
+
+interface BalanceSheetReport {
+  assets?: BalanceSheetAccountRow[];
+  liabilities?: BalanceSheetAccountRow[];
+  equity?: BalanceSheetAccountRow[];
+  totalAssets?: string | number | null;
+  totalLiabilities?: string | number | null;
+  totalEquity?: string | number | null;
+}
+
 function fmt(value: string | number | null | undefined): string {
   return new Intl.NumberFormat('nl-NL', {
     style: 'currency',
@@ -28,8 +44,8 @@ function AccountSection({
   totalLabel,
 }: {
   title: string;
-  accounts: any[];
-  total: string | number | null;
+  accounts: BalanceSheetAccountRow[] | undefined;
+  total: string | number | null | undefined;
   totalLabel: string;
 }) {
   const { t } = useI18n();
@@ -49,7 +65,7 @@ function AccountSection({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(accounts ?? []).map((a: any) => (
+            {(accounts ?? []).map((a) => (
               <TableRow key={a.accountId}>
                 <TableCell>{a.accountCode} — {a.accountName}</TableCell>
                 <TableCell className="text-right">{fmt(a.balance)}</TableCell>
@@ -72,7 +88,7 @@ export default function BalanceSheetReportPage() {
 
   const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
   const { data, isLoading, refetch } = useBalanceSheetReport({ asOf });
-  const report = data?.data as any;
+  const report = data?.data as BalanceSheetReport | undefined;
 
   return (
     <div className="p-6 space-y-6">

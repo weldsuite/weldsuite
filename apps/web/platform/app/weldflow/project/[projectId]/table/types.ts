@@ -50,6 +50,11 @@ export interface RichTextRun {
 
 export type RichTextValue = RichTextRun[];
 
+// Row `data` is a heterogeneous JSON blob: plain cell values under column ids,
+// plus `CellFormat` / `RichTextValue` / string payloads under the special
+// `__fmt__` / richtext / `__note__` / `__link__` prefixed keys (see cell-format.ts).
+export type CellDataValue = CellValue | CellFormat | RichTextValue;
+
 export interface Command {
   type: string;
   execute: () => Promise<void>;

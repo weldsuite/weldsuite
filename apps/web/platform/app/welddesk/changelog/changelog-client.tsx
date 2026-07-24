@@ -1,9 +1,8 @@
 
-import { useState } from 'react';
 import { Link } from '@/lib/router';
 import { format } from 'date-fns';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { EntityDataTable, type Column } from '@/components/entity-overview/entity-data-table';
+import { EntityDataTable, type Column, type PaginationData, type StatusFilter, type FilterOption } from '@/components/entity-overview/entity-data-table';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -19,19 +18,10 @@ import { useI18n } from '@/lib/i18n/provider';
 
 interface ChangelogClientProps {
   items: ChangelogEntry[];
-  pagination: {
-    page: number;
-    pageSize: number;
-    total: number;
-    totalPages: number;
-  };
+  pagination: PaginationData;
   params: Record<string, string>;
-  statusFilters: Array<{ label: string; value: string; count: number }>;
-  additionalFilters: Array<{
-    key: string;
-    label: string;
-    options: Array<{ label: string; value: string }>;
-  }>;
+  statusFilters: StatusFilter[];
+  additionalFilters: FilterOption[];
   counts: {
     total: number;
     published: number;
@@ -47,6 +37,8 @@ export function ChangelogClient({
   additionalFilters,
   counts,
 }: ChangelogClientProps) {
+  // Total/published/draft counts surface via statusFilters; kept in props for future summary UI.
+  void counts;
   const { t } = useI18n();
   const tc = t.helpdesk.changelog;
   useBreadcrumbs([
@@ -69,7 +61,6 @@ export function ChangelogClient({
     }
   };
 
-  /* eslint-disable */
   const columns: Column<ChangelogEntry>[] = [
     {
       key: 'version',
@@ -191,14 +182,13 @@ export function ChangelogClient({
       ),
     },
   ];
-  /* eslint-enable */
 
   return (
     <EntityDataTable
       columns={columns}
       data={items}
       pagination={pagination}
-      params={params}
+      searchParams={params}
       statusFilters={statusFilters}
       additionalFilters={additionalFilters}
     />

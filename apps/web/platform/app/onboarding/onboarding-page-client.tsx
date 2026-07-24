@@ -31,6 +31,9 @@ export function OnboardingPageClient({ detectedCountry }: { detectedCountry: str
     orgList.setActive({ organization: memberships[0].organization.id })
       .then(() => { window.location.href = '/'; })
       .catch(() => { setIsActivatingOrg(false); });
+    // orgList is a new object every render; depending on the whole object
+    // would re-run this effect on every render instead of only on data change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded, orgId, orgList.userMemberships?.data, orgList.setActive]);
 
   useEffect(() => {
@@ -40,9 +43,9 @@ export function OnboardingPageClient({ detectedCountry }: { detectedCountry: str
   }, [isLoaded, orgId]);
 
   // Only check database status if org exists
-  const { data: dbStatus, isLoading: isLoadingDb } = useDatabaseStatus(!!orgId);
+  const { data: dbStatus } = useDatabaseStatus(!!orgId);
   const { data: onboardingStatus, isLoading: isLoadingStatus } = useOnboardingStatus();
-  const { data: userInfo, isLoading: isLoadingUser } = useUserAndOrgInfo(!orgId);
+  const { data: userInfo } = useUserAndOrgInfo(!orgId);
   const { data: availableApps, isLoading: isLoadingApps } = useAvailableApps();
 
   if (!isLoaded || isLoadingStatus || isActivatingOrg) {

@@ -1,5 +1,5 @@
 
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useState, ReactNode } from 'react';
 
 interface EmailData {
   to: string;
@@ -46,12 +46,4 @@ export function PinnedEmailProvider({ children }: { children: ReactNode }) {
       {children}
     </PinnedEmailContext.Provider>
   );
-}
-
-function usePinnedEmail() {
-  const context = useContext(PinnedEmailContext);
-  if (context === undefined) {
-    throw new Error('usePinnedEmail must be used within a PinnedEmailProvider');
-  }
-  return context;
 }

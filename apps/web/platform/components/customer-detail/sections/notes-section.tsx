@@ -18,10 +18,11 @@ import { cn } from '@/lib/utils';
 import { format, isToday, isYesterday, isThisWeek, isThisMonth, isThisYear } from 'date-fns';
 import { useCreateCustomerNote, useUpdateCustomerNote, useDeleteCustomerNote } from '@/hooks/queries/use-customer-notes-queries';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
+import type { Member } from '@weldsuite/core-api-client/schemas/members';
 import { useUser } from '@clerk/clerk-react';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
+import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 import type { NotesSectionProps, Activity } from '../types';
 import { useCustomerDetailContext } from '../customer-detail-provider';
 import { NoteEditorDialog, getNoteTitle, type Note } from '../note-editor-dialog';
@@ -60,7 +61,7 @@ function activityToNote(
   } as Note;
 }
 
-export function NotesSection({ customer, activities, totalCount }: NotesSectionProps) {
+export function NotesSection({ customer, activities }: NotesSectionProps) {
   const t = useTranslations();
   const { silentRefresh, mode, isExpanded, entityType } = useCustomerDetailContext();
   const createNoteMutation = useCreateCustomerNote();
@@ -75,9 +76,9 @@ export function NotesSection({ customer, activities, totalCount }: NotesSectionP
 
   const memberById = useMemo(() => {
     const map = new Map<string, { name?: string; picture?: string }>();
-    (membersData?.data || []).forEach((m: any) => {
-      if (m.userId) map.set(m.userId, { name: m.name, picture: m.picture });
-      if (m.id) map.set(m.id, { name: m.name, picture: m.picture });
+    ((membersData?.data || []) as Member[]).forEach((m) => {
+      if (m.userId) map.set(m.userId, { name: m.name ?? undefined, picture: m.picture ?? undefined });
+      if (m.id) map.set(m.id, { name: m.name ?? undefined, picture: m.picture ?? undefined });
     });
     return map;
   }, [membersData]);
@@ -100,7 +101,7 @@ export function NotesSection({ customer, activities, totalCount }: NotesSectionP
       name: user?.fullName || user?.firstName || user?.primaryEmailAddress?.emailAddress,
       picture: user?.imageUrl,
     })));
-  }, [activities, customerName, memberById, user?.id, user?.fullName, user?.imageUrl]);
+  }, [activities, customerName, memberById, user?.id, user?.fullName, user?.firstName, user?.primaryEmailAddress?.emailAddress, user?.imageUrl]);
 
   // Memoize available authors for filters
   const availableAuthors = useMemo(() =>
@@ -235,54 +236,47 @@ export function NotesSection({ customer, activities, totalCount }: NotesSectionP
     setNotes((prev) =>
       prev.map((n) => (n.id === noteId ? { ...n, content, updatedAt: new Date() } : n))
     );
-    const result = await updateNoteMutation.mutateAsync({ noteId, customerId: customer.id, content });
-    if (!result.success) {
-      throw new Error((result as any).error || t('sweep.weldcrm.customerDetailView.failedToUpdateNote'));
-    }
+    await updateNoteMutation.mutateAsync({ noteId, customerId: customer.id, content });
   };
 
   const handleCreate = async () => {
     try {
       const result = await createNoteMutation.mutateAsync({ customerId: customer.id, content: '', entityType });
-      if (result.success && result.data) {
-        const currentAuthorName =
-          user?.fullName || user?.firstName || user?.primaryEmailAddress?.emailAddress || undefined;
-        const newNote: Note = {
-          id: result.data.id,
-          content: '',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          isPinned: false,
-          customerId: customer.id,
-          customerName,
-          authorName: currentAuthorName,
-          authorAvatar: user?.imageUrl || undefined,
-        } as Note;
-        setNotes([newNote, ...notes]);
-        setSelectedNote(newNote);
-        setShowEditor(true);
-        silentRefresh();
-      } else {
-        toast.error((result as any).error || t('sweep.weldcrm.notesView.failedToCreateNote'));
-      }
+      const currentAuthorName =
+        user?.fullName || user?.firstName || user?.primaryEmailAddress?.emailAddress || undefined;
+      const newNote: Note = {
+        id: result.id,
+        content: '',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        isPinned: false,
+        customerId: customer.id,
+        customerName,
+        authorName: currentAuthorName,
+        authorAvatar: user?.imageUrl || undefined,
+      } as Note;
+      setNotes([newNote, ...notes]);
+      setSelectedNote(newNote);
+      setShowEditor(true);
+      silentRefresh();
     } catch (error) {
       console.error('Failed to create note:', error);
       toast.error(t('sweep.weldcrm.notesView.failedToCreateNote'));
     }
   };
 
-  const handleDelete = async (noteId: string) => {
-    const result = await deleteNoteMutation.mutateAsync({ noteId, customerId: customer.id });
-    if (result.success) {
+  const handleDelete = useCallback(async (noteId: string) => {
+    try {
+      await deleteNoteMutation.mutateAsync({ noteId, customerId: customer.id });
       setNotes((prev) => prev.filter((n) => n.id !== noteId));
       setShowEditor(false);
       setSelectedNote(null);
       toast.success(t('sweep.weldcrm.notesView.noteDeleted'));
       silentRefresh();
-    } else {
+    } catch {
       toast.error(t('sweep.weldcrm.notesView.failedToDeleteNote'));
     }
-  };
+  }, [deleteNoteMutation, customer.id, t, silentRefresh]);
 
   const handleToggleFavorite = async (noteId: string) => {
     setNotes((prev) =>
@@ -291,7 +285,7 @@ export function NotesSection({ customer, activities, totalCount }: NotesSectionP
   };
 
   // Row renderer
-  const renderNoteRow = useCallback((note: Note, handlers: RowHandlers<Note>) => (
+  const renderNoteRow = useCallback((note: Note) => (
     <div key={note.id}>
       {/* Desktop row - hidden in panel mode */}
       {!isPanel && <div
@@ -423,7 +417,7 @@ export function NotesSection({ customer, activities, totalCount }: NotesSectionP
         </div>
       </div>
     </div>
-  ), [notes, openEditDialog, isPanel, t]);
+  ), [openEditDialog, isPanel, t, handleDelete]);
 
   // Header columns (no Company column since we're already on a customer page)
   const headerColumns: HeaderColumn[] = useMemo(() => [

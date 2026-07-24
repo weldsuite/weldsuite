@@ -1,14 +1,13 @@
 
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useEffect, useState, memo } from 'react';
-import { useSearchParams, useRouter } from '@/lib/router';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Alert, AlertDescription } from '@weldsuite/ui/components/alert';
 import { Separator } from '@weldsuite/ui/components/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@weldsuite/ui/components/dialog';
-import { AlertCircle, Loader2, FileText, ArrowLeft, Download, CreditCard, Check, Plus, Minus, Users, Info, X, ChevronLeft } from 'lucide-react';
+import { AlertCircle, Loader2, FileText, ArrowLeft, Download, Check, Plus, Minus, Users, Info, X } from 'lucide-react';
 import NumberFlow from '@number-flow/react';
 import { Label } from '@weldsuite/ui/components/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
@@ -25,11 +24,8 @@ import {
   usePlanLimits,
   useInvoices,
   useChangePlan,
-  useCancelSubscription,
   useUpdateSeats,
-  billingKeys,
 } from '@/hooks/queries/use-billing-queries';
-import { useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { BillingInvoiceResponse } from '@/lib/api/domains/billing';
 
@@ -551,9 +547,6 @@ const CheckoutDialog = memo(function CheckoutDialog({
 
 export function BillingSettingsSection() {
   const t = useTranslations();
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  const queryClient = useQueryClient();
   const { getClient } = useAppApiClient();
   const [viewMode, setViewMode] = useState<ViewMode>('plans');
   const [loading, setLoading] = useState(true);
@@ -573,14 +566,17 @@ export function BillingSettingsSection() {
   const { data: limitsData } = usePlanLimits();
   const { data: invoicesData } = useInvoices(invoiceLimit);
   const changePlanMutation = useChangePlan();
-  const cancelMutation = useCancelSubscription();
   const updateSeatsMutation = useUpdateSeats();
 
-  const planLimits = (limitsData as any)?.data as Billing.PlanLimits | null ?? null;
-  const invoices = ((invoicesData as any)?.data as InvoiceInfo[]) ?? [];
+  const planLimits = (limitsData?.data as Billing.PlanLimits | null) ?? null;
+  const invoices = (invoicesData?.data as InvoiceInfo[]) ?? [];
 
   useEffect(() => {
     loadData();
+    // Mount-only load; `loadData` is redefined every render and re-running
+    // it on every dependency change would refetch the whole plans/subscription
+    // payload in a loop instead of once on open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadData = async () => {
@@ -609,7 +605,7 @@ export function BillingSettingsSection() {
         setViewMode('plans');
         loadPlans();
       }
-    } catch (err) {
+    } catch {
       setViewMode('plans');
       loadPlans();
     }
@@ -641,10 +637,6 @@ export function BillingSettingsSection() {
     setDowngradeBlockers([]);
   };
 
-  const refreshBillingData = () => {
-    queryClient.invalidateQueries({ queryKey: billingKeys.all });
-  };
-
   const handleUpgrade = () => {
     setViewMode('plans');
     loadPlans();
@@ -653,18 +645,6 @@ export function BillingSettingsSection() {
   const handleChangePlan = () => {
     setViewMode('plans');
     loadPlans();
-  };
-
-  const handleCancel = async () => {
-    if (confirm(t('settings.billing.cancelConfirm'))) {
-      try {
-        await cancelMutation.mutateAsync();
-        toast.success(t('sweep.settings.billing.messages.cancelSuccess'));
-        await loadData();
-      } catch (err: any) {
-        setError(err?.message || t('sweep.settings.billing.messages.cancelFailed'));
-      }
-    }
   };
 
   const handleSelectPlan = (plan: Billing.BillingPlan) => {
@@ -725,9 +705,9 @@ export function BillingSettingsSection() {
         cycle: billingCycle === 'annually' ? 'yearly' : 'monthly',
       });
 
-      if ((result as any).url) {
+      if (result.url) {
         // Redirect to Stripe Checkout
-        window.location.href = (result as any).url;
+        window.location.href = result.url;
         return;
       } else if (result.success) {
         // Free plan change (no checkout needed)
@@ -737,8 +717,8 @@ export function BillingSettingsSection() {
       } else {
         setError(t('sweep.settings.billing.errors.changePlanFailed'));
       }
-    } catch (err: any) {
-      setError(err?.message || t('sweep.settings.billing.errors.changePlanFailed'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('sweep.settings.billing.errors.changePlanFailed'));
     }
     setProcessing(false);
     setSelectedPlan(null);
@@ -755,9 +735,9 @@ export function BillingSettingsSection() {
 
     try {
       const result = await updateSeatsMutation.mutateAsync({ seats: manageSeatCount });
-      if (result.success && (result as any).paymentUrl) {
+      if (result.success && result.paymentUrl) {
         // Redirect to Stripe hosted invoice page for payment
-        window.location.href = (result as any).paymentUrl;
+        window.location.href = result.paymentUrl;
         return;
       } else if (result.success) {
         toast.success(t('sweep.settings.billing.toasts.seatsUpdated', { count: manageSeatCount }));
@@ -766,8 +746,8 @@ export function BillingSettingsSection() {
       } else {
         setError(t('sweep.settings.billing.errors.updateSeatsFailed'));
       }
-    } catch (err: any) {
-      setError(err?.message || t('sweep.settings.billing.errors.updateSeatsFailed'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('sweep.settings.billing.errors.updateSeatsFailed'));
     }
     setProcessing(false);
   };

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Mail, Phone, MapPin, Link as LinkIcon, Clock, Briefcase, Pencil, Save, X, Copy, Check } from 'lucide-react';
+import { Phone, MapPin, Link as LinkIcon, Briefcase, Save, X, Copy, Check } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -62,8 +62,8 @@ export function OverviewTab({ profile }: OverviewTabProps) {
       await update.mutateAsync(patch);
       setEditing(false);
       toast.success(t('sweep.shared.profileSaved'));
-    } catch (err: any) {
-      toast.error(err?.message || t('sweep.shared.failedToSaveProfile'));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('sweep.shared.failedToSaveProfile'));
     }
   };
 

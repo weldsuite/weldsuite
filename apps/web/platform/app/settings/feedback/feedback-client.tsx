@@ -13,25 +13,27 @@ import {
 import { FeatureRequestCard } from '@/components/feedback/feature-request-card';
 import { SubmitFeatureDialog } from '@/components/feedback/submit-feature-dialog';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import type { FeatureRequest, FeatureType, FeatureStatus } from '@/lib/db/schema/feature-requests';
+import type { FeatureRequest, FeatureType } from '@/lib/db/schema/feature-requests';
 import { useI18n } from '@/lib/i18n/provider';
 
-type FeatureRequestWithVote = FeatureRequest & { hasVoted: boolean };
+export type FeatureRequestWithVote = FeatureRequest & { hasVoted: boolean };
+
+export interface FeedbackStats {
+  total: number;
+  open: number;
+  underReview: number;
+  planned: number;
+  inProgress: number;
+  completed: number;
+  declined: number;
+  features: number;
+  bugs: number;
+  improvements: number;
+}
 
 interface FeedbackClientProps {
   initialRequests: FeatureRequestWithVote[];
-  initialStats: {
-    total: number;
-    open: number;
-    underReview: number;
-    planned: number;
-    inProgress: number;
-    completed: number;
-    declined: number;
-    features: number;
-    bugs: number;
-    improvements: number;
-  } | null;
+  initialStats: FeedbackStats | null;
 }
 
 export function FeedbackClient({ initialRequests, initialStats }: FeedbackClientProps) {

@@ -6,6 +6,14 @@ import type { ProjectGoals } from '@/lib/api/domains/weldflow';
 import { useI18n } from '@/lib/i18n/provider';
 import { PageLoader } from '@/components/page-loader';
 
+// `useProjectTasks` returns an untyped `data: any[]` (see the matching note in
+// `hooks/queries/use-projects-queries.ts`) — narrow to just the fields read here.
+interface GoalsPageTask {
+  id: string;
+  title: string;
+  priority: string;
+}
+
 export default function GoalsPage() {
   const params = useParams();
   const projectId = params.projectId as string;
@@ -41,7 +49,7 @@ export default function GoalsPage() {
   }
 
   // Transform tasks for the goals component
-  const existingTasks = (tasksData?.data || []).map((task: any) => ({
+  const existingTasks = (tasksData?.data || []).map((task: GoalsPageTask) => ({
     id: task.id,
     title: task.title,
     projectName: projectData?.data?.name,

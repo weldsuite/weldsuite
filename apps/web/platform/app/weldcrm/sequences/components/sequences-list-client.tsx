@@ -33,7 +33,6 @@ import {
   Edit,
   Trash2,
   Users,
-  Plus,
   Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -45,7 +44,6 @@ import {
   type HeaderColumn,
   type FilterConfig,
   type ActiveFilter,
-  type RowHandlers,
   type GroupConfig,
 } from '@/components/entity-list';
 import type { SequenceSummary } from '@/lib/api/domains/weldcrm';
@@ -74,7 +72,7 @@ const statusConfig: Record<string, { label: string; color: string; bg: string }>
   },
 };
 
-export function SequencesListClient({ initialSequences, total }: SequencesListClientProps) {
+export function SequencesListClient({ initialSequences }: SequencesListClientProps) {
   const t = useTranslations();
   useBreadcrumbs([
     { label: t('crm.sequences.breadcrumbCRM'), href: '/weldcrm' },
@@ -116,39 +114,39 @@ export function SequencesListClient({ initialSequences, total }: SequencesListCl
     return d.toLocaleDateString();
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = useCallback(async (id: string) => {
     if (!confirm(t('crm.sequences.deleteConfirm'))) return;
     try {
       const client = await getClient();
       await client.delete<void>(`/workflows/${id}`);
-      setSequences(sequences.filter((s) => s.id !== id));
+      setSequences((prev) => prev.filter((s) => s.id !== id));
       toast.success(t('crm.sequences.deletedSuccess'));
     } catch {
       toast.error(t('crm.sequences.deleteFailed'));
     }
-  };
+  }, [getClient, t]);
 
-  const handleActivate = async (id: string) => {
+  const handleActivate = useCallback(async (id: string) => {
     try {
       const client = await getClient();
       await client.patch(`/workflows/${id}/status`, { status: 'active' });
-      setSequences(sequences.map((s) => (s.id === id ? { ...s, status: 'active' } : s)));
+      setSequences((prev) => prev.map((s) => (s.id === id ? { ...s, status: 'active' } : s)));
       toast.success(t('crm.sequences.activatedSuccess'));
     } catch {
       toast.error(t('crm.sequences.activateFailed'));
     }
-  };
+  }, [getClient, t]);
 
-  const handlePause = async (id: string) => {
+  const handlePause = useCallback(async (id: string) => {
     try {
       const client = await getClient();
       await client.patch(`/workflows/${id}/status`, { status: 'paused' });
-      setSequences(sequences.map((s) => (s.id === id ? { ...s, status: 'paused' } : s)));
+      setSequences((prev) => prev.map((s) => (s.id === id ? { ...s, status: 'paused' } : s)));
       toast.success(t('crm.sequences.pausedSuccess'));
     } catch {
       toast.error(t('crm.sequences.pauseFailed'));
     }
-  };
+  }, [getClient, t]);
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
@@ -271,7 +269,7 @@ export function SequencesListClient({ initialSequences, total }: SequencesListCl
   );
 
   const renderRow = useCallback(
-    (sequence: SequenceSummary, handlers: RowHandlers<SequenceSummary>) => (
+    (sequence: SequenceSummary) => (
       <div
         key={sequence.id}
         onClick={() => router.push(`/weldcrm/sequences/${sequence.id}`)}
@@ -364,7 +362,7 @@ export function SequencesListClient({ initialSequences, total }: SequencesListCl
         </div>
       </div>
     ),
-    [router]
+    [router, handleActivate, handleDelete, handlePause, t]
   );
 
   return (

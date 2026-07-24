@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
-import { useMeeting, useMeetingRecordingUrl, useTranscribeMeeting, useUpdateMeeting, useDeleteMeeting, useLatestSession } from '@/hooks/queries/use-weldmeet-queries';
+import { useMeeting, useMeetingRecordingUrl, useTranscribeMeeting, useUpdateMeeting, useDeleteMeeting, useLatestSession, type Meeting } from '@/hooks/queries/use-weldmeet-queries';
+import type { MeetingAttendee } from '@/lib/api/domains/weldmeet';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { MeetingIntelligence } from '@/components/weldcrm/calls/meeting-intelligence';
-import type { TranscriptionActions, MeetingIntelligenceCall } from '@/components/weldcrm/calls/meeting-intelligence';
+import type { TranscriptionActions, MeetingIntelligenceCall, TranscriptionData } from '@/components/weldcrm/calls/meeting-intelligence';
 import { MeetingChatHistory } from '../components/meeting-chat-history';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -11,6 +12,16 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { X, MessageSquare, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
+
+// The attendee resolver also links to a workspace member or CRM contact; not
+// yet reflected in the shared MeetingAttendee client type.
+type MeetingAttendeeWithLinks = MeetingAttendee & { workspaceMemberId?: string; contactId?: string };
+
+interface TranscriptionStatusResponse {
+  exists: boolean;
+  status?: string;
+  errorMessage?: string;
+}
 
 export default function MeetingDetailPage() {
   const t = getTranslations('weldmeet');
@@ -47,7 +58,10 @@ export default function MeetingDetailPage() {
   const recordingUrl = recordingData?.url;
   const recordingDuration = recordingData?.duration;
   const hasRecording = !!recordingUrl;
-  const hasChat = meeting.status === 'completed' || meeting.status === 'failed';
+  // Backend also emits a `failed` status (see MeetingStatus in the DB schema),
+  // not yet reflected in the shared Meeting client type.
+  const meetingStatus = meeting.status as Meeting['status'] | 'failed';
+  const hasChat = meetingStatus === 'completed' || meetingStatus === 'failed';
 
   const normalizedCall: MeetingIntelligenceCall = {
     id: meetingId,
@@ -55,8 +69,8 @@ export default function MeetingDetailPage() {
     description: meeting.description,
     date: meeting.scheduledStart || meeting.createdAt,
     duration: recordingDuration ?? undefined,
-    attendees: meeting.attendees?.map((a: any) => a.name) ?? [],
-    attendeeDetails: meeting.attendees?.map((a: any) => ({
+    attendees: meeting.attendees?.map((a: MeetingAttendeeWithLinks) => a.name) ?? [],
+    attendeeDetails: meeting.attendees?.map((a: MeetingAttendeeWithLinks) => ({
       name: a.name,
       email: a.email,
       avatar: a.avatar,
@@ -85,13 +99,13 @@ export default function MeetingDetailPage() {
     onFetchTranscription: async (id) => {
       const client = await getClient();
       // app-api returns { data: { ...transcription, segments: [...] } }
-      const result = await client.get<{ data: any }>(`/meetings/${id}/recording/transcription`);
-      return { success: true, transcription: result.data as any };
+      const result = await client.get<{ data: TranscriptionData }>(`/meetings/${id}/recording/transcription`);
+      return { success: true, transcription: result.data };
     },
     onPollStatus: async (id) => {
       const client = await getClient();
       // app-api returns { data: { exists, status?, ... } }
-      const result = await client.get<{ data: any }>(`/meetings/${id}/recording/transcription-status`);
+      const result = await client.get<{ data: TranscriptionStatusResponse }>(`/meetings/${id}/recording/transcription-status`);
       return { status: result.data };
     },
   } : undefined;
@@ -128,7 +142,7 @@ export default function MeetingDetailPage() {
           setRenameOpen(true);
         },
         onScheduleAgain: () => {
-          navigate({ to: '/weldmeet/new', search: { from: meetingId } } as any);
+          navigate({ to: '/weldmeet/new' });
         },
         onDownloadRecording: recordingUrl ? () => window.open(recordingUrl, '_blank') : undefined,
         onExportTranscript: hasRecording ? () => {
@@ -140,7 +154,7 @@ export default function MeetingDetailPage() {
           label: showChat ? t.meetingDetailPage.hideChat : t.meetingDetailPage.chat,
           icon: <MessageSquare className="h-4 w-4" />,
           onClick: () => setShowChat(v => !v),
-          variant: showChat ? 'secondary' : 'ghost',
+          variant: showChat ? 'default' : 'ghost',
         },
       ] : undefined}
       renderSidebar={hasChat && showChat ? () => (

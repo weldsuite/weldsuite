@@ -14,7 +14,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
-  FileText,
   Megaphone,
   Package
 } from 'lucide-react';
@@ -339,7 +338,7 @@ export function AppointmentsView({
               </p>
             </div>
             <p className="text-xs text-gray-500 mt-4">
-              You'll receive a confirmation email shortly
+              You&apos;ll receive a confirmation email shortly
             </p>
           </div>
         )}

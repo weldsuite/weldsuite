@@ -27,11 +27,7 @@ import {
   RefreshCw,
   Pause,
   Activity,
-  Calendar,
   Zap,
-  User,
-  FileJson,
-  TrendingUp,
   Terminal,
   Download,
   ExternalLink,
@@ -41,15 +37,65 @@ import {
   Bot,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useCancelExecution, useRetryExecution } from '@/hooks/queries/use-automation-queries';
+import { useCancelExecution, useRetryExecution, type WorkflowExecution } from '@/hooks/queries/use-automation-queries';
 import { useExecutionRealtime } from '@/hooks/realtime/use-execution-realtime';
 
-interface ExecutionDetailClientProps {
-  execution: any;
-  initialLogs: any[];
+export interface ExecutionStepView {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  duration: number | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  input: Record<string, unknown> | null;
+  output: Record<string, unknown> | null;
+  error: string | null;
 }
 
-const formatDuration = (ms: number) => {
+export interface ExecutionLogEntry {
+  id?: string;
+  level: string;
+  message: string;
+  timestamp: string;
+  stepName?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface ExecutionDetailDto extends Omit<WorkflowExecution, 'error'> {
+  steps: ExecutionStepView[];
+  input: Record<string, unknown> | null;
+  error: string | null;
+}
+
+interface ExecutionDetailClientProps {
+  execution: ExecutionDetailDto;
+  initialLogs: ExecutionLogEntry[];
+}
+
+interface DelegationOutput {
+  iterations?: Array<{
+    toolResults?: Array<{
+      toolCallId?: string;
+      toolName?: string;
+      result?: unknown;
+      error?: string;
+      durationMs?: number;
+    }>;
+  }>;
+}
+
+interface DelegationResultPayload {
+  agentName?: string;
+  status?: string;
+  finalContent?: string | null;
+  iterationCount?: number;
+  totalTokensUsed?: number;
+  durationMs?: number;
+  error?: string | null;
+}
+
+const formatDuration = (ms: number | null | undefined) => {
   if (!ms || ms === 0) return '0ms';
   if (ms < 1000) return `${ms}ms`;
   if (ms < 60000) return `${(ms / 1000).toFixed(2)}s`;
@@ -103,13 +149,14 @@ const getStepStatusBadge = (status: string, labels: Record<string, string>) => {
  * Shows sub-agent delegation results within an ai_agent step's detail view.
  * Extracts delegation tool results (delegate_to_*) from the step output.
  */
-function DelegationSection({ step, delegationsLabel, iterationsLabel, tokensLabel }: { step: any; delegationsLabel: string; iterationsLabel: (count: number) => string; tokensLabel: (count: number) => string }) {
+function DelegationSection({ step, delegationsLabel, iterationsLabel, tokensLabel }: { step: ExecutionStepView | null; delegationsLabel: string; iterationsLabel: (count: number) => string; tokensLabel: (count: number) => string }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (!step?.output) return null;
 
-  // Delegations are stored in the iterations' toolResults
-  const output = step.output;
+  // Delegations are stored in the iterations' toolResults — the step output is
+  // arbitrary AI-agent JSON, so its shape is only known defensively.
+  const output = step.output as DelegationOutput;
   const iterations = output.iterations || [];
   const delegations: Array<{
     id: string;
@@ -125,7 +172,7 @@ function DelegationSection({ step, delegationsLabel, iterationsLabel, tokensLabe
   for (const iteration of iterations) {
     for (const tr of iteration.toolResults || []) {
       if (tr.toolName?.startsWith('delegate_to_') && tr.result && typeof tr.result === 'object') {
-        const r = tr.result as any;
+        const r = tr.result as DelegationResultPayload;
         delegations.push({
           id: tr.toolCallId || `${tr.toolName}-${delegations.length}`,
           agentName: r.agentName || tr.toolName.replace('delegate_to_', '').replace(/_/g, ' '),
@@ -215,7 +262,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: ExecutionDetai
   const retryExecutionMutation = useRetryExecution();
   const isPending = cancelExecutionMutation.isPending || retryExecutionMutation.isPending;
   const [activeTab, setActiveTab] = useState('steps');
-  const [selectedStep, setSelectedStep] = useState<any>(null);
+  const [selectedStep, setSelectedStep] = useState<ExecutionStepView | null>(null);
 
   // Subscribe to realtime updates via WeldSuite WorkspaceHub
   const isRunning = ['running', 'pending', 'queued'].includes(execution.status);
@@ -367,7 +414,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: ExecutionDetai
   }
 
   // Stats
-  const successfulSteps = execution.steps?.filter((s: any) => s.status === 'success' || s.status === 'completed').length || 0;
+  const successfulSteps = execution.steps?.filter((s) => s.status === 'success' || s.status === 'completed').length || 0;
   const totalSteps = execution.steps?.length || 0;
 
   return (
@@ -390,14 +437,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: ExecutionDetai
       <EntityDetailHeader
         entityId={execution.id?.slice(0, 8) || naLabel}
         entityType={t.weldconnect.executionDetail.entityType}
-        subtitle={
-          <span>
-            {t.weldconnect.executionDetail.workflowLabel}{' '}
-            <Link href={`/weldconnect/workflows/${execution.workflowId}`} className="text-blue-600 hover:underline">
-              {execution.workflowName || t.weldconnect.executionDetail.unknownWorkflow}
-            </Link>
-          </span>
-        }
+        subtitle={`${t.weldconnect.executionDetail.workflowLabel} ${execution.workflowName || t.weldconnect.executionDetail.unknownWorkflow}`}
         status={{
           value: liveStatus,
           config: statusConfig,
@@ -507,7 +547,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: ExecutionDetai
                   {/* Steps List */}
                   <div className="space-y-3">
                     {execution.steps && execution.steps.length > 0 ? (
-                      execution.steps.map((step: any, index: number) => (
+                      execution.steps.map((step, index: number) => (
                         <div
                           key={step.id}
                           className="bg-white dark:bg-background rounded-md border border-gray-200 dark:border-border p-4 cursor-pointer transition-all hover:bg-gray-50 hover:border-gray-300 dark:hover:bg-secondary dark:hover:border-border"
@@ -656,7 +696,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: ExecutionDetai
                   <p className="text-sm text-muted-foreground mb-4">{t.weldconnect.executionDetail.executionLogsDescription}</p>
                   {initialLogs.length > 0 ? (
                     <div className="space-y-2 max-h-[600px] overflow-auto">
-                      {initialLogs.map((log: any, index: number) => (
+                      {initialLogs.map((log, index: number) => (
                         <div
                           key={log.id || index}
                           className={`p-3 rounded-lg border ${

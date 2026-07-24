@@ -24,10 +24,6 @@ import {
   Edit,
   Eye,
   Trash,
-  Globe,
-  Lock,
-  Clock,
-  TrendingUp,
   FileText,
   FolderOpen,
   Folder,
@@ -49,7 +45,7 @@ import {
 import { Label } from "@weldsuite/ui/components/label";
 import { cn } from "@/lib/utils";
 import type { StatusFilter, FilterOption, PaginationData } from "@/components/entity-overview";
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from "@/components/entity-list";
+import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from "@/components/entity-list";
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 
@@ -94,6 +90,16 @@ interface FolderData {
   parentId: string | null;
   level: number;
   articleCount: number;
+  icon?: string;
+  color?: string;
+}
+
+interface RawFolder {
+  id: string;
+  name: string;
+  parentId?: string | null;
+  level?: number;
+  articleCount?: number;
   icon?: string;
   color?: string;
 }
@@ -189,6 +195,14 @@ export function KnowledgeClient({
   additionalFilters,
   counts: initialCounts,
 }: KnowledgeClientProps) {
+  // This view renders a client-built folder/article tree via EntityList rather than
+  // the server-paginated/filtered list, so these props are accepted for interface
+  // parity with other list pages but aren't consumed here.
+  void initialPagination;
+  void initialSearchParams;
+  void statusFilters;
+  void additionalFilters;
+  void initialCounts;
   const { t } = useI18n();
   const st = useTranslations();
   const router = useRouter();
@@ -203,7 +217,7 @@ export function KnowledgeClient({
   // Folder state
   const folders: FolderData[] = useMemo(() => {
     const raw = foldersResult?.data || [];
-    return raw.map((f: any) => ({
+    return raw.map((f: RawFolder) => ({
       id: f.id,
       name: f.name,
       parentId: f.parentId || null,
@@ -374,12 +388,6 @@ export function KnowledgeClient({
     );
   };
 
-  const getVisibilityIcon = (visibility: Article['visibility']) =>
-    visibility === 'public' ? Globe : Lock;
-
-  const getVisibilityColor = (visibility: Article['visibility']) =>
-    visibility === 'public' ? 'text-blue-600' : 'text-purple-600';
-
   // Count children (articles + sub-folders) for a folder
   const getFolderChildCount = useCallback((folderId: string): number => {
     const directArticles = data.filter(a => a.categoryId === folderId).length;
@@ -513,14 +521,6 @@ export function KnowledgeClient({
     return lines;
   };
 
-  // Render row (folder or article)
-  const renderRow = useCallback((node: FlatNode, handlers: RowHandlers<FlatNode>) => {
-    if (node.type === 'folder') {
-      return renderFolderRow(node);
-    }
-    return renderArticleRow(node);
-  }, [expandedFolders, router, data, folders]);
-
   const renderFolderRow = (node: FlatNode) => {
     const folder = node.folder!;
     const isExpanded = expandedFolders.has(folder.id);
@@ -592,7 +592,6 @@ export function KnowledgeClient({
 
   const renderArticleRow = (node: FlatNode) => {
     const article = node.article!;
-    const VisibilityIcon = getVisibilityIcon(article.visibility);
     const config = statusConfig[article.status] || statusConfig.draft;
 
     return (
@@ -686,6 +685,14 @@ export function KnowledgeClient({
         </div>
       </div>
     );
+  };
+
+  // Render row (folder or article)
+  const renderRow = (node: FlatNode) => {
+    if (node.type === 'folder') {
+      return renderFolderRow(node);
+    }
+    return renderArticleRow(node);
   };
 
   return (

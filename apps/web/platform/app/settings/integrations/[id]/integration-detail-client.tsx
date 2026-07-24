@@ -10,7 +10,6 @@ import {
   Loader2,
   Printer,
   Package,
-  ShoppingCart,
   Globe,
   FileText,
   Mail,
@@ -33,16 +32,6 @@ import {
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { toast } from 'sonner';
 import { useIntegrations, usePrintNodeSettings, useUpdatePrintNodeSettings } from '@/hooks/queries/use-settings-queries';
-
-interface Integration {
-  id: string;
-  name: string;
-  description: string;
-  category: 'Communication' | 'Shipping' | 'Accounting' | 'E-Commerce' | 'Printing';
-  icon: React.ReactNode;
-  connected: boolean;
-  configurable: boolean;
-}
 
 // Integration definitions with content
 const INTEGRATION_DATA: Record<string, {
@@ -275,6 +264,14 @@ interface IntegrationDetailClientProps {
   integrationId: string;
 }
 
+interface PrintNodeSettingsResponse {
+  data?: { apiKey?: string };
+}
+
+interface IntegrationsStatusResponse {
+  data?: Record<string, { connected?: boolean }>;
+}
+
 export function IntegrationDetailClient({ integrationId }: IntegrationDetailClientProps) {
   const router = useRouter();
   const { t } = useI18n();
@@ -302,13 +299,13 @@ export function IntegrationDetailClient({ integrationId }: IntegrationDetailClie
   // Sync connection status from query data
   React.useEffect(() => {
     if (integrationId === 'printnode' && printNodeData) {
-      const data = printNodeData as any;
+      const data = printNodeData as PrintNodeSettingsResponse;
       setIsConnected(!!data?.data?.apiKey);
       if (data?.data?.apiKey) {
         setPrintNodeApiKey(data.data.apiKey);
       }
     } else if (integrationsData) {
-      const data = integrationsData as any;
+      const data = integrationsData as unknown as IntegrationsStatusResponse;
       if (data?.data?.[integrationId]) {
         setIsConnected(data.data[integrationId].connected || false);
       }
@@ -360,7 +357,7 @@ export function IntegrationDetailClient({ integrationId }: IntegrationDetailClie
       }
       setIsConnected(false);
       toast.success(ti.messages.disconnected.replace('{integration}', integration.name));
-    } catch (error) {
+    } catch {
       toast.error(ti.messages.disconnectFailed.replace('{integration}', integration.name));
     } finally {
       setIsConnecting(false);
@@ -404,7 +401,7 @@ export function IntegrationDetailClient({ integrationId }: IntegrationDetailClie
       setIsConnected(true);
       setShowConfigDialog(false);
       toast.success(ti.messages.printNodeSaved);
-    } catch (error) {
+    } catch {
       toast.error(ti.messages.printNodeSaveFailed);
     }
   };

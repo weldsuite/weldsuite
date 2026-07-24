@@ -9,11 +9,7 @@ import {
   Activity,
   Sparkles,
   Calendar,
-  FileText,
   Megaphone,
-  TrendingUp,
-  Award,
-  Users,
   Package,
   ChevronRight
 } from 'lucide-react';
@@ -88,36 +84,6 @@ export function NewsView({
       readTime: '2 min read'
     }
   ];
-
-  const getCategoryIcon = (category: string) => {
-    switch (category) {
-      case 'company':
-        return <TrendingUp size={16} className="text-blue-600" />;
-      case 'product':
-        return <Sparkles size={16} className="text-purple-600" />;
-      case 'community':
-        return <Users size={16} className="text-green-600" />;
-      case 'achievement':
-        return <Award size={16} className="text-orange-600" />;
-      default:
-        return <Sparkles size={16} className="text-gray-600" />;
-    }
-  };
-
-  const getCategoryColor = (category: string) => {
-    switch (category) {
-      case 'company':
-        return 'bg-blue-100 text-blue-700';
-      case 'product':
-        return 'bg-purple-100 text-purple-700';
-      case 'community':
-        return 'bg-green-100 text-green-700';
-      case 'achievement':
-        return 'bg-orange-100 text-orange-700';
-      default:
-        return 'bg-gray-100 text-gray-700';
-    }
-  };
 
   return (
     <div

@@ -7,12 +7,12 @@ import {
 import { Input } from "@weldsuite/ui/components/input";
 import { Badge } from "@weldsuite/ui/components/badge";
 import { Button } from "@weldsuite/ui/components/button";
-import { Search, TrendingUp, Briefcase, Target, Users, Package, Zap, X, DollarSign, ShoppingCart, Heart, UserCheck, Wallet, Megaphone, Lightbulb, Sparkles, Rocket, PenTool } from "lucide-react";
+import { Search, TrendingUp, Briefcase, Users, X, DollarSign, UserCheck, Wallet, Megaphone, Sparkles, Rocket, PenTool } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getTranslations } from "@/lib/i18n";
 import { useTranslations } from '@weldsuite/i18n/client';
 
-interface PipelineTemplate {
+export interface PipelineTemplate {
   id: string;
   name: string;
   description: string;

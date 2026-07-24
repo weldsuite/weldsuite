@@ -84,7 +84,7 @@ export default function AccountingSuppliersPage() {
       items={suppliers}
       isLoading={isLoading}
       columns={columns}
-      onRowClick={(s) => navigate({ to: `/weldbooks/customers/${s.id}` as any })}
+      onRowClick={(s) => navigate({ to: '/weldbooks/customers/$id', params: { id: s.id } })}
       filters={filterConfigs}
       searchQuery={search}
       onSearchChange={setSearch}
@@ -96,7 +96,7 @@ export default function AccountingSuppliersPage() {
         onClick: () =>
           // Same create form as customers — the role selector lets the user
           // pick 'supplier' or 'both' at creation time.
-          navigate({ to: '/weldbooks/customers/add' as any }),
+          navigate({ to: '/weldbooks/customers/add' }),
       }}
       emptyState={{
         icon: (
@@ -108,7 +108,7 @@ export default function AccountingSuppliersPage() {
         description: tsp.searchPlaceholder,
         action: {
           label: tsp.newSupplier,
-          onClick: () => navigate({ to: '/weldbooks/customers/add' as any }),
+          onClick: () => navigate({ to: '/weldbooks/customers/add' }),
         },
       }}
     />

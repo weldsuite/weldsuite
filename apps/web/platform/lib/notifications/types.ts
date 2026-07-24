@@ -21,17 +21,7 @@ type NotificationType =
   | 'badge_update'
   | string; // Allow custom types
 
-interface NewEmailNotification {
-  emailAccountId: string;
-  emailId: string;
-  sender: string;
-  senderName?: string;
-  subject: string;
-  preview?: string;
-  receivedAt: string;
-}
-
-export interface NotificationMessage<T = any> {
+export interface NotificationMessage<T = unknown> {
   type: NotificationType;
   message: string;
   data?: T;
@@ -40,18 +30,6 @@ export interface NotificationMessage<T = any> {
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
-interface WebSocketConfig {
-  url: string;
-  reconnectInterval?: number;
-  maxReconnectAttempts?: number;
-  heartbeatInterval?: number;
-}
-
-export interface NotificationHandler<T = any> {
+export interface NotificationHandler<T = unknown> {
   (notification: NotificationMessage<T>): void;
-}
-
-interface TypedNotificationHandler<T = any> {
-  type: NotificationType;
-  handler: NotificationHandler<T>;
 }

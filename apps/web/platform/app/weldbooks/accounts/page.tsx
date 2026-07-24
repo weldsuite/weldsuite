@@ -102,13 +102,13 @@ export default function ChartOfAccountsPage() {
       isLoading={isLoading}
       columns={columns}
       groups={groups}
-      onRowClick={(acc) => navigate({ to: `/weldbooks/accounts/${acc.id}` as any })}
+      onRowClick={(acc) => navigate({ to: '/weldbooks/accounts/$id', params: { id: acc.id } })}
       filters={filterConfigs}
       activeFilters={filters}
       onFiltersChange={setFilters}
       createButton={{
         label: tap.newAccount,
-        onClick: () => navigate({ to: '/weldbooks/accounts/add' as any }),
+        onClick: () => navigate({ to: '/weldbooks/accounts/add' }),
       }}
       emptyState={{
         icon: (
@@ -120,7 +120,7 @@ export default function ChartOfAccountsPage() {
         description: t.accounting.description,
         action: {
           label: tap.newAccount,
-          onClick: () => navigate({ to: '/weldbooks/accounts/add' as any }),
+          onClick: () => navigate({ to: '/weldbooks/accounts/add' }),
         },
       }}
     />

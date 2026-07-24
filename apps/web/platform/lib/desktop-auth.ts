@@ -1,4 +1,4 @@
-import { getDesktop, isDesktop } from './desktop';
+import { getDesktop } from './desktop';
 import type { AuthCallback } from '../types/weldsuite-desktop';
 
 /**
@@ -29,33 +29,4 @@ export function onDesktopAuthCallback(listener: (payload: AuthCallback) => void)
   const desktop = getDesktop();
   if (!desktop) return () => undefined;
   return desktop.onAuthCallback(listener);
-}
-
-/**
- * True when the current route is a sign-in / sign-up / SSO callback path
- * inside the desktop shell. The shell tries to intercept these at the
- * navigation layer, but this helper is the belt-and-braces check for
- * client-side route changes (TanStack Router won't trigger `will-navigate`).
- */
-function isAuthRoute(pathname: string): boolean {
-  return (
-    pathname.startsWith('/auth/login') ||
-    pathname.startsWith('/auth/register') ||
-    pathname.startsWith('/auth/sso-callback')
-  );
-}
-
-/**
- * Convenience guard to use at the top of the sign-in page component:
- *
- *   useEffect(() => { redirectDesktopAuthToBrowser(); }, []);
- *
- * In desktop: triggers the external-browser handoff and returns true so the
- * caller can render a "Continue in your browser" placeholder.
- * In web: no-op, returns false.
- */
-function redirectDesktopAuthToBrowser(path?: string): boolean {
-  if (!isDesktop()) return false;
-  void startExternalSignIn({ path });
-  return true;
 }

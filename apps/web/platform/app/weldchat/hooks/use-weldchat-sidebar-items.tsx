@@ -3,7 +3,7 @@ import { Hash, Lock, User, FolderPlus, Trash2, Pencil, SquarePen, Plus, BellOff,
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 
 function createDmAvatarIcon(name: string, picture?: string) {
-  return function DmAvatar({ className }: { className?: string }) {
+  return function DmAvatar() {
     return (
       <Avatar className="h-5 w-5 !rounded-[6px]">
         {picture && <AvatarImage src={picture} className="!rounded-[6px]" />}
@@ -19,7 +19,7 @@ function createGroupDmAvatarIcon(
   members: Array<{ name?: string | null; email?: string | null; picture?: string | null }>,
 ) {
   const visible = members.slice(0, 2);
-  return function GroupDmAvatar({ className: _className }: { className?: string }) {
+  return function GroupDmAvatar() {
     return (
       <div className="relative h-5 w-5 flex-shrink-0">
         {visible.map((m, i) => {
@@ -45,6 +45,7 @@ function createGroupDmAvatarIcon(
 }
 import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-layout';
 import { useChannels, useDmChannels, useDeleteChannel, useMuteChannel, useArchiveChannel, useCreateSection as useCreateSectionMutation } from '@/hooks/queries/use-weldchat-queries';
+import type { ChatChannel, ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
 import { useChatActivityUnread, useChatDrafts } from '@/hooks/queries/use-weldchat-extras-queries';
 import { getTranslations } from '@/lib/i18n';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -76,6 +77,7 @@ import { useChatSections } from './use-chat-sections';
 import { getEntityTypeInfo, listEntityTypes } from '@/lib/entity-channels/registry';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
 import { useUserPreferences } from '@/hooks/queries/use-settings-queries';
+import type { UserPreferences } from '@/hooks/queries/use-settings-queries';
 import {
   applyTopN,
   DEFAULT_GROUP_FILTER,
@@ -90,21 +92,27 @@ const EMPTY_SIDEBAR: { menuGroups: MenuGroupProps[]; dialogs: React.ReactNode } 
   dialogs: null,
 };
 
+/** DM channel row — a channel row extended with the DM-specific `otherMembers`
+ * field `/chat-dm` projects (mirrors the hooks file's private `ChatDm`). */
+export interface DmChannel extends ChatChannel {
+  otherMembers?: ChatChannelMember[];
+}
+
 function resolveLiveGroupChannels(
   groupKey: string,
-  dms: any[],
-  channels: any[],
-  entityChannels: any[],
+  dms: DmChannel[],
+  channels: ChatChannel[],
+  entityChannels: ChatChannel[],
   channelSectionMap: Record<string, string | null | undefined>,
-): any[] {
+): ChatChannel[] {
   if (groupKey === 'dm') return dms;
   if (groupKey.startsWith('entity:')) {
     const entityType = groupKey.slice('entity:'.length);
-    return entityChannels.filter((ch: any) => ch.entityType === entityType);
+    return entityChannels.filter((ch) => ch.entityType === entityType);
   }
   if (groupKey.startsWith('section:')) {
     const sectionId = groupKey.slice('section:'.length);
-    return channels.filter((ch: any) => {
+    return channels.filter((ch) => {
       if (ch.type === 'dm' || ch.type === 'entity') return false;
       const assigned = channelSectionMap[ch.id];
       return sectionId === 'default' ? !assigned : assigned === sectionId;
@@ -115,9 +123,9 @@ function resolveLiveGroupChannels(
   if (groupKey.startsWith('channel:')) {
     const channelId = groupKey.slice('channel:'.length);
     const found =
-      channels.find((ch: any) => ch.id === channelId) ??
-      dms.find((ch: any) => ch.id === channelId) ??
-      entityChannels.find((ch: any) => ch.id === channelId);
+      channels.find((ch) => ch.id === channelId) ??
+      dms.find((ch) => ch.id === channelId) ??
+      entityChannels.find((ch) => ch.id === channelId);
     return found ? [found] : [];
   }
   return [];
@@ -141,7 +149,8 @@ export function useWeldchatSidebarItems(isActive: boolean): {
 
   const { data: userPrefs } = useUserPreferences();
   const groupFilters: WeldchatGroupFilters =
-    ((userPrefs?.uiPreferences as any)?.weldchatGroupFilters as WeldchatGroupFilters | undefined) ?? {};
+    (userPrefs?.uiPreferences as (NonNullable<UserPreferences['uiPreferences']> & { weldchatGroupFilters?: WeldchatGroupFilters }) | undefined)
+      ?.weldchatGroupFilters ?? {};
   const getFilter = (key: string): GroupFilterSettings => ({
     ...DEFAULT_GROUP_FILTER,
     ...(groupFilters[key] ?? {}),
@@ -186,10 +195,16 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   const st = useTranslations();
   const { data: activityUnreadData } = useChatActivityUnread();
   const { data: draftsData } = useChatDrafts();
-  const unreadActivityCount: number = (activityUnreadData as any)?.data?.count ?? 0;
+  const unreadActivityCount: number = activityUnreadData?.data?.count ?? 0;
 
-  const channels = isActive ? (channelsData?.data || []) : [];
-  const dms = isActive ? (dmsData?.data || []) : [];
+  const channels: ChatChannel[] = React.useMemo(
+    () => (isActive ? (channelsData?.data || []) : []),
+    [isActive, channelsData],
+  );
+  const dms: DmChannel[] = React.useMemo(
+    () => (isActive ? ((dmsData?.data ?? []) as DmChannel[]) : []),
+    [isActive, dmsData],
+  );
 
   // Suppress the Drafts badge for the channel the user is actively viewing —
   // the autosave creates a server draft within seconds of typing, but it's
@@ -203,8 +218,8 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     const dmMatch = pathname.match(/^\/weldchat\/dm\/([^/]+)/);
     if (dmMatch) {
       const targetUserId = dmMatch[1];
-      const dm = dms.find((d: any) =>
-        d.otherMembers?.some((m: any) => m.userId === targetUserId),
+      const dm = dms.find((d) =>
+        d.otherMembers?.some((m) => m.userId === targetUserId),
       );
       return dm?.id ?? null;
     }
@@ -216,9 +231,9 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   })();
 
   const draftCount: number = (() => {
-    const drafts = ((draftsData as any)?.data as any[] | undefined) ?? [];
+    const drafts = draftsData?.data ?? [];
     if (!activeChannelId) return drafts.length;
-    return drafts.filter((d: any) => d?.channelId !== activeChannelId).length;
+    return drafts.filter((d) => d?.channelId !== activeChannelId).length;
   })();
 
   // Single batch fetch at mount — push events below keep the cache in sync.
@@ -275,7 +290,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   // Auto-assign newly created channel to pending section
   const prevChannelIdsRef = React.useRef<Set<string> | null>(null);
   React.useEffect(() => {
-    const currentIds = new Set(channels.map((ch: any) => ch.id));
+    const currentIds = new Set(channels.map((ch) => ch.id));
     if (pendingSectionId && prevChannelIdsRef.current !== null) {
       for (const id of currentIds) {
         if (!prevChannelIdsRef.current.has(id)) {
@@ -292,13 +307,13 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     return EMPTY_SIDEBAR;
   }
 
-  const allChannelItems = channels
-    .filter((ch: any) => ch.type !== 'dm' && ch.type !== 'entity')
-    .map((ch: any) => {
+  const allChannelItems: MenuItemProps[] = channels
+    .filter((ch) => ch.type !== 'dm' && ch.type !== 'entity')
+    .map((ch): MenuItemProps => {
       const hasUnread = ch.lastMessageAt && (!ch.lastReadAt || new Date(ch.lastMessageAt) > new Date(ch.lastReadAt));
       const mentionCount = ch.unreadMentionCount || 0;
       return {
-      title: ch.name,
+      title: ch.name ?? '',
       href: `/weldchat/${ch.id}`,
       icon: ch.type === 'private' ? Lock : Hash,
       bold: !!hasUnread,
@@ -339,7 +354,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
           onClick: () =>
             setSettingsTarget({
               groupKey: `channel:${ch.id}`,
-              groupLabel: ch.name,
+              groupLabel: ch.name ?? '',
               channels: [ch],
             }),
         },
@@ -357,10 +372,10 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     };
     });
 
-  const dmItems: typeof allChannelItems = [];
+  const dmItems: MenuItemProps[] = [];
   const seenDmUsers = new Set<string>();
   for (const dm of dms) {
-    const otherMembers = (dm.otherMembers ?? []).filter((m: any) => m?.userId);
+    const otherMembers = (dm.otherMembers ?? []).filter((m) => m?.userId);
     const isGroup = otherMembers.length > 1;
     const hasUnread = dm.lastMessageAt && (!dm.lastReadAt || new Date(dm.lastMessageAt) > new Date(dm.lastReadAt));
     const mentionCount = dm.unreadMentionCount || 0;
@@ -398,7 +413,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
       if (seenDmUsers.has(dm.id)) continue;
       seenDmUsers.add(dm.id);
       const displayName =
-        otherMembers.map((m: any) => m.name || m.email || st('sweep.weldchat.sidebar.unknownMember')).join(', ') ||
+        otherMembers.map((m) => m.name || m.email || st('sweep.weldchat.sidebar.unknownMember')).join(', ') ||
         dm.name ||
         st('sweep.weldchat.channelEmptyState.groupFallback');
       dmItems.push({
@@ -430,25 +445,21 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     });
   }
 
-  // Channels not in any section
-  const unsectionedChannels = allChannelItems.filter(
-    (ch: any) => !channelSectionMap[ch.id],
-  );
-
   // Entity-linked channels (tasks, tickets, …) — grouped by entityType in the sidebar.
-  const entityChannels = channels.filter((ch: any) => ch.type === 'entity' && ch.entityType);
-  const entityGroups = new Map<string, any[]>();
+  const entityChannels = channels.filter((ch) => ch.type === 'entity' && ch.entityType);
+  const entityGroups = new Map<string, MenuItemProps[]>();
   for (const ch of entityChannels) {
-    const list = entityGroups.get(ch.entityType) ?? [];
+    const entityType = ch.entityType ?? '';
+    const list = entityGroups.get(entityType) ?? [];
     const hasUnread = ch.lastMessageAt && (!ch.lastReadAt || new Date(ch.lastMessageAt) > new Date(ch.lastReadAt));
     const mentionCount = ch.unreadMentionCount || 0;
-    const info = getEntityTypeInfo(ch.entityType);
+    const info = getEntityTypeInfo(entityType);
     const iconName = info?.icon ?? 'Hash';
     const Icon: React.ComponentType<{ className?: string }> = (props) => (
       <LucideDynamicIcon name={iconName} className={props.className} />
     );
     list.push({
-      title: ch.entityDisplayName || ch.name,
+      title: ch.entityDisplayName || ch.name || '',
       href: `/weldchat/${ch.id}`,
       icon: Icon,
       bold: !!hasUnread,
@@ -466,7 +477,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
           onClick: () =>
             setSettingsTarget({
               groupKey: `channel:${ch.id}`,
-              groupLabel: ch.entityDisplayName || ch.name,
+              groupLabel: ch.entityDisplayName || ch.name || '',
               channels: [ch],
             }),
         },
@@ -477,7 +488,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
         },
       ],
     });
-    entityGroups.set(ch.entityType, list);
+    entityGroups.set(entityType, list);
   }
 
   // Helper: apply per-group filter + sort + topN to a list of items, given the
@@ -486,11 +497,11 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   const activeCallChannelIdSet = new Set<string>(activeCallChannels.keys());
   function applyFilterAndSort(
     items: MenuItemProps[],
-    sourceChannels: any[],
+    sourceChannels: ChatChannel[],
     key: string,
   ): MenuItemProps[] {
     const settings = getFilter(key);
-    const enriched = sourceChannels.map((ch: any) => ({
+    const enriched = sourceChannels.map((ch) => ({
       ...ch,
       hasActiveCall: activeCallChannelIdSet.has(ch.id),
     }));
@@ -523,7 +534,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
 
   function applyPeekFilter(
     items: MenuItemProps[],
-    sourceChannels: any[],
+    sourceChannels: ChatChannel[],
     key: string,
   ): MenuItemProps[] {
     const settings = getFilter(key);
@@ -551,11 +562,11 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     return applyTopN(subset, settings.peekMaxItems ?? null);
   }
 
-  function decorateLabel(label: string, _count: number, _key: string): string {
+  function decorateLabel(label: string): string {
     return label;
   }
 
-  function shouldShowGroup(items: any[], key: string): boolean {
+  function shouldShowGroup(items: MenuItemProps[], key: string): boolean {
     const settings = getFilter(key);
     if (items.length === 0 && settings.hideWhenEmpty) return false;
     return true;
@@ -575,7 +586,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   function makeSettingsAction(
     groupKey: string,
     groupLabel: string,
-    sourceChannels: any[],
+    sourceChannels: ChatChannel[],
   ): NonNullable<MenuGroupProps['groupContextMenu']>[number] {
     return {
       label: st('sweep.weldchat.sidebar.settings'),
@@ -637,7 +648,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
       React.createElement(Plus, { className: 'h-3.5 w-3.5', 'aria-hidden': true }),
     );
     menuGroups.push({
-      group: decorateLabel(st('sweep.weldchat.sidebar.directMessagesGroup'), filteredDmItems.length, dmKey),
+      group: decorateLabel(st('sweep.weldchat.sidebar.directMessagesGroup')),
       groupKey: dmKey,
       items: dmDisplayItems,
       collapsed: dmCollapsed,
@@ -682,7 +693,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   for (const info of listEntityTypes()) {
     const groupItems = entityGroups.get(info.type);
     if (!groupItems || groupItems.length === 0) continue;
-    const sourceChannels = entityChannels.filter((ch: any) => ch.entityType === info.type);
+    const sourceChannels = entityChannels.filter((ch) => ch.entityType === info.type);
     const entityKey = `entity:${info.type}`;
     const filteredItems = applyFilterAndSort(groupItems, sourceChannels, entityKey);
     if (!shouldShowGroup(filteredItems, entityKey)) continue;
@@ -691,7 +702,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
       ? applyPeekFilter(filteredItems, sourceChannels, entityKey)
       : filteredItems;
     menuGroups.push({
-      group: decorateLabel(info.label, filteredItems.length, entityKey),
+      group: decorateLabel(info.label),
       groupKey: entityKey,
       items: entityDisplayItems,
       collapsed: entityCollapsed,
@@ -743,7 +754,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     return !sectionId || !validSectionIds.has(sectionId);
   };
   const unsectionedChannelCount = allChannelItems.filter(
-    (ch: any) => isUnsectioned(ch.id),
+    (ch) => isUnsectioned(ch.id ?? ''),
   ).length;
   const allSections: { id: string | null; name: string }[] = [
     ...sections.map((s) => ({ id: s.id as string | null, name: s.name })),
@@ -760,12 +771,12 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   const totalSections = allSections.length;
 
   for (const section of allSections) {
-    const sectionChannels = allChannelItems.filter((ch: any) =>
-      section.id ? channelSectionMap[ch.id] === section.id : isUnsectioned(ch.id),
+    const sectionChannels = allChannelItems.filter((ch) =>
+      section.id ? channelSectionMap[ch.id ?? ''] === section.id : isUnsectioned(ch.id ?? ''),
     );
     const sectionKey = `section:${section.id ?? 'default'}`;
     const sectionSourceChannels = channels.filter(
-      (ch: any) =>
+      (ch) =>
         ch.type !== 'dm' &&
         ch.type !== 'entity' &&
         (section.id ? channelSectionMap[ch.id] === section.id : isUnsectioned(ch.id)),
@@ -872,7 +883,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
       ? applyPeekFilter(filteredSectionChannels, sectionSourceChannels, sectionKey)
       : filteredSectionChannels;
     menuGroups.push({
-      group: decorateLabel(section.name, filteredSectionChannels.length, sectionKey),
+      group: decorateLabel(section.name),
       items: sectionDisplayItems,
       collapsed: sectionCollapsed,
       onToggleCollapse: () => toggleGroupCollapse(sectionKey),

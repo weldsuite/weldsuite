@@ -11,7 +11,6 @@ import {
 } from 'lucide-react';
 import {
   Command,
-  CommandDialog,
   CommandInput,
   CommandList,
   CommandEmpty,
@@ -116,74 +115,3 @@ export function TicketTypeSelectorInline({ onSelect }: TicketTypeSelectorInlineP
   );
 }
 
-interface TicketTypeSelectorProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSelect: (type: TicketTypeConfig) => void;
-}
-
-/** Standalone dialog version */
-function TicketTypeSelector({ open, onOpenChange, onSelect }: TicketTypeSelectorProps) {
-  const t = useTranslations();
-  const { data: ticketTypes, isLoading } = useTicketTypes();
-  const activeTypes = (ticketTypes || []).filter((t) => t.isActive);
-
-  const grouped = activeTypes.reduce<Record<string, TicketTypeConfig[]>>((acc, type) => {
-    const cat = type.category || 'customer';
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(type);
-    return acc;
-  }, {});
-
-  const categoryOrder = ['customer', 'back-office', 'tracker'];
-  const categoryLabels: Record<string, string> = {
-    customer: t('sweep.welddesk.ticketTypeSelector.categoryCustomer'),
-    'back-office': t('sweep.welddesk.ticketTypeSelector.categoryBackOffice'),
-    tracker: t('sweep.welddesk.ticketTypeSelector.categoryTracker'),
-  };
-
-  return (
-    <CommandDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      title={t('sweep.welddesk.ticketTypeSelector.dialogTitle')}
-      description={t('sweep.welddesk.ticketTypeSelector.dialogDescription')}
-      showCloseButton={false}
-      className="sm:max-w-xl"
-    >
-      <CommandInput placeholder={t('sweep.welddesk.ticketTypeSelector.searchPlaceholder')} />
-      <CommandList>
-        {isLoading ? (
-          <div className="flex items-center justify-center gap-2 py-6">
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">{t('sweep.welddesk.ticketTypeSelector.loading')}</span>
-          </div>
-        ) : (
-          <>
-            <CommandEmpty>{t('sweep.welddesk.ticketTypeSelector.noTypesFound')}</CommandEmpty>
-            {categoryOrder.map((cat) => {
-              const types = grouped[cat];
-              if (!types || types.length === 0) return null;
-              return (
-                <CommandGroup key={cat} heading={categoryLabels[cat] || cat}>
-                  {types.map((type) => {
-                    const Icon = getIconForType(type);
-                    return (
-                      <CommandItem
-                        key={type.id}
-                        onSelect={() => onSelect(type)}
-                      >
-                        <Icon />
-                        <span>{type.name}</span>
-                      </CommandItem>
-                    );
-                  })}
-                </CommandGroup>
-              );
-            })}
-          </>
-        )}
-      </CommandList>
-    </CommandDialog>
-  );
-}

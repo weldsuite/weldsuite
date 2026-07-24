@@ -38,13 +38,11 @@ import {
 import { toast } from "sonner";
 import { filesApi } from "@/app/weldflow/lib/api-client";
 import type { FileResponse } from "@/lib/api/legacy-types";
-import { cn } from "@/lib/utils";
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from "@/components/entity-list";
+import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from "@/components/entity-list";
 
 interface FilesComponentProps {
   projectId: string;
   initialFiles: FileResponse[];
-  initialTotal: number;
 }
 
 const getFileIcon = (contentType: string | undefined | null) => {
@@ -88,17 +86,26 @@ interface ExtendedFile extends FileResponse {
   fileType: string;
 }
 
-export default function FilesComponent({ projectId, initialFiles, initialTotal }: FilesComponentProps) {
+// `/project-files` rows may carry either the legacy `FileResponse` shape
+// (contentType/size) or the raw `project_files` row shape (mimeType/fileSize)
+// — see the matching note on `filesApi.list` in `app/weldflow/lib/api-client.ts`.
+function normalizeFile(raw: Record<string, unknown>): ExtendedFile {
+  const contentType = (raw.contentType as string | undefined) ?? (raw.mimeType as string | undefined) ?? '';
+  const size = (raw.size as number | undefined) ?? (raw.fileSize as number | undefined) ?? 0;
+  return {
+    ...raw,
+    contentType,
+    size,
+    fileType: getFileType(contentType),
+  } as ExtendedFile;
+}
+
+export default function FilesComponent({ projectId, initialFiles }: FilesComponentProps) {
   const { t } = useI18n();
   const { canWrite } = useProjectPermissions();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<ExtendedFile[]>(
-    initialFiles.map((f: any) => ({
-      ...f,
-      contentType: f.contentType ?? f.mimeType,
-      size: f.size ?? f.fileSize,
-      fileType: getFileType(f.contentType ?? f.mimeType),
-    }))
+    initialFiles.map((f) => normalizeFile(f as unknown as Record<string, unknown>))
   );
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
@@ -129,8 +136,8 @@ export default function FilesComponent({ projectId, initialFiles, initialTotal }
       });
 
       if (result.success && result.data) {
-        const rows: any[] = Array.isArray(result.data) ? result.data : (result.data as any).items ?? [];
-        setFiles(rows.map(f => ({ ...f, contentType: f.contentType ?? f.mimeType, size: f.size ?? f.fileSize, fileType: getFileType(f.contentType ?? f.mimeType) })));
+        const rows: Record<string, unknown>[] = Array.isArray(result.data) ? result.data : (result.data.items ?? []);
+        setFiles(rows.map(normalizeFile));
       }
     } catch (error) {
       console.error('Failed to load files:', error);
@@ -262,10 +269,10 @@ export default function FilesComponent({ projectId, initialFiles, initialTotal }
   };
 
   // Handle file download
-  const handleDownload = async (file: FileResponse) => {
+  const handleDownload = useCallback(async (file: FileResponse) => {
     try {
       const result = await filesApi.get(projectId, file.id);
-      if (result.success && result.data) {
+      if (result.success && result.data?.url) {
         window.open(result.data.url, '_blank');
         toast.success(t.projects.files.downloadingFile);
       } else {
@@ -275,10 +282,10 @@ export default function FilesComponent({ projectId, initialFiles, initialTotal }
       console.error('Failed to download file:', error);
       toast.error(t.projects.files.failedToDownloadFile);
     }
-  };
+  }, [projectId, t]);
 
   // Handle file preview
-  const handlePreview = async (file: FileResponse) => {
+  const handlePreview = useCallback(async (file: FileResponse) => {
     setPreviewFile(file);
     setPreviewUrl(null);
     setPreviewLoading(true);
@@ -297,7 +304,7 @@ export default function FilesComponent({ projectId, initialFiles, initialTotal }
     } finally {
       setPreviewLoading(false);
     }
-  };
+  }, [projectId, t]);
 
   const canPreview = (contentType: string | undefined | null): boolean => {
     if (!contentType) return false;
@@ -436,7 +443,7 @@ export default function FilesComponent({ projectId, initialFiles, initialTotal }
   ], [t]);
 
   // Render row
-  const renderRow = useCallback((file: ExtendedFile, handlers: RowHandlers<ExtendedFile>) => {
+  const renderRow = useCallback((file: ExtendedFile) => {
     const Icon = getFileIcon(file.contentType);
 
     return (

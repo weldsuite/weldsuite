@@ -1,5 +1,5 @@
 
-import React, { useState, useTransition, useMemo } from 'react';
+import React, { useState, useTransition } from 'react';
 import { useRouter, useSearchParams, useParams } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { analyticsApi } from '@/app/weldflow/lib/api-client';
@@ -7,9 +7,9 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import {
-  ChevronDown, BarChart3, PieChart, Activity, TrendingUp,
+  ChevronDown, BarChart3, PieChart, Activity,
   AreaChart as AreaChartIcon, Layers, FolderKanban, CheckSquare, Clock,
-  Target, Plus, Divide, ArrowUp, ArrowDown, TrendingUpDown, SortAsc, SortDesc
+  Target, TrendingUpDown
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Switch } from '@weldsuite/ui/components/switch';
@@ -27,18 +27,8 @@ import {
   CartesianGrid,
   Pie,
   PieChart as RechartsPieChart,
-  Radar,
-  RadarChart,
-  RadialBar,
-  RadialBarChart,
-  PolarAngleAxis,
-  PolarGrid,
-  PolarRadiusAxis,
-  Cell,
   Label as RechartsLabel,
-  LabelList,
   XAxis,
-  YAxis
 } from "recharts"
 import {
   Card,
@@ -52,8 +42,6 @@ import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
-  ChartLegend,
-  ChartLegendContent,
 } from "@weldsuite/ui/components/chart"
 
 const chartData = [
@@ -80,15 +68,6 @@ const mixedBarChartData = [
   { browser: "firefox", visitors: 187, fill: "var(--chart-3)" },
   { browser: "edge", visitors: 173, fill: "var(--chart-4)" },
   { browser: "other", visitors: 90, fill: "var(--chart-5)" },
-]
-
-const negativeBarChartData = [
-  { month: "January", visitors: 186 },
-  { month: "February", visitors: 205 },
-  { month: "March", visitors: -207 },
-  { month: "April", visitors: 173 },
-  { month: "May", visitors: -209 },
-  { month: "June", visitors: 214 },
 ]
 
 const chartTypes = [
@@ -174,9 +153,9 @@ export default function ProjectAnalyticsBuilderPage() {
   const [smoothLines, setSmoothLines] = useState(true);
   const [showDataPoints, setShowDataPoints] = useState(false);
   const [fillArea, setFillArea] = useState(true);
-  const [aggregation, setAggregation] = useState('sum');
-  const [sortOrder, setSortOrder] = useState('asc');
-  const [limit, setLimit] = useState('10');
+  const [aggregation] = useState('sum');
+  const [sortOrder] = useState('asc');
+  const [limit] = useState('10');
 
   const chartConfig = {
     desktop: { label: "Value", color: chartColor },

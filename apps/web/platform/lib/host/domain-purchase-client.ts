@@ -18,37 +18,6 @@ export function redirectToCheckout(checkoutUrl: string): void {
 }
 
 /**
- * Poll registration status until completion or failure
- * @param registrationId The registration ID to poll
- * @param onStatusUpdate Callback called on each status update
- * @param checkStatus Function that checks registration status via API
- * @param maxAttempts Maximum number of polling attempts (default: 60)
- * @param intervalMs Milliseconds between polls (default: 2000)
- */
-async function pollRegistrationStatus(
-  registrationId: string,
-  onStatusUpdate: (status: DomainPurchaseStatusResponse) => void,
-  checkStatus: CheckStatusFn,
-  maxAttempts: number = 60,
-  intervalMs: number = 2000
-): Promise<DomainPurchaseStatusResponse> {
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const status = await checkStatus(registrationId);
-    onStatusUpdate(status);
-
-    // Terminal states
-    if (status.status === 'completed' || status.status === 'failed') {
-      return status;
-    }
-
-    // Wait before next poll
-    await new Promise(resolve => setTimeout(resolve, intervalMs));
-  }
-
-  throw new Error('Registration status polling timed out');
-}
-
-/**
  * Poll multiple registration statuses simultaneously
  * @param registrationIds Array of registration IDs to poll
  * @param onStatusUpdate Callback called when any status updates

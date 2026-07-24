@@ -14,7 +14,6 @@ import { MeetingsSection } from './sections/meetings-section';
 import { FilesSection } from './sections/files-section';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
 import { CustomerChatPanel } from '@/components/customer-chat/customer-chat-panel';
-import { Loader2 } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 
 interface CustomerDetailContentProps {

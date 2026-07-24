@@ -1,5 +1,4 @@
 
-import { Mail } from 'lucide-react';
 import { EntityList, EmptyStateIllustration } from '@/components/entity-list';
 import { useCustomerDetailContext } from '../customer-detail-provider';
 import { useComposeSafe } from '@/contexts/compose-context';

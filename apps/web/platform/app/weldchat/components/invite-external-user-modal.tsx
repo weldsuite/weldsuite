@@ -52,7 +52,7 @@ export function InviteExternalUserModal({
 }: InviteExternalUserModalProps) {
   const { t } = useI18n();
   const st = useTranslations();
-  const ts = (t as any).weldchat?.inviteExternal;
+  const ts = t.weldchat.inviteExternal;
   const { getClient } = useAppApiClient();
   const { mutateAsync: addMembers } = useAddChannelMembers();
   const qc = useQueryClient();
@@ -100,9 +100,12 @@ export function InviteExternalUserModal({
       }
       reset();
       onOpenChange(false);
-    } catch (err: any) {
-      const msg = err?.message || err?.error?.message || ts?.genericError || 'Failed to send invitation';
-      setError(msg);
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : (err as { error?: { message?: string } } | undefined)?.error?.message;
+      setError(message || ts.genericError || 'Failed to send invitation');
     } finally {
       setSubmitting(false);
     }

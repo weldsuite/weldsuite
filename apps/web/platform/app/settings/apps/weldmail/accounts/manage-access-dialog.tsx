@@ -41,6 +41,13 @@ interface ManageAccessDialogProps {
   defaultAssignedUserIds: string[];
 }
 
+interface WorkspaceMemberOption {
+  userId?: string;
+  name?: string | null;
+  email?: string;
+  picture?: string | null;
+}
+
 export function ManageAccessDialog({
   open,
   onOpenChange,
@@ -65,7 +72,7 @@ export function ManageAccessDialog({
     }
   }, [open, defaultIsShared, defaultAssignedUserIds]);
 
-  const members = membersData?.data ?? [];
+  const members = (membersData?.data ?? []) as WorkspaceMemberOption[];
 
   const toggleUser = (userId: string) => {
     setSelectedUserIds((prev) =>
@@ -78,8 +85,8 @@ export function ManageAccessDialog({
     // shared account — semantically identical, and keeps the "Shared" badge
     // in sync without requiring the user to flip the toggle.
     const allMemberIds = members
-      .map((m: any) => m.userId)
-      .filter((id: string | undefined): id is string => !!id);
+      .map((m) => m.userId)
+      .filter((id): id is string => !!id);
     const allSelected =
       allMemberIds.length > 0 &&
       allMemberIds.every((id) => selectedUserIds.includes(id));
@@ -162,7 +169,7 @@ export function ManageAccessDialog({
                         <>
                           <CommandEmpty>{tma.noUsersFound}</CommandEmpty>
                           <CommandGroup>
-                            {members.map((member: any) => {
+                            {members.filter((m): m is WorkspaceMemberOption & { userId: string } => !!m.userId).map((member) => {
                               const checked = selectedUserIds.includes(member.userId);
                               const displayName = member.name || member.email || 'Member';
                               return (
@@ -217,7 +224,7 @@ export function ManageAccessDialog({
               {selectedUserIds.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 pt-1">
                   {selectedUserIds.map((userId) => {
-                    const member = members.find((m: any) => m.userId === userId);
+                    const member = members.find((m) => m.userId === userId);
                     const displayName = member?.name || member?.email || userId;
                     return (
                       <Badge

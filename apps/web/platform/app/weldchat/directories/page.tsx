@@ -15,7 +15,6 @@ import {
   EmptyStateIllustration,
   type ActiveFilter,
   type HeaderColumn,
-  type RowHandlers,
 } from '@/components/entity-list';
 
 function formatRelative(
@@ -62,10 +61,10 @@ export default function DirectoriesPage() {
   ]);
 
   const { data: membersData, isLoading: membersLoading } = useWorkspaceMembers();
-  const rawMembers: any[] = (membersData as any)?.data ?? [];
+  const rawMembers = useMemo(() => membersData?.data ?? [], [membersData]);
 
   const items: DirectoryItem[] = useMemo(() => {
-    const allPeople: DirectoryItem[] = rawMembers.map((m: any) => ({
+    const allPeople: DirectoryItem[] = rawMembers.map((m) => ({
       id: `person:${m.id}`,
       name: m.name || m.email || st('sweep.weldchat.directories.unknownPerson'),
       email: m.email,
@@ -92,7 +91,7 @@ export default function DirectoriesPage() {
     { id: 'last', header: t.directoriesPage?.lastActivityHeader ?? 'Last activity', width: 'w-[120px] flex-shrink-0' },
   ], [t]);
 
-  const renderRow = useCallback((item: DirectoryItem, _handlers: RowHandlers<DirectoryItem>) => {
+  const renderRow = useCallback((item: DirectoryItem) => {
     return (
       <div
         key={item.id}

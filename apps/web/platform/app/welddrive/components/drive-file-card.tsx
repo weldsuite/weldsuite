@@ -154,17 +154,6 @@ const sourceBadgeStyles: Record<string, string> = {
 
 const driveLabelClass = 'inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none';
 
-const sourceDotColors: Record<string, string> = {
-  drive: 'bg-sky-500',
-  projects: 'bg-blue-500',
-  documents: 'bg-indigo-500',
-  whiteboards: 'bg-violet-500',
-  mail: 'bg-emerald-500',
-  voip: 'bg-amber-500',
-  meetings: 'bg-orange-500',
-  social: 'bg-pink-500',
-};
-
 function formatFileSize(bytes: number | null): string {
   if (bytes === null || bytes === undefined) return '';
   if (bytes === 0) return '0 B';

@@ -52,8 +52,8 @@ export function MovePageDialog({ pageId, open, onOpenChange }: MovePageDialogPro
   const { data: treeData } = useKnowledgePageTree();
   const movePage = useMoveKnowledgePage();
 
-  const spaces = spacesData?.data ?? [];
-  const allNodes = treeData?.data ?? [];
+  const spaces = useMemo(() => spacesData?.data ?? [], [spacesData]);
+  const allNodes = useMemo(() => treeData?.data ?? [], [treeData]);
   const currentNode = allNodes.find((n) => n.id === pageId);
 
   const [spaceId, setSpaceId] = useState(currentNode?.spaceId ?? '');

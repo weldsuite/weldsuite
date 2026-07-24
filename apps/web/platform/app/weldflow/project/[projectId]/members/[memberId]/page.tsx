@@ -10,7 +10,6 @@ import {
   User,
   Hash,
   Pencil,
-  Trash2,
   UserMinus,
   CheckSquare,
   Clock,
@@ -73,7 +72,7 @@ interface MemberStats {
   tasksAssigned: number;
   tasksCompleted: number;
   hoursLogged: number;
-  recentTasks: any[];
+  recentTasks: { id: string; title: string; status: string; updatedAt?: string }[];
 }
 
 export default function MemberDetailPage() {
@@ -115,7 +114,7 @@ export default function MemberDetailPage() {
         setError(memberResult.error || t.projects.members.loadingMember);
       }
 
-      if (statsResult.success) {
+      if (statsResult.success && statsResult.data) {
         setStats(statsResult.data);
       }
     } catch (err) {
@@ -124,7 +123,7 @@ export default function MemberDetailPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [projectId, memberId]);
+  }, [projectId, memberId, t.projects.members.failedToUpdateMember, t.projects.members.loadingMember]);
 
   useEffect(() => {
     loadData();
@@ -181,7 +180,7 @@ export default function MemberDetailPage() {
       } else {
         toast.error(result.error || t.projects.members.failedToUpdateMember);
       }
-    } catch (err) {
+    } catch {
       toast.error(t.projects.members.failedToUpdateMember);
     } finally {
       setIsSubmitting(false);
@@ -249,14 +248,14 @@ export default function MemberDetailPage() {
           <p>{t.projects.members.noRecentActivity}</p>
         </div>
       ) : (
-        stats.recentTasks.map((task: any) => (
+        stats.recentTasks.map((task) => (
           <div key={task.id} className="flex items-start gap-3 p-4">
             <div className={`h-8 w-8 rounded-full ${getStatusBgColor(task.status)} flex items-center justify-center flex-shrink-0`}>
               {getStatusIcon(task.status)}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm text-foreground">
-                {task.status === 'done' ? t.projects.members.completedTask : task.status === 'in_progress' ? t.projects.members.workingOnTask : t.projects.members.assignedToTask} task "{task.title}"
+                {task.status === 'done' ? t.projects.members.completedTask : task.status === 'in_progress' ? t.projects.members.workingOnTask : t.projects.members.assignedToTask} task &quot;{task.title}&quot;
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {task.updatedAt ? formatDistanceToNow(new Date(task.updatedAt), { addSuffix: true }) : t.projects.members.recently}

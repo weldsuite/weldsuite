@@ -1,15 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { getEnv, getAllEnv } from './env';
 
-declare global {
-  interface Window {
-    __ENV?: Record<string, string>;
-  }
-}
+// `Window.__ENV` is already declared globally by `./env` (imported above);
+// redeclaring it here with a looser type conflicts with that declaration.
 
 describe('getEnv', () => {
-  const originalEnv = { ...window };
-
   beforeEach(() => {
     delete window.__ENV;
   });

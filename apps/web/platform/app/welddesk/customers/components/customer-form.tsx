@@ -23,7 +23,7 @@ export function CustomerForm() {
   const { t } = useI18n();
   const st = useTranslations();
   const tc = t.helpdesk.customers;
-  const [isPending, startTransition] = useTransition();
+  const [isPending] = useTransition();
   const createCustomerMutation = useCreateHelpdeskCustomer();
 
   const [formData, setFormData] = useState({
@@ -61,11 +61,11 @@ export function CustomerForm() {
             router.push("/welddesk/contacts");
           } else {
             toast.error(tc.failedToCreateCustomer, {
-              description: result.error || tc.unexpectedError,
+              description: tc.unexpectedError,
             });
           }
         },
-        onError: (error: any) => {
+        onError: (error: Error) => {
           toast.error(tc.failedToCreateCustomer, {
             description: error.message || tc.unexpectedError,
           });

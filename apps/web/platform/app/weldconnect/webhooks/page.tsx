@@ -1,7 +1,7 @@
 
 import { PageLoader } from '@/components/page-loader';
-import { useWebhooks, useWorkflows } from '@/hooks/queries/use-automation-queries';
-import { WebhooksClient } from './webhooks-client';
+import { useWebhooks, useWorkflows, type Workflow } from '@/hooks/queries/use-automation-queries';
+import { WebhooksClient, type WebhookView } from './webhooks-client';
 
 export default function WebhooksPage() {
   const { data: webhooksResult, isLoading: isWebhooksLoading } = useWebhooks();
@@ -15,12 +15,12 @@ export default function WebhooksPage() {
   const workflows = workflowsResult?.data ?? [];
 
   // Create workflow name lookup
-  const workflowNames = new Map(workflows.map((w: any) => [w.id, w.name]));
+  const workflowNames = new Map(workflows.map((w: Workflow) => [w.id, w.name]));
 
   // Map webhooks with workflow names
-  const mappedWebhooks = webhooks.map((w: any) => ({
-    ...w,
-    workflowName: w.workflowId ? workflowNames.get(w.workflowId) : undefined,
+  const mappedWebhooks = webhooks.map((w): WebhookView => ({
+    ...(w as unknown as WebhookView),
+    workflowName: w.workflowId ? workflowNames.get(w.workflowId as string) : undefined,
   }));
 
   return <WebhooksClient webhooks={mappedWebhooks} />;

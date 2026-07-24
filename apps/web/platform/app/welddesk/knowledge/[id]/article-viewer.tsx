@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, type ReactElement } from 'react';
 import { useRouter } from '@/lib/router';
 import {
   ChevronLeft,
@@ -39,25 +39,10 @@ export function ArticleViewer({ article }: ArticleViewerProps) {
   const router = useRouter();
   const [isHelpful, setIsHelpful] = useState<boolean | null>(null);
 
-  const getStatusColor = (status: Article['status']) => {
-    switch (status) {
-      case 'published':
-        return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400';
-      case 'draft':
-        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400';
-      case 'archived':
-        return 'bg-gray-100 text-gray-800 dark:bg-background/20 dark:text-muted-foreground';
-      case 'review':
-        return 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400';
-      case 'outdated':
-        return 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400';
-    }
-  };
-
   // Parse markdown content to HTML-like structure for display
   const renderContent = (content: string) => {
     const lines = content.split('\n');
-    const elements: JSX.Element[] = [];
+    const elements: ReactElement[] = [];
     let listItems: string[] = [];
     let listType: 'bullet' | 'numbered' | null = null;
     let codeBlock: string[] = [];
@@ -87,7 +72,7 @@ export function ArticleViewer({ article }: ArticleViewerProps) {
       }
     };
 
-    lines.forEach((line, index) => {
+    lines.forEach((line) => {
       if (line.startsWith('```')) {
         if (inCodeBlock) {
           elements.push(

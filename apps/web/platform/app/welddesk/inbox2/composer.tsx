@@ -57,9 +57,9 @@ export function Composer({ conversationId }: ComposerProps) {
   const reply = useReplyToDeskConversation();
   const applyMacro = useApplyDeskMacro();
   const { data: membersData } = useDeskWorkspaceMembers();
-  const members = membersData ?? [];
+  const members = useMemo(() => membersData ?? [], [membersData]);
   const { data: macrosData } = useDeskMacros();
-  const macros = macrosData?.data ?? [];
+  const macros = useMemo(() => macrosData?.data ?? [], [macrosData]);
 
   const filteredMembers = useMemo(() => {
     const q = mentionQuery.trim().toLowerCase();

@@ -10,6 +10,45 @@
  * Only types still referenced by call sites are kept here.
  */
 
+/**
+ * A single goal card on the WeldFlow goals canvas. Mirrors the unexported
+ * `GoalCardType` in `components/weldflow/goals/goals-canvas-view.tsx` — kept
+ * structurally identical so `ProjectGoals` stays assignable to that
+ * component's `GoalsData` prop without either side importing the other.
+ */
+export interface ProjectGoalCard {
+  id: string;
+  title: string;
+  description?: string;
+  owner: {
+    name: string;
+    avatar?: string;
+    initials: string;
+    color: string;
+  };
+  status: 'on-track' | 'at-risk' | 'off-track' | 'not-started' | 'completed';
+  progress: number;
+  dueDate: string | Date;
+  timePeriod: string;
+  type: 'company' | 'team' | 'individual';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  parentId?: string;
+  subGoals?: string[];
+  metrics?: {
+    target: number;
+    current: number;
+    unit: string;
+  };
+  updates?: number;
+  comments?: number;
+  attachments?: number;
+  priority?: 'low' | 'medium' | 'high' | 'critical';
+  linkedTaskId?: string;
+}
+
 export interface ProjectGoals {
   mission: {
     id: string;
@@ -21,7 +60,5 @@ export interface ProjectGoals {
     height: number;
     subGoals: string[];
   };
-  // Goals canvas blob — heterogeneous card objects rendered by the goals view.
-  // Typed as `any[]` to match the consuming `GoalsData` interface.
-  goals: any[];
+  goals: ProjectGoalCard[];
 }

@@ -9,7 +9,8 @@
     "isolatedModules": true,
     "noEmit": true,
     "declaration": true,
-    "lib": ["ESNext"]
+    "lib": ["ESNext", "DOM"],
+    "types": []
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules"]

@@ -71,7 +71,7 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
   const { createMeetingAndGetUrl, isPending: isCreatingMeeting } = useAutoCreateWeldMeeting();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
-  const [pendingPayload, setPendingPayload] = useState<any>(null);
+  const [pendingPayload, setPendingPayload] = useState<Partial<CalendarEvent> | null>(null);
 
   // Calendars the user can create events in (own + edit/manage shared)
   const writableCalendars = (calendars || []).filter((c) => c.isOwn || c.permission === 'edit' || c.permission === 'manage');
@@ -110,8 +110,8 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
         location: event.location || '',
         isVirtual: event.isVirtual || false,
         meetingUrl: event.meetingUrl || '',
-        status: (event.status as any) || 'confirmed',
-        priority: (event.priority as any) || 'normal',
+        status: (event.status as EventFormValues['status']) || 'confirmed',
+        priority: (event.priority as EventFormValues['priority']) || 'normal',
         color: event.color || '',
         notes: event.notes || '',
         attendees: event.attendees,
@@ -122,7 +122,7 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
         calendarId: defaultCalendarId || '',
         title: defaultTitle || '',
         description: defaultDescription || '',
-        type: (defaultType as any) || 'meeting',
+        type: (defaultType as EventFormValues['type']) || 'meeting',
         startTime: defaultStart || new Date(),
         endTime: defaultEnd || null,
         allDay: false,
@@ -135,7 +135,7 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
         notes: '',
       });
     }
-  }, [event, defaultStart, defaultEnd, defaultType, defaultTitle, defaultDescription, form]);
+  }, [event, defaultStart, defaultEnd, defaultType, defaultTitle, defaultDescription, defaultCalendarId, form]);
 
   const hasAttendees = !!(isEdit && event?.attendees?.length);
 
@@ -236,7 +236,7 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
               <Label>{t.eventDialog.typeLabel}</Label>
               <Select
                 value={form.watch('type')}
-                onValueChange={(v) => form.setValue('type', v as any)}
+                onValueChange={(v) => form.setValue('type', v as EventFormValues['type'])}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -252,7 +252,7 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
               <Label>{t.eventDialog.priorityLabel}</Label>
               <Select
                 value={form.watch('priority')}
-                onValueChange={(v) => form.setValue('priority', v as any)}
+                onValueChange={(v) => form.setValue('priority', v as EventFormValues['priority'])}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -365,7 +365,7 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
               <Label>{t.eventDialog.statusLabel}</Label>
               <Select
                 value={form.watch('status')}
-                onValueChange={(v) => form.setValue('status', v as any)}
+                onValueChange={(v) => form.setValue('status', v as EventFormValues['status'])}
               >
                 <SelectTrigger>
                   <SelectValue />

@@ -7,7 +7,6 @@ import {
   MoreVertical,
   Eye,
   MessageSquare,
-  User,
 } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
@@ -26,7 +25,7 @@ import {
 import type { Review } from '@/hooks/queries/use-helpdesk-queries';
 import { format, isValid, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
+import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 
 function formatDate(date: string | Date | null | undefined, formatStr: string): string {
   if (!date) return '-';
@@ -37,19 +36,6 @@ function formatDate(date: string | Date | null | undefined, formatStr: string): 
 interface ReviewsClientProps {
   items: Review[];
 }
-
-// Sentiment badge configurations (labels are set dynamically from translations)
-const sentimentConfig: Record<string, { className: string }> = {
-  positive: {
-    className: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400',
-  },
-  neutral: {
-    className: 'bg-gray-100 text-gray-800 dark:bg-background/20 dark:text-muted-foreground',
-  },
-  negative: {
-    className: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400',
-  },
-};
 
 // Status badge configurations (labels are set dynamically from translations)
 const statusConfig: Record<string, { className: string }> = {
@@ -182,12 +168,6 @@ export function ReviewsClient({ items }: ReviewsClientProps) {
     { id: 'status', header: tr.status, width: 'w-[100px]' },
   ], [tr]);
 
-  const sentimentLabels: Record<string, string> = useMemo(() => ({
-    positive: tr.positive,
-    neutral: tr.neutral,
-    negative: tr.negative,
-  }), [tr]);
-
   const statusLabels: Record<string, string> = useMemo(() => ({
     pending: tr.pending,
     responded: tr.responded,
@@ -195,8 +175,7 @@ export function ReviewsClient({ items }: ReviewsClientProps) {
   }), [tr]);
 
   // Render row
-  const renderRow = useCallback((review: Review, handlers: RowHandlers<Review>) => {
-    const sentiment = sentimentConfig[review.sentiment] || sentimentConfig.neutral;
+  const renderRow = useCallback((review: Review) => {
     const status = statusConfig[review.status] || statusConfig.pending;
 
     return (
@@ -393,7 +372,7 @@ export function ReviewsClient({ items }: ReviewsClientProps) {
               {selectedReview.comment && (
                 <div className="mb-5">
                   <p className="text-[14px] text-gray-600 dark:text-muted-foreground leading-relaxed">
-                    "{selectedReview.comment}"
+                    &ldquo;{selectedReview.comment}&rdquo;
                   </p>
                 </div>
               )}

@@ -25,6 +25,7 @@ export default function MailAccountLayout({
     if (storedLast === accountId) return;
     updateLastAccount.mutate(accountId);
     // updateLastAccount is stable from react-query; intentionally not a dep.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId, storedLast, preferences]);
 
   if (!params.accountId) {

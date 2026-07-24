@@ -28,7 +28,6 @@ import {
   useUpdateInvoice,
   useAccountingCustomers,
   useAccountingTaxRates,
-  useAccountingAccounts,
 } from '@/hooks/queries/use-accounting-queries';
 import type { InvoiceDetail } from '@/lib/api/domains/weldbooks';
 import {
@@ -109,11 +108,9 @@ export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
   // role=customer to include "both"-role contacts, so dual-role parties qualify.
   const { data: contactsData } = useAccountingCustomers({ role: 'customer' });
   const { data: taxRatesData } = useAccountingTaxRates();
-  const { data: accountsData } = useAccountingAccounts();
 
-  const contacts = (contactsData as any)?.data ?? [];
-  const taxRates = (taxRatesData as any)?.data ?? [];
-  const accounts = (accountsData as any)?.data ?? [];
+  const contacts = useMemo(() => contactsData?.data ?? [], [contactsData]);
+  const taxRates = useMemo(() => taxRatesData?.data ?? [], [taxRatesData]);
 
   // Build default values
   const defaultValues: InvoiceFormValues = useMemo(() => {
@@ -123,8 +120,8 @@ export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
         issueDate: invoice.issueDate?.slice(0, 10) ?? todayISO(),
         dueDate: invoice.dueDate?.slice(0, 10) ?? defaultDueDate(),
         reference: invoice.reference ?? '',
-        notes: (invoice as any).notes ?? '',
-        internalNotes: (invoice as any).internalNotes ?? '',
+        notes: invoice.notes ?? '',
+        internalNotes: invoice.internalNotes ?? '',
         items:
           invoice.items && invoice.items.length > 0
             ? invoice.items.map((item) => ({
@@ -201,7 +198,7 @@ export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
   // Submit
   // ---------------------------------------------------------------------------
 
-  const onSubmit = (values: any) => {
+  const onSubmit = (values: InvoiceFormValues) => {
     startTransition(async () => {
       try {
         const payload: Record<string, unknown> = {
@@ -211,7 +208,7 @@ export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
           reference: values.reference || undefined,
           notes: values.notes || undefined,
           internalNotes: values.internalNotes || undefined,
-          items: values.items.map((item: any) => ({
+          items: values.items.map((item) => ({
             description: item.description,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
@@ -246,7 +243,7 @@ export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
   // Selected contact label
   // ---------------------------------------------------------------------------
 
-  const selectedContact = contacts.find((c: any) => c.id === watchedContactId);
+  const selectedContact = contacts.find((c) => c.id === watchedContactId);
   const contactLabel = selectedContact?.name ?? selectedContact?.email ?? '';
 
   // ---------------------------------------------------------------------------
@@ -269,7 +266,7 @@ export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
                 <SelectValue placeholder={tf.selectCustomer} />
               </SelectTrigger>
               <SelectContent>
-                {contacts.map((c: any) => (
+                {contacts.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
                     {c.name || c.email || c.id}
                   </SelectItem>
@@ -392,7 +389,7 @@ export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">{tf.noTax}</SelectItem>
-                      {taxRates.map((tr: any) => (
+                      {taxRates.map((tr) => (
                         <SelectItem key={tr.id} value={tr.id}>
                           {tr.name ?? tr.rate + '%'}
                         </SelectItem>

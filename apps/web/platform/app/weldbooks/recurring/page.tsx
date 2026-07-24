@@ -69,12 +69,12 @@ export default function RecurringInvoicesPage() {
       items={items}
       isLoading={isLoading}
       columns={columns}
-      onRowClick={(item) => navigate({ to: `/weldbooks/recurring/${item.id}` as any })}
+      onRowClick={(item) => navigate({ to: '/weldbooks/recurring/$id', params: { id: item.id } })}
       filters={[]}
       searchFields={['contactName', 'frequency']}
       createButton={{
         label: trp.newRecurring,
-        onClick: () => navigate({ to: '/weldbooks/recurring/add' as any }),
+        onClick: () => navigate({ to: '/weldbooks/recurring/add' }),
       }}
       emptyState={{
         icon: (
@@ -86,7 +86,7 @@ export default function RecurringInvoicesPage() {
         description: t.accounting.description,
         action: {
           label: trp.newRecurring,
-          onClick: () => navigate({ to: '/weldbooks/recurring/add' as any }),
+          onClick: () => navigate({ to: '/weldbooks/recurring/add' }),
         },
       }}
     />

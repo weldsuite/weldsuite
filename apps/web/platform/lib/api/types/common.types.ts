@@ -41,18 +41,6 @@ export interface DateRange {
   end: Date;
 }
 
-interface TimeRange {
-  start: string; // "HH:mm"
-  end: string;   // "HH:mm"
-}
-
-interface ContactInfo {
-  name?: string;
-  email?: string;
-  phone?: string;
-  mobile?: string;
-}
-
 export interface Attachment {
   id: string;
   fileName: string;
@@ -67,30 +55,13 @@ export interface Attachment {
 // API Types
 // ============================================================================
 
-interface ApiResponse<T = any> {
-  success: boolean;
-  data?: T;
-  error?: ApiError;
-  message?: string;
-  timestamp?: Date;
-  requestId?: string;
-}
-
-interface ApiError {
-  code: string;
-  message: string;
-  details?: any;
-  field?: string;
-  timestamp?: Date;
-}
-
 export interface PaginationParams {
   page?: number;
   limit?: number;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
   search?: string;
-  filters?: Record<string, any>;
+  filters?: Record<string, unknown>;
 }
 
 interface PaginationMeta {
@@ -102,7 +73,7 @@ interface PaginationMeta {
   hasPrev?: boolean;
 }
 
-export interface PaginatedResponse<T = any> {
+export interface PaginatedResponse<T = unknown> {
   items: T[];
   meta: PaginationMeta;
 }
@@ -125,7 +96,7 @@ export interface User extends BaseEntity {
   twoFactorEnabled?: boolean;
   lastLoginAt?: Date;
   preferences?: UserPreferences;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 interface UserPreferences {
@@ -146,22 +117,6 @@ interface NotificationPreferences {
 
 type UserRole = 'admin' | 'manager' | 'user' | 'viewer' | 'guest';
 type UserStatus = 'active' | 'inactive' | 'suspended' | 'pending';
-
-interface AuthSession {
-  user: User;
-  accessToken: string;
-  refreshToken?: string;
-  expiresAt: number;
-  workspaceId?: string;
-}
-
-interface AuthTokens {
-  accessToken: string;
-  refreshToken?: string;
-  idToken?: string;
-  expiresIn: number;
-  tokenType: string;
-}
 
 // ============================================================================
 // Workspace Types
@@ -196,72 +151,6 @@ interface WorkspaceLimits {
   maxTransactions?: number;
 }
 
-interface WorkspaceMember extends BaseEntity {
-  workspaceId: string;
-  userId: string;
-  role: WorkspaceRole;
-  permissions?: string[];
-  joinedAt: Date;
-  invitedBy?: string;
-  status: 'active' | 'invited' | 'suspended';
-}
-
-type WorkspaceRole = 'owner' | 'admin' | 'member' | 'viewer' | 'guest';
-
-// ============================================================================
-// Audit Types
-// ============================================================================
-
-interface AuditLog extends BaseEntity {
-  entityType: string;
-  entityId: string;
-  action: AuditAction;
-  userId: string;
-  userName?: string;
-  workspaceId?: string;
-  changes?: AuditChange[];
-  metadata?: Record<string, any>;
-  ipAddress?: string;
-  userAgent?: string;
-}
-
-interface AuditChange {
-  field: string;
-  oldValue: any;
-  newValue: any;
-}
-
-type AuditAction = 'create' | 'update' | 'delete' | 'view' | 'export' | 'import' | 'login' | 'logout';
-
-// ============================================================================
-// Notification Types
-// ============================================================================
-
-interface Notification extends BaseEntity {
-  userId: string;
-  type: NotificationType;
-  title: string;
-  message: string;
-  data?: any;
-  read: boolean;
-  readAt?: Date;
-  actionUrl?: string;
-  priority?: 'high' | 'medium' | 'low';
-  expiresAt?: Date;
-}
-
-type NotificationType =
-  | 'info'
-  | 'success'
-  | 'warning'
-  | 'error'
-  | 'task'
-  | 'reminder'
-  | 'mention'
-  | 'comment'
-  | 'approval'
-  | 'system';
-
 // ============================================================================
 // File & Media Types
 // ============================================================================
@@ -286,90 +175,4 @@ interface FileMetadata {
   format?: string;
   encoding?: string;
   checksum?: string;
-}
-
-// ============================================================================
-// Search & Filter Types
-// ============================================================================
-
-interface SearchParams {
-  query: string;
-  fields?: string[];
-  fuzzy?: boolean;
-  highlight?: boolean;
-  limit?: number;
-  offset?: number;
-}
-
-interface FilterOperator {
-  field: string;
-  operator: 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'between' | 'exists';
-  value: any;
-}
-
-interface SortOption {
-  field: string;
-  order: 'asc' | 'desc';
-}
-
-// ============================================================================
-// Analytics Types
-// ============================================================================
-
-interface Metric {
-  name: string;
-  value: number;
-  unit?: string;
-  change?: number;
-  changeType?: 'increase' | 'decrease' | 'stable';
-  period?: DateRange;
-}
-
-interface ChartData {
-  labels: string[];
-  datasets: ChartDataset[];
-}
-
-interface ChartDataset {
-  label: string;
-  data: number[];
-  color?: string;
-  backgroundColor?: string;
-}
-
-// ============================================================================
-// Settings Types
-// ============================================================================
-
-interface Setting extends BaseEntity {
-  key: string;
-  value: any;
-  type: 'string' | 'number' | 'boolean' | 'json' | 'array';
-  category?: string;
-  description?: string;
-  isPublic?: boolean;
-  isEditable?: boolean;
-  validation?: any;
-}
-
-// ============================================================================
-// Export Types
-// ============================================================================
-
-interface ExportRequest {
-  format: 'csv' | 'xlsx' | 'pdf' | 'json';
-  fields?: string[];
-  filters?: FilterOperator[];
-  sort?: SortOption[];
-  dateRange?: DateRange;
-}
-
-interface ExportJob extends BaseEntity {
-  type: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  progress?: number;
-  fileUrl?: string;
-  error?: string;
-  completedAt?: Date;
-  expiresAt?: Date;
 }

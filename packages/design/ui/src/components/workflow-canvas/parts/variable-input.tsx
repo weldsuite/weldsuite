@@ -178,7 +178,10 @@ export function VariableInput({
         setSelectedIndex((prev) => prev > 0 ? prev - 1 : filteredVariables.length - 1);
       } else if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
-        handleAutocompleteSelect(filteredVariables[selectedIndex].path);
+        const selected = filteredVariables[selectedIndex];
+        if (selected) {
+          handleAutocompleteSelect(selected.path);
+        }
       } else if (e.key === 'Escape') {
         setAutocomplete((prev) => ({ ...prev, open: false }));
       }

@@ -281,6 +281,7 @@ function resolveCollisions(nodes: Node[]): void {
       for (let bi = 0; bi < branchSubtrees.length - 1; bi++) {
         const leftSub = branchSubtrees[bi];
         const rightSub = branchSubtrees[bi + 1];
+        if (!leftSub || !rightSub) continue;
 
         const leftBox = getBoundingBox(leftSub);
         const rightBox = getBoundingBox(rightSub);
@@ -310,6 +311,7 @@ function resolveCollisions(nodes: Node[]): void {
       for (let j = i + 1; j < condFullSubtrees.length; j++) {
         const a = condFullSubtrees[i];
         const b = condFullSubtrees[j];
+        if (!a || !b) continue;
 
         // Skip if one is inside the other's subtree
         if (a.ids.has(b.condNode.id) || b.ids.has(a.condNode.id)) continue;
@@ -343,6 +345,7 @@ function resolveCollisions(nodes: Node[]): void {
       for (let j = i + 1; j < nodes.length; j++) {
         const a = nodes[i];
         const b = nodes[j];
+        if (!a || !b) continue;
         if (a.id === 'trigger' || b.id === 'trigger') continue;
         // Skip sub_agent nodes — they live in their own visual lane
         if (a.type === 'sub_agent' || b.type === 'sub_agent') continue;
@@ -595,7 +598,7 @@ export function workflowToFlow(
 
         if (siblings.length > 0) {
           // Stack below the last sibling, centering based on the branch anchor X
-          const lastSibling = siblings[siblings.length - 1];
+          const lastSibling = siblings[siblings.length - 1]!;
           const lastSiblingData = lastSibling.data as any;
           const lastSiblingType = lastSiblingData?.actionType || lastSiblingData?.step?.type || '';
           const lastSiblingHeight = getTotalNodeHeight(lastSiblingType);
@@ -622,7 +625,7 @@ export function workflowToFlow(
     // Check if this is the last step without a branch parent, or the last child of its branch
     const stepsWithoutBranchParent = steps.filter((s: any) => !s.parentBranchId);
     const isLastNonBranchStep = stepsWithoutBranchParent.length > 0 &&
-      stepsWithoutBranchParent[stepsWithoutBranchParent.length - 1].id === step.id;
+      stepsWithoutBranchParent[stepsWithoutBranchParent.length - 1]!.id === step.id;
     const isLastNode = !stepAny.parentBranchId && isLastNonBranchStep;
 
     if (step.type === 'condition') {
@@ -671,8 +674,9 @@ export function workflowToFlow(
           const branchNodeId = `${step.id}_branch_${branch.value}`;
           const branchHasChildren = branchChildrenMap.has(branchNodeId);
           // Place the branch node centered within its allocated width
-          const branchX = currentX + (branchWidths[branchIdx] - NODE_WIDTH) / 2;
-          currentX += branchWidths[branchIdx] + BRANCH_GAP;
+          const branchWidth = branchWidths[branchIdx]!;
+          const branchX = currentX + (branchWidth - NODE_WIDTH) / 2;
+          currentX += branchWidth + BRANCH_GAP;
           const branchNode: Node<ConditionBranchNodeData> = {
             id: branchNodeId,
             type: 'condition_branch',
@@ -763,7 +767,7 @@ export function workflowToFlow(
 
       // Check if this is the last child of its branch
       const branchChildren = stepAny.parentBranchId ? branchChildrenMap.get(stepAny.parentBranchId) || [] : [];
-      const isLastBranchChild = branchChildren.length > 0 && branchChildren[branchChildren.length - 1].id === step.id;
+      const isLastBranchChild = branchChildren.length > 0 && branchChildren[branchChildren.length - 1]!.id === step.id;
       const finalIsLastNode = stepAny.parentBranchId ? isLastBranchChild : isLastNode;
 
       const actionNode: Node<ActionNodeData> = {
@@ -879,7 +883,7 @@ export function workflowToFlow(
           type: 'smoothstep',
         });
       } else {
-        const prevChild = children[i - 1];
+        const prevChild = children[i - 1]!;
         edges.push({
           id: `${prevChild.id}-${child.id}`,
           source: prevChild.id,
@@ -893,14 +897,14 @@ export function workflowToFlow(
   // Connect steps sequentially (for now, linear flow)
   const mainFlowSteps = steps.filter((s: any) => !s.parentBranchId);
   for (let i = 0; i < mainFlowSteps.length - 1; i++) {
-    const currentStep = mainFlowSteps[i];
-    const nextStep = mainFlowSteps[i + 1];
+    const currentStep = mainFlowSteps[i]!;
+    const nextStep = mainFlowSteps[i + 1]!;
 
     if (currentStep.type === 'condition') {
       const branchIds = getConditionBranchIds(currentStep);
       branchIds.forEach((branchId) => {
         const branchChildren = branchChildrenMap.get(branchId) || [];
-        const lastNodeId = branchChildren.length > 0 ? branchChildren[branchChildren.length - 1].id : branchId;
+        const lastNodeId = branchChildren.length > 0 ? branchChildren[branchChildren.length - 1]!.id : branchId;
         edges.push({
           id: `${lastNodeId}-${nextStep.id}`,
           source: lastNodeId,

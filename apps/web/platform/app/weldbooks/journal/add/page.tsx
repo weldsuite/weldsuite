@@ -162,7 +162,7 @@ export default function AddJournalEntryPage() {
                           <SelectValue placeholder={tj.selectAccount} />
                         </SelectTrigger>
                         <SelectContent>
-                          {accounts.map((acc: any) => (
+                          {accounts.map((acc) => (
                             <SelectItem key={acc.id} value={acc.id}>
                               {acc.code} — {acc.name}
                             </SelectItem>

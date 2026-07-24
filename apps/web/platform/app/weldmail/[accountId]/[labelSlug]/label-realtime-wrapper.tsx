@@ -5,13 +5,10 @@ import { ChevronUp } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { MessageList } from '../../components/message-list';
 import { useMailRealtime } from '../../hooks/useMailRealtime';
-import { isSystemLabel, getSystemLabelConfig } from '../../lib/label-config';
-import type { Mail } from '@/lib/api/types/apps/mail.types';
+import { getSystemLabelConfig } from '../../lib/label-config';
 import type { NewEmailEvent } from '../../hooks/mail-types';
 import type { ThreadSummary } from '../../lib/thread-utils';
 import { useI18n } from '@/lib/i18n/provider';
-
-type EmailMessage = Mail.Email;
 
 interface LabelRealtimeWrapperProps {
   initialThreads: ThreadSummary[];
@@ -37,7 +34,6 @@ export function LabelRealtimeWrapper({
   initialThreads,
   accountId,
   labelSlug,
-  displayName,
   error: initialError,
   currentPage,
   totalPages,
@@ -49,7 +45,7 @@ export function LabelRealtimeWrapper({
   const { t } = useI18n();
   const params = useParams();
   const [threads, setThreads] = useState<ThreadSummary[]>(initialThreads);
-  const [error, setError] = useState<string | null>(initialError);
+  const [error] = useState<string | null>(initialError);
 
   // Get the currently selected message ID from URL params
   const selectedMessageId = params?.messageId as string | undefined;
@@ -68,7 +64,7 @@ export function LabelRealtimeWrapper({
         // Check if this thread contains the selected message
         const containsMessage =
           thread.latestMessageId === selectedMessageId ||
-          thread.messages?.some((msg: any) => msg.id === selectedMessageId);
+          thread.messages?.some((msg) => msg.id === selectedMessageId);
 
         if (containsMessage && thread.unreadCount > 0) {
           return {
@@ -84,7 +80,7 @@ export function LabelRealtimeWrapper({
   /**
    * Check if a new email should appear in this label view
    */
-  const shouldShowInView = useCallback((email: NewEmailEvent): boolean => {
+  const shouldShowInView = useCallback((): boolean => {
     const config = getSystemLabelConfig(labelSlug);
 
     if (!config) {
@@ -108,7 +104,7 @@ export function LabelRealtimeWrapper({
   const handleNewEmail = useCallback(
     (email: NewEmailEvent) => {
       if (email.accountId !== accountId) return;
-      if (!shouldShowInView(email)) return;
+      if (!shouldShowInView()) return;
 
       onRefetch?.();
     },
@@ -152,7 +148,7 @@ export function LabelRealtimeWrapper({
    * Handle email starred status change - trigger refresh
    */
   const handleEmailStarred = useCallback(
-    (emailId: string, starredAccountId: string, isStarred: boolean) => {
+    (emailId: string, starredAccountId: string) => {
       if (starredAccountId !== accountId) return;
       onRefetch?.();
     },
@@ -160,7 +156,7 @@ export function LabelRealtimeWrapper({
   );
 
   // Subscribe to real-time mail events
-  const { isConnected, connectionStatus, newEmailCount, resetNewEmailCount } = useMailRealtime({
+  const { connectionStatus, newEmailCount, resetNewEmailCount } = useMailRealtime({
     accountId,
     onNewEmail: handleNewEmail,
     onReadStatusChange: handleReadStatusChange,

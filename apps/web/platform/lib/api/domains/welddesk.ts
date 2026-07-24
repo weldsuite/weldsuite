@@ -196,7 +196,7 @@ export interface UpdateTicketData {
 // Helper Functions
 // ============================================================================
 
-function buildQueryString(params: Record<string, any>): string {
+function buildQueryString(params: Record<string, unknown>): string {
   const queryParams = new URLSearchParams();
 
   for (const [key, value] of Object.entries(params)) {
@@ -268,6 +268,105 @@ function adaptSingle<T>(res: AppApiSingle<T>): { success: boolean; data: T } {
   return { success: true, data: res.data };
 }
 
+/** Row shape returned by `/helpdesk-agents`. */
+interface HelpdeskAgentRecord {
+  id: string;
+  userId: string;
+  name: string;
+  email: string;
+  role: string;
+  departmentId?: string;
+  status: string;
+  availability: string;
+  maxActiveTickets: number;
+  currentActiveTickets: number;
+  skills?: string[];
+  languages?: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Row shape returned by `/helpdesk-news`. */
+interface HelpdeskNewsRecord {
+  id: string;
+  title: string;
+  excerpt: string;
+  content: string;
+  author: string;
+  category: string;
+  status: string;
+  publishDate: string;
+  views: number;
+  featured: boolean;
+  coverImage?: string;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Grid position for an analytics chart (react-grid-layout compatible). */
+interface HelpdeskChartLayout {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  minW?: number;
+  minH?: number;
+}
+
+/** Row shape returned by `/helpdesk-analytics` (report). */
+interface HelpdeskAnalyticsReportRecord {
+  id: string;
+  title: string;
+  description: string | null;
+  chartCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Row shape returned by the helpdesk analytics charts endpoint. */
+interface HelpdeskAnalyticsChartRecord {
+  id: string;
+  reportId: string;
+  title: string;
+  description: string | null;
+  chartType: string;
+  entity: string;
+  metric: string;
+  color: string;
+  smoothCurve: boolean;
+  fillArea: boolean;
+  showDataLabels: boolean;
+  showLegend: boolean;
+  timeRange: string | null;
+  groupBy: string | null;
+  aggregation: string | null;
+  sortOrder: string | null;
+  limit: number | null;
+  compareWith: string | null;
+  layout: HelpdeskChartLayout;
+  sortIndex: number;
+}
+
+/** Row shape returned by `/helpdesk-departments`. */
+interface HelpdeskDepartmentRecord {
+  id: string;
+  name: string;
+  description?: string;
+  email?: string;
+  managerId?: string;
+  managerName?: string;
+  agentCount?: number;
+  autoAssignment?: boolean;
+  roundRobinAssignment?: boolean;
+  categories?: string[];
+  defaultPriority?: string;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /**
  * Adapt an app-api route that returns a bare `{ data: T[] }` (no pagination
  * block) to the legacy paginated contract — the count is the array itself.
@@ -296,7 +395,10 @@ function adaptArrayAsList<T>(
  * `ConversationFilters`, so the next one to wire it up must get a loud failure
  * here instead of plausible-looking wrong rows.
  */
-function listQuery(filters: Record<string, any>, extra?: Record<string, any>): string {
+function listQuery<F extends { page?: number; pageSize?: number }>(
+  filters: F,
+  extra?: Record<string, unknown>,
+): string {
   const { page, pageSize, ...rest } = filters;
   if (page !== undefined && page > 1) {
     throw new Error(
@@ -687,8 +789,8 @@ export const helpdeskWorkerApi = {
   /**
    * Search customers (uses CRM customers endpoint)
    */
-  async searchContacts(query: string): Promise<{ success: boolean; data: any[] }> {
-    const res = await appApi.get<AppApiList<any>>(
+  async searchContacts(query: string): Promise<{ success: boolean; data: Helpdesk.Api.Contact[] }> {
+    const res = await appApi.get<AppApiList<Helpdesk.Api.Contact>>(
       `/helpdesk-contacts${buildQueryString({ search: query, limit: 10 })}`,
     );
     return { success: true, data: res.data };
@@ -708,7 +810,7 @@ export const helpdeskWorkerApi = {
     status?: string;
     folderId?: string;
   } = {}) {
-    const res = await appApi.get<AppApiList<any>>(`/articles${listQuery(filters)}`);
+    const res = await appApi.get<AppApiList<Helpdesk.Article>>(`/articles${listQuery(filters)}`);
     return adaptList(res, filters.page, filters.pageSize);
   },
 
@@ -716,7 +818,7 @@ export const helpdeskWorkerApi = {
    * Get an article by ID
    */
   async getArticle(id: string) {
-    return adaptSingle(await appApi.get<AppApiSingle<any>>(`/articles/${id}`));
+    return adaptSingle(await appApi.get<AppApiSingle<Helpdesk.Article>>(`/articles/${id}`));
   },
 
   /**
@@ -730,7 +832,7 @@ export const helpdeskWorkerApi = {
     status?: 'draft' | 'published';
     tags?: string[];
   }) {
-    return adaptSingle(await appApi.post<AppApiSingle<any>>('/articles', data));
+    return adaptSingle(await appApi.post<AppApiSingle<Helpdesk.Article>>('/articles', data));
   },
 
   /**
@@ -744,7 +846,7 @@ export const helpdeskWorkerApi = {
     status?: 'draft' | 'published';
     tags?: string[];
   }) {
-    return adaptSingle(await appApi.patch<AppApiSingle<any>>(`/articles/${id}`, data));
+    return adaptSingle(await appApi.patch<AppApiSingle<Helpdesk.Article>>(`/articles/${id}`, data));
   },
 
   /**
@@ -826,14 +928,14 @@ export const helpdeskWorkerApi = {
    * Publish an article
    */
   async publishArticle(id: string) {
-    return adaptSingle(await appApi.patch<AppApiSingle<any>>(`/articles/${id}`, { status: 'published' }));
+    return adaptSingle(await appApi.patch<AppApiSingle<Helpdesk.Article>>(`/articles/${id}`, { status: 'published' }));
   },
 
   /**
    * Archive an article
    */
   async archiveArticle(id: string) {
-    return adaptSingle(await appApi.patch<AppApiSingle<any>>(`/articles/${id}`, { status: 'archived' }));
+    return adaptSingle(await appApi.patch<AppApiSingle<Helpdesk.Article>>(`/articles/${id}`, { status: 'archived' }));
   },
 
   // -------------------------------------------------------------------------
@@ -854,22 +956,7 @@ export const helpdeskWorkerApi = {
     status?: string;
     search?: string;
   } = {}) {
-    const res = await appApi.get<AppApiList<{
-      id: string;
-      userId: string;
-      name: string;
-      email: string;
-      role: string;
-      departmentId?: string;
-      status: string;
-      availability: string;
-      maxActiveTickets: number;
-      currentActiveTickets: number;
-      skills?: string[];
-      languages?: string[];
-      createdAt: string;
-      updatedAt: string;
-    }>>(`/helpdesk-agents${listQuery(filters)}`);
+    const res = await appApi.get<AppApiList<HelpdeskAgentRecord>>(`/helpdesk-agents${listQuery(filters)}`);
     return adaptList(res, filters.page, filters.pageSize);
   },
 
@@ -878,22 +965,7 @@ export const helpdeskWorkerApi = {
    */
   async getAgent(id: string) {
     return adaptSingle(
-      await appApi.get<AppApiSingle<{
-        id: string;
-        userId: string;
-        name: string;
-        email: string;
-        role: string;
-        departmentId?: string;
-        status: string;
-        availability: string;
-        maxActiveTickets: number;
-        currentActiveTickets: number;
-        skills?: string[];
-        languages?: string[];
-        createdAt: string;
-        updatedAt: string;
-      }>>(`/helpdesk-agents/${id}`),
+      await appApi.get<AppApiSingle<HelpdeskAgentRecord>>(`/helpdesk-agents/${id}`),
     );
   },
 
@@ -934,7 +1006,7 @@ export const helpdeskWorkerApi = {
     skills?: string[];
     languages?: string[];
   }) {
-    return adaptSingle(await appApi.patch<AppApiSingle<any>>(`/helpdesk-agents/${id}`, data));
+    return adaptSingle(await appApi.patch<AppApiSingle<HelpdeskAgentRecord>>(`/helpdesk-agents/${id}`, data));
   },
 
   /**
@@ -949,7 +1021,7 @@ export const helpdeskWorkerApi = {
    * Update agent status
    */
   async updateAgentStatus(id: string, status: string) {
-    return adaptSingle(await appApi.patch<AppApiSingle<any>>(`/helpdesk-agents/${id}`, { status }));
+    return adaptSingle(await appApi.patch<AppApiSingle<HelpdeskAgentRecord>>(`/helpdesk-agents/${id}`, { status }));
   },
 
   /**
@@ -978,23 +1050,9 @@ export const helpdeskWorkerApi = {
     pageSize?: number;
     isActive?: boolean;
   } = {}) {
-    const res = await appApi.get<AppApiList<{
-      id: string;
-      name: string;
-      description?: string;
-      email?: string;
-      managerId?: string;
-      managerName?: string;
-      agentCount: number;
-      autoAssignment?: boolean;
-      roundRobinAssignment?: boolean;
-      categories?: string[];
-      defaultPriority?: string;
-      isActive: boolean;
-      sortOrder: number;
-      createdAt: string;
-      updatedAt: string;
-    }>>(`/helpdesk-departments${listQuery(filters)}`);
+    const res = await appApi.get<AppApiList<HelpdeskDepartmentRecord>>(
+      `/helpdesk-departments${listQuery(filters)}`,
+    );
     return adaptList(res, filters.page, filters.pageSize);
   },
 
@@ -1003,23 +1061,7 @@ export const helpdeskWorkerApi = {
    */
   async getDepartment(id: string) {
     return adaptSingle(
-      await appApi.get<AppApiSingle<{
-        id: string;
-        name: string;
-        description?: string;
-        email?: string;
-        managerId?: string;
-        managerName?: string;
-        agentCount?: number;
-        autoAssignment?: boolean;
-        roundRobinAssignment?: boolean;
-        categories?: string[];
-        defaultPriority?: string;
-        isActive: boolean;
-        sortOrder: number;
-        createdAt: string;
-        updatedAt: string;
-      }>>(`/helpdesk-departments/${id}`),
+      await appApi.get<AppApiSingle<HelpdeskDepartmentRecord>>(`/helpdesk-departments/${id}`),
     );
   },
 
@@ -1059,7 +1101,7 @@ export const helpdeskWorkerApi = {
     defaultPriority?: string;
     isActive?: boolean;
   }) {
-    return adaptSingle(await appApi.patch<AppApiSingle<any>>(`/helpdesk-departments/${id}`, data));
+    return adaptSingle(await appApi.patch<AppApiSingle<HelpdeskDepartmentRecord>>(`/helpdesk-departments/${id}`, data));
   },
 
   /**
@@ -1078,7 +1120,7 @@ export const helpdeskWorkerApi = {
    * List FAQs
    */
   async listFAQs(filters: { page?: number; pageSize?: number; category?: string } = {}) {
-    const res = await appApi.get<AppApiList<any>>(`/helpdesk-faqs${listQuery(filters)}`);
+    const res = await appApi.get<AppApiList<Helpdesk.FAQ>>(`/helpdesk-faqs${listQuery(filters)}`);
     return adaptList(res, filters.page, filters.pageSize);
   },
 
@@ -1093,7 +1135,7 @@ export const helpdeskWorkerApi = {
     sortOrder?: number;
     isPublished?: boolean;
   }) {
-    return adaptSingle(await appApi.post<AppApiSingle<any>>('/helpdesk-faqs', data));
+    return adaptSingle(await appApi.post<AppApiSingle<Helpdesk.FAQ>>('/helpdesk-faqs', data));
   },
 
   // -------------------------------------------------------------------------
@@ -1211,7 +1253,7 @@ export const helpdeskWorkerApi = {
    * List contacts (uses the helpdesk contacts endpoint)
    */
   async listHelpdeskContacts(filters: { page?: number; pageSize?: number; search?: string } = {}) {
-    const res = await appApi.get<AppApiList<any>>(`/helpdesk-contacts${listQuery(filters)}`);
+    const res = await appApi.get<AppApiList<Helpdesk.Api.Contact>>(`/helpdesk-contacts${listQuery(filters)}`);
     return adaptList(res, filters.page, filters.pageSize);
   },
 
@@ -1226,10 +1268,10 @@ export const helpdeskWorkerApi = {
     avatarUrl?: string;
     notes?: string;
     tags?: string[];
-    metadata?: any;
+    metadata?: Record<string, unknown>;
   }) {
     return adaptSingle(
-      await appApi.post<AppApiSingle<any>>('/helpdesk-contacts', {
+      await appApi.post<AppApiSingle<Helpdesk.Api.Contact>>('/helpdesk-contacts', {
         firstName: data.name?.split(' ')[0] || '',
         lastName: data.name?.split(' ').slice(1).join(' ') || '',
         email: data.email,
@@ -1248,7 +1290,7 @@ export const helpdeskWorkerApi = {
    * List announcements
    */
   async listAnnouncements(filters: { page?: number; pageSize?: number } = {}) {
-    const res = await appApi.get<AppApiList<any>>(`/helpdesk-announcements${listQuery(filters)}`);
+    const res = await appApi.get<AppApiList<Helpdesk.Api.Announcement>>(`/helpdesk-announcements${listQuery(filters)}`);
     return adaptList(res, filters.page, filters.pageSize);
   },
 
@@ -1265,7 +1307,7 @@ export const helpdeskWorkerApi = {
     publishedAt?: string;
     expiresAt?: string;
   }) {
-    return adaptSingle(await appApi.post<AppApiSingle<any>>('/helpdesk-announcements', data));
+    return adaptSingle(await appApi.post<AppApiSingle<Helpdesk.Api.Announcement>>('/helpdesk-announcements', data));
   },
 
   // -------------------------------------------------------------------------
@@ -1276,7 +1318,7 @@ export const helpdeskWorkerApi = {
    * List changelog entries
    */
   async listChangelog(filters: { page?: number; pageSize?: number } = {}) {
-    const res = await appApi.get<AppApiList<any>>(`/helpdesk-changelog${listQuery(filters)}`);
+    const res = await appApi.get<AppApiList<Helpdesk.Api.ChangelogEntry>>(`/helpdesk-changelog${listQuery(filters)}`);
     return adaptList(res, filters.page, filters.pageSize);
   },
 
@@ -1300,22 +1342,7 @@ export const helpdeskWorkerApi = {
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
   } = {}) {
-    const res = await appApi.get<AppApiList<{
-      id: string;
-      title: string;
-      excerpt: string;
-      content: string;
-      author: string;
-      category: string;
-      status: string;
-      publishDate: string;
-      views: number;
-      featured: boolean;
-      coverImage?: string;
-      tags: string[];
-      createdAt: string;
-      updatedAt: string;
-    }>>(`/helpdesk-news${listQuery(filters)}`);
+    const res = await appApi.get<AppApiList<HelpdeskNewsRecord>>(`/helpdesk-news${listQuery(filters)}`);
     return adaptList(res, filters.page, filters.pageSize);
   },
 
@@ -1324,22 +1351,7 @@ export const helpdeskWorkerApi = {
    */
   async getNews(id: string) {
     return adaptSingle(
-      await appApi.get<AppApiSingle<{
-        id: string;
-        title: string;
-        excerpt: string;
-        content: string;
-        author: string;
-        category: string;
-        status: string;
-        publishDate: string;
-        views: number;
-        featured: boolean;
-        coverImage?: string;
-        tags: string[];
-        createdAt: string;
-        updatedAt: string;
-      }>>(`/helpdesk-news/${id}`),
+      await appApi.get<AppApiSingle<HelpdeskNewsRecord>>(`/helpdesk-news/${id}`),
     );
   },
 
@@ -1377,7 +1389,7 @@ export const helpdeskWorkerApi = {
     status?: 'draft' | 'published' | 'archived';
     isPinned?: boolean;
   }) {
-    return adaptSingle(await appApi.patch<AppApiSingle<any>>(`/helpdesk-news/${id}`, data));
+    return adaptSingle(await appApi.patch<AppApiSingle<HelpdeskNewsRecord>>(`/helpdesk-news/${id}`, data));
   },
 
   /**
@@ -1396,7 +1408,7 @@ export const helpdeskWorkerApi = {
    * List feedback items
    */
   async listFeedback(filters: { page?: number; pageSize?: number } = {}) {
-    const res = await appApi.get<AppApiList<any>>(`/helpdesk-feedback${listQuery(filters)}`);
+    const res = await appApi.get<AppApiList<Helpdesk.Api.FeedbackItem>>(`/helpdesk-feedback${listQuery(filters)}`);
     return adaptList(res, filters.page, filters.pageSize);
   },
 
@@ -1412,7 +1424,7 @@ export const helpdeskWorkerApi = {
     submittedByName?: string;
     submittedByEmail?: string;
   }) {
-    return adaptSingle(await appApi.post<AppApiSingle<any>>('/helpdesk-feedback', data));
+    return adaptSingle(await appApi.post<AppApiSingle<Helpdesk.Api.FeedbackItem>>('/helpdesk-feedback', data));
   },
 
   // -------------------------------------------------------------------------
@@ -1467,8 +1479,8 @@ export const helpdeskWorkerApi = {
       await appApi.get<AppApiSingle<{
         settings: {
           id: string;
-          general?: any;
-          tickets?: any;
+          general?: Helpdesk.Api.HelpdeskSettings['general'];
+          tickets?: Helpdesk.Api.HelpdeskSettings['tickets'];
           notifications?: {
             emailNotifications: boolean;
             pushNotifications: boolean;
@@ -1479,9 +1491,9 @@ export const helpdeskWorkerApi = {
             notifyOnCustomerReply?: boolean;
             notifyOnSLABreach?: boolean;
           };
-          satisfaction?: any;
-          integrations?: any;
-          customization?: any;
+          satisfaction?: Helpdesk.Api.HelpdeskSettings['satisfaction'];
+          integrations?: Helpdesk.Api.HelpdeskSettings['integrations'];
+          customization?: Helpdesk.Api.HelpdeskSettings['customization'];
           createdAt?: string;
           updatedAt?: string;
         } | null;
@@ -1835,7 +1847,7 @@ export const helpdeskWorkerApi = {
    * Get a single announcement
    */
   async getAnnouncement(id: string) {
-    return adaptSingle(await appApi.get<AppApiSingle<any>>(`/helpdesk-announcements/${id}`));
+    return adaptSingle(await appApi.get<AppApiSingle<Helpdesk.Api.Announcement>>(`/helpdesk-announcements/${id}`));
   },
 
   /**
@@ -1851,7 +1863,7 @@ export const helpdeskWorkerApi = {
     publishedAt?: string;
     expiresAt?: string;
   }) {
-    return adaptSingle(await appApi.patch<AppApiSingle<any>>(`/helpdesk-announcements/${id}`, data));
+    return adaptSingle(await appApi.patch<AppApiSingle<Helpdesk.Api.Announcement>>(`/helpdesk-announcements/${id}`, data));
   },
 
   /**
@@ -1867,7 +1879,7 @@ export const helpdeskWorkerApi = {
    */
   async publishAnnouncement(id: string) {
     return adaptSingle(
-      await appApi.patch<AppApiSingle<any>>(`/helpdesk-announcements/${id}`, { status: 'published' }),
+      await appApi.patch<AppApiSingle<Helpdesk.Api.Announcement>>(`/helpdesk-announcements/${id}`, { status: 'published' }),
     );
   },
 
@@ -1880,14 +1892,9 @@ export const helpdeskWorkerApi = {
    */
   async listAnalyticsReports(filters: { page?: number; pageSize?: number } = {}) {
     // app-api returns a bare `{ data: Report[] }` here — no pagination block.
-    const res = await appApi.get<AppApiSingle<Array<{
-      id: string;
-      title: string;
-      description: string | null;
-      chartCount: number;
-      createdAt: string;
-      updatedAt: string;
-    }>>>(`/helpdesk-analytics${listQuery(filters)}`);
+    const res = await appApi.get<AppApiSingle<HelpdeskAnalyticsReportRecord[]>>(
+      `/helpdesk-analytics${listQuery(filters)}`,
+    );
     return adaptArrayAsList(res, filters.page, filters.pageSize);
   },
 
@@ -1896,14 +1903,7 @@ export const helpdeskWorkerApi = {
    */
   async getAnalyticsReport(id: string) {
     return adaptSingle(
-      await appApi.get<AppApiSingle<{
-        id: string;
-        title: string;
-        description: string | null;
-        chartCount: number;
-        createdAt: string;
-        updatedAt: string;
-      }>>(`/helpdesk-analytics/reports/${id}`),
+      await appApi.get<AppApiSingle<HelpdeskAnalyticsReportRecord>>(`/helpdesk-analytics/reports/${id}`),
     );
   },
 
@@ -1915,14 +1915,7 @@ export const helpdeskWorkerApi = {
     description?: string;
   }) {
     return adaptSingle(
-      await appApi.post<AppApiSingle<{
-        id: string;
-        title: string;
-        description: string | null;
-        chartCount: number;
-        createdAt: string;
-        updatedAt: string;
-      }>>('/helpdesk-analytics', data),
+      await appApi.post<AppApiSingle<HelpdeskAnalyticsReportRecord>>('/helpdesk-analytics', data),
     );
   },
 
@@ -1933,7 +1926,7 @@ export const helpdeskWorkerApi = {
     title?: string;
     description?: string;
   }) {
-    return adaptSingle(await appApi.patch<AppApiSingle<any>>(`/helpdesk-analytics/${id}`, data));
+    return adaptSingle(await appApi.patch<AppApiSingle<HelpdeskAnalyticsReportRecord>>(`/helpdesk-analytics/${id}`, data));
   },
 
   /**
@@ -1949,14 +1942,7 @@ export const helpdeskWorkerApi = {
    */
   async duplicateAnalyticsReport(id: string) {
     return adaptSingle(
-      await appApi.post<AppApiSingle<{
-        id: string;
-        title: string;
-        description: string | null;
-        chartCount: number;
-        createdAt: string;
-        updatedAt: string;
-      }>>(`/helpdesk-analytics/reports/${id}/duplicate`, {}),
+      await appApi.post<AppApiSingle<HelpdeskAnalyticsReportRecord>>(`/helpdesk-analytics/reports/${id}/duplicate`, {}),
     );
   },
 
@@ -1968,28 +1954,9 @@ export const helpdeskWorkerApi = {
    * List charts for a report
    */
   async listAnalyticsCharts(reportId: string) {
-    const res = await appApi.get<AppApiSingle<Array<{
-      id: string;
-      reportId: string;
-      title: string;
-      description: string | null;
-      chartType: string;
-      entity: string;
-      metric: string;
-      color: string;
-      smoothCurve: boolean;
-      fillArea: boolean;
-      showDataLabels: boolean;
-      showLegend: boolean;
-      timeRange: string | null;
-      groupBy: string | null;
-      aggregation: string | null;
-      sortOrder: string | null;
-      limit: number | null;
-      compareWith: string | null;
-      layout: any;
-      sortIndex: number;
-    }>>>(`/helpdesk-analytics/reports/${reportId}/charts`);
+    const res = await appApi.get<AppApiSingle<HelpdeskAnalyticsChartRecord[]>>(
+      `/helpdesk-analytics/reports/${reportId}/charts`,
+    );
     return adaptSingle(res);
   },
 
@@ -1997,7 +1964,7 @@ export const helpdeskWorkerApi = {
    * Get a single chart
    */
   async getAnalyticsChart(chartId: string) {
-    return adaptSingle(await appApi.get<AppApiSingle<any>>(`/helpdesk-analytics/charts/${chartId}`));
+    return adaptSingle(await appApi.get<AppApiSingle<HelpdeskAnalyticsChartRecord>>(`/helpdesk-analytics/charts/${chartId}`));
   },
 
   /**
@@ -2021,9 +1988,9 @@ export const helpdeskWorkerApi = {
     sortOrder?: string;
     limit?: number;
     compareWith?: string;
-    layout?: any;
+    layout?: HelpdeskChartLayout;
   }) {
-    return adaptSingle(await appApi.post<AppApiSingle<any>>('/helpdesk-analytics/charts', data));
+    return adaptSingle(await appApi.post<AppApiSingle<HelpdeskAnalyticsChartRecord>>('/helpdesk-analytics/charts', data));
   },
 
   /**
@@ -2046,9 +2013,9 @@ export const helpdeskWorkerApi = {
     sortOrder?: string;
     limit?: number;
     compareWith?: string;
-    layout?: any;
+    layout?: HelpdeskChartLayout;
   }) {
-    return adaptSingle(await appApi.put<AppApiSingle<any>>(`/helpdesk-analytics/charts/${chartId}`, data));
+    return adaptSingle(await appApi.put<AppApiSingle<HelpdeskAnalyticsChartRecord>>(`/helpdesk-analytics/charts/${chartId}`, data));
   },
 
   /**
@@ -2062,7 +2029,7 @@ export const helpdeskWorkerApi = {
   /**
    * Update multiple chart layouts
    */
-  async updateAnalyticsChartLayouts(reportId: string, layouts: Array<{ chartId: string; layout: any }>) {
+  async updateAnalyticsChartLayouts(reportId: string, layouts: Array<{ chartId: string; layout: HelpdeskChartLayout }>) {
     await appApi.patch(`/helpdesk-analytics/reports/${reportId}/layouts`, { layouts });
     return { success: true };
   },

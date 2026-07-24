@@ -1,4 +1,8 @@
-import { auth } from '@auth0/nextjs-auth0';
+// NOTE: This client has no consumers in the repo (verified via repo-wide
+// search for `@weldsuite/ui/lib/api-client`) and predates the platform's
+// move to Clerk auth. It previously imported `@auth0/nextjs-auth0`, which
+// is not a dependency of this package and doesn't resolve. Left in place
+// as documented dead code rather than deleted outright.
 
 export interface ApiResponse<T> {
   success: boolean;
@@ -27,17 +31,9 @@ class ApiClient {
       'Content-Type': 'application/json',
     };
 
-    // Get Auth0 token for server-side requests
-    if (typeof window === 'undefined') {
-      try {
-        const session = await auth();
-        if (session?.accessToken) {
-          headers.Authorization = `Bearer ${session.accessToken}`;
-        }
-      } catch (error) {
-        console.error('Failed to get auth token:', error);
-      }
-    } else {
+    // Server-side Auth0 token retrieval was removed here — see the note at
+    // the top of this file. Only the client-side path remains functional.
+    if (typeof window !== 'undefined') {
       // Client-side: get token from session endpoint
       try {
         const response = await fetch('/api/auth/token');

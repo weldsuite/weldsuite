@@ -2,6 +2,8 @@ import type { RichTextRun, RichTextValue } from './types';
 
 const RT_PREFIX = '__rt__';
 
+const RUN_FORMAT_KEYS = ['bold', 'italic', 'strikethrough', 'textColor', 'fontFamily', 'fontSize'] as const;
+
 export function richTextKey(colId: string): string {
   return RT_PREFIX + colId;
 }
@@ -92,14 +94,17 @@ export function applyFormatToRange(
     const selEnd = Math.min(run.text.length, end - runStart);
     const selectedRun: RichTextRun = { ...run, text: run.text.slice(selStart, selEnd) };
 
-    for (const [key, value] of Object.entries(format)) {
-      if (key === 'text') continue;
-      if (typeof value === 'boolean') {
-        (selectedRun as any)[key] = value;
-      } else if (value === undefined || value === null) {
-        delete (selectedRun as any)[key];
+    for (const key of RUN_FORMAT_KEYS) {
+      if (!(key in format)) continue;
+      const value = format[key];
+      if (value === undefined || value === null) {
+        delete selectedRun[key];
+      } else if (key === 'bold' || key === 'italic' || key === 'strikethrough') {
+        selectedRun[key] = value as boolean;
+      } else if (key === 'fontSize') {
+        selectedRun[key] = value as number;
       } else {
-        (selectedRun as any)[key] = value;
+        selectedRun[key] = value as string;
       }
     }
     result.push(selectedRun);
@@ -310,7 +315,7 @@ export function restoreSelection(el: HTMLElement, offsets: { start: number; end:
   sel.addRange(range);
 }
 
-export function getRichText(rowData: Record<string, any> | undefined, colId: string): RichTextValue | undefined {
+export function getRichText(rowData: Record<string, unknown> | undefined, colId: string): RichTextValue | undefined {
   if (!rowData) return undefined;
   const rt = rowData[richTextKey(colId)];
   return Array.isArray(rt) ? rt as RichTextValue : undefined;

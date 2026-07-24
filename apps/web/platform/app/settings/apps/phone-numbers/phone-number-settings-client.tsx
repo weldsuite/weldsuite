@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { getTranslations } from '@/lib/i18n';
 import {
   ColumnDef,
@@ -7,9 +7,7 @@ import {
   getCoreRowModel,
   useReactTable,
 } from '@tanstack/react-table';
-import { cn } from '@/lib/utils';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
-import { Search } from 'lucide-react';
 import { useRouter } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
@@ -121,6 +119,31 @@ function formatPhoneNumber(number: string): string {
   return number;
 }
 
+const COUNTRIES = [
+  { code: 'US', name: 'United States', prefix: '+1' },
+  { code: 'CA', name: 'Canada', prefix: '+1' },
+  { code: 'GB', name: 'United Kingdom', prefix: '+44' },
+  { code: 'NL', name: 'Netherlands', prefix: '+31' },
+  { code: 'DE', name: 'Germany', prefix: '+49' },
+  { code: 'FR', name: 'France', prefix: '+33' },
+  { code: 'BE', name: 'Belgium', prefix: '+32' },
+  { code: 'AT', name: 'Austria', prefix: '+43' },
+  { code: 'CH', name: 'Switzerland', prefix: '+41' },
+  { code: 'AU', name: 'Australia', prefix: '+61' },
+  { code: 'ES', name: 'Spain', prefix: '+34' },
+  { code: 'IT', name: 'Italy', prefix: '+39' },
+  { code: 'SE', name: 'Sweden', prefix: '+46' },
+  { code: 'NO', name: 'Norway', prefix: '+47' },
+  { code: 'DK', name: 'Denmark', prefix: '+45' },
+  { code: 'PL', name: 'Poland', prefix: '+48' },
+];
+
+const NUMBER_TYPES = [
+  { value: 'local', label: 'Local' },
+  { value: 'toll-free', label: 'Toll-Free' },
+  { value: 'mobile', label: 'Mobile' },
+];
+
 export function PhoneNumberSettingsClient({
   phoneNumbers: initialPhoneNumbers,
   isConfigured,
@@ -196,31 +219,6 @@ export function PhoneNumberSettingsClient({
       },
     });
   };
-
-  const COUNTRIES = [
-    { code: 'US', name: 'United States', prefix: '+1' },
-    { code: 'CA', name: 'Canada', prefix: '+1' },
-    { code: 'GB', name: 'United Kingdom', prefix: '+44' },
-    { code: 'NL', name: 'Netherlands', prefix: '+31' },
-    { code: 'DE', name: 'Germany', prefix: '+49' },
-    { code: 'FR', name: 'France', prefix: '+33' },
-    { code: 'BE', name: 'Belgium', prefix: '+32' },
-    { code: 'AT', name: 'Austria', prefix: '+43' },
-    { code: 'CH', name: 'Switzerland', prefix: '+41' },
-    { code: 'AU', name: 'Australia', prefix: '+61' },
-    { code: 'ES', name: 'Spain', prefix: '+34' },
-    { code: 'IT', name: 'Italy', prefix: '+39' },
-    { code: 'SE', name: 'Sweden', prefix: '+46' },
-    { code: 'NO', name: 'Norway', prefix: '+47' },
-    { code: 'DK', name: 'Denmark', prefix: '+45' },
-    { code: 'PL', name: 'Poland', prefix: '+48' },
-  ];
-
-  const NUMBER_TYPES = [
-    { value: 'local', label: 'Local' },
-    { value: 'toll-free', label: 'Toll-Free' },
-    { value: 'mobile', label: 'Mobile' },
-  ];
 
   const columns: ColumnDef<VoipPhoneNumber>[] = [
     {
@@ -348,7 +346,7 @@ export function PhoneNumberSettingsClient({
         })),
       },
     ];
-  }, [phoneNumbers]);
+  }, [phoneNumbers, tp]);
 
   const filteredPhoneNumbers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();

@@ -2,9 +2,18 @@
 import { createContext, useContext, useState, ReactNode, useCallback, useRef, useEffect } from 'react';
 
 // Telnyx WebRTC types (dynamically imported)
+interface TelnyxNotification {
+  type?: string;
+  call?: {
+    id: string;
+    state?: string;
+    remoteStream?: MediaStream;
+  };
+}
+
 type TelnyxClient = {
-  on: (event: string, callback: (...args: unknown[]) => void) => void;
-  off: (event: string, callback: (...args: unknown[]) => void) => void;
+  on: (event: string, callback: (notification: TelnyxNotification) => void) => void;
+  off: (event: string, callback: (notification: TelnyxNotification) => void) => void;
   connect: () => Promise<void>;
   disconnect: () => void;
   newCall: (options: {
@@ -14,7 +23,7 @@ type TelnyxClient = {
     clientState?: string;
     audio?: boolean;
     video?: boolean;
-  }) => any;
+  }) => TelnyxCall;
 };
 
 type TelnyxCall = {
@@ -181,7 +190,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setIsVoipReady(false);
       });
 
-      client.on('telnyx.notification', (notification: any) => {
+      client.on('telnyx.notification', (notification: TelnyxNotification) => {
         const call = notification.call;
         if (!call) return;
 
@@ -287,7 +296,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         isMutedRef.current = false;
 
         // Handle call state changes via notifications on the client
-        const handleNotification = (notification: any) => {
+        const handleNotification = (notification: TelnyxNotification) => {
           if (notification.call?.id !== call.id) return;
           const state = notification.call?.state;
 

@@ -12,7 +12,7 @@ import {
   useReactTable,
   VisibilityState,
 } from "@tanstack/react-table"
-import { EllipsisVertical, MessageCircle, Ticket, TicketCheck, UserRoundPlus, Star } from "lucide-react"
+import { EllipsisVertical } from "lucide-react"
 
 import { Button } from "@weldsuite/ui/components/button"
 import {
@@ -48,14 +48,6 @@ export interface ActivityItem {
   detail?: string
   timestamp: Date
   href: string
-}
-
-const activityTypeIcons: Record<ActivityType, { icon: typeof MessageCircle; color: string; bg: string }> = {
-  conversation_started: { icon: MessageCircle, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-100 dark:bg-blue-900/30' },
-  ticket_created: { icon: Ticket, color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-100 dark:bg-orange-900/30' },
-  ticket_resolved: { icon: TicketCheck, color: 'text-green-600 dark:text-green-400', bg: 'bg-green-100 dark:bg-green-900/30' },
-  customer_created: { icon: UserRoundPlus, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-100 dark:bg-purple-900/30' },
-  review_left: { icon: Star, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-100 dark:bg-amber-900/30' },
 }
 
 type ActivityRow = {
@@ -110,8 +102,6 @@ export function RecentActivityTable({ activities }: ActivityTableProps) {
       accessorKey: "customerName",
       header: () => <div>{td.recentActivity}</div>,
       cell: ({ row }) => {
-        const meta = activityTypeIcons[row.original.type]
-        const Icon = meta.icon
         return (
           <div className="flex items-center gap-3">
             <Avatar className="h-7 w-7 flex-shrink-0 rounded-md">

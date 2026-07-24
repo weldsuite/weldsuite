@@ -133,7 +133,7 @@ export function ZapietHomeView({
                   Send us a message
                 </p>
                 <p className="text-[12px] text-gray-500 dark:text-muted-foreground mt-0.5">
-                  We'll reply as soon as we can
+                  We&apos;ll reply as soon as we can
                 </p>
               </div>
               <ChevronRight size={16} className="text-gray-300 dark:text-gray-600" />

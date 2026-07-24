@@ -325,7 +325,6 @@ function CustomerDetailPanelLayout({
   onClose,
   onDelete,
   width,
-  topOffset,
   isExpanded,
   onBack,
 }: {
@@ -761,21 +760,18 @@ function FloatingNoteEditor() {
 
   const handleSave = React.useCallback(async (content: string) => {
     if (!floatingNote) return;
-    const result = await updateNoteMutation.mutateAsync({ noteId: floatingNote.id, customerId, content });
-    if (!result.success) {
-      throw new Error((result as any).error || t('sweep.weldcrm.customerDetailView.failedToUpdateNote'));
-    }
-  }, [floatingNote, customerId, updateNoteMutation, t]);
+    await updateNoteMutation.mutateAsync({ noteId: floatingNote.id, customerId, content });
+  }, [floatingNote, customerId, updateNoteMutation]);
 
   const handleDelete = React.useCallback(async () => {
     if (!floatingNote) return;
-    const result = await deleteNoteMutation.mutateAsync({ noteId: floatingNote.id, customerId });
-    if (result.success) {
+    try {
+      await deleteNoteMutation.mutateAsync({ noteId: floatingNote.id, customerId });
       setShowFloatingNoteEditor(false);
       setFloatingNote(null);
       toast.success(t('sweep.weldcrm.customerDetailView.noteDeleted'));
       silentRefresh();
-    } else {
+    } catch {
       toast.error(t('sweep.weldcrm.customerDetailView.failedToDeleteNote'));
     }
   }, [floatingNote, customerId, setShowFloatingNoteEditor, setFloatingNote, silentRefresh, deleteNoteMutation, t]);

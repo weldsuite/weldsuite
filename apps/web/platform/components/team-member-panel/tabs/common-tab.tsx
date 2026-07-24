@@ -5,7 +5,6 @@ import { Button } from '@weldsuite/ui/components/button';
 import {
   Hash,
   Lock,
-  MessageSquare,
   FolderKanban,
   CheckSquare,
   Briefcase,
@@ -169,7 +168,6 @@ export function CommonTab({ userId, isSelf }: CommonTabProps) {
 function Section({
   title,
   count,
-  tone,
   children,
 }: {
   title: string;
@@ -236,7 +234,7 @@ function Row({
           {inner}
         </Button>
       ) : (
-        <Link to={(to ?? '/') as any} className={className}>
+        <Link to={(to ?? '/') as unknown as never} className={className}>
           {inner}
         </Link>
       )}

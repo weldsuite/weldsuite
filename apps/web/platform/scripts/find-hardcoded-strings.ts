@@ -111,11 +111,10 @@ function shouldIgnore(str: string): boolean {
 // Extract hardcoded strings from a file
 function extractHardcodedStrings(filePath: string, content: string): HardcodedString[] {
   const results: HardcodedString[] = [];
-  const lines = content.split('\n');
   const module = getModuleFromPath(filePath);
 
   // Check each pattern
-  for (const [patternType, regex] of Object.entries(PATTERNS)) {
+  for (const [, regex] of Object.entries(PATTERNS)) {
     const matches = content.matchAll(regex);
 
     for (const match of matches) {
@@ -128,11 +127,6 @@ function extractHardcodedStrings(filePath: string, content: string): HardcodedSt
       const beforeMatch = content.substring(0, index);
       const line = beforeMatch.split('\n').length;
       const column = beforeMatch.split('\n').pop()?.length || 0;
-
-      // Get context (surrounding code)
-      const contextStart = Math.max(0, line - 2);
-      const contextEnd = Math.min(lines.length, line + 2);
-      const context = lines.slice(contextStart, contextEnd).join('\n');
 
       const type = detectStringType(match[0], stringValue);
       const suggestedKey = generateSuggestedKey(module, type, stringValue);
@@ -179,7 +173,7 @@ function findFiles(dir: string, pattern: RegExp = /\.(tsx|jsx)$/): string[] {
         files.push(fullPath);
       }
     }
-  } catch (error) {
+  } catch {
     // Skip directories we can't read
   }
 
@@ -212,7 +206,7 @@ async function scanFiles(moduleFilter?: string): Promise<AnalysisResult> {
     ? [path.join(process.cwd(), 'app', moduleFilter), path.join(process.cwd(), 'components', moduleFilter)]
     : [path.join(process.cwd(), 'app'), path.join(process.cwd(), 'components')];
 
-  let files: string[] = [];
+  const files: string[] = [];
   for (const dir of dirs) {
     if (fs.existsSync(dir)) {
       files.push(...findFiles(dir));
@@ -259,7 +253,7 @@ function displayResults(result: AnalysisResult, verbose: boolean) {
 
   console.log('By Type:');
   Object.entries(result.byType)
-    .filter(([_, count]) => count > 0)
+    .filter(([, count]) => count > 0)
     .sort((a, b) => b[1] - a[1])
     .forEach(([type, count]) => {
       console.log(`  ${type.padEnd(15)}: ${count}`);

@@ -42,7 +42,7 @@ export default function MeetingRoomPage() {
     if (status === 'idle' && hasJoined.current) {
       navigate({ to: '/weldmeet/$meetingId', params: { meetingId } });
     }
-  }, [status, navigate]);
+  }, [status, navigate, meetingId]);
 
   if (status !== 'idle' && status !== 'ended') {
     return (

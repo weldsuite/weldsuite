@@ -2,10 +2,10 @@
 
 import * as React from "react"
 import { Moon, Sun, Monitor } from "lucide-react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card"
-import { RadioGroup, RadioGroupItem } from "./radio-group"
-import { Slider } from "./slider"
-import { Label } from "./label"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../card"
+import { RadioGroup, RadioGroupItem } from "../radio-group"
+import { Slider } from "../slider"
+import { Label } from "../label"
 import { cn } from "../../lib/utils"
 
 interface AppearanceSectionProps {
@@ -73,7 +73,7 @@ export function AppearanceSection({
             </div>
             <Slider
               value={[fontSize]}
-              onValueChange={([v]) => onFontSizeChange(v)}
+              onValueChange={([v]) => onFontSizeChange(v ?? fontSize)}
               min={80}
               max={120}
               step={5}

@@ -57,7 +57,7 @@ export default function BankTransactionsPage() {
 
   const { data: txnData, isLoading } = useAccountingBankTransactions(filters);
   const transactions = (txnData?.data ?? []) as BankTransaction[];
-  const total = (txnData as any)?.pagination?.total ?? transactions.length;
+  const total = txnData?.pagination?.totalCount ?? transactions.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const currencyForDisplay =

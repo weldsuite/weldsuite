@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { addDays, nextMonday, setHours, setMinutes, setSeconds, format } from 'date-fns';
+import { addDays, nextMonday, setHours, setMinutes, setSeconds } from 'date-fns';
 import {
   Check,
   ChevronDown,

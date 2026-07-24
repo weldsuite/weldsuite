@@ -5,10 +5,10 @@ import { useJoinByCode } from '@/hooks/queries/use-weldmeet-queries';
 function JoinByCodePage() {
   const { joinCode } = Route.useParams();
   const navigate = useNavigate();
-  const joinByCode = useJoinByCode();
+  const { mutate: joinByCode } = useJoinByCode();
 
   useEffect(() => {
-    joinByCode.mutate(joinCode, {
+    joinByCode(joinCode, {
       onSuccess: (meeting) => {
         navigate({ to: '/weldmeet/$meetingId/room', params: { meetingId: meeting.id } });
       },
@@ -16,7 +16,7 @@ function JoinByCodePage() {
         navigate({ to: '/weldmeet' });
       },
     });
-  }, [joinCode]);
+  }, [joinCode, joinByCode, navigate]);
 
   return (
     <div className="flex items-center justify-center h-screen">

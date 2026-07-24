@@ -80,7 +80,7 @@ export function RootErrorFallback({ error, info, reset }: ErrorComponentProps) {
         <AlertTriangle className="mx-auto h-12 w-12 text-destructive" />
         <h1 className="mt-4 text-4xl font-bold">Something went wrong</h1>
         <p className="mt-2 text-muted-foreground">
-          We're sorry, an unexpected error occurred. Please try again.
+          We&apos;re sorry, an unexpected error occurred. Please try again.
         </p>
         <div className="mt-6 flex items-center justify-center gap-3">
           <Button onClick={reset}>Try again</Button>

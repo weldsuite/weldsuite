@@ -30,6 +30,7 @@ export function WeldCallLayoutClient({ children }: WeldCallLayoutClientProps) {
         mobileNav?.setWeldAgentSkipAnimation?.(false);
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `mobileNav` is a freshly-spread object every render (see useMobileNavOptional); only isCallDetailPage/setShowWeldAgent should retrigger this
   }, [isCallDetailPage, setShowWeldAgent]);
 
   return (

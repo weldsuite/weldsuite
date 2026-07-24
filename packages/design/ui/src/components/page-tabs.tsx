@@ -204,7 +204,7 @@ function OverflowTabs({
     let used = 0;
     let fit = 0;
     for (let i = 0; i < n; i++) {
-      const need = widths[i] + (fit > 0 ? GAP_PX : 0);
+      const need = (widths[i] ?? 0) + (fit > 0 ? GAP_PX : 0);
       if (used + need <= budget) {
         used += need;
         fit++;
@@ -229,6 +229,7 @@ function OverflowTabs({
         <div role="tablist" className="flex items-center gap-2 min-w-0">
           {visibleIndices.map((tabIndex, pos) => {
             const tab = tabs[tabIndex];
+            if (!tab) return null;
             return (
               <TabButton
                 key={tab.id}
@@ -269,6 +270,7 @@ function OverflowTabs({
               <DropdownMenuContent align="end" className="w-52">
                 {overflowIndices.map((tabIndex) => {
                   const tab = tabs[tabIndex];
+                  if (!tab) return null;
                   const Icon = tab.icon;
                   const isActive = activeTab === tab.id;
 

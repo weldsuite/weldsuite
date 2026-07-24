@@ -3,13 +3,11 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { useParams, useSearchParams, useRouter } from '@/lib/router';
 import {
   RefreshCw,
-  AlertTriangle,
   CheckCircle2,
   XCircle,
   Loader2,
   Clock,
   ChevronLeft,
-  Settings2,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@/lib/utils';
@@ -20,8 +18,10 @@ import {
   useTriggerSync,
   useSyncConflicts,
   useResolveConflict,
-  type SyncLog,
+  type IntegrationConnection,
 } from '@/hooks/queries/use-integration-queries';
+
+type IntegrationConnectionWithDeals = IntegrationConnection & { opportunitiesSynced?: number };
 import { FieldMappingEditor } from '@/components/settings/field-mapping-editor';
 import { PageLoader } from '@/components/page-loader';
 
@@ -52,7 +52,7 @@ export default function CrmSyncSettingsPage() {
   const resolveConflict = useResolveConflict();
 
   const connection = connectionRes?.data;
-  const logs = ((logsRes as any)?.data || []) as SyncLog[];
+  const logs = logsRes?.data || [];
   const pendingConflicts = conflictsRes?.data || [];
 
   if (isLoading) {
@@ -125,7 +125,7 @@ export default function CrmSyncSettingsPage() {
               </div>
               <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">{t('sweep.settings.crmSync.deals')}</span>
-                <span className="font-medium">{(connection as any).opportunitiesSynced || 0}</span>
+                <span className="font-medium">{(connection as IntegrationConnectionWithDeals).opportunitiesSynced || 0}</span>
               </div>
               <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">{t('sweep.settings.crmSync.lastSync')}</span>

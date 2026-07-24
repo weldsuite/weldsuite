@@ -1,7 +1,6 @@
 
 import React, { useState, useMemo, useTransition, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
-import { useUser } from '@clerk/clerk-react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { Button } from '@weldsuite/ui/components/button';
 import { useTaskEvents } from '@/hooks/realtime/use-entity-events';
@@ -23,7 +22,6 @@ import {
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
 import { Calendar } from '@weldsuite/ui/components/calendar';
-import { type TaskComment, type SubtaskItem, type DependencyTask } from '@/components/task-detail';
 import { useObjectPanel } from '@/components/object-panel';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
@@ -63,7 +61,7 @@ import { toast } from 'sonner';
 import { tasksApi, membersApi, labelsApi } from '../lib/api-client';
 import { LabelOverflowList } from '../lib/label-overflow-list';
 import type { Projects } from '@/lib/api/types/apps/projects.types';
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers, type SortState } from '@/components/entity-list';
+import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type SortState } from '@/components/entity-list';
 import { MyTasksPipeline } from './my-tasks-pipeline';
 
 interface Task {
@@ -138,8 +136,15 @@ const statusConfigBase = {
   cancelled: { icon: Circle, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
 };
 
+// `/tasks` responses also carry `duration`/`repeat`, which aren't modeled on
+// the shared `Projects.ProjectTask` type — extend it locally for this transform.
+type ApiTaskWithSchedule = Projects.ProjectTask & {
+  duration?: number;
+  repeat?: { frequency: string; interval?: number; unit?: string } | null;
+};
+
 // Transform API task to local Task format
-function transformApiTask(apiTask: Projects.ProjectTask): Task {
+function transformApiTask(apiTask: ApiTaskWithSchedule): Task {
   return {
     id: apiTask.id,
     title: apiTask.title,
@@ -157,16 +162,16 @@ function transformApiTask(apiTask: Projects.ProjectTask): Task {
       ? apiTask.assignees.map((a) => ({ id: a.id, name: a.name, avatar: a.avatar }))
       : undefined,
     dueDate: apiTask.dueDate ? new Date(apiTask.dueDate) : undefined,
-    startDate: (apiTask as any).startDate ? new Date((apiTask as any).startDate) : undefined,
-    duration: (apiTask as any).duration ?? undefined,
-    estimatedHours: (apiTask as any).estimatedHours ?? undefined,
+    startDate: apiTask.startDate ? new Date(apiTask.startDate) : undefined,
+    duration: apiTask.duration ?? undefined,
+    estimatedHours: apiTask.estimatedHours ?? undefined,
     createdAt: new Date(apiTask.createdAt),
     project: apiTask.project?.name || undefined,
     projectId: apiTask.projectId || undefined,
     tags: apiTask.tags || undefined,
     labels: apiTask.labels || undefined,
-    parentTaskId: (apiTask as any).parentTaskId || null,
-    repeat: (apiTask as any).repeat || null,
+    parentTaskId: apiTask.parentTaskId || null,
+    repeat: apiTask.repeat || null,
   };
 }
 
@@ -212,11 +217,11 @@ function toCrmTask(task: Task): CrmTask {
     dueDate: task.dueDate,
     createdAt: task.createdAt,
     labels: task.labels,
-    repeat: task.repeat || undefined,
+    repeat: (task.repeat || undefined) as CrmTask['repeat'],
     scheduledStart: task.scheduledStart ? new Date(task.scheduledStart) : null,
     scheduledEnd: task.scheduledEnd ? new Date(task.scheduledEnd) : null,
     autoScheduled: task.autoScheduled ?? null,
-    linkedCompany: task.projectId ? { id: task.projectId, name: task.project ?? '' } : null,
+    linkedCompany: task.projectId ? { id: task.projectId, name: task.project ?? '' } : undefined,
   };
 }
 
@@ -289,7 +294,6 @@ export function MyTasksClient({
   onSortChange,
 }: MyTasksClientProps) {
   const { t } = useI18n();
-  const { user } = useUser();
   useBreadcrumbs([
     { label: t.projects.title, href: '/weldflow' },
     { label: t.projects.myTasks.title },
@@ -362,14 +366,14 @@ export function MyTasksClient({
   const isSortControlled = onSortChange !== undefined;
   const [internalSortState, setInternalSortState] = useState<SortState | null>(null);
   const sortState = isSortControlled ? (sortStateProp ?? null) : internalSortState;
-  const setSortState = (next: SortState | null | ((prev: SortState | null) => SortState | null)) => {
+  const setSortState = useCallback((next: SortState | null | ((prev: SortState | null) => SortState | null)) => {
     if (isSortControlled) {
       const resolved = typeof next === 'function' ? (next as (prev: SortState | null) => SortState | null)(sortState) : next;
       onSortChange!(resolved);
     } else {
       setInternalSortState(next);
     }
-  };
+  }, [isSortControlled, sortState, onSortChange]);
   const [editingCrmTask, setEditingCrmTask] = useState<CrmTask | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   // The task detail panel is now rendered globally via the object-panel host.
@@ -379,11 +383,10 @@ export function MyTasksClient({
   const { open: openTaskPanel } = useObjectPanel();
   useLayoutEffect(() => {
     if (selectedTask) openTaskPanel({ type: 'task', id: selectedTask.id });
-  }, [selectedTask?.id, openTaskPanel]);
+  }, [selectedTask, openTaskPanel]);
 
   const [isPending, startTransition] = useTransition();
   const [availableAssignees, setAvailableAssignees] = useState<{ id: string; name: string; avatar?: string }[]>([]);
-  const [assigneeIdByName, setAssigneeIdByName] = useState<Record<string, string>>({});
   const [availableLabels, setAvailableLabels] = useState<ProjectLabel[]>([]);
   const [viewMode, setViewMode] = useState<'list' | 'pipeline'>('list');
   const [groupBy, setGroupBy] = useState<'status' | 'priority' | 'dueDate' | 'project' | 'none'>('status');
@@ -393,7 +396,6 @@ export function MyTasksClient({
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } })
   );
   const isDragEnabled = !sortState;
-  const [comments, setComments] = useState<TaskComment[]>([]);
   const { userId } = useAuth();
   const queryClient = useQueryClient();
 
@@ -415,89 +417,10 @@ export function MyTasksClient({
     return () => observer.disconnect();
   }, [hasNextPage, isFetchingNextPage, onLoadMore]);
 
-  // Fetch comments when a task is selected
-  useEffect(() => {
-    if (!selectedTask?.projectId) {
-      setComments([]);
-      return;
-    }
-    async function loadComments() {
-      const result = await tasksApi.listComments(selectedTask!.projectId!, selectedTask!.id);
-      if (result.success && result.data) {
-        setComments(Array.isArray(result.data) ? result.data : []);
-      }
-    }
-    loadComments();
-  }, [selectedTask?.id, selectedTask?.projectId]);
-
-  // Subtasks & dependencies state
-  const [subtasks, setSubtasks] = useState<SubtaskItem[]>([]);
-  const [selectedTaskDetail, setSelectedTaskDetail] = useState<any>(null);
-
-  useEffect(() => {
-    if (!selectedTask?.projectId) {
-      setSubtasks([]);
-      setSelectedTaskDetail(null);
-      return;
-    }
-    async function loadSubtasksAndDetail() {
-      const [subtasksResult, detailResult] = await Promise.all([
-        tasksApi.listSubtasks(selectedTask!.projectId!, selectedTask!.id),
-        tasksApi.get(selectedTask!.projectId!, selectedTask!.id),
-      ]);
-      if (subtasksResult.success && subtasksResult.data) {
-        setSubtasks(Array.isArray(subtasksResult.data) ? subtasksResult.data.map((s: any) => ({
-          id: s.id,
-          title: s.title,
-          status: s.status,
-          assignee: s.assignee || null,
-        })) : []);
-      }
-      if (detailResult.success && detailResult.data) {
-        setSelectedTaskDetail(detailResult.data);
-      }
-    }
-    loadSubtasksAndDetail();
-  }, [selectedTask?.id, selectedTask?.projectId]);
-
-  const dependencyTasks: DependencyTask[] = useMemo(() => {
-    if (!selectedTaskDetail?.dependsOn?.length) return [];
-    return (selectedTaskDetail.dependsOn as string[])
-      .map((depId: string) => {
-        const t = tasks.find(t => t.id === depId);
-        return t ? { id: t.id, title: t.title, status: t.status } : null;
-      })
-      .filter(Boolean) as DependencyTask[];
-  }, [selectedTaskDetail?.dependsOn, tasks]);
-
-  const blockingTasks: DependencyTask[] = useMemo(() => {
-    if (!selectedTaskDetail?.blocks?.length) return [];
-    return (selectedTaskDetail.blocks as string[])
-      .map((blockId: string) => {
-        const t = tasks.find(t => t.id === blockId);
-        return t ? { id: t.id, title: t.title, status: t.status } : null;
-      })
-      .filter(Boolean) as DependencyTask[];
-  }, [selectedTaskDetail?.blocks, tasks]);
-
-  const allProjectTasksForDeps: DependencyTask[] = useMemo(() =>
-    tasks.filter(t => t.projectId === selectedTask?.projectId).map(t => ({ id: t.id, title: t.title, status: t.status })),
-  [tasks, selectedTask?.projectId]);
-
-  const parentTask = useMemo(() => {
-    if (!selectedTaskDetail?.parentTaskId) return null;
-    const parent = tasks.find(t => t.id === selectedTaskDetail.parentTaskId);
-    return parent ? { id: parent.id, title: parent.title } : null;
-  }, [selectedTaskDetail?.parentTaskId, tasks]);
-
-  const handleCreateSubtask = useCallback(() => {
-    setShowSubtaskDialog(true);
-  }, []);
-
   const handleSaveSubtask = useCallback(async (data: {
     title: string;
     description?: string;
-    status: any;
+    status: Task['status'];
     priority?: 'low' | 'medium' | 'high';
     assigneeId?: string;
     dueDate?: Date;
@@ -516,12 +439,6 @@ export function MyTasksClient({
         parentTaskId: selectedTask.id,
       });
       if (result.success && result.data) {
-        setSubtasks(prev => [...prev, {
-          id: result.data.id,
-          title: result.data.title,
-          status: result.data.status,
-          assignee: result.data.assignee || null,
-        }]);
         setShowSubtaskDialog(false);
         toast.success(t.projects.myTasks.subtaskCreated);
         queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
@@ -529,73 +446,7 @@ export function MyTasksClient({
         toast.error(t.projects.myTasks.subtaskCreateFailed);
       }
     });
-  }, [selectedTask, startTransition, queryClient]);
-
-  const handleToggleSubtask = useCallback(async (subtaskId: string, currentStatus: string) => {
-    if (!selectedTask?.projectId) return;
-    const result = await tasksApi.toggle(selectedTask.projectId, subtaskId, currentStatus);
-    if (result.success) {
-      const newStatus = currentStatus === 'done' ? 'todo' : 'done';
-      setSubtasks(prev => prev.map(s => s.id === subtaskId ? { ...s, status: newStatus } : s));
-    }
-  }, [selectedTask?.projectId]);
-
-  const handleNavigateToTask = useCallback(async (taskId: string) => {
-    const task = tasks.find(t => t.id === taskId);
-    if (task) {
-      setSelectedTask(task);
-      return;
-    }
-    // Task not in local list (subtask or dependency) — fetch from the selected task's project
-    if (!selectedTask?.projectId) return;
-    const result = await tasksApi.get(selectedTask.projectId, taskId);
-    if (result.success && result.data) {
-      const fetched = transformApiTask(result.data);
-      setSelectedTask(fetched);
-    }
-  }, [tasks, selectedTask?.projectId]);
-
-  const handleAddDependency = useCallback(async (targetTaskId: string, type: 'blocks' | 'blockedBy') => {
-    if (!selectedTask?.projectId || !selectedTaskDetail) return;
-    const currentDeps = selectedTaskDetail.dependsOn || [];
-    const currentBlocks = selectedTaskDetail.blocks || [];
-
-    const newData: { dependsOn?: string[]; blocks?: string[] } = {};
-    if (type === 'blockedBy') {
-      newData.dependsOn = [...new Set([...currentDeps, targetTaskId])];
-      newData.blocks = currentBlocks;
-    } else {
-      newData.blocks = [...new Set([...currentBlocks, targetTaskId])];
-      newData.dependsOn = currentDeps;
-    }
-
-    const result = await tasksApi.updateDependencies(selectedTask.projectId, selectedTask.id, newData);
-    if (result.success && result.data) {
-      setSelectedTaskDetail((prev: any) => prev ? { ...prev, dependsOn: result.data.dependsOn, blocks: result.data.blocks } : prev);
-    } else {
-      toast.error((result as any).error || t.projects.myTasks.failedToAddDependency);
-    }
-  }, [selectedTask, selectedTaskDetail]);
-
-  const handleRemoveDependency = useCallback(async (targetTaskId: string, type: 'blocks' | 'blockedBy') => {
-    if (!selectedTask?.projectId || !selectedTaskDetail) return;
-    const currentDeps = selectedTaskDetail.dependsOn || [];
-    const currentBlocks = selectedTaskDetail.blocks || [];
-
-    const newData: { dependsOn?: string[]; blocks?: string[] } = {};
-    if (type === 'blockedBy') {
-      newData.dependsOn = currentDeps.filter((id: string) => id !== targetTaskId);
-      newData.blocks = currentBlocks;
-    } else {
-      newData.blocks = currentBlocks.filter((id: string) => id !== targetTaskId);
-      newData.dependsOn = currentDeps;
-    }
-
-    const result = await tasksApi.updateDependencies(selectedTask.projectId, selectedTask.id, newData);
-    if (result.success && result.data) {
-      setSelectedTaskDetail((prev: any) => prev ? { ...prev, dependsOn: result.data.dependsOn, blocks: result.data.blocks } : prev);
-    }
-  }, [selectedTask, selectedTaskDetail]);
+  }, [selectedTask, startTransition, queryClient, t.projects.myTasks.subtaskCreated, t.projects.myTasks.subtaskCreateFailed]);
 
   // Fetch workspace labels
   useEffect(() => {
@@ -617,7 +468,7 @@ export function MyTasksClient({
     }
     toast.error(t.projects.myTasks.failedToCreateLabel);
     return null;
-  }, []);
+  }, [t.projects.myTasks.failedToCreateLabel]);
 
   // Fetch members from all projects for assignee dropdown
   useEffect(() => {
@@ -625,23 +476,18 @@ export function MyTasksClient({
       const results = await Promise.all(
         projects.map(p => membersApi.list(p.id))
       );
-      const idMap: Record<string, string> = {};
       const memberMap = new Map<string, { id: string; name: string; avatar?: string }>();
       results.forEach(r => {
-        (r.data || []).forEach((m: any) => {
+        (r.data || []).forEach((m) => {
           const name = m.user?.name;
           const id = m.userId || m.user?.id;
           const avatar = m.user?.avatar;
-          if (name && id) {
-            idMap[name] = id;
-            if (!memberMap.has(id)) {
-              memberMap.set(id, { id, name, avatar });
-            }
+          if (name && id && !memberMap.has(id)) {
+            memberMap.set(id, { id, name, avatar });
           }
         });
       });
       setAvailableAssignees(Array.from(memberMap.values()));
-      setAssigneeIdByName(idMap);
     }
     if (projects.length > 0) loadMembers();
   }, [projects]);
@@ -662,7 +508,7 @@ export function MyTasksClient({
       projectId: taskData.projectId,
       project: taskData.projectName,
       tags: taskData.tags,
-      labels: (taskData as any).labels,
+      labels: (taskData as TaskEventData & { labels?: string[] }).labels,
     };
     setTasks(prev => {
       if (prev.some(t => t.id === newTask.id)) return prev;
@@ -717,7 +563,7 @@ export function MyTasksClient({
   const handleSaveTask = (data: {
     title: string;
     description?: string;
-    status: any;
+    status: Task['status'];
     priority?: 'low' | 'medium' | 'high';
     assigneeId?: string;
     assigneeIds?: string[];
@@ -774,7 +620,7 @@ export function MyTasksClient({
     });
   };
 
-  const toggleTaskStatus = async (taskId: string) => {
+  const toggleTaskStatus = useCallback(async (taskId: string) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
     startTransition(async () => {
@@ -789,10 +635,11 @@ export function MyTasksClient({
         }));
 
         // If a next recurring task was created, fetch and add it
-        if ((result.data as any)?.nextTaskId) {
-          const nextResult = await tasksApi.getById((result.data as any).nextTaskId);
-          if (nextResult.success && nextResult.data) {
-            setTasks(prev => [transformApiTask(nextResult.data), ...prev]);
+        if (result.data?.nextTaskId) {
+          const nextResult = await tasksApi.getById(result.data.nextTaskId);
+          const nextTask = nextResult.data;
+          if (nextResult.success && nextTask) {
+            setTasks(prev => [transformApiTask(nextTask), ...prev]);
             toast.success(t.projects.myTasks.nextRecurringCreated);
           }
         }
@@ -802,9 +649,9 @@ export function MyTasksClient({
         toast.error(result.error || t.projects.myTasks.taskUpdateFailed);
       }
     });
-  };
+  }, [tasks, startTransition, queryClient, t]);
 
-  const deleteTask = async (taskId: string) => {
+  const deleteTask = useCallback(async (taskId: string) => {
     startTransition(async () => {
       const result = await tasksApi.deleteById(taskId);
       if (result.success) {
@@ -815,7 +662,7 @@ export function MyTasksClient({
         toast.error(result.error || t.projects.myTasks.taskDeleteFailed);
       }
     });
-  };
+  }, [tasks, startTransition, queryClient, t]);
 
   const handleStatusChange = useCallback(async (taskId: string, newStatus: Task['status']) => {
     const task = tasks.find(t => t.id === taskId);
@@ -837,10 +684,11 @@ export function MyTasksClient({
 
     if (result.success) {
       // If a next recurring task was created, fetch and add it
-      if ((result.data as any)?.nextTaskId) {
-        const nextResult = await tasksApi.getById((result.data as any).nextTaskId);
-        if (nextResult.success && nextResult.data) {
-          setTasks(prev => [transformApiTask(nextResult.data), ...prev]);
+      if (result.data?.nextTaskId) {
+        const nextResult = await tasksApi.getById(result.data.nextTaskId);
+        const nextTask = nextResult.data;
+        if (nextResult.success && nextTask) {
+          setTasks(prev => [transformApiTask(nextTask), ...prev]);
           toast.success(t.projects.myTasks.nextRecurringCreated);
         }
       }
@@ -851,7 +699,7 @@ export function MyTasksClient({
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: oldStatus } : t));
       toast.error(t.projects.myTasks.taskMoveFailed);
     }
-  }, [tasks, t]);
+  }, [tasks, t, queryClient]);
 
   const handlePipelineReorder = useCallback(async (columnStatus: string, reorderedTaskIds: string[]) => {
     // Optimistic update — reorder tasks within the column
@@ -885,8 +733,8 @@ export function MyTasksClient({
     }
   }, [tasks, t]);
 
-  const statusOrder = ['backlog', 'todo', 'in_progress', 'in_review', 'testing', 'done', 'cancelled'];
-  const priorityOrder = ['low', 'medium', 'high', 'urgent'];
+  const statusOrder = useMemo(() => ['backlog', 'todo', 'in_progress', 'in_review', 'testing', 'done', 'cancelled'], []);
+  const priorityOrder = useMemo(() => ['low', 'medium', 'high', 'urgent'], []);
 
   const sortedTasks = useMemo(() => {
     if (!sortState) return tasks;
@@ -930,7 +778,7 @@ export function MyTasksClient({
       }
       return cmp !== 0 ? cmp : tiebreak(a, b);
     });
-  }, [tasks, sortState]);
+  }, [tasks, sortState, statusOrder, priorityOrder]);
 
   // Table drag-and-drop handler — commit reorder on drop
   const handleTableDragEnd = useCallback(async (event: DragEndEvent) => {
@@ -966,23 +814,23 @@ export function MyTasksClient({
   const tasksRef = useRef(tasks);
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
 
-  const updateTaskInline = useCallback(async (taskId: string, data: Record<string, any>) => {
+  const updateTaskInline = useCallback(async (taskId: string, data: Partial<Task>) => {
     // Optimistic update
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...data } : t));
     setSelectedTask(prev => prev?.id === taskId ? { ...prev, ...data } : prev);
 
-    const apiData: Record<string, any> = { ...data };
+    const apiData: Record<string, unknown> = { ...data };
     if (data.dueDate !== undefined) {
       apiData.dueDate = data.dueDate ? data.dueDate.toISOString() : null;
     }
     if (data.assigneeIds !== undefined) {
-      const ids = Array.isArray(data.assigneeIds) ? (data.assigneeIds as string[]) : [];
+      const ids = Array.isArray(data.assigneeIds) ? data.assigneeIds : [];
       apiData.assigneeIds = ids.length > 0 ? ids : null;
       delete apiData.assigneeId;
       delete apiData.assignee;
       delete apiData.assignees;
     } else if (data.assignees !== undefined) {
-      const ids = (data.assignees as { id: string }[] | null | undefined)?.map((a) => a.id) ?? [];
+      const ids = data.assignees?.map((a) => a.id) ?? [];
       apiData.assigneeIds = ids.length > 0 ? ids : null;
       delete apiData.assigneeId;
       delete apiData.assignee;
@@ -998,25 +846,25 @@ export function MyTasksClient({
     const existingTask = tasksRef.current.find((t) => t.id === taskId);
     const projectId = existingTask?.projectId;
     const result = projectId
-      ? await tasksApi.update(projectId, taskId, apiData)
-      : await tasksApi.updateById(taskId, apiData);
+      ? await tasksApi.update(projectId, taskId, apiData as Parameters<typeof tasksApi.update>[2])
+      : await tasksApi.updateById(taskId, apiData as Parameters<typeof tasksApi.updateById>[1]);
     if (result.success) {
       queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
     } else {
       // Rollback on failure
       setTasks(prev => prev.map(t => {
         if (t.id !== taskId) return t;
-        const rollback = { ...t };
-        Object.keys(data).forEach(k => delete (rollback as any)[k]);
-        return rollback;
+        const rollback: Record<string, unknown> = { ...t };
+        Object.keys(data).forEach(k => delete rollback[k]);
+        return rollback as unknown as Task;
       }));
       toast.error(t.projects.myTasks.taskUpdateFailed);
     }
   }, [queryClient, t]);
 
-  const formatDateShort = (date: Date) => {
+  const formatDateShort = useCallback((date: Date) => {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
+  }, []);
 
   // Filter configs
   const filterConfigs: FilterConfig[] = useMemo(() => [
@@ -1170,8 +1018,8 @@ export function MyTasksClient({
           : result.filter(t => t.project !== filter.value);
       } else if (filter.field === 'label') {
         result = filter.operator === 'is'
-          ? result.filter(t => Array.isArray((t as any).labels) && (t as any).labels.includes(filter.value))
-          : result.filter(t => !Array.isArray((t as any).labels) || !(t as any).labels.includes(filter.value));
+          ? result.filter(t => Array.isArray(t.labels) && t.labels.includes(filter.value))
+          : result.filter(t => !Array.isArray(t.labels) || !t.labels.includes(filter.value));
       }
     });
     return result;
@@ -1185,7 +1033,7 @@ export function MyTasksClient({
       }
       return { columnId, direction: 'asc' as const };
     });
-  }, []);
+  }, [setSortState]);
 
   // Header columns
   const headerColumns: HeaderColumn[] = useMemo(() => [
@@ -1476,7 +1324,7 @@ export function MyTasksClient({
                       <div className="h-px bg-border my-1" />
                       <Button
                         variant="ghost"
-                        onClick={() => updateTaskInline(task.id, { assigneeId: null, assignee: undefined, assigneeIds: [], assignees: [] })}
+                        onClick={() => updateTaskInline(task.id, { assigneeId: undefined, assignee: undefined, assigneeIds: [], assignees: [] })}
                         className="flex items-center w-full px-2 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
                       >
                         <Trash2 className="h-3.5 w-3.5 mr-2" />
@@ -1543,10 +1391,10 @@ export function MyTasksClient({
         </div>
       </div>
     );
-  }, [isPending, toggleTaskStatus, deleteTask, availableLabels, handleStatusChange, updateTaskInline, availableAssignees, formatDateShort, startTransition, queryClient, t]);
+  }, [isPending, toggleTaskStatus, deleteTask, availableLabels, handleStatusChange, updateTaskInline, availableAssignees, formatDateShort, startTransition, queryClient, t, priorityConfig, statusConfig]);
 
   // Render row (wraps content with sortable when drag is enabled)
-  const renderRow = useCallback((task: Task, handlers: RowHandlers<Task>) => {
+  const renderRow = useCallback((task: Task) => {
     const rowContent = renderTaskRow(task);
 
     if (isDragEnabled) {
@@ -1698,7 +1546,7 @@ export function MyTasksClient({
             onTaskClick={(task) => setSelectedTask(task)}
             onStatusChange={handleStatusChange}
             onReorder={handlePipelineReorder}
-            onCreateTask={(status) => {
+            onCreateTask={() => {
               setShowTaskDialog(true);
             }}
             viewToggle={viewToggle}
@@ -1723,7 +1571,7 @@ export function MyTasksClient({
         recordLabel={t.projects.myTasks.selectProject}
         onSave={handleSaveTask}
         onUpdate={(taskId, data) => {
-          const projectData: Record<string, any> = {};
+          const projectData: Record<string, unknown> = {};
           if (data.title) projectData.title = data.title;
           if (data.description !== undefined) projectData.description = data.description;
           if (data.status) projectData.status = statusFromCrm[data.status] || data.status;
@@ -1733,10 +1581,10 @@ export function MyTasksClient({
           if (data.repeat !== undefined) projectData.repeat = data.repeat || null;
 
           startTransition(async () => {
-            const result = await tasksApi.updateById(taskId, projectData);
+            const result = await tasksApi.updateById(taskId, projectData as Parameters<typeof tasksApi.updateById>[1]);
             if (result.success) {
-              setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...projectData } : t));
-              setSelectedTask(prev => prev?.id === taskId ? { ...prev, ...projectData } : prev);
+              setTasks(prev => prev.map(t => t.id === taskId ? ({ ...t, ...projectData } as Task) : t));
+              setSelectedTask(prev => prev?.id === taskId ? ({ ...prev, ...projectData } as Task) : prev);
               setShowTaskDialog(false);
               setEditingCrmTask(null);
               toast.success(t.projects.myTasks.taskUpdated);

@@ -1,14 +1,13 @@
 
-import React, { useState, useRef, useEffect, useTransition, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useProjectMessageEvents } from '@/hooks/realtime/use-entity-events';
 import type { ProjectMessageEventData, AnyPlatformEvent } from '@/lib/platform-events/types';
-import { Card, CardContent, CardHeader } from '@weldsuite/ui/components/card';
+import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Textarea } from '@weldsuite/ui/components/textarea';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import {
   DropdownMenu,
@@ -23,13 +22,11 @@ import {
   Paperclip,
   Smile,
   EllipsisVertical,
-  Pin,
   Reply,
   Trash2,
   Edit,
   Search,
   Filter,
-  Hash,
   AtSign,
   MessageCircle,
   AlertCircle,
@@ -55,7 +52,7 @@ interface ProjectMessage {
     message?: string;
   };
   reactions?: Record<string, string[]>;
-  attachments?: any[];
+  attachments?: unknown[];
 }
 
 interface MessagesClientProps {
@@ -74,7 +71,6 @@ export function MessagesClient({ projectId, initialMessages, error }: MessagesCl
   const [messages, setMessages] = useState<ProjectMessage[]>(initialMessages || []);
   const [messageInput, setMessageInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [isPending, startTransition] = useTransition();
   const [isSending, setIsSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { canWrite } = useProjectPermissions();
@@ -381,7 +377,6 @@ function MessageBubble({
   message,
   onReact,
   onDelete,
-  getAttachmentIcon,
   canWrite,
 }: {
   message: ProjectMessage;

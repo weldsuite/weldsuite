@@ -9,13 +9,14 @@ import { cn } from '@/lib/utils';
 import { ActionConfigForm } from '@/components/workflow-editor/components/action-config-form';
 import { getActionMeta, getStepWarningMessage, getHelpdeskVariableGroups } from '../helpdesk-workflow-constants';
 import { useI18n } from '@/lib/i18n/provider';
+import type { HelpdeskWorkflow, WorkflowStep } from '../types';
 
 interface StepEditPanelProps {
-  editingStep: any;
-  workflow: any;
+  editingStep: WorkflowStep;
+  workflow: HelpdeskWorkflow;
   workspaceMembers: Array<{ id: string; name: string; email: string; avatar?: string }>;
   workflowVariables: Array<{ name: string; type?: string }>;
-  onUpdateStep: (stepId: string, data: any) => void;
+  onUpdateStep: (stepId: string, data: Partial<WorkflowStep>) => void;
   onDeleteStep: (index: number) => void;
   onClose: () => void;
 }
@@ -109,12 +110,12 @@ export function StepEditPanel({
                 onUpdateStep(editingStep.id, { config, inputs: {} });
               }}
               workspaceMembers={workspaceMembers}
-              workflowSteps={workflow.steps.map((s: any) => ({
+              workflowSteps={workflow.steps.map((s) => ({
                 id: s.id,
                 name: s.name,
                 type: s.type,
               }))}
-              currentStepIndex={workflow.steps.findIndex((s: any) => s.id === editingStep.id)}
+              currentStepIndex={workflow.steps.findIndex((s) => s.id === editingStep.id)}
               workflowVariables={workflowVariables}
               triggerType={workflow.triggers?.[0]?.type}
               extraVariableGroups={helpdeskVariableGroups}
@@ -127,7 +128,7 @@ export function StepEditPanel({
           variant="outline"
           className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
           onClick={() => {
-            const stepIndex = workflow.steps.findIndex((s: any) => s.id === editingStep.id);
+            const stepIndex = workflow.steps.findIndex((s) => s.id === editingStep.id);
             if (stepIndex !== -1) {
               onDeleteStep(stepIndex);
             }

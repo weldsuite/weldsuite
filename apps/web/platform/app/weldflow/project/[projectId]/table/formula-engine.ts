@@ -340,7 +340,7 @@ class Parser {
 type CellGetter = (col: number, row: number) => CellValue;
 type FormulaError = '#REF!' | '#VALUE!' | '#DIV/0!' | '#NAME?' | '#CIRC!' | '#N/A' | '#ERROR!';
 
-function isError(v: any): v is FormulaError {
+function isError(v: CellValue): v is FormulaError {
   return typeof v === 'string' && v.startsWith('#') && v.endsWith('!') || v === '#N/A' || v === '#NAME?';
 }
 
@@ -357,7 +357,7 @@ function toString(v: CellValue): string {
   return String(v);
 }
 
-function expandRange(range: RangeRef, getCellValue: CellGetter, visited: Set<string>): CellValue[] {
+function expandRange(range: RangeRef, getCellValue: CellGetter): CellValue[] {
   const values: CellValue[] = [];
   const minCol = Math.min(range.start.col, range.end.col);
   const maxCol = Math.max(range.start.col, range.end.col);
@@ -375,7 +375,7 @@ function flattenArgs(args: ASTNode[], getCellValue: CellGetter, visited: Set<str
   const values: CellValue[] = [];
   for (const arg of args) {
     if (arg.type === 'range') {
-      values.push(...expandRange(arg.range, getCellValue, visited));
+      values.push(...expandRange(arg.range, getCellValue));
     } else {
       values.push(evalNode(arg, getCellValue, visited));
     }
@@ -705,7 +705,7 @@ const FUNCTIONS: Record<string, (args: ASTNode[], getCellValue: CellGetter, visi
   COUNTIF: (args, get, vis, ev) => {
     if (args.length < 2) return '#VALUE!';
     if (args[0].type !== 'range') return '#VALUE!';
-    const vals = expandRange(args[0].range, getCellValue, vis);
+    const vals = expandRange(args[0].range, getCellValue);
     const criteria = toString(ev(args[1], get, vis));
     let count = 0;
     for (const v of vals) {
@@ -769,6 +769,10 @@ function matchesCriteria(value: CellValue, criteria: string): boolean {
   return String(value) === criteria;
 }
 
+// Placeholder stub matching CellGetter's shape; VLOOKUP/INDEX/MATCH/COUNTIF/SUMIF above resolve
+// calls to this module-scope declaration via hoisting rather than their own `get` parameter
+// (pre-existing behavior, not changed here).
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function getCellValue(col: number, row: number): CellValue {
   // This is a placeholder - the real getCellValue is passed to evaluate()
   return null;
@@ -788,7 +792,7 @@ function evalNode(node: ASTNode, getCellValue: CellGetter, visited: Set<string>)
 
     case 'range': {
       // When a range appears as a standalone expression, return the first value
-      const vals = expandRange(node.range, getCellValue, visited);
+      const vals = expandRange(node.range, getCellValue);
       return vals[0] ?? null;
     }
 
@@ -831,8 +835,9 @@ function evalNode(node: ASTNode, getCellValue: CellGetter, visited: Set<string>)
       if (!fn) return '#NAME?';
       try {
         return fn(node.args, getCellValue, visited, evalNode);
-      } catch (e: any) {
-        if (e.message?.startsWith('#')) return e.message as FormulaError;
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : undefined;
+        if (message?.startsWith('#')) return message as FormulaError;
         return '#ERROR!';
       }
     }
@@ -860,8 +865,9 @@ export function evaluate(
     const ast = parser.parse();
     const visited = visitedCells ?? new Set<string>();
     return evalNode(ast, getCellValue, visited);
-  } catch (e: any) {
-    if (e.message?.startsWith('#')) return e.message;
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : undefined;
+    if (message?.startsWith('#')) return message;
     return '#ERROR!';
   }
 }

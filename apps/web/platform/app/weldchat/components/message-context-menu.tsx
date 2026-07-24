@@ -27,6 +27,7 @@ import {
   useMarkChannelUnread,
   useSendMessage,
 } from '@/hooks/queries/use-weldchat-queries';
+import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -53,7 +54,7 @@ interface ReadByUser {
 }
 
 interface MessageContextMenuProps {
-  message: any;
+  message: ChatMessage;
   channelId: string;
   readBy?: ReadByUser[];
   children: ReactNode;
@@ -67,7 +68,7 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Mes
   const { mutate: bookmarkMessage } = useBookmarkMessage();
   const { data: bookmarksData } = useBookmarks();
   const { mutate: deleteBookmark } = useDeleteBookmark();
-  const existingBookmark = (bookmarksData?.data || []).find((bk: any) => bk.messageId === message.id);
+  const existingBookmark = (bookmarksData?.data || []).find((bk) => bk.messageId === message.id);
   const isBookmarked = !!existingBookmark;
   const { mutate: deleteMessage } = useDeleteMessage();
   const { mutate: toggleReaction } = useToggleReaction();
@@ -78,7 +79,7 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Mes
   const [showReplacePinDialog, setShowReplacePinDialog] = useState(false);
   const [showPinDurationDialog, setShowPinDurationDialog] = useState(false);
   const [pendingReplaceId, setPendingReplaceId] = useState<string | null>(null);
-  const pinnedMessages: any[] = pinnedData?.data ?? [];
+  const pinnedMessages: ChatMessage[] = pinnedData?.data ?? [];
 
   const handleReaction = (emoji: string) => {
     toggleReaction({ channelId, messageId: message.id, emoji, hasReacted: false });
@@ -91,7 +92,7 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Mes
   };
 
   const handleCopyText = () => {
-    navigator.clipboard.writeText(message.content);
+    navigator.clipboard.writeText(message.content ?? '');
     toast.success(t.weldchat.messageContextMenu.messageTextCopied);
   };
 
@@ -178,8 +179,8 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Mes
             onClick={() =>
               setReplyTo({
                 messageId: message.id,
-                authorName: message.authorName,
-                content: message.content,
+                authorName: message.authorName ?? '',
+                content: message.content ?? '',
               })
             }
           >
@@ -257,8 +258,8 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Mes
       <ForwardMessageDialog
         open={showForwardDialog}
         onOpenChange={setShowForwardDialog}
-        messageContent={message.content}
-        originalAuthor={message.authorName}
+        messageContent={message.content ?? ''}
+        originalAuthor={message.authorName ?? ''}
         messageId={message.id}
         sourceChannelId={channelId}
       />

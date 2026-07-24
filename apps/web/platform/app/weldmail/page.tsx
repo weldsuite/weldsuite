@@ -26,7 +26,7 @@ export default function MailPage() {
       // Unified inbox only makes sense with 2+ accounts.
       return emailAccounts.length >= 2 ? '/weldmail/unified/inbox' : null;
     }
-    return emailAccounts.some((acc: any) => acc.id === pref)
+    return emailAccounts.some((acc) => acc.id === pref)
       ? `/weldmail/${pref}/inbox`
       : null;
   };
@@ -45,7 +45,7 @@ export default function MailPage() {
   }
 
   // 4. Single account: open the workspace default (or the only account).
-  const defaultAccount = emailAccounts.find((acc: any) => acc.isDefault) || emailAccounts[0];
+  const defaultAccount = emailAccounts.find((acc) => acc.isDefault) || emailAccounts[0];
 
   return <MailRedirect to={`/weldmail/${defaultAccount.id}/inbox`} />;
 }

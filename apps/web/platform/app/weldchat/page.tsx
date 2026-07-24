@@ -12,7 +12,7 @@ export default function ChatPage() {
   useEffect(() => {
     if (!isLoading && data?.data) {
       const defaultChannel =
-        data.data.find((ch: any) => ch.isDefault) || data.data[0];
+        data.data.find((ch) => ch.isDefault) || data.data[0];
       if (defaultChannel) {
         navigate({
           to: '/weldchat/$channelId',

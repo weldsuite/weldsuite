@@ -1,13 +1,10 @@
 
-import { useState } from 'react';
+import { useState, type ReactElement } from 'react';
 import { useRouter } from '@/lib/router';
 import {
   ArrowLeft,
   Edit,
   MoreVertical,
-  Globe,
-  Lock,
-  Users,
   Tag,
   Clock,
   Eye,
@@ -27,88 +24,36 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
+import type { NewsArticle } from '@/hooks/queries/use-helpdesk-queries';
 
-interface Article {
-  id: string;
-  title: string;
-  content: string;
-  excerpt?: string;
-  category: string;
-  tags: string[];
-  author: string;
-  status: 'published' | 'draft' | 'archived' | 'review' | 'outdated';
-  visibility: 'public' | 'private' | 'internal' | 'logged_in' | 'specific_users';
-  lastUpdated: Date;
-  views?: number;
-  helpful?: number;
-  notHelpful?: number;
+interface NewsViewerProps {
+  article: NewsArticle;
 }
 
-interface ArticleViewerProps {
-  article: Article;
-}
-
-export function NewsViewer({ article }: ArticleViewerProps) {
+export function NewsViewer({ article }: NewsViewerProps) {
   const router = useRouter();
   const { t } = useI18n();
   const tn = t.helpdesk.news;
   const [isHelpful, setIsHelpful] = useState<boolean | null>(null);
 
-  const getStatusColor = (status: Article['status']) => {
+  const getStatusColor = (status: NewsArticle['status']) => {
     switch (status) {
       case 'published':
         return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400';
       case 'draft':
         return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400';
-      case 'archived':
-        return 'bg-gray-100 text-gray-800 dark:bg-background/20 dark:text-muted-foreground';
-      case 'review':
+      case 'scheduled':
         return 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400';
-      case 'outdated':
-        return 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400';
     }
   };
-
-  const getVisibilityIcon = (visibility: Article['visibility']) => {
-    switch (visibility) {
-      case 'public':
-        return Globe;
-      case 'private':
-        return Lock;
-      case 'internal':
-        return Users;
-      case 'logged_in':
-        return Users;
-      case 'specific_users':
-        return Lock;
-    }
-  };
-
-  const getVisibilityColor = (visibility: Article['visibility']) => {
-    switch (visibility) {
-      case 'public':
-        return 'text-blue-600';
-      case 'private':
-        return 'text-red-600';
-      case 'internal':
-        return 'text-purple-600';
-      case 'logged_in':
-        return 'text-indigo-600';
-      case 'specific_users':
-        return 'text-pink-600';
-    }
-  };
-
-  const VisibilityIcon = getVisibilityIcon(article.visibility);
 
   // Parse markdown content to HTML-like structure for display
   const renderContent = (content: string) => {
     const lines = content.split('\n');
-    const elements: JSX.Element[] = [];
+    const elements: ReactElement[] = [];
     let listItems: string[] = [];
     let listType: 'bullet' | 'numbered' | null = null;
     let codeBlock: string[] = [];
@@ -138,7 +83,7 @@ export function NewsViewer({ article }: ArticleViewerProps) {
       }
     };
 
-    lines.forEach((line, index) => {
+    lines.forEach((line) => {
       if (line.startsWith('```')) {
         if (inCodeBlock) {
           elements.push(
@@ -266,20 +211,14 @@ export function NewsViewer({ article }: ArticleViewerProps) {
               <Badge className={getStatusColor(article.status)}>
                 {article.status}
               </Badge>
-              <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                <VisibilityIcon className={cn("h-3.5 w-3.5", getVisibilityColor(article.visibility))} />
-                <span className="capitalize">{article.visibility.replace('_', ' ')}</span>
-              </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            {article.views !== undefined && (
-              <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                <Eye className="h-4 w-4" />
-                <span>{article.views.toLocaleString()} {tn.views.toLowerCase()}</span>
-              </div>
-            )}
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <Eye className="h-4 w-4" />
+              <span>{article.views.toLocaleString()} {tn.views.toLowerCase()}</span>
+            </div>
             <Button
               size="sm"
               onClick={() => router.push(`/welddesk/knowledge/${article.id}/edit`)}
@@ -333,7 +272,7 @@ export function NewsViewer({ article }: ArticleViewerProps) {
               </div>
               <div className="flex items-center gap-1.5">
                 <Clock className="h-3.5 w-3.5" />
-                <span>Updated {format(article.lastUpdated, 'MMMM d, yyyy')}</span>
+                <span>Updated {format(article.publishDate, 'MMMM d, yyyy')}</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <Tag className="h-3.5 w-3.5" />
@@ -368,7 +307,7 @@ export function NewsViewer({ article }: ArticleViewerProps) {
                 onClick={() => handleHelpful(true)}
               >
                 <ThumbsUp className="h-5 w-5 mr-2" />
-                Yes {article.helpful !== undefined && `(${article.helpful})`}
+                Yes
               </Button>
               <Button
                 variant={isHelpful === false ? 'destructive' : 'outline'}
@@ -376,7 +315,7 @@ export function NewsViewer({ article }: ArticleViewerProps) {
                 onClick={() => handleHelpful(false)}
               >
                 <ThumbsDown className="h-5 w-5 mr-2" />
-                No {article.notHelpful !== undefined && `(${article.notHelpful})`}
+                No
               </Button>
             </div>
             {isHelpful !== null && (

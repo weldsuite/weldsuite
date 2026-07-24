@@ -60,7 +60,7 @@ export default function ContactDetailPage() {
             </Badge>
           </div>
         </div>
-        <Link to={`/weldbooks/customers/${contact.id}/edit` as any}>
+        <Link to="/weldbooks/customers/$id/edit" params={{ id: contact.id }}>
           <Button variant="outline" size="sm">
             <Pencil className="h-4 w-4 mr-1" />
             {tc.editContact}

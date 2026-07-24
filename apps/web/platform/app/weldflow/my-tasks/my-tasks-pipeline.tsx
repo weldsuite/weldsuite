@@ -11,6 +11,7 @@ import {
   useSensors,
   pointerWithin,
   rectIntersection,
+  type CollisionDetection,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -380,17 +381,17 @@ export function MyTasksPipeline({
 
   // Collision detection: prefer task items over stage containers
   // so within-column reorder detects the specific task being dragged over
-  const customCollisionDetection = useCallback((args: any) => {
+  const customCollisionDetection: CollisionDetection = useCallback((args) => {
     const pointerCollisions = pointerWithin(args);
     // Prefer task item collisions for within-column reorder
-    const taskCollisions = pointerCollisions.filter((c: any) => !c.id?.toString().startsWith('stage-'));
+    const taskCollisions = pointerCollisions.filter((c) => !c.id?.toString().startsWith('stage-'));
     if (taskCollisions.length > 0) return taskCollisions;
     // Fall back to stage collisions for cross-column drag
-    const stageCollisions = pointerCollisions.filter((c: any) => c.id?.toString().startsWith('stage-'));
+    const stageCollisions = pointerCollisions.filter((c) => c.id?.toString().startsWith('stage-'));
     if (stageCollisions.length > 0) return stageCollisions;
     // Final fallback
     const rectCollisions = rectIntersection(args);
-    const rectStageCollisions = rectCollisions.filter((c: any) => c.id?.toString().startsWith('stage-'));
+    const rectStageCollisions = rectCollisions.filter((c) => c.id?.toString().startsWith('stage-'));
     if (rectStageCollisions.length > 0) return rectStageCollisions;
     return rectCollisions;
   }, []);

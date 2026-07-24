@@ -15,17 +15,13 @@ import {
   isSameMonth,
   isSameDay,
   isToday,
-  startOfDay,
-  endOfDay,
   differenceInMinutes,
-  setHours,
-  setMinutes,
   isTomorrow,
   isYesterday,
   isThisWeek,
 } from 'date-fns';
-import { ChevronLeft, ChevronRight, Plus, CalendarDays, CalendarIcon, CheckSquare, UserCheck, Clock, MapPin, Pencil, Trash2, X, MoreHorizontal, EllipsisVertical, Users, FileText, HardDrive, AlignLeft, Flag, CircleDot, Tag, Paperclip, Repeat2, ChevronDown, Search, ListFilter, Loader2, ListCollapse, Check, Pin, Sparkles, Copy, Settings } from 'lucide-react';
-import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
+import { ChevronLeft, ChevronRight, Plus, CalendarDays, Clock, MapPin, Pencil, Trash2, X, EllipsisVertical, Users, AlignLeft, Flag, CircleDot, Tag, Paperclip, Repeat2, Search, Loader2, ListCollapse, Check, Pin, Sparkles, Copy, Settings } from 'lucide-react';
+import { PageTabs } from '@weldsuite/ui/components/page-tabs';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,12 +36,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupInput,
-} from '@weldsuite/ui/components/input-group';
 import { Separator } from '@weldsuite/ui/components/separator';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Tabs, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
@@ -89,9 +79,9 @@ import {
   type UserCalendar,
 } from '@/hooks/queries/use-calendar-queries';
 import { EVENT_TYPE_COLORS, EVENT_TYPE_OPTIONS, EVENT_PRIORITY_OPTIONS } from '../lib/event-form-schema';
-import { EntityList, FilterPills, type HeaderColumn, type FilterConfig, type GroupConfig, type RowHandlers, type ActiveFilter } from '@/components/entity-list';
+import { EntityList, FilterPills, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 import { usePeople, type Person } from '@/components/objects/person/use-person-data';
-import { useCreateTask } from '@/hooks/use-crm-tasks';
+import { useCreateTask, type Task } from '@/hooks/use-crm-tasks';
 import { useWorkspaceMembers, useWorkingHours, type WorkingHours, type DayHours } from '@/hooks/queries/use-settings-queries';
 import { EventDialog } from './event-dialog';
 import { useEntitySheet } from '@/components/entity-sheet';
@@ -195,7 +185,6 @@ export function CalendarView() {
     newEnd: Date;
   } | null>(null);
 
-  const createTask = useCreateTask();
   const rescheduleEvent = useRescheduleCalendarEvent();
   const unpinEvent = useUnpinCalendarEvent();
   const { data: workingHoursData } = useWorkingHours();
@@ -205,7 +194,7 @@ export function CalendarView() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
   const { data: calendarsData } = useUserCalendars();
-  const allCalendars = calendarsData?.data || [];
+  const allCalendars = useMemo(() => calendarsData?.data || [], [calendarsData]);
 
   const calendarFilterConfigs: FilterConfig[] = useMemo(() => [
     {
@@ -264,7 +253,7 @@ export function CalendarView() {
     };
     window.addEventListener('weldcalendar:navigate-to-date', handler);
     return () => window.removeEventListener('weldcalendar:navigate-to-date', handler);
-  }, []);
+  }, [setCurrentView]);
 
   // Sync mini calendar when main view date changes
   useEffect(() => {
@@ -819,7 +808,7 @@ export function CalendarView() {
     );
     setPinDialogOpen(false);
     setPendingDrop(null);
-  }, [pendingDrop, rescheduleEvent, unpinEvent]);
+  }, [pendingDrop, rescheduleEvent, unpinEvent, t.toast.pinnedTo, t.toast.undo]);
 
   /** Called when the user cancels the pin dialog — revert the optimistic position via query invalidation */
   const handleCancelPin = useCallback(() => {
@@ -828,7 +817,6 @@ export function CalendarView() {
   }, []);
 
   const [eventPreviewOpen, setEventPreviewOpen] = useState(false);
-  const [eventPreviewEditing, setEventPreviewEditing] = useState(false);
   const EVENT_PANEL_WIDTH = 480;
 
   // Notify the calendar layout to shrink content while the event panel is open,
@@ -846,13 +834,12 @@ export function CalendarView() {
     };
   }, [eventPreviewOpen]);
 
-  const handleSelectEvent = useCallback((event: CalendarEvent, mouseEvent?: React.MouseEvent) => {
+  const handleSelectEvent = useCallback((event: CalendarEvent) => {
     // Task-backed events open the standard task detail panel (same one used in
     // my-tasks, project boards, customer detail, etc.) so behavior matches
     // every other surface where tasks appear.
     if (event.sourceType === 'task' && event.sourceId) {
       setEventPreviewOpen(false);
-      setEventPreviewEditing(false);
       setQuickCreateOpen(false);
       setSelectedEvent(null);
       entitySheet.open('task', event.sourceId);
@@ -863,7 +850,6 @@ export function CalendarView() {
     setDefaultStart(undefined);
     setDefaultEnd(undefined);
     setQuickCreateOpen(false);
-    setEventPreviewEditing(false);
     setEventPreviewOpen(true);
   }, [entitySheet]);
 
@@ -872,7 +858,7 @@ export function CalendarView() {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (quickCreateOpen) setQuickCreateOpen(false);
-        if (eventPreviewOpen) { setEventPreviewOpen(false); setEventPreviewEditing(false); }
+        if (eventPreviewOpen) setEventPreviewOpen(false);
       }
     };
     window.addEventListener('keydown', handler);
@@ -1158,13 +1144,11 @@ export function CalendarView() {
         {currentView === 'year' && (
           <YearView
             currentDate={currentDate}
-            events={filteredEvents}
             onDateClick={(date) => { setCurrentDate(date); setCurrentView('day'); }}
           />
         )}
         {currentView === 'schedule' && (
           <ScheduleView
-            currentDate={currentDate}
             events={filteredEvents}
             calendarColorMap={calendarColorMap}
             onSelectEvent={handleSelectEvent}
@@ -1204,10 +1188,9 @@ export function CalendarView() {
         calendars={allCalendars}
         calendarColorMap={calendarColorMap}
         width={EVENT_PANEL_WIDTH}
-        onClose={() => { setEventPreviewOpen(false); setEventPreviewEditing(false); }}
+        onClose={() => setEventPreviewOpen(false)}
         onEdit={() => {
           setEventPreviewOpen(false);
-          setEventPreviewEditing(false);
           setDialogOpen(true);
         }}
       />
@@ -1247,11 +1230,6 @@ export function CalendarView() {
 // Quick Create Card (Google Calendar-style inline creation)
 // ============================================================================
 
-function formatDateTimeLocal(date: Date): string {
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
 export function QuickCreateCard({
   defaultType,
   defaultStart,
@@ -1275,13 +1253,17 @@ export function QuickCreateCard({
   defaultDescription?: string;
   /** Pre-fill the location field when creating a new event. */
   defaultLocation?: string;
-  calendars: any[];
+  calendars: UserCalendar[];
   defaultCalendarId?: string;
   onClose: () => void;
   showTypeTabs?: boolean;
   onMoreOptions: () => void;
   editEvent?: CalendarEvent | null;
 }) {
+  // Kept in the props contract for callers (new-event-dialog.tsx, weldmeet's
+  // schedule-meeting flow) that still pass it; this simplified inline card has
+  // no "more options" trigger of its own.
+  void onMoreOptions;
   const t = getTranslations('weldcalendar');
   const [type, setType] = useState(editEvent?.type || defaultType);
   const [title, setTitle] = useState(editEvent?.title || defaultTitle || '');
@@ -1332,7 +1314,7 @@ export function QuickCreateCard({
     }
     return [];
   });
-  const [activeField, setActiveField] = useState<'guests' | 'meeting' | 'location' | 'description' | 'time' | 'assignee' | null>(null);
+  const [activeField, setActiveField] = useState<'guests' | 'meeting' | 'location' | 'description' | 'time' | 'assignee' | 'labels' | null>(null);
 
   // Auto-grow the description textarea from a single line instead of snapping
   // to a fixed 2-row height — keeps the row height (and the text position)
@@ -1392,7 +1374,7 @@ export function QuickCreateCard({
   );
 
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
-  const [pendingEventData, setPendingEventData] = useState<any>(null);
+  const [pendingEventData, setPendingEventData] = useState<Partial<CalendarEvent> | null>(null);
   const [selectedCalendarId, setSelectedCalendarId] = useState(editEvent?.calendarId || defaultCalendarId);
   const isEditMode = !!editEvent?.id;
   const isTask = type === 'reminder';
@@ -1416,7 +1398,7 @@ export function QuickCreateCard({
           ? new Date(`${format(taskDueDate, 'yyyy-MM-dd')}T${taskDueTime}`)
           : taskDueDate,
         labels: taskLabels.length > 0 ? taskLabels : undefined,
-        repeat: taskRepeat ? { frequency: taskRepeat as any } : undefined,
+        repeat: taskRepeat ? { frequency: taskRepeat as NonNullable<Task['repeat']>['frequency'] } : undefined,
       });
     } else {
       const start = allDay ? new Date(`${startDate}T00:00:00`) : new Date(`${startDate}T${startTimeVal}`);
@@ -1424,7 +1406,7 @@ export function QuickCreateCard({
       const eventData = {
         calendarId: selectedCalendarId,
         title: finalTitle,
-        type: type as any,
+        type: type as CalendarEvent['type'],
         allDay,
         startTime: start.toISOString(),
         endTime: end.toISOString(),
@@ -1513,7 +1495,7 @@ export function QuickCreateCard({
                 { value: 'in_progress', label: t.quickCreate.statusInProgress },
                 { value: 'done', label: t.quickCreate.statusDone },
               ]}
-              onChange={(v) => setTaskStatus(v as any)}
+              onChange={(v) => setTaskStatus(v as 'todo' | 'in_progress' | 'done')}
             />
 
             {/* Task: Priority row */}
@@ -1527,13 +1509,13 @@ export function QuickCreateCard({
                 { value: 'medium', label: t.quickCreate.priorityMedium },
                 { value: 'high', label: t.quickCreate.priorityHigh },
               ]}
-              onChange={(v) => setTaskPriority(v === 'none' ? null : v as any)}
+              onChange={(v) => setTaskPriority(v === 'none' ? null : v as 'low' | 'medium' | 'high')}
             />
 
             {/* Task: Labels row */}
-            <div className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors" onClick={() => setActiveField(activeField === 'labels' as any ? null : 'labels' as any)}>
+            <div className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors" onClick={() => setActiveField(activeField === 'labels' ? null : 'labels')}>
               <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
-              {activeField === ('labels' as any) ? (
+              {activeField === 'labels' ? (
                 <div className="flex-1" onClick={(e) => e.stopPropagation()}>
                   <Input
                     placeholder={t.quickCreate.labelsPlaceholder}
@@ -2689,7 +2671,6 @@ function MobileMonthView({
     const targetKey = format(startOfMonth(new Date()), 'yyyy-MM');
     const el = container.querySelector(`[data-month-key="${targetKey}"]`) as HTMLElement | null;
     if (el) container.scrollTop = el.offsetTop;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Single-letter weekday header (Mon–Sun).
@@ -2789,7 +2770,7 @@ function WeekView({
     onResize: onEventDrop,
   });
 
-  const { handleDragStart: handleEventDragStart, dragState, isDragging: isDragActive, justDraggedRef } = useEventDrag({
+  const { handleDragStart: handleEventDragStart, dragState, justDraggedRef } = useEventDrag({
     hourHeight,
     onDrop: onEventDrop,
   });
@@ -2975,12 +2956,10 @@ function DayView({
     return () => observer.disconnect();
   }, []);
 
-  const { handleDragStart: handleEventDragStart, dragState, isDragging: isDayDragActive, justDraggedRef } = useEventDrag({
+  const { handleDragStart: handleEventDragStart, dragState, justDraggedRef } = useEventDrag({
     hourHeight,
     onDrop: onEventDrop,
   });
-
-  const today = isToday(currentDate);
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -3074,96 +3053,6 @@ function DayView({
         </div>
       </div>
       </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// Agenda View
-// ============================================================================
-
-function AgendaView({
-  currentDate,
-  events,
-  calendarColorMap,
-  onSelectEvent,
-}: {
-  currentDate: Date;
-  events: CalendarEvent[];
-  calendarColorMap: Record<string, string>;
-  onSelectEvent: (e: CalendarEvent, mouseEvent: React.MouseEvent) => void;
-}) {
-  const t = getTranslations('weldcalendar');
-  // Group events by day
-  const grouped = useMemo(() => {
-    const map: Record<string, CalendarEvent[]> = {};
-    const sorted = [...events].sort(
-      (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
-    );
-    for (const evt of sorted) {
-      const key = format(new Date(evt.startTime), 'yyyy-MM-dd');
-      if (!map[key]) map[key] = [];
-      map[key].push(evt);
-    }
-    return Object.entries(map);
-  }, [events]);
-
-  if (grouped.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
-        {t.calendarView.noEventsThirtyDays}
-      </div>
-    );
-  }
-
-  return (
-    <div className="max-w-3xl mx-auto p-4 space-y-4">
-      {grouped.map(([dateKey, dayEvents]) => {
-        const date = new Date(dateKey);
-        return (
-          <div key={dateKey}>
-            <div className="flex items-center gap-3 mb-2">
-              <div
-                className={cn(
-                  'w-12 h-12 rounded-xl flex flex-col items-center justify-center',
-                  isToday(date) ? 'bg-primary text-primary-foreground' : 'bg-muted',
-                )}
-              >
-                <span className="text-[10px] font-medium leading-none">{format(date, 'EEE')}</span>
-                <span className="text-lg font-bold leading-none">{format(date, 'd')}</span>
-              </div>
-              <div>
-                <p className="text-sm font-medium">{format(date, 'EEEE, MMMM d')}</p>
-                <p className="text-xs text-muted-foreground">{dayEvents.length} event{dayEvents.length !== 1 ? 's' : ''}</p>
-              </div>
-            </div>
-            <div className="ml-[60px] space-y-1.5">
-              {dayEvents.map((evt, i) => {
-                const color = getEventColor(evt, calendarColorMap);
-                return (
-                  <Button
-                    variant="ghost"
-                    key={evt.id || i}
-                    className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-accent/50 transition-colors"
-                    onClick={(e) => onSelectEvent(evt, e)}
-                  >
-                    <div className="w-1 h-8 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{evt.title}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {evt.allDay
-                          ? t.calendarView.allDay
-                          : `${format(new Date(evt.startTime), 'h:mm a')}${evt.endTime ? ` – ${format(new Date(evt.endTime), 'h:mm a')}` : ''}`}
-                        {evt.location ? ` · ${evt.location}` : ''}
-                      </p>
-                    </div>
-                  </Button>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -3595,7 +3484,7 @@ function EventDetailPanel({
         isOpen ? 'translate-x-0' : 'translate-x-full',
         !isOpen && 'pointer-events-none',
       )}
-      style={{ ['--event-panel-width' as any]: `${width}px` }}
+      style={{ '--event-panel-width': `${width}px` } as React.CSSProperties}
     >
       <EventNotificationDialog
         open={showDeleteDialog}
@@ -3753,7 +3642,7 @@ function EventDetailPanel({
                       <Button
                         variant="ghost"
                         key={value}
-                        onClick={() => event.id && updateEvent.mutate({ id: event.id, data: { type: value as any } })}
+                        onClick={() => event.id && updateEvent.mutate({ id: event.id, data: { type: value as CalendarEvent['type'] } })}
                         className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded gap-3 min-w-[140px]"
                       >
                         <span>{label}</span>
@@ -3791,7 +3680,7 @@ function EventDetailPanel({
                       <Button
                         variant="ghost"
                         key={cal.id}
-                        onClick={() => event.id && updateEvent.mutate({ id: event.id, data: { calendarId: cal.id } as any })}
+                        onClick={() => event.id && updateEvent.mutate({ id: event.id, data: { calendarId: cal.id } })}
                         className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded gap-3 min-w-[160px]"
                       >
                         <span className="inline-flex items-center gap-2">
@@ -3848,7 +3737,7 @@ function EventDetailPanel({
                       <Button
                         variant="ghost"
                         key={value}
-                        onClick={() => event.id && updateEvent.mutate({ id: event.id, data: { priority: value as any } })}
+                        onClick={() => event.id && updateEvent.mutate({ id: event.id, data: { priority: value } })}
                         className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded gap-3 min-w-[140px]"
                       >
                         <span>{label}</span>
@@ -3865,7 +3754,7 @@ function EventDetailPanel({
                 label={t.eventPreview.fieldLocation}
                 value={event.location ?? ''}
                 placeholder={t.eventPreview.setLocation}
-                onSave={(next) => event.id && updateEvent.mutate({ id: event.id, data: { location: next || undefined } as any })}
+                onSave={(next) => event.id && updateEvent.mutate({ id: event.id, data: { location: next || undefined } })}
               />
 
               {/* Meeting — empty-state click auto-generates a WeldMeet link
@@ -3897,7 +3786,7 @@ function EventDetailPanel({
                         if (result) {
                           updateEvent.mutate({
                             id: event.id,
-                            data: { meetingUrl: result.url, isVirtual: true } as any,
+                            data: { meetingUrl: result.url, isVirtual: true },
                           });
                         }
                       }}
@@ -3916,7 +3805,7 @@ function EventDetailPanel({
                 attendees={event.attendees ?? []}
                 onChange={(next) => event.id && updateEvent.mutate({
                   id: event.id,
-                  data: { attendees: next.length ? next : undefined } as any,
+                  data: { attendees: next.length ? next : undefined },
                 })}
               />
 
@@ -4086,6 +3975,16 @@ function AttendeeAvatar({
   );
 }
 
+/** Minimal shape this field reads off `/team-members` rows (the query itself is untyped). */
+interface WorkspaceMemberLite {
+  id: string;
+  name?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  picture?: string;
+}
+
 function EventAttendeesField({
   attendees,
   onChange,
@@ -4096,8 +3995,8 @@ function EventAttendeesField({
   const t = getTranslations('weldcalendar');
   const { data: peopleData } = usePeople({ limit: 50 });
   const { data: membersData } = useWorkspaceMembers(1, 50);
-  const contacts = (peopleData?.data || []) as Person[];
-  const members = (membersData?.data || []) as any[];
+  const contacts = useMemo(() => (peopleData?.data || []) as Person[], [peopleData]);
+  const members = useMemo<WorkspaceMemberLite[]>(() => membersData?.data || [], [membersData]);
 
   // Unified list of pickable people: workspace members first, then contacts.
   // Dedupe by lower-cased email — when the same person is both a member and a
@@ -4111,7 +4010,7 @@ function EventAttendeesField({
       const email = (m.email || '').toLowerCase();
       if (!email || seen.has(email)) continue;
       seen.add(email);
-      items.push({ id: `member-${m.id}`, name: name || m.email, email: m.email, avatar: m.picture });
+      items.push({ id: `member-${m.id}`, name: name || m.email || '', email: m.email ?? '', avatar: m.picture });
     }
     for (const c of contacts) {
       const email = (c.email || '').toLowerCase();
@@ -4291,8 +4190,8 @@ function GuestSearchInput({
   );
   const { data: membersData } = useWorkspaceMembers(1, 50);
 
-  const contacts = (peopleData?.data || []) as Person[];
-  const members = (membersData?.data || []) as any[];
+  const contacts = useMemo(() => (peopleData?.data || []) as Person[], [peopleData]);
+  const members = useMemo<WorkspaceMemberLite[]>(() => membersData?.data || [], [membersData]);
 
   // Build unified results
   const results = useMemo(() => {
@@ -4631,7 +4530,7 @@ function CalendarSelectRow({
   selectedId,
   onChange,
 }: {
-  calendars: any[];
+  calendars: UserCalendar[];
   selectedId?: string;
   onChange: (id: string) => void;
 }) {
@@ -4756,7 +4655,7 @@ function FourDayView({
     onResize: onEventDrop,
   });
 
-  const { handleDragStart: handleEventDragStart, dragState, isDragging: isFourDayDragActive, justDraggedRef } = useEventDrag({
+  const { handleDragStart: handleEventDragStart, dragState, justDraggedRef } = useEventDrag({
     hourHeight,
     onDrop: onEventDrop,
   });
@@ -4865,29 +4764,19 @@ function FourDayView({
 
 function YearView({
   currentDate,
-  events,
   onDateClick,
 }: {
   currentDate: Date;
-  events: CalendarEvent[];
   onDateClick: (date: Date) => void;
 }) {
   const year = currentDate.getFullYear();
   const months = Array.from({ length: 12 }, (_, i) => new Date(year, i, 1));
 
-  const eventDays = useMemo(() => {
-    const set = new Set<string>();
-    for (const evt of events) {
-      set.add(format(new Date(evt.startTime), 'yyyy-MM-dd'));
-    }
-    return set;
-  }, [events]);
-
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-3 md:p-6">
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 md:gap-x-10 gap-y-6 md:gap-y-8 max-w-6xl mx-auto">
         {months.map((month) => (
-          <YearMonth key={month.getMonth()} month={month} eventDays={eventDays} onDateClick={onDateClick} />
+          <YearMonth key={month.getMonth()} month={month} onDateClick={onDateClick} />
         ))}
       </div>
     </div>
@@ -4896,11 +4785,9 @@ function YearView({
 
 function YearMonth({
   month,
-  eventDays,
   onDateClick,
 }: {
   month: Date;
-  eventDays: Set<string>;
   onDateClick: (date: Date) => void;
 }) {
   const monthEnd = endOfMonth(month);
@@ -4929,7 +4816,6 @@ function YearMonth({
           week.map((d, di) => {
             const inMonth = isSameMonth(d, month);
             const today = isToday(d);
-            const hasEvents = eventDays.has(format(d, 'yyyy-MM-dd'));
             return (
               <Button
                 variant="ghost"
@@ -4989,12 +4875,10 @@ function getDateGroup(date: Date): string {
 }
 
 function ScheduleView({
-  currentDate,
   events,
   calendarColorMap,
   onSelectEvent,
 }: {
-  currentDate: Date;
   events: CalendarEvent[];
   calendarColorMap: Record<string, string>;
   onSelectEvent: (e: CalendarEvent, mouseEvent: React.MouseEvent) => void;
@@ -5024,7 +4908,7 @@ function ScheduleView({
         event: evt,
       };
     });
-  }, [events, calendarColorMap]);
+  }, [events, calendarColorMap, t.calendarView.allDay, t.misc.noTitle]);
 
   const headerColumns: HeaderColumn[] = [
     { id: 'color', header: '', width: '24px' },
@@ -5057,8 +4941,8 @@ function ScheduleView({
     },
   ];
 
-  const today = new Date();
   const groupConfigs: GroupConfig<ScheduleItem>[] = useMemo(() => {
+    const today = new Date();
     const yesterday = addDays(today, -1);
     const tomorrow = addDays(today, 1);
     return [
@@ -5070,7 +4954,7 @@ function ScheduleView({
       { id: 'this_month', label: format(today, 'MMMM'), sortOrder: 6, filter: (i: ScheduleItem) => i.dateGroup === 'this_month' },
       { id: 'later', label: t.scheduleView.groupLater, sortOrder: 7, filter: (i: ScheduleItem) => i.dateGroup === 'later' },
     ];
-  }, []);
+  }, [t.scheduleView.groupYesterday, t.scheduleView.groupToday, t.scheduleView.groupTomorrow, t.scheduleView.groupThisWeek, t.scheduleView.groupNextWeek, t.scheduleView.groupLater]);
 
   const renderRow = useCallback((item: ScheduleItem) => {
 

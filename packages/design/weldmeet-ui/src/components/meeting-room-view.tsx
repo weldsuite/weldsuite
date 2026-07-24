@@ -195,7 +195,7 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     return () => parts.off?.('activeSpeaker', sync);
   }, [meeting]);
 
-  const toggleRightPanel = useCallback((panel: 'info' | 'people' | 'settings') => {
+  const toggleRightPanel = useCallback((panel: 'info' | 'people' | 'settings' | 'tools') => {
     const isSwitching = showChat || externalPanelOpen;
     if (isSwitching) setSkipTransition(true);
     setRightPanel(prev => prev === panel ? null : panel);

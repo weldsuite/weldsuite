@@ -29,7 +29,7 @@ const mockUsers = [
   { id: 5, name: "Charlie Wilson", email: "charlie@example.com", role: "Admin", status: "pending", lastActive: "Never", avatar: "CW" },
 ]
 
-function UsersSection() {
+export function UsersSection() {
   const t = useTranslations()
   const [selectedUsers, setSelectedUsers] = React.useState<number[]>([])
 

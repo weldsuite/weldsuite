@@ -14,6 +14,21 @@ import {
 import { useProfitLossReport } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
 
+interface ProfitLossAccountRow {
+  accountId: string;
+  accountCode: string;
+  accountName: string;
+  total: string | number | null;
+}
+
+interface ProfitLossReport {
+  revenue?: ProfitLossAccountRow[];
+  expenses?: ProfitLossAccountRow[];
+  totalRevenue?: string | number | null;
+  totalExpenses?: string | number | null;
+  netProfit?: string | number | null;
+}
+
 function fmt(value: string | number | null | undefined): string {
   return new Intl.NumberFormat('nl-NL', {
     style: 'currency',
@@ -31,7 +46,7 @@ export default function ProfitLossReportPage() {
   const [to, setTo] = useState(today.toISOString().slice(0, 10));
 
   const { data, isLoading, refetch } = useProfitLossReport({ from, to });
-  const report = data?.data as any;
+  const report = data?.data as ProfitLossReport | undefined;
 
   return (
     <div className="p-6 space-y-6">
@@ -66,7 +81,7 @@ export default function ProfitLossReportPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(report.revenue ?? []).map((r: any) => (
+                  {(report.revenue ?? []).map((r) => (
                     <TableRow key={r.accountId}>
                       <TableCell>{r.accountCode} — {r.accountName}</TableCell>
                       <TableCell className="text-right">{fmt(r.total)}</TableCell>
@@ -94,7 +109,7 @@ export default function ProfitLossReportPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(report.expenses ?? []).map((e: any) => (
+                  {(report.expenses ?? []).map((e) => (
                     <TableRow key={e.accountId}>
                       <TableCell>{e.accountCode} — {e.accountName}</TableCell>
                       <TableCell className="text-right">{fmt(e.total)}</TableCell>

@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../card';
 import { Avatar, AvatarFallback, AvatarImage } from '../avatar';
 import { RewardBadge } from './reward-badge';
-import { cn } from '../lib/utils';
+import { cn } from '../../lib/utils';
 import { Trophy, Medal, Award } from 'lucide-react';
 
 interface LeaderboardEntry {

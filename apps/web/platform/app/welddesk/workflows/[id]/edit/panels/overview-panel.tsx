@@ -13,9 +13,10 @@ import { Link } from '@/lib/router';
 import { cn } from '@/lib/utils';
 import { getActionMeta } from '../helpdesk-workflow-constants';
 import { useI18n } from '@/lib/i18n/provider';
+import type { HelpdeskWorkflow } from '../types';
 
 interface OverviewPanelProps {
-  workflow: any;
+  workflow: HelpdeskWorkflow;
   savedAgents: Array<{ id: string; name: string; description?: string; moduleKey: string }> | undefined;
   onSelectTrigger: () => void;
   onSelectStep: (index: number) => void;
@@ -83,7 +84,7 @@ export function OverviewPanel({
             )}
 
             {/* Unconfigured steps */}
-            {workflow.steps.map((step: any, index: number) => {
+            {workflow.steps.map((step, index) => {
               const config = step.config || {};
               const isConfigured = Object.keys(config).length > 0;
               if (isConfigured) return null;
@@ -117,7 +118,7 @@ export function OverviewPanel({
 
             {/* All configured */}
             {workflow.triggers?.[0]?.entityType &&
-              workflow.steps.every((step: any) => Object.keys(step.config || {}).length > 0) && (
+              workflow.steps.every((step) => Object.keys(step.config || {}).length > 0) && (
                 <div className="p-3 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900">
                   <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
                     <CheckCircle2 className="w-4 h-4" />

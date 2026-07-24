@@ -36,7 +36,7 @@ interface PinnedNotesContextType {
 
 const PinnedNotesContext = createContext<PinnedNotesContextType | undefined>(undefined);
 
-function PinnedNotesProvider({ children }: { children: ReactNode }) {
+export function PinnedNotesProvider({ children }: { children: ReactNode }) {
   const [pinnedNotes, setPinnedNotes] = useState<PinnedNote[]>([]);
 
   const addPinnedNote = (note: Note) => {

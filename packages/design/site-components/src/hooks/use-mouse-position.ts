@@ -8,7 +8,7 @@ interface MousePosition {
 }
 
 export function useMousePosition(
-  containerRef?: RefObject<HTMLElement>
+  containerRef?: RefObject<HTMLElement | null>
 ): MousePosition {
   const [mousePosition, setMousePosition] = useState<MousePosition>({
     x: 0,

@@ -65,7 +65,7 @@ export default function DiscordListClient({ initialConversations, accessToken }:
     setConversations(initialConversations);
   }, [initialConversations]);
 
-  const { isConnected } = useHelpdeskWebSocket({
+  useHelpdeskWebSocket({
     isAgent: true,
     accessToken,
     onNewConversation: (newConversation) => {
@@ -93,8 +93,8 @@ export default function DiscordListClient({ initialConversations, accessToken }:
   const loadConversations = async () => {
     try {
       const client = await getClient();
-      const result = await client.get<{ data: any[] }>('/conversations?limit=50&channel=discord&excludeStatus=closed');
-      if (result.data) setConversations(result.data as Helpdesk.Conversation[]);
+      const result = await client.get<{ data: Helpdesk.Conversation[] }>('/conversations?limit=50&channel=discord&excludeStatus=closed');
+      if (result.data) setConversations(result.data);
     } catch { /* ignore */ }
   };
 

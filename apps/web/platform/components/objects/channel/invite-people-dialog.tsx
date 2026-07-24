@@ -26,7 +26,7 @@ import {
 } from '@weldsuite/ui/components/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import { cn } from '@/lib/utils';
-import { useAgents } from '@/hooks/queries/use-agent-queries';
+import { useAgents, type Agent } from '@/hooks/queries/use-agent-queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import {
   useAddChannelMembers,
@@ -55,11 +55,25 @@ function getAgentStatusConfig(
 
 type Tab = 'members' | 'agents' | 'guest';
 
+/** `Agent` rows returned to the UI don't model `picture` — read defensively. */
+type AgentRow = Agent & { picture?: string | null };
+
+function extractErrorMessage(err: unknown): string | undefined {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'object' && err !== null && 'error' in err) {
+    const inner = (err as { error?: unknown }).error;
+    if (typeof inner === 'object' && inner !== null && 'message' in inner) {
+      const msg = (inner as { message?: unknown }).message;
+      if (typeof msg === 'string') return msg;
+    }
+  }
+  return undefined;
+}
+
 export function InvitePeopleDialog({ channelId, open, onOpenChange }: InvitePeopleDialogProps) {
-  const { t } = useI18n();
   const st = useTranslations();
   const { data: channelData } = useChannel(channelId);
-  const channel = channelData?.data as any;
+  const channel = channelData?.data;
   const isPrivate = channel?.type === 'private';
   const canInviteExternal = useCan('team:invite_external');
 
@@ -136,15 +150,15 @@ function MembersTab({ channelId, onDone }: { channelId: string; onDone: () => vo
   const { mutate: addMembers, isPending } = useAddChannelMembers();
 
   const existingIds = useMemo(
-    () => new Set((membersData?.data ?? []).map((m: any) => m.userId)),
+    () => new Set((membersData?.data ?? []).map((m) => m.userId)),
     [membersData],
   );
   const inviteable = useMemo(
-    () => (workspaceData?.data ?? []).filter((m: any) => !existingIds.has(m.userId)),
+    () => (workspaceData?.data ?? []).filter((m) => !existingIds.has(m.userId)),
     [workspaceData, existingIds],
   );
   const selectedRows = useMemo(
-    () => (workspaceData?.data ?? []).filter((m: any) => selected.has(m.userId)),
+    () => (workspaceData?.data ?? []).filter((m) => selected.has(m.userId)),
     [workspaceData, selected],
   );
 
@@ -202,7 +216,7 @@ function MembersTab({ channelId, onDone }: { channelId: string; onDone: () => vo
                     ? st('sweep.entities.everyoneAlreadyInChannel')
                     : st('sweep.entities.noMatch')}
               </CommandEmpty>
-              {inviteable.map((m: any) => {
+              {inviteable.map((m) => {
                 const isSelected = selected.has(m.userId);
                 return (
                   <CommandItem
@@ -234,7 +248,7 @@ function MembersTab({ channelId, onDone }: { channelId: string; onDone: () => vo
 
       {selectedRows.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {selectedRows.map((m: any) => (
+          {selectedRows.map((m) => (
             <Badge key={m.userId} variant="secondary" className="gap-1 pl-2 pr-1 py-1">
               <span className="text-xs">{m.name || m.email}</span>
               <Button
@@ -277,18 +291,18 @@ function AgentsTab({ channelId, onDone }: { channelId: string; onDone: () => voi
   const { mutate: addMembers, isPending } = useAddChannelMembers();
 
   const existingIds = useMemo(
-    () => new Set((membersData?.data ?? []).map((m: any) => m.userId)),
+    () => new Set((membersData?.data ?? []).map((m) => m.userId)),
     [membersData],
   );
   const inviteable = useMemo(
-    () => (agents as any[]).filter((a) => !existingIds.has(a.id)),
+    () => (agents as AgentRow[]).filter((a) => !existingIds.has(a.id)),
     [agents, existingIds],
   );
   const selectedAgents = useMemo(
-    () => (agents as any[]).filter((a) => selected.has(a.id)),
+    () => (agents as AgentRow[]).filter((a) => selected.has(a.id)),
     [agents, selected],
   );
-  const ts = (t as any).weldchat?.inviteAgent;
+  const ts = t.weldchat?.inviteAgent;
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -331,15 +345,15 @@ function AgentsTab({ channelId, onDone }: { channelId: string; onDone: () => voi
               <CommandEmpty>
                 {isLoading
                   ? (ts?.loading ?? 'Loading…')
-                  : (agents as any[]).length === 0
+                  : agents.length === 0
                     ? (ts?.noAgents ?? 'No agents yet')
                     : inviteable.length === 0
                       ? (ts?.allInChannel ?? 'Every agent is already in this channel')
                       : (ts?.noMatch ?? 'No match')}
               </CommandEmpty>
-              {inviteable.map((a: any) => {
+              {inviteable.map((a) => {
                 const isSelected = selected.has(a.id);
-                const status = agentStatusConfig[a.status as string] || agentStatusConfig.draft;
+                const status = agentStatusConfig[a.status] || agentStatusConfig.draft;
                 return (
                   <CommandItem
                     key={a.id}
@@ -381,7 +395,7 @@ function AgentsTab({ channelId, onDone }: { channelId: string; onDone: () => voi
 
       {selectedAgents.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {selectedAgents.map((a: any) => (
+          {selectedAgents.map((a) => (
             <Badge key={a.id} variant="secondary" className="gap-1 pl-2 pr-1 py-1">
               <span className="text-xs">{a.name}</span>
               <Button
@@ -427,7 +441,7 @@ interface InviteResponse {
 
 function GuestTab({ channelId, onDone }: { channelId: string; onDone: () => void }) {
   const { t } = useI18n();
-  const ts = (t as any).weldchat?.inviteExternal;
+  const ts = t.weldchat?.inviteExternal;
   const { getClient } = useAppApiClient();
   const { mutateAsync: addMembers } = useAddChannelMembers();
   const qc = useQueryClient();
@@ -463,8 +477,8 @@ function GuestTab({ channelId, onDone }: { channelId: string; onDone: () => void
       setEmail('');
       setName('');
       onDone();
-    } catch (err: any) {
-      const msg = err?.message || err?.error?.message || ts?.genericError || 'Failed to send invitation';
+    } catch (err) {
+      const msg = extractErrorMessage(err) || ts?.genericError || 'Failed to send invitation';
       setError(msg);
     } finally {
       setSubmitting(false);

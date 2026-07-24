@@ -1,13 +1,14 @@
 
 import { Suspense, useState } from 'react';
 import { useSignIn } from '@clerk/clerk-react';
-import { useRouter, useSearchParams, Link } from '@/lib/router';
+import { Link } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Loader2, Lock, CheckCircle, KeyRound, ChevronLeft } from 'lucide-react';
 import { PageLoader } from '@/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
+import { getClerkErrorMessage } from '../utils';
 
 type ResetStep = 'reset' | 'two-factor';
 
@@ -21,9 +22,6 @@ export default function ResetPasswordPage() {
 
 function ResetPasswordContent() {
   const t = getTranslations('common');
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const emailFromParams = searchParams.get('email') || '';
 
   const { signIn, setActive, isLoaded } = useSignIn();
 
@@ -99,8 +97,8 @@ function ResetPasswordContent() {
         setError(t.auth.resetPassword.passwordResetFailed);
         setIsLoading(false);
       }
-    } catch (err: any) {
-      const errorMessage = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || t.auth.resetPassword.invalidCode;
+    } catch (err) {
+      const errorMessage = getClerkErrorMessage(err, t.auth.resetPassword.invalidCode);
       setError(errorMessage);
       setIsLoading(false);
     }
@@ -129,8 +127,8 @@ function ResetPasswordContent() {
         setError(t.auth.resetPassword.twoFactor.verificationFailed);
         setIsLoading(false);
       }
-    } catch (err: any) {
-      const errorMessage = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || t.auth.resetPassword.twoFactor.invalidCode;
+    } catch (err) {
+      const errorMessage = getClerkErrorMessage(err, t.auth.resetPassword.twoFactor.invalidCode);
       setError(errorMessage);
       setIsLoading(false);
     }

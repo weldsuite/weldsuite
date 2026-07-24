@@ -19,6 +19,6 @@ export { createSearchApi } from './search';
 export { createWeldchatActivityApi } from './weldchat-activity';
 export { createWeldchatDraftsApi } from './weldchat-drafts';
 export { createWeldchatDirectoriesApi } from './weldchat-directories';
-export { createWeldhostApi } from './weldhost';
+export { createDomainsApi } from './domains';
 export { createWeldmeetApi } from './weldmeet';
 export { createSettingsApi } from './settings';

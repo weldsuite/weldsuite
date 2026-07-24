@@ -29,7 +29,6 @@ import {
   type FilterConfig,
   type GroupConfig,
   type HeaderColumn,
-  type RowHandlers,
 } from '@/components/entity-list';
 
 type DraftCategory = 'channel' | 'thread' | 'dm' | 'other';
@@ -82,7 +81,7 @@ export default function DraftsPage() {
   const { data, isLoading } = useChatDrafts();
   const { mutate: deleteDraft, isPending: isDeleting } = useDeleteDraft();
 
-  const drafts: DraftItem[] = useMemo(() => (data as any)?.data ?? [], [data]);
+  const drafts: DraftItem[] = useMemo(() => data?.data ?? [], [data]);
 
   const filterConfigs: FilterConfig[] = useMemo(() => [
     {
@@ -160,11 +159,11 @@ export default function DraftsPage() {
     { id: 'last', header: t.draftsPage2?.updatedHeader ?? 'Updated', width: 'w-[120px] flex-shrink-0' },
   ], [t]);
 
-  function handleContinueWriting(draft: DraftItem) {
+  const handleContinueWriting = useCallback((draft: DraftItem) => {
     if (draft.channelId) {
       navigate({ to: '/weldchat/$channelId', params: { channelId: draft.channelId } });
     }
-  }
+  }, [navigate]);
 
   function handleConfirmDelete() {
     if (!deletingId) return;
@@ -173,7 +172,7 @@ export default function DraftsPage() {
     });
   }
 
-  const renderRow = useCallback((draft: DraftItem, _handlers: RowHandlers<DraftItem>) => {
+  const renderRow = useCallback((draft: DraftItem) => {
     const category = categorize(draft);
     const Icon = category === 'thread' ? MessageSquare : category === 'dm' ? MessageSquare : Hash;
     return (
@@ -229,7 +228,7 @@ export default function DraftsPage() {
         </div>
       </div>
     );
-  }, [navigate, t, st]);
+  }, [handleContinueWriting, t, st]);
 
   return (
     <>

@@ -23,7 +23,6 @@ import {
   type FilterConfig,
   type GroupConfig,
   type HeaderColumn,
-  type RowHandlers,
 } from '@/components/entity-list';
 
 type ActivityFilter = NonNullable<ListActivityQuery['filter']>;
@@ -117,7 +116,7 @@ export default function ActivityPage() {
   }, [membersData]);
 
   const allItems: ActivityItem[] = useMemo(
-    () => (data?.pages ?? []).flatMap((page) => (page as any)?.data ?? []),
+    () => (data?.pages ?? []).flatMap((page) => page?.data ?? []),
     [data],
   );
 
@@ -218,16 +217,16 @@ export default function ActivityPage() {
     { id: 'last', header: t.activityPage?.whenHeader ?? 'When', width: 'w-[120px] flex-shrink-0' },
   ], [t]);
 
-  function handleItemClick(item: ActivityItem) {
+  const handleItemClick = useCallback((item: ActivityItem) => {
     if (!item.readAt) markRead(item.id);
     if (item.actionUrl) {
-      navigate({ to: item.actionUrl as any });
+      navigate({ to: item.actionUrl } as unknown as Parameters<typeof navigate>[0]);
     } else if (item.channelId) {
       navigate({ to: '/weldchat/$channelId', params: { channelId: item.channelId } });
     }
-  }
+  }, [markRead, navigate]);
 
-  const renderRow = useCallback((item: ActivityItem, _handlers: RowHandlers<ActivityItem>) => {
+  const renderRow = useCallback((item: ActivityItem) => {
     const isUnread = !item.readAt;
     const category = activityCategory(item.type);
     const CategoryIcon =
@@ -305,7 +304,7 @@ export default function ActivityPage() {
         <div className="w-[40px] flex-shrink-0" />
       </div>
     );
-  }, [membersMap, actorsMap, markRead, navigate, st]);
+  }, [membersMap, actorsMap, handleItemClick, st]);
 
   const actionButtons = (
     <Button

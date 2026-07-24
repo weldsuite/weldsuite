@@ -16,7 +16,6 @@
  */
 
 import fs from 'fs';
-import path from 'path';
 
 interface HardcodedString {
   file: string;
@@ -37,10 +36,12 @@ interface AnalysisResult {
   files: Record<string, HardcodedString[]>;
 }
 
+type TranslationValue = string | { [key: string]: TranslationValue };
+
 interface TranslationStructure {
   [namespace: string]: {
     [category: string]: {
-      [key: string]: string | Record<string, any>;
+      [key: string]: TranslationValue;
     };
   };
 }
@@ -212,7 +213,7 @@ function generateTranslationStructure(
 
   Object.values(analysis.byModule).forEach(moduleStrings => {
     moduleStrings.forEach(item => {
-      const { namespace, category, key } = parseKeyPath(item.suggestedKey || '');
+      const { namespace, category } = parseKeyPath(item.suggestedKey || '');
 
       if (!grouped[namespace]) grouped[namespace] = {};
       if (!grouped[namespace][category]) grouped[namespace][category] = [];
@@ -247,24 +248,6 @@ function generateTranslationStructure(
   });
 
   return { en, nl };
-}
-
-// Load existing translations
-function loadExistingTranslations(): { en: any; nl: any } | null {
-  try {
-    const enPath = path.join(process.cwd(), 'lib/i18n/locales/en.ts');
-    const nlPath = path.join(process.cwd(), 'lib/i18n/locales/nl.ts');
-
-    if (!fs.existsSync(enPath) || !fs.existsSync(nlPath)) {
-      return null;
-    }
-
-    // Note: This is a simplified loader. In reality, we'd need to parse TypeScript
-    console.log('ℹ️  Found existing translation files');
-    return null; // For now, manual merge required
-  } catch (error) {
-    return null;
-  }
 }
 
 // Display generated keys

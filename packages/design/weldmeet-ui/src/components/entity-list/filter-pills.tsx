@@ -164,7 +164,9 @@ export function FilterPills({
 
   const updateFilterOperator = (index: number, newOperator: string) => {
     const next = [...filters];
-    next[index] = { ...next[index], operator: newOperator };
+    const current = next[index];
+    if (!current) return;
+    next[index] = { ...current, operator: newOperator };
     onFiltersChange(next);
     setEditingOperatorIndex(null);
 
@@ -184,7 +186,9 @@ export function FilterPills({
 
   const updateFilterValue = (index: number, newValue: string) => {
     const next = [...filters];
-    next[index] = { ...next[index], value: newValue };
+    const current = next[index];
+    if (!current) return;
+    next[index] = { ...current, value: newValue };
     onFiltersChange(next);
     setEditingFilterIndex(null);
     setTextInputValue('');

@@ -36,7 +36,6 @@ import { mailApi } from '../lib/api-client';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import type { ThreadSummary } from '../lib/thread-utils';
 import { ConversationList, type ConversationItem } from '@/components/shared/conversation-list';
-import { formatParticipants as formatParticipantsUtil } from '@/components/shared/conversation-list';
 import {
   useArchiveThread,
   useTrashThread,
@@ -47,7 +46,6 @@ import {
   useMoveToTrash,
   useMarkMailRead,
   useMarkAsSpam,
-  useUpdateMessageLabels,
   useSnoozeEmail,
   useMailLabels,
   useBulkMailAction,
@@ -105,9 +103,9 @@ function emailToConversationItem(email: EmailMessage, scheduledLabel?: (date: st
     avatarUrl: fromAvatar,
     subject: email.subject || '',
     preview: isScheduled
-      ? (scheduledLabel ? scheduledLabel(format(new Date(email.scheduledFor), 'PPp')) : `Scheduled for ${format(new Date(email.scheduledFor), 'PPp')}`)
+      ? (scheduledLabel ? scheduledLabel(format(new Date(email.scheduledFor ?? 0), 'PPp')) : `Scheduled for ${format(new Date(email.scheduledFor ?? 0), 'PPp')}`)
       : email.preview || email.bodyText?.slice(0, 100) || '',
-    date: new Date(email.date),
+    date: new Date(email.date ?? 0),
     isRead: email.isRead,
     isStarred: email.isStarred,
     hasAttachments: email.hasAttachments,
@@ -210,7 +208,7 @@ function threadMatchesFilter(thread: ThreadSummary, f: MailFilter): boolean {
   if (countActiveFilters(f) === 0) return true;
   if (f.hasAttachment && !thread.hasAttachments) return false;
 
-  const msgs = (thread.messages ?? []) as Array<Record<string, unknown>>;
+  const msgs = thread.messages ?? [];
   const fromText = [thread.latestSender, thread.latestSenderEmail, ...(thread.participants ?? []), ...msgs.map((m) => addressToText(m.from))].join(' ');
   if (f.from?.trim() && !includesAllTokens(fromText, f.from)) return false;
 
@@ -222,13 +220,13 @@ function threadMatchesFilter(thread: ThreadSummary, f: MailFilter): boolean {
   if (f.subject?.trim() && !includesAllTokens(thread.subject ?? '', f.subject)) return false;
 
   if (f.hasWords?.trim() || f.doesntHave?.trim()) {
-    const blob = [thread.subject, thread.preview, fromText, ...msgs.map((m) => `${(m.preview as string) ?? ''} ${(m.textBody as string) ?? ''} ${(m.subject as string) ?? ''}`)].join(' ');
+    const blob = [thread.subject, thread.preview, fromText, ...msgs.map((m) => `${m.preview ?? ''} ${m.textBody ?? ''} ${m.subject ?? ''}`)].join(' ');
     if (f.hasWords?.trim() && !includesAllTokens(blob, f.hasWords)) return false;
     if (f.doesntHave?.trim() && includesAnyToken(blob, f.doesntHave)) return false;
   }
 
   if (mailFilterHasSize(f)) {
-    const maxSize = msgs.reduce((mx, m) => Math.max(mx, (m.sizeBytes as number) ?? 0), 0);
+    const maxSize = msgs.reduce((mx, m) => Math.max(mx, m.sizeBytes ?? 0), 0);
     if (!sizeMatches(maxSize || null, f)) return false;
   }
 
@@ -310,10 +308,14 @@ export function MessageList({
   const bulkAction = useBulkMailAction();
   const createTask = useCreateTask();
   const { data: labelsData } = useMailLabels(isUnified ? undefined : accountId, !isUnified && !!accountId);
-  const mailLabels = (labelsData as any)?.labels || (labelsData as any)?.data || [];
-  const userMailLabels = mailLabels.filter((l: any) => !l.isSystem);
+  const mailLabels = useMemo(() => labelsData?.data ?? [], [labelsData]);
   const labelColorMap: Record<string, string> = useMemo(
-    () => Object.fromEntries(mailLabels.filter((l: any) => l.color?.startsWith('#')).map((l: any) => [l.name, l.color])),
+    () =>
+      Object.fromEntries(
+        mailLabels
+          .filter((l) => l.color?.startsWith('#'))
+          .map((l) => [l.name, l.color as string])
+      ),
     [mailLabels]
   );
 
@@ -364,7 +366,7 @@ export function MessageList({
           return { ...item, labelColors };
         });
     }
-  }, [displayMode, threads, messages, appliedFilter, labelColorMap]);
+  }, [displayMode, threads, messages, appliedFilter, labelColorMap, isUnified, t.mail.messageList.scheduledPreview]);
 
   // Thread id -> ThreadSummary lookup for context menu actions
   const threadMap = useMemo(() => {
@@ -479,27 +481,27 @@ export function MessageList({
           </ContextMenuSubTrigger>
           <ContextMenuSubContent className="w-48">
             <ContextMenuItem onClick={() => {
-              snoozeEmail.mutate({ messageId: thread.latestMessageId, until: addHours(new Date(), 1) }, {
+              snoozeEmail.mutate({ accountId: threadAccountId, messageId: thread.latestMessageId, data: { until: addHours(new Date(), 1).toISOString() } }, {
                 onSuccess: () => toast.success(t.mail.messageList.snoozed1Hour),
                 onError: () => toast.error(t.mail.messageList.failedToSnooze),
               });
             }}>{t.mail.messageList.laterToday1Hour}</ContextMenuItem>
             <ContextMenuItem onClick={() => {
-              snoozeEmail.mutate({ messageId: thread.latestMessageId, until: addHours(new Date(), 4) }, {
+              snoozeEmail.mutate({ accountId: threadAccountId, messageId: thread.latestMessageId, data: { until: addHours(new Date(), 4).toISOString() } }, {
                 onSuccess: () => toast.success(t.mail.messageList.snoozed4Hours),
                 onError: () => toast.error(t.mail.messageList.failedToSnooze),
               });
             }}>{t.mail.messageList.laterToday4Hours}</ContextMenuItem>
             <ContextMenuItem onClick={() => {
               const tomorrow = setMinutes(setHours(addDays(new Date(), 1), 8), 0);
-              snoozeEmail.mutate({ messageId: thread.latestMessageId, until: tomorrow }, {
+              snoozeEmail.mutate({ accountId: threadAccountId, messageId: thread.latestMessageId, data: { until: tomorrow.toISOString() } }, {
                 onSuccess: () => toast.success(t.mail.messageList.snoozedUntilTomorrow),
                 onError: () => toast.error(t.mail.messageList.failedToSnooze),
               });
             }}>{t.mail.messageList.tomorrowMorning}</ContextMenuItem>
             <ContextMenuItem onClick={() => {
               const monday = setMinutes(setHours(nextMonday(new Date()), 8), 0);
-              snoozeEmail.mutate({ messageId: thread.latestMessageId, until: monday }, {
+              snoozeEmail.mutate({ accountId: threadAccountId, messageId: thread.latestMessageId, data: { until: monday.toISOString() } }, {
                 onSuccess: () => toast.success(t.mail.messageList.snoozedUntilNextWeek),
                 onError: () => toast.error(t.mail.messageList.failedToSnooze),
               });
@@ -526,7 +528,7 @@ export function MessageList({
           </ContextMenuSubTrigger>
           <ContextMenuSubContent className="w-48">
             <ContextMenuItem onClick={() => {
-              bulkAction.mutate({ accountId: threadAccountId, messageIds: thread.messages.map((m: any) => m.id), action: 'inbox' }, {
+              bulkAction.mutate({ messageIds: thread.messages.map((m) => m.id), action: 'restore' }, {
                 onSuccess: () => toast.success(t.mail.messageList.movedToInbox),
                 onError: () => toast.error(t.mail.messageList.failedToMove),
               });
@@ -558,7 +560,7 @@ export function MessageList({
             {t.mail.messageList.labelAs}
           </ContextMenuSubTrigger>
           <ContextMenuSubContent className="w-48 max-h-64 overflow-y-auto">
-            {mailLabels.length > 0 ? mailLabels.map((label: any) => {
+            {mailLabels.length > 0 ? mailLabels.map((label) => {
               const isApplied = threadLabels.includes(label.name);
               return (
                 <ContextMenuItem key={label.id} onClick={() => {
@@ -616,7 +618,7 @@ export function MessageList({
                     toast.success(t.mail.messageList.scheduledEmailCancelled);
                     window.dispatchEvent(new Event('mail:refresh'));
                   } else {
-                    toast.error((result as any).error || t.mail.messageList.failedToCancel);
+                    toast.error(result.error || t.mail.messageList.failedToCancel);
                   }
                 } catch {
                   toast.error(t.mail.messageList.failedToCancel);
@@ -696,7 +698,7 @@ export function MessageList({
 
         {/* Archive / Delete / Mark read / Snooze / Add to Tasks */}
         <ContextMenuItem onClick={() => {
-          archiveMessage.mutate({ id: item.id, accountId }, {
+          archiveMessage.mutate(item.id, {
             onSuccess: () => toast.success(t.mail.messageList.emailArchived),
             onError: () => toast.error(t.mail.messageList.failedToArchive),
           });
@@ -705,7 +707,7 @@ export function MessageList({
           {t.mail.messageList.archive}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
-          trashMessage.mutate({ id: item.id, accountId }, {
+          trashMessage.mutate(item.id, {
             onSuccess: () => toast.success(t.mail.messageList.movedToTrashSingle),
             onError: () => toast.error(t.mail.messageList.failedToDelete),
           });
@@ -714,7 +716,7 @@ export function MessageList({
           {t.mail.messageList.delete}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
-          markMailRead.mutate({ id: item.id, read: hasUnread, accountId }, {
+          markMailRead.mutate({ id: item.id, isRead: hasUnread }, {
             onSuccess: () => toast.success(hasUnread ? t.mail.messageList.markedAsRead : t.mail.messageList.markedAsUnread),
           });
         }}>
@@ -728,27 +730,27 @@ export function MessageList({
           </ContextMenuSubTrigger>
           <ContextMenuSubContent className="w-48">
             <ContextMenuItem onClick={() => {
-              snoozeEmail.mutate({ messageId: item.id, until: addHours(new Date(), 1) }, {
+              snoozeEmail.mutate({ accountId, messageId: item.id, data: { until: addHours(new Date(), 1).toISOString() } }, {
                 onSuccess: () => toast.success(t.mail.messageList.snoozed1Hour),
                 onError: () => toast.error(t.mail.messageList.failedToSnooze),
               });
             }}>{t.mail.messageList.laterToday1Hour}</ContextMenuItem>
             <ContextMenuItem onClick={() => {
-              snoozeEmail.mutate({ messageId: item.id, until: addHours(new Date(), 4) }, {
+              snoozeEmail.mutate({ accountId, messageId: item.id, data: { until: addHours(new Date(), 4).toISOString() } }, {
                 onSuccess: () => toast.success(t.mail.messageList.snoozed4Hours),
                 onError: () => toast.error(t.mail.messageList.failedToSnooze),
               });
             }}>{t.mail.messageList.laterToday4Hours}</ContextMenuItem>
             <ContextMenuItem onClick={() => {
               const tomorrow = setMinutes(setHours(addDays(new Date(), 1), 8), 0);
-              snoozeEmail.mutate({ messageId: item.id, until: tomorrow }, {
+              snoozeEmail.mutate({ accountId, messageId: item.id, data: { until: tomorrow.toISOString() } }, {
                 onSuccess: () => toast.success(t.mail.messageList.snoozedUntilTomorrow),
                 onError: () => toast.error(t.mail.messageList.failedToSnooze),
               });
             }}>{t.mail.messageList.tomorrowMorning}</ContextMenuItem>
             <ContextMenuItem onClick={() => {
               const monday = setMinutes(setHours(nextMonday(new Date()), 8), 0);
-              snoozeEmail.mutate({ messageId: item.id, until: monday }, {
+              snoozeEmail.mutate({ accountId, messageId: item.id, data: { until: monday.toISOString() } }, {
                 onSuccess: () => toast.success(t.mail.messageList.snoozedUntilNextWeek),
                 onError: () => toast.error(t.mail.messageList.failedToSnooze),
               });
@@ -775,7 +777,7 @@ export function MessageList({
           </ContextMenuSubTrigger>
           <ContextMenuSubContent className="w-48">
             <ContextMenuItem onClick={() => {
-              bulkAction.mutate({ accountId, messageIds: [item.id], action: 'inbox' }, {
+              bulkAction.mutate({ messageIds: [item.id], action: 'restore' }, {
                 onSuccess: () => toast.success(t.mail.messageList.movedToInbox),
                 onError: () => toast.error(t.mail.messageList.failedToMove),
               });
@@ -783,7 +785,7 @@ export function MessageList({
               <Inbox className="h-4 w-4 mr-0.5" /> {t.mail.messageList.labelInbox}
             </ContextMenuItem>
             <ContextMenuItem onClick={() => {
-              markAsSpam.mutate({ id: item.id, isSpam: true, accountId }, {
+              markAsSpam.mutate(item.id, {
                 onSuccess: () => toast.success(t.mail.messageList.markedAsSpam),
                 onError: () => toast.error(t.mail.messageList.failedToMarkAsSpam),
               });
@@ -791,7 +793,7 @@ export function MessageList({
               <AlertCircle className="h-4 w-4 mr-0.5" /> {t.mail.messageList.labelSpam}
             </ContextMenuItem>
             <ContextMenuItem onClick={() => {
-              trashMessage.mutate({ id: item.id, accountId }, {
+              trashMessage.mutate(item.id, {
                 onSuccess: () => toast.success(t.mail.messageList.movedToTrashSingle),
                 onError: () => toast.error(t.mail.messageList.failedToMove),
               });
@@ -806,7 +808,7 @@ export function MessageList({
             {t.mail.messageList.labelAs}
           </ContextMenuSubTrigger>
           <ContextMenuSubContent className="w-48 max-h-64 overflow-y-auto">
-            {mailLabels.length > 0 ? mailLabels.map((label: any) => {
+            {mailLabels.length > 0 ? mailLabels.map((label) => {
               const isApplied = msgLabels.includes(label.name);
               return (
                 <ContextMenuItem key={label.id} onClick={() => {

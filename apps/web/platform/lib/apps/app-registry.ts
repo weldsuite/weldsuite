@@ -1,7 +1,5 @@
 import {
-  ShoppingCart,
   Users,
-  ClipboardList,
   CheckSquare,
   BookOpen,
   Headphones,
@@ -15,12 +13,8 @@ import {
   CalendarDays,
   Video,
   Phone,
-  ShoppingBag,
-  Store,
   Share2,
-  Server,
   FolderKanban,
-  UserCircle,
   Truck,
   Bot,
   Database,
@@ -262,13 +256,6 @@ export function getAppLogo(code: string, theme: 'light' | 'dark'): string | unde
   const assets = lookupAssets(code);
   if (!assets?.logo) return undefined;
   return theme === 'dark' ? assets.logo.iconDark : assets.logo.iconLight;
-}
-
-/** Get the app text logo image path for the given theme, or undefined. */
-function getAppTextLogo(code: string, theme: 'light' | 'dark'): string | undefined {
-  const assets = lookupAssets(code);
-  if (!assets?.logo) return undefined;
-  return theme === 'dark' ? assets.logo.textDark : assets.logo.textLight;
 }
 
 /** Get the SVG icon path (small square icon), or undefined. */

@@ -6,7 +6,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import { DatePicker } from '@weldsuite/ui/components/date-picker';
-import { Image as ImageIcon, FolderKanban } from 'lucide-react';
+import { FolderKanban } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { coloredSquareColors, coloredSquareIcons } from '@/components/app-sidebar-layout';
 import { projectsApi } from '@/app/weldflow/lib/api-client';
@@ -70,6 +70,9 @@ export function GeneralSection({ projectId, isAdmin }: GeneralSectionProps) {
       setLoading(false);
     });
     return () => { cancelled = true; };
+    // `t` intentionally excluded — this effect should only re-fetch when the
+    // project changes, not re-run (and re-fetch) on every locale switch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   const SelectedIcon = useMemo(() => {
@@ -120,6 +123,9 @@ export function GeneralSection({ projectId, isAdmin }: GeneralSectionProps) {
     }, 600);
 
     return () => clearTimeout(timer);
+    // `t` intentionally excluded — including it would re-trigger this autosave
+    // effect (and schedule a spurious save) on every locale switch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, description, status, priority, dueDate, color, iconLabel, loading, isAdmin, projectId, originalName]);
 
   if (loading) return <PageLoader fullScreen={false} />;

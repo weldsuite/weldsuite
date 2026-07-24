@@ -243,14 +243,16 @@ export function SubAgentEditDialog({
                                 setSubAgentForm((prev) => {
                                   if (!prev) return prev;
                                   if (checked) {
-                                    const allToolNames = discoveredTools.map((t: any) => t.name);
+                                    const allToolNames = discoveredTools.map((t) => t.name);
                                     return {
                                       ...prev,
                                       integrationIds: [...prev.integrationIds, conn.id],
                                       integrationToolPermissions: { ...prev.integrationToolPermissions, [conn.id]: allToolNames },
                                     };
                                   } else {
-                                    const { [conn.id]: _, ...restPerms } = prev.integrationToolPermissions;
+                                    const restPerms = Object.fromEntries(
+                                      Object.entries(prev.integrationToolPermissions).filter(([key]) => key !== conn.id)
+                                    );
                                     return {
                                       ...prev,
                                       integrationIds: prev.integrationIds.filter((id) => id !== conn.id),
@@ -267,7 +269,7 @@ export function SubAgentEditDialog({
                           </label>
                           {isEnabled && discoveredTools.length > 0 && (
                             <div className="ml-6 space-y-0.5">
-                              {discoveredTools.map((tool: any) => (
+                              {discoveredTools.map((tool) => (
                                 <label key={tool.name} className="flex items-center gap-2 cursor-pointer">
                                   <Checkbox
                                     checked={allowedTools.includes(tool.name)}

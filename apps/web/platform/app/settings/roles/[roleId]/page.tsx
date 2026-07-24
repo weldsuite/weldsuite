@@ -3,7 +3,7 @@ import * as React from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useRouter, useParams } from '@/lib/router';
 import { useBlocker } from '@tanstack/react-router';
-import { Loader2, ChevronLeft, Search } from 'lucide-react';
+import { Loader2, ChevronLeft } from 'lucide-react';
 import { PageLoader } from '@/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -249,9 +249,6 @@ export default function RoleDetailPage() {
 
   const categoryAllPerms = (group: CategoryGroup<Permission>): Permission[] =>
     group.rows.flatMap((r) => r.allPerms);
-
-  // Determine whether any row has extras — controls whether "Other" column renders
-  const hasAnyExtras = rows.some((r) => r.extras.length > 0);
 
   return (
     <div className="space-y-8">

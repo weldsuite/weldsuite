@@ -12,12 +12,17 @@ import {
   usePublishSocialPost,
 } from '@/hooks/queries/use-social-queries';
 import { ComposerDialog } from '@/app/social/components/composer-dialog';
+import type { SocialPost } from '@weldsuite/app-api-client/domains/social';
+
+// The composer dialog also reads `accountIds`, not yet reflected in the
+// shared SocialPost type.
+type DraftPost = SocialPost & { accountIds?: string[] };
 
 export function DraftsClient() {
   const { t } = useI18n();
   const st = useTranslations();
   const [composeOpen, setComposeOpen] = useState(false);
-  const [editPost, setEditPost] = useState<any>(null);
+  const [editPost, setEditPost] = useState<DraftPost | null>(null);
 
   const { data, isLoading } = useSocialPosts({ status: 'draft' });
   const deletePost = useDeleteSocialPost();
@@ -44,7 +49,7 @@ export function DraftsClient() {
         </div>
       ) : (
         <div className="space-y-3">
-          {posts.map((post: any) => (
+          {posts.map((post: DraftPost) => (
             <Card key={post.id}>
               <CardContent className="p-4">
                 <div className="flex items-start gap-3">
@@ -54,9 +59,9 @@ export function DraftsClient() {
                       <span className="text-xs text-muted-foreground">
                         {post.createdAt ? formatDate(new Date(post.createdAt), 'MMM d, yyyy') : ''}
                       </span>
-                      {post.accountIds?.length > 0 && (
+                      {(post.accountIds?.length ?? 0) > 0 && (
                         <Badge variant="outline" className="text-xs">
-                          {st('sweep.miscA.socialDrafts.accountsCount', { count: post.accountIds.length })}
+                          {st('sweep.miscA.socialDrafts.accountsCount', { count: post.accountIds?.length ?? 0 })}
                         </Badge>
                       )}
                     </div>

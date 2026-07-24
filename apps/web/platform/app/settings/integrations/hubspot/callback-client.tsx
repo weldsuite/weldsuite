@@ -38,7 +38,7 @@ export default function HubSpotCallbackClient() {
         router.push('/settings/integrations');
       }
     })();
-  }, []);
+  }, [callbackMutation, router, t]);
 
   return (
     <div className="w-full flex items-center justify-center h-full min-h-[calc(100vh-8rem)] pb-[60px]">
