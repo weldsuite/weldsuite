@@ -16,7 +16,7 @@
     "@neondatabase/serverless": "^1.0.1",
     "@weldsuite/db": "workspace:*",
     "drizzle-orm": "^0.45.1",
-    "hono": "^4.0.0",
+    "hono": "^4.12.27",
     "zod": "^3.24.2"
   },
   "devDependencies": {
