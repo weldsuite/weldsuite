@@ -10,7 +10,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "hono": "^4.7.0",
+    "hono": "^4.12.27",
     "mimetext": "^3.0.24"
   },
   "devDependencies": {

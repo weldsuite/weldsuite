@@ -15,7 +15,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "hono": "4.11.4",
+    "hono": "4.12.27",
     "@hono/zod-validator": "^0.4.0",
     "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/core-api-client": "workspace:*",
