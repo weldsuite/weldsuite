@@ -30,12 +30,12 @@ export default function CustomerDetailPage() {
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
-  if (!customerResult?.success || !customerResult?.customer) {
+  if (!customerResult?.success || !customerResult?.data) {
     router.push('/welddesk/contacts');
     return null;
   }
 
-  const customer = customerResult.customer;
+  const customer = customerResult.data;
 
   // Helper function to get initials
   const getInitials = (name: string) => {
@@ -58,7 +58,7 @@ export default function CustomerDetailPage() {
     totalSpent: customer.totalSpent,
     orderCount: customer.orderCount,
     loyaltyTier: customer.loyaltyTier,
-    conversations: (conversationsResult?.items || []).map((conv: RawCustomerConversation) => ({
+    conversations: (conversationsResult?.data || []).map((conv: RawCustomerConversation) => ({
       id: conv.id,
       subject: conv.subject || tc.noSubject,
       preview: conv.lastMessage?.content || tc.noMessages,

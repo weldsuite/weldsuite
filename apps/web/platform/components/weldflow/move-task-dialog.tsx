@@ -119,7 +119,7 @@ export function MoveTaskDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => close(false)} disabled={moveTask.isPending}>
-            {t.common.cancel}
+            {t.common.actions.cancel}
           </Button>
           <Button onClick={handleMove} disabled={!selectedProjectId || moveTask.isPending}>
             {moveTask.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

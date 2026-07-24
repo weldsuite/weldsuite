@@ -21,6 +21,13 @@ import {
 import { useTranslations } from '@weldsuite/i18n/client';
 
 /**
+ * `types.ts` doesn't export `CustomerDetailCounts` directly — derive it from
+ * the exported `CustomerDetailData['counts']` field instead of widening that
+ * module's exports.
+ */
+type CustomerDetailCounts = CustomerDetailData['counts'];
+
+/**
  * `GET /people/:id/detail` returns `unknown` at the API layer (a combined
  * person + activity payload not modeled there) — this narrows just the
  * fields this provider reads off it.
@@ -173,13 +180,13 @@ export function CustomerDetailProvider({
 
   const [activeTab, setActiveTab] = useState<CustomerDetailTab>(defaultTab);
   const [sidebarTab, setSidebarTab] = useState<CustomerDetailSidebarTab>('details');
-  const [countOverrides, setCountOverrides] = useState<Partial<import('./types').CustomerDetailCounts>>({});
+  const [countOverrides, setCountOverrides] = useState<Partial<CustomerDetailCounts>>({});
   const [pendingNoteCreate, setPendingNoteCreate] = useState(false);
   const [floatingNote, setFloatingNote] = useState<Note | null>(null);
   const [showFloatingNoteEditor, setShowFloatingNoteEditor] = useState(false);
   const [showTaskDialog, setShowTaskDialog] = useState(false);
 
-  const setCountOverride = useCallback((key: keyof import('./types').CustomerDetailCounts, value: number) => {
+  const setCountOverride = useCallback((key: keyof CustomerDetailCounts, value: number) => {
     setCountOverrides(prev => prev[key] === value ? prev : { ...prev, [key]: value });
   }, []);
 

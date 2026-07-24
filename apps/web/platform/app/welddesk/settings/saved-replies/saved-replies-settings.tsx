@@ -242,7 +242,7 @@ export function SavedRepliesSettings() {
         onOpenChange={(open) => !open && setDeleteId(null)}
         title={srp.deleteTitle}
         description={srp.deleteDescription}
-        confirmText={srp.deleteConfirm}
+        confirmLabel={srp.deleteConfirm}
         variant="destructive"
         onConfirm={handleDelete}
       />

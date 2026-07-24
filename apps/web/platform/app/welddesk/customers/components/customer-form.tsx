@@ -61,7 +61,7 @@ export function CustomerForm() {
             router.push("/welddesk/contacts");
           } else {
             toast.error(tc.failedToCreateCustomer, {
-              description: result.error || tc.unexpectedError,
+              description: tc.unexpectedError,
             });
           }
         },

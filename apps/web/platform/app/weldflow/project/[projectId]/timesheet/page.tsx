@@ -258,7 +258,7 @@ export default function TimesheetPage() {
       if (entriesResult.success) {
         const rawEntries = (Array.isArray(entriesResult.data)
           ? entriesResult.data
-          : entriesResult.data?.items || []) as RawTimeEntry[];
+          : entriesResult.data?.items || []) as unknown as RawTimeEntry[];
         const transformedEntries = rawEntries.map((entry) => ({
           id: entry.id,
           taskId: entry.taskId,

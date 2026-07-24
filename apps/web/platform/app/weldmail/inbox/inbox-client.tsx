@@ -95,6 +95,15 @@ import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 type EmailMessage = MailTypes.Email;
 type EmailFolder = string;
 
+// `from` may be a plain "Name <email>" string (legacy) or a structured
+// Mail.EmailAddress object (some app-api routes already return one); collapse
+// down to a display string wherever this component treats it as text.
+function fromDisplayString(from: string | MailTypes.EmailAddress | undefined): string {
+  if (!from) return '';
+  if (typeof from === 'string') return from;
+  return from.name ? `${from.name} <${from.email}>` : from.email;
+}
+
 // AI Assistant Panel removed - now using BreadcrumbHeader WeldAgent. Kept as a
 // disabled flag (rather than deleting the JSX) since `showAiPanel` still
 // drives layout elsewhere (width/flex classes further down).
@@ -214,8 +223,8 @@ export function InboxClient({
   const filteredMessages = messages
     .filter(msg => {
       const matchesSearch = msg.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        msg.from.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        msg.preview.toLowerCase().includes(searchQuery.toLowerCase());
+        fromDisplayString(msg.from).toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (msg.preview || '').toLowerCase().includes(searchQuery.toLowerCase());
 
       const isCompleted = completedEmails.has(msg.id);
       const isSetAside = setAsideEmails.has(msg.id);
@@ -237,8 +246,8 @@ export function InboxClient({
     });
 
   // Helper function to get date label
-  const getDateLabel = (dateString: string) => {
-    const messageDate = new Date(dateString);
+  const getDateLabel = (dateInput: Date | string | undefined) => {
+    const messageDate = dateInput ? new Date(dateInput) : new Date();
     const today = new Date();
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
@@ -274,8 +283,8 @@ export function InboxClient({
     const filteredEmails = emails
       .filter(msg => {
         const matchesSearch = msg.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          msg.from.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          msg.preview.toLowerCase().includes(searchQuery.toLowerCase());
+          fromDisplayString(msg.from).toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (msg.preview || '').toLowerCase().includes(searchQuery.toLowerCase());
 
         const isCompleted = completedEmails.has(msg.id);
         const isSetAside = setAsideEmails.has(msg.id);
@@ -447,8 +456,8 @@ export function InboxClient({
     }, 200);
   };
 
-  const formatEmailDate = (date: Date) => {
-    const emailDate = new Date(date);
+  const formatEmailDate = (date: Date | undefined) => {
+    const emailDate = date ? new Date(date) : new Date();
     
     if (isToday(emailDate)) {
       return format(emailDate, 'h:mm a');
@@ -475,7 +484,7 @@ export function InboxClient({
     }
 
     // Fetch full content if not already loaded
-    if (!email.body && !email.bodyHtml) {
+    if (!email.bodyText && !email.bodyHtml) {
       setIsLoadingEmail(true);
       try {
         const result = await mailApi.messages.get(activeAccount.id, email.id);
@@ -962,12 +971,12 @@ export function InboxClient({
                         )}
                         <div
                           className="w-6 h-6 rounded-md flex items-center justify-center text-white font-semibold text-[10px]"
-                          style={{ backgroundColor: getAvatarColor(email.from) }}
+                          style={{ backgroundColor: getAvatarColor(fromDisplayString(email.from)) }}
                         >
-                          {email.from.charAt(0).toUpperCase()}
+                          {fromDisplayString(email.from).charAt(0).toUpperCase()}
                         </div>
                       </div>
-                    
+
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between gap-2">
                         <div className="flex-1">
@@ -978,7 +987,7 @@ export function InboxClient({
                                   "text-sm truncate flex-1",
                                   !email.isRead ? "font-semibold text-gray-900 dark:text-foreground" : "font-normal text-gray-500 dark:text-muted-foreground"
                                 )}>
-                                  {email.fromEmail || `${email.from.toLowerCase().replace(/\s+/g, '.')}@gmail.com`}
+                                  {email.fromEmail || `${fromDisplayString(email.from).toLowerCase().replace(/\s+/g, '.')}@gmail.com`}
                                 </div>
                                 <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
                                   {email.isStarred && (
@@ -1034,7 +1043,7 @@ export function InboxClient({
                                           }, 100);
                                         }}
                                       >
-                                        {email.from}
+                                        {fromDisplayString(email.from)}
                                       </span>
                                     </PopoverTrigger>
                                     <PopoverContent 
@@ -1156,7 +1165,7 @@ export function InboxClient({
                                     </PopoverContent>
                                   </Popover>
                                 ) : (
-                                  email.from
+                                  fromDisplayString(email.from)
                                 )}
                               </div>
                               <span className={cn(
@@ -1772,7 +1781,7 @@ export function InboxClient({
                 <div className="flex items-start justify-between">
                   <div className="flex items-center">
                     <div className="w-7 h-7 rounded-md bg-[#fbbf24] flex items-center justify-center text-white font-semibold text-xs">
-                      {selectedEmail.from.charAt(0).toUpperCase()}
+                      {fromDisplayString(selectedEmail.from).charAt(0).toUpperCase()}
                     </div>
                     <div className="ml-1">
                       {!isEmailCollapsed && (
@@ -1801,11 +1810,11 @@ export function InboxClient({
                                     hoveredWeldMailTeam ? "bg-gray-100 dark:bg-secondary" : "hover:bg-gray-100 dark:hover:bg-accent"
                                   )}
                                 >
-                                  {selectedEmail.from}
+                                  {fromDisplayString(selectedEmail.from)}
                                 </Button>
                               </PopoverTrigger>
-                              <PopoverContent 
-                                className="w-80 p-0" 
+                              <PopoverContent
+                                className="w-80 p-0"
                                 align="start" 
                                 sideOffset={8}
                                 onOpenAutoFocus={(e) => e.preventDefault()}
@@ -1931,7 +1940,7 @@ export function InboxClient({
                               }}
                               className="font-semibold text-gray-900 dark:text-foreground text-sm hover:bg-gray-100 dark:hover:bg-accent px-2 py-1 rounded-md transition-colors"
                             >
-                              {selectedEmail.from}
+                              {fromDisplayString(selectedEmail.from)}
                             </Button>
                           )}
                           <span className="text-[#007aff] text-sm ml-1">
@@ -1945,7 +1954,7 @@ export function InboxClient({
                                   }}
                                   className="hover:bg-gray-100 dark:hover:bg-accent px-1 py-0.5 rounded-md transition-colors"
                                 >
-                                  {recipient}
+                                  {fromDisplayString(recipient)}
                                 </Button>
                                 {index < selectedEmail.to.length - 1 && ', '}
                               </span>
@@ -2027,12 +2036,12 @@ export function InboxClient({
                                   hoveredWeldMailTeamCollapsed ? "bg-gray-100 dark:bg-secondary" : "hover:bg-gray-100 dark:hover:bg-accent"
                                 )}
                               >
-                                {selectedEmail.from}
+                                {fromDisplayString(selectedEmail.from)}
                               </Button>
                             </PopoverTrigger>
-                            <PopoverContent 
-                              className="w-80 p-0" 
-                              align="start" 
+                            <PopoverContent
+                              className="w-80 p-0"
+                              align="start"
                               sideOffset={8}
                               onOpenAutoFocus={(e) => e.preventDefault()}
                               onMouseEnter={() => {
@@ -2154,7 +2163,7 @@ export function InboxClient({
                             }}
                             className="font-semibold text-gray-900 dark:text-foreground text-sm hover:bg-gray-100 dark:hover:bg-accent px-2 py-1 rounded-md transition-colors"
                           >
-                            {selectedEmail.from}
+                            {fromDisplayString(selectedEmail.from)}
                           </Button>
                         )
                       )}
@@ -2165,7 +2174,7 @@ export function InboxClient({
                       onClick={() => setIsEmailCollapsed(!isEmailCollapsed)}
                       className="text-sm hover:bg-gray-100 dark:hover:bg-accent px-2 py-1 rounded-md transition-colors cursor-pointer"
                     >
-                      {format(new Date(selectedEmail.date), 'd MMM, HH:mm')}
+                      {format(selectedEmail.date ? new Date(selectedEmail.date) : new Date(), 'd MMM, HH:mm')}
                     </Button>
                     {!isEmailCollapsed && (
                       <DropdownMenu>
@@ -2328,7 +2337,7 @@ export function InboxClient({
                       setIsReplying(!isReplying);
                       if (!isReplying && selectedEmail) {
                         setComposeData({
-                          to: selectedEmail.fromEmail || selectedEmail.from,
+                          to: selectedEmail.fromEmail || fromDisplayString(selectedEmail.from),
                           subject: `Re: ${selectedEmail.subject}`,
                           body: ''
                         });
@@ -2561,7 +2570,7 @@ export function InboxClient({
                         }
                         try {
                           const result = await mailApi.messages.send(activeAccount.id, {
-                            to: [selectedEmail?.from || ''],
+                            to: [selectedEmail?.fromEmail || fromDisplayString(selectedEmail?.from)],
                             subject: composeData.subject || `Re: ${selectedEmail?.subject || ''}`,
                             body: composeData.body.trim(),
                             htmlBody: composeData.body.trim().replace(/\n/g, '<br>'),
@@ -3798,7 +3807,7 @@ export function InboxClient({
                     try {
                       const toAddresses = popupComposeData.to.split(/[,;]/).map((e: string) => e.trim()).filter((e: string) => e.length > 0);
                       const result = await mailApi.messages.send(activeAccount.id, {
-                        to: toAddresses.length > 0 ? toAddresses : [selectedEmail?.from || ''],
+                        to: toAddresses.length > 0 ? toAddresses : [selectedEmail?.fromEmail || fromDisplayString(selectedEmail?.from)],
                         subject: popupComposeData.subject || `Re: ${selectedEmail?.subject || ''}`,
                         body: popupComposeData.body.trim(),
                         htmlBody: popupComposeData.body.trim().replace(/\n/g, '<br>'),

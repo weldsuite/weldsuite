@@ -57,6 +57,7 @@ export function useProjects(params?: {
   pageSize?: number;
   status?: string;
   search?: string;
+  isActive?: boolean;
 }) {
   const { getClient } = useAppApiClient();
   return useQuery({

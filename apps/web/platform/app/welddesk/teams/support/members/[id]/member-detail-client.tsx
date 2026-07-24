@@ -303,7 +303,7 @@ export function MemberDetailClient({ memberData }: MemberDetailClientProps) {
           <EntityDataTable
             data={memberData.recentTickets}
             columns={ticketColumns}
-            pagination={{ currentPage: 1, totalPages: 1, totalItems: memberData.recentTickets.length, pageSize: 20 }}
+            pagination={{ page: 1, totalPages: 1, totalCount: memberData.recentTickets.length, pageSize: 20, hasMore: false }}
             searchParams={{}}
             emptyMessage={t.helpdesk.teamsPage.noTicketsFound}
             emptyIcon="MessageSquare"

@@ -31,6 +31,7 @@ import { Link } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import {
   useTicketTypes,
+  useCreateTicketType,
   useUpdateTicketType,
   useDeleteTicketType,
   type TicketTypeConfig,
@@ -61,6 +62,7 @@ function getIcon(iconName?: string): LucideIcon {
 export function TicketTypesSettings() {
   const { t } = useI18n();
   const { data: ticketTypes, isLoading } = useTicketTypes();
+  const createTicketType = useCreateTicketType();
   const updateTicketType = useUpdateTicketType();
   const deleteTicketType = useDeleteTicketType();
 
@@ -95,6 +97,15 @@ export function TicketTypesSettings() {
       toast.success((type.isActive ? t.helpdesk.ticketTypesSettings.ticketTypeDisabled : t.helpdesk.ticketTypesSettings.ticketTypeEnabled).replace('{name}', type.name));
     } catch {
       toast.error(t.helpdesk.ticketTypesSettings.failedToUpdateTicketType);
+    }
+  };
+
+  const handleSaveType = (type: TicketTypeConfig) => {
+    const onError = () => toast.error(t.helpdesk.ticketTypesSettings.failedToUpdateTicketType);
+    if (editingType) {
+      updateTicketType.mutate(type, { onError });
+    } else {
+      createTicketType.mutate(type, { onError });
     }
   };
 
@@ -233,6 +244,7 @@ export function TicketTypesSettings() {
         open={editorOpen}
         onOpenChange={setEditorOpen}
         editingType={editingType}
+        onSave={handleSaveType}
       />
 
       {/* Delete Confirmation */}
@@ -241,7 +253,7 @@ export function TicketTypesSettings() {
         onOpenChange={(open) => !open && setDeleteId(null)}
         title={ttp.deleteTitle}
         description={ttp.deleteDescription}
-        confirmText={ttp.deleteConfirm}
+        confirmLabel={ttp.deleteConfirm}
         variant="destructive"
         onConfirm={handleDelete}
       />

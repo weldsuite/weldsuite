@@ -92,7 +92,7 @@ export function CustomerDetailClient({ customerData }: CustomerDetailClientProps
     { label: customerData.name },
   ]);
   const [companyDialogOpen, setCompanyDialogOpen] = useState(false);
-  const companies: Company[] = companiesResult?.companies || [];
+  const companies: Company[] = companiesResult?.data || [];
   const isLoadingCompanies = isLoadingCompaniesQuery;
   const [timezoneDialogOpen, setTimezoneDialogOpen] = useState(false);
   const [languageDialogOpen, setLanguageDialogOpen] = useState(false);

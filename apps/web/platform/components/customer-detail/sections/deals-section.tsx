@@ -54,10 +54,10 @@ export function DealsSection({ opportunities, totalCount }: DealsSectionProps) {
   }
 
   // Calculate totals
-  const totalValue = opportunities.reduce((sum, opp) => sum + (opp.amount || opp.value || 0), 0);
+  const totalValue = opportunities.reduce((sum, opp) => sum + (opp.amount ? parseFloat(opp.amount) : opp.value || 0), 0);
   const openDeals = opportunities.filter(o => o.stage !== 'closed_won' && o.stage !== 'closed_lost');
   const wonDeals = opportunities.filter(o => o.stage === 'closed_won');
-  const wonValue = wonDeals.reduce((sum, opp) => sum + (opp.amount || opp.value || 0), 0);
+  const wonValue = wonDeals.reduce((sum, opp) => sum + (opp.amount ? parseFloat(opp.amount) : opp.value || 0), 0);
 
   return (
     <div>
@@ -120,7 +120,7 @@ export function DealsSection({ opportunities, totalCount }: DealsSectionProps) {
 
 function DealCard({ deal }: { deal: Opportunity }) {
   const t = useTranslations();
-  const value = deal.amount || deal.value || 0;
+  const value = deal.amount ? parseFloat(deal.amount) : deal.value || 0;
   const stage = deal.stage || 'lead';
 
   return (

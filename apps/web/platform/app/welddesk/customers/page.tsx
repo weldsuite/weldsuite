@@ -10,7 +10,7 @@ export default function CustomersPage() {
   const search = searchParams.get('search') || undefined;
 
   const currentParams: Record<string, string> = {};
-  searchParams.forEach((value, key) => {
+  searchParams.forEach((value: string, key: string) => {
     currentParams[key] = value;
   });
 

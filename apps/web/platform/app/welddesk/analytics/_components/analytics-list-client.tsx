@@ -56,17 +56,24 @@ export function AnalyticsListClient({ initialReports }: AnalyticsListClientProps
   const handleCreateReport = async () => {
     if (!newReportTitle.trim()) return;
 
+    const title = newReportTitle.trim();
+    const description = newReportDescription.trim() || 'Analytics report';
     createReportMutation.mutate(
-      {
-        title: newReportTitle.trim(),
-        description: newReportDescription.trim() || 'Analytics report',
-      },
+      { title, description },
       {
         onSuccess: (result) => {
           if (result.success && result.data) {
-            setReports((prev) => [...prev, result.data]);
+            const newReport: AnalyticsReport = {
+              id: result.data.id,
+              title,
+              description,
+              chartCount: 0,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            };
+            setReports((prev) => [...prev, newReport]);
             setCreateDialogOpen(false);
-            router.push(`/welddesk/analytics/${result.data.id}`);
+            router.push(`/welddesk/analytics/${newReport.id}`);
           }
         },
       }
@@ -80,7 +87,7 @@ export function AnalyticsListClient({ initialReports }: AnalyticsListClientProps
           setReports((prev) => prev.filter((r) => r.id !== reportId));
           toast.success(t.helpdesk.analyticsReports.reportDeleted);
         } else {
-          toast.error(result.error || t.helpdesk.analyticsReports.failedToDeleteReport);
+          toast.error(t.helpdesk.analyticsReports.failedToDeleteReport);
         }
       },
     });
@@ -90,7 +97,11 @@ export function AnalyticsListClient({ initialReports }: AnalyticsListClientProps
     duplicateReportMutation.mutate(item.id, {
       onSuccess: (result) => {
         if (result.success && result.data) {
-          setReports((prev) => [...prev, result.data]);
+          const duplicated: AnalyticsReport = {
+            ...item,
+            id: result.data.id,
+          };
+          setReports((prev) => [...prev, duplicated]);
           toast.success(t.helpdesk.analyticsReports.reportDuplicated);
         } else {
           toast.error(t.helpdesk.analyticsReports.failedToDuplicateReport);

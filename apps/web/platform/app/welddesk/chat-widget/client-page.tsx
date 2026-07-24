@@ -176,7 +176,7 @@ export const ChatWidgetClient = forwardRef<ChatWidgetClientHandle, ChatWidgetCli
           description: tw.settingsSavedSuccess,
         });
       } else {
-        throw new Error(result.error);
+        throw new Error('Failed to save widget settings');
       }
     } catch (error) {
       console.error('Failed to save widget settings:', error);

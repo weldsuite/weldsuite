@@ -74,7 +74,7 @@ interface Task {
   title: string;
   description?: string;
   stageId?: string | null;
-  status: 'todo' | 'in_progress' | 'done';
+  status: 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'testing' | 'done' | 'cancelled';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   assignee?: string;
   assigneeId?: string | null;

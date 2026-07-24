@@ -75,30 +75,28 @@ export function TeamsClient({ teams }: TeamsClientProps) {
   });
 
   const onSubmit = (data: DepartmentFormValues) => {
-    createDepartmentMutation.mutate(
-      {
-        name: data.name,
-        description: data.description || undefined,
-        email: data.email || undefined,
-        autoAssignment: data.autoAssignment,
-        roundRobinAssignment: data.roundRobinAssignment,
-        defaultPriority: data.defaultPriority,
-        isActive: data.isActive,
+    const payload = {
+      name: data.name,
+      description: data.description || undefined,
+      email: data.email || undefined,
+      autoAssignment: data.autoAssignment,
+      roundRobinAssignment: data.roundRobinAssignment,
+      defaultPriority: data.defaultPriority,
+      isActive: data.isActive,
+    };
+    createDepartmentMutation.mutate(payload, {
+      onSuccess: (result) => {
+        toast.success(t.helpdesk.teamsPage.teamCreated);
+        setDialogOpen(false);
+        form.reset();
+        if (result?.data?.id) {
+          router.push(`/welddesk/teams/${result.data.id}`);
+        }
       },
-      {
-        onSuccess: (result) => {
-          toast.success(t.helpdesk.teamsPage.teamCreated);
-          setDialogOpen(false);
-          form.reset();
-          if (result?.id) {
-            router.push(`/welddesk/teams/${result.id}`);
-          }
-        },
-        onError: (error: Error) => {
-          toast.error(t.helpdesk.teamsPage.failedToCreateTeam, { description: error.message });
-        },
-      }
-    );
+      onError: (error: Error) => {
+        toast.error(t.helpdesk.teamsPage.failedToCreateTeam, { description: error.message });
+      },
+    });
   };
 
   // Filter configs

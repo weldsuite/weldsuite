@@ -198,13 +198,17 @@ export function CustomerDetailHeader({
   const isContact = entityType === 'contact';
   const customer = data?.customer;
   const isDataReady = !isLoading && !!customer;
+  // `Customer` (customer-detail/types.ts) doesn't model `avatarUrl` — the API
+  // returns it for both companies and people. Read it without widening the
+  // shared type.
+  const customerAvatarUrl = (customer as { avatarUrl?: string } | undefined)?.avatarUrl;
 
   const [isFavorite, setIsFavorite] = useState(customer?.isFavorite ?? false);
   const [shareOpen, setShareOpen] = useState(false);
 
   // Avatar upload
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(customer?.avatarUrl || null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(customerAvatarUrl || null);
   const { uploadFile, isUploading } = useFileUpload({
     folder: 'avatars',
     entityType: 'customer-avatar',
@@ -218,7 +222,7 @@ export function CustomerDetailHeader({
         if (isContact) {
           await updatePersonMutation.mutateAsync({ id: customerId, data: { avatarUrl: file.url } });
         } else {
-          await updateCompanyMutation.mutateAsync({ id: customerId, data: { logoUrl: file.url } });
+          await updateCompanyMutation.mutateAsync({ id: customerId, data: { avatarUrl: file.url } });
         }
         toast.success(t('sweep.weldcrm.contactDetailView.avatarUpdated'));
         silentRefresh();
@@ -251,10 +255,10 @@ export function CustomerDetailHeader({
   }, [customer?.isFavorite]);
 
   useEffect(() => {
-    if (customer?.avatarUrl) {
-      setAvatarUrl(customer.avatarUrl);
+    if (customerAvatarUrl) {
+      setAvatarUrl(customerAvatarUrl);
     }
-  }, [customer?.avatarUrl]);
+  }, [customerAvatarUrl]);
 
   // Defensive checks for customer data
   const customerType = customer?.type?.toLowerCase() || '';
@@ -1383,7 +1387,7 @@ function ShareDialog({
       );
       toast.success(
         selectedList.length === 1
-          ? st('sweep.weldcrm.customerDetailHeader.sharedWithOne', { name: selectedList[0].name })
+          ? st('sweep.weldcrm.customerDetailHeader.sharedWithOne', { name: selectedList[0]?.name ?? '' })
           : st('sweep.weldcrm.customerDetailHeader.sharedWithMany', { count: selectedList.length }),
       );
       onOpenChange(false);
@@ -1466,9 +1470,10 @@ function ShareDialog({
                       setSelectedList((prev) => prev.slice(0, -1));
                       return;
                     }
-                    if ((e.key === 'Enter' || e.key === 'Tab') && query.trim() && matches.length > 0) {
+                    const firstMatch = matches[0];
+                    if ((e.key === 'Enter' || e.key === 'Tab') && query.trim() && firstMatch) {
                       e.preventDefault();
-                      handleSelect(matches[0]);
+                      handleSelect(firstMatch);
                     }
                   }}
                   placeholder={selectedList.length === 0 ? st('sweep.weldcrm.customerDetailHeader.addByNamePlaceholder') : ''}

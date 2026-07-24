@@ -78,14 +78,14 @@ export default function SupportTeamPage() {
     activeTickets: agent.currentActiveTickets || 0,
     resolvedToday: agent.ticketsResolved || 0,
     avgResponseTime: formatResponseTime(agent.averageResponseTime),
-    status: agent.isOnline ? 'online' : agent.availability === 'away' ? 'away' : 'offline',
+    status: agent.isOnline ? ('online' as const) : agent.availability === 'away' ? ('away' as const) : ('offline' as const),
   }));
 
   // Map feedback to team format
   const recentFeedback = feedbackItems.slice(0, 10).map((feedback: RawTeamFeedback) => ({
     id: feedback.id,
     subject: feedback.title,
-    customerName: feedback.submitterName,
+    customerName: feedback.submitterName || '',
     status: feedback.status,
     priority: feedback.priority,
     assignedTo: feedback.assigneeName || t.helpdesk.inbox.unassigned,

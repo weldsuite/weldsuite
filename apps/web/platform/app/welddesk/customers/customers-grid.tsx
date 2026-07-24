@@ -48,14 +48,14 @@ export function CustomersGrid({
       onUpdateEntity: async (id, updates) => {
         const result = await updateCustomerMutation.mutateAsync({ id, data: updates });
         if (!result.success) {
-          toast.error(result.error || tc.failedToUpdateCustomer);
+          toast.error(tc.failedToUpdateCustomer);
         }
         return result;
       },
       onDeleteEntity: async (id) => {
         const result = await deleteCustomerMutation.mutateAsync(id);
         if (!result.success) {
-          toast.error(result.error || tc.failedToDeleteCustomer);
+          toast.error(tc.failedToDeleteCustomer);
         } else {
           toast.success(tc.customerDeleted);
         }

@@ -225,7 +225,7 @@ export default function HelpdeskAutomationsPage() {
           refetchWorkflows();
           const id = result?.data?.id;
           if (id) {
-            navigate({ to: '/welddesk/workflows/$id', params: { id } });
+            navigate({ to: '/welddesk/workflows/$id/edit', params: { id } });
           }
         },
         onError: () => {
@@ -269,7 +269,7 @@ export default function HelpdeskAutomationsPage() {
         onOpenChange={setShowResetConfirm}
         title={twc.resetTitle}
         description={twc.resetDescription}
-        confirmText={twc.resetConfirmText}
+        confirmLabel={twc.resetConfirmText}
         variant="destructive"
         onConfirm={handleResetDefaults}
       />

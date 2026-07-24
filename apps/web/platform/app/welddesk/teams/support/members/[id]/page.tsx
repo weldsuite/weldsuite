@@ -90,7 +90,7 @@ export default function MemberDetailPage() {
     { icon: MessageSquare, label: mdp.activeTicketsStat, count: memberData.activeTickets, color: 'text-orange-600' },
     { icon: CheckCircle, label: mdp.resolvedTodayStat, count: memberData.resolvedToday, color: 'text-green-600' },
     { icon: Clock, label: mdp.avgResponseStat, value: memberData.avgResponseTime, color: 'text-blue-600' },
-    { icon: Star, label: mdp.satisfactionRatingMetric, count: memberData.performanceMetrics.avgSatisfactionRating, color: 'text-yellow-600', isDecimal: true },
+    { icon: Star, label: mdp.satisfactionRatingMetric, value: String(memberData.performanceMetrics.avgSatisfactionRating), color: 'text-yellow-600' },
   ];
 
   return (

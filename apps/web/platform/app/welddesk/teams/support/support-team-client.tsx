@@ -333,7 +333,7 @@ export function SupportTeamClient({ teamData }: SupportTeamClientProps) {
           <EntityDataTable
             data={teamData.members}
             columns={memberColumns}
-            pagination={{ currentPage: 1, totalPages: 1, totalItems: teamData.members.length, pageSize: 20 }}
+            pagination={{ page: 1, totalPages: 1, totalCount: teamData.members.length, pageSize: 20, hasMore: false }}
             searchParams={{}}
             emptyMessage={t.helpdesk.teamsPage.noTeamMembersFound}
             emptyIcon="Users"
@@ -346,7 +346,7 @@ export function SupportTeamClient({ teamData }: SupportTeamClientProps) {
           <EntityDataTable
             data={teamData.recentFeedback}
             columns={feedbackColumns}
-            pagination={{ currentPage: 1, totalPages: 1, totalItems: teamData.recentFeedback.length, pageSize: 20 }}
+            pagination={{ page: 1, totalPages: 1, totalCount: teamData.recentFeedback.length, pageSize: 20, hasMore: false }}
             searchParams={{}}
             emptyMessage={t.helpdesk.teamsPage.noRecentFeedbackFound}
             emptyIcon="MessageSquare"
