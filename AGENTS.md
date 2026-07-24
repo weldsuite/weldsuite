@@ -66,3 +66,14 @@ fans out through Turborepo.
 
 ### Default dev ports
 platform 3000, app-api 8789, realtime-worker 8790, billing-worker 8788.
+
+### Automating the login form in tests
+The platform sign-in page (`/auth/login`) is a custom form (fields `#email` /
+`#password`) backed by `react-hook-form`, not Clerk's drop-in `<SignIn>`.
+Programmatic `page.fill()` / synthetic key injection does **not** update RHF
+state, so the submit sends an empty identifier and Clerk returns
+"Identifier is invalid". Use realistic per-character typing instead
+(Playwright: `locator.pressSequentially(value, { delay })`). With a valid
+account this reaches `POST <fapi>/v1/client/sign_ins` → `status: complete` and
+redirects to `/`, after which authenticated `app-api` calls (e.g.
+`/api/workspaces`, `/api/companies`) return 200/201 against the real tenant DB.
