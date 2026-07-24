@@ -11,7 +11,6 @@ import {
   Star,
   FolderInput,
   Pencil,
-  Copy,
   Link,
   Trash2,
   MoreVertical,
@@ -67,7 +66,7 @@ function PreviewTooltip({ label, children, side = 'top' }: { label: string; chil
       }
       setShow(true);
     }, 600);
-  }, [clearTimer, hasOpenDropdown]);
+  }, [clearTimer, hasOpenDropdown, side]);
 
   useEffect(() => {
     const el = triggerRef.current;
@@ -501,19 +500,3 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
   );
 }
 
-function DetailRow({ label, value, capitalize, children, dark = false }: {
-  label: string;
-  value?: string;
-  capitalize?: boolean;
-  children?: React.ReactNode;
-  dark?: boolean;
-}) {
-  return (
-    <div>
-      <dt className={cn("text-[11px] uppercase tracking-wider mb-0.5", dark ? "text-white/40" : "text-muted-foreground")}>{label}</dt>
-      <dd className={cn("text-sm", dark ? "text-white/80" : "text-foreground", capitalize && "capitalize")}>
-        {children || value}
-      </dd>
-    </div>
-  );
-}

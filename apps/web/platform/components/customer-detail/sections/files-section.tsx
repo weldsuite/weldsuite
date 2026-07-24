@@ -22,7 +22,7 @@ import {
   Copy,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
+import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type ActiveFilter } from '@/components/entity-list';
 import type { FilesSectionProps } from '../types';
 import { useTranslations } from '@weldsuite/i18n/client';
 
@@ -70,7 +70,10 @@ const formatDate = (date: Date): string => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
-export function FilesSection({ customer }: FilesSectionProps) {
+// `customer` isn't read here, but the parameter must stay to match the
+// shared `SectionProps` contract every `<XSection customer={...} />` caller uses.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function FilesSection(_props: FilesSectionProps) {
   const t = useTranslations();
   const [files, setFiles] = useState<FileItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -140,7 +143,7 @@ export function FilesSection({ customer }: FilesSectionProps) {
   ], [t]);
 
   // Render row
-  const renderRow = useCallback((file: FileItem, handlers: RowHandlers<FileItem>) => {
+  const renderRow = useCallback((file: FileItem) => {
     const Icon = getFileIcon(file.type);
 
     return (

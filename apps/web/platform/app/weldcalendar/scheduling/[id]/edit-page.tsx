@@ -20,7 +20,7 @@ export default function BookingPageEditPage() {
       initialData={{
         title: bookingPage.name || '',
         duration: bookingPage.duration || 120,
-        availability: bookingPage.availability as any,
+        availability: bookingPage.availability,
         bufferBefore: bookingPage.bufferBefore || 0,
         bufferAfter: bookingPage.bufferAfter || 0,
       }}

@@ -3,15 +3,12 @@ import { useRouter } from '@/lib/router';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   X,
-  Check,
   Building2,
   User,
   Star,
   Mail,
   Phone,
   EllipsisVertical,
-  ChevronUp,
-  ChevronDown,
   Maximize,
   Minimize,
   SquareCheck,
@@ -22,18 +19,10 @@ import {
   Camera,
   Loader2,
   Link as LinkIcon,
-  Share2,
-  MessageSquareShare,
   ListPlus,
-  Tag,
   Download,
-  GitMerge,
   Archive,
-  UserCog,
-  MessageSquare,
-  Calendar,
   CalendarPlus,
-  ExternalLink,
   SquareArrowOutUpRight,
   Search,
   Plus,
@@ -51,11 +40,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
-import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-} from '@weldsuite/ui/components/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import {
   DropdownMenu,
@@ -70,12 +54,15 @@ import { useCustomerDetailContext } from './customer-detail-provider';
 import { useUpdateCompany } from '@/components/objects/company/use-company-data';
 import { useUpdatePerson } from '@/components/objects/person/use-person-data';
 import { useCustomerLists, useAddCustomersToList, useAddContactsToList } from '@/hooks/queries/use-customer-lists-queries';
+import type { CustomerList } from '@/hooks/queries/use-customer-lists-queries';
 import { coloredSquareIcons } from '@/components/app-sidebar-layout';
 import { NewEventDialog } from '@/app/weldcalendar/events/components/new-event-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useCreateCustomerNote } from '@/hooks/queries/use-customer-notes-queries';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
+import type { Member } from '@weldsuite/core-api-client/schemas/members';
 import { useChannels, useCreateDm, useSendMessage, useDmChannels } from '@/hooks/queries/use-weldchat-queries';
+import type { ChatChannel, ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
 import { Hash, Lock, Users as UsersIcon } from 'lucide-react';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { useComposeSafe } from '@/contexts/compose-context';
@@ -176,14 +163,12 @@ function EditableHeaderName({
 export function CustomerDetailHeader({
   variant = 'page',
   onDelete,
-  onNavigateToCustomer,
 }: CustomerDetailHeaderProps) {
   const t = useTranslations();
   const router = useRouter();
   const {
     data,
     isLoading,
-    navigation,
     customerId,
     entityType,
     listId,
@@ -194,8 +179,6 @@ export function CustomerDetailHeader({
     mode,
     isExpanded,
     onToggleExpand,
-    setActiveTab,
-    setPendingNoteCreate,
     setFloatingNote,
     setShowFloatingNoteEditor,
     setShowTaskDialog,
@@ -217,7 +200,6 @@ export function CustomerDetailHeader({
   const isDataReady = !isLoading && !!customer;
 
   const [isFavorite, setIsFavorite] = useState(customer?.isFavorite ?? false);
-  const [isNavigating, setIsNavigating] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
 
   // Avatar upload
@@ -234,7 +216,7 @@ export function CustomerDetailHeader({
       setAvatarUrl(file.url);
       try {
         if (isContact) {
-          await updatePersonMutation.mutateAsync({ id: customerId, data: { avatarUrl: file.url } as any });
+          await updatePersonMutation.mutateAsync({ id: customerId, data: { avatarUrl: file.url } });
         } else {
           await updateCompanyMutation.mutateAsync({ id: customerId, data: { logoUrl: file.url } });
         }
@@ -288,7 +270,7 @@ export function CustomerDetailHeader({
     const firstName = parts[0] ?? '';
     const lastName = parts.slice(1).join(' ');
     if (isContact) {
-      updatePersonMutation.mutate({ id: customerId, data: { firstName, lastName } as any });
+      updatePersonMutation.mutate({ id: customerId, data: { firstName, lastName } });
     } else {
       updateCompanyMutation.mutate({ id: customerId, data: { name: trimmed } });
     }
@@ -301,15 +283,6 @@ export function CustomerDetailHeader({
       : `${customer?.firstName || ''} ${customer?.lastName || ''}`.trim() || customer?.fullName || '';
 
   const entityLabel = isContact ? t('sweep.weldcrm.customerDetailHeader.entityContact') : t('sweep.weldcrm.customerDetailHeader.entityCustomer');
-
-  // Navigation defaults
-  const navData = navigation || {
-    currentIndex: 1,
-    totalCount: 1,
-    previousId: null,
-    nextId: null,
-    contextName: 'All Customers',
-  };
 
   // Companies/People no longer have a detail page — links open the object
   // panel on the list surface via the `?stack=` deep link.
@@ -330,28 +303,6 @@ export function CustomerDetailHeader({
     const queryString = params.toString();
     return queryString ? `${baseUrl}&${queryString}` : baseUrl;
   }, [recordPanelPath, listId, returnUrl]);
-
-  const handlePrevious = useCallback(() => {
-    if (navData.previousId && !isNavigating) {
-      setIsNavigating(true);
-      if (onNavigateToCustomer) {
-        onNavigateToCustomer(navData.previousId);
-      } else {
-        router.push(buildCustomerUrl(navData.previousId));
-      }
-    }
-  }, [navData.previousId, isNavigating, router, buildCustomerUrl, onNavigateToCustomer]);
-
-  const handleNext = useCallback(() => {
-    if (navData.nextId && !isNavigating) {
-      setIsNavigating(true);
-      if (onNavigateToCustomer) {
-        onNavigateToCustomer(navData.nextId);
-      } else {
-        router.push(buildCustomerUrl(navData.nextId));
-      }
-    }
-  }, [navData.nextId, isNavigating, router, buildCustomerUrl, onNavigateToCustomer]);
 
   const handleClose = useCallback(() => {
     if (onClose) {
@@ -420,21 +371,17 @@ export function CustomerDetailHeader({
   const handleCreateNote = useCallback(async () => {
     try {
       const result = await createNoteMutation.mutateAsync({ customerId, content: '' });
-      if (result.success && result.data) {
-        setFloatingNote({
-          id: result.data.id,
-          content: '',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          isPinned: false,
-          customerId,
-          customerName: customerName || undefined,
-        });
-        setShowFloatingNoteEditor(true);
-        silentRefresh();
-      } else {
-        toast.error((result as any).error || t('sweep.weldcrm.customerDetailHeader.failedToCreateNote'));
-      }
+      setFloatingNote({
+        id: result.id,
+        content: '',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        isPinned: false,
+        customerId,
+        customerName: customerName || undefined,
+      });
+      setShowFloatingNoteEditor(true);
+      silentRefresh();
     } catch {
       toast.error(t('sweep.weldcrm.customerDetailHeader.failedToCreateNote'));
     }
@@ -449,7 +396,7 @@ export function CustomerDetailHeader({
     setIsFavorite(newValue); // Optimistic update
     try {
       if (isContact) {
-        await updatePersonMutation.mutateAsync({ id: customerId, data: { isFavorite: newValue } as any });
+        await updatePersonMutation.mutateAsync({ id: customerId, data: { isFavorite: newValue } });
       } else {
         await updateCompanyMutation.mutateAsync({ id: customerId, data: { isFavorite: newValue } });
       }
@@ -486,21 +433,6 @@ export function CustomerDetailHeader({
     router.push(`/weldcrm/${isContact ? 'contacts' : 'customers'}/new?duplicateFrom=${customerId}`);
   }, [customerId, isContact, router]);
 
-  const handleShare = useCallback(() => {
-    setShareOpen(true);
-  }, []);
-
-  const handleSendMessage = useCallback(() => {
-    handleComposeEmail();
-  }, [handleComposeEmail]);
-
-  const handleScheduleMeeting = useCallback(() => {
-    const params = new URLSearchParams();
-    if (customer?.email) params.set('invite', customer.email);
-    if (customer?.companyName || customer?.fullName) params.set('title', t('sweep.weldcrm.customerDetailHeader.meetingWith', { name: customer.companyName || customer.fullName }));
-    router.push(`/weldmeet/new${params.toString() ? `?${params.toString()}` : ''}`);
-  }, [customer, router, t]);
-
   // Open the new-event dialog with title + description pre-filled from this
   // customer / contact. Renders inline as a popup — no route change.
   const handleScheduleEvent = useCallback(() => {
@@ -524,33 +456,6 @@ export function CustomerDetailHeader({
   const handleAddToList = useCallback(() => {
     setAddToListOpen(true);
   }, []);
-
-  const handleManageTags = useCallback(() => {
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(
-        new CustomEvent('customer-manage-tags', { detail: { customerId, entityType } }),
-      );
-    }
-    toast.info(t('sweep.weldcrm.customerDetailHeader.manageTags'));
-  }, [customerId, entityType, t]);
-
-  const handleChangeOwner = useCallback(() => {
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(
-        new CustomEvent('customer-change-owner', { detail: { customerId, entityType } }),
-      );
-    }
-    toast.info(t('sweep.weldcrm.customerDetailHeader.changeOwner'));
-  }, [customerId, entityType, t]);
-
-  const handleMerge = useCallback(() => {
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(
-        new CustomEvent('customer-merge', { detail: { customerId, entityType } }),
-      );
-    }
-    toast.info(t('sweep.weldcrm.customerDetailHeader.selectRecordToMerge'));
-  }, [customerId, entityType, t]);
 
   const handleExport = useCallback(() => {
     if (!customer) {
@@ -585,9 +490,10 @@ export function CustomerDetailHeader({
       a.click();
       document.body.removeChild(a);
       toast.success(t('sweep.weldcrm.customerDetailHeader.exportDownloaded'));
-    } catch (err: any) {
+    } catch (err) {
       console.error('[CustomerDetailHeader] Failed to export:', err);
-      toast.error(err?.message || t('sweep.weldcrm.customerDetailHeader.failedToExport'));
+      const message = err instanceof Error ? err.message : undefined;
+      toast.error(message || t('sweep.weldcrm.customerDetailHeader.failedToExport'));
     } finally {
       if (url) URL.revokeObjectURL(url);
     }
@@ -601,21 +507,6 @@ export function CustomerDetailHeader({
     }
     toast.info(t('sweep.weldcrm.customerDetailHeader.archive'));
   }, [customerId, entityType, t]);
-
-  // Get avatar color based on name
-  const getAvatarColor = (name: string): string => {
-    const colors = [
-      '#4F46E5', '#7C3AED', '#EC4899', '#EF4444', '#F97316',
-      '#EAB308', '#22C55E', '#14B8A6', '#06B6D4', '#3B82F6',
-    ];
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-      hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return colors[Math.abs(hash) % colors.length];
-  };
-
-  const initials = customerName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
 
   // Panel variant header - matches the page header design
   if (variant === 'panel') {
@@ -1205,6 +1096,10 @@ interface ShareTarget {
  * Small picker dialog: lists every customer/contact list and adds the current
  * record to the one the user clicks. Closes on success.
  */
+// `CustomerList` carries no `kind` in its type, but the rows do at runtime
+// (see the doc comment in use-customer-lists-queries.ts).
+type CustomerListRow = CustomerList & { kind?: string };
+
 function AddToListPicker({
   open,
   onOpenChange,
@@ -1218,14 +1113,14 @@ function AddToListPicker({
 }) {
   const t = useTranslations();
   const { data, isLoading } = useCustomerLists(open ? { pageSize: 100 } : undefined);
-  const lists = (data?.data ?? []).filter((l: any) => isContact ? l.kind === 'contact' || !l.kind : l.kind === 'customer' || !l.kind);
+  const lists = ((data?.data ?? []) as CustomerListRow[]).filter((l) => isContact ? l.kind === 'contact' || !l.kind : l.kind === 'customer' || !l.kind);
   const [search, setSearch] = useState('');
 
   useEffect(() => {
     if (!open) setSearch('');
   }, [open]);
 
-  const filtered = lists.filter((l: any) =>
+  const filtered = lists.filter((l) =>
     !search.trim() || (l.name || '').toLowerCase().includes(search.trim().toLowerCase())
   );
 
@@ -1269,7 +1164,7 @@ function AddToListPicker({
               {search ? t('sweep.weldcrm.customerDetailHeader.noListsMatch', { query: search }) : t('sweep.weldcrm.customerDetailHeader.noListsAvailable')}
             </div>
           ) : (
-            filtered.map((list: any) => {
+            filtered.map((list) => {
               const IconComp = list.icon
                 ? (coloredSquareIcons.find((i) => i.label === list.icon)?.value || ListPlus)
                 : ListPlus;
@@ -1306,11 +1201,20 @@ function AddToListPicker({
   );
 }
 
+/** DM channel row, as `/chat-dm` projects it — a channel row with DM-specific fields. */
+interface ChatDmRow extends ChatChannel {
+  otherMembers?: ChatChannelMember[];
+}
+
+/** `email` is only present on `MemberSelf`/`MemberAdmin` — narrow before reading it. */
+function getMemberEmail(m: Member): string | null {
+  return 'email' in m ? m.email : null;
+}
+
 function ShareDialog({
   open,
   onOpenChange,
   recordTitle,
-  recordSubtitle,
   recordAvatar,
   url,
 }: ShareDialogProps) {
@@ -1335,9 +1239,9 @@ function ShareDialog({
     }
   }, [open]);
 
-  const members: any[] = membersData?.data ?? [];
-  const channels: any[] = channelsData?.data ?? [];
-  const dms: any[] = dmsData?.data ?? [];
+  const members = useMemo<Member[]>(() => membersData?.data ?? [], [membersData]);
+  const channels = useMemo<ChatChannel[]>(() => channelsData?.data ?? [], [channelsData]);
+  const dms = useMemo<ChatDmRow[]>(() => (dmsData?.data ?? []) as ChatDmRow[], [dmsData]);
 
   // Combined search across WeldChat channels, group DMs, existing 1:1 DMs and
   // workspace people. Mirrors the "Forward this message" dialog. 1:1 DMs are
@@ -1355,7 +1259,7 @@ function ShareDialog({
       .map((ch) => ({
         id: `channel:${ch.id}`,
         rawId: ch.id,
-        name: ch.name,
+        name: ch.name || '',
         kind: (ch.isPrivate || ch.type === 'private'
           ? 'private'
           : ch.type === 'group'
@@ -1369,11 +1273,11 @@ function ShareDialog({
     const oneOnOneUserIds = new Set<string>();
     const dmItems: ShareTarget[] = [];
     for (const dm of dms) {
-      const otherMembers: any[] = dm.otherMembers ?? [];
+      const otherMembers: ChatChannelMember[] = dm.otherMembers ?? [];
       const isGroup = otherMembers.length > 1;
       if (isGroup) {
         const displayName =
-          otherMembers.map((m: any) => m.name || m.email || st('sweep.weldcrm.contactDetailView.unknown')).join(', ') ||
+          otherMembers.map((m) => m.name || m.email || st('sweep.weldcrm.contactDetailView.unknown')).join(', ') ||
           dm.name ||
           st('sweep.weldcrm.customerDetailHeader.group');
         if (q && !displayName.toLowerCase().includes(q)) continue;
@@ -1402,21 +1306,21 @@ function ShareDialog({
       .filter((m) => {
         const userId = m.userId || m.id;
         if (oneOnOneUserIds.has(userId)) return false;
-        const name = (m.name || m.email || '').toLowerCase();
+        const name = (m.name || getMemberEmail(m) || '').toLowerCase();
         return q ? name.includes(q) : true;
       })
       .map((m) => ({
         id: `user:${m.userId || m.id}`,
         rawId: m.userId || m.id,
-        name: m.name || m.email,
-        picture: m.picture,
+        name: m.name || getMemberEmail(m) || '',
+        picture: m.picture || undefined,
         kind: 'user' as const,
       }));
 
     return [...channelItems, ...dmItems, ...userItems]
       .filter((it) => !selectedIds.has(it.id))
       .slice(0, 30);
-  }, [channels, dms, members, query, selectedList]);
+  }, [channels, dms, members, query, selectedList, st]);
 
   const handleSelect = (t: ShareTarget) => {
     setSelectedList((prev) => (prev.some((s) => s.id === t.id) ? prev : [...prev, t]));
@@ -1450,7 +1354,8 @@ function ShareDialog({
       if (target.kind === 'user' && target.id.startsWith('user:')) {
         try {
           const dm = await createDm({ userIds: [target.rawId] });
-          const dmId = (dm as any)?.data?.id || (dm as any)?.id;
+          const dmResult = dm as { data?: { id?: string }; id?: string } | undefined;
+          const dmId = dmResult?.data?.id || dmResult?.id;
           if (dmId) ids.push(dmId);
         } catch {
           toast.error(st('sweep.weldcrm.customerDetailHeader.couldNotOpenDm', { name: target.name }));
@@ -1482,8 +1387,9 @@ function ShareDialog({
           : st('sweep.weldcrm.customerDetailHeader.sharedWithMany', { count: selectedList.length }),
       );
       onOpenChange(false);
-    } catch (e: any) {
-      toast.error(e?.message || st('sweep.weldcrm.customerDetailHeader.failedToShare'));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : undefined;
+      toast.error(message || st('sweep.weldcrm.customerDetailHeader.failedToShare'));
     } finally {
       setIsSending(false);
     }

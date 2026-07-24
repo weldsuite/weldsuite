@@ -13,7 +13,6 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Label } from '@weldsuite/ui/components/label';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
-import { Badge } from '@weldsuite/ui/components/badge';
 import {
   Select,
   SelectContent,
@@ -32,15 +31,16 @@ import {
   useScheduleSocialPost,
   useCreateSocialMedia,
 } from '@/hooks/queries/use-social-queries';
+import type { SocialAccount, SocialMedia } from '@weldsuite/app-api-client/domains/social';
 
 interface SocialPost {
   id: string;
-  content?: string;
-  accountIds?: string[];
-  mediaIds?: string[];
-  scheduledAt?: string;
-  timezone?: string;
-  status?: string;
+  content?: string | null;
+  accountIds?: string[] | null;
+  mediaIds?: string[] | null;
+  scheduledAt?: string | null;
+  timezone?: string | null;
+  status?: string | null;
 }
 
 interface ComposerDialogProps {
@@ -143,7 +143,7 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
       let postId = editPost?.id;
       if (!postId) {
         const res = await createPost.mutateAsync(buildPostData('draft'));
-        postId = (res as any).data?.id;
+        postId = res.data?.id;
       } else {
         await updatePost.mutateAsync({ id: postId, ...buildPostData('scheduled') });
       }
@@ -162,7 +162,7 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
       let postId = editPost?.id;
       if (!postId) {
         const res = await createPost.mutateAsync(buildPostData('draft'));
-        postId = (res as any).data?.id;
+        postId = res.data?.id;
       } else {
         await updatePost.mutateAsync({ id: postId, ...buildPostData('draft') });
       }
@@ -184,7 +184,7 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
         url: mediaUrl,
         mediaType: 'image',
       });
-      const newId = (res as any).data?.id;
+      const newId = res.data?.id;
       if (newId) setSelectedMediaIds((prev) => [...prev, newId]);
       setMediaUrl('');
       setMediaFileName('');
@@ -211,7 +211,7 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
             <div className="space-y-2">
               <Label>{t.social.accounts.connectedAccounts}</Label>
               <div className="flex flex-wrap gap-2">
-                {accounts.map((account: any) => (
+                {accounts.map((account: SocialAccount) => (
                   <label
                     key={account.id}
                     className="flex items-center gap-1.5 cursor-pointer text-sm"
@@ -248,7 +248,7 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
             <div className="space-y-2">
               <Label>{t.social.media.title}</Label>
               <div className="flex flex-wrap gap-2">
-                {mediaItems.map((item: any) => (
+                {mediaItems.map((item: SocialMedia) => (
                   <button
                     key={item.id}
                     type="button"
@@ -261,7 +261,7 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
                   >
                     {item.thumbnailUrl || item.url ? (
                       <img
-                        src={item.thumbnailUrl || item.url}
+                        src={item.thumbnailUrl || item.url || undefined}
                         alt={item.fileName || st('sweep.miscA.composerDialog.mediaAlt')}
                         className="w-full h-full object-cover"
                       />

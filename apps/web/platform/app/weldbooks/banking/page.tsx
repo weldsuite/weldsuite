@@ -81,7 +81,7 @@ export default function BankAccountsPage() {
         items={accounts}
         isLoading={isLoading}
         columns={columns}
-        onRowClick={(a) => navigate({ to: `/weldbooks/banking/${a.id}` as any })}
+        onRowClick={(a) => navigate({ to: '/weldbooks/banking/$id', params: { id: a.id } })}
         searchFields={['name', 'iban', 'bankName']}
         searchPlaceholder={tbp.columns.name}
         createButton={{ label: tbp.addBankAccount, onClick: () => setCreateOpen(true) }}

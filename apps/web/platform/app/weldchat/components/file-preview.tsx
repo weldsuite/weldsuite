@@ -18,7 +18,7 @@ interface FilePreviewProps {
     mimeType: string;
     url: string;
     thumbnailUrl?: string;
-    [key: string]: any;
+    [key: string]: unknown;
   };
   channelId?: string;
   messageId?: string;
@@ -36,7 +36,7 @@ export function FilePreview({ attachment, channelId, messageId }: FilePreviewPro
 
   // Clip attachment
   if ('clipType' in attachment && attachment.clipType) {
-    return <ClipPlayer attachment={attachment as ChatClipAttachment} channelId={channelId} messageId={messageId} />;
+    return <ClipPlayer attachment={attachment as unknown as ChatClipAttachment} channelId={channelId} messageId={messageId} />;
   }
 
   const isImage = attachment.mimeType.startsWith('image/');

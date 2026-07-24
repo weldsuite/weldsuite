@@ -12,7 +12,6 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Separator } from '@weldsuite/ui/components/separator';
-import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import {
@@ -100,7 +99,7 @@ export default function BillDetailPage() {
   const handleApprove = () => {
     approveBill.mutate(id, {
       onSuccess: () => {
-        navigate({ to: `/weldbooks/bills/${id}` as any });
+        navigate({ to: '/weldbooks/bills/$id', params: { id } });
       },
     });
   };
@@ -147,7 +146,7 @@ export default function BillDetailPage() {
         </div>
         <div className="flex items-center gap-2">
           {isDraft && (
-            <Link to={`/weldbooks/bills/${id}/edit` as any}>
+            <Link to="/weldbooks/bills/$id/edit" params={{ id }}>
               <Button variant="outline" size="sm">
                 <Pencil className="h-4 w-4 mr-1" />
                 {tb.edit}

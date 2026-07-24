@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter, usePathname } from '@/lib/router';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useI18n } from '@/lib/i18n/provider';
@@ -29,7 +29,7 @@ export default function AiActiveListClient({ initialConversations }: AiActiveLis
   const ta = t.helpdesk.aiActive;
   const [conversations, setConversations] = useState<Helpdesk.Conversation[]>(initialConversations);
 
-  const conversationToItem = (conv: Helpdesk.Conversation): ConversationItem => ({
+  const conversationToItem = useCallback((conv: Helpdesk.Conversation): ConversationItem => ({
     id: conv.id,
     name: conv.customerName || conv.customerEmail || ta.unknownCustomer,
     email: conv.customerEmail,
@@ -42,7 +42,7 @@ export default function AiActiveListClient({ initialConversations }: AiActiveLis
     labels: [...(conv.labels || []), ta.aiActiveLabel],
     messageCount: conv.messageCount || 1,
     unreadCount: conv.isRead ? 0 : 1,
-  });
+  }), [ta]);
 
   useBreadcrumbs([
     { label: t.helpdesk.title, href: '/welddesk' },
@@ -65,7 +65,7 @@ export default function AiActiveListClient({ initialConversations }: AiActiveLis
     }
   });
 
-  const items = useMemo(() => filteredConversations.map(conversationToItem), [filteredConversations]);
+  const items = useMemo(() => filteredConversations.map(conversationToItem), [filteredConversations, conversationToItem]);
 
   const handleItemClick = async (item: ConversationItem) => {
     const conversation = conversations.find(c => c.id === item.id);

@@ -24,7 +24,7 @@ import {
   useAccountingAccounts,
 } from '@/hooks/queries/use-accounting-queries';
 import { ReconciliationRuleFormDialog } from '@/components/accounting/reconciliation-rule-form-dialog';
-import type { ReconciliationRule } from '@/lib/api/domains/weldbooks';
+import type { Account, ReconciliationRule } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 
 function summarizeConditions(rule: ReconciliationRule, condSummary: string, condSummaryPlural: string): string {
@@ -75,7 +75,7 @@ export default function ReconciliationRulesPage() {
 
   const rules = (rulesRes?.data ?? []) as ReconciliationRule[];
   const accountLookup = new Map(
-    ((accountsRes?.data ?? []) as any[]).map((a) => [a.id, { code: a.code, name: a.name }]),
+    ((accountsRes?.data ?? []) as Account[]).map((a) => [a.id, { code: a.code, name: a.name }]),
   );
 
   const filterConfigs: FilterConfig[] = [];

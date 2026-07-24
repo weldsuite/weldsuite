@@ -5,6 +5,7 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { useAgent } from '@/hooks/queries/use-agent-queries';
+import type { AgentRun } from '@/hooks/queries/use-agent-queries';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -100,15 +101,15 @@ export function AgentProfilePanel({ agentId, isOpen, onClose, skipAnimation }: A
   if (!isOpen) return null;
 
   const statusConfig =
-    STATUS_COLORS[(agent as any)?.status] ?? {
+    STATUS_COLORS[agent?.status ?? ''] ?? {
       dot: 'bg-muted-foreground',
       text: 'text-muted-foreground',
-      label: (agent as any)?.status || st('sweep.weldchat.agentProfilePanel.statusUnknown'),
+      label: agent?.status || st('sweep.weldchat.agentProfilePanel.statusUnknown'),
     };
-  const statusLabel = statusLabels[(agent as any)?.status] ?? statusConfig.label;
+  const statusLabel = statusLabels[agent?.status ?? ''] ?? statusConfig.label;
 
-  const enabledTools = ((agent as any)?.enabledTools as string[] | undefined) ?? [];
-  const recentRuns = ((agent as any)?.recentRuns as any[] | undefined) ?? [];
+  const enabledTools = agent?.enabledTools ?? [];
+  const recentRuns = agent?.recentRuns ?? [];
 
   return (
     <div
@@ -128,12 +129,12 @@ export function AgentProfilePanel({ agentId, isOpen, onClose, skipAnimation }: A
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <div className="relative flex-shrink-0">
             <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center text-base">
-              {(agent as any)?.icon || <Bot className="h-4 w-4 text-muted-foreground" />}
+              {agent?.icon || <Bot className="h-4 w-4 text-muted-foreground" />}
             </div>
           </div>
           <div className="flex flex-col min-w-0 leading-tight">
             <h1 className="text-[15px] font-medium text-foreground truncate max-w-[260px]">
-              {(agent as any)?.name || st('sweep.weldchat.agentProfilePanel.defaultAgentName')}
+              {agent?.name || st('sweep.weldchat.agentProfilePanel.defaultAgentName')}
             </h1>
             <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
               <span className={cn('h-1.5 w-1.5 rounded-full', statusConfig.dot)} />
@@ -179,31 +180,31 @@ export function AgentProfilePanel({ agentId, isOpen, onClose, skipAnimation }: A
       ) : (
         <ScrollArea className="flex-1">
           <div className="px-4 py-5 space-y-6">
-            {(agent as any).description && (
+            {agent.description && (
               <section>
                 <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
                   {t.weldchat.agentProfilePanel.about}
                 </p>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  {(agent as any).description}
+                  {agent.description}
                 </p>
               </section>
             )}
 
             <section className="grid grid-cols-3 gap-2 text-center">
               <div className="rounded-lg border p-3">
-                <div className="text-lg font-semibold">{(agent as any).totalRuns ?? 0}</div>
+                <div className="text-lg font-semibold">{agent.totalRuns ?? 0}</div>
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.weldchat.agentProfilePanel.runs}</div>
               </div>
               <div className="rounded-lg border p-3">
                 <div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
-                  {(agent as any).successfulRuns ?? 0}
+                  {agent.successfulRuns ?? 0}
                 </div>
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.weldchat.agentProfilePanel.ok}</div>
               </div>
               <div className="rounded-lg border p-3">
                 <div className="text-lg font-semibold text-red-600 dark:text-red-400">
-                  {(agent as any).failedRuns ?? 0}
+                  {agent.failedRuns ?? 0}
                 </div>
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.weldchat.agentProfilePanel.failed}</div>
               </div>
@@ -230,7 +231,7 @@ export function AgentProfilePanel({ agentId, isOpen, onClose, skipAnimation }: A
                   {t.weldchat.agentProfilePanel.recentRuns}
                 </p>
                 <div className="space-y-1.5">
-                  {recentRuns.slice(0, 8).map((run: any) => {
+                  {recentRuns.slice(0, 8).map((run: AgentRun) => {
                     const cfg = RUN_STATUS_ICON[run.status] ?? RUN_STATUS_ICON.failed;
                     const Icon = cfg.icon;
                     const runLabel = runStatusLabels[run.status] ?? cfg.label;

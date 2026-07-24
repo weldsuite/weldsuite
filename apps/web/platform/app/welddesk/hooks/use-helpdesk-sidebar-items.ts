@@ -12,6 +12,11 @@ import {
 import { useDepartments, useDepartmentInboxCounts } from '@/hooks/queries/use-helpdesk-queries';
 import { useI18n } from '@/lib/i18n/provider';
 
+interface SidebarDepartment {
+  id: string;
+  name: string;
+}
+
 export function useHelpdeskSidebarItems(isActive: boolean): {
   menuGroups: MenuGroupProps[];
 } {
@@ -34,7 +39,7 @@ export function useHelpdeskSidebarItems(isActive: boolean): {
       counts.map((c: { departmentId: string; activeCount: number }) => [c.departmentId, c.activeCount])
     );
 
-    const items = departments.map((dept: any) => ({
+    const items = departments.map((dept: SidebarDepartment) => ({
       title: dept.name,
       href: `/welddesk/inbox/team/${dept.id}`,
       icon: Users,
@@ -47,7 +52,7 @@ export function useHelpdeskSidebarItems(isActive: boolean): {
         customContent: React.createElement(
           SidebarMenu,
           null,
-          departments.map((dept: any) => {
+          departments.map((dept: SidebarDepartment) => {
             const href = `/welddesk/inbox/team/${dept.id}`;
             const isItemActive = pathname.startsWith(href);
             const count = countMap.get(dept.id);

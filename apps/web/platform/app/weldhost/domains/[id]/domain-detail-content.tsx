@@ -38,7 +38,6 @@ import {
   type HeaderColumn,
   type FilterConfig,
   type ActiveFilter,
-  type RowHandlers,
 } from '@/components/entity-list';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import {
@@ -52,12 +51,16 @@ import {
   type DnsRecordInput,
 } from '@/hooks/queries/use-host-queries';
 import { useI18n } from '@/lib/i18n/provider';
+import type { Domain, ContactInput } from '@weldsuite/core-api-client/schemas/domains';
+import type { DnsZone } from '@weldsuite/core-api-client/schemas/dns-zones';
+
+type DomainContact = Partial<ContactInput>;
 
 interface DomainDetailContentProps {
-  domain: any;
-  dnsZone?: any | null;
+  domain: Domain;
+  dnsZone?: DnsZone | null;
   dnsRecords: HostDnsRecord[];
-  dnsTemplates: any[];
+  dnsTemplates: unknown[];
   zoneSyncMeta?: { id: string; syncedAt: string | null; syncError: string | null } | null;
   onClose?: () => void;
 }
@@ -111,13 +114,12 @@ export function DomainDetailContent({
   domain,
   dnsZone,
   dnsRecords,
-  zoneSyncMeta,
   onClose,
 }: DomainDetailContentProps) {
   const { t } = useI18n();
   const td = t.host.domainDetail;
 
-  const domainName = domain.fullDomain || domain.domain || domain.name;
+  const domainName = domain.fullDomain || domain.name;
   const nameservers: string[] =
     (Array.isArray(domain.nameservers) && domain.nameservers.length > 0
       ? domain.nameservers
@@ -131,7 +133,7 @@ export function DomainDetailContent({
   ]);
 
   const searchParams = useSearchParams();
-  const [autoRenew, setAutoRenew] = useState(domain.autoRenew);
+  const [autoRenew, setAutoRenew] = useState(!!domain.autoRenew);
   const [activeTab, setActiveTab] = useState<'dns' | 'nameservers' | 'settings'>('dns');
   const toggleAutoRenewMutation = useToggleAutoRenew();
   const [showAddRecord, setShowAddRecord] = useState(false);
@@ -143,11 +145,11 @@ export function DomainDetailContent({
   // configured DNS provider; the UI never surfaces the provider name.
   const canManageDns = dnsZone?.provider === 'cloudflare' && !!dnsZone?.externalZoneId;
 
-  const isExternalDomain = domain.registrar && domain.registrar !== 'WeldHost';
+  const isExternalDomain = !!(domain.registrar && domain.registrar !== 'WeldHost');
   const status = statusPill[domain.status] ?? statusPill.active;
 
   useEffect(() => {
-    setAutoRenew(domain.autoRenew);
+    setAutoRenew(!!domain.autoRenew);
   }, [domain.autoRenew]);
 
   useEffect(() => {
@@ -169,7 +171,7 @@ export function DomainDetailContent({
     e.preventDefault();
     try {
       await toggleAutoRenewMutation.mutateAsync({ domainId: domain.id, enabled: autoRenew });
-    } catch (error) {
+    } catch {
       toast.error(td.failedToSaveSettings);
     }
   };
@@ -194,7 +196,7 @@ export function DomainDetailContent({
     }
   };
 
-  const handleUpdateRecord = async (recordId: string, formData: FormData) => {
+  const handleUpdateRecord = useCallback(async (recordId: string, formData: FormData) => {
     const parsed = parseRecordForm(formData, td);
     if ('error' in parsed) {
       toast.error(parsed.error);
@@ -207,9 +209,9 @@ export function DomainDetailContent({
     } catch (err) {
       toast.error(err instanceof Error ? err.message : td.failedToUpdateRecord);
     }
-  };
+  }, [td, domain.id, updateDnsRecord]);
 
-  const handleDeleteRecord = async (record: HostDnsRecord) => {
+  const handleDeleteRecord = useCallback(async (record: HostDnsRecord) => {
     if (!window.confirm(td.deleteConfirm.replace('{type}', record.type).replace('{name}', record.name))) return;
     try {
       await deleteDnsRecord.mutateAsync({ id: record.id, domainId: domain.id });
@@ -217,7 +219,7 @@ export function DomainDetailContent({
     } catch (err) {
       toast.error(err instanceof Error ? err.message : td.failedToDeleteRecord);
     }
-  };
+  }, [td, domain.id, deleteDnsRecord]);
 
   const tabs: PageTab[] = [
     { id: 'dns', label: td.dnsRecords, icon: ListCollapse, count: dnsRecords.length },
@@ -266,7 +268,7 @@ export function DomainDetailContent({
     return result;
   }, []);
 
-  const renderDnsRow = useCallback((record: HostDnsRecord, _handlers: RowHandlers<HostDnsRecord>) => {
+  const renderDnsRow = useCallback((record: HostDnsRecord) => {
     if (editingRecordId === record.id) {
       return (
         <form
@@ -438,6 +440,7 @@ export function DomainDetailContent({
               <h1 className="text-sm md:text-lg font-medium text-foreground truncate">
                 {domainName}
               </h1>
+              <span className={cn(PILL, status.color, 'shrink-0')}>{status.label}</span>
             </div>
           </div>
 
@@ -767,7 +770,7 @@ function StatusPill({ kind, children }: { kind: 'ok' | 'warn' | 'err' | 'muted';
   return <span className={cn('text-xs px-2 py-0.5 rounded-full', cls)}>{children}</span>;
 }
 
-function YesNo({ enabled, td }: { enabled: boolean; td: ReturnType<typeof useI18n>['t']['host']['common'] }) {
+function YesNo({ enabled, td }: { enabled: boolean; td: CommonTranslations }) {
   return enabled
     ? <StatusPill kind="ok">{td.enabled}</StatusPill>
     : <StatusPill kind="muted">{td.disabled}</StatusPill>;
@@ -781,8 +784,8 @@ function DomainSidebarDetails({
   dnsZone,
   td,
 }: {
-  domain: any;
-  dnsZone?: any | null;
+  domain: Domain;
+  dnsZone?: DnsZone | null;
   td: DomainDetailTranslations;
 }) {
   const { t } = useI18n();
@@ -801,7 +804,7 @@ function DomainSidebarDetails({
       ? domain.nameservers
       : (dnsZone?.externalNameservers as string[] | undefined)) || [];
 
-  const contactRow = (label: string, contact: any) => {
+  const contactRow = (label: string, contact: DomainContact | null | undefined) => {
     if (!contact?.email) return null;
     const name = [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim();
     return (
@@ -946,16 +949,16 @@ function DomainSidebarDetails({
       )}
 
       {/* Contacts */}
-      {(domain.registrantContact?.email ||
-        domain.adminContact?.email ||
-        domain.techContact?.email ||
-        domain.billingContact?.email) && (
+      {((domain.registrantContact as DomainContact | null)?.email ||
+        (domain.adminContact as DomainContact | null)?.email ||
+        (domain.techContact as DomainContact | null)?.email ||
+        (domain.billingContact as DomainContact | null)?.email) && (
         <div className="space-y-3 pt-4 border-t border-border">
           <h3 className="text-sm font-medium text-foreground">{td.contactsSection}</h3>
-          {contactRow(td.registrant, domain.registrantContact)}
-          {contactRow(td.admin, domain.adminContact)}
-          {contactRow(td.technical, domain.techContact)}
-          {contactRow(td.billing, domain.billingContact)}
+          {contactRow(td.registrant, domain.registrantContact as DomainContact | null)}
+          {contactRow(td.admin, domain.adminContact as DomainContact | null)}
+          {contactRow(td.technical, domain.techContact as DomainContact | null)}
+          {contactRow(td.billing, domain.billingContact as DomainContact | null)}
         </div>
       )}
 

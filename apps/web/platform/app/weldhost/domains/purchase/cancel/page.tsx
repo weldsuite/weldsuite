@@ -1,6 +1,6 @@
 
 import { useSearchParams, useRouter } from '@/lib/router';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Button } from '@weldsuite/ui/components/button';
 import { Alert, AlertDescription, AlertTitle } from '@weldsuite/ui/components/alert';
 import {

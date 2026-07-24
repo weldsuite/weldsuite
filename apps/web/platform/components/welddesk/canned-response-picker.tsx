@@ -68,7 +68,7 @@ export function CannedResponsePicker({
     async (id: string) => {
       try {
         const result = await useCannedResponse.mutateAsync({ id, variables });
-        const data = (result as any).data;
+        const data = result.data;
         if (data) {
           onSelect(data);
           setOpen(false);
@@ -78,7 +78,7 @@ export function CannedResponsePicker({
         toast.error(t('sweep.welddesk.cannedResponsePicker.failedToLoad'));
       }
     },
-    [onSelect, variables, useCannedResponse],
+    [onSelect, variables, useCannedResponse, t],
   );
 
   return (

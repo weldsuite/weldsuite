@@ -28,7 +28,7 @@ import {
   useDisconnectSocialAccount,
   useSyncSocialAccounts,
 } from '@/hooks/queries/use-social-queries';
-import type { SocialPlatform } from '@weldsuite/app-api-client/domains/social';
+import type { SocialAccount, SocialPlatform } from '@weldsuite/app-api-client/domains/social';
 
 const platformEmoji: Record<string, string> = {
   facebook: '📘',
@@ -66,7 +66,7 @@ export function AccountsClient() {
     syncAccounts
       .mutateAsync()
       .then((res) => {
-        const synced = (res as any)?.data?.synced ?? 0;
+        const synced = res?.data?.synced ?? 0;
         if (synced > 0) toast.success(t.social.messages.accountConnected);
         else toast.message(t.social.accounts.noAccounts);
       })
@@ -86,7 +86,7 @@ export function AccountsClient() {
         platform: selectedPlatform as SocialPlatform,
         redirectUri,
       });
-      const url = (res as any)?.data?.url;
+      const url = res?.data?.url;
       setConnectOpen(false);
       if (url) {
         // Full-page redirect so the provider returns the user to the app.
@@ -140,7 +140,7 @@ export function AccountsClient() {
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
-          {accounts.map((account: any) => (
+          {accounts.map((account: SocialAccount) => (
             <Card key={account.id}>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <div className="flex items-center gap-2">

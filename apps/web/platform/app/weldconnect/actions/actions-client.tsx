@@ -51,6 +51,7 @@ import {
   Linkedin,
   Twitter,
   Book,
+  type LucideIcon,
 } from 'lucide-react';
 import {
   Card,
@@ -70,19 +71,14 @@ import {
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
-import { Label } from '@weldsuite/ui/components/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
 import { Switch } from '@weldsuite/ui/components/switch';
 
 interface ActionTypeDto {
   id: string;
-  typeKey: string;
+  // The action-types endpoint currently only returns id/name/description/
+  // category/icon; the richer fields below are aspirational UI affordances
+  // and stay optional until the backend carries them.
+  typeKey?: string;
   name: string;
   description: string;
   category: string;
@@ -98,11 +94,11 @@ interface ActionTypeDto {
     type: string;
     description?: string | null;
   }[] | null;
-  isCustom: boolean;
-  isPremium: boolean;
-  isDeprecated: boolean;
+  isCustom?: boolean;
+  isPremium?: boolean;
+  isDeprecated?: boolean;
   deprecationMessage?: string | null;
-  usageCount: number;
+  usageCount?: number;
   documentation?: string | null;
   tags?: string[] | null;
 }
@@ -120,7 +116,7 @@ interface ActionsClientProps {
 
 // Icon mapping helper
 const getIconComponent = (iconName?: string | null) => {
-  const iconMap: Record<string, any> = {
+  const iconMap: Record<string, LucideIcon> = {
     Mail, MessageSquare, Bell, Database, Globe, Code, FileText, Users,
     Calendar, Clock, GitBranch, Zap, AlertCircle, CheckCircle, XCircle,
     PlayCircle, PauseCircle, RefreshCw, Plus, Settings, ShieldCheck,
@@ -134,7 +130,7 @@ const getIconComponent = (iconName?: string | null) => {
 };
 
 // Category icon and color mapping
-const categoryInfo: Record<string, { icon: any; color: string }> = {
+const categoryInfo: Record<string, { icon: LucideIcon; color: string }> = {
   all: { icon: Zap, color: 'text-gray-600' },
   communication: { icon: Mail, color: 'text-blue-600' },
   data: { icon: Database, color: 'text-green-600' },
@@ -179,7 +175,7 @@ export function ActionsClient({ initialActions, categories }: ActionsClientProps
   const totalActions = initialActions.length;
   const premiumActions = initialActions.filter(a => a.isPremium).length;
   const deprecatedActions = initialActions.filter(a => a.isDeprecated).length;
-  const totalUsage = initialActions.reduce((sum, a) => sum + a.usageCount, 0);
+  const totalUsage = initialActions.reduce((sum, a) => sum + (a.usageCount ?? 0), 0);
 
   // Prepare categories with 'all' option
   const allCategories = [
@@ -413,7 +409,7 @@ export function ActionsClient({ initialActions, categories }: ActionsClientProps
                         <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
                           <span>{t.weldconnect.actions.inputs.replace('{count}', String(action.inputs?.length || 0))}</span>
                           <span>{t.weldconnect.actions.outputs.replace('{count}', String(action.outputs?.length || 0))}</span>
-                          <span className="ml-auto">{t.weldconnect.actions.usageCount.replace('{count}', action.usageCount.toLocaleString())}</span>
+                          <span className="ml-auto">{t.weldconnect.actions.usageCount.replace('{count}', (action.usageCount ?? 0).toLocaleString())}</span>
                         </div>
                       </CardContent>
                     </Card>
@@ -483,11 +479,11 @@ export function ActionsClient({ initialActions, categories }: ActionsClientProps
                         </div>
                         <div>
                           <label className="text-sm text-muted-foreground">{t.weldconnect.actions.usageCountLabel}</label>
-                          <p className="text-sm mt-1">{t.weldconnect.actions.usageCountTimes.replace('{count}', selectedAction.usageCount.toLocaleString())}</p>
+                          <p className="text-sm mt-1">{t.weldconnect.actions.usageCountTimes.replace('{count}', (selectedAction.usageCount ?? 0).toLocaleString())}</p>
                         </div>
                         <div>
                           <label className="text-sm text-muted-foreground">{t.weldconnect.actions.typeKeyLabel}</label>
-                          <p className="text-sm mt-1 font-mono">{selectedAction.typeKey}</p>
+                          <p className="text-sm mt-1 font-mono">{selectedAction.typeKey ?? selectedAction.id}</p>
                         </div>
                         <div>
                           <label className="text-sm text-muted-foreground">{t.weldconnect.actions.typeLabel}</label>

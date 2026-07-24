@@ -19,7 +19,7 @@ import {
   CommandList,
 } from '@weldsuite/ui/components/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
-import { useAgents } from '@/hooks/queries/use-agent-queries';
+import { useAgents, type Agent } from '@/hooks/queries/use-agent-queries';
 import {
   useAddChannelMembers,
   useChannelMembers,
@@ -31,6 +31,15 @@ interface InviteAgentDialogProps {
   channelId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+}
+
+/**
+ * Agent row as rendered by the invite picker. `picture` isn't on the shared
+ * `Agent` type (agents don't have avatar uploads yet), but the UI already
+ * accounts for one landing later — falls back to `icon`/initials either way.
+ */
+interface InviteableAgent extends Agent {
+  picture?: string;
 }
 
 // Mirrors the status pill design in apps/web/platform/app/agents/page.tsx so the
@@ -64,24 +73,25 @@ export function InviteAgentDialog({ channelId, open, onOpenChange }: InviteAgent
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  const { data: agents = [], isLoading } = useAgents();
+  const { data: agentsData = [], isLoading } = useAgents();
+  const agents = agentsData as InviteableAgent[];
   const { data: membersData } = useChannelMembers(channelId);
   const { mutate: addMembers, isPending } = useAddChannelMembers();
 
   const existingMemberIds = useMemo(
-    () => new Set((membersData?.data ?? []).map((m: any) => m.userId)),
+    () => new Set((membersData?.data ?? []).map((m) => m.userId)),
     [membersData],
   );
 
   // cmdk's CommandInput handles fuzzy search internally, so we just supply
   // the full list of agents that aren't already in the channel.
   const inviteable = useMemo(
-    () => (agents as any[]).filter((a) => !existingMemberIds.has(a.id)),
+    () => agents.filter((a) => !existingMemberIds.has(a.id)),
     [agents, existingMemberIds],
   );
 
   const selectedAgents = useMemo(
-    () => (agents as any[]).filter((a) => selected.has(a.id)),
+    () => agents.filter((a) => selected.has(a.id)),
     [agents, selected],
   );
 
@@ -151,13 +161,13 @@ export function InviteAgentDialog({ channelId, open, onOpenChange }: InviteAgent
                   <CommandEmpty>
                     {isLoading
                       ? t.weldchat.inviteAgent.loading
-                      : (agents as any[]).length === 0
+                      : agents.length === 0
                         ? t.weldchat.inviteAgent.noAgents
                         : inviteable.length === 0
                           ? t.weldchat.inviteAgent.allInChannel
                           : t.weldchat.inviteAgent.noMatch}
                   </CommandEmpty>
-                  {inviteable.map((a: any) => {
+                  {inviteable.map((a) => {
                     const isSelected = selected.has(a.id);
                     const status = STATUS_CONFIG[a.status as string] || STATUS_CONFIG.draft;
                     return (
@@ -203,7 +213,7 @@ export function InviteAgentDialog({ channelId, open, onOpenChange }: InviteAgent
 
           {selectedAgents.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
-              {selectedAgents.map((a: any) => (
+              {selectedAgents.map((a) => (
                 <Badge key={a.id} variant="secondary" className="gap-1 pl-2 pr-1 py-1">
                   <span className="text-xs">{a.name}</span>
                   <Button

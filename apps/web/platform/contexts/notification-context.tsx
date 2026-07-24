@@ -7,7 +7,6 @@
 
 import React, {
   createContext,
-  useContext,
   useEffect,
   useState,
   useCallback,
@@ -160,17 +159,4 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       {children}
     </NotificationContext.Provider>
   );
-}
-
-/**
- * Hook to access notification context
- */
-function useNotifications() {
-  const context = useContext(NotificationContext);
-  if (!context) {
-    throw new Error(
-      'useNotifications must be used within a NotificationProvider'
-    );
-  }
-  return context;
 }

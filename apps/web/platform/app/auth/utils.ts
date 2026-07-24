@@ -1,6 +1,20 @@
+import { isClerkAPIResponseError } from '@clerk/clerk-react/errors';
+
 /**
  * Auth utility functions for handling redirects safely
  */
+
+/**
+ * Extract a user-facing message from a Clerk sign-in/sign-up error, falling
+ * back to a caller-provided message when the shape isn't a recognized Clerk
+ * API error (e.g. a network failure).
+ */
+export function getClerkErrorMessage(err: unknown, fallback: string): string {
+  if (isClerkAPIResponseError(err)) {
+    return err.errors[0]?.longMessage || err.errors[0]?.message || fallback;
+  }
+  return fallback;
+}
 
 /**
  * Check if a URL path points to an auth page that would cause a redirect loop

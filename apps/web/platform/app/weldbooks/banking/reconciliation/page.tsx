@@ -11,14 +11,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@weldsuite/ui/components/table';
 import { ArrowLeft, CheckCircle2, XCircle, Link2 } from 'lucide-react';
 import {
   useAccountingBankAccounts,
@@ -33,6 +25,16 @@ function fmt(value: string | number | null | undefined): string {
     style: 'currency',
     currency: 'EUR',
   }).format(Number(value ?? 0));
+}
+
+interface TransactionSuggestion {
+  type: string;
+  entityId: string;
+  entityNumber?: string | null;
+  contactName?: string | null;
+  amount: string | number;
+  confidence: number;
+  reason?: string | null;
 }
 
 export default function BankReconciliationPage() {
@@ -57,7 +59,7 @@ export default function BankReconciliationPage() {
     queryFn: () => accountingApi.getTransactionSuggestions(selectedTxnId!),
     enabled: !!selectedTxnId,
   });
-  const suggestions = (suggestionsData?.data ?? []) as any[];
+  const suggestions = (suggestionsData?.data ?? []) as TransactionSuggestion[];
 
   const reconcileMutation = useMutation({
     mutationFn: ({ txnId, data }: { txnId: string; data: Record<string, unknown> }) =>
@@ -110,7 +112,7 @@ export default function BankReconciliationPage() {
             <SelectValue placeholder={tbp.selectBankAccount} />
           </SelectTrigger>
           <SelectContent>
-            {bankAccounts.map((ba: any) => (
+            {bankAccounts.map((ba) => (
               <SelectItem key={ba.id} value={ba.id}>
                 {ba.name} — {ba.iban}
               </SelectItem>
@@ -122,7 +124,7 @@ export default function BankReconciliationPage() {
       {autoReconcileMutation.isSuccess && (
         <div className="text-sm text-green-600 flex items-center gap-1">
           <CheckCircle2 className="h-4 w-4" />
-          {tbp.autoReconciledCount.replace('{count}', String((autoReconcileMutation.data as any)?.data?.reconciledCount ?? 0))}
+          {tbp.autoReconciledCount.replace('{count}', String(autoReconcileMutation.data?.data?.reconciledCount ?? 0))}
         </div>
       )}
 
@@ -142,7 +144,7 @@ export default function BankReconciliationPage() {
                 <p className="p-4 text-sm text-muted-foreground">{tbp.allReconciled}</p>
               ) : (
                 <div className="max-h-[60vh] overflow-y-auto">
-                  {transactions.map((txn: any) => (
+                  {transactions.map((txn) => (
                     <div
                       key={txn.id}
                       className={`p-3 border-b cursor-pointer hover:bg-muted/50 ${
@@ -196,7 +198,7 @@ export default function BankReconciliationPage() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {suggestions.map((s: any, i: number) => (
+                  {suggestions.map((s, i: number) => (
                     <div key={i} className="border rounded-lg p-3 space-y-2">
                       <div className="flex items-center justify-between">
                         <div>

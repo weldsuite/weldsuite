@@ -13,11 +13,11 @@
  */
 
 import { useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient, useInfiniteQuery, type QueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery, type QueryClient, type InfiniteData } from '@tanstack/react-query';
 import { useAuth, useUser } from '@clerk/clerk-react';
 import { toast } from 'sonner';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import type { CreateChannelRequest, UpdateChannelRequest, SendMessageRequest, CreateDmRequest, SetUserStatusRequest } from '@/lib/api/domains/weldchat';
+import type { CreateChannelRequest, UpdateChannelRequest, SendMessageRequest, CreateDmRequest } from '@/lib/api/domains/weldchat';
 
 /** app-api list envelope — `{ data, pagination }` with an opaque cursor. */
 interface ListEnvelope<T> {
@@ -27,6 +27,149 @@ interface ListEnvelope<T> {
 
 /** Max rows app-api will return for a single list request. */
 const MAX_PAGE = 100;
+
+// ============================================================================
+// Message Cache Shapes
+// ============================================================================
+
+/**
+ * Chat message attachment. Extra server fields pass through untyped via the
+ * index signature — only the fields the cache-merge helpers below touch are
+ * modeled.
+ */
+export interface ChatAttachment {
+  id: string;
+  fileName?: string;
+  /** Legacy fallback for `fileName` on older server payloads. */
+  name?: string;
+  fileSize?: number;
+  /** Legacy fallback for `fileSize` on older server payloads. */
+  size?: number;
+  mimeType?: string;
+  url?: string;
+  thumbnailUrl?: string;
+  clipType?: 'audio' | 'video' | 'screen';
+  durationSeconds?: number;
+  transcript?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/**
+ * Chat message row, as returned by `/channels/:id/messages` and stored in the
+ * `useMessages()` infinite-query cache. Extra server fields (isEdited,
+ * isPinned, forwardedFrom, …) pass through untyped via the index signature —
+ * only the fields the optimistic-update/cache-merge helpers below touch are
+ * modeled explicitly.
+ */
+export interface ChatMessage {
+  id: string;
+  channelId?: string;
+  content?: string;
+  htmlContent?: string;
+  authorId?: string;
+  authorName?: string;
+  authorAvatar?: string | null;
+  type?: 'message' | 'system';
+  parentId?: string;
+  attachments?: ChatAttachment[];
+  mentions?: string[];
+  reactions?: Record<string, string[]>;
+  threadReplyCount?: number;
+  lastReplyAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  _optimistic?: boolean;
+  [key: string]: unknown;
+}
+
+/** A single page of `useMessages()`'s infinite query. */
+interface MessagesPage {
+  data?: {
+    messages?: ChatMessage[];
+    hasMore?: boolean;
+    nextCursor?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+/** The full `useMessages()` cache entry, as read/written by `setQueryData`. */
+type MessagesCache = InfiniteData<MessagesPage, string | undefined>;
+
+/**
+ * Channel row shape used by the section-assignment helpers below. Extra
+ * server fields (name, memberCount, …) pass through untyped via the index
+ * signature — only the fields those helpers touch are modeled.
+ */
+export interface ChatChannel {
+  id: string;
+  type?: string;
+  name?: string;
+  topic?: string | null;
+  description?: string | null;
+  icon?: string | null;
+  memberCount?: number;
+  isArchived?: boolean;
+  isMuted?: boolean;
+  isPrivate?: boolean;
+  voiceCallsEnabled?: boolean;
+  videoCallsEnabled?: boolean;
+  createdBy?: string;
+  createdAt?: string;
+  sectionId?: string | null;
+  entityType?: string;
+  entityDisplayName?: string;
+  lastMessageAt?: string | null;
+  lastReadAt?: string | null;
+  unreadMentionCount?: number;
+  [key: string]: unknown;
+}
+
+/**
+ * Chat section row. Extra server fields pass through untyped via the index
+ * signature — only `id`/`position`, which the reorder/create helpers below
+ * touch, are modeled.
+ */
+interface ChatSection {
+  id: string;
+  position?: number;
+  [key: string]: unknown;
+}
+
+/** Channel-membership row, as `/channels/:id/members` projects it. */
+export interface ChatChannelMember {
+  id: string;
+  userId: string;
+  name?: string;
+  email?: string;
+  picture?: string;
+  role?: string;
+  memberType?: string;
+  agentIcon?: string;
+  workspaceMemberType?: string;
+  [key: string]: unknown;
+}
+
+/** DM channel row, as `/chat-dm` projects it — a channel row with DM-specific fields. */
+interface ChatDm extends ChatChannel {
+  otherMembers?: ChatChannelMember[];
+  [key: string]: unknown;
+}
+
+/** Bookmark row, as `/chat-bookmarks` left-joins it (message + channel hydrated in). */
+export interface ChatBookmark {
+  id: string;
+  messageId: string;
+  channelId: string;
+  channelType?: string | null;
+  messageContent?: string | null;
+  messageAuthorName?: string | null;
+  messageAuthorAvatar?: string | null;
+  messageCreatedAt?: string | null;
+  channelName?: string | null;
+  note?: string;
+  [key: string]: unknown;
+}
 
 // ============================================================================
 // Query Key Factory
@@ -64,23 +207,23 @@ export const weldchatKeys = {
 export function mergeMessageIntoCache(
   queryClient: QueryClient,
   channelId: string,
-  message: Record<string, unknown>,
+  message: ChatMessage,
 ) {
-  queryClient.setQueryData(weldchatKeys.messages(channelId), (old: any) => {
+  queryClient.setQueryData<MessagesCache>(weldchatKeys.messages(channelId), (old) => {
     if (!old?.pages) return old;
 
     // Check for duplicates across all pages
     for (const page of old.pages) {
       const messages = page?.data?.messages;
-      if (messages?.some((m: any) => m.id === message.id)) {
+      if (messages?.some((m) => m.id === message.id)) {
         // Already exists — replace it (handles optimistic → real swap)
         return {
           ...old,
-          pages: old.pages.map((p: any) => ({
+          pages: old.pages.map((p) => ({
             ...p,
             data: {
               ...p.data,
-              messages: p.data?.messages?.map((m: any) =>
+              messages: p.data?.messages?.map((m) =>
                 m.id === message.id ? { ...m, ...message, _optimistic: undefined } : m,
               ),
             },
@@ -90,10 +233,10 @@ export function mergeMessageIntoCache(
     }
 
     // Remove any optimistic message with matching content (best-effort dedup)
-    const newPages = old.pages.map((p: any, idx: number) => {
+    const newPages = old.pages.map((p, idx) => {
       if (idx !== 0) return p;
       const messages = p.data?.messages?.filter(
-        (m: any) => !m._optimistic || m.content !== message.content,
+        (m) => !m._optimistic || m.content !== message.content,
       ) ?? [];
       return {
         ...p,
@@ -114,15 +257,15 @@ export function updateMessageInCache(
   messageId: string,
   updates: Record<string, unknown>,
 ) {
-  queryClient.setQueryData(weldchatKeys.messages(channelId), (old: any) => {
+  queryClient.setQueryData<MessagesCache>(weldchatKeys.messages(channelId), (old) => {
     if (!old?.pages) return old;
     return {
       ...old,
-      pages: old.pages.map((p: any) => ({
+      pages: old.pages.map((p) => ({
         ...p,
         data: {
           ...p.data,
-          messages: p.data?.messages?.map((m: any) =>
+          messages: p.data?.messages?.map((m) =>
             m.id === messageId ? { ...m, ...updates } : m,
           ),
         },
@@ -139,15 +282,15 @@ export function removeMessageFromCache(
   channelId: string,
   messageId: string,
 ) {
-  queryClient.setQueryData(weldchatKeys.messages(channelId), (old: any) => {
+  queryClient.setQueryData<MessagesCache>(weldchatKeys.messages(channelId), (old) => {
     if (!old?.pages) return old;
     return {
       ...old,
-      pages: old.pages.map((p: any) => ({
+      pages: old.pages.map((p) => ({
         ...p,
         data: {
           ...p.data,
-          messages: p.data?.messages?.filter((m: any) => m.id !== messageId),
+          messages: p.data?.messages?.filter((m) => m.id !== messageId),
         },
       })),
     };
@@ -164,7 +307,7 @@ export function useChannels() {
     queryKey: weldchatKeys.channels(),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<any>('/channels');
+      return client.get<ListEnvelope<ChatChannel>>('/channels');
     },
   });
 }
@@ -175,7 +318,7 @@ export function useChannel(channelId: string) {
     queryKey: weldchatKeys.channelDetail(channelId),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<any>(`/channels/${channelId}`);
+      return client.get<{ data: ChatChannel }>(`/channels/${channelId}`);
     },
     enabled: !!channelId,
   });
@@ -195,7 +338,7 @@ export function useCreateChannel() {
   return useMutation({
     mutationFn: async (data: CreateChannelRequest) => {
       const client = await getClient();
-      return client.post<any>('/channels', data);
+      return client.post<{ data: ChatChannel }>('/channels', data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
@@ -209,7 +352,7 @@ export function useUpdateChannel() {
   return useMutation({
     mutationFn: async ({ channelId, ...data }: UpdateChannelRequest & { channelId: string }) => {
       const client = await getClient();
-      return client.patch<any>(`/channels/${channelId}`, data);
+      return client.patch<{ data: ChatChannel }>(`/channels/${channelId}`, data);
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
@@ -231,7 +374,7 @@ export function useDeleteChannel() {
   return useMutation({
     mutationFn: async (channelId: string) => {
       const client = await getClient();
-      return client.delete<any>(`/channels/${channelId}`);
+      return client.delete<unknown>(`/channels/${channelId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
@@ -256,7 +399,7 @@ export function useReadReceipts(channelId: string) {
     queryKey: weldchatKeys.readReceipts(channelId),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<any>(`/channels/${channelId}/read-receipts`);
+      return client.get<{ data: Record<string, unknown> }>(`/channels/${channelId}/read-receipts`);
     },
     enabled: !!channelId,
     staleTime: 30000,
@@ -269,7 +412,7 @@ export function useMarkChannelAsRead() {
   return useMutation({
     mutationFn: async (channelId: string) => {
       const client = await getClient();
-      return client.post<any>(`/channels/${channelId}/read`);
+      return client.post<unknown>(`/channels/${channelId}/read`);
     },
     onSuccess: (_data, channelId) => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
@@ -292,10 +435,10 @@ export function useMessages(channelId: string) {
       if (pageParam) qs.set('before', pageParam);
       qs.set('limit', '50');
       const query = qs.toString();
-      return client.get<any>(`/channels/${channelId}/messages${query ? '?' + query : ''}`);
+      return client.get<MessagesPage>(`/channels/${channelId}/messages${query ? '?' + query : ''}`);
     },
     initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage: any) => {
+    getNextPageParam: (lastPage: MessagesPage) => {
       const inner = lastPage?.data;
       if (!inner?.messages?.length || !inner.hasMore) return undefined;
       return inner.nextCursor ?? undefined;
@@ -324,9 +467,9 @@ export function useThreadMessages(channelId: string, parentId: string) {
         parentId,
         limit: String(MAX_PAGE),
       });
-      const res = await client.get<ListEnvelope<any>>(`/chat-messages?${qs.toString()}`);
+      const res = await client.get<ListEnvelope<ChatMessage>>(`/chat-messages?${qs.toString()}`);
       const replies = [...(res.data ?? [])].sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        (a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime(),
       );
       return { data: replies };
     },
@@ -340,7 +483,7 @@ export function usePinnedMessages(channelId: string) {
     queryKey: weldchatKeys.pinnedMessages(channelId),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: any[] }>(`/chat-messages/pinned?channelId=${encodeURIComponent(channelId)}`);
+      return client.get<{ data: ChatMessage[] }>(`/chat-messages/pinned?channelId=${encodeURIComponent(channelId)}`);
     },
     enabled: !!channelId,
   });
@@ -352,9 +495,10 @@ export function useSendMessage() {
   const { userId } = useAuth();
   const { user } = useUser();
   return useMutation({
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured only to exclude it from the POST body
     mutationFn: async ({ channelId, _optimisticId, ...data }: SendMessageRequest & { channelId: string; _optimisticId?: string }) => {
       const client = await getClient();
-      return client.post<any>(`/channels/${channelId}/messages`, data);
+      return client.post<{ data: ChatMessage }>(`/channels/${channelId}/messages`, data);
     },
     onMutate: async (variables) => {
       const { channelId, _optimisticId } = variables;
@@ -362,7 +506,7 @@ export function useSendMessage() {
 
       await queryClient.cancelQueries({ queryKey: weldchatKeys.messages(channelId) });
 
-      const optimisticMessage = {
+      const optimisticMessage: ChatMessage = {
         id: _optimisticId,
         channelId,
         content: variables.content,
@@ -380,7 +524,7 @@ export function useSendMessage() {
         _optimistic: true,
       };
 
-      queryClient.setQueryData(weldchatKeys.messages(channelId), (old: any) => {
+      queryClient.setQueryData<MessagesCache>(weldchatKeys.messages(channelId), (old) => {
         if (!old?.pages) return old;
         const newPages = [...old.pages];
         const firstPage = newPages[0];
@@ -401,22 +545,22 @@ export function useSendMessage() {
       // back over the socket — when that echo doesn't arrive the optimistic
       // message stays grey forever. mergeMessageIntoCache swaps it in by
       // content (and dedupes by id if the echo does arrive later).
-      const message = (response as any)?.data;
+      const message = response?.data;
       if (message?.id) {
         mergeMessageIntoCache(queryClient, variables.channelId, message);
       }
     },
     onError: (_error, variables) => {
-      if ((variables as any)._optimisticId) {
-        queryClient.setQueryData(weldchatKeys.messages(variables.channelId), (old: any) => {
+      if (variables._optimisticId) {
+        queryClient.setQueryData<MessagesCache>(weldchatKeys.messages(variables.channelId), (old) => {
           if (!old?.pages) return old;
           return {
             ...old,
-            pages: old.pages.map((p: any) => ({
+            pages: old.pages.map((p) => ({
               ...p,
               data: {
                 ...p.data,
-                messages: p.data?.messages?.filter((m: any) => m.id !== (variables as any)._optimisticId),
+                messages: p.data?.messages?.filter((m) => m.id !== variables._optimisticId),
               },
             })),
           };
@@ -432,27 +576,13 @@ export function useSendMessage() {
   });
 }
 
-function useEditMessage() {
-  const queryClient = useQueryClient();
-  const { getClient } = useAppApiClient();
-  return useMutation({
-    mutationFn: async ({ messageId, content, htmlContent }: { channelId: string; messageId: string; content: string; htmlContent?: string }) => {
-      const client = await getClient();
-      return client.patch<any>(`/chat-messages/${messageId}`, { content, htmlContent });
-    },
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: weldchatKeys.messages(variables.channelId) });
-    },
-  });
-}
-
 export function useDeleteMessage() {
   const queryClient = useQueryClient();
   const { getClient } = useAppApiClient();
   return useMutation({
     mutationFn: async ({ messageId }: { channelId: string; messageId: string }) => {
       const client = await getClient();
-      return client.delete<any>(`/chat-messages/${messageId}`);
+      return client.delete<unknown>(`/chat-messages/${messageId}`);
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.messages(variables.channelId) });
@@ -472,31 +602,31 @@ export function useToggleReaction() {
     mutationFn: async ({ messageId, emoji, hasReacted }: { channelId: string; messageId: string; emoji: string; hasReacted: boolean }) => {
       const client = await getClient();
       if (hasReacted) {
-        return client.delete<any>(`/chat-messages/${messageId}/reactions/${encodeURIComponent(emoji)}`);
+        return client.delete<unknown>(`/chat-messages/${messageId}/reactions/${encodeURIComponent(emoji)}`);
       }
-      return client.post<any>(`/chat-messages/${messageId}/reactions`, { emoji });
+      return client.post<unknown>(`/chat-messages/${messageId}/reactions`, { emoji });
     },
     onMutate: async (variables) => {
       const queryKey = weldchatKeys.messages(variables.channelId);
       await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData(queryKey);
-      queryClient.setQueryData(queryKey, (old: any) => {
+      const previous = queryClient.getQueryData<MessagesCache>(queryKey);
+      queryClient.setQueryData<MessagesCache>(queryKey, (old) => {
         if (!old?.pages) return old;
         return {
           ...old,
-          pages: old.pages.map((page: any) => {
+          pages: old.pages.map((page) => {
             const messages = page?.data?.messages;
             if (!messages) return page;
             return {
               ...page,
               data: {
                 ...page.data,
-                messages: messages.map((msg: any) => {
+                messages: messages.map((msg) => {
                   if (msg.id !== variables.messageId) return msg;
-                  const reactions = { ...(msg.reactions || {}) };
+                  const reactions: Record<string, string[]> = { ...(msg.reactions || {}) };
                   const users = reactions[variables.emoji] ? [...reactions[variables.emoji]] : [];
                   if (variables.hasReacted) {
-                    reactions[variables.emoji] = users.filter((id: string) => id !== userId);
+                    reactions[variables.emoji] = users.filter((id) => id !== userId);
                     if (reactions[variables.emoji].length === 0) delete reactions[variables.emoji];
                   } else {
                     if (userId && !users.includes(userId)) users.push(userId);
@@ -532,10 +662,10 @@ export function usePinMessage() {
   return useMutation({
     mutationFn: async ({ messageId, expiresAt, notify }: { channelId: string; messageId: string; expiresAt?: string; notify?: boolean }) => {
       const client = await getClient();
-      const body: any = {};
+      const body: { expiresAt?: string; notify?: boolean } = {};
       if (expiresAt) body.expiresAt = expiresAt;
       if (notify !== undefined) body.notify = notify;
-      return client.post<any>(`/chat-messages/${messageId}/pin`, Object.keys(body).length > 0 ? body : undefined);
+      return client.post<unknown>(`/chat-messages/${messageId}/pin`, Object.keys(body).length > 0 ? body : undefined);
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.messages(variables.channelId) });
@@ -550,7 +680,7 @@ export function useUnpinMessage() {
   return useMutation({
     mutationFn: async ({ messageId }: { channelId: string; messageId: string }) => {
       const client = await getClient();
-      return client.delete<any>(`/chat-messages/${messageId}/pin`);
+      return client.delete<unknown>(`/chat-messages/${messageId}/pin`);
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.messages(variables.channelId) });
@@ -615,7 +745,7 @@ export function useMarkChannelUnread() {
   return useMutation({
     mutationFn: async ({ channelId, beforeMessageId }: { channelId: string; beforeMessageId: string }) => {
       const client = await getClient();
-      return client.post<any>(`/channels/${channelId}/read`, { beforeMessageId });
+      return client.post<unknown>(`/channels/${channelId}/read`, { beforeMessageId });
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
@@ -634,7 +764,7 @@ export function useChannelMembers(channelId: string) {
     queryKey: weldchatKeys.members(channelId),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<any>(`/channels/${channelId}/members`);
+      return client.get<{ data: ChatChannelMember[] }>(`/channels/${channelId}/members`);
     },
     enabled: !!channelId,
   });
@@ -664,7 +794,7 @@ export function useAddChannelMembers() {
       memberType?: 'user' | 'agent';
     }) => {
       const client = await getClient();
-      return client.post<any>(`/channels/${channelId}/members`, { userIds, memberType });
+      return client.post<unknown>(`/channels/${channelId}/members`, { userIds, memberType });
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.members(variables.channelId) });
@@ -686,7 +816,7 @@ export function useRemoveChannelMember() {
   return useMutation({
     mutationFn: async ({ channelId, userId }: { channelId: string; userId: string }) => {
       const client = await getClient();
-      return client.delete<any>(`/channels/${channelId}/members/${userId}`);
+      return client.delete<unknown>(`/channels/${channelId}/members/${userId}`);
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.members(variables.channelId) });
@@ -714,7 +844,7 @@ export function useMuteChannel() {
   return useMutation({
     mutationFn: async ({ channelId, mute }: { channelId: string; mute: boolean }) => {
       const client = await getClient();
-      return client.patch<any>(`/channels/${channelId}/me`, { isMuted: mute });
+      return client.patch<unknown>(`/channels/${channelId}/me`, { isMuted: mute });
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
@@ -730,7 +860,7 @@ export function useArchiveChannel() {
   return useMutation({
     mutationFn: async (channelId: string) => {
       const client = await getClient();
-      return client.patch<any>(`/channels/${channelId}`, { isArchived: true });
+      return client.patch<unknown>(`/channels/${channelId}`, { isArchived: true });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
@@ -749,7 +879,7 @@ export function useDmChannels() {
     queryKey: weldchatKeys.dms(),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<any>('/chat-dm');
+      return client.get<ListEnvelope<ChatDm>>('/chat-dm');
     },
   });
 }
@@ -760,7 +890,7 @@ export function useCreateDm() {
   return useMutation({
     mutationFn: async (data: CreateDmRequest) => {
       const client = await getClient();
-      return client.post<any>('/chat-dm', data);
+      return client.post<{ data: ChatDm }>('/chat-dm', data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.dms() });
@@ -779,7 +909,7 @@ export function useDmByUser(targetUserId: string) {
     queryKey: weldchatKeys.dmByUser(targetUserId),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<any>(`/chat-dm/${targetUserId}`);
+      return client.get<{ data: ChatDm }>(`/chat-dm/${targetUserId}`);
     },
     enabled: !!targetUserId,
   });
@@ -816,7 +946,7 @@ export function useBookmarks() {
     queryKey: weldchatKeys.bookmarks(),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<ListEnvelope<any>>(`/chat-bookmarks?limit=${MAX_PAGE}`);
+      return client.get<ListEnvelope<ChatBookmark>>(`/chat-bookmarks?limit=${MAX_PAGE}`);
     },
   });
 }
@@ -827,7 +957,7 @@ export function useBookmarkMessage() {
   return useMutation({
     mutationFn: async (data: { messageId: string; channelId: string; note?: string }) => {
       const client = await getClient();
-      return client.post<any>('/chat-bookmarks', data);
+      return client.post<{ data: ChatBookmark }>('/chat-bookmarks', data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.bookmarks() });
@@ -841,58 +971,11 @@ export function useDeleteBookmark() {
   return useMutation({
     mutationFn: async (bookmarkId: string) => {
       const client = await getClient();
-      return client.delete<any>(`/chat-bookmarks/${bookmarkId}`);
+      return client.delete<unknown>(`/chat-bookmarks/${bookmarkId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.bookmarks() });
     },
-  });
-}
-
-// ============================================================================
-// Status Queries
-// ============================================================================
-
-function useUserStatuses() {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: weldchatKeys.statuses(),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<any>('/chat-status');
-    },
-  });
-}
-
-function useSetUserStatus() {
-  const queryClient = useQueryClient();
-  const { getClient } = useAppApiClient();
-  return useMutation({
-    mutationFn: async (data: SetUserStatusRequest) => {
-      const client = await getClient();
-      return client.put<any>('/chat-status', data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: weldchatKeys.statuses() });
-    },
-  });
-}
-
-// ============================================================================
-// Search
-// ============================================================================
-
-function useSearchMessages(query: string) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: weldchatKeys.search(query),
-    queryFn: async () => {
-      const client = await getClient();
-      const qs = new URLSearchParams();
-      if (query) qs.set('q', query);
-      return client.get<any>(`/chat-search?${qs.toString()}`);
-    },
-    enabled: query.length >= 2,
   });
 }
 
@@ -915,7 +998,7 @@ export function useSections() {
     queryKey: weldchatKeys.sections(),
     queryFn: async () => {
       const client = await getClient();
-      const res = await client.get<ListEnvelope<any>>(`/chat-sections?limit=${MAX_PAGE}`);
+      const res = await client.get<ListEnvelope<ChatSection>>(`/chat-sections?limit=${MAX_PAGE}`);
       const sections = [...(res.data ?? [])].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
       return { data: sections };
     },
@@ -934,20 +1017,20 @@ export function useCreateSection() {
       // optimistic row into that cache by the time this runs.
       let position = data.position;
       if (position === undefined) {
-        const current = await client.get<ListEnvelope<any>>(`/chat-sections?limit=${MAX_PAGE}`);
-        const positions = (current.data ?? []).map((s: any) => s.position ?? 0);
+        const current = await client.get<ListEnvelope<ChatSection>>(`/chat-sections?limit=${MAX_PAGE}`);
+        const positions = (current.data ?? []).map((s) => s.position ?? 0);
         position = positions.length > 0 ? Math.max(...positions) + 1 : 0;
       }
-      return client.post<any>('/chat-sections', { ...data, position });
+      return client.post<{ data: ChatSection }>('/chat-sections', { ...data, position });
     },
     onMutate: async (data) => {
       await queryClient.cancelQueries({ queryKey: weldchatKeys.sections() });
-      const previous = queryClient.getQueryData<any>(weldchatKeys.sections());
+      const previous = queryClient.getQueryData<{ data: ChatSection[] }>(weldchatKeys.sections());
       const existing = previous?.data ?? [];
       const nextPosition =
         data.position ??
         (existing.length > 0
-          ? Math.max(...existing.map((s: any) => s.position ?? 0)) + 1
+          ? Math.max(...existing.map((s) => s.position ?? 0)) + 1
           : 0);
       const optimisticId = `optimistic_csec_${Date.now()}`;
       const now = new Date().toISOString();
@@ -982,7 +1065,7 @@ export function useUpdateSection() {
   return useMutation({
     mutationFn: async ({ sectionId, ...data }: { sectionId: string; name?: string; position?: number }) => {
       const client = await getClient();
-      return client.patch<any>(`/chat-sections/${sectionId}`, data);
+      return client.patch<unknown>(`/chat-sections/${sectionId}`, data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.sections() });
@@ -1014,12 +1097,12 @@ export function useDeleteSection() {
       const client = await getClient();
       // Unassign every channel still pointing at this section, or the delete
       // below trips the FK.
-      const channels = await client.get<ListEnvelope<any>>(`/channels?limit=${MAX_PAGE}`);
-      const assigned = (channels.data ?? []).filter((ch: any) => ch.sectionId === sectionId);
+      const channels = await client.get<ListEnvelope<ChatChannel>>(`/channels?limit=${MAX_PAGE}`);
+      const assigned = (channels.data ?? []).filter((ch) => ch.sectionId === sectionId);
       for (const ch of assigned) {
-        await client.patch<any>(`/channels/${ch.id}`, { sectionId: null });
+        await client.patch<unknown>(`/channels/${ch.id}`, { sectionId: null });
       }
-      return client.delete<any>(`/chat-sections/${sectionId}`);
+      return client.delete<unknown>(`/chat-sections/${sectionId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.sections() });
@@ -1041,7 +1124,7 @@ export function useAssignChannelToSection() {
   return useMutation({
     mutationFn: async ({ sectionId, channelId }: { sectionId: string; channelId: string }) => {
       const client = await getClient();
-      return client.patch<any>(`/channels/${channelId}`, { sectionId });
+      return client.patch<unknown>(`/channels/${channelId}`, { sectionId });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.sections() });
@@ -1057,32 +1140,11 @@ export function useRemoveChannelFromSection() {
   return useMutation({
     mutationFn: async ({ channelId }: { sectionId: string; channelId: string }) => {
       const client = await getClient();
-      return client.patch<any>(`/channels/${channelId}`, { sectionId: null });
+      return client.patch<unknown>(`/channels/${channelId}`, { sectionId: null });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.sections() });
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
-    },
-  });
-}
-
-/**
- * Bulk reorder. app-api has no `/reorder` route, but the legacy handler was
- * itself just a sequential `UPDATE ... SET position` loop, so the same loop from
- * the client is behaviourally identical (non-atomic in both cases).
- */
-function useReorderSections() {
-  const queryClient = useQueryClient();
-  const { getClient } = useAppApiClient();
-  return useMutation({
-    mutationFn: async (order: Array<{ id: string; position: number }>) => {
-      const client = await getClient();
-      for (const item of order) {
-        await client.patch<any>(`/chat-sections/${item.id}`, { position: item.position });
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: weldchatKeys.sections() });
     },
   });
 }
@@ -1096,7 +1158,7 @@ export function useTranscribeClip() {
   return useMutation({
     mutationFn: async ({ channelId, messageId, attachmentId }: { channelId: string; messageId: string; attachmentId: string }) => {
       const client = await getClient();
-      return client.post<any>(`/chat-clips/${channelId}`, { messageId, attachmentId });
+      return client.post<unknown>(`/chat-clips/${channelId}`, { messageId, attachmentId });
     },
   });
 }
@@ -1112,19 +1174,19 @@ export function updateClipTranscriptInCache(
   attachmentId: string,
   transcript: Record<string, unknown>,
 ) {
-  queryClient.setQueryData(weldchatKeys.messages(channelId), (old: any) => {
+  queryClient.setQueryData<MessagesCache>(weldchatKeys.messages(channelId), (old) => {
     if (!old?.pages) return old;
     return {
       ...old,
-      pages: old.pages.map((p: any) => ({
+      pages: old.pages.map((p) => ({
         ...p,
         data: {
           ...p.data,
-          messages: p.data?.messages?.map((m: any) => {
+          messages: p.data?.messages?.map((m) => {
             if (m.id !== messageId) return m;
             return {
               ...m,
-              attachments: m.attachments?.map((att: any) =>
+              attachments: m.attachments?.map((att) =>
                 att.id === attachmentId ? { ...att, transcript } : att,
               ),
             };
@@ -1187,6 +1249,11 @@ export function useWorkspaceMembers() {
       const res = await client.get<ListEnvelope<TeamMemberRow>>(
         `/team-members?memberType=all&limit=${MAX_PAGE}`,
       );
+      // See the "rows stay `any`" rationale in the docblock above: ~20 consumers
+      // reach for fields (firstName, workspaceRoleId, hoursPerWeek, …) this
+      // transform doesn't produce, and typing the array would break them at
+      // compile time without making any of them more correct.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const data: any[] = (res.data ?? []).map((m) => {
         const role = (m.role ?? 'member').toUpperCase();
         return {

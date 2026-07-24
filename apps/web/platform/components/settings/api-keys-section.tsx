@@ -1,13 +1,12 @@
 
 import * as React from "react"
 import { useTranslations } from '@weldsuite/i18n/client'
-import { Plus, Copy, Trash2, Check, AlertCircle, Shield, Pencil, Lock, Sparkles, Search, EllipsisVertical } from "lucide-react"
+import { Plus, Copy, Trash2, Check, AlertCircle, Pencil, EllipsisVertical } from "lucide-react"
 import { Button } from "@weldsuite/ui/components/button"
 import { FilterPills, type ActiveFilter, type FilterConfig } from "@/components/entity-list"
 import { cn } from "@/lib/utils"
 import { Card, CardContent } from "@weldsuite/ui/components/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@weldsuite/ui/components/table"
-import { Badge } from "@weldsuite/ui/components/badge"
 import {
   Dialog,
   DialogContent,
@@ -22,7 +21,6 @@ import { Label } from "@weldsuite/ui/components/label"
 import { Textarea } from "@weldsuite/ui/components/textarea"
 import { Alert, AlertDescription } from "@weldsuite/ui/components/alert"
 import { Checkbox } from "@weldsuite/ui/components/checkbox"
-import { Separator } from "@weldsuite/ui/components/separator"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,6 +36,7 @@ import {
 import { useAppApiClient } from '@/lib/api/use-app-api'
 import { PricingDialog } from "@/components/pricing-dialog"
 import { ExpandingSearchInput } from "@/components/settings/expanding-search-input"
+import type { Billing } from "@/lib/api/types/apps/billing.types"
 
 // Entity-based permissions grouped by module.
 // IMPORTANT: every scope below must correspond to a scope enforced by the
@@ -481,6 +480,7 @@ export function ApiKeysSection() {
   const apiKeys = (apiKeysData?.data as WorkspaceApiKey[]) ?? []
 
   const filteredApiKeys = React.useMemo(() => {
+    const apiKeys = (apiKeysData?.data as WorkspaceApiKey[]) ?? []
     const q = searchQuery.trim().toLowerCase()
     return apiKeys.filter((k) => {
       for (const f of activeFilters) {
@@ -497,7 +497,7 @@ export function ApiKeysSection() {
       }
       return true
     })
-  }, [apiKeys, activeFilters, searchQuery])
+  }, [apiKeysData, activeFilters, searchQuery])
 
   // Create key dialog state
   const [createDialogOpen, setCreateDialogOpen] = React.useState(false)
@@ -553,10 +553,12 @@ export function ApiKeysSection() {
       try {
         const client = await getClient()
         // app-api GET /api/billing/plans-page — `{ data }` envelope.
-        const plansResult = await client.get<{ data?: { plans: any[]; subscription: any } }>('/billing/plans-page')
+        const plansResult = await client.get<{
+          data?: { plans: Billing.BillingPlan[]; subscription: Billing.Subscription | null }
+        }>('/billing/plans-page')
         if (plansResult.data?.subscription) {
           const currentPlan = plansResult.data.plans?.find(
-            (p: any) => p.id === plansResult.data!.subscription!.planId
+            (p) => p.id === plansResult.data!.subscription!.planId
           )
           setHasApiAccess(currentPlan?.hasApiAccess ?? false)
         } else {
@@ -590,17 +592,17 @@ export function ApiKeysSection() {
       })
 
       if (result.success && result.data) {
-        setCreatedKey(result.data)
+        setCreatedKey({ ...result.data, createdAt: result.data.createdAt ?? new Date().toISOString() })
         setKeyName("")
         setKeyDescription("")
         setSelectedScopes([])
         setCreateDialogOpen(false)
       } else {
-        setError((result as any).error || t('sweep.settings.apiKeys.errors.createFailed'))
+        setError((result as unknown as { error?: string }).error || t('sweep.settings.apiKeys.errors.createFailed'))
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error("Failed to create API key:", err)
-      setError(err?.message || t('sweep.settings.apiKeys.errors.createFailed'))
+      setError(err instanceof Error ? err.message : t('sweep.settings.apiKeys.errors.createFailed'))
     }
   }
 
@@ -642,11 +644,11 @@ export function ApiKeysSection() {
         setEditDialogOpen(false)
         setEditingKey(null)
       } else {
-        setError((result as any).error || t('sweep.settings.apiKeys.errors.updateFailed'))
+        setError((result as unknown as { error?: string }).error || t('sweep.settings.apiKeys.errors.updateFailed'))
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error("Failed to update API key:", err)
-      setError(err?.message || t('sweep.settings.apiKeys.errors.updateFailed'))
+      setError(err instanceof Error ? err.message : t('sweep.settings.apiKeys.errors.updateFailed'))
     }
   }
 
@@ -659,9 +661,9 @@ export function ApiKeysSection() {
     try {
       setError(null)
       await revokeMutation.mutateAsync(id)
-    } catch (err: any) {
+    } catch (err) {
       console.error("Failed to revoke API key:", err)
-      setError(err?.message || t('sweep.settings.apiKeys.errors.revokeFailed'))
+      setError(err instanceof Error ? err.message : t('sweep.settings.apiKeys.errors.revokeFailed'))
     }
   }
 

@@ -1,15 +1,14 @@
 
-import { useState } from 'react';
 import { Link, useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { format } from 'date-fns';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
+import { Card, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
-import { MessageSquare, CheckCircle, Clock, Mail, User, MoreVertical, Eye } from 'lucide-react';
+import { MessageSquare, CheckCircle, Clock, User, MoreVertical, Eye } from 'lucide-react';
 import { EntityDataTable, type ColumnDefinition } from '@/components/entity-overview';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -177,7 +176,7 @@ export function SupportTeamClient({ teamData }: SupportTeamClientProps) {
       key: 'actions',
       label: '',
       width: '50px',
-      render: (member) => (
+      render: () => (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="h-8 w-8 p-0 shadow-none hover:bg-muted">

@@ -120,10 +120,8 @@ export default function BankAccountDetailPage() {
   }
 
   const transactions = (txnData?.data ?? []) as BankTransaction[];
-  const unreconciledCount =
-    (unreconciledData as any)?.pagination?.total ?? (unreconciledData?.data?.length ?? 0);
-  const totalTransactions =
-    (txnData as any)?.pagination?.total ?? transactions.length;
+  const unreconciledCount = unreconciledData?.data?.length ?? 0;
+  const totalTransactions = txnData?.pagination?.totalCount ?? transactions.length;
 
   return (
     <div className="p-6 space-y-4">
@@ -242,7 +240,7 @@ export default function BankAccountDetailPage() {
             <RefreshCw className={`h-4 w-4 mr-1 ${autoReconcile.isPending ? 'animate-spin' : ''}`} />
             {tbp.autoReconcile}
           </Button>
-          <Link to={`/weldbooks/banking/import?accountId=${id}` as any}>
+          <Link to="/weldbooks/banking/import" search={{ accountId: id }}>
             <Button size="sm">
               <Download className="h-4 w-4 mr-1" />
               {tbp.importStatement}
@@ -260,7 +258,7 @@ export default function BankAccountDetailPage() {
             <p className="text-sm text-muted-foreground">
               {tbp.noTransactionsYet}
             </p>
-            <Link to={`/weldbooks/banking/import?accountId=${id}` as any}>
+            <Link to="/weldbooks/banking/import" search={{ accountId: id }}>
               <Button>
                 <Download className="h-4 w-4 mr-1" />
                 {tbp.importStatement}

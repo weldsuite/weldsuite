@@ -1,5 +1,5 @@
 import { useNavigate } from '@tanstack/react-router';
-import { useMeetings, useCancelMeeting, useUpdateMeeting, useDeleteMeeting, type Meeting } from '@/hooks/queries/use-weldmeet-queries';
+import { useMeetings, useCancelMeeting, useUpdateMeeting, type Meeting } from '@/hooks/queries/use-weldmeet-queries';
 import { useState, useMemo, useCallback } from 'react';
 import { CancelMeetingDialog } from '../components/cancel-meeting-dialog';
 import { Button } from '@weldsuite/ui/components/button';
@@ -20,19 +20,15 @@ import {
 } from '@weldsuite/ui/components/dialog';
 import {
   Phone,
-  Clock,
-  Users,
   EllipsisVertical,
   ExternalLink,
   Copy,
-  Trash2,
   XCircle,
   Link,
   Pencil,
-  CalendarPlus,
 } from 'lucide-react';
 import { VideoCameraIcon } from '../components/video-camera-icon';
-import { format, isToday, isTomorrow, startOfDay, addDays, isBefore, startOfMonth, addMonths, startOfYear, addYears, isYesterday } from 'date-fns';
+import { format, isToday, isTomorrow, startOfDay, addDays, isBefore, startOfMonth, addMonths, startOfYear, addYears } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@weldsuite/ui/components/tooltip';
@@ -43,10 +39,10 @@ import {
   type FilterConfig,
   type GroupConfig,
   type ActiveFilter,
-  type RowHandlers,
   type SortState,
 } from '@/components/entity-list';
 import { getTranslations } from '@/lib/i18n';
+import type { MeetingAttendee } from '@/lib/api/domains/weldmeet';
 
 export default function UpcomingMeetingsPage() {
   const t = getTranslations('weldmeet');
@@ -58,7 +54,6 @@ export default function UpcomingMeetingsPage() {
   const cancelMeeting = useCancelMeeting();
 
   const { data, isLoading } = useMeetings({ pageSize: 50, status: 'scheduled,in_progress' });
-  const { mutate: deleteMeeting } = useDeleteMeeting();
   const { mutate: updateMeeting } = useUpdateMeeting();
 
   const handleRename = () => {
@@ -78,7 +73,7 @@ export default function UpcomingMeetingsPage() {
   const organizerOptions = useMemo(() => {
     const map = new Map<string, string>();
     for (const m of meetings) {
-      const org = (m.attendees ?? []).find((a: any) => a.role === 'organizer');
+      const org = (m.attendees ?? []).find((a: MeetingAttendee) => a.role === 'organizer');
       if (org?.userId && org?.name) map.set(org.userId, org.name);
     }
     return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
@@ -176,9 +171,6 @@ export default function UpcomingMeetingsPage() {
   const applyFilters = useCallback((items: Meeting[], filters: ActiveFilter[]) => {
     let result = items;
     const now = new Date();
-    const todayStart = startOfDay(now);
-    const tomorrowStart = addDays(todayStart, 1);
-    const tomorrowEnd = addDays(todayStart, 2);
     const thisWeekEnd = startOfDay(addDays(now, 7 - now.getDay()));
     const nextWeekEnd = addDays(thisWeekEnd, 7);
     const thisMonthEnd = startOfMonth(addMonths(now, 1));
@@ -189,7 +181,7 @@ export default function UpcomingMeetingsPage() {
 
       if (filter.field === 'organizer') {
         const match = (m: Meeting) => {
-          const org = (m.attendees ?? []).find((a: any) => a.role === 'organizer');
+          const org = (m.attendees ?? []).find((a: MeetingAttendee) => a.role === 'organizer');
           return org?.userId === filter.value;
         };
         result = isOp ? result.filter(match) : result.filter(m => !match(m));
@@ -257,8 +249,8 @@ export default function UpcomingMeetingsPage() {
         case 'attendees':
           return ((a.attendees?.length ?? 0) - (b.attendees?.length ?? 0)) * dir;
         case 'organizer': {
-          const aName = (a.attendees ?? []).find((att: any) => att.role === 'organizer')?.name ?? '';
-          const bName = (b.attendees ?? []).find((att: any) => att.role === 'organizer')?.name ?? '';
+          const aName = (a.attendees ?? []).find((att: MeetingAttendee) => att.role === 'organizer')?.name ?? '';
+          const bName = (b.attendees ?? []).find((att: MeetingAttendee) => att.role === 'organizer')?.name ?? '';
           return aName.localeCompare(bName) * dir;
         }
         default:
@@ -290,7 +282,7 @@ export default function UpcomingMeetingsPage() {
     setCancelDialogMeetingId(null);
   }, [cancelMeeting, cancelDialogMeetingId, t]);
 
-  const renderRow = useCallback((meeting: Meeting, _handlers: RowHandlers<Meeting>) => {
+  const renderRow = useCallback((meeting: Meeting) => {
     const type = meetingTypeConfig[meeting.meetingType as keyof typeof meetingTypeConfig] ?? meetingTypeConfig.video;
     const TypeIcon = type.icon;
     const dateStr = meeting.scheduledStart ?? meeting.createdAt;
@@ -331,7 +323,7 @@ export default function UpcomingMeetingsPage() {
         {/* Organizer */}
         <div className="w-[190px]">
           {(() => {
-            const organizer = (meeting.attendees ?? []).find((a: any) => a.role === 'organizer');
+            const organizer = (meeting.attendees ?? []).find((a: MeetingAttendee) => a.role === 'organizer');
             if (!organizer) return <span className="text-sm text-muted-foreground">—</span>;
             return (
               <div className="flex items-center gap-2">

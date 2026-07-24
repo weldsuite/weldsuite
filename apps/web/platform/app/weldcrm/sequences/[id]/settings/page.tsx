@@ -16,9 +16,6 @@ export default function SequenceSettingsPage() {
 
   const sequence = sequenceResp.data;
   const isDraft = sequence.status === 'draft';
-  const stepCount = Array.isArray(sequence.steps) ? sequence.steps.length : 0;
-  const pendingCount = sequence.pendingEnrolledCount || 0;
-  const enrolledCount = sequence.enrolledCount || 0;
 
   return (
     <div className="h-full flex flex-col overflow-hidden">

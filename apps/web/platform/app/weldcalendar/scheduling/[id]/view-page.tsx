@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { cn } from '@/lib/utils';
 import { useParams } from '@/lib/router';
 import { useBookingPage } from '@/hooks/queries/use-calendar-queries';
-import type { WeeklyAvailability } from '@/hooks/queries/use-calendar-queries';
+import type { WeeklyAvailability, TimeRange } from '@/hooks/queries/use-calendar-queries';
 import { FilterPills } from '@/components/entity-list';
 import type { ActiveFilter, FilterConfig } from '@/components/entity-list';
 import {
@@ -68,10 +68,10 @@ export default function BookingPageViewPage() {
     [currentWeekStart],
   );
 
-  const getAvailabilityBlocks = (dayDate: Date) => {
+  const getAvailabilityBlocks = (dayDate: Date): TimeRange[] => {
     if (!bookingPage?.availability) return [];
     const dayName = format(dayDate, 'EEEE').toLowerCase() as keyof WeeklyAvailability;
-    return (bookingPage.availability as any)[dayName] || [];
+    return bookingPage.availability[dayName] || [];
   };
 
   if (isLoading) return <div className="flex items-center justify-center py-12 text-muted-foreground">{t.bookingView.loadingBookingPage}</div>;
@@ -207,7 +207,7 @@ export default function BookingPageViewPage() {
                   {HOURS.map((hour) => (
                     <div key={hour} className="border-b border-border" style={{ height: hourHeight }} />
                   ))}
-                  {blocks.map((block: any, bi: number) => {
+                  {blocks.map((block: TimeRange, bi: number) => {
                     const [startH, startM] = block.start.split(':').map(Number);
                     const [endH, endM] = block.end.split(':').map(Number);
                     const blockStartMin = startH * 60 + startM;

@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from 'react';
-import { useParams, useRouter } from '@/lib/router';
+import { useParams } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { mailApi } from '../../../lib/api-client';
 import type { Mail } from '@/lib/api/types/apps/mail.types';
@@ -17,7 +17,6 @@ import ComposePage from '../../../[accountId]/[labelSlug]/compose/page';
 export default function UnifiedComposePage() {
   const { t } = useI18n();
   const params = useParams();
-  const router = useRouter();
   const labelSlug = params?.labelSlug as string;
   const [accounts, setAccounts] = useState<Mail.EmailAccount[]>([]);
   const [loading, setLoading] = useState(true);

@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useRef } from 'react';
-import { Plus, MoreVertical, Share2, Pencil, Trash2 } from 'lucide-react';
+import { MoreVertical, Share2, Pencil, Trash2 } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
 import { Button } from '@weldsuite/ui/components/button';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
@@ -45,10 +45,9 @@ export function getActiveCalendarIds(calendars: UserCalendar[]): string[] {
 
 interface CalendarSidebarSectionProps {
   calendars: UserCalendar[];
-  isOwn: boolean;
 }
 
-export function CalendarSidebarSection({ calendars, isOwn }: CalendarSidebarSectionProps) {
+export function CalendarSidebarSection({ calendars }: CalendarSidebarSectionProps) {
   const t = getTranslations('weldcalendar');
   const [visibleIds, setVisibleIdsState] = useState<Set<string>>(() => {
     const stored = getVisibleCalendarIds();

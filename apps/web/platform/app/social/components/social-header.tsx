@@ -23,22 +23,22 @@ export function SocialHeader({
   const pathname = usePathname();
   const [composeOpen, setComposeOpen] = useState(false);
 
-  // Labels for the second breadcrumb segment, keyed by the route below /social.
-  // Hardcoded English mirrors the sidebar labels in MODULE_CONFIGS.social.
-  const routeLabels: Record<string, string> = {
-    dashboard: t.social.dashboard.title,
-    queue: st('sweep.miscA.socialHeader.queue'),
-    calendar: t.social.calendar.title,
-    drafts: t.social.posts.drafts,
-    analytics: t.social.analytics.title,
-    accounts: t.social.accounts.title,
-    approvals: st('sweep.miscA.socialHeader.approvals'),
-    campaigns: t.social.campaigns.title,
-    team: t.social.team.title,
-    settings: t.social.settings.title,
-  };
-
   const segments: BreadcrumbSegment[] = useMemo(() => {
+    // Labels for the second breadcrumb segment, keyed by the route below /social.
+    // Hardcoded English mirrors the sidebar labels in MODULE_CONFIGS.social.
+    const routeLabels: Record<string, string> = {
+      dashboard: t.social.dashboard.title,
+      queue: st('sweep.miscA.socialHeader.queue'),
+      calendar: t.social.calendar.title,
+      drafts: t.social.posts.drafts,
+      analytics: t.social.analytics.title,
+      accounts: t.social.accounts.title,
+      approvals: st('sweep.miscA.socialHeader.approvals'),
+      campaigns: t.social.campaigns.title,
+      team: t.social.team.title,
+      settings: t.social.settings.title,
+    };
+
     const result: BreadcrumbSegment[] = [{ label: t.social.title, href: '/social' }];
     const parts = pathname.split('/').filter(Boolean);
 
@@ -57,7 +57,7 @@ export function SocialHeader({
     }
 
     return result;
-  }, [pathname, t]);
+  }, [pathname, t, st]);
 
   return (
     <>

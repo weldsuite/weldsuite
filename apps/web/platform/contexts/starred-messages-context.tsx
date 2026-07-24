@@ -49,14 +49,6 @@ export function StarredMessagesProvider({ children }: { children: ReactNode }) {
   );
 }
 
-function useStarredMessages() {
-  const context = useContext(StarredMessagesContext);
-  if (context === undefined) {
-    throw new Error('useStarredMessages must be used within a StarredMessagesProvider');
-  }
-  return context;
-}
-
 // Safe version that returns null if provider is missing
 export function useStarredMessagesSafe() {
   return useContext(StarredMessagesContext);

@@ -83,7 +83,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Tag,
 };
 
-export interface ColumnDefinition<T = any> {
+export interface ColumnDefinition<T = unknown> {
   key: string;
   label: string;
   sortable?: boolean;
@@ -95,7 +95,7 @@ export interface ColumnDefinition<T = any> {
 }
 
 // Alias for backward compatibility
-export type Column<T = any> = ColumnDefinition<T>;
+export type Column<T = unknown> = ColumnDefinition<T>;
 
 export interface FilterOption {
   key: string;
@@ -119,20 +119,20 @@ export interface PaginationData {
   hasMore: boolean;
 }
 
-export interface EntityDataTableProps<T = any> {
+export interface EntityDataTableProps<T = unknown> {
   data: T[];
   columns: ColumnDefinition<T>[];
   pagination: PaginationData;
-  searchParams?: any;
+  searchParams?: Record<string, string>;
   statusFilters?: StatusFilter[];
   additionalFilters?: FilterOption[];
   counts?: Record<string, number>;
-  onFetchData?: (filters: Record<string, any>) => Promise<{
+  onFetchData?: (filters: Record<string, string | number>) => Promise<{
     data: T[];
     pagination: PaginationData;
     counts?: Record<string, number>;
   }>;
-  onExport?: (filters: Record<string, any>) => Promise<void>;
+  onExport?: (filters: Record<string, string | number>) => Promise<void>;
   onRowClick?: (item: T) => void;
   emptyMessage?: string;
   emptyIcon?: string; // Icon name from lucide-react (e.g., "Package", "Users")
@@ -140,7 +140,7 @@ export interface EntityDataTableProps<T = any> {
   leftControls?: React.ReactNode; // Custom content for the left side of the controls bar
 }
 
-export function EntityDataTable<T = any>({
+export function EntityDataTable<T = unknown>({
   data: initialData,
   columns,
   pagination: initialPagination,
@@ -195,7 +195,6 @@ export function EntityDataTable<T = any>({
       e.preventDefault();
       e.stopPropagation();
       const column = columns.find((c) => c.key === columnKey);
-      const minWidth = column?.minWidth ? parseInt(column.minWidth, 10) : 50;
       const currentWidth = columnWidths[columnKey] || (column?.width ? parseInt(column.width, 10) : 100);
 
       resizingRef.current = {
@@ -286,7 +285,7 @@ export function EntityDataTable<T = any>({
 
     setIsFiltering(true);
 
-    const filters: Record<string, any> = {
+    const filters: Record<string, string | number> = {
       page: pagination.page,
       pageSize: pagination.pageSize,
       status: statusFilter,
@@ -349,7 +348,10 @@ export function EntityDataTable<T = any>({
     onFetchData,
   ]);
 
-  // Only fetch when filters change (not on initial load)
+  // Only fetch when filters change (not on initial load). `loadData` is
+  // intentionally excluded — it also depends on `router`/`searchParams`/
+  // `onFetchData`, and including it would refetch on identity changes to
+  // those even when none of the actual filters changed.
   useEffect(() => {
     if (!hasInitiallyLoaded.current) {
       hasInitiallyLoaded.current = true;
@@ -357,6 +359,7 @@ export function EntityDataTable<T = any>({
     }
 
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     pagination.page,
     pagination.pageSize,
@@ -390,7 +393,7 @@ export function EntityDataTable<T = any>({
   const handleExport = async () => {
     if (!onExport) return;
 
-    const filters: Record<string, any> = {
+    const filters: Record<string, string | number> = {
       status: statusFilter,
       search: search,
       sortBy,

@@ -91,9 +91,9 @@ export function KnowledgeSidebar() {
   const addFavorite = useAddKnowledgeFavorite();
   const removeFavorite = useRemoveKnowledgeFavorite();
 
-  const spaces = spacesData?.data ?? [];
-  const allNodes = treeData?.data ?? [];
-  const favorites = favoritesData?.data ?? [];
+  const spaces = useMemo(() => spacesData?.data ?? [], [spacesData]);
+  const allNodes = useMemo(() => treeData?.data ?? [], [treeData]);
+  const favorites = useMemo(() => favoritesData?.data ?? [], [favoritesData]);
   const favoritePageIds = useMemo(() => new Set(favorites.map((f) => f.pageId)), [favorites]);
 
   const treesBySpace = useMemo(() => {

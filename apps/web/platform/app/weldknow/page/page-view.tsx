@@ -89,7 +89,7 @@ export default function PageView({ pageId }: PageViewProps) {
   const removeFavorite = useRemoveKnowledgeFavorite();
 
   const page = pageData?.data;
-  const allNodes = treeData?.data ?? [];
+  const allNodes = useMemo(() => treeData?.data ?? [], [treeData]);
   const favorites = favoritesData?.data ?? [];
   const isFavorite = favorites.some((f) => f.pageId === pageId);
 

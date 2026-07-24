@@ -19,7 +19,6 @@ import {
   type FilterConfig,
   type GroupConfig,
   type ActiveFilter,
-  type RowHandlers,
   type HeaderColumn,
 } from '@/components/entity-list';
 import {
@@ -101,9 +100,9 @@ export function TemplatesClient() {
     return result;
   }, []);
 
-  const getCategoryLabel = (categoryId: string) => {
+  const getCategoryLabel = useCallback((categoryId: string) => {
     return CATEGORIES.find(c => c.id === categoryId)?.label || categoryId;
-  };
+  }, [CATEGORIES]);
 
   // Header columns — mirrors the row layout in renderTemplateRow
   const headerColumns: HeaderColumn[] = useMemo(() => [
@@ -117,7 +116,7 @@ export function TemplatesClient() {
 
   // Render a single template row (tasks-page style)
   const renderTemplateRow = useCallback(
-    (template: WorkflowTemplate, _handlers: RowHandlers<WorkflowTemplate>) => {
+    (template: WorkflowTemplate) => {
       const Icon = template.icon || FileText;
       const stepCount = template.workflowSteps?.length ?? template.steps ?? 0;
       return (

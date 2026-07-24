@@ -5,6 +5,16 @@ import { useHelpdeskCustomer, useHelpdeskCustomerConversations } from '@/hooks/q
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 
+interface RawCustomerConversation {
+  id: string;
+  subject?: string;
+  lastMessage?: { content?: string };
+  status: string;
+  channel: string;
+  createdAt: string;
+  lastMessageAt?: string;
+}
+
 export default function CustomerDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -48,7 +58,7 @@ export default function CustomerDetailPage() {
     totalSpent: customer.totalSpent,
     orderCount: customer.orderCount,
     loyaltyTier: customer.loyaltyTier,
-    conversations: (conversationsResult?.items || []).map((conv: any) => ({
+    conversations: (conversationsResult?.items || []).map((conv: RawCustomerConversation) => ({
       id: conv.id,
       subject: conv.subject || tc.noSubject,
       preview: conv.lastMessage?.content || tc.noMessages,

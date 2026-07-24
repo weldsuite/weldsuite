@@ -50,19 +50,19 @@ export function ChannelCreateDialog({
   const { mutate: createChannel, isPending } = useCreateChannel();
   const { data: membersData } = useWorkspaceMembers();
 
-  const members: any[] = membersData?.data ?? [];
+  const members = useMemo(() => membersData?.data ?? [], [membersData]);
 
   const filteredMembers = useMemo(() => {
     if (!memberSearch) return members;
     const q = memberSearch.toLowerCase();
     return members.filter(
-      (m: any) =>
+      (m) =>
         m.name?.toLowerCase().includes(q) ||
         m.email?.toLowerCase().includes(q),
     );
   }, [members, memberSearch]);
 
-  const selectedMembersList = members.filter((m: any) =>
+  const selectedMembersList = members.filter((m) =>
     selectedMembers.includes(m.userId),
   );
 
@@ -92,7 +92,7 @@ export function ChannelCreateDialog({
         memberIds: isPrivate && selectedMembers.length > 0 ? selectedMembers : undefined,
       },
       {
-        onSuccess: (data: any) => {
+        onSuccess: (data) => {
           onOpenChange(false);
           reset();
           if (data?.data?.id)
@@ -148,7 +148,7 @@ export function ChannelCreateDialog({
               {/* Selected members */}
               {selectedMembersList.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-2">
-                  {selectedMembersList.map((m: any) => (
+                  {selectedMembersList.map((m) => (
                     <div
                       key={m.userId}
                       className="flex items-center gap-1 bg-muted rounded-md px-2 py-1 text-sm"
@@ -188,7 +188,7 @@ export function ChannelCreateDialog({
                   <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-md border bg-popover shadow-md">
                     <ScrollArea className="max-h-[200px]">
                       <div className="p-1">
-                        {filteredMembers.map((m: any) => {
+                        {filteredMembers.map((m) => {
                           const isSelected = selectedMembers.includes(m.userId);
                           return (
                             <Button

@@ -37,7 +37,7 @@ function formatDate(dateStr: string): string {
   });
 }
 
-export function DealsSection({ customer, opportunities, totalCount }: DealsSectionProps) {
+export function DealsSection({ opportunities, totalCount }: DealsSectionProps) {
   const t = useTranslations();
   if (opportunities.length === 0) {
     return (

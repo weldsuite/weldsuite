@@ -1,8 +1,7 @@
 
 import * as React from "react"
 import { useTranslations } from '@weldsuite/i18n/client'
-import { Search, Keyboard, Info } from "lucide-react"
-import { Button } from "@weldsuite/ui/components/button"
+import { Keyboard, Info } from "lucide-react"
 import { FilterPills, type ActiveFilter, type FilterConfig } from "@/components/entity-list"
 import { cn } from "@/lib/utils"
 import { ExpandingSearchInput } from "@/components/settings/expanding-search-input"

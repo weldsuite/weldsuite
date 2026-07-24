@@ -7,9 +7,9 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import {
-  ChevronDown, BarChart3, LineChart, PieChart, Activity, TrendingUp,
+  ChevronDown, BarChart3, PieChart, Activity, TrendingUp,
   AreaChart as AreaChartIcon, Layers, FolderKanban, CheckSquare, Clock,
-  Target, Plus, Divide, ArrowUp, ArrowDown, TrendingUpDown, SortAsc, SortDesc, X
+  Target, Plus, Divide, ArrowUp, ArrowDown, TrendingUpDown, SortAsc, SortDesc
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -234,7 +234,7 @@ export default function ProjectsAnalyticsBuilderPage() {
   const [smoothLines, setSmoothLines] = useState(true);
   const [showDataPoints, setShowDataPoints] = useState(false);
   const [fillArea, setFillArea] = useState(true);
-  const [compareWith, setCompareWith] = useState('');
+  const [compareWith] = useState('');
   const [aggregation, setAggregation] = useState('sum');
   const [sortOrder, setSortOrder] = useState('asc');
   const [limit, setLimit] = useState('10');
@@ -304,7 +304,7 @@ export default function ProjectsAnalyticsBuilderPage() {
         },
       });
       router.push(`/weldflow/analytics/${reportId}`);
-    } catch (error) {
+    } catch {
       // Error handled by mutation
     }
   };

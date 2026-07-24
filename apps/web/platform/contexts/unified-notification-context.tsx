@@ -107,6 +107,68 @@ export function UnifiedNotificationProvider({ children }: UnifiedNotificationPro
     patchNotificationsByEntity,
   } = useNotificationStore();
 
+  // Cursor for keyset pagination (app-api). null = no more pages.
+  const cursorRef = useRef<string | null>(null);
+
+  // Load notifications from server (app-api, cursor-paginated)
+  const loadNotificationsFromServer = useCallback(async (append = false) => {
+    try {
+      setLoading(true);
+
+      const result = await notificationsApi.list({
+        limit: 50,
+        ...(append && cursorRef.current ? { cursor: cursorRef.current } : {}),
+      });
+
+      const mapped: UnifiedNotification[] = result.data.map((n) => ({
+        id: n.id,
+        notificationType: n.notificationType,
+        category: n.category ?? 'system',
+        title: n.title ?? '',
+        body: n.body || '',
+        entityType: n.entityType ?? undefined,
+        entityId: n.entityId ?? undefined,
+        actionUrl: n.actionUrl ?? undefined,
+        data: n.data ?? undefined,
+        createdAt: n.createdAt,
+        isRead: n.isRead ?? false,
+        // app-api hydrates the actor as flat columns (actorName/actorAvatar)
+        // instead of core-api's nested `actor` object — rebuild the shape the
+        // notification UI expects.
+        actor: n.actorType
+          ? {
+              type: n.actorType as NotificationActor['type'],
+              id: n.actorId,
+              name: n.actorName ?? '',
+              imageUrl: n.actorAvatar,
+            }
+          : null,
+      }));
+
+      if (append) {
+        appendNotifications(mapped);
+      } else {
+        setNotifications(mapped);
+      }
+
+      cursorRef.current = result.pagination.cursor;
+      setHasMore(result.pagination.hasMore);
+
+      if (!append) {
+        try {
+          const countResult = await notificationsApi.unreadCount();
+          setUnreadCount(countResult.data.count);
+        } catch (e) {
+          console.error('[UnifiedNotification] Failed to load unread count:', e);
+        }
+      }
+    } catch (error) {
+      console.error('[UnifiedNotification] Failed to load notifications:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [notificationsApi, setLoading, appendNotifications, setNotifications, setHasMore, setUnreadCount]);
+
   // Bootstrap: set workspace and load initial notifications
   useEffect(() => {
     if (!userLoaded || !orgLoaded) return;
@@ -122,7 +184,7 @@ export function UnifiedNotificationProvider({ children }: UnifiedNotificationPro
     loadNotificationsFromServer(false).catch((error) => {
       console.error('[UnifiedNotification] Failed to load initial notifications:', error);
     });
-  }, [user?.id, organization?.id, userLoaded, orgLoaded, storeWorkspaceId, setWorkspace]);
+  }, [user?.id, organization?.id, userLoaded, orgLoaded, storeWorkspaceId, setWorkspace, loadNotificationsFromServer]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // @weldsuite/realtime — subscribe to the user's notification topic so rows
@@ -188,68 +250,6 @@ export function UnifiedNotificationProvider({ children }: UnifiedNotificationPro
     },
   );
 
-  // Cursor for keyset pagination (app-api). null = no more pages.
-  const cursorRef = useRef<string | null>(null);
-
-  // Load notifications from server (app-api, cursor-paginated)
-  const loadNotificationsFromServer = async (append = false) => {
-    try {
-      setLoading(true);
-
-      const result = await notificationsApi.list({
-        limit: 50,
-        ...(append && cursorRef.current ? { cursor: cursorRef.current } : {}),
-      });
-
-      const mapped: UnifiedNotification[] = result.data.map((n) => ({
-        id: n.id,
-        notificationType: n.notificationType,
-        category: n.category ?? 'system',
-        title: n.title ?? '',
-        body: n.body || '',
-        entityType: n.entityType ?? undefined,
-        entityId: n.entityId ?? undefined,
-        actionUrl: n.actionUrl ?? undefined,
-        data: n.data ?? undefined,
-        createdAt: n.createdAt,
-        isRead: n.isRead ?? false,
-        // app-api hydrates the actor as flat columns (actorName/actorAvatar)
-        // instead of core-api's nested `actor` object — rebuild the shape the
-        // notification UI expects.
-        actor: n.actorType
-          ? {
-              type: n.actorType as NotificationActor['type'],
-              id: n.actorId,
-              name: n.actorName ?? '',
-              imageUrl: n.actorAvatar,
-            }
-          : null,
-      }));
-
-      if (append) {
-        appendNotifications(mapped);
-      } else {
-        setNotifications(mapped);
-      }
-
-      cursorRef.current = result.pagination.cursor;
-      setHasMore(result.pagination.hasMore);
-
-      if (!append) {
-        try {
-          const countResult = await notificationsApi.unreadCount();
-          setUnreadCount(countResult.data.count);
-        } catch (e) {
-          console.error('[UnifiedNotification] Failed to load unread count:', e);
-        }
-      }
-    } catch (error) {
-      console.error('[UnifiedNotification] Failed to load notifications:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Subscribe to notifications
   const subscribe = useCallback((handler: (notification: UnifiedNotification) => void) => {
     notificationHandlers.current.add(handler);
@@ -273,12 +273,12 @@ export function UnifiedNotificationProvider({ children }: UnifiedNotificationPro
   );
 
   // Email account subscriptions (no-op for now - can be implemented via user channel)
-  const subscribeToEmailAccount = useCallback(async (accountId: string) => {
+  const subscribeToEmailAccount = useCallback(async () => {
     // Email account subscriptions are handled via the user channel
     // The @weldsuite/realtime client already subscribes to the user channel
   }, []);
 
-  const unsubscribeFromEmailAccount = useCallback(async (accountId: string) => {
+  const unsubscribeFromEmailAccount = useCallback(async () => {
     // Email account unsubscriptions are handled via the user channel
   }, []);
 
@@ -316,14 +316,14 @@ export function UnifiedNotificationProvider({ children }: UnifiedNotificationPro
   const loadMore = useCallback(async () => {
     if (!organization?.id || !user?.id || isLoading || !hasMore) return;
     await loadNotificationsFromServer(true);
-  }, [organization?.id, user?.id, isLoading, hasMore]);
+  }, [organization?.id, user?.id, isLoading, hasMore, loadNotificationsFromServer]);
 
   // Refresh notifications
   const refresh = useCallback(async () => {
     if (!organization?.id || !user?.id) return;
     cursorRef.current = null;
     await loadNotificationsFromServer(false);
-  }, [organization?.id, user?.id]);
+  }, [organization?.id, user?.id, loadNotificationsFromServer]);
 
   const value: UnifiedNotificationContextValue = {
     status,
@@ -362,11 +362,4 @@ export function useUnifiedNotifications() {
     );
   }
   return context;
-}
-
-/**
- * Hook to get unread notification count
- */
-function useUnreadCount() {
-  return useNotificationStore((state) => state.unreadCount);
 }

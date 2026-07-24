@@ -75,6 +75,17 @@ interface LocaleConfigEntry {
   experimental?: boolean;
 }
 
+// A locale bundle is an arbitrarily-nested plain object bottoming out in
+// leaf values (usually strings, but JSON allows numbers/booleans/arrays too).
+// The exact shape is only known once the file is dynamically imported, so we
+// model it as a generic record and narrow with typeof/Array.isArray at each
+// recursion step rather than typing it as `any`.
+type TranslationNode = Record<string, unknown>;
+
+function isTranslationNode(value: unknown): value is TranslationNode {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 async function loadLocaleConfig(localesDir: string): Promise<Record<string, LocaleConfigEntry>> {
   const configPath = path.join(localesDir, 'index.ts');
   if (!fs.existsSync(configPath)) return {};
@@ -88,26 +99,27 @@ async function loadLocaleConfig(localesDir: string): Promise<Record<string, Loca
   }
 }
 
-async function loadLocales(localesDir: string, codes: string[]): Promise<Record<string, any>> {
-  const out: Record<string, any> = {};
+async function loadLocales(localesDir: string, codes: string[]): Promise<Record<string, TranslationNode>> {
+  const out: Record<string, TranslationNode> = {};
   for (const code of codes) {
     const indexPath = path.join(localesDir, code, 'index.ts');
     const mod = (await import(pathToFileURL(indexPath).href)) as Record<string, unknown>;
     if (!mod[code]) {
       throw new Error(`Expected named export "${code}" in ${indexPath}; got ${Object.keys(mod).join(',')}`);
     }
-    out[code] = mod[code];
+    out[code] = mod[code] as TranslationNode;
   }
   return out;
 }
 
 // Count total keys in nested object
-function countKeys(obj: any, prefix = ''): number {
+function countKeys(obj: TranslationNode, prefix = ''): number {
   let count = 0;
 
   for (const key in obj) {
-    if (typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
-      count += countKeys(obj[key], `${prefix}${key}.`);
+    const value = obj[key];
+    if (isTranslationNode(value)) {
+      count += countKeys(value, `${prefix}${key}.`);
     } else {
       count++;
     }
@@ -117,14 +129,15 @@ function countKeys(obj: any, prefix = ''): number {
 }
 
 // Get all key paths in an object
-function getKeyPaths(obj: any, prefix = ''): string[] {
+function getKeyPaths(obj: TranslationNode, prefix = ''): string[] {
   const paths: string[] = [];
 
   for (const key in obj) {
     const currentPath = prefix ? `${prefix}.${key}` : key;
+    const value = obj[key];
 
-    if (typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
-      paths.push(...getKeyPaths(obj[key], currentPath));
+    if (isTranslationNode(value)) {
+      paths.push(...getKeyPaths(value, currentPath));
     } else {
       paths.push(currentPath);
     }
@@ -134,17 +147,20 @@ function getKeyPaths(obj: any, prefix = ''): string[] {
 }
 
 // Get value at path
-function getValueAtPath(obj: any, path: string): any {
-  return path.split('.').reduce((current, key) => current?.[key], obj);
+function getValueAtPath(obj: TranslationNode, path: string): unknown {
+  return path.split('.').reduce<unknown>(
+    (current, key) => (isTranslationNode(current) ? current[key] : undefined),
+    obj
+  );
 }
 
 // Set value at path
-function setValueAtPath(obj: any, path: string, value: any): void {
+function setValueAtPath(obj: TranslationNode, path: string, value: unknown): void {
   const keys = path.split('.');
   const lastKey = keys.pop()!;
-  const target = keys.reduce((current, key) => {
-    if (!current[key]) current[key] = {};
-    return current[key];
+  const target = keys.reduce<TranslationNode>((current, key) => {
+    if (!isTranslationNode(current[key])) current[key] = {};
+    return current[key] as TranslationNode;
   }, obj);
   target[lastKey] = value;
 }
@@ -152,8 +168,8 @@ function setValueAtPath(obj: any, path: string, value: any): void {
 // Validate a single target locale against the source. Issue paths are
 // prefixed with the locale code so cross-locale aggregation stays unambiguous.
 function validateLocale(
-  source: any,
-  target: any,
+  source: TranslationNode,
+  target: TranslationNode,
   sourceLocale: string,
   targetLocale: string,
 ): ValidationIssue[] {
@@ -352,7 +368,7 @@ function writePatchFile(locale: string, missingByPath: Record<string, string>): 
   const entries = Object.entries(missingByPath);
   if (entries.length === 0) return null;
 
-  const patchTree: Record<string, any> = {};
+  const patchTree: TranslationNode = {};
   for (const [keyPath, srcValue] of entries) {
     setValueAtPath(patchTree, keyPath, `[TRANSLATE] ${srcValue}`);
   }

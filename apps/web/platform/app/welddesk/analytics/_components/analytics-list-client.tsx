@@ -31,7 +31,7 @@ interface AnalyticsListClientProps {
 
 export function AnalyticsListClient({ initialReports }: AnalyticsListClientProps) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [isPending] = useTransition();
   const { t } = useI18n();
   const [reports, setReports] = useState<AnalyticsReport[]>(initialReports);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -173,7 +173,7 @@ export function AnalyticsListClient({ initialReports }: AnalyticsListClientProps
         </div>
       </div>
     );
-  }, [router]);
+  }, [router, t]);
 
   return (
     <>

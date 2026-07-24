@@ -2,10 +2,8 @@
 // Apps are stored in the master database's app_catalog table
 
 import { masterDb } from '@/lib/db/master';
-import { appCatalog, appScreenshots, APP_CATEGORIES } from '@/lib/db/schema/app-catalog';
+import { appCatalog } from '@/lib/db/schema/app-catalog';
 import { eq, and } from 'drizzle-orm';
-
-type AppCategory = (typeof APP_CATEGORIES)[number];
 
 export interface AppDefinition {
   code: string;
@@ -19,18 +17,6 @@ export interface AppDefinition {
   howItWorks?: { title: string; description: string }[];
   version?: string;
   provider?: string | null;
-}
-
-interface AppScreenshotData {
-  id: string;
-  url: string;
-  fileName: string;
-  caption?: string | null;
-  altText?: string | null;
-}
-
-interface AppWithContent extends AppDefinition {
-  screenshots: AppScreenshotData[];
 }
 
 // Fallback static catalog for when database is unavailable
@@ -180,108 +166,6 @@ async function getAppCatalog(): Promise<AppDefinition[]> {
 }
 
 /**
- * Get a single app by code from the database
- */
-async function getAppByCode(code: string): Promise<AppDefinition | null> {
-  try {
-    const apps = await masterDb
-      .select()
-      .from(appCatalog)
-      .where(and(eq(appCatalog.code, code), eq(appCatalog.isActive, true)));
-
-    if (apps.length === 0) {
-      // Try fallback catalog
-      return FALLBACK_CATALOG[code] || null;
-    }
-
-    const app = apps[0];
-    return {
-      code: app.code,
-      name: app.name,
-      description: app.description,
-      icon: app.icon,
-      category: app.category,
-      path: app.path,
-      overview: app.overview,
-      features: app.features as string[] | undefined,
-      howItWorks: app.howItWorks as { title: string; description: string }[] | undefined,
-      version: app.version || '1.0.0',
-      provider: app.provider,
-    };
-  } catch (error) {
-    console.error('Error fetching app from database:', error);
-    return FALLBACK_CATALOG[code] || null;
-  }
-}
-
-/**
- * Get app with screenshots
- */
-async function getAppWithScreenshots(code: string): Promise<AppWithContent | null> {
-  try {
-    const apps = await masterDb
-      .select()
-      .from(appCatalog)
-      .where(and(eq(appCatalog.code, code), eq(appCatalog.isActive, true)));
-
-    if (apps.length === 0) {
-      // Try fallback catalog
-      const fallback = FALLBACK_CATALOG[code];
-      if (fallback) {
-        return { ...fallback, screenshots: [] };
-      }
-      return null;
-    }
-
-    const app = apps[0];
-
-    // Get screenshots
-    const screenshotRows = await masterDb
-      .select()
-      .from(appScreenshots)
-      .where(eq(appScreenshots.appId, app.id));
-
-    const screenshots: AppScreenshotData[] = screenshotRows.map((s) => ({
-      id: s.id,
-      url: s.url,
-      fileName: s.fileName,
-      caption: s.caption,
-      altText: s.altText,
-    }));
-
-    return {
-      code: app.code,
-      name: app.name,
-      description: app.description,
-      icon: app.icon,
-      category: app.category,
-      path: app.path,
-      overview: app.overview,
-      features: app.features as string[] | undefined,
-      howItWorks: app.howItWorks as { title: string; description: string }[] | undefined,
-      version: app.version || '1.0.0',
-      provider: app.provider,
-      screenshots,
-    };
-  } catch (error) {
-    console.error('Error fetching app with screenshots:', error);
-    const fallback = FALLBACK_CATALOG[code];
-    if (fallback) {
-      return { ...fallback, screenshots: [] };
-    }
-    return null;
-  }
-}
-
-/**
- * Get apps by category
- */
-async function getAppsByCategory(category: AppCategory): Promise<AppDefinition[]> {
-  const apps = await getAppCatalog();
-  return apps.filter((app) => app.category === category);
-}
-
-/**
  * Get all unique categories from available apps
  */
 export async function getCategories(): Promise<string[]> {
@@ -294,10 +178,3 @@ export async function getCategories(): Promise<string[]> {
 export const APP_CATALOG = FALLBACK_CATALOG;
 export const AVAILABLE_APPS = Object.values(FALLBACK_CATALOG);
 
-/**
- * Validate app code (checks both database and fallback)
- */
-async function isValidAppCode(code: string): Promise<boolean> {
-  const app = await getAppByCode(code);
-  return app !== null;
-}

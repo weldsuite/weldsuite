@@ -11,19 +11,14 @@
 import type { ReactElement } from 'react';
 import { z } from 'zod';
 import {
-  BarChart3, LifeBuoy, MessageSquare, Slack, MessagesSquare, Bot, Star, Briefcase,
-  Workflow, ListTodo, Video, MessageCircle, Hash, Calendar, Phone, FolderOpen, Globe, Mail,
+  BarChart3, MessageSquare, Slack, MessagesSquare,
+  MessageCircle, Calendar,
 } from 'lucide-react';
 import {
   AnalyticsCard,
-  DeskCard, DeskEmailsCard, DeskLiveChatCard, DeskSlackCard, DeskDiscordCard,
-  DeskAiActiveCard, DeskAiResolvedCard, DeskReviewsCard,
-  CrmCard, PipelineCard, SequencesCard,
-  ConnectCard, WorkflowsCard,
-  MeetCard, MeetHistoryCard,
-  ChatCard, ChatDMsCard, ChatChannelsCard,
+  DeskSlackCard, DeskDiscordCard,
+  ChatCard, ChatDMsCard,
   CalendarCard, CalendarScheduleCard, CalendarFourDayCard, CalendarDayCard,
-  CallCard, DriveCard, HostCard,
 } from '@/components/home/app-cards';
 import { NoSettingsForm } from '../common';
 import type { HomeWidgetDefinition, WidgetId, WidgetModule } from '../types';

@@ -45,7 +45,7 @@ interface NotificationState {
 
 export const useNotificationStore = create<NotificationState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       // Initial state
       notifications: [],
       unreadCount: 0,
@@ -94,7 +94,7 @@ export const useNotificationStore = create<NotificationState>()(
           if (!notification) return state;
 
           // Only decrement if not already read
-          const wasUnread = !(notification as any).isRead;
+          const wasUnread = !notification.isRead;
 
           return {
             notifications: state.notifications.map((n) =>
@@ -191,46 +191,3 @@ export const useNotificationStore = create<NotificationState>()(
     }
   )
 );
-
-/**
- * Get unread notifications only
- */
-function useUnreadNotifications() {
-  return useNotificationStore((state) =>
-    state.notifications.filter((n) => !(n as any).isRead)
-  );
-}
-
-/**
- * Get notifications grouped by date
- */
-function useGroupedNotifications() {
-  const notifications = useNotificationStore((state) => state.notifications);
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-
-  const groups = {
-    today: [] as UnifiedNotification[],
-    yesterday: [] as UnifiedNotification[],
-    earlier: [] as UnifiedNotification[],
-  };
-
-  notifications.forEach((n) => {
-    const date = new Date(n.createdAt);
-    date.setHours(0, 0, 0, 0);
-
-    if (date.getTime() === today.getTime()) {
-      groups.today.push(n);
-    } else if (date.getTime() === yesterday.getTime()) {
-      groups.yesterday.push(n);
-    } else {
-      groups.earlier.push(n);
-    }
-  });
-
-  return groups;
-}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { toast } from 'sonner';
 import { PageLoader } from '@/components/page-loader';
@@ -103,15 +103,18 @@ export function LabelsSection({ projectId, isAdmin }: LabelsSectionProps) {
     },
   ], [t]);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     const res = await labelsApi.list(projectId);
     if (res.success && res.data) setLabels(res.data);
     else toast.error(res.error || t.projects.settings.failedToLoadLabels);
     setLoading(false);
-  };
+    // `t` intentionally excluded — keeping `load` stable per-projectId avoids
+    // re-fetching labels on every locale switch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
-  useEffect(() => { load(); }, [projectId]);
+  useEffect(() => { load(); }, [load]);
 
   const startEdit = (label: ProjectLabel) => {
     setEditingId(label.id);
@@ -286,7 +289,7 @@ export function LabelsSection({ projectId, isAdmin }: LabelsSectionProps) {
                       <LabelEditRow
                         key={label.id}
                         draft={draft}
-                        setDraft={setDraft as any}
+                        setDraft={setDraft}
                         onSave={saveEdit}
                         onCancel={cancelEdit}
                         busy={busy}

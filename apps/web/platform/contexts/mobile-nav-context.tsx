@@ -188,15 +188,7 @@ export function useMobileNavOptional() {
   return { ...state, ...actions };
 }
 
-// Separate hooks for when you only need state or actions
-function useMobileNavState() {
-  const state = useContext(MobileNavStateContext);
-  if (!state) {
-    throw new Error('useMobileNavState must be used within a MobileNavProvider');
-  }
-  return state;
-}
-
+// Separate hook for when you only need actions (avoids re-rendering on state-only changes)
 export function useMobileNavActions() {
   const actions = useContext(MobileNavActionsContext);
   if (!actions) {

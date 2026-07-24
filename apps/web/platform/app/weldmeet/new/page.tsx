@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useAuth } from '@clerk/clerk-react';
-import { useCreateMeeting, useJoinByCode, useUpcomingMeetings } from '@/hooks/queries/use-weldmeet-queries';
+import { useCreateMeeting, useJoinByCode, useUpcomingMeetings, type Meeting } from '@/hooks/queries/use-weldmeet-queries';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { setStartHandoff } from '@/lib/weldmeet/start-handoff';
@@ -19,7 +19,6 @@ import { Video, Plus, Link2, Calendar, Keyboard, Clock, Users, ChevronRight, Cli
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@weldsuite/ui/components/dialog';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
-import { useVirtualBackgroundPreference } from '@/hooks/use-virtual-background';
 
 import { QuickCreateCard } from '@/app/weldcalendar/components/calendar-view';
 import { useUserCalendars } from '@/hooks/queries/use-calendar-queries';
@@ -41,8 +40,6 @@ export default function NewMeetingPage() {
 
   const { data: calendarsData } = useUserCalendars();
   const calendars = calendarsData?.data ?? [];
-
-  const { backgroundType, backgroundValue, setBlur, setImage, clear: clearBackground } = useVirtualBackgroundPreference();
 
   const [joinCode, setJoinCode] = useState('');
   const [meetingLink, setMeetingLink] = useState<string | null>(null);
@@ -85,9 +82,9 @@ export default function NewMeetingPage() {
         waitingRoom: true,
       });
       navigate({ to: '/weldmeet/$meetingId/room', params: { meetingId: result.id } });
-    } catch (err: any) {
+    } catch (err) {
       toast.error(t.newMeetingPage.failedToCreate, {
-        description: err?.response?.data?.error || err?.message || t.newMeetingPage.failedToCreateHint,
+        description: err instanceof Error ? err.message : t.newMeetingPage.failedToCreateHint,
       });
     }
   };
@@ -107,9 +104,9 @@ export default function NewMeetingPage() {
       const meetingPortalUrl = import.meta.env.VITE_MEETING_PORTAL_URL || window.location.origin;
       const url = `${meetingPortalUrl}/${workspaceId}/${joinCode}`;
       setMeetingLink(url);
-    } catch (err: any) {
+    } catch (err) {
       toast.error(t.newMeetingPage.failedToCreate, {
-        description: err?.response?.data?.error || err?.message || t.newMeetingPage.failedToCreateHint,
+        description: err instanceof Error ? err.message : t.newMeetingPage.failedToCreateHint,
       });
     }
   };
@@ -276,7 +273,7 @@ export default function NewMeetingPage() {
               </Button>
             </div>
             <div className="space-y-2">
-              {upcomingMeetings.map((meeting: any) => (
+              {upcomingMeetings.map((meeting: Meeting) => (
                 <Card
                   key={meeting.id}
                   className="cursor-pointer hover:bg-accent/50 transition-colors"
@@ -348,19 +345,25 @@ export default function NewMeetingPage() {
   );
 }
 
+interface WorkspaceMemberOption {
+  userId: string;
+  name?: string | null;
+  email?: string | null;
+}
+
 function MeetingReadyAddPeople({ meetingLink }: { meetingLink: string }) {
   const t = getTranslations('weldmeet');
   const { data: membersData } = useWorkspaceMembers(1, 50);
   const [search, setSearch] = useState('');
   const [invited, setInvited] = useState<Set<string>>(new Set());
 
-  const members = (membersData?.data ?? []).filter((m: any) => {
+  const members = (membersData?.data ?? []).filter((m: WorkspaceMemberOption) => {
     if (!search) return true;
     const q = search.toLowerCase();
     return (m.name?.toLowerCase().includes(q) || m.email?.toLowerCase().includes(q));
   });
 
-  const handleInvite = (member: any) => {
+  const handleInvite = (member: WorkspaceMemberOption) => {
     setInvited(prev => new Set(prev).add(member.userId));
     try { navigator.clipboard.writeText(meetingLink); } catch { /* ignore */ }
   };
@@ -393,7 +396,7 @@ function MeetingReadyAddPeople({ meetingLink }: { meetingLink: string }) {
           {members.length === 0 && (
             <p className="text-xs text-muted-foreground text-center py-6">{t.newMeetingPage.noMembersFound}</p>
           )}
-          {members.map((m: any) => {
+          {members.map((m: WorkspaceMemberOption) => {
             const isInvited = invited.has(m.userId);
             return (
               <div key={m.userId} className="flex items-center gap-3 py-2.5">

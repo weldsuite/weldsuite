@@ -27,6 +27,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import type { TranslationsType } from '@/lib/i18n/types';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import {
   EmptyStateIllustration,
@@ -36,6 +37,51 @@ import {
   type GroupConfig,
 } from '@/components/entity-list';
 
+type DocumentsTranslations = TranslationsType['accounting']['documents'];
+
+interface OcrVendor {
+  name: string | null;
+  address: string | null;
+  taxNumber: string | null;
+  kvkNumber: string | null;
+  iban: string | null;
+  bic: string | null;
+}
+
+interface OcrLineItem {
+  description: string;
+  quantity: number | null;
+  unitPrice: number | null;
+  taxRate: number | null;
+  total: number | null;
+}
+
+interface OcrTaxBreakdown {
+  rate: number;
+  taxableAmount: number;
+  taxAmount: number;
+}
+
+interface OcrResult {
+  vendor: OcrVendor;
+  invoiceNumber: string | null;
+  invoiceDate: string | null;
+  dueDate: string | null;
+  currency: string | null;
+  lineItems: OcrLineItem[];
+  subtotal: number | null;
+  taxBreakdown: OcrTaxBreakdown[];
+  totalTax: number | null;
+  total: number | null;
+  paymentReference: string | null;
+  iban: string | null;
+  confidence: {
+    overall: number;
+    fields: Record<string, number>;
+  };
+  rawText: string | null;
+}
+
 interface DocumentRow {
   id: string;
   fileName: string;
@@ -44,7 +90,7 @@ interface DocumentRow {
   status: string;
   matchedContactId?: string | null;
   mimeType?: string | null;
-  ocrResult?: Record<string, any> | null;
+  ocrResult?: OcrResult | null;
 }
 
 const ACCEPTED_TYPES = 'image/jpeg,image/jpg,image/png,image/webp';
@@ -122,13 +168,13 @@ export default function DocumentInboxPage() {
 
   const processDoc = useMutation({
     mutationFn: (id: string) => accountingApi.processDocument(id),
-    onSuccess: (res: any) => {
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: accountingKeys.documents.all });
       qc.invalidateQueries({ queryKey: accountingKeys.documents.stats() });
-      const processed = res?.data;
+      const processed = res?.data as { id?: string } | undefined;
       if (processed?.id) {
         accountingApi.getDocument(processed.id).then((full) => {
-          if (full?.data) setSelectedDoc(full.data as any);
+          if (full?.data) setSelectedDoc(full.data as unknown as DocumentRow);
         });
       }
     },
@@ -148,7 +194,7 @@ export default function DocumentInboxPage() {
     onSuccess: async (_res, id) => {
       qc.invalidateQueries({ queryKey: accountingKeys.documents.all });
       const full = await accountingApi.getDocument(id);
-      if (full?.data) setSelectedDoc(full.data as any);
+      if (full?.data) setSelectedDoc(full.data as unknown as DocumentRow);
     },
   });
 
@@ -189,7 +235,7 @@ export default function DocumentInboxPage() {
           source: 'upload',
         });
 
-        const docId = (created as any)?.data?.id;
+        const docId = created?.data?.id;
         if (!docId) {
           setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'failed', error: st('sweep.weldbooks.documents.recordNotCreated') } : it));
           continue;
@@ -201,8 +247,9 @@ export default function DocumentInboxPage() {
         await processDoc.mutateAsync(docId);
 
         setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'done' } : it));
-      } catch (err: any) {
-        setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'failed', error: err?.message ?? st('sweep.weldbooks.common.unknownError') } : it));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : st('sweep.weldbooks.common.unknownError');
+        setUploadQueue((q) => q.map((it) => it.id === queueId ? { ...it, phase: 'failed', error: message } : it));
       }
     }
   }, [fileUpload, processDoc, qc, st]);
@@ -221,8 +268,8 @@ export default function DocumentInboxPage() {
   }, [handleFiles]);
 
   // ------------ Data binding ------------
-  const documents = ((documentsQuery.data as any)?.data ?? []) as unknown as DocumentRow[];
-  const stats = ((statsQuery.data as any)?.data ?? []) as Array<{ status: string; count: number }>;
+  const documents = (documentsQuery.data?.data ?? []) as unknown as DocumentRow[];
+  const stats = statsQuery.data?.data ?? [];
 
   // Group by processing status, most-actionable first. Only shown while no
   // status filter is active — otherwise the lone group header is redundant.
@@ -273,7 +320,7 @@ export default function DocumentInboxPage() {
       header: td.colSupplierDetected,
       width: 'flex-1',
       render: (doc) => (
-        <span className="text-sm">{(doc.ocrResult as any)?.vendor?.name ?? '-'}</span>
+        <span className="text-sm">{doc.ocrResult?.vendor?.name ?? '-'}</span>
       ),
     },
     {
@@ -281,7 +328,7 @@ export default function DocumentInboxPage() {
       header: td.colAmountDetected,
       width: 'w-[120px]',
       render: (doc) => {
-        const total = (doc.ocrResult as any)?.total;
+        const total = doc.ocrResult?.total;
         return <span className="text-sm">{total != null ? fmt(total) : '-'}</span>;
       },
     },
@@ -436,7 +483,7 @@ export default function DocumentInboxPage() {
                 {td.reject}
               </Button>
               <div className="flex gap-2">
-                {!selectedDoc.matchedContactId && (selectedDoc.ocrResult as any)?.vendor?.name && (
+                {!selectedDoc.matchedContactId && selectedDoc.ocrResult?.vendor?.name && (
                   <Button variant="outline" onClick={() => setSupplierDialog(selectedDoc)}>
                     <UserPlus className="h-4 w-4 mr-1" />
                     {td.createSupplier}
@@ -471,7 +518,7 @@ function CreateBillButton({ doc, label }: { doc: DocumentRow; label: string }) {
   return (
     <Button
       onClick={() => {
-        navigate({ to: '/weldbooks/bills/add', search: { fromDocument: doc.id } as any });
+        navigate({ to: '/weldbooks/bills/add', search: { fromDocument: doc.id } });
       }}
     >
       <Receipt className="h-4 w-4 mr-1" />
@@ -489,9 +536,9 @@ function CreateSupplierFromOcrDialog({
   doc: DocumentRow | null;
   onClose: () => void;
   onCreated: () => void;
-  td: any;
+  td: DocumentsTranslations;
 }) {
-  const vendor = (doc?.ocrResult as any)?.vendor ?? {};
+  const vendor = doc?.ocrResult?.vendor ?? ({} as Partial<OcrVendor>);
   const [name, setName] = useState(vendor.name ?? '');
   const [vatNumber, setVatNumber] = useState(vendor.taxNumber ?? '');
   const [registrationNumber, setRegistrationNumber] = useState(vendor.kvkNumber ?? '');
@@ -571,7 +618,7 @@ function CreateSupplierFromOcrDialog({
   );
 }
 
-function OcrResultView({ result, matchedContactId, td }: { result: any; matchedContactId: string | null; td: any }) {
+function OcrResultView({ result, matchedContactId, td }: { result: OcrResult; matchedContactId: string | null; td: DocumentsTranslations }) {
   return (
     <div className="space-y-4">
       {/* Supplier */}
@@ -626,7 +673,7 @@ function OcrResultView({ result, matchedContactId, td }: { result: any; matchedC
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {result.lineItems.map((item: any, i: number) => (
+                {result.lineItems.map((item, i: number) => (
                   <TableRow key={i}>
                     <TableCell className="text-sm">{item.description}</TableCell>
                     <TableCell className="text-right text-sm">{item.quantity ?? '-'}</TableCell>
@@ -648,7 +695,7 @@ function OcrResultView({ result, matchedContactId, td }: { result: any; matchedC
             <span>{td.ocrSubtotal}</span>
             <span>{result.subtotal != null ? fmt(result.subtotal) : '-'}</span>
           </div>
-          {result.taxBreakdown?.map((tb: any, i: number) => (
+          {result.taxBreakdown?.map((tb, i: number) => (
             <div key={i} className="flex justify-between text-muted-foreground">
               <span>{td.ocrVatLine.replace('{rate}', String(tb.rate)).replace('{amount}', fmt(tb.taxableAmount))}</span>
               <span>{fmt(tb.taxAmount)}</span>

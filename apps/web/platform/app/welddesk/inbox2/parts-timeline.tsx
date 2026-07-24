@@ -11,7 +11,6 @@ import type { DeskConversationPart, DeskPartAuthorType } from '@/hooks/queries/u
 import type { DeskWorkspaceMember } from '@/hooks/queries/use-desk-workspace-members';
 import type {
   ButtonGroupBlock,
-  CardBlock,
   ContextBlock,
   DividerBlock,
   ImageBlock,
@@ -251,7 +250,8 @@ function ContextBlockView({ block }: { block: ContextBlock }) {
   return <p className="text-xs text-muted-foreground">{block.content}</p>;
 }
 
-function DividerBlockView(_props: { block: DividerBlock }) {
+function DividerBlockView(props: { block: DividerBlock }) {
+  void props;
   return <div className="h-px bg-border my-1" />;
 }
 

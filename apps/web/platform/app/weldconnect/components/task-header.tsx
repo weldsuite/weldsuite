@@ -22,7 +22,7 @@ export function TaskHeader({ onWeldAgentToggle, onCalendarToggle, onNotification
   if (pathParts.length > 1) {
     for (let i = 1; i < pathParts.length; i++) {
       const part = pathParts[i];
-      let label = part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, ' ');
+      const label = part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, ' ');
 
       const href = '/' + pathParts.slice(0, i + 1).join('/');
       segments.push({ label, href });

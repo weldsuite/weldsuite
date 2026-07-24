@@ -29,32 +29,26 @@ export default function SettingsPage() {
       <Tabs defaultValue="profile" className="space-y-4">
         <TabsList>
           <TabsTrigger value="profile">
-            {/* @ts-ignore */}
             <User className="h-4 w-4 mr-0.5" />
             {st('sweep.weldflow.settingsPage.profile')}
           </TabsTrigger>
           <TabsTrigger value="notifications">
-            {/* @ts-ignore */}
             <Bell className="h-4 w-4 mr-0.5" />
             {st('sweep.weldflow.settingsPage.notifications')}
           </TabsTrigger>
           <TabsTrigger value="security">
-            {/* @ts-ignore */}
             <Shield className="h-4 w-4 mr-0.5" />
             {st('sweep.weldflow.settingsPage.security')}
           </TabsTrigger>
           <TabsTrigger value="appearance">
-            {/* @ts-ignore */}
             <Palette className="h-4 w-4 mr-0.5" />
             {st('sweep.weldflow.settingsPage.appearance')}
           </TabsTrigger>
           <TabsTrigger value="integrations">
-            {/* @ts-ignore */}
             <Globe className="h-4 w-4 mr-0.5" />
             {st('sweep.weldflow.settingsPage.integrations')}
           </TabsTrigger>
           <TabsTrigger value="data">
-            {/* @ts-ignore */}
             <Database className="h-4 w-4 mr-0.5" />
             {st('sweep.weldflow.settingsPage.dataAndPrivacy')}
           </TabsTrigger>
@@ -108,8 +102,7 @@ export default function SettingsPage() {
                 />
               </div>
               <Button>
-                {/* @ts-ignore */}
-                <Save className="mr-0.5 h-4 w-4" />
+                    <Save className="mr-0.5 h-4 w-4" />
                 {st('sweep.weldflow.settingsPage.saveChanges')}
               </Button>
             </CardContent>
@@ -172,8 +165,7 @@ export default function SettingsPage() {
               </div>
 
               <Button>
-                {/* @ts-ignore */}
-                <Save className="mr-0.5 h-4 w-4" />
+                    <Save className="mr-0.5 h-4 w-4" />
                 {st('sweep.weldflow.settingsPage.savePreferences')}
               </Button>
             </CardContent>
@@ -298,8 +290,7 @@ export default function SettingsPage() {
                 </Select>
               </div>
               <Button>
-                {/* @ts-ignore */}
-                <Save className="mr-0.5 h-4 w-4" />
+                    <Save className="mr-0.5 h-4 w-4" />
                 {st('sweep.weldflow.settingsPage.savePreferences')}
               </Button>
             </CardContent>

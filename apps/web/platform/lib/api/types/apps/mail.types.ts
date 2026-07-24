@@ -5,6 +5,10 @@
 
 import { BaseEntity, Attachment } from '../common.types';
 
+// The `Mail.X` dot-access pattern below is consumed across many files
+// outside this module's scope (app/weldmail, lib/integrations); converting
+// away from a namespace would require updating every call site.
+// eslint-disable-next-line @typescript-eslint/no-namespace
 export namespace Mail {
   /**
    * Email Account
@@ -62,7 +66,7 @@ export namespace Mail {
 
     // Metadata
     tags?: string[];
-    customFields?: Record<string, any>;
+    customFields?: Record<string, unknown>;
   }
 
   /**
@@ -158,7 +162,7 @@ export namespace Mail {
 
     // Metadata
     headers?: Record<string, string>;
-    customFields?: Record<string, any>;
+    customFields?: Record<string, unknown>;
   }
 
   /**
@@ -198,9 +202,48 @@ export namespace Mail {
   // Supporting Types
   // ==========================================
 
+  export interface EmailAddress {
+    name?: string;
+    email: string;
+  }
+
+  export interface ProviderConfig {
+    tenantId?: string;
+    clientId?: string;
+    scopes?: string[];
+    [key: string]: unknown;
+  }
+
+  export interface EmailFolder {
+    id: string;
+    name: string;
+    type?: 'inbox' | 'sent' | 'drafts' | 'trash' | 'spam' | 'archive' | 'custom';
+    unreadCount?: number;
+    totalCount?: number;
+  }
+
+  export interface AutoReply {
+    enabled: boolean;
+    subject?: string;
+    message?: string;
+    startDate?: Date;
+    endDate?: Date;
+  }
+
+  export interface ClickedLink {
+    url: string;
+    clickedAt: Date;
+  }
+
   // ==========================================
   // Enums
   // ==========================================
+
+  export type EmailProvider = 'gmail' | 'outlook' | 'imap' | 'exchange' | 'other';
+  export type SyncStatus = 'idle' | 'syncing' | 'error' | 'paused';
+  export type AccountStatus = 'active' | 'inactive' | 'error' | 'suspended';
+  export type EmailPriority = 'low' | 'normal' | 'high';
+  export type SecurityStatus = 'pass' | 'fail' | 'neutral' | 'none' | 'unknown';
 
   /**
    * Email Draft
@@ -223,6 +266,10 @@ export namespace Mail {
   /**
    * Email Attachment (extends base Attachment)
    */
+  export interface EmailAttachment extends Attachment {
+    inline?: boolean;
+    contentId?: string;
+  }
   // MailDomain is defined earlier in this file (lines 362-371)
 
   /**

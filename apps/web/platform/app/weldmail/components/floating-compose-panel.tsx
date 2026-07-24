@@ -14,8 +14,6 @@ import { useParams, useRouter } from '@/lib/router';
 import {
   X,
   Paperclip,
-  Clock,
-  Send,
   Loader2,
   Link,
   Smile,
@@ -62,17 +60,17 @@ import { useAiCreditsToast } from '@/hooks/use-ai-credits-toast';
 // Server-side mirror lives in apps/api-worker/src/routes/mail/accounts.ts.
 const MAX_EMAIL_SIZE_BYTES = 5 * 1024 * 1024;
 
-export function FloatingComposePanel() {
-  const AVATAR_COLORS = [
-    '#6366f1', '#8b5cf6', '#06b6d4', '#3b82f6', '#10b981',
-    '#f59e0b', '#ef4444', '#ec4899', '#14b8a6', '#f97316',
-  ];
-  const generateColor = (str: string) => {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-  };
+const AVATAR_COLORS = [
+  '#6366f1', '#8b5cf6', '#06b6d4', '#3b82f6', '#10b981',
+  '#f59e0b', '#ef4444', '#ec4899', '#14b8a6', '#f97316',
+];
+function generateColor(str: string) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
 
+export function FloatingComposePanel() {
   const { t } = useI18n();
   const handleAiCreditsError = useAiCreditsToast();
   const router = useRouter();
@@ -80,6 +78,8 @@ export function FloatingComposePanel() {
   const composeContext = useComposeSafe();
   const accountId = (params?.accountId as string) || composeContext?.composeData?.accountId;
   const callContext = useCallSafe();
+  const isDialerOpen = callContext?.isDialerOpen;
+  const setIsDialerOpen = callContext?.setIsDialerOpen;
   const mobileNav = useMobileNavOptional();
   const { getClient } = useAppApiClient();
   const createDraftMutation = useCreateMailDraft();
@@ -89,10 +89,10 @@ export function FloatingComposePanel() {
 
   // Only one floating panel at a time: close the call dialer when compose opens
   useEffect(() => {
-    if (composeContext?.isComposeOpen && callContext?.isDialerOpen) {
-      callContext.setIsDialerOpen(false);
+    if (composeContext?.isComposeOpen && isDialerOpen) {
+      setIsDialerOpen?.(false);
     }
-  }, [composeContext?.isComposeOpen]);
+  }, [composeContext?.isComposeOpen, isDialerOpen, setIsDialerOpen]);
   const textareaRef = useRef<HTMLDivElement>(null);
   const bodyInitializedRef = useRef(false);
 
@@ -102,7 +102,7 @@ export function FloatingComposePanel() {
   const [ccRecipients, setCcRecipients] = useState('');
   const [bccRecipients, setBccRecipients] = useState('');
   const [fontSize, setFontSize] = useState('14');
-  const [textAlignment, setTextAlignment] = useState<'left' | 'center' | 'right'>('left');
+  const [textAlignment] = useState<'left' | 'center' | 'right'>('left');
   const [scheduledTime, setScheduledTime] = useState<Date | null>(null);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
 
@@ -227,9 +227,6 @@ export function FloatingComposePanel() {
   const handleUnderline = () => { executeCommand('underline'); checkFormatting(); };
   const handleBulletList = () => { executeCommand('insertUnorderedList'); checkFormatting(); };
   const handleNumberedList = () => { executeCommand('insertOrderedList'); checkFormatting(); };
-  const handleAlignLeft = () => { executeCommand('justifyLeft'); setTextAlignment('left'); checkFormatting(); };
-  const handleAlignCenter = () => { executeCommand('justifyCenter'); setTextAlignment('center'); checkFormatting(); };
-  const handleAlignRight = () => { executeCommand('justifyRight'); setTextAlignment('right'); checkFormatting(); };
   const handleLink = () => { const url = prompt('Enter URL:'); if (url) executeCommand('createLink', url); checkFormatting(); };
   const insertEmoji = (emoji: string) => { executeCommand('insertText', emoji); checkFormatting(); };
 
@@ -380,7 +377,7 @@ export function FloatingComposePanel() {
           return;
         }
 
-        let uploadedAttachments: Array<{
+        const uploadedAttachments: Array<{
           filename: string;
           contentType: string;
           size: number;
@@ -439,7 +436,7 @@ export function FloatingComposePanel() {
           window.dispatchEvent(new Event('mail:refresh'));
           closeCompose();
         } else {
-          toast.error((result as any).error || t.mail.floatingCompose.failedToScheduleEmail);
+          toast.error(result.error || t.mail.floatingCompose.failedToScheduleEmail);
         }
       } catch {
         toast.error(t.mail.floatingCompose.failedToScheduleEmail);
@@ -463,7 +460,7 @@ export function FloatingComposePanel() {
         return;
       }
 
-      let uploadedAttachments: Array<{
+      const uploadedAttachments: Array<{
         filename: string;
         contentType: string;
         size: number;
@@ -523,7 +520,7 @@ export function FloatingComposePanel() {
       } else {
         toast.error(result.error || t.mail.floatingCompose.failedToSendEmail);
       }
-    } catch (error) {
+    } catch {
       toast.error(t.mail.floatingCompose.failedToSendEmail);
     } finally {
       setIsSending(false);

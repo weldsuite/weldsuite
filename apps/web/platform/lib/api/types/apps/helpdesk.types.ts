@@ -3,8 +3,13 @@
  * Customer support and ticket management
  */
 
-import { BaseEntity, User, Attachment } from '../common.types';
+import { BaseEntity, Attachment } from '../common.types';
 
+// The `Helpdesk.X` / `Helpdesk.Api.X` dot-access pattern below is consumed
+// across many files outside this module's scope (app/welddesk, hooks/queries,
+// hooks/helpdesk); converting away from namespaces would require updating
+// every call site.
+// eslint-disable-next-line @typescript-eslint/no-namespace
 export namespace Helpdesk {
   /**
    * Conversation - Customer conversation/thread
@@ -103,7 +108,7 @@ export namespace Helpdesk {
     hasAttachments?: boolean;
 
     // Metadata
-    metadata?: Record<string, any>;
+    metadata?: Record<string, unknown>;
   }
 
   /**
@@ -183,7 +188,7 @@ export namespace Helpdesk {
     // Internal
     internalNotes?: TicketNote[];
     tags?: string[];
-    customFields?: Record<string, any>;
+    customFields?: Record<string, unknown>;
 
     // Related
     parentTicketId?: string;
@@ -239,7 +244,7 @@ export namespace Helpdesk {
     attachments?: Attachment[];
 
     // Metadata
-    metadata?: Record<string, any>;
+    metadata?: Record<string, unknown>;
   }
 
   /**
@@ -319,12 +324,34 @@ export namespace Helpdesk {
 
     // Tags
     tags?: string[];
-    customFields?: Record<string, any>;
+    customFields?: Record<string, unknown>;
 
     // Flags
     isPinned?: boolean;
     allowComments?: boolean;
     requiresLogin?: boolean;
+  }
+
+  /**
+   * Article Folder - hierarchical grouping for knowledge base articles.
+   * The API returns a flat list (rows carry `parentId`); callers nest the
+   * `children` array client-side when building a tree.
+   */
+  export interface ArticleFolder {
+    id: string;
+    name: string;
+    slug?: string | null;
+    description?: string | null;
+    parentId?: string | null;
+    path?: string | null;
+    level: number;
+    sortOrder: number;
+    icon?: string | null;
+    color?: string | null;
+    articleCount: number;
+    createdAt: Date;
+    updatedAt: Date;
+    children?: ArticleFolder[];
   }
 
   /**
@@ -530,9 +557,109 @@ export namespace Helpdesk {
   // Supporting Types
   // ==========================================
 
+  interface DayHours {
+    isOpen: boolean;
+    openTime: string; // "09:00"
+    closeTime: string; // "17:00"
+  }
+
+  export type WorkingHours = Record<
+    'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday',
+    DayHours
+  >;
+
+  export type BusinessHours = WorkingHours;
+
+  export interface NotificationPreferences {
+    email?: boolean;
+    push?: boolean;
+    sms?: boolean;
+    inApp?: boolean;
+  }
+
+  export interface EscalationRule {
+    id: string;
+    condition: string;
+    afterMinutes: number;
+    action: 'notify' | 'reassign' | 'escalate_priority';
+    notifyUserIds?: string[];
+  }
+
+  export interface SLACondition {
+    field: string;
+    operator: 'equals' | 'not_equals' | 'contains' | 'greater_than' | 'less_than';
+    value: string;
+  }
+
+  export interface SLATarget {
+    minutes: number;
+    businessHoursOnly?: boolean;
+  }
+
+  export interface SLAReminder {
+    beforeMinutes: number;
+    notifyUserIds?: string[];
+    message?: string;
+  }
+
+  export interface MacroAction {
+    type: 'set_status' | 'set_priority' | 'assign' | 'add_tag' | 'send_email';
+    value?: string;
+  }
+
+  export interface SurveyResponse {
+    questionId: string;
+    question: string;
+    answer: string | number;
+  }
+
+  export interface AiMessage {
+    id: string;
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    createdAt: Date;
+  }
+
   // ==========================================
   // Enums
   // ==========================================
+
+  export type TicketChannel =
+    | 'email'
+    | 'chat'
+    | 'phone'
+    | 'web_form'
+    | 'social'
+    | 'api'
+    | 'whatsapp'
+    | 'sms';
+
+  export type TicketCategory =
+    | 'general'
+    | 'technical'
+    | 'billing'
+    | 'account'
+    | 'feature_request'
+    | 'bug'
+    | 'other';
+
+  export type TicketSeverity = 'low' | 'medium' | 'high' | 'critical';
+
+  export type TicketType = 'question' | 'incident' | 'problem' | 'task' | 'feature_request';
+
+  export type SLAStatus = 'on_track' | 'at_risk' | 'breached' | 'met';
+
+  export type MessageType = 'reply' | 'note' | 'system' | 'forward';
+
+  export type ArticleStatus = 'draft' | 'published' | 'archived';
+
+  export type ArticleVisibility = 'public' | 'internal' | 'restricted';
+
+  export type AgentRole = 'agent' | 'senior_agent' | 'team_lead' | 'admin';
+
+  export type AgentStatus = 'active' | 'inactive' | 'on_leave';
+
+  export type AgentPermission = string;
 
   export type ConversationStatus =
     | 'active'
@@ -566,6 +693,7 @@ export namespace Helpdesk {
   /**
    * Namespace for API-specific types (requests/responses)
    */
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   export namespace Api {
     // Dashboard & Statistics
     export interface DashboardStats {
@@ -642,7 +770,7 @@ export namespace Helpdesk {
       role?: string;
       avatar?: string;
       tags?: string[];
-      customFields?: Record<string, any>;
+      customFields?: Record<string, unknown>;
       totalTickets?: number;
       lastContactDate?: Date;
       createdAt: Date;
@@ -656,7 +784,7 @@ export namespace Helpdesk {
       company?: string;
       role?: string;
       tags?: string[];
-      customFields?: Record<string, any>;
+      customFields?: Record<string, unknown>;
     }
 
     export interface UpdateContactRequest {
@@ -666,7 +794,7 @@ export namespace Helpdesk {
       company?: string;
       role?: string;
       tags?: string[];
-      customFields?: Record<string, any>;
+      customFields?: Record<string, unknown>;
     }
 
     // Customers (with helpdesk-specific data)
@@ -951,7 +1079,7 @@ export namespace Helpdesk {
         orderId?: string;
         productId?: string;
         ticketId?: string;
-        [key: string]: any;
+        [key: string]: unknown;
       };
       createdAt: Date;
       updatedAt: Date;
@@ -966,7 +1094,7 @@ export namespace Helpdesk {
         orderId?: string;
         productId?: string;
         ticketId?: string;
-        [key: string]: any;
+        [key: string]: unknown;
       };
     }
 
@@ -1042,7 +1170,7 @@ export namespace Helpdesk {
       };
     }
 
-    export interface UpdateSettingsRequest extends Partial<HelpdeskSettings> {}
+    export type UpdateSettingsRequest = Partial<HelpdeskSettings>;
 
     // Widget Settings
     export interface WidgetSettings {
@@ -1086,7 +1214,7 @@ export namespace Helpdesk {
       updatedAt?: Date;
     }
 
-    export interface UpdateWidgetSettingsRequest extends Partial<WidgetSettings> {}
+    export type UpdateWidgetSettingsRequest = Partial<WidgetSettings>;
 
     // Filter Types
     // Article Folder Types
@@ -1095,7 +1223,7 @@ export namespace Helpdesk {
       id?: string;
       systemInstructions?: string;
       knowledgePermissions?: Record<string, boolean>;
-      escalationSettings?: Record<string, any>;
+      escalationSettings?: Record<string, unknown>;
       isActive?: boolean;
       createdAt?: Date;
       updatedAt?: Date;
@@ -1107,7 +1235,7 @@ export namespace Helpdesk {
       customerEmail?: string;
       customerName?: string;
       status: 'ai_active' | 'waiting_for_human' | 'transferred_to_human' | 'resolved' | 'converted_to_ticket';
-      conversationContext?: Record<string, any>;
+      conversationContext?: Record<string, unknown>;
       transferredAt?: Date;
       assignedAgentId?: string;
       assignedAgentName?: string;
@@ -1125,7 +1253,7 @@ export namespace Helpdesk {
       shouldEscalate?: boolean;
       shouldCreateTicket?: boolean;
       escalationReason?: string;
-      metadata?: Record<string, any>;
+      metadata?: Record<string, unknown>;
     }
 
     // ===========================
@@ -1145,6 +1273,8 @@ export namespace Helpdesk {
       | 'outlook'
       | 'imap';
 
+    export type ChannelIntegrationStatus = 'connected' | 'disconnected' | 'error' | 'pending';
+
     /**
      * Channel integration - represents a connected channel (e.g., Discord server, Slack workspace)
      */
@@ -1160,10 +1290,10 @@ export namespace Helpdesk {
         email?: string;
         avatar?: string;
         /** Provider-specific metadata (e.g., server name for Discord) */
-        metadata?: Record<string, any>;
+        metadata?: Record<string, unknown>;
       };
       /** Provider-specific configuration */
-      config?: Record<string, any>;
+      config?: Record<string, unknown>;
       /** When the OAuth token expires */
       tokenExpiresAt?: Date;
       /** Last sync timestamp */
@@ -1229,7 +1359,7 @@ export namespace Helpdesk {
     export interface TestChannelConnectionResponse {
       success: boolean;
       message: string;
-      details?: Record<string, any>;
+      details?: Record<string, unknown>;
     }
 
     /**
@@ -1238,7 +1368,7 @@ export namespace Helpdesk {
     export interface SaveTokenIntegrationRequest {
       provider: ChannelProvider;
       token: string;
-      config?: Record<string, any>;
+      config?: Record<string, unknown>;
     }
 
     // ===========================
@@ -1257,6 +1387,18 @@ export namespace Helpdesk {
     /**
      * Discord ticket panel configuration
      */
+    export interface DiscordTicketPanel {
+      messageId: string;
+      channelId: string;
+      channelName?: string;
+      embedTitle?: string;
+      embedDescription?: string;
+      embedColor?: string;
+      buttonText?: string;
+      buttonStyle?: number;
+      postedAt?: Date;
+    }
+
     /**
      * Discord integration settings
      */
@@ -1340,6 +1482,12 @@ export namespace Helpdesk {
     /**
      * Slack channel information
      */
+    export interface SlackChannelInfo {
+      channelId: string;
+      channelName?: string;
+      enabled: boolean;
+    }
+
     /**
      * Slack integration settings
      */

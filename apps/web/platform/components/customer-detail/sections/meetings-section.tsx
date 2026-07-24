@@ -23,7 +23,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
+import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 import { cn } from '@/lib/utils';
 import type { SectionProps } from '../types';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -84,7 +84,10 @@ function formatDuration(seconds?: number) {
   return `${mins}m ${secs}s`;
 }
 
-export function MeetingsSection({ customer }: SectionProps) {
+// `customer` isn't read here, but the parameter must stay to match the
+// shared `SectionProps` contract every `<XSection customer={...} />` caller uses.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function MeetingsSection(_props: SectionProps) {
   const t = useTranslations();
   const router = useRouter();
   const [recordings] = useState<MeetingRecording[]>([]);
@@ -219,7 +222,7 @@ export function MeetingsSection({ customer }: SectionProps) {
   ], [t]);
 
   // Render row
-  const renderRow = useCallback((recording: MeetingRecording, handlers: RowHandlers<MeetingRecording>) => {
+  const renderRow = useCallback((recording: MeetingRecording) => {
     const isBotRecording = recording.type === 'bot';
     const status = recording.status?.toLowerCase() || '';
     const hasRecording = recording.recordingUrl && status === 'completed';

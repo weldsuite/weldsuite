@@ -44,7 +44,6 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Ticket as TicketIcon } from 'lucide-react';
 import {
   PersonDetailLayout,
-  type SidebarField,
 } from '@/components/person-detail';
 
 interface TicketData {

@@ -12,10 +12,35 @@ import { useI18n } from '@/lib/i18n/provider';
 
 type SubTab = 'general' | 'members' | 'labels' | 'stages' | 'github' | 'import';
 
+// Mirrors the (unexported) `ProjectMember`/`AvailableUser` shapes that
+// `MembersClient` expects — kept local since `members`/`availableUsers` come
+// through as untyped API rows from the project-members endpoints.
+interface SettingsProjectMember {
+  id: string;
+  userId: string;
+  role: string;
+  isActive: boolean;
+  joinedAt: string;
+  allocationPercentage?: number;
+  user?: {
+    id: string;
+    name: string;
+    email: string;
+    avatar?: string;
+  };
+}
+
+interface SettingsAvailableUser {
+  id: string;
+  name: string;
+  email: string;
+  image?: string;
+}
+
 interface SettingsClientProps {
   projectId: string;
-  members: any[];
-  availableUsers: any[];
+  members: SettingsProjectMember[];
+  availableUsers: SettingsAvailableUser[];
   isAdmin: boolean;
   canWrite: boolean;
   isViewer: boolean;

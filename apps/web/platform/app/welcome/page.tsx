@@ -1,30 +1,37 @@
 
-import { redirect } from '@/lib/router';
+import { useEffect } from 'react';
+import { useAuth } from '@clerk/clerk-react';
+import { useRouter, useSearchParams } from '@/lib/router';
+import { PageLoader } from '@/components/page-loader';
 import { WelcomeClient } from './welcome-client';
 
-export default async function WelcomePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
-}) {
-  const { userId, orgId } = await auth();
-  const params = await searchParams;
+export default function WelcomePage() {
+  const { userId, orgId, isLoaded } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  // If user is authenticated with an organization, redirect to dashboard
-  if (userId && orgId) {
-    redirect('/');
-  }
+  useEffect(() => {
+    if (!isLoaded) return;
 
-  // If authenticated but no organization, redirect to onboarding
-  if (userId && !orgId) {
-    redirect('/onboarding');
+    // If user is authenticated with an organization, redirect to dashboard
+    if (userId && orgId) {
+      router.replace('/');
+      return;
+    }
+
+    // If authenticated but no organization, redirect to onboarding
+    if (userId && !orgId) {
+      router.replace('/onboarding');
+    }
+  }, [isLoaded, userId, orgId, router]);
+
+  if (!isLoaded || (userId && orgId) || (userId && !orgId)) {
+    return <PageLoader />;
   }
 
   // Pass any error params
-  const error = typeof params.error === 'string' ? params.error : undefined;
-  const errorDescription = typeof params.error_description === 'string'
-    ? params.error_description
-    : undefined;
+  const error = searchParams.get('error') ?? undefined;
+  const errorDescription = searchParams.get('error_description') ?? undefined;
 
   return <WelcomeClient error={error} errorDescription={errorDescription} />;
 }

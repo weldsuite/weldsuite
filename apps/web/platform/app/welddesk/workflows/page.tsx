@@ -1,24 +1,48 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { PageLoader } from '@/components/page-loader';
-import { useHelpdeskWorkflows, useHelpdeskWorkflowStats, useCreateWorkflow } from '@/hooks/queries/use-automation-queries';
+import { useHelpdeskWorkflows, useHelpdeskWorkflowStats, useCreateWorkflow, type Workflow } from '@/hooks/queries/use-automation-queries';
 import { WorkflowsClient } from '@/app/weldconnect/workflows/components/workflows-client';
 import { WorkflowTemplatesDialog } from '@/app/welddesk/workflows/components/workflow-templates-dialog';
 import { HELPDESK_ROUTING_TRIGGERS, TRIGGER_CATEGORIES } from '@/app/welddesk/workflows/[id]/edit/helpdesk-workflow-constants';
+import type { WorkflowStep, WorkflowTrigger } from '@/app/welddesk/workflows/[id]/edit/types';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 
 /**
+ * `/helpdesk-workflows` also returns a display `sortOrder`, which the
+ * `Workflow` type (shared with WeldConnect workflows) doesn't model.
+ */
+type HelpdeskWorkflowRow = Workflow & { sortOrder?: number };
+
+/** Row shape handed to the shared `WorkflowsClient` list component. */
+interface MappedWorkflow {
+  id: string;
+  name: string;
+  description: string | null;
+  status: 'active' | 'paused' | 'draft' | 'archived';
+  triggerType: string;
+  stepsCount: number;
+  executionCount: number;
+  successRate: number | undefined;
+  lastExecutedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date | null;
+  sortOrder: number;
+}
+
+/**
  * Resolve the trigger key from a workflow's trigger config.
  * Returns a composite key like "helpdesk_conversation_message:created".
  */
-function getTriggerKey(workflow: any): string {
-  const trigger = workflow.triggers?.[0];
+function getTriggerKey(workflow: HelpdeskWorkflowRow): string {
+  const trigger = workflow.triggers?.[0] as WorkflowTrigger | undefined;
   if (!trigger) return 'unconfigured';
-  const entityType = trigger.entityType || trigger.config?.entityType || '';
-  const eventType = trigger.eventType || trigger.config?.eventType || '';
+  const config = trigger.config as { entityType?: string; eventType?: string } | undefined;
+  const entityType = trigger.entityType || config?.entityType || '';
+  const eventType = trigger.eventType || config?.eventType || '';
   if (!entityType || !eventType) return 'unconfigured';
   return `${entityType}:${eventType}`;
 }
@@ -53,8 +77,8 @@ export default function HelpdeskAutomationsPage() {
     setIsResetting(true);
     try {
       const client = await getClient();
-      const result = await client.post('/helpdesk-workflows/seed-defaults', {});
-      const data = (result as any).data;
+      const result = await client.post<{ data: { seeded: number } }>('/helpdesk-workflows/seed-defaults', {});
+      const data = result.data;
       if (data?.seeded > 0) {
         toast.success(tw.seededDefaultWorkflows.replace('{count}', String(data.seeded)));
       } else {
@@ -73,8 +97,8 @@ export default function HelpdeskAutomationsPage() {
     setIsResetting(true);
     try {
       const client = await getClient();
-      const result = await client.post('/helpdesk-workflows/reset-defaults', {});
-      const data = (result as any).data;
+      const result = await client.post<{ data: { deleted: number; created: number } }>('/helpdesk-workflows/reset-defaults', {});
+      const data = result.data;
       toast.success(tw.resetDefaultWorkflowsComplete.replace('{deleted}', String(data?.deleted ?? 0)).replace('{created}', String(data?.created ?? 0)));
       refetchWorkflows();
     } catch {
@@ -84,14 +108,14 @@ export default function HelpdeskAutomationsPage() {
     }
   };
 
-  const workflows = workflowsResult?.data ?? [];
+  const workflows = useMemo(() => (workflowsResult?.data ?? []) as HelpdeskWorkflowRow[], [workflowsResult?.data]);
   const stats = statsResult?.data;
 
   // Map workflows to client format, using the composite trigger key as triggerType
   // so the shared WorkflowsClient can display it and the group configs can filter on it.
   // Sort by sortOrder so workflows within each trigger group show in execution order
-  const mappedWorkflows = useMemo(() => workflows
-    .map((w: any) => ({
+  const mappedWorkflows = useMemo<MappedWorkflow[]>(() => workflows
+    .map((w): MappedWorkflow => ({
       id: w.id,
       name: w.name,
       description: w.description,
@@ -102,19 +126,19 @@ export default function HelpdeskAutomationsPage() {
       successRate: w.executionCount && w.successCount
         ? (w.successCount / w.executionCount) * 100
         : undefined,
-      lastExecutedAt: w.lastExecutedAt,
-      createdAt: w.createdAt,
-      updatedAt: w.updatedAt,
+      lastExecutedAt: w.lastExecutedAt as unknown as Date | null,
+      createdAt: w.createdAt as unknown as Date,
+      updatedAt: w.updatedAt as unknown as Date | null,
       sortOrder: w.sortOrder ?? 0,
     }))
-    .sort((a: any, b: any) => a.sortOrder - b.sortOrder),
+    .sort((a, b) => a.sortOrder - b.sortOrder),
   [workflows]);
 
   // Build group configs: one group per trigger, ordered by HELPDESK_ROUTING_TRIGGERS,
   // with unconfigured workflows shown last.
   const triggerGroups = useMemo(() => {
-    const keysInData = new Set(mappedWorkflows.map((w: any) => w.triggerType as string));
-    const groups: Array<{ id: string; label: string; sortOrder: number; filter: (w: any) => boolean }> = [];
+    const keysInData = new Set(mappedWorkflows.map((w) => w.triggerType));
+    const groups: Array<{ id: string; label: string; sortOrder: number; filter: (w: { triggerType?: string }) => boolean }> = [];
     let sortOrder = 1;
 
     for (const rt of HELPDESK_ROUTING_TRIGGERS) {
@@ -124,7 +148,7 @@ export default function HelpdeskAutomationsPage() {
           id: key,
           label: rt.label,
           sortOrder: sortOrder++,
-          filter: (w: any) => w.triggerType === key,
+          filter: (w) => w.triggerType === key,
         });
       }
     }
@@ -134,16 +158,16 @@ export default function HelpdeskAutomationsPage() {
         id: 'unconfigured',
         label: twc.noTrigger,
         sortOrder: sortOrder++,
-        filter: (w: any) => w.triggerType === 'unconfigured',
+        filter: (w) => w.triggerType === 'unconfigured',
       });
     }
 
     return groups;
-  }, [mappedWorkflows]);
+  }, [mappedWorkflows, twc.noTrigger]);
 
   // Build filter options from the triggers present in the data
   const triggerFilterOptions = useMemo(() => {
-    const keysInData = new Set(mappedWorkflows.map((w: any) => w.triggerType as string));
+    const keysInData = new Set(mappedWorkflows.map((w) => w.triggerType));
     const options: Array<{ value: string; label: string }> = [];
     for (const rt of HELPDESK_ROUTING_TRIGGERS) {
       const key = `${rt.entityType}:${rt.eventType}`;
@@ -155,7 +179,7 @@ export default function HelpdeskAutomationsPage() {
       options.push({ value: 'unconfigured', label: twc.noTriggerLabel });
     }
     return options;
-  }, [mappedWorkflows]);
+  }, [mappedWorkflows, twc.noTriggerLabel]);
 
   // No restriction on duplicate triggers — multiple workflows can share the same
   // trigger type and will execute in sortOrder (like Intercom).
@@ -179,13 +203,13 @@ export default function HelpdeskAutomationsPage() {
 
   // Calculate stats
   const initialStats = {
-    active: workflows.filter((w: any) => w.status === 'active').length,
-    paused: workflows.filter((w: any) => w.status === 'paused').length,
-    draft: workflows.filter((w: any) => w.status === 'draft').length,
+    active: workflows.filter((w) => w.status === 'active').length,
+    paused: workflows.filter((w) => w.status === 'paused').length,
+    draft: workflows.filter((w) => w.status === 'draft').length,
     totalExecutions: stats?.totalExecutions || 0,
   };
 
-  const handleCreateFromTemplate = (template: { name: string; description: string; triggers: any[]; steps: any[] }) => {
+  const handleCreateFromTemplate = (template: { name: string; description: string; triggers: WorkflowTrigger[]; steps: WorkflowStep[] }) => {
     setShowTemplates(false);
     createMutation.mutate(
       {

@@ -2,13 +2,8 @@
 import { useState, useEffect } from 'react';
 import { HostEntityFormLayout, type HostFormSection, type HostSummaryField } from '../../components/host-entity-form-layout';
 import { DomainAvailabilityChecker, type TransformedDomainResult } from '../../components/domain-availability-checker';
-import { Globe, CreditCard, CheckCircle2, Search, ArrowRight, ChevronDown, ChevronUp } from 'lucide-react';
-import { Badge } from '@weldsuite/ui/components/badge';
-import { Checkbox } from '@weldsuite/ui/components/checkbox';
-import { Alert, AlertDescription } from '@weldsuite/ui/components/alert';
-import { AlertCircle, Settings } from 'lucide-react';
+import { Globe, Search, ArrowRight, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Link } from '@/lib/router';
 import { redirectToCheckout } from '@/lib/host/domain-purchase-client';
 import { toast } from 'sonner';
 import { useAppApi } from '@/lib/api/use-app-api';
@@ -38,7 +33,7 @@ export function DomainRegistrationClient() {
 
   const { domains: domainsApi } = useAppApi();
   const [selectedDomains, setSelectedDomains] = useState<TransformedDomainResult[]>([]);
-  const [autoRenew, setAutoRenew] = useState(true);
+  const [autoRenew] = useState(true);
   const [isPending, setIsPending] = useState(false);
   const [expandedDomains, setExpandedDomains] = useState<Set<string>>(new Set());
   const [hasSearched, setHasSearched] = useState(false);
@@ -57,7 +52,7 @@ export function DomainRegistrationClient() {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [rotatingPhrases.length]);
 
   const handleDomainSelect = (domain: TransformedDomainResult) => {
     setSelectedDomains(prev => {

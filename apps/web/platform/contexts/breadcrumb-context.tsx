@@ -58,10 +58,15 @@ function useBreadcrumbContext() {
  */
 export function useBreadcrumbs(segments: BreadcrumbSegment[]) {
   const { setBreadcrumbs } = useBreadcrumbContext();
+  const segmentsKey = JSON.stringify(segments);
 
   useEffect(() => {
     setBreadcrumbs(segments);
-  }, [setBreadcrumbs, JSON.stringify(segments)]);
+    // Keyed by content (segmentsKey), not array reference — callers routinely
+    // pass a fresh inline array each render, so depending on `segments`
+    // directly would re-run this effect (and re-render the header) every time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setBreadcrumbs, segmentsKey]);
 }
 
 /**
@@ -73,10 +78,13 @@ export function useBreadcrumbs(segments: BreadcrumbSegment[]) {
 export function useOptionalBreadcrumbs(segments: BreadcrumbSegment[]) {
   const context = useContext(BreadcrumbContext);
   const setBreadcrumbs = context?.setBreadcrumbs;
+  const segmentsKey = JSON.stringify(segments);
 
   useEffect(() => {
     setBreadcrumbs?.(segments);
-  }, [setBreadcrumbs, JSON.stringify(segments)]);
+    // Keyed by content (segmentsKey), not array reference — see useBreadcrumbs above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setBreadcrumbs, segmentsKey]);
 }
 
 /**

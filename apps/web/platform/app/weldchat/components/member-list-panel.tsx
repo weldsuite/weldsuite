@@ -1,14 +1,13 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
 import { useChannelMembers, useWorkspaceMembers, useAddChannelMembers, useRemoveChannelMember, useChannel } from '@/hooks/queries/use-weldchat-queries';
+import type { ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { X, ShieldCheck, Crown, Plus, Search, UserMinus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { StatusDot } from '@weldsuite/ui/components/status-dot';
 import { usePresence } from '@/contexts/presence-context';
-import { cn } from '@/lib/utils';
 import { useChatContext } from './chat-context';
 import { useUser } from '@clerk/clerk-react';
 import { InviteAgentDialog } from './invite-agent-dialog';
@@ -23,9 +22,8 @@ interface MemberListPanelProps {
 }
 
 const ROLE_ORDER: Record<string, number> = { owner: 0, admin: 1, member: 2 };
-const ROLE_LABELS: Record<string, string> = { owner: 'Owner', admin: 'Admins', member: 'Members' };
 
-function RoleIcon({ role }: { role: string }) {
+function RoleIcon({ role }: { role: string | undefined }) {
   if (role === 'owner') return <Crown className="h-3 w-3 text-yellow-500" />;
   if (role === 'admin') return <ShieldCheck className="h-3 w-3 text-blue-500" />;
   return null;
@@ -47,14 +45,14 @@ export function MemberListPanel({ channelId, embedded = false }: MemberListPanel
   const [search, setSearch] = useState('');
   const canInviteExternal = useCan('team:invite_external');
   const { t } = useI18n();
-  const guestStrings = (t as any).weldchat?.guest;
-  const inviteExternalStrings = (t as any).weldchat?.inviteExternal;
+  const guestStrings = t.weldchat.guest;
+  const inviteExternalStrings = t.weldchat.inviteExternal;
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const members = data?.data || [];
+  const members = useMemo(() => data?.data || [], [data]);
   const channel = channelData?.data;
   const isPrivate = channel?.type === 'private';
-  const memberUserIds = new Set(members.map((m: any) => m.userId));
+  const memberUserIds = useMemo(() => new Set(members.map((m) => m.userId)), [members]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -74,17 +72,17 @@ export function MemberListPanel({ channelId, embedded = false }: MemberListPanel
   // Non-members available to add
   const availableMembers = useMemo(() => {
     const all = workspaceMembersData?.data ?? [];
-    const filtered = all.filter((m: any) => !memberUserIds.has(m.userId));
+    const filtered = all.filter((m) => !memberUserIds.has(m.userId));
     if (!search) return filtered;
     const q = search.toLowerCase();
-    return filtered.filter((m: any) => m.name?.toLowerCase().includes(q) || m.email?.toLowerCase().includes(q));
+    return filtered.filter((m) => m.name?.toLowerCase().includes(q) || m.email?.toLowerCase().includes(q));
   }, [workspaceMembersData, memberUserIds, search]);
 
   // Agents always count as online (they're not real users with presence).
   // Humans are grouped by actual presence status.
   const { onlineMembers, offlineMembers } = useMemo(() => {
-    const online: any[] = [];
-    const offline: any[] = [];
+    const online: ChatChannelMember[] = [];
+    const offline: ChatChannelMember[] = [];
     for (const m of members) {
       if (m.memberType === 'agent') {
         online.push(m);
@@ -97,7 +95,8 @@ export function MemberListPanel({ channelId, embedded = false }: MemberListPanel
         offline.push(m);
       }
     }
-    const sortByRole = (a: any, b: any) => (ROLE_ORDER[a.role] ?? 99) - (ROLE_ORDER[b.role] ?? 99);
+    const sortByRole = (a: ChatChannelMember, b: ChatChannelMember) =>
+      (ROLE_ORDER[a.role ?? ''] ?? 99) - (ROLE_ORDER[b.role ?? ''] ?? 99);
     online.sort(sortByRole);
     offline.sort(sortByRole);
     return { onlineMembers: online, offlineMembers: offline };
@@ -202,7 +201,7 @@ export function MemberListPanel({ channelId, embedded = false }: MemberListPanel
           </div>
           <ScrollArea className="max-h-[200px] mt-1">
             <div className="py-1">
-              {availableMembers.map((m: any) => (
+              {availableMembers.map((m) => (
                 <Button
                   key={m.userId}
                   variant="ghost"
@@ -241,7 +240,7 @@ export function MemberListPanel({ channelId, embedded = false }: MemberListPanel
                   {t.weldchat.memberList.onlineSection} — {onlineMembers.length}
                 </span>
               </div>
-              {onlineMembers.map((member: any) => {
+              {onlineMembers.map((member) => {
                 const isAgent = member.memberType === 'agent';
                 const userStatus = isAgent ? undefined : statuses[member.userId];
                 const canRemove = isAgent
@@ -322,7 +321,7 @@ export function MemberListPanel({ channelId, embedded = false }: MemberListPanel
                   {t.weldchat.memberList.offlineSection} — {offlineMembers.length}
                 </span>
               </div>
-              {offlineMembers.map((member: any) => {
+              {offlineMembers.map((member) => {
                 const userStatus = statuses[member.userId];
                 const canRemove = isPrivate && member.role !== 'owner' && member.userId !== user?.id;
                 return (

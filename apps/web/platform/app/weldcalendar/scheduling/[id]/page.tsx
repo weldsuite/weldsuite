@@ -3,16 +3,12 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useBlocker } from '@tanstack/react-router';
 import { useI18n } from '@/lib/i18n/provider';
 import { Trans } from '@/lib/i18n/trans';
-import { format, isBefore, startOfDay, addDays, isToday as isDateToday } from 'date-fns';
-import { ArrowLeft, ChevronLeft, X, Copy, Check, Clock, Link2, Globe, ChevronDown, Loader2, Phone, Plus, CalendarClock, Maximize2, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, X, Clock, Link2, Globe, CalendarClock, AlertTriangle } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Label } from '@weldsuite/ui/components/label';
 import { Switch } from '@weldsuite/ui/components/switch';
-import { Checkbox } from '@weldsuite/ui/components/checkbox';
-import { Separator } from '@weldsuite/ui/components/separator';
-import { Tabs, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import { PageTabs } from '@weldsuite/ui/components/page-tabs';
 import { Settings2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
@@ -26,7 +22,7 @@ import {
 } from '@weldsuite/ui/components/select';
 import { useParams } from '@/lib/router';
 import { useUser, useOrganization } from '@clerk/clerk-react';
-import { useBookingPage, useUpdateBookingPage, useCreateBookingPage, useAvailableSlots } from '@/hooks/queries/use-calendar-queries';
+import { useBookingPage, useUpdateBookingPage, useCreateBookingPage, type BookingPage } from '@/hooks/queries/use-calendar-queries';
 import { useSetAtom } from 'jotai';
 import { draftBookingPageTitleAtom } from '../../lib/draft-booking-page';
 import { LOCATION_TYPE_OPTIONS } from '../../types';
@@ -47,7 +43,7 @@ export default function BookingPageDetailPage() {
   // In draft mode the booking page doesn't exist yet — synthesise a stub from
   // the sessionStorage payload the editor's Continue button wrote so the
   // preview / hasUnsavedChanges / etc. don't crash on `bookingPage.X`.
-  const [draftStub] = useState<any>(() => {
+  const [draftStub] = useState<Partial<BookingPage> | null>(() => {
     if (id !== '__draft__') return null;
     try { return JSON.parse(sessionStorage.getItem('booking-new-draft') || '{}'); }
     catch { return {}; }
@@ -102,7 +98,6 @@ export default function BookingPageDetailPage() {
   const [locationType, setLocationType] = useState('');
   const [locationValue, setLocationValue] = useState('');
   const [confirmationMessage, setConfirmationMessage] = useState('');
-  const [linkCopied, setLinkCopied] = useState(false);
   const [calendarInvite, setCalendarInvite] = useState(true);
   const [customFields, setCustomFields] = useState<{ label: string; required: boolean }[]>([]);
   const [allowGuests, setAllowGuests] = useState(true);
@@ -123,19 +118,6 @@ export default function BookingPageDetailPage() {
       return ['UTC', browserTz];
     }
   })();
-
-  // Preview state
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [use24h, setUse24h] = useState(true);
-  const [slotsScrolled, setSlotsScrolled] = useState(false);
-
-  const today = startOfDay(new Date());
-  const maxDate = addDays(today, bookingPage?.maxAdvance ?? 60);
-
-  const dateString = selectedDate ? format(selectedDate, 'yyyy-MM-dd') : '';
-  const { data: slotsData, isLoading: slotsLoading } = useAvailableSlots(id, dateString);
-  const availableSlots = ((slotsData?.data || []) as any[]).filter((s) => s.available);
 
   const setDraftTitle = useSetAtom(draftBookingPageTitleAtom);
 
@@ -186,7 +168,7 @@ export default function BookingPageDetailPage() {
       const storedTz = bookingPage.timezone;
       setTimezone(storedTz && storedTz !== 'UTC' ? storedTz : browserTz);
     }
-  }, [bookingPage, id, isDraft]);
+  }, [bookingPage, id, isDraft, browserTz]);
 
   const canSave =
     !(locationType === 'in-person' && !locationValue.trim()) &&
@@ -204,13 +186,13 @@ export default function BookingPageDetailPage() {
       name,
       slug: cleanSlug,
       description: description || undefined,
-      locationType: locationType as any || undefined,
+      locationType: (locationType || undefined) as BookingPage['locationType'],
       locationValue: locationValue || undefined,
       confirmationMessage: confirmationMessage || undefined,
       timezone,
     });
     sessionStorage.removeItem('booking-new-draft');
-    const newId = (result as any)?.data?.data?.id || (result as any)?.data?.id || null;
+    const newId = result?.data?.id || null;
     return { newId };
   };
 
@@ -249,7 +231,7 @@ export default function BookingPageDetailPage() {
         name,
         slug: cleanSlug,
         description: description || undefined,
-        locationType: locationType as any || undefined,
+        locationType: (locationType || undefined) as BookingPage['locationType'],
         locationValue: locationValue || undefined,
         confirmationMessage: confirmationMessage || undefined,
         timezone,
@@ -297,36 +279,7 @@ export default function BookingPageDetailPage() {
     proceed?.();
   };
 
-  const copyBookingLink = () => {
-    navigator.clipboard.writeText(`${bookingPortalUrl}/${orgSlug}/${bookingPage?.slug}`);
-    setLinkCopied(true);
-    toast.success(tc.toast.bookingLinkCopied);
-    setTimeout(() => setLinkCopied(false), 2000);
-  };
-
   const formatDuration = (m: number) => { if (m < 60) return `${m}m`; const h = Math.floor(m / 60); const r = m % 60; return r > 0 ? `${h}h ${r}m` : `${h}h`; };
-  const formatTime = (d: Date) => use24h ? format(d, 'HH:mm') : format(d, 'h:mm a');
-
-  const generateCalendarDays = () => {
-    const year = currentMonth.getFullYear();
-    const month = currentMonth.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const startPad = firstDay.getDay();
-    const days: (Date | null)[] = [];
-    for (let i = 0; i < startPad; i++) days.push(null);
-    for (let d = 1; d <= lastDay.getDate(); d++) days.push(new Date(year, month, d));
-    return days;
-  };
-
-  const calendarDays = generateCalendarDays();
-  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-
-  const hasAvailabilityForDay = (date: Date) => {
-    if (!bookingPage?.availability) return false;
-    const dayName = dayNames[date.getDay()];
-    return ((bookingPage.availability as any)[dayName] || []).length > 0;
-  };
 
   const locationLabel = locationType === 'video' ? tc.bookingDetail.locationWeldMeet
     : locationType === 'phone' ? tc.bookingDetail.locationPhoneCall
@@ -334,7 +287,8 @@ export default function BookingPageDetailPage() {
     : '';
 
   if (!isDraft && isLoading) return <div className="flex items-center justify-center py-12 text-muted-foreground">{tc.bookingDetail.loadingBookingPage}</div>;
-  if (!isDraft && !bookingPage) return <div className="flex items-center justify-center py-12 text-muted-foreground">{tc.bookingDetail.bookingPageNotFound}</div>;
+  // In draft mode `bookingPage` is always the (possibly empty) draftStub object, never null.
+  if (!bookingPage) return <div className="flex items-center justify-center py-12 text-muted-foreground">{tc.bookingDetail.bookingPageNotFound}</div>;
 
   return (
     <div className="flex flex-col h-full">
@@ -406,7 +360,7 @@ export default function BookingPageDetailPage() {
               <div className="space-y-3 text-sm text-gray-500 dark:text-muted-foreground mt-auto">
                 <div className="flex items-center gap-2.5">
                   <Clock className="h-4 w-4 shrink-0" />
-                  <span>{formatDuration(bookingPage.duration)}</span>
+                  <span>{formatDuration(bookingPage.duration || 0)}</span>
                 </div>
                 {locationLabel && (
                   <div className="flex items-start gap-2.5">

@@ -1,6 +1,5 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { useRouter } from '@/lib/router';
 import { useAuth, useOrganizationList } from '@clerk/clerk-react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 
@@ -64,7 +63,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
   const { isLoaded, isSignedIn, orgId } = useAuth();
   const orgList = useOrganizationList({ userMemberships: true });
   const { getClient } = useAppApiClient();
@@ -117,13 +115,15 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
       // Drop the persisted TanStack Query cache so the new workspace doesn't
       // hydrate with the previous workspace's data after the reload.
-      try { window.localStorage.removeItem('weldsuite:query-cache'); } catch {}
+      try { window.localStorage.removeItem('weldsuite:query-cache'); } catch {
+        // Ignore — best-effort cache clear, a full page reload follows regardless.
+      }
       // Full page reload to ensure all data refreshes with new org context
       window.location.href = '/';
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to switch workspace');
     }
-  }, [workspaces, orgList?.setActive]);
+  }, [workspaces, orgList]);
 
   // Create workspace
   const createWorkspace = useCallback(async (data: Partial<Workspace>) => {

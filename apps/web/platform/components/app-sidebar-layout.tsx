@@ -2,7 +2,7 @@
 import * as React from "react"
 import { useEffect, useCallback } from "react"
 import { Tooltip, TooltipTrigger, TooltipContent } from '@weldsuite/ui/components/tooltip'
-import { useRouter, Link, usePathname } from '@/lib/router';
+import { Link, usePathname } from '@/lib/router';
 import { useClerk } from "@clerk/clerk-react"
 import { useTheme } from '@/hooks/use-theme'
 import { useSettings } from '@/providers/settings-provider'
@@ -13,8 +13,6 @@ import {
   useSensor,
   useSensors,
   closestCenter,
-  DragOverlay,
-  DragStartEvent,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -32,7 +30,6 @@ import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
-  SidebarGroupAction,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -56,9 +53,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
 } from "@weldsuite/ui/components/dropdown-menu"
 import {
   ContextMenu,
@@ -316,7 +310,6 @@ export function AppSidebarLayout({
   ...props
 }: AppSidebarLayoutProps) {
   const pathname = usePathname()
-  const router = useRouter()
   const { state } = useSidebar()
   const { openSettings } = useSettings()
   const isMobile = useIsMobile()
@@ -363,18 +356,6 @@ export function AppSidebarLayout({
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
 
-  const handleDragEnd = useCallback((event: DragEndEvent, group: MenuGroupProps) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id || !group.onReorder) return;
-
-    const oldIndex = group.items.findIndex(item => item.href === active.id);
-    const newIndex = group.items.findIndex(item => item.href === over.id);
-    if (oldIndex === -1 || newIndex === -1) return;
-
-    const newItems = arrayMove(group.items, oldIndex, newIndex);
-    group.onReorder(newItems);
-  }, []);
-
   /**
    * Cross-group drag-end handler. Activated when any group has both `groupKey` and
    * `onCrossGroupDrop` defined. Handles within-group reorder OR cross-group move.
@@ -410,8 +391,6 @@ export function AppSidebarLayout({
     fromGroup.onCrossGroupDrop(draggedItem.id, fromGroup.groupKey, toGroup.groupKey);
   }, [menuItems]);
 
-  const crossGroupEnabled = menuItems.some((g) => g.groupKey && g.onCrossGroupDrop);
-
   // Get actions only - this hook is stable and won't cause re-renders
   const mobileNavActions = useMobileNavActions()
 
@@ -424,7 +403,7 @@ export function AppSidebarLayout({
       mobileNavActions.setModuleMenuItems([])
       mobileNavActions.setModuleInfo(null)
     }
-  }, [appName, AppIcon, appLogo, mobileNavActions])
+  }, [appName, AppIcon, appLogo, showBackButton, mobileNavActions])
 
   // Register menu items with mobile nav context - runs whenever menuItems change
   useEffect(() => {

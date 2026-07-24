@@ -8,7 +8,7 @@ export default function LabelsPage() {
   const { t } = useI18n();
   const { data: accountsData, isLoading: accountsLoading } = useMailAccounts();
   const accounts = accountsData?.data || [];
-  const defaultAccount = accounts.find((a: any) => a.isDefault) || accounts[0];
+  const defaultAccount = accounts.find((a) => a.isDefault) || accounts[0];
   const accountId = defaultAccount?.id;
 
   const { data: labelsData, isLoading: labelsLoading } = useMailLabels(accountId, !!accountId);

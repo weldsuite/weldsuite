@@ -17,20 +17,6 @@ export function ProjectsHeader({ onWeldAgentToggle, onCalendarToggle, onNotifica
   const { t } = useI18n();
   const pathname = usePathname();
 
-  const routeLabels: Record<string, string> = {
-    'all-projects': t.projects.projectLayout.routeLabels.allProjects,
-    'tasks': t.projects.projectLayout.routeLabels.tasks,
-    'whiteboard': t.projects.projectLayout.routeLabels.whiteboard,
-    'members': t.projects.projectLayout.routeLabels.members,
-    'messages': t.projects.projectLayout.routeLabels.messages,
-    'files': t.projects.projectLayout.routeLabels.files,
-    'goals': t.projects.projectLayout.routeLabels.goals,
-    'analytics': t.projects.projectLayout.routeLabels.analytics,
-    'workload': t.projects.projectLayout.routeLabels.workload,
-    'settings': t.projects.projectLayout.routeLabels.settings,
-    'sprints': t.projects.projectLayout.routeLabels.sprints,
-  };
-
   // Extract project ID from path: /weldflow/project/{projectId}/...
   const pathParts = pathname.split('/').filter(Boolean);
   const projectIndex = pathParts.indexOf('project');
@@ -53,6 +39,20 @@ export function ProjectsHeader({ onWeldAgentToggle, onCalendarToggle, onNotifica
   const whiteboardName = whiteboardData?.data?.name;
 
   const segments: BreadcrumbSegment[] = useMemo(() => {
+    const routeLabels: Record<string, string> = {
+      'all-projects': t.projects.projectLayout.routeLabels.allProjects,
+      'tasks': t.projects.projectLayout.routeLabels.tasks,
+      'whiteboard': t.projects.projectLayout.routeLabels.whiteboard,
+      'members': t.projects.projectLayout.routeLabels.members,
+      'messages': t.projects.projectLayout.routeLabels.messages,
+      'files': t.projects.projectLayout.routeLabels.files,
+      'goals': t.projects.projectLayout.routeLabels.goals,
+      'analytics': t.projects.projectLayout.routeLabels.analytics,
+      'workload': t.projects.projectLayout.routeLabels.workload,
+      'settings': t.projects.projectLayout.routeLabels.settings,
+      'sprints': t.projects.projectLayout.routeLabels.sprints,
+    };
+
     const result: BreadcrumbSegment[] = [
       { label: t.projects.title, href: '/weldflow' }
     ];
@@ -94,7 +94,7 @@ export function ProjectsHeader({ onWeldAgentToggle, onCalendarToggle, onNotifica
     }
 
     return result;
-  }, [pathname, projectId, projectName, whiteboardId, whiteboardName, t]);
+  }, [pathParts, projectId, projectName, whiteboardId, whiteboardName, t]);
 
   return (
     <BreadcrumbHeader

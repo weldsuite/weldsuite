@@ -228,9 +228,8 @@ export default function McpServersPage() {
       toast.success(count !== 1 ? tm.messages.discoveredToolsPlural.replace('{count}', String(count)) : tm.messages.discoveredTools);
       queryClient.invalidateQueries({ queryKey: ['mcp-connections'] });
       queryClient.invalidateQueries({ queryKey: ['integration-connections-mcp'] });
-    } catch (err: any) {
-      const msg = err?.response?.data?.error || err?.message || 'Tool discovery failed';
-      toast.error(msg);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Tool discovery failed');
     } finally {
       setDiscoveringId(null);
     }

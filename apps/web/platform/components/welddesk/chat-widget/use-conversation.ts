@@ -95,7 +95,7 @@ export function useConversation(options: UseConversationOptions) {
         shouldCreateTicket: false,
       };
     },
-    []
+    [t]
   );
 
   /**

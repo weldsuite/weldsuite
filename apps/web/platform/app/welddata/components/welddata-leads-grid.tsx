@@ -171,7 +171,7 @@ export function WelddataLeadsGrid({ listId, listName, listKind }: WelddataLeadsG
 
   const leads = useMemo(() => leadsResp?.data ?? [], [leadsResp]);
   const enrichColumns = useMemo(() => columns ?? [], [columns]);
-  const cellMap = cells ?? {};
+  const cellMap = useMemo(() => cells ?? {}, [cells]);
 
   // How many cells the pending run choice would touch: total vs only-missing
   // (everything not already in a `done` state).
@@ -185,14 +185,14 @@ export function WelddataLeadsGrid({ listId, listName, listKind }: WelddataLeadsG
     return { total, missing: total - done };
   }, [runChoice, leads, cellMap]);
 
-  async function convertOne(lead: WelddataLead) {
+  const convertOne = useCallback(async (lead: WelddataLead) => {
     try {
       await convertLead.mutateAsync({ id: lead.id, listId, createCompany: true });
       toast.success(t('welddata.toasts.converted'));
     } catch {
       toast.error(t('welddata.toasts.convertFailed'));
     }
-  }
+  }, [convertLead, listId, t]);
 
   async function runWholeColumn(columnId: string, onlyMissing: boolean) {
     try {
@@ -205,15 +205,15 @@ export function WelddataLeadsGrid({ listId, listName, listKind }: WelddataLeadsG
 
   // AI has been removed platform-wide — running an 'ai' enrichment column
   // would hit a dead endpoint, so gate it client-side instead.
-  function requestRunColumn(col: WelddataColumn) {
+  const requestRunColumn = useCallback((col: WelddataColumn) => {
     if (col.config.type === 'ai') {
       toast.error(t('common.ai.unavailable.title'));
       return;
     }
     setRunChoice({ columnId: col.id, columnName: col.name });
-  }
+  }, [t]);
 
-  async function rerunCell(column: WelddataColumn, leadId: string) {
+  const rerunCell = useCallback(async (column: WelddataColumn, leadId: string) => {
     // AI has been removed platform-wide — an 'ai' cell would hit a dead
     // endpoint, so gate it client-side instead.
     if (column.config.type === 'ai') {
@@ -225,10 +225,10 @@ export function WelddataLeadsGrid({ listId, listName, listKind }: WelddataLeadsG
     } catch {
       toast.error(t('welddata.toasts.runFailed'));
     }
-  }
+  }, [runCell, listId, t]);
 
   /** Run every non-AI enrichment column for a single lead (Clay-style "run row"). */
-  async function runRow(lead: WelddataLead) {
+  const runRow = useCallback(async (lead: WelddataLead) => {
     const runnableColumns = enrichColumns.filter((c) => c.config.type !== 'ai');
     if (runnableColumns.length === 0) return;
     try {
@@ -239,9 +239,9 @@ export function WelddataLeadsGrid({ listId, listName, listKind }: WelddataLeadsG
     } catch {
       toast.error(t('welddata.toasts.runFailed'));
     }
-  }
+  }, [enrichColumns, runCell, listId, t]);
 
-  async function handleDeleteColumn(column: WelddataColumn) {
+  const handleDeleteColumn = useCallback(async (column: WelddataColumn) => {
     if (!confirm(t('welddata.enrich.deleteConfirm', { name: column.name }))) return;
     try {
       await deleteColumn.mutateAsync({ id: column.id, listId });
@@ -249,9 +249,9 @@ export function WelddataLeadsGrid({ listId, listName, listKind }: WelddataLeadsG
     } catch {
       toast.error(t('welddata.toasts.runFailed'));
     }
-  }
+  }, [t, deleteColumn, listId]);
 
-  function renderEnrichmentCell(column: WelddataColumn, lead: WelddataLead) {
+  const renderEnrichmentCell = useCallback((column: WelddataColumn, lead: WelddataLead) => {
     const cell = cellMap[`${column.id}:${lead.id}`];
     const status = cell?.status;
     const busy = status === 'pending' || status === 'running';
@@ -328,7 +328,7 @@ export function WelddataLeadsGrid({ listId, listName, listKind }: WelddataLeadsG
         )}
       </div>
     );
-  }
+  }, [cellMap, t, rerunCell]);
 
   const config = useMemo(() => {
     // The first column (type 'company') renders the avatar, name, selection
@@ -397,7 +397,7 @@ export function WelddataLeadsGrid({ listId, listName, listKind }: WelddataLeadsG
     return buildLeadGridConfig<WelddataLead>([...baseColumns, ...enrichGridColumns, statusCol], {
       getAvatar: leadAvatar,
     });
-  }, [enrichColumns, cellMap, t, listKind]);
+  }, [enrichColumns, cellMap, t, listKind, handleDeleteColumn, renderEnrichmentCell, requestRunColumn]);
 
   const actions: EntityGridActions<WelddataLead> = useMemo(
     () => ({
@@ -418,7 +418,6 @@ export function WelddataLeadsGrid({ listId, listName, listKind }: WelddataLeadsG
         let ok = 0;
         for (const id of ids) {
           try {
-            // eslint-disable-next-line no-await-in-loop
             await removeLead.mutateAsync({ id, listId });
             ok++;
           } catch {
@@ -444,7 +443,6 @@ export function WelddataLeadsGrid({ listId, listName, listKind }: WelddataLeadsG
             let ok = 0;
             for (const lead of targets) {
               try {
-                // eslint-disable-next-line no-await-in-loop
                 await convertLead.mutateAsync({ id: lead.id, listId, createCompany: true });
                 ok++;
               } catch {
@@ -522,7 +520,7 @@ export function WelddataLeadsGrid({ listId, listName, listKind }: WelddataLeadsG
         </>
       ),
     }),
-    [config, listId, t, openAddToCrmList],
+    [config, listId, t, openAddToCrmList, convertOne, enrichColumns.length, removeLead, router, runRow],
   );
 
   return (

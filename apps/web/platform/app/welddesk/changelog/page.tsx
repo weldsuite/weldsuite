@@ -43,12 +43,11 @@ export default function ChangelogPage() {
 
   const stats = {
     total: pagination.totalCount || pagination.total || items.length,
-    published: items.filter((item: any) => item.status === 'published').length,
-    draft: items.filter((item: any) => item.status === 'draft').length,
-    thisMonth: items.filter((item: any) => new Date(item.createdAt) >= thisMonth).length,
+    published: items.filter((item) => item.status === 'published').length,
+    draft: items.filter((item) => item.status === 'draft').length,
+    thisMonth: items.filter((item) => new Date(item.createdAt) >= thisMonth).length,
   };
 
-  /* eslint-disable */
   const headerStats: StatItem[] = [
     { icon: FileText, label: tc.totalEntries, count: stats.total, color: 'text-blue-600' },
     { icon: Eye, label: tc.published, count: stats.published, color: 'text-green-600' },
@@ -90,7 +89,6 @@ export default function ChangelogPage() {
       ],
     },
   ];
-  /* eslint-enable */
 
   const counts = {
     total: stats.total,

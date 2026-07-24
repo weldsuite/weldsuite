@@ -3,8 +3,6 @@ import { useState, useRef, useEffect, KeyboardEvent } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
-import { Label } from '@weldsuite/ui/components/label';
-import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import {
   Command,
   CommandEmpty,
@@ -19,7 +17,6 @@ import {
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
 import {
-  Eye,
   ImageIcon,
   X,
   Type,
@@ -42,12 +39,10 @@ import {
   AlignJustify,
   Palette,
   Highlighter,
-  ChevronDown,
   ChevronsUpDown,
   Check,
   FileText,
   Plus,
-  MoreVertical,
   ChevronLeft,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -139,6 +134,7 @@ export default function DocumentsPage() {
         titleRef.current.textContent = title;
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally mount-only, re-running on every title keystroke would fight the contentEditable cursor
   }, []);
 
   // Initialize content on mount only
@@ -150,6 +146,7 @@ export default function DocumentsPage() {
         p.setAttribute('dir', 'ltr');
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally mount-only, editor content is user-edited afterward via the DOM
   }, []);
 
   // Check active formats on selection change
@@ -349,7 +346,7 @@ export default function DocumentsPage() {
       span.style.fontSize = size + 'px';
       try {
         range.surroundContents(span);
-      } catch (e) {
+      } catch {
         // If surroundContents fails, just apply the command
       }
     }
@@ -1074,7 +1071,7 @@ export default function DocumentsPage() {
       )}
 
       {/* Custom Styles for contenteditable */}
-      <style jsx global>{`
+      <style>{`
         [contenteditable]:focus {
           outline: none;
         }

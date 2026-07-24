@@ -1,5 +1,4 @@
 import * as React from 'react';
-import { useRouter } from '@/lib/router';
 import { useSearchParams } from '@/lib/router';
 import {
   Loader2,
@@ -321,7 +320,7 @@ function RecoverDialog({
   const recoverMutation = useRecoverInstallation();
   const [recoveringId, setRecoveringId] = React.useState<number | null>(null);
 
-  const installations = ((result as any)?.data ?? []) as DiscoverableInstallation[];
+  const installations = result?.data ?? [];
 
   const handleRecover = async (item: DiscoverableInstallation) => {
     setRecoveringId(item.id);
@@ -402,7 +401,6 @@ export default function GithubSettingsPage() {
   const t = getTranslations('settings');
   const github = t.integrations.github;
 
-  const router = useRouter();
   const searchParams = useSearchParams();
   const { can } = usePermissions();
   const canManage = can('weldconnect:integrations:github:manage');
@@ -415,8 +413,8 @@ export default function GithubSettingsPage() {
   const installUrlMutation = useGetInstallUrl();
   const disconnectMutation = useDisconnectGithub();
 
-  const connection = (connectionResult as any)?.data as GithubConnection | null | undefined;
-  const linkedRepos = ((linkedReposResult as any)?.data ?? []) as GithubRepoLink[];
+  const connection = connectionResult?.data;
+  const linkedRepos = linkedReposResult?.data ?? [];
 
   // Handle ?installed=1 callback — show success toast and scrub the param
   React.useEffect(() => {
@@ -427,14 +425,14 @@ export default function GithubSettingsPage() {
       url.searchParams.delete('installed');
       window.history.replaceState(null, '', url.toString());
     }
-  }, []);
+  }, [searchParams, github.installedSuccess]);
 
   const handleConnect = async () => {
     try {
       const result = await installUrlMutation.mutateAsync({
         returnTo: `${window.location.origin}/settings/integrations/github?installed=1`,
       });
-      const url = (result as any)?.data?.url;
+      const url = result?.data?.url;
       if (url) {
         window.location.href = url;
       } else {

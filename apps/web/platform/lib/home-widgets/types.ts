@@ -74,6 +74,7 @@ export interface HomeWidgetDefinition<TSettings = Record<string, unknown>> {
   icon: LucideIcon;
   // Schema is contravariant on input — defaults make the parsed output stricter than
   // the inferred input, so we relax the input slot to `any`.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- `unknown` breaks assignability for schemas with narrower Input generics; see comment above
   schema: z.ZodType<TSettings, z.ZodTypeDef, any>;
   defaultSettings: TSettings;
   HomeRender: ComponentType<HomeWidgetRenderProps<TSettings>>;

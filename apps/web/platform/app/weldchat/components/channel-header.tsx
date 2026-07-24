@@ -7,9 +7,11 @@ import { useEntitySheet } from '@/components/entity-sheet/use-entity-sheet';
 import { useObjectPanel, useObjectPanelStack } from '@/components/object-panel';
 import { ActiveCallBanner } from './active-call-banner';
 import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
+import type { ChatChannel, ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useQuery } from '@tanstack/react-query';
 import { useI18n } from '@/lib/i18n/provider';
+import type { ChatCall } from '@weldsuite/db/schema/chat-calls';
 
 function VideoCameraIcon({ className, strokeWidth = 1.5 }: { className?: string; strokeWidth?: number }) {
   return (
@@ -31,8 +33,13 @@ function VideoCameraIcon({ className, strokeWidth = 1.5 }: { className?: string;
   );
 }
 
+/** Channel row extended with the DM-specific `otherMembers` field `/chat-dm` projects. */
+interface ChannelHeaderChannel extends ChatChannel {
+  otherMembers?: ChatChannelMember[];
+}
+
 interface ChannelHeaderProps {
-  channel: any;
+  channel: ChannelHeaderChannel;
   showMemberPanel?: boolean;
   onToggleMemberPanel?: () => void;
 }
@@ -40,7 +47,7 @@ interface ChannelHeaderProps {
 
 export function ChannelHeader({ channel, showMemberPanel, onToggleMemberPanel }: ChannelHeaderProps) {
   const { t } = useI18n();
-  const { startCall, status } = useWeldChatCall();
+  const { startCall } = useWeldChatCall();
   const { isOpen: isEntitySheetOpen, close: closeEntitySheet } = useEntitySheet();
   const { getClient } = useAppApiClient();
   const { open: openObjectPanel } = useObjectPanel();
@@ -65,7 +72,7 @@ export function ChannelHeader({ channel, showMemberPanel, onToggleMemberPanel }:
     queryKey: weldchatKeys.activeCall(channel.id),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<any>(`/chat-calls/active/${channel.id}`);
+      return client.get<{ data: ChatCall | null }>(`/chat-calls/active/${channel.id}`);
     },
     refetchInterval: 10000,
   });

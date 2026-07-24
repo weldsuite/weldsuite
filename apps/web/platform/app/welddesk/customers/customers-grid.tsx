@@ -90,7 +90,7 @@ export function CustomersGrid({
         router.push('/welddesk/contacts/new');
       },
     }),
-    [router]
+    [router, deleteCustomerMutation, updateCustomerMutation, tc.bulkDeletePartial, tc.bulkDeleteSuccess, tc.customerDeleted, tc.failedToDeleteCustomer, tc.failedToUpdateCustomer]
   );
 
   return (

@@ -11,7 +11,7 @@ export default function ComposeRedirectPage() {
   const { data: accountsData, isLoading } = useMailAccounts();
 
   const accounts = accountsData?.data || [];
-  const activeAccount = accounts.find((a: any) => a.isDefault) || accounts[0];
+  const activeAccount = accounts.find((a) => a.isDefault) || accounts[0];
 
   useEffect(() => {
     if (!isLoading && activeAccount) {

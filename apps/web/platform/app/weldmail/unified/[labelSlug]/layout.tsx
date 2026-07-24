@@ -5,13 +5,12 @@ import { Button } from '@weldsuite/ui/components/button';
 import { useI18n } from '@/lib/i18n/provider';
 import { useParams, useSearchParams } from '@/lib/router';
 import { useMailLabelThreads } from '@/hooks/queries/use-mail-queries';
-import { getLabelDisplayName, getSystemLabelConfig } from '../../lib/label-config';
+import { getSystemLabelConfig } from '../../lib/label-config';
 import type { ThreadSummary } from '../../lib/thread-utils';
 import { MailDetailWrapper } from '../../components/mail-detail-wrapper';
 import { MobileMailLayout } from '../../components/mobile-mail-layout';
 import { MessageList } from '../../components/message-list';
 import { useMailRealtime } from '../../hooks/useMailRealtime';
-import type { NewEmailEvent } from '../../hooks/mail-types';
 import { UNIFIED_ACCOUNT } from '../../lib/mail-preferences';
 import {
   useUserPreferences,
@@ -40,6 +39,7 @@ export default function UnifiedLabelLayout({
     if (storedLast === UNIFIED_ACCOUNT) return;
     updateLastAccount.mutate(UNIFIED_ACCOUNT);
     // updateLastAccount is stable from react-query; intentionally not a dep.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storedLast, preferences]);
 
   // Unified inbox: omit `accountId` so app-api's /mail-labels/threads
@@ -94,7 +94,7 @@ export default function UnifiedLabelLayout({
   }, [refetchThreads]);
 
   const shouldShowInView = useCallback(
-    (email: NewEmailEvent): boolean => {
+    (): boolean => {
       const config = getSystemLabelConfig(labelSlug);
       if (!config) return false;
       if (config.filterType === 'virtual') return labelSlug === 'all';
@@ -104,8 +104,8 @@ export default function UnifiedLabelLayout({
   );
 
   const handleNewEmail = useCallback(
-    (email: NewEmailEvent) => {
-      if (!shouldShowInView(email)) return;
+    () => {
+      if (!shouldShowInView()) return;
       refetchThreads();
     },
     [shouldShowInView, refetchThreads],
@@ -138,8 +138,6 @@ export default function UnifiedLabelLayout({
     },
     [],
   );
-
-  const displayName = getLabelDisplayName(labelSlug);
 
   const listContent = (
     <div className="relative h-full">

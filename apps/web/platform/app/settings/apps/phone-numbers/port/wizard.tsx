@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { Alert, AlertDescription, AlertTitle } from '@weldsuite/ui/components/alert';
-import { Loader2, ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, Upload, CheckCircle2, AlertTriangle, Hash, User, FileText, FileSignature, Receipt, type LucideIcon } from 'lucide-react';
+import { Loader2, ArrowLeft, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Hash, User, FileText, FileSignature, Receipt, type LucideIcon } from 'lucide-react';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { toast } from 'sonner';
 import {

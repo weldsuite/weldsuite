@@ -48,7 +48,7 @@ export function DynamicTicketForm({
   const [customerName, setCustomerName] = useState(prefillData?.customerName || '');
   const [customerEmail, setCustomerEmail] = useState(prefillData?.customerEmail || '');
   const [priority, setPriority] = useState(ticketType?.defaultPriority || 'normal');
-  const [customFields, setCustomFields] = useState<Record<string, any>>({});
+  const [customFields, setCustomFields] = useState<Record<string, string | string[] | boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Auto-fill customer info for back-office tickets
@@ -65,7 +65,7 @@ export function DynamicTicketForm({
       .sort((a, b) => a.order - b.order);
   }, [ticketType]);
 
-  const updateCustomField = (key: string, value: any) => {
+  const updateCustomField = (key: string, value: string | string[] | boolean) => {
     setCustomFields((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -118,13 +118,18 @@ export function DynamicTicketForm({
         toast.success(t('sweep.welddesk.dynamicTicketForm.ticketCreatedSuccess'));
         onSuccess(result.data?.id);
       }
-    } catch (err) {
+    } catch {
       toast.error(t('sweep.welddesk.dynamicTicketForm.ticketCreateFailed'));
     }
   };
 
   const renderField = (field: TicketTypeField) => {
     const value = customFields[field.key] ?? '';
+    // Scalar field types (text/number/textarea/select/date) always store a
+    // string — only 'multiselect' (string[]) and 'checkbox' (boolean) don't.
+    // `field.type` is a runtime discriminant TS can't correlate with
+    // `customFields`'s value union, so coerce explicitly for those branches.
+    const stringValue = typeof value === 'string' ? value : '';
     const hasError = !!errors[field.key];
 
     switch (field.type) {
@@ -134,7 +139,7 @@ export function DynamicTicketForm({
         return (
           <Input
             type={field.type === 'email' ? 'email' : field.type === 'url' ? 'url' : 'text'}
-            value={value}
+            value={stringValue}
             onChange={(e) => updateCustomField(field.key, e.target.value)}
             placeholder={field.placeholder}
             className={hasError ? 'border-destructive' : ''}
@@ -145,7 +150,7 @@ export function DynamicTicketForm({
         return (
           <Input
             type="number"
-            value={value}
+            value={stringValue}
             onChange={(e) => updateCustomField(field.key, e.target.value)}
             placeholder={field.placeholder}
             className={hasError ? 'border-destructive' : ''}
@@ -155,7 +160,7 @@ export function DynamicTicketForm({
       case 'textarea':
         return (
           <Textarea
-            value={value}
+            value={stringValue}
             onChange={(e) => updateCustomField(field.key, e.target.value)}
             placeholder={field.placeholder}
             rows={3}
@@ -165,7 +170,7 @@ export function DynamicTicketForm({
 
       case 'select':
         return (
-          <Select value={value} onValueChange={(v) => updateCustomField(field.key, v)}>
+          <Select value={stringValue} onValueChange={(v) => updateCustomField(field.key, v)}>
             <SelectTrigger className={hasError ? 'border-destructive' : ''}>
               <SelectValue placeholder={field.placeholder || t('sweep.welddesk.dynamicTicketForm.selectPlaceholder')} />
             </SelectTrigger>
@@ -206,7 +211,7 @@ export function DynamicTicketForm({
         return (
           <Input
             type="date"
-            value={value}
+            value={stringValue}
             onChange={(e) => updateCustomField(field.key, e.target.value)}
             className={hasError ? 'border-destructive' : ''}
           />

@@ -2,7 +2,6 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useRouter, useSearchParams } from '@/lib/router';
 import { useUser } from '@clerk/clerk-react';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import {
   Popover,
@@ -38,7 +37,6 @@ import {
   EllipsisVertical,
   Pencil,
   Copy,
-  Plus,
   List,
   Columns3,
 } from 'lucide-react';
@@ -52,7 +50,7 @@ import {
   useDeleteTask,
   type Task,
 } from '@/hooks/use-crm-tasks';
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers, type SortState } from '@/components/entity-list';
+import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
 import { TaskDialog } from './task-dialog';
 import { useObjectPanel } from '@/components/object-panel';
 import { CrmTasksPipeline } from './crm-tasks-pipeline';
@@ -65,6 +63,16 @@ import { useCompanies } from '@/components/objects/company/use-company-data';
 import { useDebounce } from '@/hooks/use-debounce';
 
 type CompanyOption = { id: string; name: string; avatar?: string };
+
+interface WorkspaceMemberInfo {
+  id?: string;
+  userId?: string;
+  name?: string;
+  picture?: string;
+}
+
+const TASK_STATUS_ORDER = ['backlog', 'todo', 'in_progress', 'in_review', 'testing', 'done', 'cancelled'];
+const TASK_PRIORITY_ORDER = ['low', 'medium', 'high'];
 
 const CompanyPicker = React.memo(function CompanyPicker({
   taskId,
@@ -269,8 +277,9 @@ export default function CrmTasksClient() {
   const availableAssignees = useMemo(() => {
     const members = membersData?.data || [];
     return members
-      .filter((m: any) => m.userId && m.name)
-      .map((m: any) => ({ id: m.userId, name: m.name, avatar: m.picture || undefined }));
+      .filter((m: WorkspaceMemberInfo): m is WorkspaceMemberInfo & { userId: string; name: string } =>
+        Boolean(m.userId) && Boolean(m.name))
+      .map((m) => ({ id: m.userId, name: m.name, avatar: m.picture || undefined }));
   }, [membersData]);
 
   const availableCompanyObjects = useMemo(() => {
@@ -533,8 +542,8 @@ export default function CrmTasksClient() {
           : result.filter(t => t.priority !== filter.value);
       } else if (filter.field === 'label') {
         result = filter.operator === 'is'
-          ? result.filter(t => Array.isArray((t as any).labels) && (t as any).labels.includes(filter.value))
-          : result.filter(t => !Array.isArray((t as any).labels) || !(t as any).labels.includes(filter.value));
+          ? result.filter(t => Array.isArray(t.labels) && t.labels.includes(filter.value))
+          : result.filter(t => !Array.isArray(t.labels) || !t.labels.includes(filter.value));
       }
     });
 
@@ -612,9 +621,9 @@ export default function CrmTasksClient() {
     'high': priorityConfig['high'].label,
   }), [priorityConfig]);
 
-  const formatDate = (date: Date) => {
+  const formatDate = useCallback((date: Date) => {
     return date.toLocaleDateString(intlLocale, { month: 'short', day: 'numeric' });
-  };
+  }, [intlLocale]);
 
   // Row renderer — matches Weldflow my-tasks style
   const renderTaskRow = useCallback((task: Task, handlers: RowHandlers<Task>) => {
@@ -691,7 +700,7 @@ export default function CrmTasksClient() {
                 <Button
                   variant="ghost"
                   key={key}
-                  onClick={() => handlers.onUpdate(task.id, { status: key as Task['status'] } as any)}
+                  onClick={() => handlers.onUpdate(task.id, { status: key as Task['status'] })}
                   className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
                 >
                   <span>{config.label}</span>
@@ -715,7 +724,7 @@ export default function CrmTasksClient() {
                 <Button
                   variant="ghost"
                   key={key}
-                  onClick={() => handlers.onUpdate(task.id, { priority: key as Task['priority'] } as any)}
+                  onClick={() => handlers.onUpdate(task.id, { priority: key as Task['priority'] })}
                   className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
                 >
                   <span>{config.label}</span>
@@ -727,7 +736,7 @@ export default function CrmTasksClient() {
                   <div className="h-px bg-border my-1" />
                   <Button
                     variant="ghost"
-                    onClick={() => handlers.onUpdate(task.id, { priority: undefined } as any)}
+                    onClick={() => handlers.onUpdate(task.id, { priority: undefined })}
                     className="flex items-center w-full px-2 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
                   >
                     <Trash2 className="h-3.5 w-3.5 mr-2" />
@@ -755,14 +764,14 @@ export default function CrmTasksClient() {
               <Calendar
                 mode="single"
                 selected={task.dueDate}
-                onSelect={(date) => handlers.onUpdate(task.id, { dueDate: date } as any)}
+                onSelect={(date) => handlers.onUpdate(task.id, { dueDate: date })}
                 initialFocus
               />
               {task.dueDate && (
                 <div className="p-1 border-t border-border">
                   <Button
                     variant="ghost"
-                    onClick={() => handlers.onUpdate(task.id, { dueDate: undefined } as any)}
+                    onClick={() => handlers.onUpdate(task.id, { dueDate: undefined })}
                     className="flex items-center w-full px-2 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
                   >
                     <Trash2 className="h-3.5 w-3.5 mr-2" />
@@ -865,11 +874,11 @@ export default function CrmTasksClient() {
                             const m = availableAssignees.find((x) => x.id === id);
                             return { id, name: m?.name || '' };
                           });
-                          const primary = nextAssignees[0] ?? null;
+                          const primary = nextAssignees[0] ?? undefined;
                           handlers.onUpdate(task.id, {
                             assignee: primary,
                             assignees: nextAssignees,
-                          } as any);
+                          });
                         }}
                         className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4"
                       >
@@ -893,7 +902,7 @@ export default function CrmTasksClient() {
                       <div className="h-px bg-border my-1" />
                       <Button
                         variant="ghost"
-                        onClick={() => handlers.onUpdate(task.id, { assignee: null, assignees: [] } as any)}
+                        onClick={() => handlers.onUpdate(task.id, { assignee: undefined, assignees: [] })}
                         className="flex items-center w-full px-2 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
                       >
                         <Trash2 className="h-3.5 w-3.5 mr-2" />
@@ -948,7 +957,7 @@ export default function CrmTasksClient() {
         </div>
       </div>
     );
-  }, [tasks, availableAssignees, availableLabels, availableCompanyObjects, setCustomerSearch, handleLinkCompany, toggleTaskStatus, openTaskPanel, openEditDialog, createTaskMutation, deleteTaskMutation, t, statusConfig, priorityConfig, intlLocale]);
+  }, [availableAssignees, availableLabels, availableCompanyObjects, setCustomerSearch, handleLinkCompany, toggleTaskStatus, openTaskPanel, openEditDialog, createTaskMutation, deleteTaskMutation, t, statusConfig, priorityConfig, formatDate]);
 
   const handleSort = useCallback((columnId: string) => {
     setSortState(prev => {
@@ -960,9 +969,6 @@ export default function CrmTasksClient() {
     });
   }, []);
 
-  const statusOrder = ['backlog', 'todo', 'in_progress', 'in_review', 'testing', 'done', 'cancelled'];
-  const priorityOrder = ['low', 'medium', 'high'];
-
   const sortedTasks = useMemo(() => {
     if (!sortState) return tasks;
     const { columnId, direction } = sortState;
@@ -971,10 +977,10 @@ export default function CrmTasksClient() {
     return [...tasks].sort((a, b) => {
       switch (columnId) {
         case 'status':
-          return (statusOrder.indexOf(a.status) - statusOrder.indexOf(b.status)) * dir;
+          return (TASK_STATUS_ORDER.indexOf(a.status) - TASK_STATUS_ORDER.indexOf(b.status)) * dir;
         case 'priority': {
-          const aIdx = a.priority ? priorityOrder.indexOf(a.priority) : -1;
-          const bIdx = b.priority ? priorityOrder.indexOf(b.priority) : -1;
+          const aIdx = a.priority ? TASK_PRIORITY_ORDER.indexOf(a.priority) : -1;
+          const bIdx = b.priority ? TASK_PRIORITY_ORDER.indexOf(b.priority) : -1;
           return (aIdx - bIdx) * dir;
         }
         case 'due': {

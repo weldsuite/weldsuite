@@ -1,7 +1,7 @@
 
 import * as React from "react"
 import { useRouter } from '@/lib/router'
-import { Loader2, ChevronRight } from "lucide-react"
+import { ChevronRight } from "lucide-react"
 import { PageLoader } from "@/components/page-loader"
 import { Button } from "@weldsuite/ui/components/button"
 import { Badge } from "@weldsuite/ui/components/badge"
@@ -157,15 +157,22 @@ export function IntegrationsSection() {
   const { data: githubConnectionResult } = useGithubConnection()
 
   const integrations = React.useMemo(() => {
-    const crmConnections = ((integrationConnectionsResult as any)?.data ?? []) as Array<{ provider: string; status: string }>
+    const crmConnections = integrationConnectionsResult?.data ?? []
     const isProviderConnected = (provider: string) =>
       crmConnections.some(c => c.provider === provider && c.status !== 'inactive')
     const mcpCount = crmConnections.filter(c => c.provider === 'mcp_server' && c.status === 'active').length
 
-    const channelIntegrations = ((channelIntegrationsResult as any)?.data?.integrations ?? []) as Array<{ provider: string; status: string }>
+    // Cast through `unknown`, not the documented `Helpdesk.Api.ChannelIntegration`
+    // shape: that type references an undefined `ChannelIntegrationStatus`
+    // (lib/api/types/apps/helpdesk.types.ts), so trusting it here would just
+    // trade one `any` for a broken type.
+    const channelIntegrations = (
+      (channelIntegrationsResult?.data as unknown as { integrations?: Array<{ provider: string; status: string }> })
+        ?.integrations ?? []
+    )
     const discordConnected = channelIntegrations.some(c => c.provider === 'discord' && c.status === 'connected')
     const slackConnected = channelIntegrations.some(c => c.provider === 'slack' && c.status === 'connected')
-    const githubConnection = (githubConnectionResult as any)?.data
+    const githubConnection = githubConnectionResult?.data
     const githubConnected = !!githubConnection && githubConnection.status === 'active'
 
     return integrationDefinitions.map(def => {

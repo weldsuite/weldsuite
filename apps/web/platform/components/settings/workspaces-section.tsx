@@ -15,7 +15,7 @@ const mockWorkspaces = [
   { id: 4, name: "Design Studio", members: 6, plan: "Basic", storage: "15 GB", storagePercent: 75, status: "trial" },
 ]
 
-function WorkspacesSection() {
+export function WorkspacesSection() {
   const t = useTranslations()
   return (
     <div className="space-y-6">

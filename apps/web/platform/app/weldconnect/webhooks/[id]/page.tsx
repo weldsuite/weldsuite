@@ -3,7 +3,7 @@ import { useParams } from '@/lib/router';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWebhook, useWebhookEvents } from '@/hooks/queries/use-automation-queries';
-import { WebhookDetailClient } from './webhook-detail-client';
+import { WebhookDetailClient, type WebhookDetail, type WebhookEvent } from './webhook-detail-client';
 
 export default function WebhookDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -27,5 +27,18 @@ export default function WebhookDetailPage() {
     );
   }
 
-  return <WebhookDetailClient webhook={webhook} initialEvents={events} />;
+  // The webhook-events endpoint only reports `timestamp`, not the richer
+  // execution/payload fields the detail view optionally renders.
+  const mappedEvents: WebhookEvent[] = events.map((e) => ({
+    id: e.id,
+    status: e.status,
+    createdAt: e.timestamp,
+  }));
+
+  return (
+    <WebhookDetailClient
+      webhook={webhook as unknown as WebhookDetail}
+      initialEvents={mappedEvents}
+    />
+  );
 }

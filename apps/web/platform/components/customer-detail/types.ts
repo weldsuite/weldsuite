@@ -13,6 +13,20 @@
 // ============================================================================
 
 /**
+ * Postal address (billing/shipping)
+ */
+interface CustomerAddress {
+  line1: string;
+  line2?: string;
+  city: string;
+  state?: string;
+  postalCode?: string;
+  country: string;
+  latitude?: number;
+  longitude?: number;
+}
+
+/**
  * Customer entity
  */
 export interface Customer {
@@ -27,8 +41,8 @@ export interface Customer {
   phone?: string;
   mobile?: string;
   website?: string;
-  billingAddress?: any;
-  shippingAddress?: any;
+  billingAddress?: CustomerAddress;
+  shippingAddress?: CustomerAddress;
   segment?: string;
   status: string;
   source?: string;
@@ -47,41 +61,6 @@ export interface Customer {
   funding?: string;
   isFavorite?: boolean;
   customFields?: Record<string, unknown> | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/**
- * Contact entity
- */
-interface Contact {
-  id: string;
-  customerId?: string;
-  firstName: string;
-  lastName: string;
-  fullName?: string;
-  email: string;
-  title?: string;
-  department?: string;
-  directPhone?: string;
-  mobilePhone?: string;
-  extension?: string;
-  role?: string;
-  isPrimary?: boolean;
-  isDecisionMaker?: boolean;
-  isBillingContact?: boolean;
-  isTechnicalContact?: boolean;
-  influenceLevel?: string;
-  preferredContactMethod?: string;
-  preferredLanguage?: string;
-  bestTimeToContact?: string;
-  emailOptIn?: boolean;
-  doNotCall?: boolean;
-  linkedinUrl?: string;
-  twitterHandle?: string;
-  status: string;
-  notes?: string;
-  interests?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -153,20 +132,6 @@ export interface Opportunity {
   nextStepDate?: string;
   winLossReason?: string;
   tags?: string[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-/**
- * Customer list entity
- */
-interface CustomerList {
-  id: string;
-  name: string;
-  color: string;
-  icon: string;
-  description?: string;
-  memberCount?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -459,21 +424,18 @@ export interface NotesSectionProps extends SectionProps {
   totalCount: number;
 }
 
-export interface EmailsSectionProps extends SectionProps {
-  // Future: email data
-}
+// Future: email data
+export type EmailsSectionProps = SectionProps;
 
 export interface CallsSectionProps extends SectionProps {
   activities: Activity[];
 }
 
-export interface TasksSectionProps extends SectionProps {
-  // Future: task data
-}
+// Future: task data
+export type TasksSectionProps = SectionProps;
 
-export interface FilesSectionProps extends SectionProps {
-  // Future: file data
-}
+// Future: file data
+export type FilesSectionProps = SectionProps;
 
 export interface OrdersSectionProps extends SectionProps {
   orders: CustomerOrder[];

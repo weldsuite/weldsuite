@@ -11,10 +11,11 @@ import { Link } from '@tanstack/react-router';
 import { MessageSquare, Pin, Phone, Video, CornerUpRight, Hash, Lock, Bot } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
-import { formatDistanceToNow } from 'date-fns';
 import { useChatContext } from './chat-context';
 import { parseChatTokens } from '../lib/render-tokens';
 import { EntityMentionChip } from './entity-mention-chip';
+import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
+import type { ChatAttachment, ChatClipAttachment } from '@weldsuite/db/schema';
 
 /** Live timer that counts up from a start time */
 function LiveCallTimer({ startedAt }: { startedAt: string }) {
@@ -136,7 +137,7 @@ interface ForwardedFromInfo {
   content: string;
   htmlContent?: string;
   createdAt: string;
-  attachments?: any[];
+  attachments?: Array<ChatAttachment | ChatClipAttachment>;
 }
 
 function ForwardedMessage({
@@ -190,10 +191,10 @@ function ForwardedMessage({
           </div>
           {forwardedFrom.attachments && forwardedFrom.attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-2">
-              {forwardedFrom.attachments.map((att: any) => (
+              {forwardedFrom.attachments.map((att) => (
                 <FilePreview
                   key={att.id}
-                  attachment={att}
+                  attachment={att as unknown as { id: string; fileName: string; fileSize: number; mimeType: string; url: string; thumbnailUrl?: string }}
                   channelId={channelId}
                   messageId={parentMessageId}
                 />
@@ -206,15 +207,33 @@ function ForwardedMessage({
   );
 }
 
+/** Message row as this component reads it — the shared `ChatMessage` cache
+ * shape, extended with the fields the index signature would otherwise widen
+ * to `unknown` (agent authorship, edit/pin state, forwarding, channel name). */
+interface MessageItemMessage extends ChatMessage {
+  authorType?: string;
+  isEdited?: boolean;
+  isPinned?: boolean;
+  channelName?: string;
+  forwardedFrom?: ForwardedFromInfo;
+}
+
+/** Minimal shape needed to render the "replying to" reference line. */
+interface ReplyToMessagePreview {
+  authorAvatar?: string | null;
+  authorName?: string;
+  content?: string;
+}
+
 interface MessageItemProps {
-  message: any;
+  message: MessageItemMessage;
   compact?: boolean;
   showChannel?: boolean;
   channelId?: string;
   /** Map of userId → display name for resolving mention badges */
   membersMap?: Map<string, string>;
   /** The parent message being replied to */
-  replyToMessage?: any;
+  replyToMessage?: ReplyToMessagePreview;
   /** Users who have read this message */
   readBy?: ReadByUser[];
   /** Whether this is a DM conversation */
@@ -231,7 +250,6 @@ export function MessageItem({
   membersMap,
   replyToMessage,
   readBy,
-  isDm,
   hasActiveCall,
 }: MessageItemProps) {
   const [isHovered, setIsHovered] = useState(false);
@@ -298,17 +316,18 @@ export function MessageItem({
         >
           {SystemIcon && <SystemIcon className={cn("h-3 w-3 flex-shrink-0", isCallLive && "text-green-600 dark:text-green-400")} {...(isCallLive ? { fill: 'currentColor' } : {})} />}
           {labelText}
-          {isCallLive && <LiveCallTimer startedAt={message.createdAt} />}
+          {isCallLive && <LiveCallTimer startedAt={message.createdAt ?? ''} />}
         </span>
       </div>
     );
   }
 
-  const timeStr = new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const fullTime = new Date(message.createdAt).toLocaleString();
+  const timeStr = new Date(message.createdAt ?? '').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const fullTime = new Date(message.createdAt ?? '').toLocaleString();
+  const resolvedChannelId = channelId || message.channelId || '';
 
   return (
-    <MessageContextMenu message={message} channelId={channelId || message.channelId} readBy={readBy}>
+    <MessageContextMenu message={message} channelId={resolvedChannelId} readBy={readBy}>
     <div
       data-message-id={message.id}
       data-testid="chat-message"
@@ -343,7 +362,7 @@ export function MessageItem({
       {compact ? (
         <div className="w-7 flex-shrink-0 flex items-center justify-center">
           <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100">
-            {new Date(message.createdAt).toLocaleTimeString([], {
+            {new Date(message.createdAt ?? '').toLocaleTimeString([], {
               hour: '2-digit',
               minute: '2-digit',
             })}
@@ -368,7 +387,7 @@ export function MessageItem({
             onClick={handleAuthorClick}
             style={{ marginTop: '3px' }}
             className="flex-shrink-0 rounded-[9px] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring hover:opacity-80 transition-opacity"
-            title={t.weldchat.messageItem.viewProfile.replace('{name}', message.authorName)}
+            title={t.weldchat.messageItem.viewProfile.replace('{name}', message.authorName ?? '')}
           >
             <Avatar className="h-7 w-7 !rounded-[9px]">
               {message.authorAvatar && (
@@ -442,17 +461,20 @@ export function MessageItem({
         {message.forwardedFrom && (
           <ForwardedMessage
             forwardedFrom={message.forwardedFrom}
-            channelId={channelId || message.channelId}
+            channelId={resolvedChannelId}
             parentMessageId={message.id}
             membersMap={membersMap}
           />
         )}
 
         {/* Attachments */}
-        {message.attachments?.length > 0 && (
+        {(message.attachments?.length ?? 0) > 0 && (
           <div className="flex flex-wrap gap-2 mt-2">
-            {message.attachments.map((att: any) => (
-              <FilePreview key={att.id} attachment={att} channelId={channelId || message.channelId} messageId={message.id} />
+            {/* The cache-side `ChatAttachment` models only the fields cache-merge
+                helpers touch (all optional); real rows always carry the full
+                upload shape `FilePreview` expects. */}
+            {(message.attachments as unknown as Array<ChatAttachment | ChatClipAttachment>).map((att) => (
+              <FilePreview key={att.id} attachment={att as unknown as { id: string; fileName: string; fileSize: number; mimeType: string; url: string; thumbnailUrl?: string }} channelId={resolvedChannelId} messageId={message.id} />
             ))}
           </div>
         )}
@@ -463,17 +485,17 @@ export function MessageItem({
             <ReactionBar
               reactions={message.reactions}
               messageId={message.id}
-              channelId={channelId || message.channelId}
+              channelId={resolvedChannelId}
             />
           )}
 
         {/* Thread indicator */}
-        {message.threadReplyCount > 0 && (
+        {(message.threadReplyCount ?? 0) > 0 && (
           <Link
             data-testid="chat-thread-indicator"
             to="/weldchat/$channelId/thread/$messageId"
             params={{
-              channelId: channelId || message.channelId,
+              channelId: resolvedChannelId,
               messageId: message.id,
             }}
             className="flex items-center gap-1 mt-1 text-xs text-primary hover:underline"
@@ -492,7 +514,7 @@ export function MessageItem({
       {(isHovered || menuOpen) && (
         <MessageActions
           message={message}
-          channelId={channelId || message.channelId}
+          channelId={resolvedChannelId}
           readBy={readBy}
           onOpenChange={(open) => {
             setMenuOpen(open);

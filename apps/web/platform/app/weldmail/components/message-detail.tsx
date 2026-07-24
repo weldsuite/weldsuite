@@ -20,44 +20,28 @@ import {
   Copy,
   ExternalLink,
   FileDown,
-  Filter,
   ListFilter,
   Flag,
   Inbox,
-  MessageSquare,
-  CornerDownRight,
   Link,
-  Smile,
-  Mail,
-  StickyNote,
-  ListTodo,
   X,
   Check,
   Clock,
   Pin,
-  ChevronRight,
   ChevronLeft,
-  Building2,
-  Globe,
-  User,
-  Phone,
   Bold,
   Italic,
   Underline,
   List,
   ListOrdered,
-  AlignLeft,
   PictureInPicture2,
   Maximize,
   FileText,
-  Sparkles,
   PenLine,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { ReplyInput } from '@weldsuite/ui/components/reply-input';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { Badge } from '@weldsuite/ui/components/badge';
-import { Separator } from '@weldsuite/ui/components/separator';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import {
   DropdownMenu,
@@ -73,14 +57,12 @@ import { Calendar } from '@weldsuite/ui/components/calendar';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { useQueryClient } from '@tanstack/react-query';
 import { usePinnedMessagesSafe } from '@/contexts/pinned-messages-context';
 import { useStarredMessagesSafe } from '@/contexts/starred-messages-context';
 import { useCustomerPanel } from '@/contexts/customer-panel-context';
 import { useComposeSafe } from '@/contexts/compose-context';
 import { mailApi } from '../lib/api-client';
 import { IsolatedHtmlContent } from './isolated-html-content';
-import { SYSTEM_LABELS, isSystemLabel, type SystemLabelConfig } from '../lib/label-config';
 import {
   useArchiveThread,
   useTrashThread,
@@ -258,7 +240,6 @@ function ScheduledBanner({ messageId, scheduledFor, accountId, folder }: {
 }) {
   const { t } = useI18n();
   const router = useRouter();
-  const queryClient = useQueryClient();
   const [isCancelling, setIsCancelling] = useState(false);
   const [isRescheduling, setIsRescheduling] = useState(false);
   const [showReschedule, setShowReschedule] = useState(false);
@@ -274,7 +255,7 @@ function ScheduledBanner({ messageId, scheduledFor, accountId, folder }: {
         window.dispatchEvent(new Event('mail:refresh'));
         router.push(`/weldmail/${accountId}/${folder}`);
       } else {
-        toast.error((result as any).error || t.mail.messageDetail.cancelScheduledFailed);
+        toast.error(result.error || t.mail.messageDetail.cancelScheduledFailed);
       }
     } catch {
       toast.error(t.mail.messageDetail.failedToCancelScheduled);
@@ -303,7 +284,7 @@ function ScheduledBanner({ messageId, scheduledFor, accountId, folder }: {
         window.dispatchEvent(new Event('mail:refresh'));
         setShowReschedule(false);
       } else {
-        toast.error((result as any).error || t.mail.messageDetail.failedToReschedule);
+        toast.error(result.error || t.mail.messageDetail.failedToReschedule);
       }
     } catch {
       toast.error(t.mail.messageDetail.failedToReschedule);
@@ -424,15 +405,9 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const [messageLabels, setMessageLabels] = useState<string[]>(message.labels || []);
   const [isUpdatingLabels, setIsUpdatingLabels] = useState(false);
   const [isSending, setIsSending] = useState(false);
-  const [quickReplyText, setQuickReplyText] = useState('');
-  const [isQuickReplySending, setIsQuickReplySending] = useState(false);
   const [localThread, setLocalThread] = useState<EmailMessage[]>(thread);
   const [expandedThreadIds, setExpandedThreadIds] = useState<Set<string>>(() => new Set(thread.map(t => t.id)));
   const [showAllRecipients, setShowAllRecipients] = useState(false);
-  const [hoveredSender, setHoveredSender] = useState(false);
-  const [hoveredRecipient, setHoveredRecipient] = useState(false);
-  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const recipientHoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [userLabels, setUserLabels] = useState<{ id: string; name: string; color?: string | null }[]>([]);
   const [showAddTaskDialog, setShowAddTaskDialog] = useState(false);
 
@@ -440,7 +415,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   const [isAutoDraft, setIsAutoDraft] = useState(false);
   const [isAgentInline, setIsAgentInline] = useState(false);
-  const [showInlineAiInput, setShowInlineAiInput] = useState(false);
+  const [, setShowInlineAiInput] = useState(false);
   const [inlineAiPrompt, setInlineAiPrompt] = useState('');
   const [isInlineAiGenerating, setIsInlineAiGenerating] = useState(false);
   const inlineAiInputRef = useRef<HTMLTextAreaElement>(null);
@@ -483,9 +458,16 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
       try {
         const result = await mailApi.labels.list(accountId);
         if (result.success && result.data) {
-          setUserLabels((result.data as any[]).filter((l: any) => !l.isSystem).map((l: any) => ({ id: l.id, name: l.name, color: l.color })));
+          // The legacy `Mail.Label` client type predates `isSystem`; the
+          // `/mail-labels` route actually returns it (see `MailLabelRow`).
+          const labels = result.data as Array<MailTypes.Label & { isSystem?: boolean | null }>;
+          setUserLabels(
+            labels
+              .filter((l) => !l.isSystem)
+              .map((l) => ({ id: l.id ?? '', name: l.name, color: l.color }))
+          );
         }
-      } catch (error) {
+      } catch {
         // Silently fail - labels just won't be available
       }
     };
@@ -546,9 +528,9 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   // The two parts carry byte-identical payloads, so collapse by content size;
   // genuinely different invites differ in size.
   const calendarInvites = (() => {
-    const ics = attachments.filter((att: any) => isIcsAttachment(att) && att.downloadUrl);
+    const ics = attachments.filter((att) => isIcsAttachment(att) && att.downloadUrl);
     const seenSizes = new Set<number>();
-    return ics.filter((att: any) => {
+    return ics.filter((att) => {
       const size = att.size;
       if (typeof size !== 'number') return true;
       if (seenSizes.has(size)) return false;
@@ -556,7 +538,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
       return true;
     });
   })();
-  const otherAttachments = attachments.filter((att: any) => !isIcsAttachment(att));
+  const otherAttachments = attachments.filter((att) => !isIcsAttachment(att));
 
   // Listen for context-menu reply/forward actions
   useEffect(() => {
@@ -695,32 +677,6 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
       toast.error(t.mail.messageDetail.failedToForwardEmail);
     } finally {
       setIsSending(false);
-    }
-  };
-
-  const handleQuickReply = async () => {
-    if (!quickReplyText.trim()) {
-      return;
-    }
-    setIsQuickReplySending(true);
-    const quickReplyHtml = quickReplyText.replace(/\n/g, '<br>');
-    try {
-      const result = await mailApi.messages.reply(accountId, message.id, {
-        body: quickReplyText,
-        htmlBody: quickReplyHtml,
-        replyAll: false,
-      });
-      if (result.success) {
-        toast.success(t.mail.messageDetail.replySent);
-        addOptimisticMessage(quickReplyText, newestMessage.fromEmail || newestMessage.from || '', quickReplyHtml);
-        setQuickReplyText('');
-      } else {
-        toast.error(result.error || t.mail.messageDetail.failedToSendReply);
-      }
-    } catch {
-      toast.error(t.mail.messageDetail.failedToSendReply);
-    } finally {
-      setIsQuickReplySending(false);
     }
   };
 
@@ -891,7 +847,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           toast.error(result.error || t.mail.messageDetail.failedToUpdateLabels);
         }
       }
-    } catch (error) {
+    } catch {
       toast.error(t.mail.messageDetail.failedToUpdateLabels);
     } finally {
       setIsUpdatingLabels(false);
@@ -1805,7 +1761,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           {/* Calendar invites (.ics) — offer a one-click add to Weld Calendar */}
           {calendarInvites.length > 0 && (
             <div className="mt-4 md:mt-6 space-y-2">
-              {calendarInvites.map((att: any) => (
+              {calendarInvites.map((att) => (
                 <CalendarInviteCard
                   key={att.id}
                   attachmentId={att.id}
@@ -1828,7 +1784,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                       <span>{otherAttachments.length !== 1 ? t.mail.messageDetail.attachmentCountPlural.replace('{n}', String(otherAttachments.length)) : t.mail.messageDetail.attachmentCount.replace('{n}', String(otherAttachments.length))}</span>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {otherAttachments.map((att: any) => (
+                      {otherAttachments.map((att) => (
                         <a
                           key={att.id}
                           href={att.downloadUrl}

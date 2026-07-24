@@ -117,6 +117,7 @@ class DataEventEmitter {
    * @weldsuite/realtime integration; wire up to @weldsuite/realtime when
    * reinstating cross-tab cache invalidation.
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept for the future @weldsuite/realtime wiring described above
   initializeRealtimeBridge(_currentUserId?: string): void {
     if (this.realtimeBridgeInitialized) return;
     this.realtimeBridgeInitialized = true;

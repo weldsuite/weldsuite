@@ -19,6 +19,7 @@ import {
   CheckCircle,
 } from 'lucide-react';
 import type { VariableGroup } from '@weldsuite/ui/components/workflow-canvas/parts/variable-picker';
+import type { WorkflowStep, WorkflowTrigger } from './types';
 
 // ============================================================================
 // Triggers — 4 essential conversation events
@@ -124,7 +125,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
 // Action Meta (icons and colors)
 // ============================================================================
 
-const ACTION_META: Record<string, { icon: any; color: string; bgColor: string; borderColor: string }> = {
+const ACTION_META: Record<string, { icon: React.ElementType; color: string; bgColor: string; borderColor: string }> = {
   send_message: { icon: MessageSquareText, color: 'text-cyan-600', bgColor: 'bg-cyan-100 dark:bg-cyan-900/30', borderColor: 'border-cyan-200 dark:border-cyan-800/40' },
   send_choices: { icon: ListChecks, color: 'text-cyan-600', bgColor: 'bg-cyan-100 dark:bg-cyan-900/30', borderColor: 'border-cyan-200 dark:border-cyan-800/40' },
   collect_input: { icon: ClipboardList, color: 'text-cyan-600', bgColor: 'bg-cyan-100 dark:bg-cyan-900/30', borderColor: 'border-cyan-200 dark:border-cyan-800/40' },
@@ -291,7 +292,7 @@ export function getAvailableActions(
 // Warning Helpers
 // ============================================================================
 
-export function getTriggerWarningMessage(trigger: any): string | null {
+export function getTriggerWarningMessage(trigger: WorkflowTrigger | null | undefined): string | null {
   if (!trigger || !trigger.type) return 'No trigger configured';
   if (trigger.type === 'entity_event') {
     const missing = [];
@@ -304,12 +305,12 @@ export function getTriggerWarningMessage(trigger: any): string | null {
 
 const NO_CONFIG_STEPS = new Set(['ai_auto_reply', 'close_conversation', 'unassign_conversation']);
 
-export function getStepWarningMessage(step: any): string | null {
+export function getStepWarningMessage(step: WorkflowStep): string | null {
   if (NO_CONFIG_STEPS.has(step.type)) return null;
   const config = step.config || {};
   if (Object.keys(config).length === 0) return 'This step is not configured yet';
   if (step.type === 'condition' && !config.expression) return 'Missing condition expression';
-  if (step.type === 'delay' && (!config.duration || config.duration <= 0)) return 'Missing duration';
+  if (step.type === 'delay' && (!config.duration || (config.duration as number) <= 0)) return 'Missing duration';
   return null;
 }
 

@@ -4,32 +4,20 @@ import { PageLoader } from '@/components/page-loader';
 import { useTemplate } from '@/hooks/queries/use-automation-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import {
-  useActionTypes,
-  useTriggerTypes,
-  useEntityEvents,
   useEmailAccounts,
   useEditorWorkspaceMembers,
 } from '@/hooks/use-workflow-editor-data';
-import { TemplateEditorClient } from './template-editor-client';
+import { TemplateEditorClient, type RawTemplateTrigger, type RawTemplateStep } from './template-editor-client';
 
 export default function TemplateEditPage() {
   const { t } = useI18n();
   const { id } = useParams<{ id: string }>();
 
   const { data: templateResult, isLoading: isTemplateLoading } = useTemplate(id);
-  const { data: actionTypes, isLoading: isActionTypesLoading } = useActionTypes();
-  const { data: triggerTypes, isLoading: isTriggerTypesLoading } = useTriggerTypes();
-  const { data: entityEvents, isLoading: isEntityEventsLoading } = useEntityEvents();
   const { data: emailAccounts, isLoading: isEmailAccountsLoading } = useEmailAccounts();
   const { data: workspaceMembers, isLoading: isMembersLoading } = useEditorWorkspaceMembers();
 
-  const isLoading =
-    isTemplateLoading ||
-    isActionTypesLoading ||
-    isTriggerTypesLoading ||
-    isEntityEventsLoading ||
-    isEmailAccountsLoading ||
-    isMembersLoading;
+  const isLoading = isTemplateLoading || isEmailAccountsLoading || isMembersLoading;
 
   if (isLoading) {
     return <PageLoader fullScreen={false} />;
@@ -47,10 +35,11 @@ export default function TemplateEditPage() {
 
   return (
     <TemplateEditorClient
-      template={template}
-      actionTypes={actionTypes ?? []}
-      triggerTypes={triggerTypes ?? []}
-      entityEvents={entityEvents ?? []}
+      template={{
+        ...template,
+        triggers: template.triggers as RawTemplateTrigger[],
+        steps: template.steps as RawTemplateStep[],
+      }}
       emailAccounts={emailAccounts}
       workspaceMembers={workspaceMembers}
     />

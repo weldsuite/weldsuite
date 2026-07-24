@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-layout';
 import { coloredSquareColors, coloredSquareIcons } from '@/components/app-sidebar-layout';
-import { PipelineTemplateDialog } from '../components/pipeline-template-dialog';
+import { PipelineTemplateDialog, type PipelineTemplate } from '../components/pipeline-template-dialog';
 import { CreateListDialog } from '../components/create-list-dialog';
 import { RenameDialog } from '../components/rename-dialog';
 import { getTemplateStages } from '../components/pipeline-templates';
@@ -48,6 +48,7 @@ import {
   useDeleteList,
   type ListKind,
 } from '@/hooks/queries/use-lists-queries';
+import type { Pipeline, PipelineStage, Opportunity } from '@/lib/api/domains/weldcrm';
 
 // Pipeline icons round-trip through the API as string names. The create
 // dialog and the sidebar item menu both pick from `coloredSquareIcons`, so we
@@ -154,12 +155,12 @@ export function useCrmSidebarItems(isActive: boolean): {
     const fetchData = async () => {
       try {
         const client = await getClient();
-        const pipelinesResult = await client.get<{ data?: any[] }>('/pipelines');
+        const pipelinesResult = await client.get<{ data?: Pipeline[] }>('/pipelines');
 
         const pipelines = pipelinesResult.data || [];
         if (pipelines.length) {
           setPipelinePages(
-            pipelines.map((p: any) => ({
+            pipelines.map((p) => ({
               id: p.id,
               title: p.name,
               href: `/weldcrm/pipeline/${p.id}`,
@@ -318,11 +319,11 @@ export function useCrmSidebarItems(isActive: boolean): {
     }
   };
 
-  const handleCustomerImport = (_pageId: string) => {
+  const handleCustomerImport = () => {
     toast.info(t('crm.sidebar.importComingSoon'));
   };
 
-  const handleCustomerExport = (_pageId: string) => {
+  const handleCustomerExport = () => {
     toast.info(t('crm.sidebar.exportComingSoon'));
   };
 
@@ -376,7 +377,7 @@ export function useCrmSidebarItems(isActive: boolean): {
     }
   };
 
-  const handleSelectTemplate = async (template: any) => {
+  const handleSelectTemplate = async (template: PipelineTemplate) => {
     const newPipelineName =
       template.id === 'blank' ? `Pipeline ${pipelinePages.length}` : template.name;
     const colorIndex = pipelinePages.length % coloredSquareColors.length;
@@ -445,7 +446,7 @@ export function useCrmSidebarItems(isActive: boolean): {
     try {
       const client = await getClient();
       // Get original pipeline details
-      const originalResult = await client.get<{ data?: any }>(`/pipelines/${pageId}`);
+      const originalResult = await client.get<{ data?: Pipeline }>(`/pipelines/${pageId}`);
       if (!originalResult.data) {
         toast.error(t('crm.sidebar.pipelineNotFound'));
         return;
@@ -461,7 +462,7 @@ export function useCrmSidebarItems(isActive: boolean): {
       });
       if (pipeline?.id) {
         // Copy stages
-        const stagesResult = await client.get<{ data?: any[] }>(`/pipeline-stages?pipeline=${pageId}`);
+        const stagesResult = await client.get<{ data?: PipelineStage[] }>(`/pipeline-stages?pipeline=${pageId}`);
         if (stagesResult.data) {
           for (const stage of stagesResult.data) {
             await client.post('/pipeline-stages', {
@@ -530,7 +531,7 @@ export function useCrmSidebarItems(isActive: boolean): {
     setRenameListDialogOpen(true);
   };
 
-  const handlePipelineImport = async (_pageId: string) => {
+  const handlePipelineImport = async () => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
@@ -598,9 +599,9 @@ export function useCrmSidebarItems(isActive: boolean): {
       const client = await getClient();
       // Get pipeline, stages, and deals
       const [pipelineResult, stagesResult, dealsResult] = await Promise.all([
-        client.get<{ data?: any }>(`/pipelines/${pageId}`),
-        client.get<{ data?: any[] }>(`/pipeline-stages?pipeline=${pageId}`),
-        client.get<{ data?: any[] }>(`/opportunities?pipeline=${pageId}`),
+        client.get<{ data?: Pipeline }>(`/pipelines/${pageId}`),
+        client.get<{ data?: PipelineStage[] }>(`/pipeline-stages?pipeline=${pageId}`),
+        client.get<{ data?: Opportunity[] }>(`/opportunities?pipeline=${pageId}`),
       ]);
       if (!pipelineResult.data) {
         toast.error(t('crm.sidebar.pipelineNotFound'));
@@ -619,7 +620,7 @@ export function useCrmSidebarItems(isActive: boolean): {
           icon: pipeline.icon,
           template: pipeline.template,
         },
-        stages: stages.map((stage: any) => ({
+        stages: stages.map((stage) => ({
           name: stage.name,
           description: stage.description,
           color: stage.color,
@@ -629,7 +630,7 @@ export function useCrmSidebarItems(isActive: boolean): {
           isWon: stage.isWon,
           isLost: stage.isLost,
         })),
-        deals: deals.map((deal: any) => ({
+        deals: deals.map((deal) => ({
           name: deal.name,
           description: deal.description,
           amount: deal.amount,
@@ -676,8 +677,8 @@ export function useCrmSidebarItems(isActive: boolean): {
     onRename: () => handleRenameCustomerList(page.id),
     onChangeColor: (color: string) => handleChangeCustomerColor(page.id, color),
     onChangeIcon: (icon: LucideIcon) => handleChangeCustomerIcon(page.id, icon),
-    onImport: () => handleCustomerImport(page.id),
-    onExport: () => handleCustomerExport(page.id),
+    onImport: () => handleCustomerImport(),
+    onExport: () => handleCustomerExport(),
   }));
 
   // Transform pipeline pages to menu items
@@ -693,7 +694,7 @@ export function useCrmSidebarItems(isActive: boolean): {
     onRename: () => handleRenamePipeline(page.id),
     onChangeColor: (color: string) => handleChangePipelineColor(page.id, color),
     onChangeIcon: (icon: LucideIcon) => handleChangePipelineIcon(page.id, icon),
-    onImport: () => handlePipelineImport(page.id),
+    onImport: () => handlePipelineImport(),
     onExport: () => handlePipelineExport(page.id),
   }));
 

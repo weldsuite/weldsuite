@@ -5,9 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weld
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import {
   Activity,
-  TrendingUp,
-  TrendingDown,
-  AlertCircle,
   Clock,
   Zap,
   CheckCircle2,
@@ -32,13 +29,47 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { Link } from '@/lib/router';
+import type { WorkflowExecution, WorkflowErrorLog } from '@/hooks/queries/use-automation-queries';
+
+interface WorkflowStatsSummary {
+  totalExecutions: number;
+  successfulExecutions: number;
+  failedExecutions: number;
+  pendingExecutions: number;
+}
+
+interface ExecutionTrendPoint {
+  date: string;
+  total: number;
+  success: number;
+  failure: number;
+}
+
+interface ExecutionTrendsSummary {
+  trends: ExecutionTrendPoint[];
+}
+
+interface ErrorStatsSummary {
+  total: number;
+  unacknowledged: number;
+  byType: Record<string, number>;
+  items: WorkflowErrorLog[];
+}
+
+interface PerformanceMetricsSummary {
+  averageDuration?: number;
+  medianDuration?: number;
+  p95Duration?: number;
+  p99Duration?: number;
+  totalDuration?: number;
+}
 
 interface AnalyticsDashboardClientProps {
-  stats: any;
-  trends: any;
-  errorStats: any;
-  performanceMetrics: any;
-  slowExecutions: any[];
+  stats: WorkflowStatsSummary | null;
+  trends: ExecutionTrendsSummary | null;
+  errorStats: ErrorStatsSummary | null;
+  performanceMetrics: PerformanceMetricsSummary | null;
+  slowExecutions: WorkflowExecution[];
 }
 
 const formatDuration = (ms: number) => {
@@ -71,11 +102,23 @@ export function AnalyticsDashboardClient({
     ? ((stats.successfulExecutions / stats.totalExecutions) * 100).toFixed(1)
     : 0;
 
+  // The workflow-stats endpoint doesn't report a dedicated "in progress" count;
+  // derive it as whatever hasn't reached a terminal (successful/failed) state yet.
+  const runningExecutions = stats
+    ? Math.max(stats.totalExecutions - stats.successfulExecutions - stats.failedExecutions, 0)
+    : 0;
+
   const pieData = [
     { name: t.weldconnect.analytics.charts.successful, value: stats?.successfulExecutions || 0, color: COLORS.success },
     { name: t.weldconnect.analytics.charts.failed, value: stats?.failedExecutions || 0, color: COLORS.failed },
-    { name: t.weldconnect.executions.statuses.running, value: stats?.runningExecutions || 0, color: COLORS.running },
+    { name: t.weldconnect.executions.statuses.running, value: runningExecutions, color: COLORS.running },
   ].filter(item => item.value > 0);
+
+  const errorsByWorkflow = (errorStats?.items ?? []).reduce<Record<string, number>>((acc, item) => {
+    const workflowId = typeof item.workflowId === 'string' ? item.workflowId : 'unknown';
+    acc[workflowId] = (acc[workflowId] || 0) + 1;
+    return acc;
+  }, {});
 
   return (
     <div className="min-h-screen bg-background">
@@ -103,7 +146,7 @@ export function AnalyticsDashboardClient({
             <CardContent>
               <div className="text-2xl font-bold">{stats?.totalExecutions || 0}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                {t.weldconnect.analytics.stats.currentlyRunning.replace('{count}', String(stats?.runningExecutions || 0))}
+                {t.weldconnect.analytics.stats.currentlyRunning.replace('{count}', String(runningExecutions))}
               </p>
             </CardContent>
           </Card>
@@ -133,7 +176,7 @@ export function AnalyticsDashboardClient({
             <CardContent>
               <div className="text-2xl font-bold text-red-600">{stats?.failedExecutions || 0}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                {t.weldconnect.analytics.stats.unacknowledgedErrors.replace('{count}', String(errorStats?.unacknowledgedErrors || 0))}
+                {t.weldconnect.analytics.stats.unacknowledgedErrors.replace('{count}', String(errorStats?.unacknowledged || 0))}
               </p>
             </CardContent>
           </Card>
@@ -147,7 +190,7 @@ export function AnalyticsDashboardClient({
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {formatDuration(stats?.averageDuration || 0)}
+                {formatDuration(performanceMetrics?.averageDuration || 0)}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
                 {t.weldconnect.analytics.stats.median.replace('{value}', formatDuration(performanceMetrics?.medianDuration || 0))}
@@ -174,7 +217,7 @@ export function AnalyticsDashboardClient({
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={350}>
-                  <AreaChart data={trends?.data || []}>
+                  <AreaChart data={trends?.trends || []}>
                     <defs>
                       <linearGradient id="colorSuccess" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor={COLORS.success} stopOpacity={0.3} />
@@ -193,12 +236,12 @@ export function AnalyticsDashboardClient({
                     <YAxis />
                     <Tooltip
                       labelFormatter={(value) => new Date(value).toLocaleDateString()}
-                      formatter={(value: any) => [value, '']}
+                      formatter={(value) => [value, '']}
                     />
                     <Legend />
                     <Area
                       type="monotone"
-                      dataKey="successfulExecutions"
+                      dataKey="success"
                       name={t.weldconnect.analytics.charts.successful}
                       stroke={COLORS.success}
                       fillOpacity={1}
@@ -206,7 +249,7 @@ export function AnalyticsDashboardClient({
                     />
                     <Area
                       type="monotone"
-                      dataKey="failedExecutions"
+                      dataKey="failure"
                       name={t.weldconnect.analytics.charts.failed}
                       stroke={COLORS.failed}
                       fillOpacity={1}
@@ -277,13 +320,13 @@ export function AnalyticsDashboardClient({
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium truncate">{execution.workflowName}</p>
                             <p className="text-xs text-muted-foreground">
-                              {new Date(execution.startedAt).toLocaleString()}
+                              {execution.startedAt ? new Date(execution.startedAt).toLocaleString() : '—'}
                             </p>
                           </div>
                           <div className="flex items-center gap-2">
                             <Clock className="h-3.5 w-3.5 text-orange-500" />
                             <span className="text-sm font-semibold text-orange-600">
-                              {formatDuration(execution.duration)}
+                              {execution.duration != null ? formatDuration(execution.duration) : '—'}
                             </span>
                           </div>
                         </Link>
@@ -306,7 +349,7 @@ export function AnalyticsDashboardClient({
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={trends?.data || []}>
+                  <LineChart data={trends?.trends || []}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
                       dataKey="date"
@@ -315,7 +358,7 @@ export function AnalyticsDashboardClient({
                     <YAxis tickFormatter={(value) => formatDuration(value)} />
                     <Tooltip
                       labelFormatter={(value) => new Date(value).toLocaleDateString()}
-                      formatter={(value: any) => [formatDuration(value), t.weldconnect.analytics.stats.avgDuration]}
+                      formatter={(value) => [formatDuration(Number(value)), t.weldconnect.analytics.stats.avgDuration]}
                     />
                     <Line
                       type="monotone"
@@ -343,19 +386,19 @@ export function AnalyticsDashboardClient({
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">{t.weldconnect.analytics.stats.totalErrors}</span>
                     <span className="text-2xl font-bold text-red-600">
-                      {errorStats?.totalErrors || 0}
+                      {errorStats?.total || 0}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">{t.weldconnect.analytics.stats.unacknowledged}</span>
                     <span className="text-lg font-semibold text-orange-600">
-                      {errorStats?.unacknowledgedErrors || 0}
+                      {errorStats?.unacknowledged || 0}
                     </span>
                   </div>
                   <div className="border-t pt-4 space-y-2">
                     <p className="text-sm font-medium">{t.weldconnect.analytics.stats.errorsByType}</p>
-                    {errorStats?.errorsByType && Object.keys(errorStats.errorsByType).length > 0 ? (
-                      Object.entries(errorStats.errorsByType).map(([type, count]: [string, any]) => (
+                    {errorStats?.byType && Object.keys(errorStats.byType).length > 0 ? (
+                      Object.entries(errorStats.byType).map(([type, count]) => (
                         <div key={type} className="flex items-center justify-between">
                           <span className="text-sm text-muted-foreground">{type}</span>
                           <span className="text-sm font-medium">{count}</span>
@@ -374,15 +417,15 @@ export function AnalyticsDashboardClient({
                   <CardDescription>{t.weldconnect.analytics.charts.errorsByWorkflowDescription}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {errorStats?.errorsByWorkflow && Object.keys(errorStats.errorsByWorkflow).length > 0 ? (
+                  {Object.keys(errorsByWorkflow).length > 0 ? (
                     <ResponsiveContainer width="100%" height={250}>
                       <BarChart
-                        data={Object.entries(errorStats.errorsByWorkflow)
+                        data={Object.entries(errorsByWorkflow)
                           .map(([workflowId, count]) => ({
                             name: workflowId.substring(0, 8),
                             errors: count,
                           }))
-                          .sort((a: any, b: any) => b.errors - a.errors)
+                          .sort((a, b) => b.errors - a.errors)
                           .slice(0, 10)}
                       >
                         <CartesianGrid strokeDasharray="3 3" />
@@ -441,7 +484,7 @@ export function AnalyticsDashboardClient({
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={trends?.data || []}>
+                    <BarChart data={trends?.trends || []}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis
                         dataKey="date"
@@ -450,9 +493,9 @@ export function AnalyticsDashboardClient({
                       <YAxis />
                       <Tooltip
                         labelFormatter={(value) => new Date(value).toLocaleDateString()}
-                        formatter={(value: any) => [value, t.weldconnect.analytics.stats.totalExecutions]}
+                        formatter={(value) => [value, t.weldconnect.analytics.stats.totalExecutions]}
                       />
-                      <Bar dataKey="totalExecutions" fill={COLORS.running} />
+                      <Bar dataKey="total" fill={COLORS.running} />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>

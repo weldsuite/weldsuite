@@ -1,7 +1,6 @@
 
 import { useState, useCallback, useMemo } from 'react';
 import { useWidgetsList, useCreateWidget, useDeleteWidget } from '@/hooks/queries/use-helpdesk-queries';
-import { PageLoader } from '@/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@weldsuite/ui/components/dialog';
 import { Input } from '@weldsuite/ui/components/input';
@@ -15,13 +14,19 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type RowHandlers } from '@/components/entity-list';
+import { EntityList, EmptyStateIllustration, type HeaderColumn } from '@/components/entity-list';
 import { useI18n } from '@/lib/i18n/provider';
 
 interface Widget {
   id: string;
   widgetId: string;
   widgetName: string;
+  createdAt: string;
+}
+
+interface RawWidget {
+  widgetId: string;
+  widgetName?: string;
   createdAt: string;
 }
 
@@ -38,13 +43,13 @@ export default function ChatWidgetPage() {
   const [newWidgetName, setNewWidgetName] = useState('');
 
   const widgets: Widget[] = useMemo(() =>
-    (data?.data ?? []).map((w: any) => ({
+    (data?.data ?? []).map((w: RawWidget) => ({
       id: w.widgetId,
       widgetId: w.widgetId,
       widgetName: w.widgetName || tw.unnamedWidget,
       createdAt: w.createdAt,
     })),
-    [data],
+    [data, tw.unnamedWidget],
   );
 
   const handleCreate = async () => {
@@ -77,7 +82,7 @@ export default function ChatWidgetPage() {
     { id: 'created', header: tw.created, width: 'w-[100px]' },
   ], [tw]);
 
-  const renderRow = useCallback((widget: Widget, _handlers: RowHandlers<Widget>) => {
+  const renderRow = useCallback((widget: Widget) => {
     return (
       <div
         key={widget.id}
@@ -125,7 +130,7 @@ export default function ChatWidgetPage() {
         </div>
       </div>
     );
-  }, [navigate, widgets.length]);
+  }, [navigate, widgets.length, tw.delete]);
 
   return (
     <>

@@ -7,7 +7,7 @@
  * shown but disabled to make the constraint obvious.
  */
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useDebounce } from '@/hooks/use-debounce';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -23,7 +23,7 @@ import {
   CommandItem,
   CommandList,
 } from '@weldsuite/ui/components/command';
-import { Check, Plus, User } from 'lucide-react';
+import { Check, Plus } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';

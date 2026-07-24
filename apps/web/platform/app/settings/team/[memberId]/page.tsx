@@ -1,5 +1,4 @@
 import * as React from 'react';
-import { useAuth } from '@clerk/clerk-react';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { useParams, useRouter } from '@/lib/router';
 import { useAppApiClient } from '@/lib/api/use-app-api';
@@ -37,7 +36,6 @@ export default function MemberDetailPage() {
   const router = useRouter();
   const params = useParams();
   const memberId = (params as { memberId?: string }).memberId ?? '';
-  const { userId } = useAuth();
   const { can, isOwner, isLoading: permissionsLoading } = usePermissions();
   const queryClient = useQueryClient();
   const { getClient } = useAppApiClient();

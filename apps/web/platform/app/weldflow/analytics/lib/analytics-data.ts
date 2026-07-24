@@ -5,10 +5,6 @@ import {
   mvTasksDaily,
   mvTimeEntriesDaily,
   mvMilestoneStats,
-  projects,
-  tasks,
-  timeEntries,
-  milestones,
 } from '@/lib/db/schema';
 
 // ============ CONFIGURATION ============
@@ -85,10 +81,11 @@ function getDateRangeFromTimeRange(timeRange: string): { start: Date; end: Date 
       start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       end.setDate(0);
       break;
-    case 'this_quarter':
+    case 'this_quarter': {
       const quarter = Math.floor(now.getMonth() / 3);
       start = new Date(now.getFullYear(), quarter * 3, 1);
       break;
+    }
     case 'this_year':
       start = new Date(now.getFullYear(), 0, 1);
       break;

@@ -2,11 +2,9 @@
 import { useState, useEffect, useRef, useTransition, useMemo } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { useRouter, Link } from '@/lib/router';
+import { Link } from '@/lib/router';
 import { Plus, TrendingUp, Edit2, GripVertical, MoreVertical, Trash2, Copy, Unlock } from 'lucide-react';
 import GridLayout, { Layout } from 'react-grid-layout';
-// @ts-ignore - React 19 compatibility issue with react-grid-layout
-const GridLayoutFixed = GridLayout as any;
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import { Button } from '@weldsuite/ui/components/button';
@@ -27,7 +25,6 @@ import {
   Command,
   CommandEmpty,
   CommandGroup,
-  CommandInput,
   CommandItem,
   CommandList,
 } from '@weldsuite/ui/components/command';
@@ -47,6 +44,7 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  type PieLabelRenderProps,
 } from 'recharts';
 import { analyticsApi } from '@/app/weldflow/lib/api-client';
 
@@ -88,7 +86,7 @@ interface ChartDataPoint {
   label: string;
   value: number;
   fill?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 interface ProjectReportViewClientProps {
@@ -119,7 +117,6 @@ export function ProjectReportViewClient({ report, charts: initialCharts, project
     { label: report.title },
   ]);
 
-  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const reportId = report.id;
   const basePath = `/weldflow/project/${projectId}/analytics`;
@@ -401,7 +398,7 @@ export function ProjectReportViewClient({ report, charts: initialCharts, project
               cx="50%"
               cy="50%"
               labelLine={chart.showDataLabels}
-              label={chart.showDataLabels ? (({ name, percent }: { name: string; percent?: number }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`) as any : undefined}
+              label={chart.showDataLabels ? ((props: PieLabelRenderProps) => `${props.name ?? ''} ${((props.percent ?? 0) * 100).toFixed(0)}%`) : undefined}
               outerRadius={80}
               innerRadius={chartType.includes('donut') ? 50 : 0}
               fill="#8884d8"
@@ -620,7 +617,7 @@ export function ProjectReportViewClient({ report, charts: initialCharts, project
 
       {/* Charts Grid */}
       <div ref={containerRef} className="w-full">
-        <GridLayoutFixed
+        <GridLayout
           className="layout"
           layout={layouts}
           cols={12}
@@ -734,7 +731,7 @@ export function ProjectReportViewClient({ report, charts: initialCharts, project
               </Card>
             </div>
           ))}
-        </GridLayoutFixed>
+        </GridLayout>
       </div>
     </div>
   );

@@ -1,9 +1,7 @@
 
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
-import { useRouter } from '@/lib/router';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { format } from 'date-fns';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
@@ -22,26 +20,10 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@weldsuite/ui/components/dropdown-menu';
-import {
-  ArrowLeft,
-  EllipsisVertical,
   Eye,
-  Trash2,
-  Copy,
   Calendar as CalendarIcon,
-  User,
-  Tag as TagIcon,
   Image as ImageIcon,
-  Star,
-  StarOff,
   X,
-  Plus,
   Type,
   Heading1,
   Heading2,
@@ -70,7 +52,8 @@ interface ChangelogEditorClientProps {
 }
 
 export function ChangelogEditorClient({ changelogId }: ChangelogEditorClientProps) {
-  const router = useRouter();
+  // TODO: wire up real fetch/save by changelogId; editor still runs on mock data below.
+  void changelogId;
   const { t } = useI18n();
   const st = useTranslations();
   const tc = t.helpdesk.changelog;
@@ -85,18 +68,12 @@ export function ChangelogEditorClient({ changelogId }: ChangelogEditorClientProp
 
   // Mock data - in real app, fetch from API based on changelogId
   const [title, setTitle] = useState('Version 2.5.0 - Enhanced Dashboard & Performance');
-  const [excerpt, setExcerpt] = useState('Major update with new dashboard features, improved performance, and bug fixes.');
   const [content, setContent] = useState('<p dir="ltr">Full changelog content here...</p><p dir="ltr"><br></p><p dir="ltr">This is where you can write your changelog content. The editor provides a clean, distraction-free writing experience similar to Notion.</p><p dir="ltr"><br></p><p dir="ltr">You can write multiple paragraphs, and the content will automatically expand as you type.</p>');
   const [author, setAuthor] = useState('Sarah Williams');
   const [category, setCategory] = useState<string>('company');
   const [status, setStatus] = useState<string>('published');
   const [publishDate, setPublishDate] = useState(new Date('2024-01-20'));
-  const [featured, setFeatured] = useState(true);
-  const [tags, setTags] = useState(['milestone', 'growth', 'users']);
-  const [newTag, setNewTag] = useState('');
-  const [isAddingTag, setIsAddingTag] = useState(false);
   const [coverImage, setCoverImage] = useState<string | undefined>(undefined);
-  const [showMetadata, setShowMetadata] = useState(false);
   const [showCommandMenu, setShowCommandMenu] = useState(false);
   const [commandMenuPosition, setCommandMenuPosition] = useState({ top: 0, left: 0 });
   const [commandFilter, setCommandFilter] = useState('');
@@ -120,6 +97,8 @@ export function ChangelogEditorClient({ changelogId }: ChangelogEditorClientProp
         titleRef.current.textContent = title;
       }
     }
+    // Mount-only: re-running on every `title` change would fight the contentEditable cursor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Initialize content on mount only
@@ -131,6 +110,8 @@ export function ChangelogEditorClient({ changelogId }: ChangelogEditorClientProp
         p.setAttribute('dir', 'ltr');
       });
     }
+    // Mount-only: re-running on every `content` change would fight the contentEditable cursor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleTitleInput = (e: React.FormEvent<HTMLDivElement>) => {
@@ -320,25 +301,6 @@ export function ChangelogEditorClient({ changelogId }: ChangelogEditorClientProp
           setSelectedCommandIndex(0);
         }
       }, 0);
-    }
-  };
-
-  const handleRemoveTag = (tagToRemove: string) => {
-    setTags(tags.filter(tag => tag !== tagToRemove));
-  };
-
-  const handleAddTag = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && newTag.trim()) {
-      e.preventDefault();
-      const tagValue = newTag.trim().toLowerCase();
-      if (!tags.includes(tagValue)) {
-        setTags([...tags, tagValue]);
-      }
-      setNewTag('');
-      setIsAddingTag(false);
-    } else if (e.key === 'Escape') {
-      setNewTag('');
-      setIsAddingTag(false);
     }
   };
 
@@ -582,25 +544,6 @@ export function ChangelogEditorClient({ changelogId }: ChangelogEditorClientProp
     cmd.label.toLowerCase().includes(commandFilter.toLowerCase()) ||
     cmd.description.toLowerCase().includes(commandFilter.toLowerCase())
   );
-
-  const getCategoryColor = (cat: string) => {
-    switch (cat) {
-      case 'company': return 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-400 dark:border-blue-900';
-      case 'product': return 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-400 dark:border-green-900';
-      case 'industry': return 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950 dark:text-purple-400 dark:border-purple-900';
-      case 'announcement': return 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950 dark:text-yellow-400 dark:border-yellow-900';
-      default: return 'bg-gray-50 text-gray-700 border-gray-200 dark:bg-background dark:text-muted-foreground dark:border-background';
-    }
-  };
-
-  const getStatusColor = (stat: string) => {
-    switch (stat) {
-      case 'published': return 'default';
-      case 'draft': return 'secondary';
-      case 'scheduled': return 'outline';
-      default: return 'secondary';
-    }
-  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -944,7 +887,7 @@ export function ChangelogEditorClient({ changelogId }: ChangelogEditorClientProp
       )}
 
       {/* Custom Styles for contenteditable */}
-      <style jsx global>{`
+      <style>{`
         /* Subtle scrollbar styles */
         * {
           scrollbar-width: thin;

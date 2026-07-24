@@ -1,18 +1,16 @@
 
-import React, { useState, useTransition, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
 import {
   Search,
-  RefreshCw,
   Archive,
   Trash,
   Star,
   MoreVertical,
   Reply,
-  ReplyAll,
   Forward,
   Clock,
   Mail,
@@ -25,16 +23,11 @@ import {
   Filter,
   Plus,
   MessageSquare,
-  ArrowUp,
-  ArrowDown,
-  Sparkles,
-  Bot,
   Check,
   Edit,
   Minimize2,
   Maximize2,
   Expand,
-  MessageSquarePlus,
   PenSquare,
   Library,
   FileText,
@@ -56,18 +49,14 @@ import {
   ExternalLink,
   Copy,
   Eye,
-  Share2,
   Flag,
   AlertTriangle,
-  UserPlus,
   FileDown,
   Shield,
   StickyNote,
   ListTodo,
   Pin,
-  Inbox,
   CornerDownRight,
-  PanelRightClose,
   PictureInPicture2,
   Minus,
   Link,
@@ -76,29 +65,26 @@ import {
   Image,
   Bell,
   ShieldAlert,
-  Calendar
+  Calendar,
+  type LucideIcon
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
-import { Checkbox } from '@weldsuite/ui/components/checkbox';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { ButtonGroup } from '@weldsuite/ui/components/button-group';
-import { Textarea } from '@weldsuite/ui/components/textarea';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { Separator } from '@weldsuite/ui/components/separator';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
+import { Card, CardContent, CardDescription, CardTitle } from '@weldsuite/ui/components/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuGroup, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuPortal } from '@weldsuite/ui/components/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Label } from '@weldsuite/ui/components/label';
 import { Calendar as CalendarComponent } from '@weldsuite/ui/components/calendar';
 import { cn } from '@/lib/utils';
-import { format, formatDistanceToNow, isToday, isYesterday } from 'date-fns';
+import { format, isToday, isYesterday } from 'date-fns';
 import { toast } from 'sonner';
 import { mailApi } from '../lib/api-client';
 import { IsolatedHtmlContent } from '../components/isolated-html-content';
 import {
-  useMailMessage,
   useMarkMailRead,
   useToggleMailStar,
   useMoveToTrash,
@@ -108,6 +94,11 @@ import type { Mail } from '@/lib/api/types/apps/mail.types';
 
 type EmailMessage = Mail.Email;
 type EmailFolder = string;
+
+// AI Assistant Panel removed - now using BreadcrumbHeader WeldAgent. Kept as a
+// disabled flag (rather than deleting the JSX) since `showAiPanel` still
+// drives layout elsewhere (width/flex classes further down).
+const AI_PANEL_ENABLED = false;
 
 interface InboxClientProps {
   initialMessages: EmailMessage[];
@@ -122,7 +113,6 @@ interface InboxClientProps {
 
 export function InboxClient({
   initialMessages,
-  folders,
   currentFolder,
   activeAccount
 }: InboxClientProps) {
@@ -143,10 +133,8 @@ export function InboxClient({
   const archiveMessageMutation = useArchiveMailMessage();
 
   const [messages, setMessages] = useState<EmailMessage[]>(initialMessages);
-  const [selectedEmails, setSelectedEmails] = useState<string[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<EmailMessage | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isPending, startTransition] = useTransition();
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [isAiPanelFullscreen, setIsAiPanelFullscreen] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
@@ -154,7 +142,7 @@ export function InboxClient({
   const [isComposeMinimized, setIsComposeMinimized] = useState(false);
   const [showCompletedEmails, setShowCompletedEmails] = useState(false);
   const [completedEmails, setCompletedEmails] = useState<Set<string>>(new Set());
-  const [setAsideEmails, setSetAsideEmails] = useState<Set<string>>(new Set());
+  const [setAsideEmails] = useState<Set<string>>(new Set());
   const [pinnedEmails, setPinnedEmails] = useState<Set<string>>(new Set());
   const [snoozedEmails, setSnoozedEmails] = useState<Set<string>>(new Set());
   const [snoozeCalendarOpen, setSnoozeCalendarOpen] = useState(false);
@@ -179,10 +167,10 @@ export function InboxClient({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [showPreferencesModal, setShowPreferencesModal] = useState(false);
   const [showAppDetailModal, setShowAppDetailModal] = useState(false);
-  const [selectedApp, setSelectedApp] = useState<{ name: string; icon: any } | null>(null);
+  const [selectedApp, setSelectedApp] = useState<{ name: string; icon: LucideIcon } | null>(null);
   const [isEmailCollapsed, setIsEmailCollapsed] = useState(false);
   const [isLoadingEmail, setIsLoadingEmail] = useState(false);
-  const [collapsedPreviews, setCollapsedPreviews] = useState<Set<string>>(new Set());
+  const [collapsedPreviews] = useState<Set<string>>(new Set());
   const [showAllRecipients, setShowAllRecipients] = useState(false);
   const [hoveredWeldMailTeam, setHoveredWeldMailTeam] = useState(false);
   const [hoveredWeldMailTeamList, setHoveredWeldMailTeamList] = useState(false);
@@ -337,22 +325,6 @@ export function InboxClient({
     return colors[index];
   };
 
-  const toggleEmailSelection = (emailId: string) => {
-    setSelectedEmails(prev =>
-      prev.includes(emailId)
-        ? prev.filter(id => id !== emailId)
-        : [...prev, emailId]
-    );
-  };
-
-  const toggleAllSelection = () => {
-    if (selectedEmails.length === filteredMessages.length) {
-      setSelectedEmails([]);
-    } else {
-      setSelectedEmails(filteredMessages.map(e => e.id));
-    }
-  };
-
   const handleMarkAsRead = async (messageId: string) => {
     markReadMutation.mutate({ id: messageId, read: true, accountId: activeAccount.id }, {
       onSuccess: () => {
@@ -433,22 +405,6 @@ export function InboxClient({
     });
   };
 
-  const handleSetAside = (messageId: string) => {
-    setSetAsideEmails(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(messageId)) {
-        newSet.delete(messageId);
-        toast.success(t.mail.inboxPage.removedFromSetAside);
-      } else {
-        newSet.add(messageId);
-        toast.success(t.mail.inboxPage.setAside);
-      }
-      return newSet;
-    });
-    // Close the email view after setting aside
-    setSelectedEmail(null);
-  };
-
   const handlePin = (messageId: string) => {
     setPinnedEmails(prev => {
       const newSet = new Set(prev);
@@ -500,19 +456,6 @@ export function InboxClient({
       return 'Yesterday';
     } else {
       return format(emailDate, 'MMM d');
-    }
-  };
-
-  const getLabelColor = (label: string) => {
-    switch (label.toLowerCase()) {
-      case 'work':
-        return 'bg-blue-500';
-      case 'personal':
-        return 'bg-green-500';
-      case 'important':
-        return 'bg-purple-500';
-      default:
-        return 'bg-gray-500';
     }
   };
 
@@ -568,19 +511,6 @@ export function InboxClient({
     if (!email.isRead) {
       handleMarkAsRead(email.id);
     }
-  };
-
-  const togglePreviewCollapse = (emailId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setCollapsedPreviews(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(emailId)) {
-        newSet.delete(emailId);
-      } else {
-        newSet.add(emailId);
-      }
-      return newSet;
-    });
   };
 
   const handleAiSend = () => {
@@ -2537,8 +2467,8 @@ export function InboxClient({
                         const input = document.createElement('input');
                         input.type = 'file';
                         input.multiple = true;
-                        input.onchange = (e: any) => {
-                          const files = Array.from(e.target.files);
+                        input.onchange = (e: Event) => {
+                          const files = Array.from((e.target as HTMLInputElement).files ?? []);
                           toast.success(t.mail.inboxPage.filesAttached.replace('{n}', String(files.length)));
                         };
                         input.click();
@@ -2580,8 +2510,8 @@ export function InboxClient({
                         input.type = 'file';
                         input.accept = 'image/*';
                         input.multiple = true;
-                        input.onchange = (e: any) => {
-                          const files = Array.from(e.target.files);
+                        input.onchange = (e: Event) => {
+                          const files = Array.from((e.target as HTMLInputElement).files ?? []);
                           toast.success(t.mail.inboxPage.imagesAttached.replace('{n}', String(files.length)));
                         };
                         input.click();
@@ -2687,8 +2617,7 @@ export function InboxClient({
 
           </div>
 
-          {/* AI Assistant Panel removed - now using BreadcrumbHeader WeldAgent */}
-          {false && showAiPanel && (
+          {AI_PANEL_ENABLED && showAiPanel && (
             <>
               {/* Overlay for fullscreen mode */}
               <div 
@@ -2875,7 +2804,7 @@ export function InboxClient({
                         <div className="flex items-start gap-2">
                           <div className="flex-1">
                             <div className="text-xs font-medium text-gray-500 dark:text-muted-foreground mb-1">{t.mail.inboxPage.selectedText}</div>
-                            <div className="text-sm text-gray-700 dark:text-muted-foreground italic line-clamp-3">"{selectedText}"</div>
+                            <div className="text-sm text-gray-700 dark:text-muted-foreground italic line-clamp-3">&ldquo;{selectedText}&rdquo;</div>
                           </div>
                           <Button variant="ghost"
                             onClick={() => {
@@ -3793,8 +3722,8 @@ export function InboxClient({
                       const input = document.createElement('input');
                       input.type = 'file';
                       input.multiple = true;
-                      input.onchange = (e: any) => {
-                        const files = Array.from(e.target.files);
+                      input.onchange = (e: Event) => {
+                        const files = Array.from((e.target as HTMLInputElement).files ?? []);
                         toast.success(t.mail.inboxPage.filesAttached.replace('{n}', String(files.length)));
                       };
                       input.click();
@@ -3836,8 +3765,8 @@ export function InboxClient({
                       input.type = 'file';
                       input.accept = 'image/*';
                       input.multiple = true;
-                      input.onchange = (e: any) => {
-                        const files = Array.from(e.target.files);
+                      input.onchange = (e: Event) => {
+                        const files = Array.from((e.target as HTMLInputElement).files ?? []);
                         toast.success(t.mail.inboxPage.imagesAttached.replace('{n}', String(files.length)));
                       };
                       input.click();

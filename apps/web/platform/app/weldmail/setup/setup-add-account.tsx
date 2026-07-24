@@ -24,7 +24,6 @@ import {
   AlertCircle,
   Loader2,
   Info,
-  Mail,
   ChevronLeft,
   CheckCircle2,
   Bolt,
@@ -46,7 +45,6 @@ import { useDomains } from '@/hooks/queries/use-host-queries';
 import { useAppAccess } from '@/hooks/use-app-access';
 import { useCan } from '@weldsuite/permissions/react';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 
@@ -78,7 +76,7 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: SetupAdd
 
   // Custom domain state
   const [availableDomains, setAvailableDomains] = useState<string[]>([]);
-  const [loadingDomains, setLoadingDomains] = useState(false);
+  const [loadingDomains] = useState(false);
   const [selectedDomain, setSelectedDomain] = useState('');
   const [emailPrefix, setEmailPrefix] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -98,12 +96,12 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: SetupAdd
   useEffect(() => {
     if (open && hostDomainsQuery.data?.domains) {
       const ready = hostDomainsQuery.data.domains
-        .filter((d: any) => d.status === 'active' && d.fullDomain)
-        .map((d: any) => d.fullDomain as string);
+        .filter((d) => d.status === 'active' && d.fullDomain)
+        .map((d) => d.fullDomain);
       setAvailableDomains(ready);
       if (ready.length > 0 && !selectedDomain) setSelectedDomain(ready[0]!);
     }
-  }, [open, hostDomainsQuery.data]);
+  }, [open, hostDomainsQuery.data, selectedDomain]);
 
   // Sync WeldMail domain when switching to weldmail form
   useEffect(() => {
@@ -129,6 +127,9 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: SetupAdd
       }
     }, 500);
     return () => clearTimeout(timer);
+    // checkAvailabilityMutation is a fresh object every render (TanStack Query);
+    // including it would reset the debounce timer on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weldmailAddress]);
 
   const handleCustomDomainSubmit = async (e: React.FormEvent) => {
@@ -462,9 +463,7 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: SetupAdd
                     className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
                     onClick={() => window.location.href = '/weldhost/domains/register'}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src="/assets/images/weldhost/logo-light.png" alt="WeldHost" className="size-7 dark:hidden" />
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src="/assets/images/weldhost/logo-dark.png" alt="WeldHost" className="size-7 hidden dark:block" />
                     <div className="flex flex-col items-start">
                       <span className="font-medium">{t.mail.addAccount.buyNewDomain}</span>

@@ -42,6 +42,7 @@ import {
   type SubtaskItem,
   type DependencyTask,
   type TaskAttachment,
+  type TaskUpdateData,
 } from '@/components/task-detail';
 import { DescriptionField } from '@/components/task-detail/task-detail-content';
 import { TaskChat } from '@/components/task-detail/task-chat';
@@ -50,6 +51,7 @@ import { weldchatEntityApi } from '@/lib/api/domains/weldchat-entity';
 import { useAppApi } from '@/lib/api/use-app-api';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import type { TaskRow } from '@weldsuite/app-api-client/domains/tasks';
+import type { UpdateTaskInput } from '@weldsuite/app-api-client/schemas/tasks';
 import type { TaskCommentRow } from '@weldsuite/core-api-client/domains/task-comments';
 import {
   useAddTaskComment,
@@ -433,27 +435,26 @@ export function TaskPanel(props: ObjectPanelComponentProps) {
 
   // ─── Mutations ────────────────────────────────────────────────────────
 
-  const handleUpdate = useCallback((_taskId: string, data: any) => {
-    const payload: Record<string, any> = {};
+  const handleUpdate = useCallback((_taskId: string, data: TaskUpdateData) => {
+    const payload: UpdateTaskInput = {};
     if (data.title !== undefined) payload.title = data.title;
     if (data.description !== undefined) payload.description = data.description;
     if (data.status !== undefined) payload.status = data.status;
     if (data.priority !== undefined) payload.priority = data.priority;
-    if (data.dueDate !== undefined) payload.dueDate = data.dueDate?.toISOString?.() ?? data.dueDate;
-    if (data.startDate !== undefined) payload.startDate = data.startDate?.toISOString?.() ?? data.startDate;
+    if (data.dueDate !== undefined) payload.dueDate = data.dueDate.toISOString();
+    if (data.startDate !== undefined) payload.startDate = data.startDate.toISOString();
     if (data.labels !== undefined) payload.labels = data.labels;
     if (data.repeat !== undefined) payload.repeat = data.repeat || null;
     if (data.customFields !== undefined) payload.customFields = data.customFields;
     if (data.assignees !== undefined) {
-      const arr = Array.isArray(data.assignees) ? data.assignees : [];
-      const ids = arr.map((a: any) => (typeof a === 'string' ? a : a?.id)).filter(Boolean);
+      const ids = (data.assignees ?? []).map((a) => a.id).filter(Boolean);
       payload.assigneeIds = ids;
       payload.assigneeId = ids[0] ?? null;
     } else if (data.assignee !== undefined) {
       payload.assigneeId = data.assignee?.id ?? null;
     }
     updateMutation.mutate(payload, {
-      onError: (err: any) => toast.error(err?.message || t('sweep.entities.updateTaskFailed')),
+      onError: (err) => toast.error(err?.message || t('sweep.entities.updateTaskFailed')),
     });
   }, [updateMutation, t]);
 
@@ -467,7 +468,7 @@ export function TaskPanel(props: ObjectPanelComponentProps) {
         toast.success(t('sweep.entities.taskDeleted'));
         onClose();
       },
-      onError: (err: any) => toast.error(err?.message || t('sweep.entities.deleteTaskFailed')),
+      onError: (err) => toast.error(err?.message || t('sweep.entities.deleteTaskFailed')),
     });
   }, [deleteMutation, onClose, t]);
 
@@ -495,8 +496,8 @@ export function TaskPanel(props: ObjectPanelComponentProps) {
       if (res.data?.id) {
         toast.success(t('sweep.entities.taskDuplicated'));
       }
-    } catch (err: any) {
-      toast.error(err?.message || t('sweep.entities.duplicateTaskFailed'));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('sweep.entities.duplicateTaskFailed'));
     }
   }, [apiTask, appApi, t]);
 
@@ -547,7 +548,7 @@ export function TaskPanel(props: ObjectPanelComponentProps) {
 
   const handleAddComment = useCallback(async (content: string) => {
     addCommentMutation.mutate(content, {
-      onError: (err: any) => toast.error(err?.message || t('sweep.entities.addCommentFailed')),
+      onError: (err) => toast.error(err?.message || t('sweep.entities.addCommentFailed')),
     });
   }, [addCommentMutation, t]);
 
@@ -561,7 +562,7 @@ export function TaskPanel(props: ObjectPanelComponentProps) {
 
   const handleCreateSubtask = useCallback(async () => {
     createSubtaskMutation.mutate({ title: t('sweep.entities.newSubtaskTitle'), status: 'todo' }, {
-      onError: (err: any) => toast.error(err?.message || t('sweep.entities.createSubtaskFailed')),
+      onError: (err) => toast.error(err?.message || t('sweep.entities.createSubtaskFailed')),
     });
   }, [createSubtaskMutation, t]);
 
@@ -580,7 +581,7 @@ export function TaskPanel(props: ObjectPanelComponentProps) {
       ? { dependsOn: [...new Set([...currentDeps, targetTaskId])], blocks: currentBlocks }
       : { dependsOn: currentDeps, blocks: [...new Set([...currentBlocks, targetTaskId])] };
     updateMutation.mutate(next, {
-      onError: (err: any) => toast.error(err?.message || t('sweep.entities.addDependencyFailed')),
+      onError: (err) => toast.error(err?.message || t('sweep.entities.addDependencyFailed')),
     });
   }, [apiTask?.dependsOn, apiTask?.blocks, updateMutation, t]);
 

@@ -1,8 +1,7 @@
 ﻿
 import React, { useEffect } from 'react';
 import { useRouter, useSearchParams, Link } from '@/lib/router';
-import { MessageSquare, Settings } from 'lucide-react';
-import { Badge } from '@weldsuite/ui/components/badge';
+import { Settings } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
@@ -35,7 +34,7 @@ export default function SlackInboxPage() {
       toast.error(error);
       router.replace('/welddesk/inbox/slack');
     }
-  }, [searchParams]);
+  }, [searchParams, providerConfig?.name, refetchIntegration, router, t.helpdesk.inbox.connectedSuccessfully]);
 
   // Show loading state
   if (integrationLoading) {

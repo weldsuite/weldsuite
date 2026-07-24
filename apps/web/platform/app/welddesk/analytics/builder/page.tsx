@@ -7,10 +7,10 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import {
-  ChevronDown, BarChart3, LineChart, PieChart, Activity, TrendingUp,
+  ChevronDown, BarChart3, PieChart, Activity, TrendingUp,
   AreaChart as AreaChartIcon, Layers, Ticket, Users, MessageSquare,
-  Clock, Star, Headphones, ThumbsUp, AlertCircle, BarChart2,
-  Plus, Divide, ArrowUp, ArrowDown, TrendingUpDown, SortAsc, SortDesc, X
+  Clock, Star, Headphones, BarChart2,
+  Plus, Divide, ArrowUp, ArrowDown, TrendingUpDown, SortAsc, SortDesc
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -121,7 +121,7 @@ export default function HelpdeskAnalyticsBuilderPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const reportId = searchParams.get('reportId');
-  const [isPending, startTransition] = useTransition();
+  const [isPending] = useTransition();
   const createChartMutation = useCreateAnalyticsChart();
   const { t } = useI18n();
   const ta = t.helpdesk.analyticsReports;
@@ -209,7 +209,7 @@ export default function HelpdeskAnalyticsBuilderPage() {
   const [smoothLines, setSmoothLines] = useState(true);
   const [showDataPoints, setShowDataPoints] = useState(false);
   const [fillArea, setFillArea] = useState(true);
-  const [compareWith, setCompareWith] = useState('');
+  const [compareWith] = useState('');
   const [aggregation, setAggregation] = useState('sum');
   const [sortOrder, setSortOrder] = useState('asc');
   const [limit, setLimit] = useState('10');

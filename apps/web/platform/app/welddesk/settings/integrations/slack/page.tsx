@@ -36,6 +36,11 @@ export default function SlackSettingsPage() {
       toast.error(st('sweep.welddesk.slackIntegration.connectionFailed', { error: oauthError }));
       router.replace('/settings/integrations/slack');
     }
+    // `router`, `t`, and `st` are recreated every render (unmemoized context
+    // values) — including them would re-fire this OAuth-callback handler
+    // (toast + redirect) on every unrelated re-render instead of only when
+    // the query params change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, oauthError]);
 
   const { data: integration, isLoading: integrationLoading } = useChannelIntegrationStatus('slack');
@@ -105,7 +110,7 @@ export default function SlackSettingsPage() {
       >
         {isConnected && integration && (
           <SlackSettingsClient
-            integration={integration as any}
+            integration={integration}
             initialSettings={settings}
             channelInfo={channelInfo}
           />

@@ -1,5 +1,4 @@
 import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
-import { useUser } from '@clerk/clerk-react';
 import { Plus, Smile, AtSign, X, CornerDownRight, FileText, Baseline, Bold, Italic, Underline, Strikethrough, Code, List, ListOrdered, Video, Mic, Square, Loader2 } from 'lucide-react';
 import {
   Popover,
@@ -23,11 +22,36 @@ import { ClipRecorder } from './clip-recorder';
 import { TypingIndicator } from './typing-indicator';
 import { useClipRecorder } from '@/hooks/weldchat/use-clip-recorder';
 import { useDraftAutosave } from '@/hooks/weldchat/use-draft-autosave';
-import type { ChatClipAttachment } from '@weldsuite/db/schema';
+import type { ChatAttachment, ChatClipAttachment } from '@weldsuite/db/schema';
 import { renderChatTokens, encodeEntityToken } from '../lib/render-tokens';
 import { RESULT_TYPE_LABEL } from '@/lib/search/result-types';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+
+/** A composer attachment — an uploaded file, or a recorded audio/video/screen clip. */
+type MessageAttachment = ChatAttachment | ChatClipAttachment;
+
+/** Flat (non-`{ data }`-wrapped) response from `/storage/generate-upload-url`. */
+interface GenerateUploadUrlResponse {
+  success?: boolean;
+  uploadUrl: string;
+  uploadToken: string;
+  fileKey: string;
+}
+
+/** Flat (non-`{ data }`-wrapped) response from `/storage/confirm-upload`. */
+interface ConfirmUploadResponse {
+  success?: boolean;
+  file?: {
+    id: string;
+    fileName: string;
+    fileKey: string;
+    fileSize: number;
+    mimeType: string;
+    url: string;
+    isPublic?: boolean;
+  };
+}
 
 interface MessageInputProps {
   channelId: string;
@@ -45,7 +69,7 @@ interface MessageInputProps {
   onSubmitOverride?: (payload: {
     content: string;
     mentions: string[];
-    attachments: any[];
+    attachments: MessageAttachment[];
   }) => Promise<void> | void;
 }
 
@@ -203,14 +227,13 @@ export function MessageInput({
 }: MessageInputProps) {
   const { t } = useI18n();
   const st = useTranslations();
-  const { user } = useUser();
   const { getClient } = useAppApiClient();
   const { replyTo, setReplyTo } = useChatContext();
   const [content, setContent] = useState('');
   const [mentions, setMentions] = useState<string[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [slashQuery, setSlashQuery] = useState<string | null>(null);
-  const [attachments, setAttachments] = useState<any[]>([]);
+  const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [showToolbar, setShowToolbar] = useState(false);
   const [showClipRecorder, setShowClipRecorder] = useState(false);
@@ -311,10 +334,10 @@ export function MessageInput({
       if (!match) return false;
       const needle = match[1].trim().replace(/^@/, '').toLowerCase();
       if (!needle) return true; // "/invite " alone — swallow, let the palette guide
-      const agent = (agentsList as any[]).find((a) => a.name?.toLowerCase() === needle);
+      const agent = agentsList.find((a) => a.name?.toLowerCase() === needle);
       if (!agent) {
         // No exact match — fall back to first prefix match
-        const loose = (agentsList as any[]).find((a) => a.name?.toLowerCase().startsWith(needle));
+        const loose = agentsList.find((a) => a.name?.toLowerCase().startsWith(needle));
         if (!loose) {
           // Nothing to invite — swallow the command so it doesn't become a message
           return true;
@@ -330,7 +353,7 @@ export function MessageInput({
 
   const tryHandleCreateTaskCommand = useCallback(
     (text: string): boolean => {
-      const match = text.match(/^\/createtask\s+(.+)$/is);
+      const match = text.match(/^\/createtask\s+([\s\S]+)$/i);
       if (!match) return true; // "/createtask" alone — swallow, let the palette guide
       const title = match[1].trim();
       if (!title) return true;
@@ -390,9 +413,9 @@ export function MessageInput({
       mentions: mentions.length > 0 ? mentions : undefined,
       attachments: attachments.length > 0 ? attachments : undefined,
       _optimisticId: `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    } as any);
+    });
     clearInput();
-  }, [content, channelId, parentId, mentions, attachments, sendMessage, isPending, onTypingSend, replyTo, tryHandleInviteCommand, tryHandleCreateTaskCommand, clearInput, onSubmitOverride]);
+  }, [content, channelId, parentId, mentions, attachments, sendMessage, onTypingSend, replyTo, tryHandleInviteCommand, tryHandleCreateTaskCommand, clearInput, onSubmitOverride]);
 
   const handleClipReady = useCallback((clipAttachment: ChatClipAttachment) => {
     const replyParentId = replyTo?.messageId || parentId;
@@ -402,7 +425,7 @@ export function MessageInput({
       parentId: replyParentId,
       attachments: [clipAttachment],
       _optimisticId: `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    } as any);
+    });
     setReplyTo(null);
   }, [channelId, parentId, sendMessage, replyTo, setReplyTo]);
 
@@ -473,7 +496,6 @@ export function MessageInput({
         waveformInterval.current = null;
       }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isVoiceRecording, voiceRecorder.state]);
 
   // Mark "has finished" only on the actual 'recording' → 'recorded'
@@ -513,7 +535,7 @@ export function MessageInput({
       const ext = voiceRecorder.blob.type.includes('mp4') ? 'mp4' : 'webm';
       const fileName = `voice-${Date.now()}.${ext}`;
 
-      const urlRes = await client.post<any>('/storage/generate-upload-url', {
+      const urlRes = await client.post<GenerateUploadUrlResponse>('/storage/generate-upload-url', {
         fileName,
         fileSize: voiceRecorder.blob.size,
         contentType: voiceRecorder.blob.type,
@@ -527,12 +549,12 @@ export function MessageInput({
         headers: { 'Content-Type': voiceRecorder.blob.type },
       });
 
-      const confirmRes = await client.post<any>('/storage/confirm-upload', {
+      const confirmRes = await client.post<ConfirmUploadResponse>('/storage/confirm-upload', {
         uploadToken,
         fileKey,
       });
 
-      const fileData = confirmRes?.file ?? confirmRes;
+      const fileData = confirmRes?.file;
 
       const clipAttachment: ChatClipAttachment = {
         id: fileData?.id ?? fileKey,
@@ -772,7 +794,7 @@ export function MessageInput({
     const client = await getClient();
     for (const file of list) {
       try {
-        const urlRes = await client.post<any>('/storage/generate-upload-url', {
+        const urlRes = await client.post<GenerateUploadUrlResponse>('/storage/generate-upload-url', {
           fileName: file.name,
           fileSize: file.size,
           contentType: file.type,
@@ -783,11 +805,11 @@ export function MessageInput({
           body: file,
           headers: { 'Content-Type': file.type },
         });
-        const confirmRes = await client.post<any>('/storage/confirm-upload', {
+        const confirmRes = await client.post<ConfirmUploadResponse>('/storage/confirm-upload', {
           uploadToken,
           fileKey,
         });
-        const fileData = confirmRes?.file ?? confirmRes;
+        const fileData = confirmRes?.file;
         setAttachments((prev) => [...prev, {
           id: fileData?.id ?? fileKey,
           fileName: file.name,

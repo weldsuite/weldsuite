@@ -101,7 +101,7 @@ export default function ChatListClient({ initialConversations, workspaceId }: Ch
       body: ti.newConversationFrom.replace('{name}', senderName),
       playSound: true,
     });
-  }, [queryClient]);
+  }, [queryClient, ti.newChat, ti.newConversationFrom, ti.newLiveChat]);
 
   const handleAgentAssigned = useCallback((data: { conversationId: string; agentId: string; agentName: string }) => {
     queryClient.invalidateQueries({ queryKey: helpdeskExtraKeys.conversations() });
@@ -111,7 +111,7 @@ export default function ChatListClient({ initialConversations, workspaceId }: Ch
     toast.info(ti.conversationAssigned, { description: ti.conversationAssignedTo.replace('{name}', data.agentName) });
   }, [queryClient, ti]);
 
-  const { isConnected } = useHelpdeskWebSocket({
+  useHelpdeskWebSocket({
     workspaceId,
     onNewConversation: handleNewConversation,
     onAgentAssigned: handleAgentAssigned,

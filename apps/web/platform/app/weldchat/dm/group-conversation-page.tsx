@@ -4,9 +4,10 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { useParams } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useChannel, useMarkChannelAsRead, weldchatKeys, mergeMessageIntoCache, updateMessageInCache, removeMessageFromCache } from '@/hooks/queries/use-weldchat-queries';
+import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useWeldChatRoom } from '@/hooks/weldchat/use-weldchat-room';
-import { useWeldChatMessagesRealtime } from '@/hooks/weldchat/use-weldchat-messages-realtime';
+import { useWeldChatMessagesRealtime, type WeldChatRealtimeMessage } from '@/hooks/weldchat/use-weldchat-messages-realtime';
 import { useWeldChatRealtime } from '@/hooks/weldchat/use-weldchat-realtime';
 import { useWeldChatPresence } from '@/hooks/weldchat/use-weldchat-presence';
 import { ChannelHeader } from '../components/channel-header';
@@ -45,16 +46,16 @@ export default function GroupConversationPage() {
     ...(channel ? [{ label: channel.name || st('sweep.weldchat.groupConversation.defaultName') }] : []),
   ]);
 
-  const { client, isConnected } = useWeldChatRoom(channelId ?? null);
+  const { client } = useWeldChatRoom(channelId ?? null);
 
   // Auto mark as read on open
   useEffect(() => {
     if (channelId) markAsRead(channelId);
   }, [channelId, markAsRead]);
 
-  const onMessageCreated = useCallback((message: any) => {
+  const onMessageCreated = useCallback((message: WeldChatRealtimeMessage) => {
     if (!channelId) return;
-    mergeMessageIntoCache(queryClient, channelId, message);
+    mergeMessageIntoCache(queryClient, channelId, message as unknown as ChatMessage);
     queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
     queryClient.invalidateQueries({ queryKey: weldchatKeys.dms() });
 
@@ -63,9 +64,9 @@ export default function GroupConversationPage() {
     }
   }, [channelId, queryClient, markAsRead]);
 
-  const onMessageUpdated = useCallback((message: any) => {
+  const onMessageUpdated = useCallback((message: WeldChatRealtimeMessage) => {
     if (!channelId) return;
-    updateMessageInCache(queryClient, channelId, message.id, message);
+    updateMessageInCache(queryClient, channelId, message.id, message as unknown as Record<string, unknown>);
   }, [channelId, queryClient]);
 
   const onMessageDeleted = useCallback((messageId: string) => {

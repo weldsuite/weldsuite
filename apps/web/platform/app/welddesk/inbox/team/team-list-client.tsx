@@ -67,7 +67,7 @@ export default function TeamListClient({ teamId, teamName, initialConversations,
     setConversations(initialConversations);
   }, [initialConversations]);
 
-  const { isConnected } = useHelpdeskWebSocket({
+  useHelpdeskWebSocket({
     isAgent: true,
     accessToken,
     onNewConversation: (newConversation) => {
@@ -86,18 +86,6 @@ export default function TeamListClient({ teamId, teamName, initialConversations,
   });
 
   const selectedConversationId = pathname.split('/').pop();
-
-  const loadConversations = async () => {
-    try {
-      const client = await getClient();
-      // app-api pages by opaque cursor, not page/pageSize; the first page of 50
-      // matches the old pageSize=50 behaviour (this list has no pager).
-      const result = await client.get<{ data: any[] }>(
-        `/conversations?limit=50&departmentId=${encodeURIComponent(teamId)}`,
-      );
-      if (result.data) setConversations(result.data as Helpdesk.Conversation[]);
-    } catch { /* ignore */ }
-  };
 
   const filteredConversations = conversations.filter(conv => {
     if (conv.assigneeName === 'weldagent-system') return false;

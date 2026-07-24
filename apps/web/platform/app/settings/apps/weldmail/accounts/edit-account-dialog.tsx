@@ -66,7 +66,7 @@ export function EditAccountDialog({
         displayName: defaultValues.displayName ?? '',
       });
     }
-  }, [open, defaultValues]);
+  }, [open, defaultValues, form]);
 
   const onSubmit = async (values: EditAccountFormValues) => {
     try {

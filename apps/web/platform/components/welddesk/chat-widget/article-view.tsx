@@ -396,7 +396,7 @@ export function ArticleView({ article, onBack, onClose }: ArticleViewProps) {
       </div>
       
       {/* Custom Scrollbar Styles */}
-      <style jsx>{`
+      <style>{`
         .scrollbar-thin {
           scrollbar-width: thin;
           scrollbar-color: rgba(156, 163, 175, 0.3) transparent;

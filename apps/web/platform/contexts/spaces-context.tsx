@@ -34,6 +34,24 @@ interface Space {
   createdAt: Date;
 }
 
+/** Shape persisted to `localStorage` — `createdAt` round-trips as an ISO string. */
+interface StoredPipeline {
+  id: string;
+  name: string;
+  color?: string;
+  modules?: Module[];
+  createdAt: string;
+}
+
+/** Shape persisted to `localStorage` — `createdAt` round-trips as an ISO string. */
+interface StoredSpace {
+  id: string;
+  name: string;
+  color?: string;
+  modules?: Module[];
+  createdAt: string;
+}
+
 interface PipelinesContextType {
   pipelines: Pipeline[];
   activePipelineId: string | null;
@@ -78,11 +96,14 @@ function PipelinesProvider({ children }: { children: React.ReactNode }) {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('crm-pipelines');
       if (saved) {
-        setPipelines(JSON.parse(saved).map((pipeline: any) => ({
-          ...pipeline,
-          modules: pipeline.modules || [], // Ensure modules array exists
-          createdAt: new Date(pipeline.createdAt)
-        })));
+        const parsed: unknown = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setPipelines((parsed as StoredPipeline[]).map((pipeline) => ({
+            ...pipeline,
+            modules: pipeline.modules || [], // Ensure modules array exists
+            createdAt: new Date(pipeline.createdAt)
+          })));
+        }
       }
       setIsLoaded(true);
     }
@@ -173,16 +194,8 @@ function PipelinesProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-function usePipelines() {
-  const context = useContext(PipelinesContext);
-  if (context === undefined) {
-    throw new Error('usePipelines must be used within a PipelinesProvider');
-  }
-  return context;
-}
-
 // Spaces Provider
-function SpacesProvider({ children }: { children: React.ReactNode }) {
+export function SpacesProvider({ children }: { children: React.ReactNode }) {
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -192,11 +205,14 @@ function SpacesProvider({ children }: { children: React.ReactNode }) {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('crm-spaces');
       if (saved) {
-        setSpaces(JSON.parse(saved).map((space: any) => ({
-          ...space,
-          modules: space.modules || [], // Ensure modules array exists
-          createdAt: new Date(space.createdAt)
-        })));
+        const parsed: unknown = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setSpaces((parsed as StoredSpace[]).map((space) => ({
+            ...space,
+            modules: space.modules || [], // Ensure modules array exists
+            createdAt: new Date(space.createdAt)
+          })));
+        }
       }
       setIsLoaded(true);
     }

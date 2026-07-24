@@ -24,9 +24,6 @@ export function SequencePeopleClient({
   ]);
 
   const isDraft = sequence.status === 'draft';
-  const stepCount = Array.isArray(sequence.steps) ? sequence.steps.length : 0;
-  const pendingCount = sequence.pendingEnrolledCount || 0;
-  const enrolledCount = sequence.enrolledCount || 0;
 
   return (
     <div className="h-full flex flex-col bg-background overflow-hidden">

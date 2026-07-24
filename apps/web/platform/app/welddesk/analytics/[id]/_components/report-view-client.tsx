@@ -2,10 +2,9 @@
 import { useState, useEffect, useRef, useTransition } from 'react';
 import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
-import { Plus, Edit2, GripVertical, MoreVertical, Trash2, Copy, Unlock, Save } from 'lucide-react';
+import { Plus, Edit2, GripVertical, MoreVertical, Trash2, Copy, Unlock } from 'lucide-react';
 import GridLayout, { Layout } from 'react-grid-layout';
-// @ts-ignore - React 19 compatibility issue with react-grid-layout
-const GridLayoutFixed = GridLayout as any;
+const GridLayoutFixed = GridLayout;
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
@@ -67,8 +66,6 @@ import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
-  ChartLegend,
-  ChartLegendContent,
 } from '@weldsuite/ui/components/chart';
 import {
   type AnalyticsReport,
@@ -84,8 +81,6 @@ interface ReportViewClientProps {
   initialCharts: AnalyticsChart[];
   allReports: AnalyticsReport[];
 }
-
-const periodOptionValues = ['today', 'yesterday', 'last_7_days', 'last_30_days', 'last_90_days', 'this_month', 'last_year', 'all_time'] as const;
 
 export function ReportViewClient({ report, initialCharts, allReports }: ReportViewClientProps) {
   const router = useRouter();
@@ -206,7 +201,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: ReportVi
     };
 
     fetchChartData();
-  }, [charts, widgetPeriods]);
+  }, [charts, widgetPeriods, getClient]);
 
   // Handle layout changes
   const handleLayoutChange = (newLayout: Layout[]) => {
@@ -996,7 +991,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: ReportVi
 
 // Helper function to render charts based on type
 // Data format: { label: string, value: number, fill?: string, name?: string }
-function renderChart(chart: AnalyticsChart, data: any[], totalLabel: string = 'Total') {
+function renderChart(chart: AnalyticsChart, data: ChartDataPoint[], totalLabel: string = 'Total') {
   const hasData = data && data.length > 0;
 
   switch (chart.chartType) {
@@ -1071,7 +1066,7 @@ function renderChart(chart: AnalyticsChart, data: any[], totalLabel: string = 'T
           <ChartTooltip cursor={false} wrapperStyle={{ zIndex: 1000, outline: 'none' }} content={<ChartTooltipContent hideLabel hideIndicator />} />
           <Bar dataKey="value">
             <LabelList position="top" dataKey="label" fillOpacity={1} />
-            {(hasData ? data : []).map((item: any, index: number) => (
+            {(hasData ? data : []).map((item: ChartDataPoint, index: number) => (
               <Cell key={item.label || index} fill={item.value > 0 ? "var(--chart-1)" : "var(--chart-2)"} />
             ))}
           </Bar>
@@ -1096,7 +1091,7 @@ function renderChart(chart: AnalyticsChart, data: any[], totalLabel: string = 'T
             <RechartsLabel
               content={({ viewBox }) => {
                 if (viewBox && "cx" in viewBox && "cy" in viewBox) {
-                  const total = Array.isArray(data) ? data.reduce((acc: number, curr: any) => acc + (curr.value || 0), 0) : 0;
+                  const total = Array.isArray(data) ? data.reduce((acc: number, curr: ChartDataPoint) => acc + (curr.value || 0), 0) : 0;
                   return (
                     <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
                       <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-3xl font-bold">{total.toLocaleString()}</tspan>

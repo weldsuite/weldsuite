@@ -341,7 +341,7 @@ export const companyColumns: GridColumnDef<Company>[] = [
     visible: false,
     editable: false,
     sortable: true,
-    getValue: (_c) => null,
+    getValue: () => null,
   },
 ];
 

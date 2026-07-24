@@ -37,7 +37,7 @@ function formatDate(dateStr: string): string {
   });
 }
 
-function OrdersSection({ customer, orders, totalCount }: OrdersSectionProps) {
+export function OrdersSection({ orders, totalCount }: OrdersSectionProps) {
   const t = useTranslations();
   // Calculate totals
   const totalValue = orders.reduce((sum, order) => sum + parseFloat(order.total || '0'), 0);

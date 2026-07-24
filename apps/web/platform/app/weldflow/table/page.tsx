@@ -17,30 +17,19 @@ import {
 } from "@weldsuite/ui/components/dialog";
 import {
   Plus,
-  Search,
   Filter,
-  EllipsisVertical,
   Calendar,
   User,
-  ChevronDown,
-  ChevronRight,
-  ChevronsUpDown,
   X,
   Check,
   Hash,
   Type,
-  CalendarDays,
   Users,
-  Flag,
   Tag,
   Percent,
   DollarSign,
-  Link2,
-  Mail,
-  Phone,
   FileText,
   CheckSquare,
-  List,
   Settings,
   ArrowUpDown,
   ArrowUp,
@@ -50,29 +39,16 @@ import {
   Eye,
   EyeOff,
   Trash2,
-  Edit3,
   Globe,
-  Building2,
-  MessageSquare,
   Twitter,
   Linkedin,
-  Facebook,
-  Instagram,
-  Youtube,
-  Github,
   BarChart3,
-  TrendingUp,
   Clock,
-  MapPin,
-  Briefcase,
-  CircleCheck,
   Timer,
   Layers,
   FolderOpen,
   CalendarClock,
   UserPlus,
-  GitBranch,
-  Ban,
   Activity,
   Edit,
   CalendarPlus,
@@ -110,7 +86,6 @@ import {
   CommandSeparator,
 } from "@weldsuite/ui/components/command";
 import { cn } from "@/lib/utils";
-import { Badge } from "@weldsuite/ui/components/badge";
 import { Calendar as CalendarComponent } from "@weldsuite/ui/components/calendar";
 import { toast } from "sonner";
 import { useTranslations } from "@weldsuite/i18n/client";
@@ -167,6 +142,12 @@ interface Field {
 
 interface Row {
   id: string;
+  // Cell values are genuinely heterogeneous — shape depends on the column's
+  // `FieldType` (string, number, boolean, Date-ish string, string[], a
+  // `{ id, name }` person ref, or a formula result) and is read dynamically
+  // throughout this file's cell renderers. Narrowing to `unknown` here would
+  // require type guards at ~50 call sites for a single lint pass.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   data: Record<string, any>;
 }
 
@@ -212,27 +193,6 @@ const fieldTypeOptions = [
   { value: "created-by", label: "Created by", icon: UserPlus },
   { value: "collaborators", label: "Collaborators", icon: UsersRound },
 ];
-
-const categoryColors: Record<string, string> = {
-  "Airlines": "category-airlines",
-  "Finance": "category-finance",
-  "Consumer Discretionary": "category-consumer",
-  "Entertainment & Recreation": "category-entertainment",
-  "Computer Hardware": "category-hardware",
-  "Broadcasting": "category-broadcasting",
-  "Enterprise": "category-enterprise",
-  "B2B": "category-b2b",
-  "B2C": "category-b2c",
-  "Automation": "category-automation",
-  "E-commerce": "category-ecommerce",
-  "Transport": "category-transport",
-  "Financial Services": "category-financial",
-  "Publishing": "category-publishing",
-  "Internet": "category-internet",
-  "Marketplace": "category-marketplace",
-  "SaaS": "category-saas",
-  "Information Technology": "category-it",
-};
 
 const companies = [
   {
@@ -532,17 +492,6 @@ const CellWrapper: React.FC<{ children: React.ReactNode; onClick?: React.MouseEv
 export default function TablePage() {
   const st = useTranslations();
   const [fields, setFields] = useState<Field[]>(defaultFields);
-  const [customFieldDialog, setCustomFieldDialog] = useState<{
-    open: boolean;
-    name: string;
-    description: string;
-    type: FieldType
-  }>({
-    open: false,
-    name: "",
-    description: "",
-    type: "text"
-  });
   const [editFieldDialog, setEditFieldDialog] = useState<{
     open: boolean;
     fieldId: string;
@@ -597,7 +546,7 @@ export default function TablePage() {
     id: string;
     field: string;
     operator: 'equals' | 'contains' | 'starts_with' | 'ends_with' | 'greater_than' | 'less_than' | 'is_empty' | 'is_not_empty';
-    value: any;
+    value: string;
   }>>([]);
   const [runningTimers, setRunningTimers] = useState<Record<string, { startTime: number; elapsed: number }>>({});
   const [rows, setRows] = useState<Row[]>(
@@ -618,11 +567,10 @@ export default function TablePage() {
       },
     }))
   );
-  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [editingCell, setEditingCell] = useState<{ rowId: string; fieldId: string } | null>(null);
-  const [editValue, setEditValue] = useState<any>("");
+  const [editValue, setEditValue] = useState<string>("");
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
-  const [resizingColumn, setResizingColumn] = useState<string | null>(null);
+  const [, setResizingColumn] = useState<string | null>(null);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
     const widths: Record<string, number> = {};
     fields.forEach(field => {
@@ -630,8 +578,7 @@ export default function TablePage() {
     });
     return widths;
   });
-  const [openPopover, setOpenPopover] = useState<string | null>(null);
-  const [fieldCalculations, setFieldCalculations] = useState<Record<string, string>>({});
+  const [, setFieldCalculations] = useState<Record<string, string>>({});
 
   // Refs for synchronized scrolling
   const tableScrollRef = React.useRef<HTMLDivElement>(null);
@@ -709,9 +656,10 @@ export default function TablePage() {
     }, 1000);
 
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `st` is a new function identity every render; including it would tear down and restart the 1s interval on every render.
   }, [runningTimers, fields]);
 
-  const handleCellEdit = (rowId: string, fieldId: string, value: any) => {
+  const handleCellEdit = (rowId: string, fieldId: string, value: string) => {
     setEditingCell({ rowId, fieldId });
     setEditValue(value || "");
   };
@@ -993,7 +941,7 @@ export default function TablePage() {
     toast.success(st('sweep.weldflow.tablePage.appliedCalculation', { type: calculationType }));
   };
 
-  const evaluateFormula = (formula: string, rowData: any): number | string => {
+  const evaluateFormula = (formula: string, rowData: Row['data'] | undefined): number | string => {
     if (!formula || !rowData) return "";
 
     try {
@@ -1002,7 +950,6 @@ export default function TablePage() {
 
       // Get all field names and replace them with values
       fields.forEach(field => {
-        const fieldName = field.name.toLowerCase().replace(/\s+/g, '_');
         const value = rowData[field.id];
 
         // Convert value to number if it's a number or currency field
@@ -1034,13 +981,13 @@ export default function TablePage() {
       }
 
       return "Error";
-    } catch (error) {
+    } catch {
       return "Error";
     }
   };
 
-  const calculateRollup = (field: Field, rowData: any): number | string => {
-    if (!field.rollupConfig) return 0;
+  const calculateRollup = (field: Field, rowData: Row['data'] | undefined): number | string => {
+    if (!field.rollupConfig || !rowData) return 0;
 
     const { relationField, targetField, aggregation } = field.rollupConfig;
 
@@ -1077,9 +1024,9 @@ export default function TablePage() {
     }
   };
 
-  const renderCellContent = (field: Field, value: any, rowData?: any) => {
+  const renderCellContent = (field: Field, value: Row['data'][string], rowData?: Row['data']) => {
     switch (field.type) {
-      case "formula":
+      case "formula": {
         if (!value) return "";
         const result = evaluateFormula(value, rowData);
         return (
@@ -1087,14 +1034,16 @@ export default function TablePage() {
             {typeof result === 'number' ? result.toLocaleString('en-US') : result}
           </span>
         );
+      }
 
-      case "rollup":
+      case "rollup": {
         const rollupResult = calculateRollup(field, rowData);
         return (
           <span style={{ fontSize: '14px', fontWeight: '600', fontFamily: 'monospace' }}>
             {typeof rollupResult === 'number' ? rollupResult.toLocaleString('en-US') : rollupResult}
           </span>
         );
+      }
 
       case "timer":
         return (
@@ -1141,7 +1090,7 @@ export default function TablePage() {
         }
         return <span style={{ fontSize: '14px' }}>{value || ""}</span>;
 
-      case "categories":
+      case "categories": {
         if (!value || value.length === 0) return "";
         const displayedCategories = value.slice(0, 2);
         const remainingCount = value.length - 2;
@@ -1172,6 +1121,7 @@ export default function TablePage() {
             )}
           </>
         );
+      }
 
       case "linkedin":
         if (!value) return "";
@@ -1259,17 +1209,18 @@ export default function TablePage() {
       case "due-date":
       case "completed-on":
       case "last-modified-on":
-      case "created-on":
+      case "created-on": {
         if (!value) return "";
         const date = new Date(value);
         return <span style={{ fontSize: '14px', fontFamily: 'monospace' }}>{date.toLocaleDateString()}</span>;
+      }
 
       case "single-select":
         if (!value) return "";
         return <TagLabel tag={value} />;
 
       case "multi-select":
-      case "tags":
+      case "tags": {
         if (!value || value.length === 0) return "";
         const displayedItems = value.slice(0, 2);
         const remainingItemsCount = value.length - 2;
@@ -1285,6 +1236,7 @@ export default function TablePage() {
             )}
           </>
         );
+      }
 
       case "people":
       case "assignee":
@@ -1316,7 +1268,7 @@ export default function TablePage() {
         return (
           <div style={{ display: 'flex', alignItems: 'center' }}>
             <div style={{ display: 'flex', marginLeft: '-2px' }}>
-              {value.slice(0, 3).map((person: any, index: number) => {
+              {value.slice(0, 3).map((person: string | { name?: string }, index: number) => {
                 const personName = typeof person === 'string' ? person : (person.name || '');
                 return (
                   <div
@@ -1475,7 +1427,7 @@ export default function TablePage() {
 
                     <Select
                       value={filter.operator}
-                      onValueChange={(value: any) => {
+                      onValueChange={(value: 'equals' | 'contains' | 'starts_with' | 'ends_with' | 'greater_than' | 'less_than' | 'is_empty' | 'is_not_empty') => {
                         setFilters(filters.map((f, i) =>
                           i === index ? { ...f, operator: value } : f
                         ));
@@ -2269,7 +2221,7 @@ export default function TablePage() {
                               </Popover>
                               <TooltipContent side="top" align="start">
                                 <div className="flex flex-col gap-1">
-                                  {(row.data[field.id] || []).map((person: any, index: number) => {
+                                  {(row.data[field.id] || []).map((person: string | { name?: string }, index: number) => {
                                     const personName = typeof person === 'string' ? person : (person.name || '');
                                     return (
                                       <div key={index} className="text-sm">{personName}</div>

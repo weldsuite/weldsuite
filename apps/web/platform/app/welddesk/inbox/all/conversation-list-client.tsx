@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter, usePathname } from '@/lib/router';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { useAuth, useUser } from '@clerk/clerk-react';
+import { useAuth } from '@clerk/clerk-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@weldsuite/ui/components/button';
 import { Toggle } from '@weldsuite/ui/components/toggle';
@@ -21,11 +21,8 @@ import { decrementHelpdeskBadge } from '@/hooks/use-sidebar-badges';
 import { showBrowserNotification, requestNotificationPermission } from '@/lib/utils/notification-sound';
 import { useI18n } from '@/lib/i18n/provider';
 import { ConversationList, type ConversationItem } from '@/components/shared/conversation-list';
-import {
-  ContextMenuItem,
-  ContextMenuSeparator,
-} from '@weldsuite/ui/components/context-menu';
-import { Star, Archive, Trash2 } from 'lucide-react';
+import { ContextMenuItem } from '@weldsuite/ui/components/context-menu';
+import { Star } from 'lucide-react';
 
 type FilterType = 'all' | 'unread' | 'starred' | 'urgent' | 'active';
 
@@ -60,8 +57,6 @@ export default function ConversationListClient({ initialConversations, accessTok
   const { getClient } = useAppApiClient();
   const queryClient = useQueryClient();
   const { userId } = useAuth();
-  const { user } = useUser();
-  const userName = user?.fullName || user?.primaryEmailAddress?.emailAddress || 'Agent';
   const [conversations, setConversations] = useState<Helpdesk.Conversation[]>(initialConversations);
 
   useBreadcrumbs([
@@ -80,7 +75,7 @@ export default function ConversationListClient({ initialConversations, accessTok
     requestNotificationPermission();
   }, []);
 
-  const { isConnected } = useHelpdeskWebSocket({
+  useHelpdeskWebSocket({
     isAgent: true,
     accessToken,
     onNewConversation: async (newConversation) => {
@@ -197,7 +192,7 @@ export default function ConversationListClient({ initialConversations, accessTok
       // Sends the TOGGLED value. The legacy call was doubly broken: it POSTed
       // to a PATCH-only route (404) and sent the pre-toggle value.
       await client.patch(`/conversations/${id}`, { isStarred: !conv.isStarred });
-    } catch (error) {
+    } catch {
       setConversations(prev => prev.map(c =>
         c.id === id ? { ...c, isStarred: conv.isStarred } : c
       ));

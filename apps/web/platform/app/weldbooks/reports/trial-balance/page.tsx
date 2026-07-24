@@ -14,6 +14,20 @@ import {
 import { useTrialBalanceReport } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
 
+interface TrialBalanceAccountRow {
+  accountId?: string;
+  accountCode: string;
+  accountName: string;
+  debit: string | number | null;
+  credit: string | number | null;
+}
+
+interface TrialBalanceReport {
+  accounts?: TrialBalanceAccountRow[];
+  totalDebit?: string | number | null;
+  totalCredit?: string | number | null;
+}
+
 function fmt(value: string | number | null | undefined): string {
   return new Intl.NumberFormat('nl-NL', {
     style: 'currency',
@@ -29,7 +43,7 @@ export default function TrialBalanceReportPage() {
   const [from, setFrom] = useState(`${today.getFullYear()}-01-01`);
   const [to, setTo] = useState(today.toISOString().slice(0, 10));
   const { data, isLoading, refetch } = useTrialBalanceReport({ from, to });
-  const report = data?.data as any;
+  const report = data?.data as TrialBalanceReport | undefined;
 
   return (
     <div className="p-6 space-y-6">
@@ -62,7 +76,7 @@ export default function TrialBalanceReportPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(report.accounts ?? []).map((a: any) => (
+                {(report.accounts ?? []).map((a) => (
                   <TableRow key={a.accountId}>
                     <TableCell className="font-mono">{a.accountCode}</TableCell>
                     <TableCell>{a.accountName}</TableCell>

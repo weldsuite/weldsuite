@@ -49,14 +49,6 @@ export function PinnedMessagesProvider({ children }: { children: ReactNode }) {
   );
 }
 
-function usePinnedMessages() {
-  const context = useContext(PinnedMessagesContext);
-  if (context === undefined) {
-    throw new Error('usePinnedMessages must be used within a PinnedMessagesProvider');
-  }
-  return context;
-}
-
 // Safe version that returns null if provider is missing
 export function usePinnedMessagesSafe() {
   return useContext(PinnedMessagesContext);

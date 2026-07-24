@@ -8,7 +8,32 @@ import { PageLoader } from '@/components/page-loader';
 
 type RecordKind = 'company' | 'person';
 
-function resolveRecord(activity: any): {
+interface NoteActivity {
+  id: string;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+  isFavorite?: boolean;
+  contactId?: string;
+  contactAvatarUrl?: string;
+  customerId?: string;
+  customerAvatarUrl?: string;
+  relatedTo?: string;
+  relatedToId?: string;
+  relatedToName?: string;
+  assignedToId?: string;
+  createdBy?: string;
+  assignedTo?: string;
+}
+
+interface WorkspaceMemberInfo {
+  id?: string;
+  userId?: string;
+  name?: string;
+  picture?: string;
+}
+
+function resolveRecord(activity: NoteActivity): {
   kind?: RecordKind;
   id?: string;
   avatar?: string;
@@ -45,7 +70,7 @@ export default function NotesPage() {
   // the few legacy activities that were written with the row id instead.
   const memberById = useMemo(() => {
     const map = new Map<string, { name?: string; picture?: string }>();
-    (membersData?.data || []).forEach((m: any) => {
+    (membersData?.data || []).forEach((m: WorkspaceMemberInfo) => {
       const info = { name: m.name, picture: m.picture };
       if (m.userId) map.set(m.userId, info);
       if (m.id) map.set(m.id, info);
@@ -65,7 +90,7 @@ export default function NotesPage() {
       undefined;
     const currentUserAvatar = user?.imageUrl || undefined;
 
-    return data.data.map((activity: any) => {
+    return (data.data as NoteActivity[]).map((activity) => {
       const authorId = activity.assignedToId || activity.createdBy;
       const isCurrentUser = !!user?.id && authorId === user.id;
       const member = authorId ? memberById.get(authorId) : undefined;
@@ -81,8 +106,8 @@ export default function NotesPage() {
       return {
         id: activity.id,
         content: activity.description || '',
-        createdAt: activity.createdAt,
-        updatedAt: activity.updatedAt,
+        createdAt: new Date(activity.createdAt),
+        updatedAt: new Date(activity.updatedAt),
         isPinned: !!activity.isFavorite,
         recordKind: record.kind,
         recordId: record.id,

@@ -19,9 +19,6 @@ async function authHeader(): Promise<Record<string, string>> {
   return {};
 }
 
-const stripDocx = (name: string) => name.replace(/\.docx$/i, '');
-const ensureDocx = (name: string) => (name.toLowerCase().endsWith('.docx') ? name : `${name}.docx`);
-
 /** Load the document's BlockNote blocks, or `null` if no `docs` row exists. */
 async function fetchDocumentJson(fileId: string): Promise<Record<string, unknown>[] | null> {
   const res = await fetch(`${APP_API_URL}/api/documents/${fileId}`, { headers: await authHeader() });
@@ -48,31 +45,6 @@ async function fetchDocumentDocx(fileId: string): Promise<ArrayBuffer | null> {
   return res.arrayBuffer();
 }
 
-/** Display name (with the `.docx` suffix stripped). */
-async function getDocumentName(fileId: string): Promise<string> {
-  const res = await fetch(`${APP_API_URL}/api/files/${fileId}`, { headers: await authHeader() });
-  if (!res.ok) throw new Error(`Failed to load document name (${res.status})`);
-  const body = (await res.json()) as { data: { fileName?: string } | null };
-  return stripDocx(body.data?.fileName ?? 'Untitled document');
-}
-
-async function renameDocument(fileId: string, name: string): Promise<void> {
-  const res = await fetch(`${APP_API_URL}/api/files/${fileId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
-    body: JSON.stringify({ fileName: ensureDocx(name) }),
-  });
-  if (!res.ok) throw new Error(`Failed to rename document (${res.status})`);
-}
-
-async function deleteDocument(fileId: string): Promise<void> {
-  const res = await fetch(`${APP_API_URL}/api/files/${fileId}`, {
-    method: 'DELETE',
-    headers: await authHeader(),
-  });
-  if (!res.ok && res.status !== 204) throw new Error(`Failed to delete document (${res.status})`);
-}
-
 /** Create a standalone (drive) document. Returns the new file id. */
 export async function createDocument(input: { name: string; folderId?: string | null }): Promise<string> {
   const res = await fetch(`${APP_API_URL}/api/documents`, {
@@ -83,64 +55,6 @@ export async function createDocument(input: { name: string; folderId?: string | 
   if (!res.ok) throw new Error(`Failed to create document (${res.status})`);
   const body = (await res.json()) as { data: { id: string } };
   return body.data.id;
-}
-
-// ---------------------------------------------------------------------------
-// Version history
-// ---------------------------------------------------------------------------
-
-interface DocumentVersionMeta {
-  id: string;
-  fileId: string;
-  label: string | null;
-  createdById: string | null;
-  createdAt: string;
-}
-
-interface DocumentVersionFull extends DocumentVersionMeta {
-  content: Record<string, unknown>[];
-}
-
-async function listDocumentVersions(fileId: string): Promise<DocumentVersionMeta[]> {
-  const res = await fetch(`${APP_API_URL}/api/documents/${fileId}/versions`, { headers: await authHeader() });
-  if (!res.ok) throw new Error(`Failed to list versions (${res.status})`);
-  const body = (await res.json()) as { data: DocumentVersionMeta[] };
-  return body.data;
-}
-
-async function getDocumentVersion(fileId: string, versionId: string): Promise<DocumentVersionFull> {
-  const res = await fetch(`${APP_API_URL}/api/documents/${fileId}/versions/${versionId}`, {
-    headers: await authHeader(),
-  });
-  if (!res.ok) throw new Error(`Failed to load version (${res.status})`);
-  const body = (await res.json()) as { data: DocumentVersionFull };
-  return body.data;
-}
-
-async function createDocumentVersion(fileId: string, label?: string): Promise<DocumentVersionMeta> {
-  const res = await fetch(`${APP_API_URL}/api/documents/${fileId}/versions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
-    body: JSON.stringify(label ? { label } : {}),
-  });
-  if (!res.ok) throw new Error(`Failed to create version (${res.status})`);
-  const body = (await res.json()) as { data: DocumentVersionMeta };
-  return body.data;
-}
-
-/** Restore a version server-side. Returns the restored block content so the
- *  caller can apply it to the live editor. */
-async function restoreDocumentVersion(
-  fileId: string,
-  versionId: string,
-): Promise<Record<string, unknown>[]> {
-  const version = await getDocumentVersion(fileId, versionId);
-  const res = await fetch(`${APP_API_URL}/api/documents/${fileId}/versions/${versionId}/restore`, {
-    method: 'POST',
-    headers: await authHeader(),
-  });
-  if (!res.ok) throw new Error(`Failed to restore version (${res.status})`);
-  return version.content;
 }
 
 // ---------------------------------------------------------------------------

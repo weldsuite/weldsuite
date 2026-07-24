@@ -67,11 +67,12 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   };
 }
 
-function formatErrorMessage(body: any, status: number): string {
-  const errorValue = body?.error ?? body?.message;
+function formatErrorMessage(body: unknown, status: number): string {
+  const record = body && typeof body === 'object' ? (body as Record<string, unknown>) : undefined;
+  const errorValue = record?.error ?? record?.message;
   if (typeof errorValue === 'string') return errorValue;
-  if (errorValue && typeof errorValue === 'object' && typeof errorValue.message === 'string') {
-    return errorValue.message;
+  if (errorValue && typeof errorValue === 'object' && typeof (errorValue as Record<string, unknown>).message === 'string') {
+    return (errorValue as Record<string, unknown>).message as string;
   }
   return `Request failed with status ${status}`;
 }

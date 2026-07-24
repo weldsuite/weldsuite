@@ -87,7 +87,7 @@ export default function InvoiceDetailPage() {
       const res = await weldbooksApi.get<{ data: InvoicePdfEntity } | InvoicePdfEntity>(
         '/accounting-entities/' + entityId,
       );
-      return (res as any)?.data ?? (res as InvoicePdfEntity);
+      return 'data' in res ? res.data : res;
     },
   });
 
@@ -148,7 +148,7 @@ export default function InvoiceDetailPage() {
           </Button>
           {isDraft && (
             <Button variant="outline" asChild>
-              <Link to={('/weldbooks/invoices/' + id + '/edit') as any}>{ti.edit}</Link>
+              <Link to="/weldbooks/invoices/$id/edit" params={{ id }}>{ti.edit}</Link>
             </Button>
           )}
           {canSend && (

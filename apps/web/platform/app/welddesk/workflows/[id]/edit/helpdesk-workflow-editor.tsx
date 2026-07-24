@@ -32,22 +32,41 @@ import {
 } from './helpdesk-workflow-constants';
 
 import { AddActionPanel } from './panels/add-action-panel';
-import { TriggerFilterPanel, type TriggerFilter, type TriggerConfigUpdate } from './panels/trigger-panel';
+import { TriggerFilterPanel, type TriggerConfigUpdate } from './panels/trigger-panel';
 import { BranchEditPanel } from './panels/branch-edit-panel';
 import { StepEditPanel } from './panels/step-edit-panel';
 import { OverviewPanel } from './panels/overview-panel';
 import { SubAgentPickerDialog } from './dialogs/sub-agent-picker-dialog';
 import { SubAgentEditDialog } from './dialogs/sub-agent-edit-dialog';
 import type { SubAgentFormState } from './dialogs/sub-agent-edit-dialog';
+import type { HelpdeskWorkflow, WorkflowStep } from './types';
 
 // ============================================================================
 // Types
 // ============================================================================
 
 interface HelpdeskWorkflowEditorProps {
-  workflow: any;
+  workflow: HelpdeskWorkflow;
   workspaceMembers?: Array<{ id: string; name: string; email: string; avatar?: string }>;
   workflowVariables?: Array<{ name: string; type?: string }>;
+}
+
+/** Shape of a (currently unreachable) raw agent-definition record — AI was
+ * removed platform-wide, but this documents what the editor form expects if
+ * the `/ai/agent-definitions` endpoint ever comes back. */
+interface AgentDefinitionDetail {
+  name?: string;
+  description?: string;
+  systemPrompt?: string;
+  modelId?: string;
+  temperature?: string;
+  maxTokens?: number;
+  maxIterations?: number;
+  maxTotalTokens?: number;
+  enabledBuiltinTools?: string[];
+  integrationIds?: string[];
+  integrationToolPermissions?: Record<string, string[]>;
+  escalationRules?: { escalateOnFailure?: boolean; escalateOnMaxIterations?: boolean };
 }
 
 // ============================================================================
@@ -82,7 +101,7 @@ export function HelpdeskWorkflowEditorClient({
   );
 
   // Workflow state
-  const [workflow, setWorkflow] = useState({
+  const [workflow, setWorkflow] = useState<HelpdeskWorkflow>({
     ...initialWorkflow,
     triggers: initialWorkflow.triggers || [],
     steps: initialWorkflow.steps || [],
@@ -93,7 +112,7 @@ export function HelpdeskWorkflowEditorClient({
   const isSaving = updateWorkflowMutation.isPending || updateStatusMutation.isPending;
 
   // Editing state
-  const [editingStep, setEditingStep] = useState<any | null>(null);
+  const [editingStep, setEditingStep] = useState<WorkflowStep | null>(null);
   const [selectedStepIndex, setSelectedStepIndex] = useState<number | null>(null);
   const [showAddActionPanel, setShowAddActionPanel] = useState(false);
   const [showTriggerFilterPanel, setShowTriggerFilterPanel] = useState(false);
@@ -128,7 +147,7 @@ export function HelpdeskWorkflowEditorClient({
 
   const { data: editSubAgentData } = useQuery({
     queryKey: ['ai-agent-detail', editSubAgentId],
-    queryFn: async (): Promise<any> => undefined,
+    queryFn: async (): Promise<AgentDefinitionDetail | undefined> => undefined,
     enabled: false,
   });
 
@@ -147,7 +166,7 @@ export function HelpdeskWorkflowEditorClient({
           [key: string]: unknown;
         };
       }> }>('/integrations/connections');
-      return (res.data || []).filter((c: any) => c.provider === 'mcp_server' && c.status === 'active');
+      return (res.data || []).filter((c) => c.provider === 'mcp_server' && c.status === 'active');
     },
   });
 
@@ -161,7 +180,7 @@ export function HelpdeskWorkflowEditorClient({
         description: editSubAgentData.description || '',
         systemPrompt: editSubAgentData.systemPrompt || '',
         modelId: editSubAgentData.modelId || 'openai/gpt-4o',
-        temperature: parseFloat(editSubAgentData.temperature) || 0.7,
+        temperature: parseFloat(editSubAgentData.temperature || '') || 0.7,
         maxTokens: editSubAgentData.maxTokens || 1024,
         maxIterations: editSubAgentData.maxIterations || 10,
         maxTotalTokens: editSubAgentData.maxTotalTokens || 20000,
@@ -176,11 +195,11 @@ export function HelpdeskWorkflowEditorClient({
     }
   }, [editSubAgentData, editSubAgentId]);
 
-  const updateSubAgentMutation = useMutation({
+  const updateSubAgentMutation = useMutation<never, Error, { id: string; data: SubAgentFormState }>({
     // AI has been removed platform-wide — sub-agent definitions can no
     // longer be saved. Short-circuit instead of hitting the removed
     // `/ai/agent-definitions` endpoint.
-    mutationFn: async (_params: { id: string; data: any }): Promise<never> => {
+    mutationFn: async () => {
       throw new Error('AI is currently unavailable');
     },
     onError: () => toast.error(tw.failedToUpdateAgent),
@@ -230,7 +249,7 @@ export function HelpdeskWorkflowEditorClient({
     await handleSave();
     updateStatusMutation.mutate({ id: workflow.id, status: 'active' }, {
       onSuccess: () => toast.success(tw.workflowPublished),
-      onError: (err: any) => {
+      onError: (err: Error) => {
         toast.error(err?.message || tw.failedToPublish);
       },
     });
@@ -241,7 +260,7 @@ export function HelpdeskWorkflowEditorClient({
     const actionNames: Record<string, string> = {};
     helpdeskActionTypes.forEach((a) => { actionNames[a.id] = a.name; });
 
-    const newStep: any = {
+    const newStep: WorkflowStep = {
       id: `step-${Date.now()}`,
       type: actionType,
       name: actionNames[actionType] || actionType,
@@ -260,7 +279,7 @@ export function HelpdeskWorkflowEditorClient({
 
     // Pre-configure send_notification to reference assigned agent when there's a preceding assign step
     if (actionType === 'send_notification') {
-      const precedingAssignStep = workflow.steps.find((s: any) => s.type === 'assign_conversation');
+      const precedingAssignStep = workflow.steps.find((s) => s.type === 'assign_conversation');
       if (precedingAssignStep) {
         newStep.config = {
           recipientMode: 'assigned_agent',
@@ -278,7 +297,7 @@ export function HelpdeskWorkflowEditorClient({
           sourceId.endsWith('_if_not')) {
         newStep.parentBranchId = sourceId;
       } else {
-        const sourceStep = workflow.steps.find((s: any) => s.id === sourceId);
+        const sourceStep = workflow.steps.find((s) => s.id === sourceId);
         if (sourceStep?.parentBranchId) {
           newStep.parentBranchId = sourceStep.parentBranchId;
         }
@@ -287,24 +306,24 @@ export function HelpdeskWorkflowEditorClient({
 
     // If adding a terminal action and one already exists on the same path, replace it
     let updatedSteps = [...workflow.steps];
-    const samePathFilter = (s: any) =>
+    const samePathFilter = (s: WorkflowStep) =>
       newStep.parentBranchId
         ? s.parentBranchId === newStep.parentBranchId
         : !s.parentBranchId;
-    const existingTerminal = updatedSteps.find((s: any) =>
+    const existingTerminal = updatedSteps.find((s) =>
       isTerminalAction(s.type) && samePathFilter(s)
     );
     if (isTerminalAction(actionType) && existingTerminal) {
       // Collect the old terminal and all its child branch steps for removal
       const idsToRemove = new Set<string>();
-      function collectChildren(stepId: string, stepType: string, stepConfig?: any) {
+      function collectChildren(stepId: string, stepType: string, stepConfig?: Record<string, unknown>) {
         idsToRemove.add(stepId);
         // For send_choices: remove steps in reply-button branches
         if (stepType === 'send_choices') {
-          const opts: Array<{ value?: string }> = Array.isArray(stepConfig?.options) ? stepConfig.options : [];
+          const opts: Array<{ value?: string }> = Array.isArray(stepConfig?.options) ? (stepConfig!.options as Array<{ value?: string }>) : [];
           opts.forEach((opt, oi) => {
             const branchId = `${stepId}_branch_${opt.value || oi}`;
-            updatedSteps.forEach((s: any) => {
+            updatedSteps.forEach((s) => {
               if (s.parentBranchId === branchId) collectChildren(s.id, s.type, s.config);
             });
           });
@@ -313,7 +332,7 @@ export function HelpdeskWorkflowEditorClient({
         if (stepType === 'ai_auto_reply') {
           ['escalated', 'resolved'].forEach((val) => {
             const branchId = `${stepId}_branch_${val}`;
-            updatedSteps.forEach((s: any) => {
+            updatedSteps.forEach((s) => {
               if (s.parentBranchId === branchId) collectChildren(s.id, s.type, s.config);
             });
           });
@@ -322,18 +341,18 @@ export function HelpdeskWorkflowEditorClient({
         if (stepType === 'condition') {
           const branchIds = getConditionBranchIds({ id: stepId, config: stepConfig });
           branchIds.forEach((branchId) => {
-            updatedSteps.forEach((s: any) => {
+            updatedSteps.forEach((s) => {
               if (s.parentBranchId === branchId) collectChildren(s.id, s.type, s.config);
             });
           });
         }
       }
       collectChildren(existingTerminal.id, existingTerminal.type, existingTerminal.config);
-      updatedSteps = updatedSteps.filter((s: any) => !idsToRemove.has(s.id));
+      updatedSteps = updatedSteps.filter((s) => !idsToRemove.has(s.id));
     }
 
     // Insert before any remaining terminal action, or append
-    const terminalIdx = updatedSteps.findIndex((s: any) =>
+    const terminalIdx = updatedSteps.findIndex((s) =>
       isTerminalAction(s.type) && samePathFilter(s)
     );
     if (terminalIdx >= 0 && !isTerminalAction(actionType)) {
@@ -372,26 +391,26 @@ export function HelpdeskWorkflowEditorClient({
     setAddStepSourceNodeId(null);
   }, [createStep]);
 
-  const handleUpdateStep = (stepId: string, data: any) => {
+  const handleUpdateStep = (stepId: string, data: Partial<WorkflowStep>) => {
     setWorkflow({
       ...workflow,
-      steps: workflow.steps.map((s: any) =>
+      steps: workflow.steps.map((s) =>
         s.id === stepId ? { ...s, ...data } : s
       ),
     });
-    setEditingStep((prev: any) =>
+    setEditingStep((prev) =>
       prev?.id === stepId ? { ...prev, ...data } : prev
     );
   };
 
-  const handleUpdateConfig = useCallback((stepId: string, config: Record<string, any>) => {
-    setWorkflow((prev: any) => ({
+  const handleUpdateConfig = useCallback((stepId: string, config: Record<string, unknown>) => {
+    setWorkflow((prev) => ({
       ...prev,
-      steps: prev.steps.map((s: any) =>
+      steps: prev.steps.map((s) =>
         s.id === stepId ? { ...s, config: { ...s.config, ...config } } : s
       ),
     }));
-    setEditingStep((prev: any) =>
+    setEditingStep((prev) =>
       prev?.id === stepId ? { ...prev, config: { ...prev.config, ...config } } : prev
     );
   }, []);
@@ -401,12 +420,12 @@ export function HelpdeskWorkflowEditorClient({
     if (!stepToDelete) return;
 
     const idsToDelete = new Set<string>();
-    function collectDeletions(id: string, type: string, config?: any) {
+    function collectDeletions(id: string, type: string, config?: Record<string, unknown>) {
       idsToDelete.add(id);
       if (type === 'condition') {
         const branchIds = getConditionBranchIds({ id, config });
         branchIds.forEach((branchId) => {
-          workflow.steps.forEach((s: any) => {
+          workflow.steps.forEach((s) => {
             if (s.parentBranchId === branchId) {
               collectDeletions(s.id, s.type, s.config);
             }
@@ -417,9 +436,9 @@ export function HelpdeskWorkflowEditorClient({
     collectDeletions(stepToDelete.id, stepToDelete.type, stepToDelete.config);
 
     const updatedSteps = workflow.steps
-      .filter((s: any) => !idsToDelete.has(s.id))
-      .map((step: any, i: number) => ({ ...step, order: i }));
-    setWorkflow((prev: any) => ({ ...prev, steps: updatedSteps }));
+      .filter((s) => !idsToDelete.has(s.id))
+      .map((step, i) => ({ ...step, order: i }));
+    setWorkflow((prev) => ({ ...prev, steps: updatedSteps }));
     setSelectedStepIndex(null);
     setEditingStep(null);
     setEditingBranch(null);
@@ -451,7 +470,7 @@ export function HelpdeskWorkflowEditorClient({
   }, []);
 
   const handleUpdateTriggerConfig = useCallback((configUpdate: TriggerConfigUpdate) => {
-    setWorkflow((prev: any) => {
+    setWorkflow((prev) => {
       const trigger = prev.triggers?.[0];
       if (!trigger) return prev;
       const updatedConfig = {
@@ -481,8 +500,8 @@ export function HelpdeskWorkflowEditorClient({
     setShowTriggerFilterPanel(false);
   }, []);
 
-  const handleStepsChange = useCallback((updatedSteps: any[]) => {
-    setWorkflow((prev: any) => ({ ...prev, steps: updatedSteps }));
+  const handleStepsChange = useCallback((updatedSteps: WorkflowStep[]) => {
+    setWorkflow((prev) => ({ ...prev, steps: updatedSteps }));
   }, []);
 
   const handleAddSubAgent = useCallback((stepId: string) => {
@@ -496,10 +515,10 @@ export function HelpdeskWorkflowEditorClient({
 
   const handleSelectSubAgent = useCallback((agentId: string, agentName: string) => {
     if (!addSubAgentForStepId) return;
-    const step = workflow.steps.find((s: any) => s.id === addSubAgentForStepId);
+    const step = workflow.steps.find((s) => s.id === addSubAgentForStepId);
     if (!step) return;
-    const currentIds: string[] = (step.config as any)?.subAgentIds || [];
-    const currentNames: Record<string, string> = (step.config as any)?.subAgentNames || {};
+    const currentIds: string[] = (step.config?.subAgentIds as string[] | undefined) || [];
+    const currentNames: Record<string, string> = (step.config?.subAgentNames as Record<string, string> | undefined) || {};
     handleUpdateConfig(addSubAgentForStepId, {
       subAgentIds: [...currentIds, agentId],
       subAgentNames: { ...currentNames, [agentId]: agentName },
@@ -507,7 +526,7 @@ export function HelpdeskWorkflowEditorClient({
     setAddSubAgentForStepId(null);
   }, [addSubAgentForStepId, workflow.steps, handleUpdateConfig]);
 
-  const sortedSteps = [...workflow.steps].sort((a: any, b: any) => (a.order || 0) - (b.order || 0));
+  const sortedSteps = [...workflow.steps].sort((a, b) => (a.order || 0) - (b.order || 0));
 
   return (
     <div className="h-full flex flex-col bg-muted/30 overflow-hidden">

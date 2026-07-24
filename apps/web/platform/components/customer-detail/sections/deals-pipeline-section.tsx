@@ -2,12 +2,13 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { PipelineKanban } from '@/components/weldcrm/pipeline/pipeline-kanban';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { usePipelines, usePipelineStages } from '@/hooks/queries/use-pipelines-queries';
+import type { Pipeline, PipelineStage } from '@/hooks/queries/use-pipelines-queries';
 import { useCreateOpportunity, useUpdateOpportunityStage } from '@/hooks/queries/use-opportunities-queries';
+import type { Opportunity as DomainOpportunity } from '@/lib/api/domains/weldcrm';
 import { useWorkspace } from '@/contexts/workspace-context';
-import { Loader2, ChevronRight, GitBranch, DollarSign } from 'lucide-react';
+import { Loader2, ChevronRight, GitBranch } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { EntityList, type HeaderColumn, type RowHandlers } from '@/components/entity-list';
+import { EntityList, type HeaderColumn } from '@/components/entity-list';
 import { useCustomerDetailContextSafe } from '../customer-detail-provider';
 import type { Customer, Opportunity } from '../types';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -17,11 +18,38 @@ interface DealsPipelineSectionProps {
   opportunities: Opportunity[];
 }
 
+/**
+ * Minimal customer/company shape used by `PipelineKanban`'s `customers` and
+ * `lockedCustomer` props — that component's own prop types are untyped
+ * (`any`) at the source, so this is defined locally from actual usage here.
+ */
+interface PipelineCustomer {
+  id: string;
+  companyName?: string;
+  tradingName?: string;
+  fullName?: string;
+  email?: string;
+  name?: string;
+}
+
+/** Payload `PipelineKanban`'s deal-creation form submits. */
+interface DealCreateData {
+  name: string;
+  customerId: string;
+  amount: number;
+  probability?: number;
+  closeDate?: string;
+  description?: string;
+  status: 'open';
+  stageId: string;
+  companyId?: string;
+}
+
 interface PipelineRow {
   id: string;
   name: string;
   color?: string;
-  stages: any[];
+  stages: PipelineStage[];
   opportunities: Opportunity[];
   dealCount: number;
   totalValue: number;
@@ -87,17 +115,16 @@ export function DealsPipelineSection({ customer, opportunities }: DealsPipelineS
   const createOpportunityMutation = useCreateOpportunity();
   const updateOpportunityStageMutation = useUpdateOpportunityStage();
   const [pipelineGroups, setPipelineGroups] = useState<PipelineRow[]>([]);
-  const [customers, setCustomers] = useState<any[]>([]);
+  const [customers, setCustomers] = useState<PipelineCustomer[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedPipeline, setExpandedPipeline] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchData() {
       try {
         const client = await getClient();
         const [pipelinesResult, customersResult] = await Promise.all([
-          client.get<{ data?: any[] }>('/pipelines'),
-          client.get<{ data?: any[] }>('/companies?limit=50'),
+          client.get<{ data?: Pipeline[] }>('/pipelines'),
+          client.get<{ data?: PipelineCustomer[] }>('/companies?limit=50'),
         ]);
 
         const customersList = customersResult.data || [];
@@ -117,17 +144,17 @@ export function DealsPipelineSection({ customer, opportunities }: DealsPipelineS
         const pipelineIds = Array.from(pipelineMap.keys());
         const stagesResults = await Promise.all(
           pipelineIds.map((id) =>
-            client.get<{ data?: any[] }>(`/pipeline-stages?pipeline=${encodeURIComponent(id)}`),
+            client.get<{ data?: PipelineStage[] }>(`/pipeline-stages?pipeline=${encodeURIComponent(id)}`),
           ),
         );
 
         // Build pipeline info
         const pipelines = pipelinesResult.data || [];
         const groups: PipelineRow[] = pipelineIds.map((pipelineId, idx) => {
-          const pipelineData = pipelines.find((p: any) => p.id === pipelineId);
+          const pipelineData = pipelines.find((p) => p.id === pipelineId);
           const stagesResult = stagesResults[idx];
           const stagesList = stagesResult.data || [];
-          const stageIds = new Set(stagesList.map((s: any) => s.id));
+          const stageIds = new Set(stagesList.map((s) => s.id));
           const opps = pipelineMap.get(pipelineId) || [];
           // Only count deals that have a matching stage in this pipeline
           const matchedOpps = opps.filter(opp => stageIds.has(opp.stage));
@@ -155,6 +182,10 @@ export function DealsPipelineSection({ customer, opportunities }: DealsPipelineS
       }
     }
     fetchData();
+    // `ctx` (from useCustomerDetailContextSafe) is a fresh object every render —
+    // depending on it would re-run this fetch (and its ctx.setCountOverride call)
+    // in a render loop. Read the latest value via closure instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opportunities, getClient, t]);
 
   const lockedCustomer = useMemo(() => ({
@@ -167,12 +198,17 @@ export function DealsPipelineSection({ customer, opportunities }: DealsPipelineS
     await updateOpportunityStageMutation.mutateAsync({ id: dealId, stage: toStage, stageId: toStage });
   }, [currentWorkspace, updateOpportunityStageMutation]);
 
-  const handleDealCreate = useCallback(async (data: any) => {
+  const handleDealCreate = useCallback(async (data: DealCreateData) => {
     if (!currentWorkspace) return;
-    await createOpportunityMutation.mutateAsync({
+    // `amount` arrives as a number from the deal form; `Opportunity.amount` is
+    // a string on the wire (decimal-as-string). Cast at the boundary rather
+    // than reshaping the payload — this mirrors the pre-existing (untyped)
+    // behavior of sending the raw form data straight to the mutation.
+    const payload = {
       ...data,
       companyId: data.companyId || customer.id,
-    });
+    };
+    await createOpportunityMutation.mutateAsync(payload as unknown as Partial<DomainOpportunity>);
   }, [currentWorkspace, customer.id, createOpportunityMutation]);
 
   if (loading) {
@@ -230,11 +266,11 @@ function MultiPipelineList({
 }: {
   pipelineGroups: PipelineRow[];
   customer: Customer;
-  customers: any[];
+  customers: PipelineCustomer[];
   workspaceId: string;
   lockedCustomer: { id: string; name: string };
   onDealMove: (dealId: string, fromStage: string, toStage: string) => Promise<void>;
-  onDealCreate: (data: any) => Promise<void>;
+  onDealCreate: (data: DealCreateData) => Promise<void>;
 }) {
   const t = useTranslations();
   const [expandedPipelines, setExpandedPipelines] = useState<Set<string>>(new Set());
@@ -257,7 +293,7 @@ function MultiPipelineList({
     { id: 'value', header: t('sweep.weldcrm.dealDetailsModal.value'), width: 'w-[120px]' },
   ], [t]);
 
-  const renderRow = useCallback((pipeline: PipelineRow, _handlers: RowHandlers<PipelineRow>) => {
+  const renderRow = useCallback((pipeline: PipelineRow) => {
     const isExpanded = expandedPipelines.has(pipeline.id);
     const deals = pipeline.opportunities.map(opp => mapOpportunityToDeal(opp, customer));
 

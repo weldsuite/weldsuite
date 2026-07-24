@@ -8,7 +8,6 @@ import {
   Activity,
   Sparkles,
   Calendar,
-  FileText,
   Megaphone,
   AlertCircle,
   Info,

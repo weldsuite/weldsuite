@@ -53,8 +53,3 @@ export function PlatformEventsProvider({ children }: PlatformEventsProviderProps
 export function usePlatformEvents(): PlatformEventsContextValue {
   return useContext(PlatformEventsContext);
 }
-
-function usePlatformEventsStatus() {
-  const { isConnected, connectionState } = usePlatformEvents();
-  return { isConnected, connectionState };
-}

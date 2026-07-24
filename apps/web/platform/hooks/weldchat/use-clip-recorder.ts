@@ -32,7 +32,7 @@ export interface UseClipRecorderReturn {
   audioLevel: number;
   setMode: (mode: ClipMode) => void;
   startPreview: () => Promise<void>;
-  startRecording: () => void;
+  startRecording: (pipCameraStream?: MediaStream | null) => void;
   stopRecording: () => void;
   reset: () => void;
   setState: (state: RecorderState) => void;

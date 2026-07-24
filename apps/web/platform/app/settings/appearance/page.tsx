@@ -41,7 +41,7 @@ export default function AppearanceSettingsPage() {
 
     try {
       await updateThemeMutation.mutateAsync(newTheme);
-    } catch (error) {
+    } catch {
       setThemeState(previousTheme);
       setAppTheme(previousTheme);
       toast.error(ta.messages.themeError);
@@ -56,7 +56,7 @@ export default function AppearanceSettingsPage() {
 
     try {
       await updateFontSizeMutation.mutateAsync(newSize[0]);
-    } catch (error) {
+    } catch {
       setFontSize(previousSize);
       document.documentElement.style.fontSize = `${previousSize[0]}px`;
       localStorage.setItem('fontSize', String(previousSize[0]));
@@ -317,7 +317,7 @@ export default function AppearanceSettingsPage() {
               const client = await getClient();
               // app-api PUT /api/user-preferences (was /settings/preferences).
               await client.put('/user-preferences', { language: locale });
-            } catch (error) {
+            } catch {
               toast.error(ta.messages.languageError);
             }
           }}

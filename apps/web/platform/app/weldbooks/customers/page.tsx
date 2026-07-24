@@ -84,7 +84,7 @@ export default function AccountingCustomersPage() {
       items={customers}
       isLoading={isLoading}
       columns={columns}
-      onRowClick={(c) => navigate({ to: `/weldbooks/customers/${c.id}` as any })}
+      onRowClick={(c) => navigate({ to: '/weldbooks/customers/$id', params: { id: c.id } })}
       filters={filterConfigs}
       searchQuery={search}
       onSearchChange={setSearch}
@@ -93,7 +93,7 @@ export default function AccountingCustomersPage() {
       searchPlaceholder={tcp.searchPlaceholder}
       createButton={{
         label: tcp.newCustomer,
-        onClick: () => navigate({ to: '/weldbooks/customers/add' as any }),
+        onClick: () => navigate({ to: '/weldbooks/customers/add' }),
       }}
       emptyState={{
         icon: (
@@ -105,7 +105,7 @@ export default function AccountingCustomersPage() {
         description: tcp.searchPlaceholder,
         action: {
           label: tcp.newCustomer,
-          onClick: () => navigate({ to: '/weldbooks/customers/add' as any }),
+          onClick: () => navigate({ to: '/weldbooks/customers/add' }),
         },
       }}
     />

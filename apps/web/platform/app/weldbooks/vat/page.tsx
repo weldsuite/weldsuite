@@ -84,13 +84,13 @@ export default function VatReturnsPage() {
         toast.warning(st('sweep.weldbooks.vat.skippedContacts', { count: res.data.skippedContacts.length }));
       }
     },
-    onError: (err: any) => toast.error(err?.message ?? st('sweep.weldbooks.vat.icpCalculationFailed')),
+    onError: (err) => toast.error(err?.message ?? st('sweep.weldbooks.vat.icpCalculationFailed')),
   });
 
   const fileIcp = useMutation({
     mutationFn: (icpId: string) => accountingApi.fileIcpDeclaration(icpId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['accounting', 'icp-declarations'] }),
-    onError: (err: any) => toast.error(err?.message ?? st('sweep.weldbooks.vat.icpFilingFailed')),
+    onError: (err) => toast.error(err?.message ?? st('sweep.weldbooks.vat.icpFilingFailed')),
   });
 
   if (isLoading) return <PageLoader fullScreen={false} />;
@@ -171,7 +171,7 @@ export default function VatReturnsPage() {
                     <TableRow
                       key={vr.id}
                       className="cursor-pointer"
-                      onClick={() => navigate({ to: `/weldbooks/vat/${vr.id}` as any })}
+                      onClick={() => navigate({ to: '/weldbooks/vat/$id', params: { id: vr.id } })}
                     >
                       <TableCell className="font-medium">
                         {vr.periodLabel || `${vr.periodStart?.slice(0, 10)} — ${vr.periodEnd?.slice(0, 10)}`}

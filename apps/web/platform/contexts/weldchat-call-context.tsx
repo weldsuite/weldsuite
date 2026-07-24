@@ -18,7 +18,6 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth, useUser } from '@clerk/clerk-react';
 import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
-import { useNotificationPreferences } from '@/hooks/queries/use-notifications-queries';
 import { playCallJoinSound, playCallLeaveSound, playMuteSound, playUnmuteSound, playCameraToggleSound, playScreenShareSound, playHandRaiseSound, playHandLowerSound } from '@/lib/utils/notification-sound';
 import { useVirtualBackground, type VirtualBackgroundType } from '@/hooks/use-virtual-background';
 import { RoomClient } from '@weldsuite/realtime/client';
@@ -47,15 +46,28 @@ const NOISE_SUPPRESSION_ENABLED =
  * stays lit after the user leaves the call. Each getter can throw when the
  * corresponding media is disabled, so every read is guarded.
  */
+/**
+ * RealtimeKit's public `Self` type doesn't expose these fields/methods, but
+ * the SDK's runtime object does. Used for hardware track cleanup and
+ * screen-share quality tuning that has no first-class typed API.
+ */
+interface RealtimeKitSelfInternal {
+  videoTrack?: MediaStreamTrack;
+  audioTrack?: MediaStreamTrack;
+  rawVideoTrack?: MediaStreamTrack;
+  rawAudioTrack?: MediaStreamTrack;
+  screenShareTracks?: { video?: MediaStreamTrack; audio?: MediaStreamTrack };
+  screenShareEnabled?: boolean;
+  updateScreenshareConstraints?: (constraints: {
+    width?: { ideal: number };
+    height?: { ideal: number };
+    frameRate?: { ideal: number };
+  }) => Promise<void>;
+}
+
 function stopLocalMediaTracks(meeting: RealtimeKitClient | null) {
   if (!meeting) return;
-  const self = meeting.self as unknown as {
-    videoTrack?: MediaStreamTrack;
-    audioTrack?: MediaStreamTrack;
-    rawVideoTrack?: MediaStreamTrack;
-    rawAudioTrack?: MediaStreamTrack;
-    screenShareTracks?: { video?: MediaStreamTrack; audio?: MediaStreamTrack };
-  };
+  const self = meeting.self as unknown as RealtimeKitSelfInternal;
   const stop = (read: () => MediaStreamTrack | undefined) => {
     try {
       read()?.stop();
@@ -83,6 +95,23 @@ export interface IncomingCall {
   callType: 'voice' | 'video';
   callerName: string;
   callerAvatar?: string;
+}
+
+/** `POST /chat-calls/start-and-join` and `POST /chat-calls/:id/join` responses. */
+interface JoinChatCallResponse {
+  data: {
+    callId: string;
+    authToken: string;
+  };
+}
+
+/** `GET /chat-calls/:id` response — a `chat_calls` row plus resolved participants. */
+interface ChatCallDetailResponse {
+  data: {
+    id: string;
+    channelId: string;
+    callType: string;
+  };
 }
 
 interface WeldChatCallState {
@@ -167,7 +196,6 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
   const { user } = useUser();
-  const { data: notifPrefs } = useNotificationPreferences();
 
   const [callId, setCallId] = useState<string | null>(null);
   const [channelId, setChannelId] = useState<string | null>(null);
@@ -384,7 +412,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
       rc.disconnect();
       handRaiseRoomRef.current = null;
     };
-  }, [channelId, status]);
+  }, [channelId, status, user?.id]);
 
   const cleanup = useCallback(() => {
     if (meeting) {
@@ -434,6 +462,9 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
       const suppressor = createRnnoiseSuppressor({
         workerUrl: rnnoiseWorkerUrl,
         workletUrl: '/df3-worklet-processor.js',
+        // `import.meta.env.PROD` is Vite's build-time boolean, not a turbo-tracked
+        // process.env var — eslint-plugin-turbo doesn't distinguish the two.
+        // eslint-disable-next-line turbo/no-undeclared-env-vars
         logRtf: !import.meta.env.PROD,
       });
       suppressorRef.current = suppressor;
@@ -497,14 +528,14 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
     setStatus('connecting');
     const client = await getClient();
     // Single round-trip: creates the meeting + joins in one request.
-    const res = await client.post<any>('/chat-calls/start-and-join', { channelId: chId, callType: type });
+    const res = await client.post<JoinChatCallResponse>('/chat-calls/start-and-join', { channelId: chId, callType: type });
     setCallId(res.data.callId);
     await initMeeting(res.data.authToken, type, true, videoOn);
   }, [getClient, initMeeting]);
 
   const doJoinCall = useCallback(async (id: string) => {
     const client = await getClient();
-    const callRes = await client.get<any>(`/chat-calls/${id}`);
+    const callRes = await client.get<ChatCallDetailResponse>(`/chat-calls/${id}`);
     const call = callRes.data;
     const type = call.callType as 'voice' | 'video';
 
@@ -517,7 +548,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
     setIsMuted(false);
     setIsVideoOff(!videoOn);
     setStatus('connecting');
-    const joinRes = await client.post<any>(`/chat-calls/${id}/join`, {});
+    const joinRes = await client.post<JoinChatCallResponse>(`/chat-calls/${id}/join`, {});
     await initMeeting(joinRes.data.authToken, type, true, videoOn);
   }, [getClient, initMeeting]);
 
@@ -542,7 +573,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
     // Leave current call first
     if (callId) {
       const client = await getClient();
-      try { await client.post<any>(`/chat-calls/${callId}/leave`, {}); } catch { /* best effort */ }
+      try { await client.post(`/chat-calls/${callId}/leave`, {}); } catch { /* best effort */ }
     }
     cleanup();
     // Start the pending call
@@ -572,12 +603,12 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
       // Joining existing call
       setCallId(previewJoinCallId);
       setStatus('connecting');
-      const joinRes = await client.post<any>(`/chat-calls/${previewJoinCallId}/join`, {});
+      const joinRes = await client.post<JoinChatCallResponse>(`/chat-calls/${previewJoinCallId}/join`, {});
       await initMeeting(joinRes.data.authToken, type, audioOn, videoOn);
     } else if (chId) {
       // Starting new call — single round-trip: creates meeting + joins in one request
       setStatus('connecting');
-      const res = await client.post<any>('/chat-calls/start-and-join', { channelId: chId, callType: type });
+      const res = await client.post<JoinChatCallResponse>('/chat-calls/start-and-join', { channelId: chId, callType: type });
       setCallId(res.data.callId);
       await initMeeting(res.data.authToken, type, audioOn, videoOn);
     }
@@ -618,7 +649,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
 
     // Skip preview for incoming calls — join immediately
     const client = await getClient();
-    const callRes = await client.get<any>(`/chat-calls/${ic.callId}`);
+    const callRes = await client.get<ChatCallDetailResponse>(`/chat-calls/${ic.callId}`);
     const call = callRes.data;
     const type = (call.callType || ic.callType) as 'voice' | 'video';
 
@@ -628,7 +659,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
     setIsCallInitiator(false);
     setStatus('connecting');
 
-    const joinRes = await client.post<any>(`/chat-calls/${ic.callId}/join`, {});
+    const joinRes = await client.post<JoinChatCallResponse>(`/chat-calls/${ic.callId}/join`, {});
     await initMeeting(joinRes.data.authToken, type);
   }, [incomingCall, getClient, initMeeting]);
 
@@ -645,7 +676,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
     const chId = channelId;
     const client = await getClient();
     try {
-      await client.post<any>(`/chat-calls/${endedCallId}/leave`, {});
+      await client.post(`/chat-calls/${endedCallId}/leave`, {});
     } catch { /* best effort */ }
     // Clear ref BEFORE cleanup so the roomLeft handler doesn't fire a duplicate /leave
     callIdRef.current = null;
@@ -663,7 +694,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
     const chId = channelId;
     const client = await getClient();
     try {
-      await client.post<any>(`/chat-calls/${endedCallId}/end`, {});
+      await client.post(`/chat-calls/${endedCallId}/end`, {});
     } catch { /* best effort */ }
     // Clear ref BEFORE cleanup so the roomLeft handler doesn't fire a duplicate /leave
     callIdRef.current = null;
@@ -678,7 +709,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
     if (!incomingCall) return;
     const client = await getClient();
     try {
-      await client.post<any>(`/chat-calls/${incomingCall.callId}/decline`, {});
+      await client.post(`/chat-calls/${incomingCall.callId}/decline`, {});
     } catch { /* best effort */ }
     setIncomingCall(null);
     setStatus('idle');
@@ -722,13 +753,15 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
       // approach as the WeldMeet call context.)
       await meeting.self.enableScreenShare();
 
+      const self = meeting.self as unknown as RealtimeKitSelfInternal;
+
       // RTK's enableScreenShare() SWALLOWS the getDisplayMedia rejection when the
       // user cancels the browser's screen picker (empty internal catch), so the
       // promise resolves normally but with NO active screen-share track — and the
       // NotAllowedError/AbortError catch below never fires. Detect the no-track
       // case and bail, otherwise the toolbar button sticks in the "Stop sharing"
       // state and the screen-share chime plays for a share that never started.
-      if (!(meeting.self as any).screenShareEnabled) {
+      if (!self.screenShareEnabled) {
         setIsScreenSharing(false);
         return;
       }
@@ -738,8 +771,8 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
         : undefined;
       const pickIdeal = (v: unknown): number | undefined => {
         if (typeof v === 'number') return v;
-        if (v && typeof v === 'object' && 'ideal' in (v as any) && typeof (v as any).ideal === 'number') {
-          return (v as any).ideal as number;
+        if (v && typeof v === 'object' && 'ideal' in v && typeof (v as { ideal: unknown }).ideal === 'number') {
+          return (v as { ideal: number }).ideal;
         }
         return undefined;
       };
@@ -749,7 +782,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
 
       if (width && height) {
         try {
-          await (meeting.self as any).updateScreenshareConstraints({
+          await self.updateScreenshareConstraints?.({
             width: { ideal: width },
             height: { ideal: height },
             ...(frameRate ? { frameRate: { ideal: frameRate } } : {}),
@@ -762,9 +795,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
       // Bias the encoder for spatial sharpness — sharp text/UI over smooth
       // motion, matching WeldMeet's screen-share quality policy.
       try {
-        const track = (meeting.self as any).screenShareTracks?.video as
-          | MediaStreamTrack
-          | undefined;
+        const track = self.screenShareTracks?.video;
         if (track && 'contentHint' in track) {
           track.contentHint = 'detail';
         }
@@ -782,9 +813,9 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
 
       setIsScreenSharing(true);
       playScreenShareSound();
-    } catch (err: any) {
+    } catch (err) {
       // NotAllowedError / AbortError = user cancelled the picker — not an error.
-      const name = err?.name as string | undefined;
+      const name = err instanceof Error ? err.name : undefined;
       if (name !== 'NotAllowedError' && name !== 'AbortError') {
         console.error('[WeldChat] startScreenShare failed:', err);
       }

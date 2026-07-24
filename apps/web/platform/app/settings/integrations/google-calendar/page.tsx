@@ -30,9 +30,13 @@ import {
   useConnectProvider,
   useIntegrationSyncLogs,
   type IntegrationConnection,
-  type SyncLog,
 } from '@/hooks/queries/use-integration-queries';
 import { PageLoader } from '@/components/page-loader';
+
+type GoogleCalendarConnection = IntegrationConnection & {
+  eventsSynced?: number;
+  calendarsSynced?: number;
+};
 
 function formatDate(dateStr: string | null, neverLabel: string): string {
   if (!dateStr) return neverLabel;
@@ -81,23 +85,23 @@ export default function GoogleCalendarSettingsPage() {
   const disconnectMutation = useDisconnectIntegration();
   const syncMutation = useTriggerSync();
 
-  const connections = (connectionsResult as any)?.data as IntegrationConnection[] | undefined;
+  const connections = connectionsResult?.data;
   const gcalConnection = connections?.find(c => c.provider === 'google_calendar');
 
   const { data: logsResult } = useIntegrationSyncLogs(gcalConnection?.id || '');
-  const syncLogs = (logsResult as any)?.data as SyncLog[] | undefined;
+  const syncLogs = logsResult?.data;
 
   const handleConnect = async () => {
     const redirectUri = `${window.location.origin}/settings/integrations/google-calendar/callback`;
     try {
       const result = await connectMutation.mutateAsync({ provider: 'google_calendar', redirectUri });
-      const authorizeUrl = (result as any)?.data?.authorizeUrl;
+      const authorizeUrl = result?.data?.authorizeUrl;
       if (authorizeUrl) {
         window.location.href = authorizeUrl;
       } else {
         toast.error(ts.messages.connectFailed);
       }
-    } catch (err) {
+    } catch {
       toast.error(ts.messages.connectFailed);
     }
   };
@@ -108,7 +112,7 @@ export default function GoogleCalendarSettingsPage() {
       await disconnectMutation.mutateAsync(gcalConnection.id);
       toast.success(ts.messages.disconnected);
       setDisconnectOpen(false);
-    } catch (err) {
+    } catch {
       toast.error(ts.messages.disconnectFailed);
     }
   };
@@ -158,11 +162,11 @@ export default function GoogleCalendarSettingsPage() {
             <div className="grid grid-cols-3 divide-x divide-border border border-border rounded-lg overflow-hidden">
               <div className="px-5 py-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{ts.eventsSynced}</p>
-                <p className="text-lg font-semibold mt-2 tabular-nums">{(gcalConnection as any).eventsSynced ?? 0}</p>
+                <p className="text-lg font-semibold mt-2 tabular-nums">{(gcalConnection as GoogleCalendarConnection).eventsSynced ?? 0}</p>
               </div>
               <div className="px-5 py-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{ts.calendarsSynced}</p>
-                <p className="text-lg font-semibold mt-2 tabular-nums">{(gcalConnection as any).calendarsSynced ?? 0}</p>
+                <p className="text-lg font-semibold mt-2 tabular-nums">{(gcalConnection as GoogleCalendarConnection).calendarsSynced ?? 0}</p>
               </div>
               <div className="px-5 py-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{ts.lastSync}</p>

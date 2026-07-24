@@ -83,6 +83,7 @@ export function ProjectPermissionProvider({ projectId, children }: ProjectPermis
     } finally {
       setIsLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `st` is a new function identity every render; including it would re-trigger the fetch effect on every render.
   }, [projectId]);
 
   useEffect(() => {

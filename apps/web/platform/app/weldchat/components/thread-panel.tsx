@@ -4,6 +4,7 @@ import { X, ChevronRight, Hash, Lock } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { useChatContext } from './chat-context';
 import { useChannel } from '@/hooks/queries/use-weldchat-queries';
+import type { ChatChannel } from '@/hooks/queries/use-weldchat-queries';
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
@@ -19,7 +20,7 @@ export function ThreadPanel({ channelId, messageId }: ThreadPanelProps) {
   const { t } = useI18n();
   const { closeThread } = useChatContext();
   const { data: channelData } = useChannel(channelId);
-  const channel: any = channelData?.data ?? channelData;
+  const channel = (channelData?.data ?? channelData) as ChatChannel | undefined;
   const isPrivate = channel?.type === 'private' || channel?.isPrivate;
 
   const [threadName, setThreadName] = useState(t.weldchat.threadPanel.defaultName);
@@ -32,7 +33,7 @@ export function ThreadPanel({ channelId, messageId }: ThreadPanelProps) {
     setThreadName(initial);
     setEditingTitle(false);
     if (titleRef.current) titleRef.current.innerText = initial;
-  }, [messageId]);
+  }, [messageId, t.weldchat.threadPanel.defaultName]);
 
   return (
     <div className="flex flex-col h-full">
@@ -88,7 +89,9 @@ export function ThreadPanel({ channelId, messageId }: ThreadPanelProps) {
               setThreadName(trimmed);
               try {
                 localStorage.setItem(THREAD_NAME_KEY(messageId), trimmed);
-              } catch {}
+              } catch {
+                // Storage unavailable (private browsing, quota, …) — rename still applies for this session.
+              }
               setEditingTitle(false);
             }}
             onInput={(e) => {

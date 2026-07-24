@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { EllipsisVertical, Eye, Edit, Trash2, Copy, TrendingUp } from 'lucide-react';
+import { EllipsisVertical, Eye, Edit, Trash2, Copy } from 'lucide-react';
 import type { Announcement } from '@/hooks/queries/use-helpdesk-queries';
 import { useI18n } from '@/lib/i18n/provider';
 function formatDate(date: Date | string | undefined, formatStr: string, fallback: string = '-'): string {
@@ -83,7 +83,6 @@ export function AnnouncementsClient({
     }
   };
 
-  /* eslint-disable */
   const columns: Column<Announcement>[] = [
     {
       key: 'title',
@@ -211,7 +210,6 @@ export function AnnouncementsClient({
       ),
     },
   ];
-  /* eslint-enable */
 
   return (
     <EntityDataTable

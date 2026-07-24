@@ -50,7 +50,7 @@ export default function ReportsIndexPage() {
       href: '/weldbooks/reports/general-ledger',
       icon: BookOpen,
     },
-  ];
+  ] as const;
 
   return (
     <div className="p-6 space-y-6">
@@ -59,7 +59,7 @@ export default function ReportsIndexPage() {
         {reports.map((report) => {
           const Icon = report.icon;
           return (
-            <Link key={report.href} to={report.href as any}>
+            <Link key={report.href} to={report.href}>
               <Card className="hover:border-primary/50 transition-colors cursor-pointer h-full">
                 <CardHeader className="flex flex-row items-center gap-3 pb-2">
                   <Icon className="h-5 w-5 text-muted-foreground" />

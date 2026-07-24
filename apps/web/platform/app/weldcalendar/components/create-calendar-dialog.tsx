@@ -54,7 +54,7 @@ export function CreateCalendarDialog({ open, onOpenChange, editCalendar }: Creat
         ? { name: editCalendar.name, color: editCalendar.color || '#3b82f6' }
         : { name: '', color: '#3b82f6' },
     );
-  }, [open, editCalendar]);
+  }, [open, editCalendar, form]);
 
   const isPending = createCalendar.isPending || updateCalendar.isPending;
 

@@ -6,7 +6,6 @@ import {
   Package,
   Truck,
   CheckCircle,
-  Clock,
   MapPin,
   Calendar,
   Home,
@@ -14,7 +13,6 @@ import {
   HelpCircle,
   Activity,
   Sparkles,
-  FileText,
   ChevronLeft
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -61,15 +59,10 @@ export function ParcelTrackingView({
   onNavigateFAQ,
   onNavigateStatus,
   onNavigateChangelog,
-  onNavigateNews,
-  onNavigateAppointments,
-  onNavigateAnnouncements,
-  onNavigateEvents,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'news', 'appointments', 'announcements', 'events', 'parcel-tracking'],
   companyLogoUrl
 }: ParcelTrackingViewProps) {
   const [trackingNumber, setTrackingNumber] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
   const [isTracking, setIsTracking] = useState(false);
   const [parcelInfo, setParcelInfo] = useState<ParcelInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -428,7 +421,7 @@ export function ParcelTrackingView({
       )}
 
       {/* Custom Scrollbar Styles */}
-      <style jsx>{`
+      <style>{`
         .scrollbar-thin {
           scrollbar-width: thin;
           scrollbar-color: rgba(156, 163, 175, 0.3) transparent;

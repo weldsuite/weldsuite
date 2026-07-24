@@ -1,6 +1,5 @@
 
 import { useState, useEffect } from 'react';
-import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import {
   Dialog,
@@ -25,17 +24,17 @@ import { Switch } from '@weldsuite/ui/components/switch';
 import { toast } from 'sonner';
 import { useCreateVariable, useUpdateVariable } from '@/hooks/queries/use-automation-queries';
 import { RefreshCw, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import type { Variable } from './variables-client';
 
 interface VariableDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  variable?: any; // If provided, it's edit mode
+  variable?: Variable; // If provided, it's edit mode
   mode?: 'create' | 'edit';
 }
 
 export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }: VariableDialogProps) {
   const { t } = useI18n();
-  const router = useRouter();
   const createVariableMutation = useCreateVariable();
   const updateVariableMutation = useUpdateVariable();
   const isPending = createVariableMutation.isPending || updateVariableMutation.isPending;
@@ -96,9 +95,9 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
       return;
     }
 
-    if (mode === 'edit') {
+    if (mode === 'edit' && variable) {
       // Update existing variable
-      const updateData: any = {};
+      const updateData: { value?: string; description?: string } = {};
       if (value.trim()) updateData.value = value;
       if (description.trim()) updateData.description = description;
 

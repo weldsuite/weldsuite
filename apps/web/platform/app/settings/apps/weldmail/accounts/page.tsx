@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { getTranslations } from '@/lib/i18n';
 import { EmailAccountsList } from './email-accounts-list';
 import { SetupAddAccount } from '@/app/weldmail/setup/setup-add-account';
@@ -11,9 +11,6 @@ import {
 } from '@/components/entity-list';
 import { useMailAppSettings } from '@/hooks/queries/use-app-settings-queries';
 import { PageLoader } from '@/components/page-loader';
-import { Button } from '@weldsuite/ui/components/button';
-import { Search } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { ExpandingSearchInput } from '@/components/settings/expanding-search-input';
 
 export default function EmailAccountsSettingsPage() {

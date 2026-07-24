@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { Hash, Lock, ChevronDown, X, Clock, Plus, Smile, AtSign, Baseline, User, Users } from 'lucide-react';
+import { Hash, Lock, X, Clock, Plus, Smile, AtSign, Baseline, User, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import {
@@ -25,6 +25,28 @@ import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 
+/** A channel, group, DM, or user picked as a forward target. */
+interface ForwardTarget {
+  id: string;
+  rawId: string;
+  name: string;
+  kind: 'private' | 'group' | 'channel' | 'user';
+}
+
+interface RawChannelOption {
+  id: string;
+  name?: string;
+  isPrivate?: boolean;
+  type?: string;
+}
+
+interface RawMemberOption {
+  id?: string;
+  userId?: string;
+  name?: string;
+  email?: string;
+}
+
 interface ForwardMessageDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -45,7 +67,7 @@ export function ForwardMessageDialog({
   const { t } = useI18n();
   const st = useTranslations();
   const [query, setQuery] = useState('');
-  const [selectedList, setSelectedList] = useState<any[]>([]);
+  const [selectedList, setSelectedList] = useState<ForwardTarget[]>([]);
   const [extraMessage, setExtraMessage] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -57,8 +79,14 @@ export function ForwardMessageDialog({
   const { mutateAsync: createDm } = useCreateDm();
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const channels: any[] = channelsData?.data ?? [];
-  const members: any[] = membersData?.data ?? [];
+  const channels = useMemo(
+    () => (channelsData?.data ?? []) as RawChannelOption[],
+    [channelsData],
+  );
+  const members = useMemo(
+    () => (membersData?.data ?? []) as RawMemberOption[],
+    [membersData],
+  );
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -69,7 +97,7 @@ export function ForwardMessageDialog({
       .map((ch) => ({
         id: `channel:${ch.id}`,
         rawId: ch.id,
-        name: ch.name,
+        name: ch.name ?? '',
         kind: (ch.isPrivate || ch.type === 'private'
           ? 'private'
           : ch.type === 'group'
@@ -84,8 +112,8 @@ export function ForwardMessageDialog({
       })
       .map((m) => ({
         id: `user:${m.userId || m.id}`,
-        rawId: m.userId || m.id,
-        name: m.name || m.email,
+        rawId: m.userId || m.id || '',
+        name: m.name || m.email || '',
         kind: 'user' as const,
       }));
 
@@ -107,7 +135,7 @@ export function ForwardMessageDialog({
     }
   }, [open]);
 
-  const handleSelect = (ch: any) => {
+  const handleSelect = (ch: ForwardTarget) => {
     setSelectedList((prev) =>
       prev.some((s) => s.id === ch.id) ? prev : [...prev, ch],
     );
@@ -130,7 +158,7 @@ export function ForwardMessageDialog({
       if (target.kind === 'user') {
         try {
           const dm = await createDm({ userIds: [target.rawId] });
-          const dmId = (dm as any)?.data?.id || (dm as any)?.id;
+          const dmId = dm?.data?.id;
           if (dmId) ids.push(dmId);
         } catch {
           toast.error(st('sweep.weldchat.forwardMessage.couldNotOpenDm', { name: target.name }));
@@ -162,8 +190,9 @@ export function ForwardMessageDialog({
           : t.weldchat.forwardMessage.forwardedToMultiple.replace('{count}', String(selectedList.length)),
       );
       onOpenChange(false);
-    } catch (e: any) {
-      toast.error(e?.message || t.weldchat.forwardMessage.failedToForward);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : undefined;
+      toast.error(message || t.weldchat.forwardMessage.failedToForward);
     }
   };
 

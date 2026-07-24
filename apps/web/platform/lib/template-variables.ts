@@ -25,7 +25,7 @@ export interface VariableValidation {
  * Regular expression to match template variables
  * Matches: {{variableName}} or {{variableName|modifier}}
  */
-const VARIABLE_REGEX = /\{\{([a-zA-Z0-9_]+)(?:\|([a-zA-Z0-9_:\/]+))?\}\}/g;
+const VARIABLE_REGEX = /\{\{([a-zA-Z0-9_]+)(?:\|([a-zA-Z0-9_:/]+))?\}\}/g;
 
 /**
  * Extract all variables from template content
@@ -189,7 +189,7 @@ export function createVariable(name: string, modifier?: string): string {
  */
 export function replaceVariables(
   content: string,
-  data: Record<string, any>,
+  data: Record<string, unknown>,
   formatters?: {
     currency?: (value: number) => string;
     date?: (value: string | Date, format?: string) => string;
@@ -219,7 +219,7 @@ export function replaceVariables(
           case 'date':
             if (formatters.date) {
               const dateFormat = variable.modifier.split(':')[1];
-              formattedValue = formatters.date(value, dateFormat);
+              formattedValue = formatters.date(value as string | Date, dateFormat);
             }
             break;
           case 'number':
@@ -253,99 +253,8 @@ export function replaceVariables(
  */
 export function getMissingVariables(
   content: string,
-  data: Record<string, any>
+  data: Record<string, unknown>
 ): string[] {
   const variables = getUniqueVariableNames(content);
   return variables.filter(name => !(name in data));
-}
-
-/**
- * Get unused data fields (data fields that aren't used in any variables)
- */
-function getUnusedDataFields(
-  content: string,
-  data: Record<string, any>
-): string[] {
-  const usedVariables = new Set(getUniqueVariableNames(content));
-  return Object.keys(data).filter(key => !usedVariables.has(key));
-}
-
-/**
- * Suggest variable names based on available data fields
- */
-function suggestVariables(availableFields: string[]): Array<{
-  name: string;
-  variable: string;
-  withModifiers: string[];
-}> {
-  return availableFields.map(field => {
-    const suggestions: string[] = [];
-
-    // Suggest modifiers based on field name patterns
-    if (field.toLowerCase().includes('price') || field.toLowerCase().includes('cost') ||
-        field.toLowerCase().includes('total') || field.toLowerCase().includes('amount')) {
-      suggestions.push(createVariable(field, 'currency'));
-    }
-
-    if (field.toLowerCase().includes('date') || field.toLowerCase().includes('at')) {
-      suggestions.push(createVariable(field, 'date:MM/DD/YYYY'));
-    }
-
-    if (field.toLowerCase().includes('quantity') || field.toLowerCase().includes('count')) {
-      suggestions.push(createVariable(field, 'number'));
-    }
-
-    if (field.toLowerCase().includes('is') || field.toLowerCase().includes('has') ||
-        field.toLowerCase().includes('active')) {
-      suggestions.push(createVariable(field, 'boolean'));
-    }
-
-    return {
-      name: field,
-      variable: createVariable(field),
-      withModifiers: suggestions
-    };
-  });
-}
-
-/**
- * Extract all variables from template elements
- */
-function extractVariablesFromElements(elements: any[]): ParsedVariable[] {
-  const allVariables: ParsedVariable[] = [];
-
-  elements.forEach(element => {
-    if (element.content) {
-      const variables = extractVariables(element.content);
-      allVariables.push(...variables);
-    }
-  });
-
-  return allVariables;
-}
-
-/**
- * Validate that all variables in template have corresponding data fields
- */
-function validateTemplateVariables(
-  elements: any[],
-  availableFields: string[]
-): {
-  isValid: boolean;
-  missingFields: string[];
-  unusedFields: string[];
-} {
-  const usedVariables = extractVariablesFromElements(elements);
-  const uniqueVariables = Array.from(new Set(usedVariables.map(v => v.name)));
-  const availableFieldSet = new Set(availableFields);
-
-  const missingFields = uniqueVariables.filter(v => !availableFieldSet.has(v));
-  const usedFieldSet = new Set(uniqueVariables);
-  const unusedFields = availableFields.filter(f => !usedFieldSet.has(f));
-
-  return {
-    isValid: missingFields.length === 0,
-    missingFields,
-    unusedFields
-  };
 }

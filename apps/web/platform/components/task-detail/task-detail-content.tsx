@@ -19,24 +19,19 @@ import {
   FileVideo,
   File,
   Download,
-  MessageSquare,
   Pencil,
-  ArrowRight,
-  ArrowLeft,
-  ArrowUp,
   AtSign,
-  ChevronUp,
-  ChevronDown,
   ChevronRight,
   EllipsisVertical,
   Pin,
   Sparkles,
+  Github,
+  ExternalLink,
 } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { getTranslations } from '@/lib/i18n';
 import { Input } from '@weldsuite/ui/components/input';
 import { Button } from '@weldsuite/ui/components/button';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
@@ -70,13 +65,12 @@ import { format } from 'date-fns';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { toast } from 'sonner';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
-import { Textarea } from '@weldsuite/ui/components/textarea';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
-import { ListCollapse, GitBranch, Paperclip, History, Smile, Bold, Italic, Strikethrough, Code, List, ListOrdered, Highlighter } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
+import { ListCollapse, History, Smile, Bold, Italic, Strikethrough, Code, List, ListOrdered, Highlighter } from 'lucide-react';
 import { EmojiPicker } from '@/app/weldchat/components/emoji-picker';
-import { MentionAutocomplete } from '@/app/weldchat/components/mention-autocomplete';
+import { MentionAutocomplete, type MentionSelection } from '@/app/weldchat/components/mention-autocomplete';
 import { useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
+import { useLinkedRepos } from '@/hooks/queries/use-github-queries';
 
 // Status configuration (color only — labels are translated at render time via
 // `useTaskStatusLabels()` / `useTaskPriorityLabels()` / `useTaskRepeatLabels()` below)
@@ -130,18 +124,13 @@ function useTaskRepeatLabels(t: (path: string, params?: Record<string, unknown>)
   };
 }
 
-const LABEL_COLORS = [
-  '#ef4444', '#f97316', '#f59e0b', '#22c55e',
-  '#3b82f6', '#8b5cf6', '#ec4899', '#6b7280',
-];
-
 /**
  * Project labels are stored two different ways depending on which UI created
  * them:
  *   - Created via the project settings → stored as a Tailwind class string
  *     like "bg-red-500" (the colored-square palette).
- *   - Created via the task-dialog quick-create here → stored as a hex like
- *     "#ef4444" (LABEL_COLORS above).
+ *   - Created via the task-dialog quick-create → stored as a hex like
+ *     "#ef4444".
  *
  * The label picker rendered `style={{ backgroundColor: label.color }}` —
  * which works for hex but produces invalid CSS for the Tailwind-class form
@@ -282,10 +271,31 @@ export interface DependencyTask {
   key?: string;
 }
 
+/**
+ * Partial task patch shapes emitted by the field editors below (status,
+ * priority, due date, assignees, linked company, labels, repeat) plus the
+ * title/description editors. `TaskPanel#handleUpdate` translates this into
+ * the `UpdateTaskInput` PATCH payload.
+ */
+export interface TaskUpdateData {
+  title?: string;
+  description?: string;
+  status?: Task['status'];
+  priority?: Task['priority'];
+  dueDate?: Date;
+  startDate?: Date;
+  assignee?: Task['assignee'] | null;
+  assignees?: Task['assignees'] | null;
+  linkedCompany?: Task['linkedCompany'] | null;
+  labels?: string[];
+  repeat?: Task['repeat'] | null;
+  customFields?: Record<string, unknown>;
+}
+
 export interface TaskDetailContentProps {
   task: Task;
-  onUpdate: (taskId: string, data: any) => void;
-  availableAssignees: string[] | { id: string; name: string }[];
+  onUpdate: (taskId: string, data: TaskUpdateData) => void;
+  availableAssignees: string[] | { id: string; name: string; avatar?: string }[];
   availableCompanies: { id: string; name: string; avatar?: string }[];
   availableLabels?: { id: string; name: string; color: string }[];
   onCreateLabel?: (data: { name: string; color: string }) => Promise<{ id: string; name: string; color: string } | null>;
@@ -341,10 +351,10 @@ function GithubIssueBadge({ task }: { task: Task }) {
   const t = getTranslations('settings');
   const github = t.integrations.github;
 
-  const issueNumber: number = (task as any).githubIssueNumber;
-  const repoLinkId: string = (task as any).githubRepoLinkId;
+  const issueNumber = task.githubIssueNumber;
+  const repoLinkId = task.githubRepoLinkId;
   const { data: linkedReposResult } = useLinkedRepos();
-  const linkedRepos = ((linkedReposResult as any)?.data ?? []) as Array<{ id: string; repoFullName: string; lastSyncedAt: string | null }>;
+  const linkedRepos = linkedReposResult?.data ?? [];
   const repoLink = linkedRepos.find((r) => r.id === repoLinkId);
 
   const issueUrl = repoLink
@@ -424,6 +434,12 @@ function formatFileSize(bytes: number): string {
   return `${Math.round((bytes / Math.pow(k, i)) * 100) / 100} ${sizes[i]}`;
 }
 
+// The comments/create-label props below are accepted for prop-contract
+// parity with long-standing callers (task-panel.tsx, weldflow/*,
+// welddrive/*, …) that still pass a comments/labels API — this component no
+// longer renders that UI itself (comments moved to the sibling `<TaskChat>`),
+// so the bindings go unread here.
+/* eslint-disable @typescript-eslint/no-unused-vars */
 export function TaskDetailContent({
   task,
   onUpdate,
@@ -454,6 +470,7 @@ export function TaskDetailContent({
   onRemoveDependency,
   hiddenFields,
 }: TaskDetailContentProps) {
+/* eslint-enable @typescript-eslint/no-unused-vars */
   const t = useTranslations();
   const statusLabels = useTaskStatusLabels(t);
   const priorityLabels = useTaskPriorityLabels(t);
@@ -472,8 +489,6 @@ export function TaskDetailContent({
     },
     [hiddenFields, isFieldVisibleBase]
   );
-  const [isCreatingLabel, setIsCreatingLabel] = useState(false);
-  const [newLabelName, setNewLabelName] = useState('');
   // Repeat popover open state (controlled so we can close it after a preset
   // / Clear click, while keeping it open for Custom interval/unit tweaks).
   const [repeatPopoverOpen, setRepeatPopoverOpen] = useState(false);
@@ -486,7 +501,6 @@ export function TaskDetailContent({
     if (!q) return availableCompanies;
     return availableCompanies.filter((c) => c.name.toLowerCase().includes(q));
   }, [companyQuery, availableCompanies]);
-  const [newLabelColor, setNewLabelColor] = useState(LABEL_COLORS[4]);
   const [previewAttachment, setPreviewAttachment] = useState<TaskAttachment | null>(null);
   const [activeTab, setActiveTab] = useState('details');
   const [attachmentsCollapsed, setAttachmentsCollapsed] = useState(attachments.length === 0);
@@ -534,7 +548,7 @@ export function TaskDetailContent({
         }
       }
     }
-  }, [onAttachmentAdd, onAttachmentsChange, uploadFile]);
+  }, [onAttachmentAdd, onAttachmentsChange, uploadFile, t]);
 
   const handleRemoveAttachment = useCallback((attachmentId: string) => {
     if (onAttachmentRemove) {
@@ -715,13 +729,13 @@ export function TaskDetailContent({
               Shown only when the task has actually been auto-scheduled or
               manually pinned to a time. */}
           {(() => {
-            const scheduledStart = (task as any).scheduledStart
-              ? new Date((task as any).scheduledStart)
+            const scheduledStart = task.scheduledStart
+              ? new Date(task.scheduledStart)
               : null;
-            const scheduledEnd = (task as any).scheduledEnd
-              ? new Date((task as any).scheduledEnd)
+            const scheduledEnd = task.scheduledEnd
+              ? new Date(task.scheduledEnd)
               : null;
-            const autoScheduled = (task as any).autoScheduled;
+            const autoScheduled = task.autoScheduled;
             if (!scheduledStart) return null;
             const sameDay =
               scheduledEnd &&
@@ -782,10 +796,10 @@ export function TaskDetailContent({
                     tabIndex={0}
                     className="text-sm cursor-pointer flex items-start justify-between gap-2 self-start min-h-8 outline-none focus-visible:ring-2 focus-visible:ring-ring w-full group/field"
                   >
-                    {((task as any).assignees?.length > 0 || task.assignee) ? (
+                    {(task.assignees && task.assignees.length > 0) || task.assignee ? (
                       <>
                         <div className="flex flex-col gap-1 min-w-0">
-                          {((task as any).assignees || (task.assignee ? [task.assignee] : [])).map((a: any) => (
+                          {(task.assignees || (task.assignee ? [task.assignee] : [])).map((a) => (
                             <div
                               key={a.id || a.name}
                               className="flex items-center gap-2 pl-0.5 pr-1.5 py-0.5 -ml-0.5 rounded-[6px] group/assignee"
@@ -800,8 +814,8 @@ export function TaskDetailContent({
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   e.preventDefault();
-                                  const current: any[] = (task as any).assignees || (task.assignee ? [task.assignee] : []);
-                                  const updated = current.filter((x: any) => (x.id || x.name) !== (a.id || a.name));
+                                  const current = task.assignees || (task.assignee ? [task.assignee] : []);
+                                  const updated = current.filter((x) => (x.id || x.name) !== (a.id || a.name));
                                   onUpdate(task.id, { assignees: updated.length > 0 ? updated : null });
                                 }}
                                 className="inline-flex items-center justify-center h-6 w-6 -ml-1 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground opacity-0 group-hover/assignee:opacity-100 transition-[opacity,color,background-color]"
@@ -831,16 +845,16 @@ export function TaskDetailContent({
                       {availableAssignees.map((item) => {
                         const id = typeof item === 'string' ? item : item.id;
                         const name = typeof item === 'string' ? item : item.name;
-                        const avatar = typeof item === 'string' ? undefined : (item as any).avatar;
-                        const current: any[] = (task as any).assignees || (task.assignee ? [task.assignee] : []);
-                        const isSelected = current.some((a: any) => a.id === id || a.name === name);
+                        const avatar = typeof item === 'string' ? undefined : item.avatar;
+                        const current = task.assignees || (task.assignee ? [task.assignee] : []);
+                        const isSelected = current.some((a) => a.id === id || a.name === name);
                         return (
                           <CommandItem
                             key={id}
                             value={name}
                             onSelect={() => {
                               if (isSelected) {
-                                const updated = current.filter((a: any) => (a.id || a.name) !== id && a.name !== name);
+                                const updated = current.filter((a) => (a.id || a.name) !== id && a.name !== name);
                                 onUpdate(task.id, { assignees: updated.length > 0 ? updated : null });
                               } else {
                                 onUpdate(task.id, { assignees: [...current, { id, name, avatar }] });
@@ -856,7 +870,7 @@ export function TaskDetailContent({
                           </CommandItem>
                         );
                       })}
-                      {((task as any).assignees?.length > 0 || task.assignee) && (
+                      {((task.assignees && task.assignees.length > 0) || task.assignee) && (
                         <>
                           <div className="h-px bg-border my-1" />
                           <CommandItem
@@ -917,7 +931,7 @@ export function TaskDetailContent({
                     {task.linkedCompany ? (
                       <>
                         <Avatar className="h-5 w-5 rounded-[7px]">
-                          <AvatarImage src={(task.linkedCompany as any).avatar} className="rounded-[7px]" />
+                          <AvatarImage src={task.linkedCompany.avatar} className="rounded-[7px]" />
                           <AvatarFallback className="text-[10px] rounded-[7px]">
                             {(task.linkedCompany.name || '?').charAt(0).toUpperCase()}
                           </AvatarFallback>
@@ -997,7 +1011,7 @@ export function TaskDetailContent({
               <Tags className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">{t('sweep.shared.labels')}</span>
             </div>
-            <Popover onOpenChange={(open) => { if (!open) { setIsCreatingLabel(false); setNewLabelName(''); setNewLabelColor(LABEL_COLORS[4]); } }}>
+            <Popover>
               <PopoverTrigger asChild>
                 {(() => {
                   const resolvedLabels = (task.labels ?? [])
@@ -1147,7 +1161,11 @@ export function TaskDetailContent({
                       value={task.repeat.unit ?? 'days'}
                       onValueChange={(value) => {
                         onUpdate(task.id, {
-                          repeat: { frequency: 'custom', interval: task.repeat?.interval ?? 1, unit: value },
+                          repeat: {
+                            frequency: 'custom',
+                            interval: task.repeat?.interval ?? 1,
+                            unit: value as NonNullable<Task['repeat']>['unit'],
+                          },
                         });
                       }}
                     >
@@ -1200,7 +1218,7 @@ export function TaskDetailContent({
           )}
 
           {/* GitHub issue badge */}
-          {(task as any).githubIssueNumber != null && (task as any).githubRepoLinkId != null && (
+          {task.githubIssueNumber != null && task.githubRepoLinkId != null && (
             <GithubIssueBadge task={task} />
           )}
 
@@ -1976,7 +1994,6 @@ export function CommentsList({
   const [editContent, setEditContent] = useState('');
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-  const [mentionIds, setMentionIds] = useState<string[]>([]);
   const editorRef = useRef<HTMLDivElement>(null);
   const membersMapRef = useRef(new Map<string, string>());
   const { data: membersData } = useWorkspaceMembers();
@@ -2023,7 +2040,6 @@ export function CommentsList({
     if (!trimmed) return;
     onAddComment(trimmed);
     setNewComment('');
-    setMentionIds([]);
     setMentionQuery(null);
     if (editorRef.current) editorRef.current.innerHTML = '';
   };
@@ -2055,7 +2071,12 @@ export function CommentsList({
     setMentionQuery(null);
   }, [htmlToContent]);
 
-  const handleMentionSelect = useCallback((member: { userId: string; name: string }) => {
+  const handleMentionSelect = useCallback((selection: MentionSelection) => {
+    if (selection.kind !== 'user') {
+      setMentionQuery(null);
+      return;
+    }
+    const member = selection;
     if (!editorRef.current) return;
     membersMapRef.current.set(member.userId, member.name);
 
@@ -2065,7 +2086,6 @@ export function CommentsList({
       const before = text.substring(0, atIndex);
       const newContent = `${before}<@${member.userId}> `;
       setNewComment(newContent);
-      setMentionIds(prev => [...prev, member.userId]);
       editorRef.current.innerHTML = contentToHtml(newContent) + '&nbsp;';
 
       const sel = window.getSelection();
@@ -2340,10 +2360,6 @@ export function CommentsList({
   );
 }
 
-/**
- * Renders description text with inline images and links.
- * Supports markdown image syntax ![alt](url) and link syntax [text](url).
- */
 // Converts a stored description (which may be HTML or legacy markdown) into
 // HTML suitable for a contentEditable editor. This normalizes `**bold**`,
 // `*italic*`, `~~strike~~`, and `` `code` `` into their HTML equivalents so
@@ -2367,55 +2383,6 @@ function descriptionToHtml(input: string): string {
   return html;
 }
 
-function RichDescription({ text }: { text: string }) {
-  // Descriptions may be stored as raw HTML (from the contentEditable editor)
-  // or as markdown (older content). If we detect HTML tags we render them
-  // directly; otherwise we fall through to the ReactMarkdown path so legacy
-  // markdown descriptions keep working.
-  const looksLikeHtml = /<[a-z][^>]*>/i.test(text);
-  const commonWrapper =
-    'text-sm text-muted-foreground whitespace-pre-wrap break-words [&_p]:m-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-[0.85em] [&_code]:font-mono [&_strong]:font-semibold [&_strong]:text-foreground [&_em]:italic [&_a]:text-primary [&_a]:underline [&_a]:hover:text-primary/80 [&_img]:max-w-full [&_img]:rounded-md [&_img]:my-1 [&_img]:inline-block [&_mark]:bg-yellow-200 [&_mark]:dark:bg-yellow-400/30 [&_mark]:text-inherit [&_mark]:rounded [&_mark]:px-0.5';
-
-  if (looksLikeHtml) {
-    return (
-      <div
-        className={commonWrapper}
-        dangerouslySetInnerHTML={{ __html: text }}
-      />
-    );
-  }
-
-  return (
-    <div className={commonWrapper}>
-      <ReactMarkdown
-        components={{
-          img: ({ src, alt }) => (
-            <img
-              src={src ?? undefined}
-              alt={alt ?? ''}
-              className="max-w-full rounded-md my-1 inline-block"
-              style={{ maxHeight: 300 }}
-            />
-          ),
-          a: ({ href, children }) => (
-            <a
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary underline hover:text-primary/80"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {children}
-            </a>
-          ),
-        }}
-      >
-        {text}
-      </ReactMarkdown>
-    </div>
-  );
-}
-
 /**
  * Inline-editable description field with file upload support.
  * Click to edit, blur or Cmd+Enter to save (Enter for new line).
@@ -2428,7 +2395,7 @@ export function DescriptionField({
 }: {
   taskId: string;
   description?: string;
-  onUpdate: (taskId: string, data: any) => void;
+  onUpdate: (taskId: string, data: TaskUpdateData) => void;
 }) {
   const t = useTranslations();
   const [isEditing, setIsEditing] = useState(false);
@@ -2480,6 +2447,38 @@ export function DescriptionField({
     sel?.addRange(range);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditing]);
+
+  // Recompute which formats apply to the current selection. Runs on
+  // selectionchange, input, and after format commands. Defined before
+  // `applyFormat` below, which depends on it.
+  const updateActiveFormats = useCallback(() => {
+    if (!editorRef.current) return;
+    if (!editorRef.current.contains(document.activeElement)) return;
+    const next = new Set<string>();
+    if (document.queryCommandState('bold')) next.add('bold');
+    if (document.queryCommandState('italic')) next.add('italic');
+    if (document.queryCommandState('strikeThrough')) next.add('strike');
+    // <code> / <mark> aren't execCommands — detect by ancestor walk.
+    const sel = window.getSelection();
+    const anchor = sel?.anchorNode;
+    const codeEl = anchor instanceof HTMLElement
+      ? anchor.closest('code')
+      : anchor?.parentElement?.closest('code');
+    if (codeEl && editorRef.current.contains(codeEl)) next.add('code');
+    const markEl = anchor instanceof HTMLElement
+      ? anchor.closest('mark')
+      : anchor?.parentElement?.closest('mark');
+    if (markEl && editorRef.current.contains(markEl)) next.add('highlight');
+    if (document.queryCommandState('insertUnorderedList')) next.add('ul');
+    if (document.queryCommandState('insertOrderedList')) next.add('ol');
+    setActiveFormats(next);
+  }, []);
+
+  useEffect(() => {
+    if (!isEditing) return;
+    document.addEventListener('selectionchange', updateActiveFormats);
+    return () => document.removeEventListener('selectionchange', updateActiveFormats);
+  }, [isEditing, updateActiveFormats]);
 
   // Apply a formatting command to the current selection. Mirrors the pattern
   // used by weldchat's message-input — straight `document.execCommand` for
@@ -2541,38 +2540,7 @@ export function DescriptionField({
     // After an execCommand the selection state may flip — refresh the toolbar
     // highlights immediately so the pressed button reflects reality.
     updateActiveFormats();
-  }, []);
-
-  // Recompute which formats apply to the current selection. Runs on
-  // selectionchange, input, and after format commands.
-  const updateActiveFormats = useCallback(() => {
-    if (!editorRef.current) return;
-    if (!editorRef.current.contains(document.activeElement)) return;
-    const next = new Set<string>();
-    if (document.queryCommandState('bold')) next.add('bold');
-    if (document.queryCommandState('italic')) next.add('italic');
-    if (document.queryCommandState('strikeThrough')) next.add('strike');
-    // <code> / <mark> aren't execCommands — detect by ancestor walk.
-    const sel = window.getSelection();
-    const anchor = sel?.anchorNode;
-    const codeEl = anchor instanceof HTMLElement
-      ? anchor.closest('code')
-      : anchor?.parentElement?.closest('code');
-    if (codeEl && editorRef.current.contains(codeEl)) next.add('code');
-    const markEl = anchor instanceof HTMLElement
-      ? anchor.closest('mark')
-      : anchor?.parentElement?.closest('mark');
-    if (markEl && editorRef.current.contains(markEl)) next.add('highlight');
-    if (document.queryCommandState('insertUnorderedList')) next.add('ul');
-    if (document.queryCommandState('insertOrderedList')) next.add('ol');
-    setActiveFormats(next);
-  }, []);
-
-  useEffect(() => {
-    if (!isEditing) return;
-    document.addEventListener('selectionchange', updateActiveFormats);
-    return () => document.removeEventListener('selectionchange', updateActiveFormats);
-  }, [isEditing, updateActiveFormats]);
+  }, [updateActiveFormats]);
 
   // Insert uploaded files inline. Images are rendered as <img>, other files as
   // a link. Runs against the contentEditable editor — uses execCommand so the
@@ -2601,7 +2569,7 @@ export function DescriptionField({
         insertAtCursor(isImage ? 'image' : 'link', result.url, result.fileName);
       }
     }
-  }, [uploadFile, insertAtCursor]);
+  }, [uploadFile, insertAtCursor, t]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
     const items = e.clipboardData?.items;

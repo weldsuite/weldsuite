@@ -1,14 +1,12 @@
 
-import { useState, useTransition, useEffect, useRef } from 'react';
-import { useRouter } from '@/lib/router';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
+import { useState, useEffect, useRef } from 'react';
+import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { Label } from '@weldsuite/ui/components/label';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Alert, AlertDescription, AlertTitle } from '@weldsuite/ui/components/alert';
 import {
   Select,
@@ -18,19 +16,7 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@weldsuite/ui/components/alert-dialog';
-import {
   Loader2,
-  MessageCircle,
   Hash,
   CheckCircle,
   CircleCheck,
@@ -40,12 +26,7 @@ import {
   MessageSquare,
   Bot,
   RefreshCw,
-  Paintbrush,
-  Camera,
-  X,
   Ticket,
-  Send,
-  Unplug,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
@@ -53,7 +34,7 @@ import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
-import { useUpdateDiscordSettings, useDiscordChannels, usePostTicketPanel, useDisconnectChannel } from '@/hooks/queries/use-helpdesk-integration-queries';
+import { useUpdateDiscordSettings, useDiscordChannels, usePostTicketPanel } from '@/hooks/queries/use-helpdesk-integration-queries';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { Upload } from 'lucide-react';
@@ -134,12 +115,9 @@ export function DiscordSettingsClient({
 }: DiscordSettingsClientProps) {
   const { t } = useI18n();
   const st = useTranslations();
-  const router = useRouter();
   const updateDiscordSettingsMutation = useUpdateDiscordSettings();
   const discordChannelsQuery = useDiscordChannels(false);
   const postTicketPanelMutation = usePostTicketPanel();
-  const disconnectMutation = useDisconnectChannel();
-  const [isPending, startTransition] = useTransition();
 
   // Settings state
   const [supportChannels, setSupportChannels] = useState<Helpdesk.Api.DiscordChannelInfo[]>(
@@ -299,7 +277,7 @@ export function DiscordSettingsClient({
 
       toast.success(t.helpdesk.integrationSettings.discordSettingsSaved);
       setHasChanges(false);
-    } catch (error) {
+    } catch {
       toast.error(t.helpdesk.integrationSettings.failedToSaveSettings);
     }
   };

@@ -40,7 +40,7 @@ export default function BookmarksPage() {
             <p className="text-xs mt-1">{t.weldchat.bookmarks.noSavedItemsHint}</p>
           </div>
         )}
-        {bookmarks.map((bk: any) => (
+        {bookmarks.map((bk) => (
           <div key={bk.id} className="group/bk px-4 py-3 hover:bg-muted/50 transition-colors border-b border-border/50">
             {bk.channelName && (
               <Link

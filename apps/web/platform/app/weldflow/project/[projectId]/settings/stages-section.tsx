@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { toast } from 'sonner';
 import { PageLoader } from '@/components/page-loader';
@@ -74,14 +74,14 @@ const DEFAULT_BADGE = SYSTEM_STATUS_BADGE.todo;
 export function StagesSection({ projectId, isAdmin }: StagesSectionProps) {
   const { t } = useI18n();
 
-  const SYSTEM_STATUSES = [
+  const SYSTEM_STATUSES = useMemo(() => [
     { value: 'backlog', label: t.projects.settings.backlogStatus },
     { value: 'todo', label: t.projects.settings.todoStatus },
     { value: 'in_progress', label: t.projects.settings.inProgressStatus },
     { value: 'review', label: t.projects.settings.reviewStatus },
     { value: 'done', label: t.projects.settings.doneStatus },
     { value: 'cancelled', label: t.projects.settings.cancelledStatus },
-  ];
+  ], [t]);
 
   const [stages, setStages] = useState<Stage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -104,21 +104,35 @@ export function StagesSection({ projectId, isAdmin }: StagesSectionProps) {
       label: t.projects.settings.countsAsFilter,
       options: SYSTEM_STATUSES.map((s) => ({ value: s.value, label: s.label })),
     },
-  ], [t]);
+  ], [t, SYSTEM_STATUSES]);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     const res = await stagesApi.list(projectId);
     if (res.success && res.data) {
-      const sorted = [...res.data].sort((a: Stage, b: Stage) => (a.position ?? 0) - (b.position ?? 0));
+      // The wire response includes `usageCount` (computed server-side) even
+      // though the shared `ApiPipelineStage` client type doesn't declare it.
+      const sorted: Stage[] = res.data
+        .map((s): Stage => ({
+          id: s.id,
+          name: s.name,
+          color: s.color || DEFAULT_COLOR,
+          position: s.position ?? 0,
+          systemStatus: s.systemStatus || 'todo',
+          usageCount: (s as typeof s & { usageCount?: number }).usageCount,
+        }))
+        .sort((a, b) => a.position - b.position);
       setStages(sorted);
     } else {
       toast.error(res.error || t.projects.settings.failedToLoadStages);
     }
     setLoading(false);
-  };
+    // `t` intentionally excluded — keeping `load` stable per-projectId avoids
+    // re-fetching stages on every locale switch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
-  useEffect(() => { load(); }, [projectId]);
+  useEffect(() => { load(); }, [load]);
 
   const startAdd = () => {
     setAdding(true);

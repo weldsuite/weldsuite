@@ -7,6 +7,28 @@ import { useDepartment, useHelpdeskAgents, useHelpdeskFeedback } from '@/hooks/q
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 
+interface RawTeamAgent {
+  id: string;
+  name: string;
+  email: string;
+  role?: string;
+  currentActiveTickets?: number;
+  ticketsResolved?: number;
+  averageResponseTime?: number;
+  isOnline?: boolean;
+  availability?: string;
+}
+
+interface RawTeamFeedback {
+  id: string;
+  title: string;
+  submitterName?: string;
+  status: string;
+  priority: string;
+  assigneeName?: string;
+  createdAt: string;
+}
+
 export default function SupportTeamPage() {
   const { t } = useI18n();
   const tm = t.helpdesk.teams;
@@ -47,7 +69,7 @@ export default function SupportTeamPage() {
   };
 
   // Map agents to team member format
-  const members = agents.map((agent: any) => ({
+  const members = agents.map((agent: RawTeamAgent) => ({
     id: agent.id,
     name: agent.name,
     email: agent.email,
@@ -60,7 +82,7 @@ export default function SupportTeamPage() {
   }));
 
   // Map feedback to team format
-  const recentFeedback = feedbackItems.slice(0, 10).map((feedback: any) => ({
+  const recentFeedback = feedbackItems.slice(0, 10).map((feedback: RawTeamFeedback) => ({
     id: feedback.id,
     subject: feedback.title,
     customerName: feedback.submitterName,
@@ -81,11 +103,11 @@ export default function SupportTeamPage() {
 
   const teamStats = {
     totalMembers: members.length,
-    activeTickets: members.reduce((sum: number, member: any) => sum + member.activeTickets, 0),
-    resolvedToday: members.reduce((sum: number, member: any) => sum + member.resolvedToday, 0),
+    activeTickets: members.reduce((sum, member) => sum + member.activeTickets, 0),
+    resolvedToday: members.reduce((sum, member) => sum + member.resolvedToday, 0),
     avgResponseTime: formatResponseTime(
       members.length > 0
-        ? members.reduce((sum: number, member: any) => {
+        ? members.reduce((sum, member) => {
             const time = parseFloat(member.avgResponseTime);
             return sum + (isNaN(time) ? 0 : time);
           }, 0) / members.length

@@ -7,13 +7,6 @@ import {
   DialogContent,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
 import { Input } from '@weldsuite/ui/components/input';
 import {
   Popover,
@@ -38,7 +31,6 @@ import {
   Loader2,
   Paperclip,
   Upload,
-  Clock,
   Github,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -49,7 +41,6 @@ import { toast } from 'sonner';
 import { useLinkedRepos } from '@/hooks/queries/use-github-queries';
 import { getTranslations } from '@/lib/i18n';
 import { useTranslations } from '@weldsuite/i18n/client';
-import type { GithubRepoLink } from '@weldsuite/core-api-client/schemas/github';
 import { RepeatConfigMenu, repeatLabel, type RepeatFrequency, type RepeatUnit } from '@/components/tasks/repeat-config';
 
 const statusConfig = {
@@ -75,11 +66,6 @@ interface LabelOption {
   color: string;
   projectId?: string | null;
 }
-
-const LABEL_COLORS = [
-  '#ef4444', '#f97316', '#f59e0b', '#22c55e',
-  '#3b82f6', '#ec4899', '#6b7280',
-];
 
 // Project labels (created in project settings) store their color as a Tailwind class name (e.g. "bg-blue-500"),
 // while labels created inline from this dialog store hex values (e.g. "#3b82f6"). Map both to a CSS color
@@ -233,6 +219,7 @@ export function TaskDialog({
   onRecordSearchChange,
   recordRequired,
   availableLabels = [],
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- part of the public TaskDialog contract (inline label creation); not yet wired into this dialog's label picker UI.
   onCreateLabel,
   defaultRecord,
   defaultAssignee,
@@ -279,7 +266,7 @@ export function TaskDialog({
   const [repeatInterval, setRepeatInterval] = useState<number>(1);
   const [repeatUnit, setRepeatUnit] = useState<'days' | 'weeks' | 'months' | 'years'>('days');
   const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
-  const [hasButtonOverflow, setHasButtonOverflow] = useState(false);
+  const [, setHasButtonOverflow] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false);
   const [isSearchingRecords, setIsSearchingRecords] = useState(false);
@@ -332,7 +319,7 @@ export function TaskDialog({
   // GitHub: only fetch linked repos when we have a projectId (WeldFlow context) and creating a new task.
   // We pass a sentinel value when disabled so the hook key doesn't conflict.
   const { data: linkedReposResult } = useLinkedRepos(projectId && !editingTask ? projectId : undefined);
-  const allLinkedRepos = ((linkedReposResult as any)?.data ?? []) as GithubRepoLink[];
+  const allLinkedRepos = linkedReposResult?.data ?? [];
   // Only show the checkbox for repos that can push outbound (outbound or bidirectional)
   const outboundRepos = allLinkedRepos.filter(
     (r) => r.projectId === projectId && (r.syncDirection === 'outbound' || r.syncDirection === 'bidirectional'),
@@ -369,9 +356,8 @@ export function TaskDialog({
       const temp = document.createElement('div');
       temp.innerHTML = html;
       const frag = document.createDocumentFragment();
-      let lastNode: Node | null = null;
       while (temp.firstChild) {
-        lastNode = frag.appendChild(temp.firstChild);
+        frag.appendChild(temp.firstChild);
       }
       // Add a trailing br so cursor moves after
       const br = document.createElement('br');
@@ -408,7 +394,7 @@ export function TaskDialog({
         }
       }
     }
-  }, [uploadFile, insertHtmlAtCursor]);
+  }, [uploadFile, insertHtmlAtCursor, st]);
 
   const handleDescriptionPaste = useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
     const items = e.clipboardData?.items;

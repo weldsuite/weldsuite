@@ -6,7 +6,7 @@
  * using the `token` URL search param (obtained from the join call API).
  */
 
-import RealtimeKitClient from '@cloudflare/realtimekit';
+import RealtimeKitClient, { type RTKParticipant, type RTKSelf } from '@cloudflare/realtimekit';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Loader2, Mic, MicOff, Video, VideoOff, PhoneOff } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
@@ -49,7 +49,7 @@ function stopLocalMediaTracks(meeting: RealtimeKitClient | null | undefined) {
   stop(() => self?.screenShareTracks?.audio);
 }
 
-function ParticipantTile({ participant, isSelf }: { participant: any; isSelf?: boolean }) {
+function ParticipantTile({ participant, isSelf }: { participant: RTKParticipant | RTKSelf; isSelf?: boolean }) {
   const { t } = useI18n();
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -92,7 +92,6 @@ export default function CallRoomPage() {
   const { t } = useI18n();
   const params = new URLSearchParams(window.location.search);
   const token = params.get('token');
-  const callId = params.get('callId');
   const callType = (params.get('type') ?? 'voice') as 'voice' | 'video';
 
   const [meeting, setMeeting] = useState<RealtimeKitClient | null>(null);
@@ -262,7 +261,7 @@ export default function CallRoomPage() {
       {/* Participant grid */}
       <div className={`flex-1 grid ${gridCols} gap-2 p-4 auto-rows-fr`}>
         <ParticipantTile participant={meeting.self} isSelf />
-        {remoteParticipants.map((p: any) => (
+        {remoteParticipants.map((p) => (
           <ParticipantTile key={p.id} participant={p} />
         ))}
       </div>

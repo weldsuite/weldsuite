@@ -47,7 +47,7 @@ export function PinnedMessagesPanel({ channelId, embedded = false }: PinnedMessa
               {t.weldchat.pinnedMessages.empty}
             </div>
           )}
-          {messages.map((msg: any) => (
+          {messages.map((msg) => (
             <MessageItem key={msg.id} message={msg} channelId={channelId} />
           ))}
         </div>

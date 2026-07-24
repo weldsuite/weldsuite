@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type ComponentType } from 'react';
 import { Smile, Bell, Volume2, VolumeX, MessageSquare, Bot, UserPlus, ListTodo } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { useAgents } from '@/hooks/queries/use-agent-queries';
@@ -8,7 +8,7 @@ import { useI18n } from '@/lib/i18n/provider';
 interface SlashCommand {
   name: string;
   description: string;
-  icon: any;
+  icon: ComponentType<{ className?: string }>;
 }
 
 interface SlashCommandPaletteProps {
@@ -46,20 +46,19 @@ export function SlashCommandPalette({
     { name: '/unmute', description: t.weldchat.slashCommandPalette.commands.unmute, icon: Volume2 },
     { name: '/topic', description: t.weldchat.slashCommandPalette.commands.topic, icon: MessageSquare },
     { name: '/ask', description: t.weldchat.slashCommandPalette.commands.ask, icon: Bot },
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [t]);
 
   // Agent-picker mode (only used when `/invite...` is active)
   const { data: agents = [] } = useAgents();
   const { data: membersData } = useChannelMembers(isInvite && channelId ? channelId : '');
   const existingIds = useMemo(
-    () => new Set((membersData?.data ?? []).map((m: any) => m.userId)),
+    () => new Set((membersData?.data ?? []).map((m) => m.userId)),
     [membersData],
   );
 
   const inviteableAgents = useMemo(() => {
     if (!isInvite) return [];
-    const base = (agents as any[]).filter((a) => !existingIds.has(a.id));
+    const base = agents.filter((a) => !existingIds.has(a.id));
     if (!filter) return base.slice(0, 8);
     const q = filter.toLowerCase();
     return base
@@ -76,7 +75,7 @@ export function SlashCommandPalette({
     if (!query) return COMMANDS;
     const q = query.toLowerCase();
     return COMMANDS.filter((cmd) => cmd.name.toLowerCase().includes(q));
-  }, [query, isInvite]);
+  }, [query, isInvite, COMMANDS]);
 
   if (isInvite) {
     if (!onInviteAgent) return null;
@@ -91,12 +90,12 @@ export function SlashCommandPalette({
           <p className="text-sm text-muted-foreground text-center py-6 px-3">
             {filter
               ? t.weldchat.slashCommandPalette.noMatchingAgents
-              : (agents as any[]).length === 0
+              : agents.length === 0
                 ? t.weldchat.slashCommandPalette.noAgentsYet
                 : t.weldchat.slashCommandPalette.allAgentsInChannel}
           </p>
         ) : (
-          inviteableAgents.map((a: any) => (
+          inviteableAgents.map((a) => (
             <Button
               key={a.id}
               variant="ghost"

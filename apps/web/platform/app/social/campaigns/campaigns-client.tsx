@@ -30,6 +30,7 @@ import {
   useUpdateSocialCampaign,
   useDeleteSocialCampaign,
 } from '@/hooks/queries/use-social-queries';
+import type { SocialCampaign } from '@weldsuite/app-api-client/domains/social';
 
 const statusVariants: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
   draft: 'secondary',
@@ -63,7 +64,7 @@ export function CampaignsClient() {
   const { t } = useI18n();
   const st = useTranslations();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editCampaign, setEditCampaign] = useState<any>(null);
+  const [editCampaign, setEditCampaign] = useState<SocialCampaign | null>(null);
   const [form, setForm] = useState<CampaignForm>(emptyForm);
 
   const { data, isLoading } = useSocialCampaigns();
@@ -79,7 +80,7 @@ export function CampaignsClient() {
     setDialogOpen(true);
   };
 
-  const openEdit = (campaign: any) => {
+  const openEdit = (campaign: SocialCampaign) => {
     setEditCampaign(campaign);
     setForm({
       name: campaign.name || '',
@@ -138,7 +139,7 @@ export function CampaignsClient() {
         </div>
       ) : (
         <div className="space-y-3">
-          {campaigns.map((campaign: any) => (
+          {campaigns.map((campaign: SocialCampaign) => (
             <Card key={campaign.id}>
               <CardContent className="p-4">
                 <div className="flex items-start gap-3">

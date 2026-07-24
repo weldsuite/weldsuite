@@ -36,7 +36,7 @@ export default function JournalEntryDetailPage() {
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
-  const entry = data?.data as any;
+  const entry = data?.data;
   if (!entry) {
     return (
       <div className="p-6 text-muted-foreground">{tj.notFound}</div>
@@ -148,7 +148,7 @@ export default function JournalEntryDetailPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                lines.map((line: any) => (
+                lines.map((line) => (
                   <TableRow key={line.id}>
                     <TableCell className="font-mono text-sm">{line.accountId}</TableCell>
                     <TableCell className="text-sm">{line.description || '-'}</TableCell>

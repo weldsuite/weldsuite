@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -137,6 +137,9 @@ function WeldMailContent({ onSuccess }: { onSuccess: () => void }) {
         .finally(() => setCheckingAvailability(false));
     }, 500);
     return () => clearTimeout(timer);
+    // checkAvailabilityMutation is a fresh object every render (TanStack Query);
+    // including it would reset the debounce timer on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -280,12 +283,12 @@ function CustomDomainContent({ onSuccess }: { onSuccess: () => void }) {
   useEffect(() => {
     if (mailDomainsQuery.data?.data) {
       const verified = mailDomainsQuery.data.data
-        .filter((d: any) => d.dnsStatus === 'verified' && d.isActive)
-        .map((d: any) => d.domainName);
+        .filter((d) => d.dnsStatus === 'verified' && d.isActive)
+        .map((d) => d.domainName);
       setAvailableDomains(verified);
       if (verified.length > 0 && !selectedDomain) setSelectedDomain(verified[0]);
     }
-  }, [mailDomainsQuery.data]);
+  }, [mailDomainsQuery.data, selectedDomain]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -346,9 +349,7 @@ function CustomDomainContent({ onSuccess }: { onSuccess: () => void }) {
           className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
           onClick={() => (window.location.href = '/weldhost/domains/register')}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/assets/images/weldhost/logo-light.png" alt="WeldHost" className="size-7 dark:hidden" />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/assets/images/weldhost/logo-dark.png" alt="WeldHost" className="size-7 hidden dark:block" />
           <div className="flex flex-col items-start">
             <span className="font-medium">{t.mail.setupPage.buyNewDomain}</span>
@@ -443,13 +444,13 @@ export default function MailSetupPage() {
   const router = useRouter();
 
   const { data: accountsData, isLoading } = useMailAccounts();
-  const emailAccounts = accountsData?.data || [];
+  const emailAccounts = useMemo(() => accountsData?.data ?? [], [accountsData]);
 
   const [method, setMethod] = useState<SetupMethod>('select');
 
   useEffect(() => {
     if (!isLoading && emailAccounts.length > 0) {
-      const defaultAccount = emailAccounts.find((acc: any) => acc.isDefault) || emailAccounts[0];
+      const defaultAccount = emailAccounts.find((acc) => acc.isDefault) || emailAccounts[0];
       router.replace(`/weldmail/${defaultAccount.id}/inbox`);
     }
   }, [isLoading, emailAccounts, router]);

@@ -39,6 +39,7 @@ import {
 import { cn } from '@/lib/utils';
 import type { ActivitySectionProps, Activity as ActivityType } from '../types';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
+import type { Member } from '@weldsuite/core-api-client/schemas/members';
 import { useTranslations } from '@weldsuite/i18n/client';
 
 function stripHtml(html: string): string {
@@ -186,14 +187,14 @@ interface DayBucket {
   entries: ActivityItem[];
 }
 
-export function ActivitySection({ customer, activities, totalCount }: ActivitySectionProps) {
+export function ActivitySection({ activities }: ActivitySectionProps) {
   const t = useTranslations();
   const { data: membersResult } = useWorkspaceMembers(1, 100);
 
   const userMap = useMemo(() => {
     const map = new Map<string, string>();
-    if (membersResult?.success && membersResult.data) {
-      for (const m of membersResult.data as any[]) {
+    if (membersResult?.data) {
+      for (const m of membersResult.data as Member[]) {
         if (m.userId && m.name) map.set(m.userId, m.name);
       }
     }

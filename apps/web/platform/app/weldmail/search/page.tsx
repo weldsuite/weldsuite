@@ -8,7 +8,7 @@ export default function SearchPage() {
   const { t } = useI18n();
   const { data: accountsData, isLoading: accountsLoading } = useMailAccounts();
   const accounts = accountsData?.data || [];
-  const activeAccount = accounts.find((a: any) => a.isDefault) || accounts[0];
+  const activeAccount = accounts.find((a) => a.isDefault) || accounts[0];
 
   const { data: messagesData, isLoading: messagesLoading } = useMailMessages(
     activeAccount?.id,
@@ -19,9 +19,9 @@ export default function SearchPage() {
   if (accountsLoading || messagesLoading) return <PageLoader fullScreen={false} />;
 
   const messages = messagesData?.data || [];
-  const emails = messages.map((email: any) => {
-    const fromEmail = typeof email.from === 'object' ? email.from?.email : email.from;
-    const fromName = typeof email.from === 'object' ? email.from?.name : email.fromName;
+  const emails = messages.map((email) => {
+    const fromEmail = email.from?.email;
+    const fromName = email.from?.name;
 
     return {
       id: email.id,

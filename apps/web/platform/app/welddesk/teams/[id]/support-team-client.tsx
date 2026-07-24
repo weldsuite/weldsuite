@@ -6,7 +6,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
@@ -22,7 +21,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
   DialogFooter,
 } from '@weldsuite/ui/components/dialog';
 import {
@@ -44,7 +42,6 @@ import {
   type FilterConfig,
   type GroupConfig,
   type ActiveFilter,
-  type RowHandlers,
 } from '@/components/entity-list';
 import {
   EllipsisVertical,
@@ -56,7 +53,6 @@ import {
   Eye,
   Pencil,
   Trash2,
-  UserPlus,
   Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -123,26 +119,30 @@ export function SupportTeamClient({
   initialFeedback,
   users,
 }: SupportTeamClientProps) {
+  // Description/feedback aren't rendered by this view yet; accepted for interface
+  // parity with the page's data-loading contract.
+  void teamDescription;
+  void initialFeedback;
   const { t } = useI18n();
   const tm = t.helpdesk.teams;
   const router = useRouter();
 
-  const statusConfig = {
+  const statusConfig = useMemo(() => ({
     online: { ...statusConfigBase.online, label: tm.online },
     away: { ...statusConfigBase.away, label: tm.away },
     offline: { ...statusConfigBase.offline, label: tm.offline },
-  };
+  }), [tm]);
 
-  const roleConfig: Record<string, { label: string; color: string; bg: string }> = {
+  const roleConfig: Record<string, { label: string; color: string; bg: string }> = useMemo(() => ({
     admin: { ...roleConfigBase.admin, label: tm.admin },
     'team lead': { ...roleConfigBase['team lead'], label: tm.teamLead },
     agent: { ...roleConfigBase.agent, label: tm.agent },
     supervisor: { ...roleConfigBase.supervisor, label: tm.supervisor },
-  };
+  }), [tm]);
   const members = initialMembers;
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
-  const [isPending, startTransition] = useTransition();
+  const [isPending] = useTransition();
   const createAgentMutation = useCreateAgent();
 
   const form = useForm<MemberFormValues>({
@@ -192,7 +192,7 @@ export function SupportTeamClient({
           setAddDialogOpen(false);
           form.reset();
         },
-        onError: (error: any) => {
+        onError: (error: Error) => {
           toast.error(t.helpdesk.teamsPage.failedToAddTeamMember, { description: error.message });
         },
       }
@@ -269,7 +269,7 @@ export function SupportTeamClient({
   ], [tm]);
 
   // Render row
-  const renderRow = useCallback((member: TeamMember, handlers: RowHandlers<TeamMember>) => {
+  const renderRow = useCallback((member: TeamMember) => {
     const status = statusConfig[member.status] || statusConfig.offline;
     const role = roleConfig[member.role] || roleConfig.agent;
 
@@ -354,7 +354,7 @@ export function SupportTeamClient({
         </div>
       </div>
     );
-  }, []);
+  }, [statusConfig, roleConfig, tm.viewDetails, tm.editMember, tm.remove]);
 
   // Member detail panel fields
   const getMemberFields = (member: TeamMember): EntityField[] => [

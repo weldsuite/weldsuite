@@ -17,7 +17,7 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
+import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 import type { HostDomain } from "@/lib/api/domains/weldhost";
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { DomainDetailPanel } from '@/components/weldhost/domain-detail-panel';
@@ -124,7 +124,7 @@ export function DomainsClient({ domains }: DomainsClientProps) {
   ], [tdl]);
 
   // Render row
-  const renderRow = useCallback((domain: HostDomain, handlers: RowHandlers<HostDomain>) => {
+  const renderRow = useCallback((domain: HostDomain) => {
     const statusLabel = (tdl as Record<string, string>)[`status${domain.status.charAt(0).toUpperCase()}${domain.status.slice(1)}`] ?? domain.status;
     const statusClass = statusClassName[domain.status] ?? statusClassName.active;
 
@@ -225,7 +225,7 @@ export function DomainsClient({ domains }: DomainsClientProps) {
         </div>
       </div>
     );
-  }, [router, selectedDomain?.id, tdl]);
+  }, [selectedDomain?.id, tdl]);
 
   return (
     <>

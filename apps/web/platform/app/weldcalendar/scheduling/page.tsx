@@ -10,7 +10,7 @@ export default function SchedulingPage() {
   const navigate = useNavigate();
   const { data, isLoading } = useBookingPages();
 
-  const bookingPages = (data?.data as any)?.data ?? (data?.data as any) ?? [];
+  const bookingPages = data?.data ?? [];
 
   const handleNewBookingPage = () => {
     navigate({ to: '/weldcalendar/scheduling/new' });
@@ -50,11 +50,11 @@ export default function SchedulingPage() {
           </div>
         ) : (
           <div className="grid gap-3 max-w-2xl">
-            {(bookingPages as any[]).map((bp: any) => (
+            {bookingPages.filter((bp) => !!bp.id).map((bp) => (
               <div
                 key={bp.id}
                 className="flex items-center justify-between rounded-lg border p-4 hover:bg-accent/50 transition-colors cursor-pointer"
-                onClick={() => navigate({ to: '/weldcalendar/scheduling/$id/view', params: { id: bp.id } })}
+                onClick={() => navigate({ to: '/weldcalendar/scheduling/$id/view', params: { id: bp.id as string } })}
               >
                 <div className="flex items-center gap-3">
                   <CalendarDays className="h-5 w-5 text-muted-foreground shrink-0" />

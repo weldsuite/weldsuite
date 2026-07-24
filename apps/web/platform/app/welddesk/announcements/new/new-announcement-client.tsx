@@ -22,7 +22,7 @@ export default function NewAnnouncementClient() {
   const { t } = useI18n();
   const ta = t.helpdesk.announcements;
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [isPending] = useTransition();
   const createAnnouncementMutation = useCreateAnnouncement();
 
   useBreadcrumbs([

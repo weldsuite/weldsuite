@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter, Link } from '@/lib/router';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { format } from 'date-fns';
@@ -12,16 +12,14 @@ import {
   User,
   MapPin,
   Hash,
-  Globe,
   Building,
   Phone,
   MessageSquare,
   Tag,
   Pencil,
   Trash2,
-  UserX,
 } from 'lucide-react';
-import { useUpdateHelpdeskCustomer, useHelpdeskCompanies, type CompanyData } from '@/hooks/queries/use-helpdesk-queries';
+import { useUpdateHelpdeskCustomer, useHelpdeskCompanies } from '@/hooks/queries/use-helpdesk-queries';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   DropdownMenu,
@@ -122,7 +120,7 @@ export function CustomerDetailClient({ customerData }: CustomerDetailClientProps
     // Try to save to API (may not be supported yet)
     try {
       await updateCustomerMutation.mutateAsync({ id: customer.id, data: { timezone: timezone.name } });
-    } catch (e) {
+    } catch {
       // Ignore API errors for timezone for now
     }
   };
@@ -133,7 +131,7 @@ export function CustomerDetailClient({ customerData }: CustomerDetailClientProps
     // Try to save to API (may not be supported yet)
     try {
       await updateCustomerMutation.mutateAsync({ id: customer.id, data: { language: language.name } });
-    } catch (e) {
+    } catch {
       // Ignore API errors for language for now
     }
   };

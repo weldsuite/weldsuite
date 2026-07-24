@@ -15,7 +15,7 @@ interface MobileMailLayoutProps {
  * On mobile: Shows list when no message selected, shows detail when message selected
  * On desktop: Shows both side by side
  */
-export function MobileMailLayout({ list, detail, accountId, labelSlug }: MobileMailLayoutProps) {
+export function MobileMailLayout({ list, detail }: MobileMailLayoutProps) {
   const pathname = usePathname();
 
   // Check if we're viewing a specific message (has messageId in path)

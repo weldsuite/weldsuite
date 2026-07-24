@@ -35,6 +35,7 @@ export interface Note {
   customerId?: string;
   customerName?: string;
   authorName?: string;
+  authorAvatar?: string;
 }
 
 // Helper to strip HTML tags
@@ -53,13 +54,6 @@ export function getNoteTitle(content: string): string {
   const text = stripHtml(content);
   const firstLine = text.split('\n')[0]?.trim() || 'Untitled';
   return firstLine || 'Untitled';
-}
-
-// Helper to get note content preview (excluding title)
-function getNotePreview(content: string): string {
-  if (!content) return '';
-  let preview = content.replace(/<h[1-3][^>]*>.*?<\/h[1-3]>/i, '');
-  return stripHtml(preview).trim();
 }
 
 // Helper to get company icon
@@ -87,11 +81,9 @@ export function NoteEditorDialog({
   const t = useTranslations();
   const { setPinnedNote, setIsOpen: setGlobalPinnedOpen, setOnSave, setOnDelete } = usePinnedNote();
   const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
   const contentRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLDivElement>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedContentRef = useRef<string>('');
   const [isMinimized, setIsMinimized] = useState(false);
@@ -133,9 +125,7 @@ export function NoteEditorDialog({
   useEffect(() => {
     if (note && open) {
       const noteTitle = getNoteTitle(note.content);
-      const noteContent = getNotePreview(note.content);
       setTitle(noteTitle === 'Untitled' ? '' : noteTitle);
-      setContent(noteContent);
       lastSavedContentRef.current = note.content;
       requestAnimationFrame(() => {
         if (titleRef.current) {
@@ -176,7 +166,6 @@ export function NoteEditorDialog({
       try {
         await onSave(fullContent);
         lastSavedContentRef.current = fullContent;
-        setLastSaved(new Date());
       } catch (error) {
         console.error('Auto-save failed:', error);
       }

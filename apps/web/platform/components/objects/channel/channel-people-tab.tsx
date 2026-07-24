@@ -5,6 +5,7 @@ import {
   useChannel,
   useChannelMembers,
   useRemoveChannelMember,
+  type ChatChannelMember,
 } from '@/hooks/queries/use-weldchat-queries';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
@@ -18,7 +19,6 @@ import {
   type ActiveFilter,
   type FilterConfig,
   type GroupConfig,
-  type RowHandlers,
 } from '@/components/entity-list';
 import { InvitePeopleDialog } from './invite-people-dialog';
 
@@ -71,7 +71,7 @@ export function ChannelPeopleTab({ channelId }: ChannelPeopleTabProps) {
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
 
   const rows: PeopleRow[] = useMemo(() => {
-    const raw = (membersData?.data ?? []) as any[];
+    const raw: ChatChannelMember[] = membersData?.data ?? [];
     return raw.map((m) => {
       const isAgent = m.memberType === 'agent';
       const isGuest = m.workspaceMemberType === 'EXTERNAL_GUEST';
@@ -139,7 +139,7 @@ export function ChannelPeopleTab({ channelId }: ChannelPeopleTabProps) {
     let items = rows;
     for (const f of activeFilters) {
       if (f.operator !== 'is' || typeof f.value !== 'string') continue;
-      items = items.filter((r) => (r as any)[f.field] === f.value);
+      items = items.filter((r) => r[f.field as keyof PeopleRow] === f.value);
     }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -176,10 +176,10 @@ export function ChannelPeopleTab({ channelId }: ChannelPeopleTabProps) {
     ];
   }, [filteredItems, st]);
 
-  const guestStrings = (t as any).weldchat?.guest;
+  const guestStrings = t.weldchat?.guest;
 
   const renderRow = useCallback(
-    (r: PeopleRow, _handlers: RowHandlers<PeopleRow>) => {
+    (r: PeopleRow) => {
       const isAgent = r.memberType === 'agent';
       const isOffline = r.presence === 'offline';
       const canRemove = isAgent

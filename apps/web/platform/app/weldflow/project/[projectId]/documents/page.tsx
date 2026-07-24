@@ -19,7 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
+import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig } from '@/components/entity-list';
 import { useParams, useRouter } from '@/lib/router';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { documentsApi } from '@/app/weldflow/lib/api-client';
@@ -122,7 +122,7 @@ export default function ProjectDocumentsPage() {
     ];
   }, [t]);
 
-  const applyFilters = useCallback((items: DocumentItem[], _filters: ActiveFilter[]) => {
+  const applyFilters = useCallback((items: DocumentItem[]) => {
     return items;
   }, []);
 
@@ -177,7 +177,7 @@ export default function ProjectDocumentsPage() {
     }
   }, [projectId, renameDocId, renameValue, t]);
 
-  const renderRow = useCallback((item: DocumentItem, _handlers: RowHandlers<DocumentItem>) => {
+  const renderRow = useCallback((item: DocumentItem) => {
     return (
       <div
         key={item.id}

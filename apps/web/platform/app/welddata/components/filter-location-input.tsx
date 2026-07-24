@@ -17,7 +17,6 @@ import {
   CommandList,
 } from '@weldsuite/ui/components/command';
 import { useLocationSearch } from '@/hooks/use-location-search';
-import type { MapboxSuggestion } from '@/app/weldcalendar/lib/mapbox-search';
 
 /** Country fields only accept countries; city/state fields accept finer-grained places. */
 export type LocationScope = 'country' | 'city';

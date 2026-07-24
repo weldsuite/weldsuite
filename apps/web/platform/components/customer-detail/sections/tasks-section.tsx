@@ -1,7 +1,6 @@
 
 import { useState, useMemo, useCallback } from 'react';
 import { useUser } from '@clerk/clerk-react';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import {
   Popover,
@@ -19,8 +18,6 @@ import { Calendar } from '@weldsuite/ui/components/calendar';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import {
-  CheckCircle2,
-  User,
   Trash2,
   Check,
   Repeat2,
@@ -43,6 +40,7 @@ import { useObjectPanel } from '@/components/object-panel';
 import { useCustomerDetailContext } from '../customer-detail-provider';
 import type { TasksSectionProps } from '../types';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
+import type { Member } from '@weldsuite/core-api-client/schemas/members';
 import { useTranslations } from '@weldsuite/i18n/client';
 
 export function TasksSection({ customer }: TasksSectionProps) {
@@ -86,7 +84,7 @@ export function TasksSection({ customer }: TasksSectionProps) {
   // assignee column (CRM Task type only carries name/id, not avatar).
   const memberAvatarByName = useMemo(() => {
     const map = new Map<string, string | undefined>();
-    for (const m of (membersData?.data ?? []) as any[]) {
+    for (const m of (membersData?.data ?? []) as Member[]) {
       if (m?.name) map.set(m.name, m.picture || undefined);
     }
     return map;
@@ -200,7 +198,7 @@ export function TasksSection({ customer }: TasksSectionProps) {
       { id: 'later', label: t('sweep.weldcrm.tasksSection.upcoming'), sortOrder: 5, filter: (t) => !!(t.dueDate && t.dueDate >= endOfWeek) },
       { id: 'no-date', label: t('sweep.weldcrm.tasksSection.noDueDate'), sortOrder: 6, filter: (t) => !t.dueDate },
     ];
-  }, [groupBy, availableAssignees, t]);
+  }, [groupBy, availableAssignees, t, statusConfig, priorityConfig]);
 
   // Group-by selector menu — rendered to the left of the filter button via
   // EntityList's `leftActionButtons` prop. Mirrors the canonical WeldFlow
@@ -394,7 +392,7 @@ export function TasksSection({ customer }: TasksSectionProps) {
                 <Button
                   key={key}
                   variant="ghost"
-                  onClick={() => handlers.onUpdate(task.id, { status: key as Task['status'] } as any)}
+                  onClick={() => handlers.onUpdate(task.id, { status: key as Task['status'] })}
                   className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4 h-auto"
                 >
                   <span>{config.label}</span>
@@ -423,7 +421,7 @@ export function TasksSection({ customer }: TasksSectionProps) {
                 <Button
                   key={key}
                   variant="ghost"
-                  onClick={() => handlers.onUpdate(task.id, { priority: key as Task['priority'] } as any)}
+                  onClick={() => handlers.onUpdate(task.id, { priority: key as Task['priority'] })}
                   className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4 h-auto"
                 >
                   <span>{config.label}</span>
@@ -450,14 +448,14 @@ export function TasksSection({ customer }: TasksSectionProps) {
               <Calendar
                 mode="single"
                 selected={task.dueDate}
-                onSelect={(date) => handlers.onUpdate(task.id, { dueDate: date } as any)}
+                onSelect={(date) => handlers.onUpdate(task.id, { dueDate: date })}
                 initialFocus
               />
               {task.dueDate && (
                 <div className="p-1 border-t border-border">
                   <Button
                     variant="ghost"
-                    onClick={() => handlers.onUpdate(task.id, { dueDate: undefined } as any)}
+                    onClick={() => handlers.onUpdate(task.id, { dueDate: undefined })}
                     className="flex items-center w-full px-2 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded h-auto"
                   >
                     <Trash2 className="h-3.5 w-3.5 mr-2" />
@@ -506,7 +504,7 @@ export function TasksSection({ customer }: TasksSectionProps) {
                 <Button
                   key={name}
                   variant="ghost"
-                  onClick={() => handlers.onUpdate(task.id, { assignee: { id: name, name } } as any)}
+                  onClick={() => handlers.onUpdate(task.id, { assignee: { id: name, name } })}
                   className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded gap-4 h-auto"
                 >
                   <span className="flex items-center gap-2">
@@ -528,7 +526,7 @@ export function TasksSection({ customer }: TasksSectionProps) {
                   <div className="h-px bg-border my-1" />
                   <Button
                     variant="ghost"
-                    onClick={() => handlers.onUpdate(task.id, { assignee: null } as any)}
+                    onClick={() => handlers.onUpdate(task.id, { assignee: null } as unknown as Partial<Task>)}
                     className="flex items-center w-full px-2 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded h-auto"
                   >
                     <Trash2 className="h-3.5 w-3.5 mr-2" />
@@ -666,7 +664,7 @@ export function TasksSection({ customer }: TasksSectionProps) {
         </div>
       </div>
     </div>
-  ), [tasks, availableAssignees, toggleTaskStatus, openTaskPanel, openEditDialog, createTaskMutation, deleteTaskMutation, isPanel, t, statusConfig, priorityConfig]);
+  ), [availableAssignees, toggleTaskStatus, openTaskPanel, openEditDialog, createTaskMutation, deleteTaskMutation, isPanel, t, statusConfig, priorityConfig, memberAvatarByName]);
 
   // Header column definitions — match the canonical WeldFlow tasks page
   // (apps/web/platform/app/weldflow/project/[id]/tasks). The first column is the

@@ -58,7 +58,6 @@ export function ChannelConnectButton({
   provider,
   integration,
   onConnectionChange,
-  variant = 'default',
   className,
   hideIcon,
   buttonColor,
@@ -85,7 +84,6 @@ export function ChannelConnectButton({
   const isConnected = integration?.status === 'connected';
   const isExpired = integration?.status === 'expired';
   const hasError = integration?.status === 'error';
-  const isPending = integration?.status === 'pending';
 
   const handleConnect = async () => {
     if (providerConfig.type === 'oauth2') {
@@ -125,7 +123,7 @@ export function ChannelConnectButton({
       setShowTokenDialog(false);
       setTokenValue('');
       onConnectionChange?.();
-    } catch (error) {
+    } catch {
       toast.error(ti.failedToConnect);
     }
   };
@@ -138,7 +136,7 @@ export function ChannelConnectButton({
       toast.success(ti.disconnectedProvider.replace('{name}', providerConfig.name));
       setShowDisconnectDialog(false);
       onConnectionChange?.();
-    } catch (error) {
+    } catch {
       toast.error(ti.failedToDisconnect);
     }
   };
@@ -151,7 +149,7 @@ export function ChannelConnectButton({
       } else {
         toast.error(ti.connectionTestFailed);
       }
-    } catch (error) {
+    } catch {
       toast.error(ti.connectionTestFailed);
     }
   };
@@ -163,15 +161,13 @@ export function ChannelConnectButton({
       await refreshTokenMutation.mutateAsync(integration.id);
       toast.success(ti.tokenRefreshed);
       onConnectionChange?.();
-    } catch (error) {
+    } catch {
       toast.error(ti.failedToRefreshToken);
     }
   };
 
   const isTesting = testConnectionMutation.isPending;
   const isDisconnecting = disconnectChannelMutation.isPending;
-
-  const Icon = providerConfig.icon;
 
   // Connected state
   if (isConnected) {

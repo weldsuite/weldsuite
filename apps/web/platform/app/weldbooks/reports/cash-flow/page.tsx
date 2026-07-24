@@ -16,6 +16,20 @@ import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 
+interface CashFlowMonthRow {
+  month: string;
+  inflows: string | number | null;
+  outflows: string | number | null;
+  net: string | number | null;
+}
+
+interface CashFlowReport {
+  months?: CashFlowMonthRow[];
+  totalInflows?: string | number | null;
+  totalOutflows?: string | number | null;
+  netCashFlow?: string | number | null;
+}
+
 function fmt(value: string | number | null | undefined): string {
   return new Intl.NumberFormat('nl-NL', {
     style: 'currency',
@@ -38,7 +52,7 @@ export default function CashFlowReportPage() {
     enabled: false,
   });
 
-  const report = data?.data as any;
+  const report = data?.data as CashFlowReport | undefined;
 
   let runningBalance = 0;
 
@@ -115,7 +129,7 @@ export default function CashFlowReportPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(report.months ?? []).map((m: any) => {
+                  {(report.months ?? []).map((m) => {
                     const net = Number(m.net ?? 0);
                     runningBalance += net;
                     return (

@@ -1,6 +1,6 @@
 
 import { useParams } from '@/lib/router';
-import { useAvailableApps, useCanManageApps } from '@/hooks/queries/use-settings-queries';
+import { useAvailableApps, useCanManageApps, type AvailableApp } from '@/hooks/queries/use-settings-queries';
 import { AppDetailClient } from './app-detail-client';
 import { AppStoreNoAccess } from '../appstore-no-access';
 import { PageLoader } from '@/components/page-loader';
@@ -22,7 +22,7 @@ export default function AppDetailPage() {
   // App Store is an install/uninstall surface — only owners/admins have access.
   if (!canManage) return <AppStoreNoAccess />;
 
-  const app = (apps || []).find((a: any) => a.code === code);
+  const app = (apps || []).find((a: AvailableApp) => a.code === code);
 
   if (!app) {
     return <div className="flex items-center justify-center p-8 text-muted-foreground">{t.appstore.appNotFound}</div>;

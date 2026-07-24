@@ -18,8 +18,8 @@ export function getUtcOffset(tz: string): string {
 
 export const TIMEZONES: TimezoneOption[] = (() => {
   const ids =
-    typeof Intl !== 'undefined' && typeof (Intl as any).supportedValuesOf === 'function'
-      ? ((Intl as any).supportedValuesOf('timeZone') as string[])
+    typeof Intl !== 'undefined' && typeof Intl.supportedValuesOf === 'function'
+      ? Intl.supportedValuesOf('timeZone')
       : ['UTC', 'Europe/Amsterdam', 'America/New_York'];
 
   const list = ['UTC', ...ids.filter((tz) => tz !== 'UTC').sort()];

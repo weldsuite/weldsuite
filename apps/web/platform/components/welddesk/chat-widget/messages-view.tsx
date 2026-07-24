@@ -7,13 +7,9 @@ import {
   MessageSquare,
   HelpCircle,
   Activity,
-  Send,
-  SendHorizontal,
   Plus,
   Search,
-  Clock,
   Calendar,
-  FileText,
   Sparkles,
   Megaphone,
   Package
@@ -72,11 +68,10 @@ export function MessagesView({
   onNavigateEvents,
   onNavigateParcelTracking,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'appointments', 'announcements', 'events', 'news', 'parcel-tracking'],
-  themeSettings,
   hideCloseButton = false
 }: MessagesViewProps) {
   const [activeTab] = useState('messages');
-  const [showSearch, setShowSearch] = useState(false);
+  const [showSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
 

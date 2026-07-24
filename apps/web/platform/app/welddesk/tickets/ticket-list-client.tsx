@@ -102,8 +102,7 @@ export default function TicketListClient() {
   const { data: ticketsData, isLoading } = useTickets(filters);
   const { data: ticketTypes } = useTicketTypes();
 
-  const tickets = ticketsData?.data || [];
-  const pagination = ticketsData?.pagination;
+  const tickets = useMemo(() => ticketsData?.data || [], [ticketsData]);
 
   const selectedTicketId = pathname.split('/').pop();
 

@@ -74,7 +74,7 @@ export default function AccountDetailPage() {
             </div>
           </div>
         </div>
-        <Link to={`/weldbooks/accounts/${account.id}/edit` as any}>
+        <Link to="/weldbooks/accounts/$id/edit" params={{ id: account.id }}>
           <Button variant="outline" size="sm">
             <Pencil className="h-4 w-4 mr-1" />
             {ta.editing}

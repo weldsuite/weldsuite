@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
-import { Loader2, Globe, FileText, Mail, CheckCircle, Calendar, ChevronLeft, TrendingUp, Headphones, MessageSquare, CheckSquare, Server, Calculator, Layers, Info, type LucideIcon } from 'lucide-react';
+import { Loader2, Globe, FileText, Mail, CheckCircle, ChevronLeft, TrendingUp, Headphones, MessageSquare, CheckSquare, Server, Calculator, Layers, Info, type LucideIcon } from 'lucide-react';
 import { getAppLogo, getAppLucideIcon } from '@/lib/apps/app-registry';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
@@ -46,13 +46,6 @@ function getCategoryIcon(category: string): LucideIcon {
   return Layers;
 }
 
-function formatReleaseDate(iso: string | null): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-}
-
 export function AppDetailClient({ app: initialApp, canManage = false, content }: AppDetailClientProps) {
   const t = getTranslations('navigation');
   const router = useRouter();
@@ -65,8 +58,6 @@ export function AppDetailClient({ app: initialApp, canManage = false, content }:
   const uninstallApp = useUninstallApp();
 
   const overview = content.overview || t.appstore.defaultOverview;
-  const releasedLabel = formatReleaseDate(content.releasedAt);
-  const versionLabel = releasedLabel ? `${content.version} (${releasedLabel})` : content.version;
   const resources = [
     app.websiteUrl ? { label: t.appstore.resourceWebsite, href: app.websiteUrl, icon: Globe } : null,
     app.documentationUrl ? { label: t.appstore.resourceDocumentation, href: app.documentationUrl, icon: FileText } : null,

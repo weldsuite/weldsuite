@@ -3,7 +3,6 @@ import { useState, useTransition } from 'react';
 import { useRouter } from '@/lib/router';
 import { Newspaper, FileText, Settings, Eye } from 'lucide-react';
 import { EntityFormLayout, type FormSection, type SummaryField } from '@/components/entity-overview/entity-form-layout';
-import { FormInput, FormTextarea, FormField } from '@weldsuite/ui/components/form-field';
 import {
   Select,
   SelectContent,
@@ -12,6 +11,8 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { Label } from '@weldsuite/ui/components/label';
+import { Input } from '@weldsuite/ui/components/input';
+import { Textarea } from '@weldsuite/ui/components/textarea';
 import { useCreateNewsItem } from '@/hooks/queries/use-helpdesk-queries';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
@@ -22,7 +23,7 @@ export default function NewNewsClient() {
   const { t } = useI18n();
   const st = useTranslations();
   const tn = t.helpdesk.newsEditor;
-  const [isPending, startTransition] = useTransition();
+  const [isPending] = useTransition();
   const createNewsMutation = useCreateNewsItem();
 
   // Form state
@@ -114,7 +115,7 @@ export default function NewNewsClient() {
         <div className="space-y-4">
           <div>
             <Label htmlFor="category">{st('sweep.welddesk.newNews.categoryLabel')} *</Label>
-            <Select value={category} onValueChange={(value: any) => setCategory(value)}>
+            <Select value={category} onValueChange={(value: string) => setCategory(value as 'company' | 'product' | 'industry' | 'announcement')}>
               <SelectTrigger>
                 <SelectValue placeholder={st('sweep.welddesk.newNews.selectCategoryPlaceholder')} />
               </SelectTrigger>

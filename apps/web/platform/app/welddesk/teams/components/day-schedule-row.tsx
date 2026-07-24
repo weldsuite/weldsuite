@@ -24,6 +24,8 @@ export function DayScheduleRow({
   onOpenTimeChange,
   onCloseTimeChange,
 }: DayScheduleRowProps) {
+  // `day` is used by the caller as the businessHours/setValue key; not read here.
+  void day;
   const { t } = useI18n();
   return (
     <div className="flex items-center gap-3 py-2">

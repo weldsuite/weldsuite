@@ -13,6 +13,11 @@ import {
   useSocialPosts,
   useUpdateSocialApproval,
 } from '@/hooks/queries/use-social-queries';
+import type { SocialApproval, SocialPost } from '@weldsuite/app-api-client/domains/social';
+
+// The backend also returns `submittedAt`, not yet reflected in the shared
+// SocialApproval type.
+type SocialApprovalWithSubmission = SocialApproval & { submittedAt?: string | null };
 
 export function ApprovalsClient() {
   const { t } = useI18n();
@@ -25,7 +30,7 @@ export function ApprovalsClient() {
   const approvals = approvalsData?.data || [];
   const posts = postsData?.data || [];
 
-  const getPost = (postId: string) => posts.find((p: any) => p.id === postId);
+  const getPost = (postId: string) => posts.find((p: SocialPost) => p.id === postId);
 
   const handleAction = async (id: string, status: string) => {
     try {
@@ -57,7 +62,7 @@ export function ApprovalsClient() {
         </div>
       ) : (
         <div className="space-y-4">
-          {approvals.map((approval: any) => {
+          {approvals.map((approval: SocialApprovalWithSubmission) => {
             const post = getPost(approval.postId);
             return (
               <Card key={approval.id}>

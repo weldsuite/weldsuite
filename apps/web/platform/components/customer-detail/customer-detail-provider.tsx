@@ -20,6 +20,40 @@ import {
 } from '@/components/objects/person/use-person-data';
 import { useTranslations } from '@weldsuite/i18n/client';
 
+/**
+ * `GET /people/:id/detail` returns `unknown` at the API layer (a combined
+ * person + activity payload not modeled there) — this narrows just the
+ * fields this provider reads off it.
+ */
+interface PersonDetailRow {
+  id: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  displayName?: string;
+  fullName?: string;
+  directPhone?: string;
+  mobilePhone?: string;
+  status?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  avatarUrl?: string;
+  title?: string;
+  department?: string;
+  role?: string;
+  extension?: string;
+  preferredContactMethod?: string;
+  preferredLanguage?: string;
+  linkedinUrl?: string;
+  twitterHandle?: string;
+  influenceLevel?: string;
+  isPrimary?: boolean;
+  isDecisionMaker?: boolean;
+  isBillingContact?: boolean;
+  isTechnicalContact?: boolean;
+}
+
 const CustomerDetailContext = createContext<CustomerDetailContextValue | null>(null);
 
 export function useCustomerDetailContext() {
@@ -98,7 +132,7 @@ export function CustomerDetailProvider({
   // Derive detail data from queries
   const queryData = isContact
     ? (personDetailQuery.data?.data ? (() => {
-        const person = personDetailQuery.data!.data as any;
+        const person = personDetailQuery.data!.data as unknown as PersonDetailRow;
         const fullName = person.displayName || person.fullName || `${person.firstName || ''} ${person.lastName || ''}`.trim();
         return {
           customer: {

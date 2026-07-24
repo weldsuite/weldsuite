@@ -77,6 +77,7 @@ export default function SettingsProfilePage() {
     };
 
     loadProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only profile load; ts.messages.loadFailed shouldn't trigger a refetch on locale change.
   }, [getClient]);
 
   const handleProfileChange = (field: string, value: string) => {

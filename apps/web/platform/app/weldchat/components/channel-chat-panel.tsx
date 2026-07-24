@@ -32,10 +32,42 @@ import {
   weldchatKeys,
   mergeMessageIntoCache,
   removeMessageFromCache,
+  type ChatMessage as WeldChatCacheMessage,
 } from '@/hooks/queries/use-weldchat-queries';
 import { useWeldChatRoom } from '@/hooks/weldchat/use-weldchat-room';
-import { useWeldChatMessagesRealtime } from '@/hooks/weldchat/use-weldchat-messages-realtime';
+import { useWeldChatMessagesRealtime, type WeldChatRealtimeMessage } from '@/hooks/weldchat/use-weldchat-messages-realtime';
 import { useTranslations } from '@weldsuite/i18n/client';
+
+interface RawMessageAttachment {
+  id: string;
+  fileName?: string;
+  name?: string;
+  fileSize?: number;
+  size?: number;
+  url: string;
+}
+
+interface RawChatMessage {
+  id: string;
+  authorId: string;
+  authorName?: string;
+  authorAvatar?: string | null;
+  content?: string;
+  type?: string;
+  createdAt: string;
+  attachments?: RawMessageAttachment[];
+  pinnedAt?: string | null;
+  _optimistic?: boolean;
+}
+
+interface RawMessagesPage {
+  data?: { messages?: RawChatMessage[] };
+}
+
+interface RawPinnedMessage {
+  id: string;
+  content?: string;
+}
 
 export interface ChannelChatPanelProps {
   channelId: string;
@@ -65,8 +97,8 @@ export function ChannelChatPanel({
   const { client } = useWeldChatRoom(isOpen ? channelId : null);
 
   const onMessageCreated = useCallback(
-    (message: any) => {
-      mergeMessageIntoCache(queryClient, channelId, message);
+    (message: WeldChatRealtimeMessage) => {
+      mergeMessageIntoCache(queryClient, channelId, message as unknown as WeldChatCacheMessage);
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
     },
     [channelId, queryClient],
@@ -98,9 +130,9 @@ export function ChannelChatPanel({
   // API returns newest-first pages; flatten + reverse to chronological order
   // (oldest → newest) for the shared component.
   const messages = useMemo((): ChatMessage[] => {
-    const raw: any[] =
-      data?.pages?.flatMap((page: any) => page.data?.messages ?? []) ?? [];
-    return [...raw].reverse().map((m: any) => ({
+    const raw: RawChatMessage[] =
+      (data?.pages as RawMessagesPage[] | undefined)?.flatMap((page) => page.data?.messages ?? []) ?? [];
+    return [...raw].reverse().map((m) => ({
       id: m.id,
       authorId: m.authorId,
       authorName: m.authorName ?? st('sweep.weldchat.sidebar.unknownMember'),
@@ -108,9 +140,9 @@ export function ChannelChatPanel({
       content: m.content ?? '',
       type: m.type ?? 'message',
       createdAt: m.createdAt,
-      attachments: (m.attachments ?? []).map((a: any) => ({
+      attachments: (m.attachments ?? []).map((a) => ({
         id: a.id,
-        fileName: a.fileName ?? a.name,
+        fileName: a.fileName ?? a.name ?? '',
         fileSize: a.fileSize ?? a.size,
         url: a.url,
       })),
@@ -120,8 +152,8 @@ export function ChannelChatPanel({
   }, [data, st]);
 
   const pinnedMessages = useMemo(() => {
-    const pins: any[] = (pinnedData as any)?.data ?? [];
-    return pins.map((p: any) => ({ id: p.id, content: p.content }));
+    const pins = (pinnedData?.data as RawPinnedMessage[] | undefined) ?? [];
+    return pins.map((p) => ({ id: p.id, content: p.content ?? '' }));
   }, [pinnedData]);
 
   // ── Callbacks ─────────────────────────────────────────────────────────────

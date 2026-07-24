@@ -11,10 +11,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Button } from '@weldsuite/ui/components/button';
@@ -29,6 +27,28 @@ interface ClipRecorderProps {
   onClose: () => void;
   onClipReady: (attachment: ChatClipAttachment) => void;
   initialMode?: ClipMode;
+}
+
+/** Flat (non-`{ data }`-wrapped) response from `/storage/generate-upload-url`. */
+interface GenerateUploadUrlResponse {
+  success?: boolean;
+  uploadUrl: string;
+  uploadToken: string;
+  fileKey: string;
+}
+
+/** Flat (non-`{ data }`-wrapped) response from `/storage/confirm-upload`. */
+interface ConfirmUploadResponse {
+  success?: boolean;
+  file?: {
+    id: string;
+    fileName: string;
+    fileKey: string;
+    fileSize: number;
+    mimeType: string;
+    url: string;
+    isPublic?: boolean;
+  };
 }
 
 function formatDuration(seconds: number): string {
@@ -84,7 +104,9 @@ export function ClipRecorder({ open, onClose, onClipReady, initialMode }: ClipRe
       recorder.stream.addTrack(newTrack);
       oldTrack?.stop();
       setActiveAudioId(deviceId);
-    } catch {}
+    } catch {
+      // Device switch failed (denied permission, device unplugged, …) — keep the previous device active.
+    }
   }, [recorder.stream]);
 
   const switchVideoDevice = useCallback(async (deviceId: string) => {
@@ -103,7 +125,9 @@ export function ClipRecorder({ open, onClose, onClipReady, initialMode }: ClipRe
       } else if (videoPreviewRef.current) {
         videoPreviewRef.current.srcObject = stream;
       }
-    } catch {}
+    } catch {
+      // Device switch failed (denied permission, device unplugged, …) — keep the previous device active.
+    }
   }, [recorder.stream, recorder.mode, camStream]);
 
   const toggleCamera = useCallback(() => {
@@ -179,7 +203,6 @@ export function ClipRecorder({ open, onClose, onClipReady, initialMode }: ClipRe
       setCamStream(null);
     }
     onClose();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recorder, onClose, camStream]);
 
   const handleSend = useCallback(async () => {
@@ -191,7 +214,7 @@ export function ClipRecorder({ open, onClose, onClipReady, initialMode }: ClipRe
       const ext = recorder.blob.type.includes('mp4') ? 'mp4' : 'webm';
       const fileName = `clip-${Date.now()}.${ext}`;
 
-      const urlRes = await client.post<any>('/storage/generate-upload-url', {
+      const urlRes = await client.post<GenerateUploadUrlResponse>('/storage/generate-upload-url', {
         fileName,
         fileSize: recorder.blob.size,
         contentType: recorder.blob.type,
@@ -205,12 +228,12 @@ export function ClipRecorder({ open, onClose, onClipReady, initialMode }: ClipRe
         headers: { 'Content-Type': recorder.blob.type },
       });
 
-      const confirmRes = await client.post<any>('/storage/confirm-upload', {
+      const confirmRes = await client.post<ConfirmUploadResponse>('/storage/confirm-upload', {
         uploadToken,
         fileKey,
       });
 
-      const fileData = confirmRes?.file ?? confirmRes;
+      const fileData = confirmRes?.file;
 
       const clipAttachment: ChatClipAttachment = {
         id: fileData?.id ?? fileKey,

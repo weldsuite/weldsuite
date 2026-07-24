@@ -9,6 +9,7 @@
 import type { OverviewSectionProps } from '../types';
 import { useTranslations } from '@weldsuite/i18n/client';
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function OverviewSection(_props: OverviewSectionProps) {
   const t = useTranslations();
   return (

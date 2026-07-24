@@ -14,7 +14,6 @@ import {
   ArrowUpRight,
 } from "lucide-react"
 import { Button } from "@weldsuite/ui/components/button"
-import { Input } from "@weldsuite/ui/components/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@weldsuite/ui/components/avatar"
 import { StatusDot } from "@weldsuite/ui/components/status-dot"
 import { usePresence } from "@/contexts/presence-context"

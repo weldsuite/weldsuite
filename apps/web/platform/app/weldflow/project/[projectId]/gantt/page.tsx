@@ -1,20 +1,17 @@
 
 import {
-  GanttCreateMarkerTrigger,
   GanttFeatureItem,
   GanttFeatureList,
-  GanttFeatureListGroup,
   GanttHeader,
   GanttMarker,
   GanttProvider,
   GanttSidebar,
-  GanttSidebarGroup,
   GanttSidebarItem,
   GanttTimeline,
   GanttToday,
   GanttTreeView,
 } from '@weldsuite/ui/components/gantt';
-import { CalendarDays, CalendarIcon, CalendarRange, Check, ChevronDown, EyeIcon, LinkIcon, Milestone, MinusIcon, PencilIcon, PlusIcon, Search, SquarePen, TrashIcon, Trash2 } from 'lucide-react';
+import { CalendarIcon, Check, ChevronDown, EyeIcon, LinkIcon, Milestone, MinusIcon, PencilIcon, PlusIcon, Search, SquarePen, TrashIcon, Trash2 } from 'lucide-react';
 import { PageLoader } from '@/components/page-loader';
 import { Separator } from '@weldsuite/ui/components/separator';
 import { Calendar as CalendarPicker } from '@weldsuite/ui/components/calendar';
@@ -25,7 +22,6 @@ import { useParams } from '@/lib/router';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -34,21 +30,12 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@weldsuite/ui/components/sheet';
-import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
-import { Badge } from '@weldsuite/ui/components/badge';
-import { Slider } from '@weldsuite/ui/components/slider';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import {
   ContextMenu,
@@ -66,10 +53,8 @@ import { cn } from '@/lib/utils';
 import { ganttApi, tasksApi, membersApi, labelsApi } from '@/app/weldflow/lib/api-client';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
-import { type TaskComment } from '@/components/task-detail';
 import { useObjectPanel } from '@/components/object-panel';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
-import { useAuth } from '@clerk/clerk-react';
 import { useI18n } from '@/lib/i18n/provider';
 
 const capitalize = (str: string) => str.charAt(0).toUpperCase() + str.slice(1);
@@ -144,12 +129,12 @@ interface GanttFeature {
   name: string;
   startAt: Date;
   endAt: Date;
-  status: { id: string; name: string; color: string };
+  status: { id: string; name: string; color: string; textColor?: string };
   owner?: { id: string; name: string; image?: string };
   group: { id: string; name: string };
   priority?: string;
   taskKey?: string;
-  originalTask?: any;
+  originalTask?: RawGanttTask;
   parentTaskId?: string;
   isSubtask?: boolean;
   subtasks?: GanttFeature[];
@@ -162,11 +147,42 @@ interface GanttMarkerType {
   date: Date;
   label: string;
   className: string;
-  originalMilestone?: any;
+  originalMilestone?: RawGanttMilestone;
+}
+
+// Raw task shape as returned by the app-api gantt/tasks endpoints
+interface RawGanttTask {
+  id: string;
+  title?: string;
+  startDate?: string | null;
+  dueDate?: string | null;
+  status?: string;
+  priority?: string;
+  key?: string;
+  parentTaskId?: string | null;
+  labels?: string[];
+  description?: string;
+  createdAt?: string;
+  assigneeId?: string;
+  assigneeName?: string;
+  assignee?: {
+    id?: string;
+    name?: string;
+    avatar?: string;
+    image?: string;
+  } | null;
+}
+
+// Raw milestone shape as returned by the app-api gantt/milestones endpoint
+interface RawGanttMilestone {
+  id: string;
+  name?: string;
+  dueDate?: string | null;
+  status?: string;
 }
 
 // Map API task to Gantt feature format
-function mapTaskToFeature(task: any, isSubtask: boolean = false): GanttFeature {
+function mapTaskToFeature(task: RawGanttTask, isSubtask: boolean = false): GanttFeature {
   const startDate = task.startDate ? new Date(task.startDate) : new Date();
   const endDate = task.dueDate ? new Date(task.dueDate) : new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000); // Default 7 days
 
@@ -188,7 +204,7 @@ function mapTaskToFeature(task: any, isSubtask: boolean = false): GanttFeature {
       textColor: (task.priority && priorityTextColors[task.priority]) || NO_PRIORITY_TEXT,
     },
     owner: task.assignee ? {
-      id: task.assignee.id || task.assigneeId,
+      id: task.assignee.id || task.assigneeId || '',
       name: task.assignee.name || task.assigneeName || 'Unknown',
       image: task.assignee.avatar || task.assignee.image,
     } : undefined,
@@ -199,21 +215,21 @@ function mapTaskToFeature(task: any, isSubtask: boolean = false): GanttFeature {
     priority: task.priority,
     taskKey: task.key,
     originalTask: task,
-    parentTaskId: task.parentTaskId,
+    parentTaskId: task.parentTaskId ?? undefined,
     isSubtask,
     labels: task.labels || undefined,
   };
 }
 
 // Organize tasks into parent-child hierarchy
-function organizeTasksWithSubtasks(tasks: any[]): GanttFeature[] {
+function organizeTasksWithSubtasks(tasks: RawGanttTask[]): GanttFeature[] {
   // Create a map of all tasks
-  const taskMap = new Map<string, any>();
+  const taskMap = new Map<string, RawGanttTask>();
   tasks.forEach(task => taskMap.set(task.id, task));
 
   // Separate parent tasks and subtasks
-  const parentTasks: any[] = [];
-  const subtasksByParent = new Map<string, any[]>();
+  const parentTasks: RawGanttTask[] = [];
+  const subtasksByParent = new Map<string, RawGanttTask[]>();
 
   tasks.forEach(task => {
     if (task.parentTaskId && taskMap.has(task.parentTaskId)) {
@@ -238,8 +254,8 @@ function organizeTasksWithSubtasks(tasks: any[]): GanttFeature[] {
 
       // Map subtasks that have dates - use parent's group so they stay together
       const subtaskFeatures = childTasks
-        .filter((subtask: any) => subtask.startDate || subtask.dueDate)
-        .map((subtask: any) => {
+        .filter((subtask) => subtask.startDate || subtask.dueDate)
+        .map((subtask) => {
           const subtaskFeature = mapTaskToFeature(subtask, true);
           // Use parent's group so subtasks are grouped with parent
           subtaskFeature.group = parentFeature.group;
@@ -260,9 +276,9 @@ function organizeTasksWithSubtasks(tasks: any[]): GanttFeature[] {
 }
 
 // Map API milestone to Gantt marker format
-function mapMilestoneToMarker(milestone: any): GanttMarkerType {
+function mapMilestoneToMarker(milestone: RawGanttMilestone): GanttMarkerType {
   const dueDate = milestone.dueDate ? new Date(milestone.dueDate) : new Date();
-  const statusClass = milestoneStatusColors[milestone.status] || milestoneStatusColors.planned;
+  const statusClass = milestoneStatusColors[milestone.status ?? 'planned'] || milestoneStatusColors.planned;
 
   return {
     id: milestone.id,
@@ -370,24 +386,11 @@ const GanttPage = () => {
   const { open: openTaskPanel } = useObjectPanel();
   useEffect(() => {
     if (selectedFeature) openTaskPanel({ type: 'task', id: selectedFeature.id });
+    // Deliberately keyed on the id, not the whole `selectedFeature` object — the
+    // object identity changes on every features refresh (see effect below), which
+    // would otherwise re-open the panel on every unrelated data reload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFeature?.id, openTaskPanel]);
-  const [comments, setComments] = useState<TaskComment[]>([]);
-  const { userId } = useAuth();
-
-  // Fetch comments when a feature is selected
-  useEffect(() => {
-    if (!selectedFeature) {
-      setComments([]);
-      return;
-    }
-    async function loadComments() {
-      const result = await tasksApi.listComments(projectId, selectedFeature!.id);
-      if (result.success && result.data) {
-        setComments(Array.isArray(result.data) ? result.data : []);
-      }
-    }
-    loadComments();
-  }, [selectedFeature?.id, projectId]);
 
   // Keep selectedFeature in sync when features list updates (e.g. after save)
   useEffect(() => {
@@ -397,6 +400,9 @@ const GanttPage = () => {
         setSelectedFeature(updated);
       }
     }
+    // Intentionally omits `selectedFeature` — this effect exists to sync it FROM
+    // `features`; including it would re-run on every selection change too.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [features]);
 
   const [selectedMarker, setSelectedMarker] = useState<GanttMarkerType | null>(null);
@@ -531,7 +537,7 @@ const GanttPage = () => {
     }
     toast.error(t.projects.gantt.labelCreateFailed);
     return null;
-  }, [projectId]);
+  }, [projectId, t.projects.gantt.labelCreateFailed]);
 
   // Map view mode → gantt range. Weekly now has its own range in the gantt
   // library (1 column = 1 week); see VIEW_BASELINE_ZOOM above.
@@ -617,6 +623,10 @@ const GanttPage = () => {
     } finally {
       setIsLoading(false);
     }
+    // `t` intentionally excluded — loadData is a dependency of the mount effect
+    // below, and keying it on the translation object would re-fetch on every
+    // locale switch instead of just re-translating the (rare) error string.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   useEffect(() => {
@@ -669,33 +679,6 @@ const GanttPage = () => {
     }
   };
 
-  const handleUpdateFeatureStatus = async (statusId: string) => {
-    if (selectedFeature) {
-      const newStatus = statuses.find((s) => s.id === statusId);
-      if (newStatus) {
-        // Update local state optimistically
-        setFeatures((prev) =>
-          prev.map((feature) =>
-            feature.id === selectedFeature.id
-              ? {
-                  ...feature,
-                  status: newStatus,
-                  group: { id: statusId, name: newStatus.name },
-                }
-              : feature
-          )
-        );
-        setSelectedFeature({ ...selectedFeature, status: newStatus, group: { id: statusId, name: newStatus.name } });
-
-        // Persist to API
-        const result = await ganttApi.updateTaskStatus(selectedFeature.id, statusId);
-        if (!result.success) {
-          toast.error(t.projects.gantt.statusUpdateFailed);
-          loadData(); // Reload to get correct state
-        }
-      }
-    }
-  };
 
   const handleCopyLink = (id: string) => {
     navigator.clipboard.writeText(`${window.location.origin}/projects/task/${id}`);
@@ -807,37 +790,6 @@ const GanttPage = () => {
     );
   };
 
-  const handleCreateMarker = async (date: Date) => {
-    const tempId = `temp-${Date.now()}`;
-    const newMarker: GanttMarkerType = {
-      id: tempId,
-      date,
-      label: 'New Milestone',
-      className: 'bg-purple-100 text-purple-900',
-    };
-
-    // Add optimistically
-    setMarkers((prev) => [...prev, newMarker]);
-
-    // Create in API
-    const result = await ganttApi.createMilestone(projectId, {
-      name: 'New Milestone',
-      dueDate: date.toISOString(),
-    });
-
-    if (result.success && result.data) {
-      // Replace temp with real milestone
-      setMarkers((prev) =>
-        prev.map((m) => (m.id === tempId ? mapMilestoneToMarker(result.data) : m))
-      );
-      toast.success(t.projects.gantt.milestoneCreated);
-    } else {
-      // Remove temp on failure
-      setMarkers((prev) => prev.filter((m) => m.id !== tempId));
-      toast.error(t.projects.gantt.milestoneCreateFailed);
-    }
-  };
-
   const handleMoveFeature = async (id: string, startAt: Date, endAt: Date | null) => {
     if (!endAt || !canWrite) return;
 
@@ -864,12 +816,12 @@ const GanttPage = () => {
     }
   };
 
-  const handleAddFeature = (_date?: Date) => {
+  const handleAddFeature = () => {
     setAddTaskParentId(undefined);
     setAddTaskDialogOpen(true);
   };
 
-  const handleTaskCreated = (task: any) => {
+  const handleTaskCreated = (task: RawGanttTask) => {
     const newFeature = mapTaskToFeature(task, !!task.parentTaskId);
 
     if (task.parentTaskId) {
@@ -919,8 +871,9 @@ const GanttPage = () => {
 
     if (result.success && result.data) {
       // Replace temp with real milestone
+      const newMilestone = result.data;
       setMarkers((prev) =>
-        prev.map((m) => (m.id === tempId ? mapMilestoneToMarker(result.data) : m))
+        prev.map((m) => (m.id === tempId ? mapMilestoneToMarker(newMilestone) : m))
       );
       toast.success(t.projects.gantt.milestoneAdded);
     } else {
@@ -980,32 +933,6 @@ const GanttPage = () => {
     } else {
       toast.error(t.projects.gantt.taskCreateFailed);
     }
-  };
-
-  // Map Gantt feature to CRM Task format for the detail panel
-  const featureToCrmTask = (feature: GanttFeature): CrmTask => {
-    // Map project status to CRM status (now 1:1)
-    const statusMap: Record<string, CrmTask['status']> = {
-      'backlog': 'backlog',
-      'todo': 'todo',
-      'in_progress': 'in_progress',
-      'in_review': 'in_review',
-      'testing': 'testing',
-      'done': 'done',
-      'cancelled': 'cancelled',
-    };
-
-    return {
-      id: feature.id,
-      title: feature.name,
-      description: feature.originalTask?.description,
-      status: statusMap[feature.status.id] || 'todo',
-      priority: (feature.priority as CrmTask['priority']) || undefined,
-      assignee: feature.owner ? { id: feature.owner.id, name: feature.owner.name, avatar: feature.owner.image } : undefined,
-      dueDate: feature.endAt,
-      createdAt: feature.originalTask?.createdAt ? new Date(feature.originalTask.createdAt) : new Date(),
-      labels: feature.labels,
-    };
   };
 
   // Apply filters and search to features
@@ -1569,7 +1496,7 @@ const GanttPage = () => {
         hideRecord
         onSave={handleTaskDialogSave}
         onUpdate={(taskId, data) => {
-          const updateData: Record<string, any> = {};
+          const updateData: Parameters<typeof tasksApi.update>[2] = {};
           if (data.title) updateData.title = data.title;
           if (data.description !== undefined) updateData.description = data.description;
           if (data.status) {

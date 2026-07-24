@@ -80,6 +80,7 @@ function mapMessage(api: ApiMailMessage, fallbackAccountId: string): MailRow {
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- settings kept for the client-side filters described below, not yet implemented
 function applyClientFilters(rows: MailRow[], _s: WeldmailInboxSettings): MailRow[] {
   // Most server-side filters happen via API query params; sorting & a few
   // fixture-style filters are applied here as a safety net.

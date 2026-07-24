@@ -55,19 +55,16 @@ export function FilesTab({ entityId, entityKind }: FilesTabProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  const files = (data?.items ?? []) as FileResponse[];
-
-  const listItems = useMemo<FileListItem[]>(
-    () =>
-      files.map((f) => ({
-        id: f.id,
-        name: f.fileName,
-        fileType: fileCategoryFromContentType(f.contentType),
-        fileSize: f.size,
-        createdAt: f.createdAt,
-      })),
-    [files],
-  );
+  const listItems = useMemo<FileListItem[]>(() => {
+    const files = (data?.items ?? []) as FileResponse[];
+    return files.map((f) => ({
+      id: f.id,
+      name: f.fileName,
+      fileType: fileCategoryFromContentType(f.contentType),
+      fileSize: f.size,
+      createdAt: f.createdAt,
+    }));
+  }, [data]);
 
   const handleUpload = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -76,13 +73,13 @@ export function FilesTab({ entityId, entityKind }: FilesTabProps) {
       e.target.value = ''; // allow re-selecting same file
       setIsUploading(true);
       try {
-        const presigned = await generateUrl.mutateAsync({
+        const presigned = (await generateUrl.mutateAsync({
           customerId: entityId,
           entityKind: entityKindForApi,
           fileName: file.name,
           contentType: file.type || 'application/octet-stream',
           fileSize: file.size,
-        });
+        })) as { uploadUrl: string; uploadToken: string; fileKey: string };
         // Direct PUT to R2.
         const putRes = await fetch(presigned.uploadUrl, {
           method: 'PUT',

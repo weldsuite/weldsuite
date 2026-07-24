@@ -37,7 +37,7 @@ export function CommandBar({ open, onOpenChange, conversation, onRequestAssign, 
   const manage = useManageDeskConversation();
   const applyMacro = useApplyDeskMacro();
   const { data: macrosData } = useDeskMacros();
-  const macros = macrosData?.data ?? [];
+  const macros = useMemo(() => macrosData?.data ?? [], [macrosData]);
 
   const isClosed = conversation?.state === 'closed';
 

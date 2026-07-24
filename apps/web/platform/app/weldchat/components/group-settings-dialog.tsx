@@ -22,8 +22,6 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Input } from '@weldsuite/ui/components/input';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
-import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
-import { RadioGroup, RadioGroupItem } from '@weldsuite/ui/components/radio-group';
 import {
   Select,
   SelectContent,
@@ -61,7 +59,6 @@ import {
   Settings as SettingsIcon,
   Search,
   RotateCcw,
-  BellOff,
   Bell,
   ArrowDownAZ,
   ArrowDownZA,
@@ -91,7 +88,9 @@ import {
   useUserPreferences,
   useUpdateUserPreferences,
 } from '@/hooks/queries/use-settings-queries';
+import type { UserPreferences } from '@/hooks/queries/use-settings-queries';
 import { useMuteChannel, useUpdateChannel } from '@/hooks/queries/use-weldchat-queries';
+import type { UpdateChannelRequest } from '@/lib/api/domains/weldchat';
 import { Pencil } from 'lucide-react';
 import {
   DEFAULT_GROUP_FILTER,
@@ -113,7 +112,17 @@ export interface GroupSettingsTarget {
     id: string;
     name?: string | null;
     isMuted?: boolean | null;
-    [key: string]: any;
+    // Single-channel mode (`channel:<id>`) also reads/writes these —
+    // present when the target is a real `ChatChannel`, absent for DMs/groups.
+    description?: string | null;
+    topic?: string | null;
+    voiceCallsEnabled?: boolean | null;
+    videoCallsEnabled?: boolean | null;
+    threadsEnabled?: boolean | null;
+    attachmentsEnabled?: boolean | null;
+    reactionsEnabled?: boolean | null;
+    slowModeSeconds?: number | null;
+    [key: string]: unknown;
   }>;
 }
 
@@ -131,17 +140,30 @@ type SectionKey =
   | 'notifications'
   | 'advanced';
 
+/**
+ * `uiPreferences` as stored on the server, widened to include
+ * `weldchatGroupFilters` — not part of the shared `UserPreferences` type
+ * declared in `use-settings-queries.ts`, but round-tripped through the same
+ * free-form `uiPreferences` JSON blob.
+ */
+type UiPreferencesWithGroupFilters = NonNullable<UserPreferences['uiPreferences']> & {
+  weldchatGroupFilters?: WeldchatGroupFilters;
+};
+
 export function GroupSettingsDialog({ open, onOpenChange, target }: GroupSettingsDialogProps) {
   const { t } = useI18n();
 
-  const NAV: { key: SectionKey; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-    { key: 'general', label: t.weldchat.groupSettings.nav.general, icon: Pencil },
-    { key: 'visibility', label: t.weldchat.groupSettings.nav.visibility, icon: Eye },
-    { key: 'channels', label: t.weldchat.groupSettings.nav.channels, icon: Hash },
-    { key: 'display', label: t.weldchat.groupSettings.nav.display, icon: ArrowDownUp },
-    { key: 'notifications', label: t.weldchat.groupSettings.nav.notifications, icon: Bell },
-    { key: 'advanced', label: t.weldchat.groupSettings.nav.advanced, icon: SettingsIcon },
-  ];
+  const NAV: { key: SectionKey; label: string; icon: React.ComponentType<{ className?: string }> }[] = useMemo(
+    () => [
+      { key: 'general', label: t.weldchat.groupSettings.nav.general, icon: Pencil },
+      { key: 'visibility', label: t.weldchat.groupSettings.nav.visibility, icon: Eye },
+      { key: 'channels', label: t.weldchat.groupSettings.nav.channels, icon: Hash },
+      { key: 'display', label: t.weldchat.groupSettings.nav.display, icon: ArrowDownUp },
+      { key: 'notifications', label: t.weldchat.groupSettings.nav.notifications, icon: Bell },
+      { key: 'advanced', label: t.weldchat.groupSettings.nav.advanced, icon: SettingsIcon },
+    ],
+    [t],
+  );
 
   const { data: prefs } = useUserPreferences();
   const { mutate: updatePrefs, isPending } = useUpdateUserPreferences();
@@ -158,10 +180,11 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: GroupSetting
       isSingleChannel
         ? NAV.filter((n) => n.key === 'general' || n.key === 'notifications' || n.key === 'advanced')
         : NAV.filter((n) => n.key !== 'general'),
-    [isSingleChannel],
+    [isSingleChannel, NAV],
   );
 
-  const allFilters: WeldchatGroupFilters = (prefs?.uiPreferences as any)?.weldchatGroupFilters ?? {};
+  const allFilters: WeldchatGroupFilters =
+    (prefs?.uiPreferences as UiPreferencesWithGroupFilters | undefined)?.weldchatGroupFilters ?? {};
   const saved = target ? allFilters[target.groupKey] : undefined;
 
   const [draft, setDraft] = useState<GroupFilterSettings>({ ...DEFAULT_GROUP_FILTER, ...(saved ?? {}) });
@@ -217,13 +240,13 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: GroupSetting
       setSection(isSingleChannel ? 'general' : 'visibility');
       setChannelDraft(channelBaseline);
     }
-  }, [open, target?.groupKey, isSingleChannel, channelBaseline]);
+  }, [open, target?.groupKey, isSingleChannel, channelBaseline, saved]);
 
   const update = <K extends keyof GroupFilterSettings>(key: K, value: GroupFilterSettings[K]) => {
     setDraft((d) => ({ ...d, [key]: value }));
   };
 
-  const sourceChannels = target?.channels ?? [];
+  const sourceChannels = useMemo(() => target?.channels ?? [], [target]);
 
   const channelIds = useMemo(() => new Set(draft.channelIds ?? []), [draft.channelIds]);
   const filteredSource = useMemo(() => {
@@ -261,7 +284,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: GroupSetting
           if (channelDraft[k] !== channelBaseline[k]) diff[k] = channelDraft[k];
         });
         updateChannel(
-          { channelId: sourceChannel.id, ...(diff as any) },
+          { channelId: sourceChannel.id, ...(diff as Partial<UpdateChannelRequest>) },
           { onSuccess: () => resolve(), onError: () => resolve() },
         );
       });
@@ -275,7 +298,12 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: GroupSetting
         }
         const next: WeldchatGroupFilters = { ...allFilters, [target.groupKey]: draft };
         updatePrefs(
-          { uiPreferences: { ...(prefs?.uiPreferences ?? {}), weldchatGroupFilters: next } as any },
+          {
+            uiPreferences: {
+              ...(prefs?.uiPreferences ?? {}),
+              weldchatGroupFilters: next,
+            } as UiPreferencesWithGroupFilters,
+          },
           { onSuccess: () => resolve(), onError: () => resolve() },
         );
       });
@@ -306,7 +334,12 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: GroupSetting
     delete next[target.groupKey];
     setDraft({ ...DEFAULT_GROUP_FILTER });
     updatePrefs(
-      { uiPreferences: { ...(prefs?.uiPreferences ?? {}), weldchatGroupFilters: next } as any },
+      {
+        uiPreferences: {
+          ...(prefs?.uiPreferences ?? {}),
+          weldchatGroupFilters: next,
+        } as UiPreferencesWithGroupFilters,
+      },
       { onSuccess: () => onOpenChange(false) },
     );
   };
@@ -808,7 +841,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: GroupSetting
                     <ChipToggleGroup
                       options={BOOST_OPTIONS.map((o) => ({ ...o, label: { boostActiveCall: t.weldchat.groupSettings.display.boostOptions.activeCalls, boostPinned: t.weldchat.groupSettings.display.boostOptions.pinned, boostFavorite: t.weldchat.groupSettings.display.boostOptions.favorited, boostMentions: t.weldchat.groupSettings.display.boostOptions.mentions, boostUnread: t.weldchat.groupSettings.display.boostOptions.unread }[o.key] ?? o.label }))}
                       isOn={(key) => !!draft[key]}
-                      onToggle={(key) => update(key as any, !draft[key])}
+                      onToggle={(key) => update(key, !draft[key])}
                     />
                   </div>
 
@@ -824,7 +857,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: GroupSetting
                     <ChipToggleGroup
                       options={SINK_OPTIONS.map((o) => ({ ...o, label: { sinkRead: t.weldchat.groupSettings.display.sinkOptions.alreadyRead, sinkInactive: t.weldchat.groupSettings.display.sinkOptions.inactive, sinkEmpty: t.weldchat.groupSettings.display.sinkOptions.noMessages, sinkMuted: t.weldchat.groupSettings.display.sinkOptions.muted, sinkArchived: t.weldchat.groupSettings.display.sinkOptions.archived }[o.key] ?? o.label }))}
                       isOn={(key) => !!draft[key]}
-                      onToggle={(key) => update(key as any, !draft[key])}
+                      onToggle={(key) => update(key, !draft[key])}
                     />
                   </div>
 
@@ -892,7 +925,7 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: GroupSetting
                     </div>
                     <Select
                       value={draft.notificationSound ?? 'default'}
-                      onValueChange={(v) => update('notificationSound', v as any)}
+                      onValueChange={(v) => update('notificationSound', v as 'default' | 'subtle' | 'chime' | 'silent')}
                     >
                       <SelectTrigger className="w-full max-w-[260px]">
                         <SelectValue />
@@ -1112,15 +1145,6 @@ function ToggleRow({
       </Label>
       <Switch id={id} checked={checked} onCheckedChange={onChange} />
     </div>
-  );
-}
-
-function RadioRow({ value, id, label }: { value: string; id: string; label: string }) {
-  return (
-    <label htmlFor={id} className="flex items-center gap-2 cursor-pointer text-sm">
-      <RadioGroupItem value={value} id={id} />
-      <span>{label}</span>
-    </label>
   );
 }
 
@@ -1386,7 +1410,7 @@ function CollapseBehaviorSection({
           <ChipToggleGroup
             options={PEEK_OPTIONS.map((o) => ({ ...o, label: { peekMentions: t.weldchat.groupSettings.display.peekOptions.mentions, peekUnread: t.weldchat.groupSettings.display.peekOptions.unreadMessages, peekActiveCalls: t.weldchat.groupSettings.display.peekOptions.activeCalls, peekPinned: t.weldchat.groupSettings.display.peekOptions.pinned, peekFavorited: t.weldchat.groupSettings.display.peekOptions.favorited, peekRecentlyActive: t.weldchat.groupSettings.display.peekOptions.recentlyActive }[o.key] ?? o.label }))}
             isOn={(key) => !!draft[key]}
-            onToggle={(key) => update(key as any, !draft[key])}
+            onToggle={(key) => update(key, !draft[key])}
           />
 
           {draft.peekRecentlyActive && (

@@ -18,33 +18,15 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@weldsuite/ui/components/dialog';
-import { Label } from '@weldsuite/ui/components/label';
-import { Input } from '@weldsuite/ui/components/input';
-import { Textarea } from '@weldsuite/ui/components/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
 import { Calendar } from '@weldsuite/ui/components/calendar';
 import { Badge } from '@weldsuite/ui/components/badge';
-import { type TaskComment, type SubtaskItem, type DependencyTask } from '@/components/task-detail';
+import { type SubtaskItem } from '@/components/task-detail';
 import { useObjectPanel } from '@/components/object-panel';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
-import { useAuth } from '@clerk/clerk-react';
 import {
   DndContext,
   DragEndEvent,
@@ -69,9 +51,6 @@ import {
   Pencil,
   Trash2,
   Copy,
-  CalendarIcon,
-  X,
-  User,
   Repeat,
   ListTodo,
   Paperclip,
@@ -79,17 +58,15 @@ import {
   ChevronRight,
   FolderInput,
 } from 'lucide-react';
-import { Switch } from '@weldsuite/ui/components/switch';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
 import { tasksApi, membersApi, labelsApi, stagesApi } from '@/app/weldflow/lib/api-client';
 import { useFeatureFlag } from '@/hooks/queries/use-feature-flags-queries';
 import { MoveTaskDialog } from '@/components/weldflow/move-task-dialog';
 import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
 import type { Projects } from '@/lib/api/types/apps/projects.types';
-import { useProjectPermissions, ProjectPermissionContext } from '@/app/weldflow/contexts/project-permission-context';
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers, type SortState } from '@/components/entity-list';
+import { ProjectPermissionContext } from '@/app/weldflow/contexts/project-permission-context';
+import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type SortState } from '@/components/entity-list';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
 
 interface Task {
@@ -100,14 +77,14 @@ interface Task {
   status: 'todo' | 'in_progress' | 'done';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   assignee?: string;
-  assigneeId?: string;
+  assigneeId?: string | null;
   assigneeIds?: string[];
   assignees?: { id: string; name: string; email?: string; avatar?: string }[];
   dueDate?: Date;
   createdAt: Date;
   tags?: string[];
   labels?: string[];
-  customFields?: Record<string, any>;
+  customFields?: Record<string, unknown>;
   attachmentCount?: number;
   parentTaskId?: string | null;
   dependsOn?: string[];
@@ -134,20 +111,6 @@ interface ProjectLabel {
   color: string;
 }
 
-// Project labels (created in project settings) store colors as Tailwind class names (e.g. "bg-blue-500"),
-// while inline-created labels store hex values. Resolve to a CSS color so the badge always renders correctly.
-const TAILWIND_LABEL_TO_HEX: Record<string, string> = {
-  'bg-red-500': '#ef4444', 'bg-pink-500': '#ec4899', 'bg-purple-500': '#a855f7',
-  'bg-indigo-500': '#6366f1', 'bg-blue-500': '#3b82f6', 'bg-cyan-500': '#06b6d4',
-  'bg-teal-500': '#14b8a6', 'bg-green-500': '#22c55e', 'bg-yellow-500': '#eab308',
-  'bg-orange-500': '#f97316', 'bg-amber-500': '#f59e0b', 'bg-gray-500': '#6b7280',
-};
-function resolveLabelColor(color: string | null | undefined): string {
-  if (!color) return '#6b7280';
-  if (color.startsWith('#')) return color;
-  return TAILWIND_LABEL_TO_HEX[color] ?? '#6b7280';
-}
-
 interface ProjectMember {
   userId: string;
   user?: {
@@ -156,6 +119,15 @@ interface ProjectMember {
     email: string;
     avatar?: string;
   };
+}
+
+// Raw pipeline-stage row from `stagesApi.list` (`project-pipeline-stages`).
+interface RawStage {
+  id: string;
+  name: string;
+  color?: string | null;
+  position?: number | null;
+  systemStatus?: string | null;
 }
 
 interface TasksClientProps {
@@ -181,35 +153,54 @@ interface TasksClientProps {
 
 // priorityConfig and statusConfig are built inside TasksClient (need t for labels)
 
+// The task API route returns richer payloads than `Projects.ProjectTask` documents
+// (nested children for includeSubtasks=true, computed counts, custom fields). This
+// shape captures what `transformApiTask` actually reads off the response — all
+// additions are optional so a plain `Projects.ProjectTask` still satisfies it.
+interface RawApiTask extends Projects.ProjectTask {
+  stageId?: string | null;
+  customerId?: string | null;
+  customFields?: Record<string, unknown> | null;
+  attachmentsCount?: number;
+  _count?: { attachments?: number };
+  subtaskCount?: number;
+  completedSubtaskCount?: number;
+  repeat?: { frequency: string; interval?: number; unit?: string } | null;
+  children?: RawApiTask[];
+}
+
 // Transform API task to local Task format
-function transformApiTask(apiTask: Projects.ProjectTask): Task {
-  const rawChildren = (apiTask as any).children;
+function transformApiTask(apiTask: RawApiTask): Task {
+  const rawChildren = apiTask.children;
+  const attachmentsFromCustomFields = Array.isArray(apiTask.customFields?.attachments)
+    ? (apiTask.customFields.attachments as unknown[]).length
+    : 0;
   return {
     id: apiTask.id,
     title: apiTask.title,
     description: apiTask.description || undefined,
-    stageId: (apiTask as any).stageId ?? null,
+    stageId: apiTask.stageId ?? null,
     status: (apiTask.status as Task['status']) || 'todo',
     priority: (apiTask.priority as Task['priority']) || 'medium',
     assignee: apiTask.assignee?.name || undefined,
     assigneeId: apiTask.assigneeId || undefined,
     assigneeIds: apiTask.assigneeIds || (apiTask.assigneeId ? [apiTask.assigneeId] : undefined),
-    assignees: (apiTask as any).assignees || (apiTask.assignee ? [apiTask.assignee] : undefined),
+    assignees: apiTask.assignees || (apiTask.assignee ? [apiTask.assignee] : undefined),
     dueDate: apiTask.dueDate ? new Date(apiTask.dueDate) : undefined,
     createdAt: new Date(apiTask.createdAt),
     tags: apiTask.tags || undefined,
     labels: apiTask.labels || undefined,
-    customFields: (apiTask as any).customFields || undefined,
-    attachmentCount: (apiTask as any).attachmentsCount || (apiTask as any)._count?.attachments || (Array.isArray((apiTask as any).customFields?.attachments) ? (apiTask as any).customFields.attachments.length : 0),
-    parentTaskId: (apiTask as any).parentTaskId || null,
-    customerId: (apiTask as any).customerId ?? null,
-    projectId: (apiTask as any).projectId ?? null,
-    dependsOn: (apiTask as any).dependsOn || [],
-    blocks: (apiTask as any).blocks || [],
-    subtaskCount: (apiTask as any).subtaskCount || 0,
-    completedSubtaskCount: (apiTask as any).completedSubtaskCount || 0,
-    key: (apiTask as any).key || undefined,
-    repeat: (apiTask as any).repeat || undefined,
+    customFields: apiTask.customFields || undefined,
+    attachmentCount: apiTask.attachmentsCount || apiTask._count?.attachments || attachmentsFromCustomFields,
+    parentTaskId: apiTask.parentTaskId || null,
+    customerId: apiTask.customerId ?? null,
+    projectId: apiTask.projectId ?? null,
+    dependsOn: apiTask.dependsOn || [],
+    blocks: apiTask.blocks || [],
+    subtaskCount: apiTask.subtaskCount || 0,
+    completedSubtaskCount: apiTask.completedSubtaskCount || 0,
+    key: apiTask.key || undefined,
+    repeat: apiTask.repeat || undefined,
     children: Array.isArray(rawChildren) ? rawChildren.map(transformApiTask) : undefined,
   };
 }
@@ -264,11 +255,17 @@ const statusFromCrm: Record<string, Task['status']> = {
   'cancelled': 'cancelled',
 };
 
+// Sort-order lookups for the board's "Sort by status/priority" columns — static,
+// so these live at module scope instead of being recreated (with a new array
+// identity) on every render.
+const STATUS_SORT_ORDER = ['todo', 'in_progress', 'review', 'done', 'cancelled'];
+const PRIORITY_SORT_ORDER = ['low', 'medium', 'high', 'urgent'];
+
 function toCrmTask(
   task: Task,
   projectMembers: ProjectMember[],
   availableCompanies: { id: string; name: string; avatar?: string }[] = [],
-): CrmTask & { assignees?: { id: string; name: string; avatar?: string }[]; customFields?: Record<string, any>; linkedCompany?: { id: string; name: string; avatar?: string } } {
+): CrmTask & { assignees?: { id: string; name: string; avatar?: string }[]; customFields?: Record<string, unknown>; linkedCompany?: { id: string; name: string; avatar?: string } } {
   // Build assignees list from task.assignees or resolve from ids — preserves
   // the avatar URL so the panel can render real profile pictures.
   let assigneesList: { id: string; name: string; avatar?: string }[] = [];
@@ -315,7 +312,7 @@ function toCrmTask(
     scheduledStart: task.scheduledStart ? new Date(task.scheduledStart) : null,
     scheduledEnd: task.scheduledEnd ? new Date(task.scheduledEnd) : null,
     autoScheduled: task.autoScheduled ?? null,
-  } as CrmTask & { assignees?: { id: string; name: string }[]; customFields?: Record<string, any>; repeat?: { frequency: string; interval?: number; unit?: string }; linkedCompany?: { id: string; name: string; avatar?: string } };
+  } as CrmTask & { assignees?: { id: string; name: string }[]; customFields?: Record<string, unknown>; repeat?: { frequency: string; interval?: number; unit?: string }; linkedCompany?: { id: string; name: string; avatar?: string } };
 }
 
 const restrictToVerticalAxis = ({ transform }: { transform: { x: number; y: number; scaleX: number; scaleY: number } }) => ({
@@ -392,15 +389,15 @@ export function TasksClient({
   // Tasks span multiple projects; project-only features are suppressed.
   const isEntityMode = !!entityScope;
 
-  const priorityConfig = {
+  const priorityConfig = useMemo(() => ({
     low: { label: t.projects.tasks.priorityLow, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
     medium: { label: t.projects.tasks.priorityMedium, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950' },
     high: { label: t.projects.tasks.priorityHigh, color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-950' },
     urgent: { label: t.projects.tasks.priorityUrgent, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950' },
     critical: { label: t.projects.tasks.priorityCritical, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950' },
-  };
+  }), [t]);
 
-  const statusConfig: Record<string, { label: string; icon: typeof Circle; color: string; bg: string }> = {
+  const statusConfig: Record<string, { label: string; icon: typeof Circle; color: string; bg: string }> = useMemo(() => ({
     backlog: { label: t.projects.tasks.statusBacklog, icon: Circle, color: 'text-slate-600 dark:text-slate-400', bg: 'bg-slate-100 dark:bg-slate-900/50' },
     todo: { label: t.projects.tasks.statusTodo, icon: Circle, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
     in_progress: { label: t.projects.tasks.statusInProgress, icon: Clock, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950' },
@@ -409,7 +406,7 @@ export function TasksClient({
     testing: { label: t.projects.tasks.statusTesting, icon: Clock, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-950' },
     done: { label: t.projects.tasks.statusDone, icon: CheckCircle2, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950' },
     cancelled: { label: t.projects.tasks.statusCancelled, icon: Circle, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950' },
-  };
+  }), [t]);
 
   // In entity mode the component is embedded in a CRM object panel, which has
   // no BreadcrumbProvider — useOptionalBreadcrumbs no-ops there instead of
@@ -435,14 +432,14 @@ export function TasksClient({
   const isSortControlled = onSortChange !== undefined;
   const [internalSortState, setInternalSortState] = useState<SortState | null>(null);
   const sortState = isSortControlled ? (sortStateProp ?? null) : internalSortState;
-  const setSortState = (next: SortState | null | ((prev: SortState | null) => SortState | null)) => {
+  const setSortState = useCallback((next: SortState | null | ((prev: SortState | null) => SortState | null)) => {
     if (isSortControlled) {
       const resolved = typeof next === 'function' ? (next as (prev: SortState | null) => SortState | null)(sortState) : next;
       onSortChange!(resolved);
     } else {
       setInternalSortState(next);
     }
-  };
+  }, [isSortControlled, sortState, onSortChange]);
   const [groupBy, setGroupBy] = useState<'status' | 'priority' | 'dueDate' | 'assignee' | 'none'>('status');
   const [completingTaskIds, setCompletingTaskIds] = useState<Set<string>>(new Set());
 
@@ -484,6 +481,10 @@ export function TasksClient({
   const { open: openTaskPanel } = useObjectPanel();
   useLayoutEffect(() => {
     if (selectedTask) openTaskPanel({ type: 'task', id: selectedTask.id });
+    // Intentionally keyed on the id, not the whole object — re-opening the panel
+    // on every unrelated field edit (priority/status/etc. while the same task
+    // stays selected) would reset the panel's own transient UI state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTask?.id, openTaskPanel]);
 
   const [isPending, startTransition] = useTransition();
@@ -508,206 +509,15 @@ export function TasksClient({
   // Drag reorder is disabled in entity mode (tasks span multiple projects — there
   // is no single position sequence to persist) and whenever a sort is active.
   const isDragEnabled = !isEntityMode && canWrite && !sortState;
-  const [comments, setComments] = useState<TaskComment[]>([]);
-  const { userId } = useAuth();
-
-  // Fetch comments when a task is selected
-  useEffect(() => {
-    if (!selectedTask) {
-      setComments([]);
-      return;
-    }
-    async function loadComments() {
-      const result = await tasksApi.listComments(projectId, selectedTask!.id);
-      if (result.success && result.data) {
-        setComments(Array.isArray(result.data) ? result.data : []);
-      }
-    }
-    loadComments();
-  }, [selectedTask?.id, projectId]);
-
-  // Subtasks & dependencies state
-  const [subtasks, setSubtasks] = useState<SubtaskItem[]>([]);
-  const [selectedTaskDetail, setSelectedTaskDetail] = useState<any>(null);
-  // Tracks which parent the current `subtasks` list belongs to so sibling-to-
-  // sibling navigation doesn't re-fetch, and cross-parent navigation replaces
-  // the list instead of accumulating.
-  const subtasksParentIdRef = useRef<string | null>(null);
-
-  // Fetch subtasks and task detail when a task is selected. The Subtasks
-  // section lists the selected task's ENTIRE subtree — direct children plus
-  // every descendant — flattened with `depth` on each row so the panel can
-  // indent them. We BFS level-by-level (parallel within a level) and re-apply
-  // the flattened tree after each level, so shallow descendants show
-  // immediately and deeper levels fill in progressively.
-  useEffect(() => {
-    if (!selectedTask) {
-      setSubtasks([]);
-      setSelectedTaskDetail(null);
-      subtasksParentIdRef.current = null;
-      return;
-    }
-    let cancelled = false;
-
-    const listSubtasksOf = selectedTask.id;
-    const parentChanged = subtasksParentIdRef.current !== listSubtasksOf;
-    subtasksParentIdRef.current = listSubtasksOf;
-    if (parentChanged) {
-      // Different task: clear the previous subtree so stale rows don't linger
-      // while we re-fetch.
-      setSubtasks([]);
-    }
-
-    const flattenTree = (
-      rootId: string,
-      childrenByParent: Map<string, any[]>,
-      depth: number,
-    ): SubtaskItem[] => {
-      const out: SubtaskItem[] = [];
-      const children = childrenByParent.get(rootId) || [];
-      for (const c of children) {
-        out.push({
-          id: c.id,
-          title: c.title,
-          status: c.status,
-          assignee: c.assignee || null,
-          depth,
-        });
-        out.push(...flattenTree(c.id, childrenByParent, depth + 1));
-      }
-      return out;
-    };
-
-    const applyFlat = (flat: SubtaskItem[]) => {
-      if (cancelled) return;
-      const serverIds = new Set(flat.map((s) => s.id));
-      // Preserve optimistic pending rows (created client-side but not yet
-      // reflected by the server) at the bottom — they'll reconcile on the
-      // next fetch cycle.
-      setSubtasks((prev) => {
-        const pending = prev.filter((p) => !serverIds.has(p.id));
-        return [...flat, ...pending];
-      });
-    };
-
-    const detailPromise = tasksApi.get(projectId, selectedTask.id).then((res) => {
-      if (cancelled) return;
-      if (res.success && res.data) {
-        setSelectedTaskDetail(res.data);
-      }
-    });
-
-    // The list endpoint already returned this task's full descendant subtree
-    // nested under `children` (flattened into `inlineSubtasks`). If the
-    // selected task is reachable from that tree we can render the detail
-    // panel's subtasks section from memory — zero network requests.
-    const knownFromCache =
-      tasks.some((t) => t.id === listSubtasksOf) ||
-      Object.values(inlineSubtasks).some((list) => list.some((s) => s.id === listSubtasksOf));
-
-    if (knownFromCache) {
-      const childrenByParent = new Map<string, any[]>();
-      for (const [pid, list] of Object.entries(inlineSubtasks)) {
-        childrenByParent.set(pid, list);
-      }
-      applyFlat(flattenTree(listSubtasksOf, childrenByParent, 0));
-    } else {
-      // Fallback: task was opened via deep-link / search and isn't on the
-      // current page, so walk the API level by level.
-      const listPromise = (async () => {
-        const childrenByParent = new Map<string, any[]>();
-        let frontier: string[] = [listSubtasksOf];
-        while (frontier.length > 0) {
-          const results = await Promise.all(
-            frontier.map((id) =>
-              tasksApi.listSubtasks(projectId, id).then((r) => ({ id, r })),
-            ),
-          );
-          if (cancelled) return;
-          const nextFrontier: string[] = [];
-          for (const { id, r } of results) {
-            const list = r.success && Array.isArray(r.data) ? r.data : [];
-            childrenByParent.set(id, list);
-            for (const child of list) {
-              if ((child.subtaskCount ?? 0) > 0) nextFrontier.push(child.id);
-            }
-          }
-          applyFlat(flattenTree(listSubtasksOf, childrenByParent, 0));
-          frontier = nextFrontier;
-        }
-      })();
-      void listPromise;
-    }
-
-    void detailPromise;
-    return () => { cancelled = true; };
-  }, [selectedTask?.id, projectId, tasks, inlineSubtasks]);
-
-  // Resolve dependency/blocking tasks from detail data
-  const dependencyTasks: DependencyTask[] = useMemo(() => {
-    if (!selectedTaskDetail?.dependsOn?.length) return [];
-    return (selectedTaskDetail.dependsOn as string[])
-      .map((depId: string) => {
-        const t = tasks.find(t => t.id === depId);
-        return t ? { id: t.id, title: t.title, status: t.status, key: t.key } : null;
-      })
-      .filter(Boolean) as DependencyTask[];
-  }, [selectedTaskDetail?.dependsOn, tasks]);
-
-  const blockingTasks: DependencyTask[] = useMemo(() => {
-    if (!selectedTaskDetail?.blocks?.length) return [];
-    return (selectedTaskDetail.blocks as string[])
-      .map((blockId: string) => {
-        const t = tasks.find(t => t.id === blockId);
-        return t ? { id: t.id, title: t.title, status: t.status, key: t.key } : null;
-      })
-      .filter(Boolean) as DependencyTask[];
-  }, [selectedTaskDetail?.blocks, tasks]);
-
-  const allProjectTasks: DependencyTask[] = useMemo(() =>
-    tasks.map(t => ({ id: t.id, title: t.title, status: t.status, key: t.key })),
-  [tasks]);
-
-  const parentTask = useMemo(() => {
-    const parentId =
-      selectedTaskDetail?.parentTaskId || (selectedTask as any)?.parentTaskId || null;
-    if (!parentId) return null;
-    // 1. Try the main tasks array (top-level parents live here).
-    const fromTasks = tasks.find(t => t.id === parentId);
-    if (fromTasks) {
-      return { id: fromTasks.id, title: fromTasks.title, status: fromTasks.status };
-    }
-    // 2. Look in `inlineSubtasks` (parent may itself be a subtask of another
-    //    task we've expanded inline).
-    for (const parentList of Object.values(inlineSubtasks)) {
-      const match = parentList.find((s) => s.id === parentId);
-      if (match) {
-        return { id: match.id, title: match.title, status: match.status };
-      }
-    }
-    // 3. Finally, peek at the detail response — some endpoints nest a
-    //    `parent` object.
-    const nested = selectedTaskDetail?.parent;
-    if (nested?.id && nested?.title) {
-      return { id: nested.id, title: nested.title, status: nested.status };
-    }
-    return null;
-  }, [
-    selectedTaskDetail?.parentTaskId,
-    (selectedTask as any)?.parentTaskId,
-    selectedTaskDetail?.parent,
-    tasks,
-    inlineSubtasks,
-  ]);
-
-  const handleCreateSubtask = useCallback(() => {
-    setShowSubtaskDialog(true);
-  }, []);
+  // `subtasks` currently has no reader (the detail panel is a global overlay with
+  // its own data fetching — see `useObjectPanel` above) but `handleSaveSubtask`
+  // still optimistically appends to it below, so the setter stays live.
+  const [, setSubtasks] = useState<SubtaskItem[]>([]);
 
   const handleSaveSubtask = useCallback(async (data: {
     title: string;
     description?: string;
-    status: any;
+    status: CrmTask['status'];
     priority?: 'low' | 'medium' | 'high';
     assigneeId?: string;
     assigneeIds?: string[];
@@ -720,7 +530,7 @@ export function TasksClient({
     // nesting can go arbitrarily deep (subtasks of subtasks of…).
     // In entity mode the task already carries its own projectId from the API.
     const parentId = selectedTask.id;
-    const effectiveProjectId = (isEntityMode ? (selectedTask as any).projectId : null) ?? projectId;
+    const effectiveProjectId = (isEntityMode ? selectedTask.projectId : null) ?? projectId;
     const result = await tasksApi.create(effectiveProjectId, {
       title: data.title,
       description: data.description,
@@ -733,12 +543,13 @@ export function TasksClient({
     });
     setIsCreatingTask(false);
     if (result.success && result.data) {
-      const newSubtask = transformApiTask(result.data);
+      const subtaskData = result.data as RawApiTask;
+      const newSubtask = transformApiTask(subtaskData);
       setSubtasks(prev => [...prev, {
-        id: result.data.id,
-        title: result.data.title,
-        status: result.data.status,
-        assignee: result.data.assignee || null,
+        id: subtaskData.id,
+        title: subtaskData.title,
+        status: subtaskData.status,
+        assignee: subtaskData.assignee || null,
         // New row is a direct child of the currently-selected task, which is
         // the implicit root of the detail panel's subtask tree — depth 0.
         depth: 0,
@@ -783,47 +594,7 @@ export function TasksClient({
     } else {
       toast.error(t.projects.tasks.failedToCreateSubtask);
     }
-  }, [isEntityMode, selectedTask, projectId]);
-
-  const handleToggleSubtask = useCallback(async (subtaskId: string, currentStatus: string) => {
-    const result = await tasksApi.toggle(projectId, subtaskId, currentStatus);
-    if (result.success) {
-      const newStatus = currentStatus === 'done' ? 'todo' : 'done';
-      setSubtasks(prev => prev.map(s => s.id === subtaskId ? { ...s, status: newStatus } : s));
-      // Update inline subtasks cache
-      setInlineSubtasks(prev => {
-        const updated: Record<string, Task[]> = {};
-        for (const [parentId, subs] of Object.entries(prev)) {
-          updated[parentId] = subs.map(s => s.id === subtaskId ? { ...s, status: newStatus as Task['status'] } : s);
-        }
-        return updated;
-      });
-    }
-  }, [projectId]);
-
-  const handleNavigateToTask = useCallback(async (taskId: string) => {
-    // 1. Top-level tasks live in `tasks` — instant.
-    const task = tasks.find(t => t.id === taskId);
-    if (task) {
-      setSelectedTask(task);
-      return;
-    }
-    // 2. Subtasks we've already fetched live in `inlineSubtasks` as full Task
-    //    objects (including parentTaskId) — instant, no network round-trip.
-    for (const parentList of Object.values(inlineSubtasks)) {
-      const match = parentList.find(t => t.id === taskId);
-      if (match) {
-        setSelectedTask(match);
-        return;
-      }
-    }
-    // 3. Fallback: fetch from the server.
-    const result = await tasksApi.get(projectId, taskId);
-    if (result.success && result.data) {
-      const fetched = transformApiTask(result.data);
-      setSelectedTask(fetched);
-    }
-  }, [tasks, projectId, inlineSubtasks]);
+  }, [isEntityMode, selectedTask, projectId, t.projects.tasks.failedToCreateSubtask, t.projects.tasks.subtaskCreated]);
 
   // Mirror inlineSubtasks into a ref so toggleExpandTask can read the latest
   // cache without listing it as a dependency — that kept the callback stable
@@ -849,57 +620,16 @@ export function TasksClient({
     if (!inlineSubtasksRef.current[taskId]) {
       tasksApi.listSubtasks(projectId, taskId).then((result) => {
         if (result.success && result.data && Array.isArray(result.data)) {
+          const children = result.data;
           setInlineSubtasks((prev) =>
             prev[taskId]
               ? prev
-              : { ...prev, [taskId]: (result.data as any[]).map(transformApiTask) },
+              : { ...prev, [taskId]: children.map(transformApiTask) },
           );
         }
       });
     }
   }, [projectId]);
-
-  const handleAddDependency = useCallback(async (targetTaskId: string, type: 'blocks' | 'blockedBy') => {
-    if (!selectedTask || !selectedTaskDetail) return;
-    const currentDeps = selectedTaskDetail.dependsOn || [];
-    const currentBlocks = selectedTaskDetail.blocks || [];
-
-    const newData: { dependsOn?: string[]; blocks?: string[] } = {};
-    if (type === 'blockedBy') {
-      newData.dependsOn = [...new Set([...currentDeps, targetTaskId])];
-      newData.blocks = currentBlocks;
-    } else {
-      newData.blocks = [...new Set([...currentBlocks, targetTaskId])];
-      newData.dependsOn = currentDeps;
-    }
-
-    const result = await tasksApi.updateDependencies(projectId, selectedTask.id, newData);
-    if (result.success && result.data) {
-      setSelectedTaskDetail((prev: any) => prev ? { ...prev, dependsOn: result.data.dependsOn, blocks: result.data.blocks } : prev);
-    } else {
-      toast.error((result as any).error || t.projects.tasks.failedToAddDependency);
-    }
-  }, [selectedTask, selectedTaskDetail, projectId]);
-
-  const handleRemoveDependency = useCallback(async (targetTaskId: string, type: 'blocks' | 'blockedBy') => {
-    if (!selectedTask || !selectedTaskDetail) return;
-    const currentDeps = selectedTaskDetail.dependsOn || [];
-    const currentBlocks = selectedTaskDetail.blocks || [];
-
-    const newData: { dependsOn?: string[]; blocks?: string[] } = {};
-    if (type === 'blockedBy') {
-      newData.dependsOn = currentDeps.filter((id: string) => id !== targetTaskId);
-      newData.blocks = currentBlocks;
-    } else {
-      newData.blocks = currentBlocks.filter((id: string) => id !== targetTaskId);
-      newData.dependsOn = currentDeps;
-    }
-
-    const result = await tasksApi.updateDependencies(projectId, selectedTask.id, newData);
-    if (result.success && result.data) {
-      setSelectedTaskDetail((prev: any) => prev ? { ...prev, dependsOn: result.data.dependsOn, blocks: result.data.blocks } : prev);
-    }
-  }, [selectedTask, selectedTaskDetail, projectId]);
 
   // Fetch labels. In entity mode we fetch workspace-wide labels only (no projectId)
   // because tasks span multiple projects. In project mode we fetch project + workspace labels.
@@ -921,8 +651,9 @@ export function TasksClient({
     async function loadStages() {
       const result = await stagesApi.list(projectId);
       if (result.success && Array.isArray(result.data)) {
-        const sorted = [...result.data].sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0));
-        setProjectStages(sorted.map((s: any) => ({
+        const stages = result.data as RawStage[];
+        const sorted = [...stages].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+        setProjectStages(sorted.map((s) => ({
           id: s.id,
           name: s.name,
           color: s.color || '#94a3b8',
@@ -943,7 +674,7 @@ export function TasksClient({
     }
     toast.error(t.projects.tasks.failedToCreateLabel);
     return null;
-  }, [isEntityMode, projectId]);
+  }, [isEntityMode, projectId, t.projects.tasks.failedToCreateLabel]);
 
   // Real-time task event handlers - update local state directly without page refresh
   const handleTaskCreated = useCallback((event: AnyPlatformEvent) => {
@@ -1102,7 +833,7 @@ export function TasksClient({
     setIsCreatingTask(false);
 
     if (result.success && result.data) {
-      const newTask = transformApiTask(result.data);
+      const newTask = transformApiTask(result.data as RawApiTask);
       setTasks(prev => [newTask, ...prev]);
       setShowAddDialog(false);
       toast.success(t.projects.tasks.taskCreated);
@@ -1110,36 +841,6 @@ export function TasksClient({
       toast.error(result.error || t.projects.tasks.failedToCreateTask);
     }
   };
-
-  const toggleTaskStatus = useCallback(async (taskId: string) => {
-    const task = tasks.find(t => t.id === taskId);
-    if (!task) return;
-
-    startTransition(async () => {
-      const result = await tasksApi.toggle(projectId, taskId, task.status);
-
-      if (result.success) {
-        setTasks(prev => prev.map((t) => {
-          if (t.id === taskId) {
-            const newStatus = t.status === 'done' ? 'todo' : 'done';
-            return { ...t, status: newStatus };
-          }
-          return t;
-        }));
-
-        // If a next recurring task was created, fetch and add it
-        if ((result.data as any)?.nextTaskId) {
-          const nextResult = await tasksApi.get(projectId, (result.data as any).nextTaskId);
-          if (nextResult.success && nextResult.data) {
-            setTasks(prev => [transformApiTask(nextResult.data), ...prev]);
-            toast.success(t.projects.tasks.nextRecurringCreated);
-          }
-        }
-      } else {
-        toast.error(result.error || t.projects.tasks.failedToUpdateTask);
-      }
-    });
-  }, [tasks, projectId, startTransition]);
 
   const handleCheckboxToggle = useCallback(async (taskId: string, currentStatus: Task['status']) => {
     if (!canWrite) return;
@@ -1254,7 +955,7 @@ export function TasksClient({
           : t
         ));
       } else {
-        toast.error((result as any).error || t.projects.tasks.failedToUpdateTask);
+        toast.error(result.error || t.projects.tasks.failedToUpdateTask);
       }
 
       setCompletingTaskIds(prev => {
@@ -1273,14 +974,15 @@ export function TasksClient({
 
     // Fetch the next recurring task (if any) after the view transition kicks off —
     // its arrival in the list will naturally re-render without blocking the animation.
-    if (result.success && (result.data as any)?.nextTaskId) {
-      const nextResult = await tasksApi.get(projectId, (result.data as any).nextTaskId);
+    if (result.success && result.data?.nextTaskId) {
+      const nextResult = await tasksApi.get(projectId, result.data.nextTaskId);
       if (nextResult.success && nextResult.data) {
-        setTasks(prev => [transformApiTask(nextResult.data), ...prev]);
+        const nextTask = transformApiTask(nextResult.data as RawApiTask);
+        setTasks(prev => [nextTask, ...prev]);
         toast.success(t.projects.tasks.nextRecurringCreated);
       }
     }
-  }, [canWrite, tasks, projectId, toggleTaskStatus, pendingParentCompletionIds, inlineSubtasks]);
+  }, [canWrite, tasks, projectId, pendingParentCompletionIds, inlineSubtasks, t.projects.tasks.failedToUpdateTask, t.projects.tasks.nextRecurringCreated]);
 
   // When a pending-complete parent has all its subtasks finished, promote it
   // to a real 'done' status via the API. This moves it into the Done group.
@@ -1309,7 +1011,7 @@ export function TasksClient({
         }
       });
     }
-  }, [pendingParentCompletionIds, inlineSubtasks, tasks, projectId]);
+  }, [pendingParentCompletionIds, inlineSubtasks, tasks, projectId, t.projects.tasks.failedToCompleteTask]);
 
   const deleteTask = useCallback(async (taskId: string) => {
     startTransition(async () => {
@@ -1322,7 +1024,7 @@ export function TasksClient({
         toast.error(result.error || t.projects.tasks.failedToDeleteTask);
       }
     });
-  }, [projectId, startTransition]);
+  }, [projectId, startTransition, t.projects.tasks.failedToDeleteTask, t.projects.tasks.taskDeleted]);
 
   const formatDateShort = useCallback((date: Date | string) => {
     const d = date instanceof Date ? date : new Date(date);
@@ -1358,10 +1060,11 @@ export function TasksClient({
     }
 
     if (result.success) {
-      if ((result.data as any)?.nextTaskId) {
-        const nextResult = await tasksApi.get(projectId, (result.data as any).nextTaskId);
+      if (result.data?.nextTaskId) {
+        const nextResult = await tasksApi.get(projectId, result.data.nextTaskId);
         if (nextResult.success && nextResult.data) {
-          setTasks(prev => [transformApiTask(nextResult.data), ...prev]);
+          const nextTask = transformApiTask(nextResult.data as RawApiTask);
+          setTasks(prev => [nextTask, ...prev]);
           toast.success(t.projects.tasks.nextRecurringCreated);
         }
       }
@@ -1369,13 +1072,13 @@ export function TasksClient({
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: oldStatus, stageId: oldStageId } : t));
       toast.error(t.projects.tasks.failedToUpdateTask);
     }
-  }, [tasks, projectId, projectStages]);
+  }, [tasks, projectId, projectStages, t.projects.tasks.failedToUpdateTask, t.projects.tasks.nextRecurringCreated]);
 
-  const updateTaskInline = useCallback(async (taskId: string, data: Record<string, any>) => {
+  const updateTaskInline = useCallback(async (taskId: string, data: Partial<Task>) => {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...data } : t));
     setSelectedTask(prev => prev?.id === taskId ? { ...prev, ...data } : prev);
 
-    const apiData: Record<string, any> = { ...data };
+    const apiData: Record<string, unknown> = { ...data };
     if (data.dueDate !== undefined) {
       apiData.dueDate = data.dueDate ? data.dueDate.toISOString() : null;
     }
@@ -1396,7 +1099,7 @@ export function TasksClient({
     if (!result.success) {
       toast.error(t.projects.tasks.failedToUpdateTask);
     }
-  }, [projectId]);
+  }, [projectId, t.projects.tasks.failedToUpdateTask]);
 
   // Filter out subtasks from the main list — they'll be shown inline when parent is expanded
   const topLevelTasks = useMemo(() => tasks.filter(t => !t.parentTaskId), [tasks]);
@@ -1429,7 +1132,7 @@ export function TasksClient({
       });
       toast.error(t.projects.tasks.failedToReorderTasks);
     }
-  }, [isEntityMode, topLevelTasks, projectId]);
+  }, [isEntityMode, topLevelTasks, projectId, t.projects.tasks.failedToReorderTasks]);
 
   // Filter configs
   const filterConfigs: FilterConfig[] = useMemo(() => [
@@ -1616,8 +1319,8 @@ export function TasksClient({
           : result.filter(t => t.priority !== filter.value);
       } else if (filter.field === 'label') {
         result = filter.operator === 'is'
-          ? result.filter(t => Array.isArray((t as any).labels) && (t as any).labels.includes(filter.value))
-          : result.filter(t => !Array.isArray((t as any).labels) || !(t as any).labels.includes(filter.value));
+          ? result.filter(t => Array.isArray(t.labels) && t.labels.includes(filter.value))
+          : result.filter(t => !Array.isArray(t.labels) || !t.labels.includes(filter.value));
       }
     });
     return result;
@@ -1633,10 +1336,7 @@ export function TasksClient({
       }
       return { columnId, direction: 'asc' };
     });
-  }, []);
-
-  const statusOrder = ['todo', 'in_progress', 'review', 'done', 'cancelled'];
-  const priorityOrder = ['low', 'medium', 'high', 'urgent'];
+  }, [setSortState]);
 
   const sortedTasks = useMemo(() => {
     if (!sortState) return topLevelTasks;
@@ -1649,7 +1349,7 @@ export function TasksClient({
         const idx = projectStages.findIndex(ps => ps.id === s.id);
         if (idx !== -1) return idx;
       }
-      return statusOrder.indexOf(t.status);
+      return STATUS_SORT_ORDER.indexOf(t.status);
     };
 
     const tiebreak = (a: Task, b: Task) => {
@@ -1666,7 +1366,7 @@ export function TasksClient({
           cmp = (stageIndex(a) - stageIndex(b)) * dir;
           break;
         case 'priority':
-          cmp = (priorityOrder.indexOf(a.priority) - priorityOrder.indexOf(b.priority)) * dir;
+          cmp = (PRIORITY_SORT_ORDER.indexOf(a.priority) - PRIORITY_SORT_ORDER.indexOf(b.priority)) * dir;
           break;
         case 'dueDate': {
           const aTime = a.dueDate?.getTime() ?? Infinity;
@@ -1683,7 +1383,7 @@ export function TasksClient({
       }
       return cmp !== 0 ? cmp : tiebreak(a, b);
     });
-  }, [tasks, sortState, topLevelTasks, getTaskStage, projectStages]);
+  }, [sortState, topLevelTasks, getTaskStage, projectStages]);
 
   // Header columns
   const headerColumns: HeaderColumn[] = useMemo(() => [
@@ -2063,7 +1763,7 @@ export function TasksClient({
                 <DropdownMenuItem onClick={() => {
                   startTransition(async () => {
                     // In entity mode use the task's own projectId (tasks span multiple projects).
-                    const dupProjectId = (isEntityMode ? (task as any).projectId : null) ?? projectId;
+                    const dupProjectId = (isEntityMode ? task.projectId : null) ?? projectId;
                     const result = await tasksApi.create(dupProjectId, {
                       title: `${task.title} (copy)`,
                       description: task.description,
@@ -2071,7 +1771,8 @@ export function TasksClient({
                       priority: task.priority,
                     });
                     if (result.success && result.data) {
-                      setTasks(prev => [transformApiTask(result.data), ...prev]);
+                      const duplicatedTask = transformApiTask(result.data as RawApiTask);
+                      setTasks(prev => [duplicatedTask, ...prev]);
                       toast.success(t.projects.tasks.taskDuplicated);
                     }
                   });
@@ -2096,7 +1797,7 @@ export function TasksClient({
         </div>
       </div>
     );
-  }, [isPending, canWrite, toggleTaskStatus, deleteTask, availableLabels, expandedTaskIds, toggleExpandTask, handleStageChange, getTaskStage, projectStages, updateTaskInline, projectMembers, formatDateShort, startTransition, projectId, completingTaskIds, handleCheckboxToggle, pendingParentCompletionIds, showMoveTask, t]);
+  }, [isPending, canWrite, deleteTask, availableLabels, expandedTaskIds, toggleExpandTask, handleStageChange, getTaskStage, projectStages, updateTaskInline, projectMembers, formatDateShort, startTransition, projectId, completingTaskIds, handleCheckboxToggle, pendingParentCompletionIds, showMoveTask, t, availableCompanies, isEntityMode, priorityConfig, statusConfig]);
 
   // Subtask container — keeps the rows mounted and toggles visibility via
   // `hidden`. Unmounting/remounting dozens of nested rows on every click is
@@ -2168,7 +1869,7 @@ export function TasksClient({
   }, [expandedTaskIds, inlineSubtasks, renderTaskRow, SubtaskContainer]);
 
   // Wrap renderTaskRow to include inline subtasks with tree view when expanded
-  const renderRow = useCallback((task: Task, handlers: RowHandlers<Task>) => {
+  const renderRow = useCallback((task: Task) => {
     const rowContent = (
       <React.Fragment key={task.id}>
         {renderTaskRow(task, false)}
@@ -2291,7 +1992,7 @@ export function TasksClient({
         onSave={handleTaskDialogSave}
         projectId={projectId}
         onUpdate={(taskId, data) => {
-          const projectData: Record<string, any> = {};
+          const projectData: Record<string, unknown> = {};
           if (data.title) projectData.title = data.title;
           if (data.description !== undefined) projectData.description = data.description;
           if (data.status) {
@@ -2306,7 +2007,7 @@ export function TasksClient({
           if (data.priority) projectData.priority = data.priority;
           if (data.dueDate !== undefined) projectData.dueDate = data.dueDate?.toISOString();
           if (data.labels !== undefined) projectData.labels = data.labels;
-          if ((data as any).repeat !== undefined) projectData.repeat = (data as any).repeat;
+          if (data.repeat !== undefined) projectData.repeat = data.repeat;
 
           startTransition(async () => {
             const result = await tasksApi.update(projectId, taskId, projectData);

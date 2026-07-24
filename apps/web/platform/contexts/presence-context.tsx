@@ -30,6 +30,23 @@ export interface UserPresence {
   statusEmoji?: string;
 }
 
+interface ChatStatusRow {
+  userId: string;
+  status?: PresenceStatus;
+  statusText?: string;
+  statusEmoji?: string;
+}
+
+interface PresenceRealtimeEvent {
+  event: string;
+  data: {
+    userId: string;
+    status?: PresenceStatus;
+    statusText?: string;
+    statusEmoji?: string;
+  };
+}
+
 interface PresenceContextValue {
   presenceMap: Record<string, UserPresence>;
   myStatus: UserPresence | null;
@@ -78,7 +95,7 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
     const fetchStatuses = async () => {
       try {
         const client = await getClient();
-        const response = await client.get<any>('/chat-status');
+        const response = await client.get<{ data?: ChatStatusRow[] }>('/chat-status');
         if (cancelled) return;
 
         const map: Record<string, UserPresence> = {};
@@ -106,7 +123,7 @@ export function PresenceProvider({ children }: { children: React.ReactNode }) {
   }, [workspaceId, getClient]);
 
   // Subscribe to real-time status changes via WorkspaceHub
-  const handlePresenceEvent = useCallback((event: { event: string; data: any }) => {
+  const handlePresenceEvent = useCallback((event: PresenceRealtimeEvent) => {
     if (event.event === 'status_changed') {
       const { userId: uid, status, statusText, statusEmoji } = event.data;
       setPresenceMap((prev) => ({

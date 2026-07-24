@@ -27,7 +27,7 @@ const DEFAULT_WELDAGENT_WIDTH = 400;
 
 export function GlobalAgentShortcut() {
   const pathname = usePathname();
-  const { showWeldAgent, setShowWeldAgent, toggleWeldAgent, weldAgentWidth, setWeldAgentWidth, weldAgentLastPath, setWeldAgentLastPath, weldAgentPrefill, setWeldAgentPrefill, weldAgentSkipAnimation, setWeldAgentSkipAnimation } = useMobileNav();
+  const { showWeldAgent, setShowWeldAgent, toggleWeldAgent, weldAgentWidth, setWeldAgentWidth, weldAgentLastPath, setWeldAgentLastPath, weldAgentPrefill, setWeldAgentPrefill, weldAgentSkipAnimation } = useMobileNav();
   const weldAgentContext = useWeldAgentSafe();
   const [forceNewConversation, setForceNewConversation] = useState(false);
 

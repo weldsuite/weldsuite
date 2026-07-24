@@ -6,6 +6,10 @@
  * allocation when subscribing and it's invoiced together with their plan.
  */
 
+// The `Credits.X` dot-access pattern below is consumed across many files
+// outside this module's scope; converting away from a namespace would
+// require updating every call site.
+// eslint-disable-next-line @typescript-eslint/no-namespace
 export namespace Credits {
   /**
    * Credit balance and period information
@@ -37,17 +41,71 @@ export namespace Credits {
   }
 
   /**
-   * Credit transaction record
+   * Transaction types (mirrors `creditTransactionTypeEnum` in the DB schema)
    */
+  export type TransactionType =
+    | 'monthly_allocation'
+    | 'rollover'
+    | 'purchase'
+    | 'consumption'
+    | 'refund'
+    | 'expiry'
+    | 'adjustment';
+
   /**
-   * Transaction types
+   * Service types that consume credits (mirrors `creditServiceTypeEnum`)
    */
-  /**
-   * Service types that consume credits
-   */
+  export type ServiceType =
+    | 'ai_tokens'
+    | 'parcel_label'
+    | 'meeting_bot'
+    | 'call_transcription'
+    | 'sms'
+    | 'voip_call'
+    | 'data_enrichment'
+    | 'social_post';
+
   /**
    * Transaction metadata
    */
+  export interface TransactionMetadata {
+    model?: string;
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+    carrier?: string;
+    serviceType?: string;
+    trackingNumber?: string;
+    platform?: string;
+    durationMinutes?: number;
+    meetingUrl?: string;
+    reason?: string;
+    adminUserId?: string;
+    adminNote?: string;
+    [key: string]: unknown;
+  }
+
+  /**
+   * Credit transaction record
+   */
+  export interface Transaction {
+    id: string;
+    type: TransactionType;
+    amount: number;
+    balanceAfter: number;
+    serviceType?: ServiceType | null;
+    referenceId?: string | null;
+    referenceType?: string | null;
+    stripePaymentIntentId?: string | null;
+    stripeCheckoutSessionId?: string | null;
+    amountPaid?: string | null;
+    currency?: string | null;
+    description?: string | null;
+    metadata?: TransactionMetadata | null;
+    userId?: string | null;
+    createdAt: string;
+  }
+
   /**
    * Credit rates configuration
    */
@@ -59,9 +117,6 @@ export namespace Credits {
     voipCallMinute: number;          // Credits per minute for VoIP calls
   }
 
-  /**
-   * Default credit rates
-   */
   /**
    * Credit package for purchase
    */
@@ -111,12 +166,6 @@ export namespace Credits {
     message?: string;
   }
 
-  /**
-   * Purchase checkout request
-   */
-  /**
-   * Purchase checkout result
-   */
   /**
    * Transaction list filters
    */

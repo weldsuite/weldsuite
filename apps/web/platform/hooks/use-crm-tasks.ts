@@ -16,14 +16,17 @@ export interface Task {
   assignee?: {
     id: string;
     name: string;
+    avatar?: string;
   };
   assignees?: {
     id: string;
     name: string;
+    avatar?: string;
   }[];
   linkedCompany?: {
     id: string;
     name: string;
+    avatar?: string;
   };
   dueDate?: Date;
   createdAt: Date;
@@ -37,11 +40,20 @@ export interface Task {
   scheduledStart?: Date | null;
   scheduledEnd?: Date | null;
   autoScheduled?: boolean | null;
+  /** GitHub Issues integration — set when this task is linked to an issue. */
+  githubIssueNumber?: number | null;
+  githubRepoLinkId?: string | null;
 }
 
 export const crmTasksKeys = {
   all: ['crm-tasks'] as const,
   list: () => [...crmTasksKeys.all, 'list'] as const,
+};
+
+export type RawTask = Omit<Task, 'dueDate' | 'createdAt' | 'completedAt'> & {
+  dueDate?: string | null;
+  createdAt: string;
+  completedAt?: string | null;
 };
 
 function crmStatusToTaskStatus(s?: Task['status'] | 'in-progress' | 'blocked'): string | undefined {
@@ -51,7 +63,7 @@ function crmStatusToTaskStatus(s?: Task['status'] | 'in-progress' | 'blocked'): 
   return s;
 }
 
-function hydrate(task: any): Task {
+function hydrate(task: RawTask): Task {
   return {
     ...task,
     dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
@@ -62,12 +74,9 @@ function hydrate(task: any): Task {
 
 function useTaskLiveSync(): void {
   const qc = useQueryClient();
-  const handler = useCallback(
-    (_event: { event: string; data: { id: string } }) => {
-      qc.invalidateQueries({ queryKey: crmTasksKeys.all });
-    },
-    [qc],
-  );
+  const handler = useCallback(() => {
+    qc.invalidateQueries({ queryKey: crmTasksKeys.all });
+  }, [qc]);
   useTopic<{ id: string }>('task', handler);
 }
 
@@ -83,7 +92,7 @@ export function useCrmTasks(assignedToId?: string) {
       // CRM page only shows tasks linked to a company/person — never project tasks.
       params.set('crmLinked', 'true');
       const query = params.toString();
-      const res = await client.get<{ data: any[] }>(`/tasks${query ? `?${query}` : ''}`);
+      const res = await client.get<{ data: RawTask[] }>(`/tasks${query ? `?${query}` : ''}`);
       return (res.data ?? []).map(hydrate);
     },
   });

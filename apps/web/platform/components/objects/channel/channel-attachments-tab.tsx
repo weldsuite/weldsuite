@@ -6,12 +6,12 @@ import {
   EntityList,
   type ActiveFilter,
   type FilterConfig,
-  type RowHandlers,
 } from '@/components/entity-list';
+import type { ChatMessage, ChatAttachment } from '@/hooks/queries/use-weldchat-queries';
 
 interface ChannelAttachmentsTabProps {
   channelId: string;
-  messages: any[];
+  messages: ChatMessage[];
 }
 
 type AttachmentItem = {
@@ -106,7 +106,7 @@ export function ChannelAttachmentsTab({ channelId, messages }: ChannelAttachment
   const rows: AttachmentItem[] = useMemo(() => {
     const out: AttachmentItem[] = [];
     for (const m of messages) {
-      const list = (m.attachments ?? []) as any[];
+      const list: ChatAttachment[] = m.attachments ?? [];
       for (let i = 0; i < list.length; i++) {
         const a = list[i];
         out.push({
@@ -193,7 +193,7 @@ export function ChannelAttachmentsTab({ channelId, messages }: ChannelAttachment
   }, [rows, searchQuery, activeFilters]);
 
   const renderRow = useCallback(
-    (r: AttachmentItem, _handlers: RowHandlers<AttachmentItem>) => {
+    (r: AttachmentItem) => {
       const Icon = iconFor(r.kind);
       const sizeLabel = formatBytes(r.size);
       const handleOpen = () => {

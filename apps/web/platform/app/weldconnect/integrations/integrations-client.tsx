@@ -6,7 +6,6 @@ import {
   AlertCircle,
   Loader2,
   Zap,
-  RefreshCw,
   Link2Off,
   FlaskConical,
   Globe,
@@ -82,6 +81,11 @@ const ICON_MAP: Record<string, React.ElementType> = {
 function getIcon(iconKey: string): React.ElementType {
   return ICON_MAP[iconKey] ?? Plug;
 }
+
+// Stable empty-array fallbacks so the loading/no-data state doesn't hand the
+// memoized derivations below a brand-new array reference on every render.
+const EMPTY_CATALOG: IntegrationDef[] = [];
+const EMPTY_CONNECTIONS: WorkflowIntegration[] = [];
 
 // ---------------------------------------------------------------------------
 // Category colour helpers — mirrors actions-client.tsx conventions
@@ -302,8 +306,8 @@ export function IntegrationsClient() {
   const [testingId, setTestingId] = useState<string | null>(null);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
 
-  const catalog = catalogResult?.data ?? [];
-  const connections = connectionsResult?.data ?? [];
+  const catalog = catalogResult?.data ?? EMPTY_CATALOG;
+  const connections = connectionsResult?.data ?? EMPTY_CONNECTIONS;
 
   // Build a lookup: integration type → connected row
   const connectionByType = useMemo<Map<string, WorkflowIntegration>>(() => {

@@ -116,26 +116,3 @@ export function cleanAiResponse(response: string): string {
     .replace(/\[ACTION:.*?\]/g, '') // Also remove action markers
     .trim();
 }
-
-/**
- * Check if user has been waiting too long (repeated messages without resolution)
- */
-function detectFrustrationFromHistory(
-  messages: Array<{ role: string; content: string }>,
-  threshold: number = 5
-): boolean {
-  if (messages.length < threshold) {
-    return false;
-  }
-
-  // Get last N messages
-  const recentMessages = messages.slice(-threshold);
-
-  // Count user messages vs AI messages
-  const userMessages = recentMessages.filter(m => m.role === 'user').length;
-
-  // If more than 70% are from user, they might be frustrated
-  const userRatio = userMessages / recentMessages.length;
-
-  return userRatio > 0.7;
-}

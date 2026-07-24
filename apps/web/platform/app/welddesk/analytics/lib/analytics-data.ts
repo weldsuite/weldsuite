@@ -10,7 +10,7 @@ import {
   mvHelpdeskSatisfactionDaily,
   mvHelpdeskAgentStats,
 } from '@/lib/db/schema/helpdesk-analytics-views';
-import { and, eq, gte, lte, isNull, count, avg, sql, inArray, desc, asc, sum } from 'drizzle-orm';
+import { and, eq, gte, lte, isNull, count, avg, sql, inArray, desc, asc } from 'drizzle-orm';
 
 // Flag to use materialized views (set to false to fallback to base tables)
 const USE_MATERIALIZED_VIEWS = true;
@@ -94,8 +94,7 @@ export function getDateRangeFromTimeRange(timeRange: string): { start: Date; end
 // ============ GROUPING HELPERS ============
 
 // Valid date truncation units (whitelisted to prevent SQL injection)
-const VALID_TRUNC_UNITS = ['hour', 'day', 'week', 'month', 'quarter', 'year'] as const;
-type TruncUnit = (typeof VALID_TRUNC_UNITS)[number];
+type TruncUnit = 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year';
 
 // Returns validated date truncation unit
 export function getDateTruncUnit(groupBy: string): TruncUnit {
@@ -129,17 +128,19 @@ export function formatDateLabel(date: Date | null, groupBy: string): string {
                d.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true });
       case 'day':
         return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      case 'week':
+      case 'week': {
         // Get ISO week number
         const startOfYear = new Date(d.getFullYear(), 0, 1);
         const days = Math.floor((d.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
         const weekNum = Math.ceil((days + startOfYear.getDay() + 1) / 7);
         return `Week ${weekNum}`;
+      }
       case 'month':
         return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-      case 'quarter':
+      case 'quarter': {
         const quarter = Math.floor(d.getMonth() / 3) + 1;
         return `Q${quarter} ${d.getFullYear()}`;
+      }
       case 'year':
         return d.getFullYear().toString();
       default:
@@ -1608,10 +1609,10 @@ export async function getSatisfactionMetrics(config: ChartQueryConfig): Promise<
         .orderBy(sortOrder === 'desc' ? desc(count()) : asc(helpdeskSatisfactionSurveys.rating))
         .limit(limit || 10);
 
-      return results.map((row, index) => ({
+      return results.map((row) => ({
         label: `${row.rating} Star${row.rating !== 1 ? 's' : ''}`,
         value: Number(row.count),
-        fill: getRatingColor(row.rating || 0, index),
+        fill: getRatingColor(row.rating || 0),
         name: `${row.rating} Star${row.rating !== 1 ? 's' : ''}`,
       }));
     }
@@ -1898,7 +1899,7 @@ function getPriorityColor(priority: string, fallbackIndex: number): string {
   return colors[priority] || getChartColor(fallbackIndex);
 }
 
-function getRatingColor(rating: number, fallbackIndex: number): string {
+function getRatingColor(rating: number): string {
   if (rating >= 4) return 'var(--chart-3)'; // Green for good
   if (rating >= 3) return 'var(--chart-4)'; // Yellow for neutral
   return 'var(--chart-1)'; // Red for bad

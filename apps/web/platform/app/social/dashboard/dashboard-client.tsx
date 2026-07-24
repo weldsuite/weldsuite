@@ -4,8 +4,11 @@ import { useI18n } from '@/lib/i18n/provider';
 import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { useSocialDashboardStats, useSocialPosts } from '@/hooks/queries/use-social-queries';
+import type { SocialPost } from '@weldsuite/app-api-client/domains/social';
 
-const statusColors: Record<string, string> = {
+type BadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline';
+
+const statusColors: Record<string, BadgeVariant> = {
   draft: 'secondary',
   scheduled: 'default',
   published: 'default',
@@ -18,7 +21,7 @@ export function DashboardClient() {
   const { data: statsData, isLoading: statsLoading } = useSocialDashboardStats();
   const { data: postsData, isLoading: postsLoading } = useSocialPosts({ limit: 5 });
 
-  const stats = (statsData as any)?.data;
+  const stats = statsData?.data;
   const posts = postsData?.data || [];
 
   if (statsLoading) {
@@ -108,13 +111,13 @@ export function DashboardClient() {
             <p className="text-sm text-muted-foreground text-center py-6">{t.social.posts.noPosts}</p>
           ) : (
             <div className="space-y-3">
-              {posts.map((post: any) => (
+              {posts.map((post: SocialPost) => (
                 <div key={post.id} className="flex items-start justify-between gap-3 py-2 border-b last:border-0">
                   <p className="text-sm line-clamp-2 flex-1">
                     {post.content || '—'}
                   </p>
                   <div className="flex items-center gap-2 shrink-0">
-                    <Badge variant={(statusColors[post.status] || 'secondary') as any}>
+                    <Badge variant={statusColors[post.status] || 'secondary'}>
                       {t.social.posts.statuses[post.status as keyof typeof t.social.posts.statuses] || post.status}
                     </Badge>
                     {post.scheduledAt && (

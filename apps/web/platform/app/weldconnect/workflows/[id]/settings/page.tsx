@@ -3,20 +3,19 @@ import React, { useState, useEffect, useTransition } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Switch } from '@weldsuite/ui/components/switch';
-import { Loader2, GitPullRequest, History, Settings } from 'lucide-react';
+import { Loader2, GitPullRequest, History, Settings, type LucideIcon } from 'lucide-react';
 import { PageLoader } from '@/components/page-loader';
 import { Link, useParams } from '@/lib/router';
 import { toast } from 'sonner';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { WorkflowSettings } from '@/lib/db/schema/workflows';
-import { cn } from '@weldsuite/ui/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 
 interface WorkflowSettingsContentProps {
   workflowId: string;
   basePath?: string;
   editorHref?: string;
-  replaceExecutionsTab?: { label: string; href: string; icon: any };
+  replaceExecutionsTab?: { label: string; href: string; icon: LucideIcon };
   hideHeader?: boolean;
 }
 
@@ -37,10 +36,10 @@ export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/w
       setIsLoading(true);
       try {
         const client = await getClient();
-        const workflowResult = await client.get<{ data: any }>(`/workflows/${workflowId}`);
+        const workflowResult = await client.get<{ data: { id: string; settings?: WorkflowSettings | null } }>(`/workflows/${workflowId}`);
         const workflow = workflowResult.data;
         if (workflow?.settings) {
-          const settings = workflow.settings as WorkflowSettings;
+          const settings = workflow.settings;
           setMaxCreditsPerRun(settings.maxCreditsPerRun ?? 50);
           setNotifyOnError(settings.notifyOnError ?? true);
           setNotifyOnComplete(settings.notifyOnComplete ?? false);
@@ -53,7 +52,7 @@ export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/w
       }
     }
     loadWorkflow();
-  }, [workflowId]);
+  }, [workflowId, getClient, t.weldconnect.workflowSettings.toasts.loadFailed]);
 
   // Save settings
   const handleSave = () => {

@@ -1,32 +1,7 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { useI18n } from '@/lib/i18n/provider';
-import { cn } from '@/lib/utils';
 import { EmptyStateIllustration } from '@/components/entity-list';
 import type { ReactNode } from 'react';
-
-function WidgetCard({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
-  return (
-    <Card className="h-full overflow-hidden">
-      <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
-        <CardTitle className="text-sm font-semibold">{title}</CardTitle>
-        {action}
-      </CardHeader>
-      <CardContent className="px-4 pb-4">{children}</CardContent>
-    </Card>
-  );
-}
-
-function ComingSoonRender({ title }: { title: string }) {
-  const { t } = useI18n();
-  return (
-    <WidgetCard title={title}>
-      <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-        {t.weldsuiteHome.settingsPage.comingSoon}
-      </div>
-    </WidgetCard>
-  );
-}
 
 export function NoSettingsForm() {
   const { t } = useI18n();
@@ -141,18 +116,6 @@ export function EmptyState({ kind, icon }: { kind: string; icon?: ReactNode }) {
       {description && (
         <p className="mt-1 max-w-sm text-xs text-muted-foreground">{description}</p>
       )}
-    </div>
-  );
-}
-
-/**
- * Small inline error state for when a widget's hook failed.
- */
-function ErrorState({ message }: { message?: string }) {
-  const { t } = useI18n();
-  return (
-    <div className={cn('flex h-40 items-center justify-center px-4 text-center')}>
-      <p className="text-xs text-destructive">{message ?? t.weldsuiteHome.runtime.loadFailed}</p>
     </div>
   );
 }

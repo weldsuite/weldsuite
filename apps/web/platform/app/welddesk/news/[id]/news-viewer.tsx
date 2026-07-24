@@ -138,7 +138,7 @@ export function NewsViewer({ article }: ArticleViewerProps) {
       }
     };
 
-    lines.forEach((line, index) => {
+    lines.forEach((line) => {
       if (line.startsWith('```')) {
         if (inCodeBlock) {
           elements.push(

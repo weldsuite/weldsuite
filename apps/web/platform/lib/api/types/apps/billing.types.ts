@@ -10,6 +10,10 @@
 
 import { BaseEntity } from '../complete-api.types';
 
+// The `Billing.X` dot-access pattern below is consumed across many files
+// outside this module's scope (components/settings, hooks/queries, app/settings);
+// converting away from a namespace would require updating every call site.
+// eslint-disable-next-line @typescript-eslint/no-namespace
 export namespace Billing {
   // ==========================================
   // Enums
@@ -54,6 +58,16 @@ export namespace Billing {
   // ==========================================
   // Usage
   // ==========================================
+
+  export interface UsageSnapshot {
+    memberCount: number;
+    emailsSentThisMonth: number;
+    aiCreditsUsedThisMonth: number;
+    creditsBalance: number;
+    creditsMonthlyAllocation: number;
+  }
+
+  export type UsageSummary = UsageSnapshot;
 
   // ==========================================
   // Billing Plans
@@ -111,5 +125,4 @@ export namespace Billing {
     canDowngrade: boolean;
     blockers: string[];
   }
-
-  }
+}

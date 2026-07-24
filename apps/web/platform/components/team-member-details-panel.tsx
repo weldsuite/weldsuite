@@ -4,9 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   X,
-  EllipsisVertical,
   Mail,
-  Trash2,
   Shield,
   ShieldCheck,
   Eye,
@@ -17,10 +15,7 @@ import {
   SquareActivity,
   Maximize,
   Minimize,
-  LayoutGrid,
   LayoutDashboard,
-  ChevronDown,
-  ChevronRight,
   MessagesSquare,
   Phone,
   Video,
@@ -31,32 +26,26 @@ import {
   Search,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@weldsuite/ui/components/dropdown-menu';
 import { Switch } from '@weldsuite/ui/components/switch';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from '@weldsuite/ui/components/select';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
 import { useDrawerFieldVisibility } from '@/hooks/use-drawer-field-visibility';
-import { Input } from '@weldsuite/ui/components/input';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useNavigate } from '@tanstack/react-router';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { useDmByUser, weldchatKeys, mergeMessageIntoCache, updateMessageInCache, removeMessageFromCache } from '@/hooks/queries/use-weldchat-queries';
+import { useDmByUser, weldchatKeys, mergeMessageIntoCache, updateMessageInCache, removeMessageFromCache, type ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import { useWeldChatRoom } from '@/hooks/weldchat/use-weldchat-room';
-import { useWeldChatMessagesRealtime } from '@/hooks/weldchat/use-weldchat-messages-realtime';
+import {
+  useWeldChatMessagesRealtime,
+  type WeldChatRealtimeMessage,
+} from '@/hooks/weldchat/use-weldchat-messages-realtime';
 import { useWeldChatPresence } from '@/hooks/weldchat/use-weldchat-presence';
 import { MessageList } from '@/app/weldchat/components/message-list';
 import { MessageInput } from '@/app/weldchat/components/message-input';
@@ -74,7 +63,7 @@ import {
 } from '@/hooks/queries/use-settings-queries';
 import { WorkingHoursEditor, DEFAULT_HOURS } from '@/components/working-hours/working-hours-editor';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
-import { PERMISSION_CATALOG_OBJECTS, SYSTEM_ROLES, hasPermission } from '@weldsuite/permissions';
+import { PERMISSION_CATALOG_OBJECTS, hasPermission } from '@weldsuite/permissions';
 import {
   Table,
   TableBody,
@@ -97,9 +86,10 @@ import {
 } from '@/components/settings/permission-categories';
 import { useComposeSafe } from '@/contexts/compose-context';
 import { ActivitySection } from '@/components/customer-detail/sections/activity-section';
+import type { Customer } from '@/components/customer-detail/types';
 import type { TeamMember } from '@/components/settings/team-section';
 import type { MemberAppAssignment } from '@/lib/api/types/rbac.types';
-import { StatusDot, STATUS_LABELS, type PresenceStatus } from '@weldsuite/ui/components/status-dot';
+import { StatusDot, type PresenceStatus } from '@weldsuite/ui/components/status-dot';
 import { usePresence } from '@/contexts/presence-context';
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
 import { useMemberProfile } from '@/hooks/queries/use-team-queries';
@@ -258,16 +248,18 @@ function EmbeddedDmChat({ targetUserId }: { targetUserId: string }) {
 
   const { client: room } = useWeldChatRoom(channelId ?? null);
 
-  const onMessageCreated = useCallback((message: any) => {
+  const onMessageCreated = useCallback((message: WeldChatRealtimeMessage) => {
     if (!channelId) return;
-    mergeMessageIntoCache(queryClient, channelId, message);
+    // WeldChatRealtimeMessage and the cache's ChatMessage model overlapping
+    // but independently-declared message shapes — bridge with an assertion.
+    mergeMessageIntoCache(queryClient, channelId, message as unknown as ChatMessage);
     queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
     queryClient.invalidateQueries({ queryKey: weldchatKeys.dms() });
   }, [channelId, queryClient]);
 
-  const onMessageUpdated = useCallback((message: any) => {
+  const onMessageUpdated = useCallback((message: WeldChatRealtimeMessage) => {
     if (!channelId) return;
-    updateMessageInCache(queryClient, channelId, message.id, message);
+    updateMessageInCache(queryClient, channelId, message.id, message as unknown as Record<string, unknown>);
   }, [channelId, queryClient]);
 
   const onMessageDeleted = useCallback((messageId: string) => {
@@ -333,7 +325,6 @@ export function TeamMemberDetailsPanel({
   onMemberUpdated,
   context,
   onRoleChange,
-  projectsConfig,
   closeIcon,
   skipAnimation,
   renderContentOnly,
@@ -586,15 +577,10 @@ export function TeamMemberDetailsPanel({
   const rolePermissions = memberPermsData?.data?.rolePermissions ?? [];
   const memberOverrides = memberPermsData?.data?.memberOverrides ?? [];
 
-  const [localHoursPerWeek, setLocalHoursPerWeek] = useState(member?.hoursPerWeek ?? '40');
-  const [localAllocation, setLocalAllocation] = useState(String(member?.allocationPercentage ?? 100));
-
   // Sync local role when member data updates
   useEffect(() => {
     if (member) {
       setLocalRole(member.roleId || member.role || 'MEMBER');
-      setLocalHoursPerWeek(member.hoursPerWeek ?? '40');
-      setLocalAllocation(String(member.allocationPercentage ?? 100));
     }
   }, [member]);
 
@@ -735,53 +721,6 @@ export function TeamMemberDetailsPanel({
       toast.error('Failed to update app access');
     } finally {
       setUpdatingApps((prev) => ({ ...prev, [appCode]: false }));
-    }
-  };
-
-  const handleHoursPerWeekSave = async () => {
-    if (!member || context !== 'settings') return;
-    const value = parseFloat(localHoursPerWeek);
-    if (isNaN(value) || value < 0 || value > 168) {
-      toast.error('Hours per week must be between 0 and 168');
-      setLocalHoursPerWeek(member.hoursPerWeek ?? '40');
-      return;
-    }
-    try {
-      const result = await updateMemberMutation.mutateAsync({
-        id: member.id,
-        data: { hoursPerWeek: String(value) },
-      });
-      if (result.success) {
-        toast.success('Working hours updated');
-        onMemberUpdated();
-      } else {
-        toast.error('Failed to update working hours');
-      }
-    } catch {
-      toast.error('Failed to update working hours');
-    }
-  };
-
-  const handleAllocationSave = async () => {
-    if (!member || !member.userId || context !== 'projects' || !projectsConfig) return;
-    const value = parseInt(localAllocation);
-    if (isNaN(value) || value < 0 || value > 100) {
-      toast.error('Allocation must be between 0 and 100');
-      setLocalAllocation(String(member.allocationPercentage ?? 100));
-      return;
-    }
-    try {
-      const client = await getClient();
-      // app-api PATCH /api/project-members/by-user/:projectId/:userId (was
-      // api-worker PUT /weldflow/:projectId/members/:userId). Failures throw.
-      await client.patch<{ data: { projectId: string; userId: string } }>(
-        `/project-members/by-user/${projectsConfig.projectId}/${member.userId}`,
-        { allocationPercentage: value },
-      );
-      toast.success('Allocation updated');
-      onMemberUpdated();
-    } catch {
-      toast.error('Failed to update allocation');
     }
   };
 
@@ -1044,8 +983,6 @@ function ExpandedMemberContent({
   onTabChange,
   onClose,
   onToggleExpand,
-  onResendInvite,
-  onRemoveMember,
   onRoleChange,
   onAppToggle,
   onMemberUpdated,
@@ -1057,7 +994,7 @@ function ExpandedMemberContent({
   onChatResizeMouseDown,
 }: {
   member: TeamMemberDetail;
-  memberAsCustomer: any;
+  memberAsCustomer: unknown;
   isPending: boolean;
   isOwner: boolean;
   memberStatus: string;
@@ -1217,7 +1154,7 @@ function ExpandedMemberContent({
               <div className="px-4 py-10">
                 <div className="w-[848px] max-w-full mx-auto">
                   <ActivitySection
-                    customer={memberAsCustomer as any}
+                    customer={memberAsCustomer as Customer}
                     activities={[
                       {
                         id: `${member.id}-created`,
@@ -1306,7 +1243,7 @@ function ExpandedOverviewContent({
   member,
 }: {
   member: TeamMemberDetail;
-  memberAsCustomer: any;
+  memberAsCustomer: unknown;
   memberStatus: string;
   context: 'settings' | 'projects';
   onMemberUpdated: () => void;
@@ -1971,7 +1908,6 @@ function MemberHeaderIdentity({ member }: { member: TeamMemberDetail }) {
 
   const presence = getStatus(member.userId ?? '');
   const status = (presence?.status ?? 'offline') as PresenceStatus;
-  const statusLabel = presence?.statusText || STATUS_LABELS[status] || 'Offline';
 
   const title = profileQuery.data?.title ?? null;
 
@@ -2157,7 +2093,7 @@ function MemberProfileTabs({
   );
 }
 
-function MemberWorkingHoursContent({ memberId, memberName: _memberName }: { memberId: string; memberName: string | null }) {
+function MemberWorkingHoursContent({ memberId }: { memberId: string; memberName: string | null }) {
   const { data: workingHours, isLoading } = useMemberWorkingHours(memberId);
   const updateMemberWorkingHours = useUpdateMemberWorkingHours();
   const [hours, setHours] = useState<WorkingHours>(DEFAULT_HOURS);

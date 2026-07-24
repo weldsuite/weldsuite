@@ -1,6 +1,3 @@
-import { z } from 'zod';
-import type { ScopedDb } from '@/lib/db/scoped';
-
 // Module keys for WeldAgent access
 export type ModuleKey =
   | 'general'
@@ -13,64 +10,6 @@ export type ModuleKey =
   | 'projects'
   | 'tasks'
   | 'host';
-
-// Tool operation types
-type ToolOperation = 'read' | 'create' | 'update' | 'delete';
-
-// Context passed to tool execution
-interface ToolContext {
-  workspaceId: string;
-  userId: string;
-  db: ScopedDb;
-  moduleKey: ModuleKey;
-}
-
-// Result from tool execution
-interface ToolResult<T = unknown> {
-  success: boolean;
-  data?: T;
-  error?: string;
-  summary?: string; // Human-readable summary for AI
-}
-
-// Base interface for all WeldAgent tools
-interface WeldAgentTool<TParams = unknown, TResult = unknown> {
-  /** Unique tool identifier (snake_case) */
-  name: string;
-
-  /** Human-readable description for the AI */
-  description: string;
-
-  /** Which module this tool belongs to */
-  module: ModuleKey;
-
-  /** Type of operation (for permission checking) */
-  operation: ToolOperation;
-
-  /** Zod schema for parameter validation */
-  parameters: z.ZodType<TParams>;
-
-  /** Execute the tool with validated parameters */
-  execute: (params: TParams, context: ToolContext) => Promise<ToolResult<TResult>>;
-
-  /** Required permissions to use this tool */
-  requiredPermissions?: string[];
-}
-
-// Helper type for creating tools
-type CreateToolParams<TParams, TResult> = Omit<
-  WeldAgentTool<TParams, TResult>,
-  'execute'
-> & {
-  execute: (params: TParams, context: ToolContext) => Promise<ToolResult<TResult>>;
-};
-
-// Tool definition for AI SDK format conversion
-interface AISDKToolDefinition {
-  description: string;
-  parameters: z.ZodSchema;
-  execute?: (args: unknown) => Promise<unknown>;
-}
 
 // App permissions type (matches database schema)
 export interface AppPermissions {
@@ -137,7 +76,6 @@ export const AVAILABLE_MODELS: AIModel[] = [
 ];
 
 export const DEFAULT_MODEL = 'openai/gpt-4o';
-const DEFAULT_FALLBACK_MODEL = 'anthropic/claude-sonnet-4-20250514';
 
 /** Convert API model response to the local AIModel format */
 export function apiModelToLocal(m: AIModelFromAPI): AIModel {
@@ -252,12 +190,6 @@ export interface InlineFormRequest {
   context?: Record<string, unknown>;
 }
 
-/** Extended tool result that can request an inline form */
-interface FormToolResult<T = unknown> extends ToolResult<T> {
-  /** If present, renders an inline form for user input */
-  requiresForm?: InlineFormRequest;
-}
-
 /** Submitted form data from inline form */
 export interface InlineFormSubmission {
   /** ID of the form being submitted */
@@ -271,15 +203,6 @@ export interface InlineFormSubmission {
 
   /** Context passed through from form request */
   context?: Record<string, unknown>;
-}
-
-/** Result of processing a form submission */
-interface FormSubmissionResult<T = unknown> extends ToolResult<T> {
-  /** If true, form was processed successfully */
-  formProcessed: boolean;
-
-  /** If present, show a follow-up form */
-  nextForm?: InlineFormRequest;
 }
 
 // ============================================
@@ -338,15 +261,6 @@ export interface ChartData {
 
   /** Chart description/subtitle */
   description?: string;
-}
-
-/** Extended tool result that can render a chart */
-interface ChartToolResult<T = unknown> extends ToolResult<T> {
-  /** If present, renders an inline chart visualization */
-  requiresChart?: ChartData;
-
-  /** Human-readable message to display with the chart */
-  message?: string;
 }
 
 // ============================================

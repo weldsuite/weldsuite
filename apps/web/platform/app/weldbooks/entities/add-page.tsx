@@ -86,7 +86,7 @@ export default function AddEntityPage() {
       });
     },
     onSuccess: (res) => {
-      const created = (res as any).data ?? res;
+      const created = 'data' in res ? res.data : res;
       if (created?.id) setEntityId(created.id);
       queryClient.invalidateQueries({ queryKey: ['accounting', 'entities'] });
       navigate({ to: '/weldbooks/entities' });

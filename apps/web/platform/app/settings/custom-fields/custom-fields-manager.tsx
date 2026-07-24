@@ -1,5 +1,5 @@
 
-import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import {
@@ -14,7 +14,6 @@ import {
   useReactTable,
 } from '@tanstack/react-table';
 import { Button } from '@weldsuite/ui/components/button';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
 import { cn } from '@/lib/utils';
 import {
@@ -32,7 +31,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { Plus, EllipsisVertical, Pencil, Trash2, Copy, ArrowUpDown, Search, Check, ChevronsUpDown, LayoutGrid } from 'lucide-react';
+import { Plus, EllipsisVertical, Pencil, Trash2, Copy, ArrowUpDown, Check, ChevronsUpDown, LayoutGrid } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import {
   Command,
@@ -133,7 +132,7 @@ export function CustomFieldsManager() {
     } catch {
       toast.error(ts.messages.createFailed);
     }
-  }, [createMutation]);
+  }, [createMutation, ts]);
 
   const handleUpdate = useCallback(async (id: string, data: UpdateCustomFieldData) => {
     try {
@@ -144,7 +143,7 @@ export function CustomFieldsManager() {
     } catch {
       toast.error(ts.messages.updateFailed);
     }
-  }, [updateMutation]);
+  }, [updateMutation, ts]);
 
   const handleDelete = useCallback(async (id: string) => {
     try {
@@ -153,7 +152,7 @@ export function CustomFieldsManager() {
     } catch {
       toast.error(ts.messages.deleteFailed);
     }
-  }, [deleteMutation]);
+  }, [deleteMutation, ts]);
 
   const handleDuplicate = useCallback((field: CustomFieldDefinition) => {
     setEditingField(null);

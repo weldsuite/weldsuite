@@ -56,7 +56,6 @@ import {
   type FilterConfig,
   type GroupConfig,
   type ActiveFilter,
-  type RowHandlers,
   type SortState,
 } from '@/components/entity-list';
 import { getTranslations } from '@/lib/i18n';
@@ -68,7 +67,7 @@ import {
   type Meeting,
   type MeetingRecordingEntry,
 } from '@/hooks/queries/use-weldmeet-queries';
-import type { ListMeetingsParams } from '@/lib/api/domains/weldmeet';
+import type { ListMeetingsParams, MeetingAttendee } from '@/lib/api/domains/weldmeet';
 
 type MeetingWithRecording = Meeting & { recording?: MeetingRecordingEntry };
 
@@ -122,7 +121,7 @@ export function MeetingHistoryList({ filter, className }: MeetingHistoryListProp
   const organizerOptions = useMemo(() => {
     const map = new Map<string, string>();
     for (const m of meetings) {
-      const org = (m.attendees ?? []).find((a: any) => a.role === 'organizer');
+      const org = (m.attendees ?? []).find((a: MeetingAttendee) => a.role === 'organizer');
       if (org?.userId && org?.name) map.set(org.userId, org.name);
     }
     return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
@@ -229,7 +228,7 @@ export function MeetingHistoryList({ filter, className }: MeetingHistoryListProp
 
       if (filter.field === 'organizer') {
         const match = (m: MeetingWithRecording) => {
-          const org = (m.attendees ?? []).find((a: any) => a.role === 'organizer');
+          const org = (m.attendees ?? []).find((a: MeetingAttendee) => a.role === 'organizer');
           return org?.userId === filter.value;
         };
         result = isOp ? result.filter(match) : result.filter(m => !match(m));
@@ -315,8 +314,8 @@ export function MeetingHistoryList({ filter, className }: MeetingHistoryListProp
           return ((a.attendees?.length ?? 0) - (b.attendees?.length ?? 0)) * dir;
         }
         case 'organizer': {
-          const aName = (a.attendees ?? []).find((att: any) => att.role === 'organizer')?.name ?? '';
-          const bName = (b.attendees ?? []).find((att: any) => att.role === 'organizer')?.name ?? '';
+          const aName = (a.attendees ?? []).find((att: MeetingAttendee) => att.role === 'organizer')?.name ?? '';
+          const bName = (b.attendees ?? []).find((att: MeetingAttendee) => att.role === 'organizer')?.name ?? '';
           return aName.localeCompare(bName) * dir;
         }
         case 'duration': {
@@ -338,7 +337,7 @@ export function MeetingHistoryList({ filter, className }: MeetingHistoryListProp
     { id: 'duration', header: t.historyPage.columns.duration, width: 'w-[120px]', sortable: true },
   ], [t]);
 
-  const renderRow = useCallback((meeting: MeetingWithRecording, _handlers: RowHandlers<MeetingWithRecording>) => {
+  const renderRow = useCallback((meeting: MeetingWithRecording) => {
     const meetingTypeConfig = {
       video: { label: t.historyPage.filters.video, icon: VideoCameraIcon, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950' },
       audio: { label: t.historyPage.filters.audio, icon: Phone, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-950' },
@@ -390,7 +389,7 @@ export function MeetingHistoryList({ filter, className }: MeetingHistoryListProp
         {/* Organizer */}
         <div className="w-[190px]">
           {(() => {
-            const organizer = (meeting.attendees ?? []).find((a: any) => a.role === 'organizer');
+            const organizer = (meeting.attendees ?? []).find((a: MeetingAttendee) => a.role === 'organizer');
             if (!organizer) return <span className="text-sm text-muted-foreground">—</span>;
             return (
               <div className="flex items-center gap-2">

@@ -112,13 +112,13 @@ export default function BillsPage() {
       isLoading={isLoading}
       columns={columns}
       groups={groups}
-      onRowClick={(bill) => navigate({ to: `/weldbooks/bills/${bill.id}` as any })}
+      onRowClick={(bill) => navigate({ to: '/weldbooks/bills/$id', params: { id: bill.id } })}
       searchQuery={search}
       onSearchChange={setSearch}
       searchPlaceholder={tbp.searchPlaceholder}
       createButton={{
         label: tbp.newBill,
-        onClick: () => navigate({ to: '/weldbooks/bills/add' as any }),
+        onClick: () => navigate({ to: '/weldbooks/bills/add' }),
       }}
       emptyState={{
         icon: (
@@ -130,7 +130,7 @@ export default function BillsPage() {
         description: tbp.searchPlaceholder,
         action: {
           label: tbp.newBill,
-          onClick: () => navigate({ to: '/weldbooks/bills/add' as any }),
+          onClick: () => navigate({ to: '/weldbooks/bills/add' }),
         },
       }}
     />

@@ -16,27 +16,6 @@ export interface WhiteboardPresence {
   lastActivity: number;
 }
 
-interface CursorUpdate {
-  userId: string;
-  x: number;
-  y: number;
-  tool?: string;
-}
-
-interface SelectionUpdate {
-  userId: string;
-  elementIds: string[];
-}
-
-interface ElementChange {
-  type: 'add' | 'update' | 'delete';
-  element?: unknown;
-  elementId?: string;
-  changes?: Partial<unknown>;
-  timestamp: number;
-  userId: string;
-}
-
 export interface BatchChange {
   adds?: unknown[];
   updates?: Array<{ id: string; changes: Partial<unknown> }>;
@@ -44,11 +23,3 @@ export interface BatchChange {
   timestamp: number;
   userId: string;
 }
-
-type WhiteboardEventType =
-  | 'element:add'
-  | 'element:update'
-  | 'element:delete'
-  | 'element:batch'
-  | 'cursor:move'
-  | 'selection:change';

@@ -3,35 +3,29 @@ import React, { useState, useTransition, useRef, useEffect, useCallback } from '
 import { useQueryClient } from '@tanstack/react-query';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import {
-  MoreVertical,
   Archive,
   Star,
   Check,
   CheckCircle,
   CheckCheck,
   Ticket,
-  SquareCheck,
   ChevronLeft,
   FileText,
   Download,
   Loader2,
-  Trash2,
   X,
   Globe,
-  MapPin,
   Lock,
-  MessageSquare,
   StickyNote,
   PenLine,
   ArrowRightLeft,
   UserCheck,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { WeldAgentInput, type AttachmentPreview, type MessageAttachment } from '@weldsuite/ui/components/weldagent-input';
+import { WeldAgentInput, type AttachmentPreview } from '@weldsuite/ui/components/weldagent-input';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 import { useAppApiClient } from '@/lib/api/use-app-api';
@@ -50,6 +44,43 @@ import { decrementHelpdeskBadge } from '@/hooks/use-sidebar-badges';
 import { CannedResponsePicker } from '@/components/welddesk/canned-response-picker';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+
+/** Flat (non-`{ data }`-wrapped) response from `/storage/generate-upload-url`. */
+interface GenerateUploadUrlResponse {
+  success?: boolean;
+  uploadUrl: string;
+  uploadToken: string;
+  fileKey: string;
+}
+
+/** Flat (non-`{ data }`-wrapped) response from `/storage/confirm-upload`. */
+interface ConfirmUploadResponse {
+  success?: boolean;
+  file?: {
+    id: string;
+    fileName: string;
+    fileSize: number;
+    mimeType: string;
+    url: string;
+  };
+}
+
+/**
+ * Attachments can come from either the `Attachment` shape
+ * (fileName/fileType/fileSize) or the optimistic message shape built in
+ * handleWeldAgentSend (name/type/size) — this type covers both.
+ */
+interface DisplayAttachment {
+  id?: string;
+  fileName?: string;
+  name?: string;
+  url: string;
+  fileType?: string;
+  mimeType?: string;
+  type?: string;
+  fileSize?: number;
+  size?: number;
+}
 
 interface ConversationReview {
   id: string;
@@ -73,7 +104,6 @@ interface ConversationDetailClientProps {
 export default function ConversationDetailClient({
   conversation: initialConversation,
   initialMessages,
-  accessToken,
   review,
   userId,
   userName,
@@ -114,8 +144,8 @@ export default function ConversationDetailClient({
     )
   );
   const [weldAgentPrompt, setWeldAgentPrompt] = useState('');
-  const [isPending, startTransition] = useTransition();
-  const [visitorCurrentPage, setVisitorCurrentPage] = useState<{ url: string; title: string } | null>(null);
+  const [isPending] = useTransition();
+  const [visitorCurrentPage] = useState<{ url: string; title: string } | null>(null);
   const [showCreateTicket, setShowCreateTicket] = useState(false);
   const [linkedTicketId, setLinkedTicketId] = useState<string | null>(conversation.ticketId || null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -123,14 +153,13 @@ export default function ConversationDetailClient({
   const [isContactExpanded, setIsContactExpanded] = useState(false);
   const [contactCreateFailed, setContactCreateFailed] = useState(false);
   const [isEditingSubject, setIsEditingSubject] = useState(false);
-  const [editedSubject, setEditedSubject] = useState(conversation.subject || '');
   // NOTE: the `isGeneratingSubject` / `isAutoGenerating` spinner states that
   // used to live here are gone — with WeldDesk AI offline (see below) nothing
   // could ever set them true, so both spinners were unreachable.
   const [isInternalNote, setIsInternalNote] = useState(false);
   const [isAutoDraft, setIsAutoDraft] = useState(false);
   const [autoDraftPrompt, setAutoDraftPrompt] = useState('');
-  const [isAutoDraftRegenerating, setIsAutoDraftRegenerating] = useState(false);
+  const [isAutoDraftRegenerating] = useState(false);
   const autoDraftInputRef = useRef<HTMLTextAreaElement>(null);
   const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
   const [showTransferPopover, setShowTransferPopover] = useState(false);
@@ -181,7 +210,7 @@ export default function ConversationDetailClient({
         // app-api returns { data: conversation }. The legacy code unwrapped
         // twice and gated on a `success` flag the client never surfaced, so
         // this refresh could never actually apply.
-        const response = await client.get<{ data: any }>(`/conversations/${conversation.id}`);
+        const response = await client.get<{ data: Helpdesk.Conversation }>(`/conversations/${conversation.id}`);
         const updated = response.data;
         if (updated) {
           setConversation(prev => {
@@ -208,11 +237,6 @@ export default function ConversationDetailClient({
   // WeldDesk hook — manages messages, real-time, typing, presence, events
   const {
     messages: weldDeskMessages,
-    isLoadingMessages: _isLoadingMessages,
-    sendMessage: weldDeskSendMessage,
-    sendNote: weldDeskSendNote,
-    isSending,
-    respondToBlock,
     conversation: weldDeskConversation,
     typing,
     startTyping: weldDeskStartTyping,
@@ -221,7 +245,6 @@ export default function ConversationDetailClient({
     isConnected,
     connectionState,
     closeConversation: weldDeskCloseConversation,
-    updateConversation: weldDeskUpdateConversation,
   } = useWeldDesk({
     conversationId: conversation.id,
     role: 'agent',
@@ -281,13 +304,8 @@ export default function ConversationDetailClient({
         toast.info(ti.agentAssignedToConversation.replace('{name}', event.actorName || 'someone'));
       }
     }
-  }, [events, userId]);
+  }, [events, userId, ti.agentAssignedToConversation, ti.conversationClosedBy]);
 
-  // Backwards-compatible aliases
-  const isConnecting = connectionState === 'connecting';
-  const sendTypingIndicator = useCallback((_isTyping: boolean) => {
-    weldDeskStartTyping();
-  }, [weldDeskStartTyping]);
   const typingUsers = new Set(typing.typingUsers.map(u => u.userName));
 
   // Auto-scroll to bottom when new messages arrive (newest messages are at bottom)
@@ -411,7 +429,7 @@ export default function ConversationDetailClient({
         const client = await getClient();
         for (const attachment of attachments) {
           // Step 1: Generate upload URL
-          const genResponse = await client.post('/storage/generate-upload-url', {
+          const genResponse = await client.post<GenerateUploadUrlResponse>('/storage/generate-upload-url', {
             fileName: attachment.file.name,
             contentType: attachment.file.type || 'application/octet-stream',
             fileSize: attachment.file.size,
@@ -419,7 +437,7 @@ export default function ConversationDetailClient({
             entityType: 'conversation',
             entityId: conversation.id,
             isPublic: true,
-          }) as any;
+          });
 
           if (!genResponse.success) {
             toast.error(ti.failedToUploadFile.replace('{name}', attachment.name));
@@ -434,10 +452,10 @@ export default function ConversationDetailClient({
           });
 
           // Step 3: Confirm the upload
-          const confirmResponse = await client.post('/storage/confirm-upload', {
+          const confirmResponse = await client.post<ConfirmUploadResponse>('/storage/confirm-upload', {
             uploadToken: genResponse.uploadToken,
             fileKey: genResponse.fileKey,
-          }) as any;
+          });
 
           if (confirmResponse.success && confirmResponse.file) {
             uploadedAttachments.push({
@@ -527,7 +545,7 @@ export default function ConversationDetailClient({
       await client.patch(`/conversations/${conversation.id}/archive`, { isArchived: true });
       toast.success(ti.conversationArchived);
       router.push('/welddesk/inbox/all');
-    } catch (error) {
+    } catch {
       toast.error(ti.failedToArchiveConversation);
     }
   };
@@ -539,7 +557,7 @@ export default function ConversationDetailClient({
       await client.delete(`/conversations/${conversation.id}`);
       toast.success(ti.conversationDeleted);
       router.push('/welddesk/inbox/all');
-    } catch (error) {
+    } catch {
       toast.error(ti.failedToDeleteConversation);
     }
   };
@@ -549,7 +567,7 @@ export default function ConversationDetailClient({
       await weldDeskCloseConversation();
       setConversation(prev => ({ ...prev, status: 'closed' }));
       toast.success(ti.conversationClosed);
-    } catch (error) {
+    } catch {
       toast.error(ti.failedToCloseConversation);
     }
   };
@@ -562,16 +580,9 @@ export default function ConversationDetailClient({
       // and sent the pre-toggle value.
       await client.patch(`/conversations/${conversation.id}`, { isStarred: !conversation.isStarred });
       setConversation(prev => ({ ...prev, isStarred: !prev.isStarred }));
-    } catch (error) {
+    } catch {
       toast.error(ti.failedToToggleStar);
     }
-  };
-
-  const formatMessageDate = (date: Date | string | null | undefined) => {
-    if (!date) return 'N/A';
-    const d = new Date(date);
-    if (isNaN(d.getTime())) return 'N/A';
-    return format(d, 'MMM d, yyyy h:mm a');
   };
 
   // Helper to check if attachment is an image
@@ -593,8 +604,10 @@ export default function ConversationDetailClient({
     return `${size.toFixed(1)} ${units[i]}`;
   };
 
-  // Render attachments for a message
-  const renderAttachments = (attachments: any[] | undefined, isAgentMessage: boolean) => {
+  // Render attachments for a message. Attachments can come from either the
+  // `Attachment` shape (fileName/fileType/fileSize) or the optimistic message
+  // shape built in handleWeldAgentSend (name/type/size) — this type covers both.
+  const renderAttachments = (attachments: DisplayAttachment[] | undefined, isAgentMessage: boolean) => {
     if (!attachments || attachments.length === 0) return null;
 
     const images = attachments.filter(att => isImageAttachment(att.fileType || att.mimeType || att.type || ''));
@@ -789,7 +802,6 @@ export default function ConversationDetailClient({
               <div
                 className="flex items-center min-w-0 group cursor-text border border-transparent hover:border-gray-300 dark:hover:border-border rounded-md px-2 py-0.5 -ml-0.5 transition-colors"
                 onClick={() => {
-                  setEditedSubject(conversation.subject || '');
                   setIsEditingSubject(true);
                 }}
               >
@@ -850,12 +862,14 @@ export default function ConversationDetailClient({
                           helpdeskWorkerApi.listDepartments({ isActive: true }),
                         ]);
                         if (agentsResult.success && agentsResult.data) {
-                          setAgents(agentsResult.data.filter((a: any) => a.userId !== userId));
+                          setAgents(agentsResult.data.filter((a) => a.userId !== userId));
                         }
                         if (deptsResult.success && deptsResult.data) {
-                          setDepartments(deptsResult.data.map((d: any) => ({ id: d.id, name: d.name })));
+                          setDepartments(deptsResult.data.map((d) => ({ id: d.id, name: d.name })));
                         }
-                      } catch {} finally {
+                      } catch {
+                        // Transfer popover just falls back to an empty agents/teams list
+                      } finally {
                         setLoadingAgents(false);
                       }
                     }
@@ -945,8 +959,8 @@ export default function ConversationDetailClient({
                               setConversation(prev => ({
                                 ...prev,
                                 departmentId: dept.id,
-                                assigneeId: undefined as any,
-                                assigneeName: undefined as any,
+                                assigneeId: undefined,
+                                assigneeName: undefined,
                               }));
                               toast.success(ti.assignedToTeam.replace('{name}', dept.name));
                             } catch {
@@ -1132,7 +1146,7 @@ export default function ConversationDetailClient({
 
                   // Render collect_input form
                   if (interactiveType === 'collect_input') {
-                    const fields = (msgMeta?.fields as Array<{ id: string; label: string; type: string }>) || [];
+                    const fields = (msgMeta?.fields as Array<{ id: string; label: string; type: string; required?: boolean; placeholder?: string }>) || [];
                     const submitted = msgMeta?.submittedData as Record<string, string> | undefined;
                     return (
                       <div key={message.id} className="flex justify-end mb-4">
@@ -1146,7 +1160,7 @@ export default function ConversationDetailClient({
                                 <div key={field.id}>
                                   <div className="text-[11px] font-medium text-muted-foreground mb-0.5">
                                     {field.label}
-                                    {!submitted && (field as any).required && <span className="text-red-500 ml-0.5">*</span>}
+                                    {!submitted && field.required && <span className="text-red-500 ml-0.5">*</span>}
                                   </div>
                                   {submitted ? (
                                     <div className="text-[13px] text-foreground py-1 px-2.5 bg-gray-50 dark:bg-accent rounded-md">
@@ -1154,7 +1168,7 @@ export default function ConversationDetailClient({
                                     </div>
                                   ) : (
                                     <div className="text-[13px] text-muted-foreground py-1.5 px-2.5 bg-gray-50 dark:bg-accent rounded-md border border-border">
-                                      {(field as any).placeholder || field.label}
+                                      {field.placeholder || field.label}
                                     </div>
                                   )}
                                 </div>
@@ -1591,13 +1605,9 @@ export default function ConversationDetailClient({
                         }}
                         onSelect={(result) => {
                           setWeldAgentPrompt(result.content);
-                          // Execute macro actions if any
-                          if (result.actions && result.actions.length > 0) {
-                            for (const action of result.actions) {
-                              // Actions are executed via existing conversation APIs
-                              // handled by the parent component through standard mutations
-                            }
-                          }
+                          // Macro actions (result.actions) are executed via existing
+                          // conversation APIs, handled by the parent component through
+                          // standard mutations — nothing to do with them here.
                         }}
                         disabled={isPending}
                       />

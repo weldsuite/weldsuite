@@ -1,5 +1,4 @@
 
-import { useState } from 'react';
 import { Link } from '@/lib/router';
 import { format } from 'date-fns';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
@@ -47,6 +46,8 @@ export function ChangelogClient({
   additionalFilters,
   counts,
 }: ChangelogClientProps) {
+  // Total/published/draft counts surface via statusFilters; kept in props for future summary UI.
+  void counts;
   const { t } = useI18n();
   const tc = t.helpdesk.changelog;
   useBreadcrumbs([
@@ -69,7 +70,6 @@ export function ChangelogClient({
     }
   };
 
-  /* eslint-disable */
   const columns: Column<ChangelogEntry>[] = [
     {
       key: 'version',
@@ -191,7 +191,6 @@ export function ChangelogClient({
       ),
     },
   ];
-  /* eslint-enable */
 
   return (
     <EntityDataTable

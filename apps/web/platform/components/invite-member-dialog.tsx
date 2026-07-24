@@ -57,7 +57,7 @@ export function InviteMemberDialog({ open, onOpenChange }: InviteMemberDialogPro
   const [isLoading, setIsLoading] = useState(false);
   const [roles, setRoles] = useState<Role[]>([]);
   const [memberLimits, setMemberLimits] = useState<MemberLimitsInfo | null>(null);
-  const [limitsLoading, setLimitsLoading] = useState(false);
+  const [, setLimitsLoading] = useState(false);
   const [prepaidSeats, setPrepaidSeats] = useState<PrepaidSeatsInfo | null>(null);
   const router = useRouter();
   const { getClient } = useAppApiClient();
@@ -93,7 +93,9 @@ export function InviteMemberDialog({ open, onOpenChange }: InviteMemberDialogPro
               );
             }
           }
-        } catch {}
+        } catch {
+          // Role list stays empty — the role select is disabled below when empty.
+        }
       });
 
       // Load member limits and prepaid seats info — app-api /api/member-limits
@@ -112,7 +114,9 @@ export function InviteMemberDialog({ open, onOpenChange }: InviteMemberDialogPro
           if (seatsResult.data) {
             setPrepaidSeats(seatsResult.data);
           }
-        } catch {} finally {
+        } catch {
+          // Member limits / prepaid seats stay null — UI treats null as "no limit info".
+        } finally {
           setLimitsLoading(false);
         }
       });
@@ -248,7 +252,6 @@ export function InviteMemberDialog({ open, onOpenChange }: InviteMemberDialogPro
   };
 
   // Check if user can invite (has available seats for paid plan)
-  const canInvite = !isPaidPlan || !prepaidSeats || prepaidSeats.canAddMore;
   const noSeatsAvailable = isPaidPlan && prepaidSeats && !prepaidSeats.canAddMore;
 
   // Render invite form step
@@ -334,7 +337,7 @@ export function InviteMemberDialog({ open, onOpenChange }: InviteMemberDialogPro
         <form onSubmit={handleSubmit}>
           <div className="grid gap-4 py-4">
             <div className="space-y-3 max-h-[300px] overflow-y-auto">
-              {invites.map((invite, index) => (
+              {invites.map((invite) => (
                 <div key={invite.id} className="flex gap-2 items-start">
                   <div className="flex-1 grid grid-cols-[1fr_1fr_120px] gap-2">
                     <Input

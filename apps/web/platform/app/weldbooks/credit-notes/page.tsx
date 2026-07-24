@@ -75,7 +75,8 @@ export default function CreditNotesPage() {
       render: (cn) =>
         cn.creditNoteForInvoiceId ? (
           <Link
-            to={`/weldbooks/invoices/${cn.creditNoteForInvoiceId}` as any}
+            to="/weldbooks/invoices/$id"
+            params={{ id: cn.creditNoteForInvoiceId }}
             onClick={(e) => e.stopPropagation()}
             className="text-primary hover:underline text-sm"
           >
@@ -115,7 +116,7 @@ export default function CreditNotesPage() {
       items={creditNotes}
       isLoading={isLoading}
       columns={columns}
-      onRowClick={(cn) => navigate({ to: `/weldbooks/invoices/${cn.id}` as any })}
+      onRowClick={(cn) => navigate({ to: '/weldbooks/invoices/$id', params: { id: cn.id } })}
       searchQuery={search}
       onSearchChange={setSearch}
       searchPlaceholder={tcn.searchPlaceholder}

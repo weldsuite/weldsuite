@@ -23,17 +23,31 @@ import {
   Activity,
   Calendar,
   Code,
-  RefreshCw,
-  PlayCircle,
-  AlertCircle,
   ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDeleteWebhook, useRotateWebhookSecret } from '@/hooks/queries/use-automation-queries';
+import type { WebhookView } from '../webhooks-client';
+
+export interface WebhookDetail extends WebhookView {
+  workflowId?: string;
+  updatedAt: string;
+}
+
+export interface WebhookEvent {
+  id: string;
+  status: string;
+  createdAt: string;
+  executionId?: string | null;
+  error?: string | null;
+  payload?: unknown;
+  headers?: unknown;
+  response?: unknown;
+}
 
 interface WebhookDetailClientProps {
-  webhook: any;
-  initialEvents: any[];
+  webhook: WebhookDetail;
+  initialEvents: WebhookEvent[];
 }
 
 const getStatusBadge = (status: string, labels: Record<string, string>) => {
@@ -66,7 +80,7 @@ export function WebhookDetailClient({ webhook, initialEvents }: WebhookDetailCli
   const rotateSecretMutation = useRotateWebhookSecret();
   const isPending = deleteWebhookMutation.isPending || rotateSecretMutation.isPending;
   const [showSecret, setShowSecret] = useState(false);
-  const [selectedEvent, setSelectedEvent] = useState<any>(null);
+  const [selectedEvent, setSelectedEvent] = useState<WebhookEvent | null>(null);
 
   const handleDelete = () => {
     if (!confirm(t.weldconnect.webhookDetail.confirms.delete)) {
@@ -118,8 +132,9 @@ export function WebhookDetailClient({ webhook, initialEvents }: WebhookDetailCli
     toast.success(t.weldconnect.webhookDetail.toasts.curlCopied);
   };
 
-  const successRate = webhook.totalCalls > 0
-    ? Math.round((webhook.successfulCalls / webhook.totalCalls) * 100)
+  const totalCalls = webhook.totalCalls ?? 0;
+  const successRate = totalCalls > 0
+    ? Math.round(((webhook.successfulCalls ?? 0) / totalCalls) * 100)
     : 0;
 
   return (
@@ -322,7 +337,7 @@ export function WebhookDetailClient({ webhook, initialEvents }: WebhookDetailCli
           <TabsContent value="events" className="space-y-4">
             {initialEvents.length > 0 ? (
               <div className="space-y-4">
-                {initialEvents.map((event: any) => (
+                {initialEvents.map((event) => (
                   <Card
                     key={event.id}
                     className={`hover:shadow-md transition-shadow cursor-pointer ${
@@ -399,7 +414,7 @@ export function WebhookDetailClient({ webhook, initialEvents }: WebhookDetailCli
                       {JSON.stringify(selectedEvent.payload, null, 2)}
                     </pre>
                   </div>
-                  {selectedEvent.headers && (
+                  {selectedEvent.headers != null && (
                     <div>
                       <h4 className="text-sm font-semibold mb-2">{t.weldconnect.webhookDetail.events.headers}</h4>
                       <pre className="bg-muted p-4 rounded-lg text-xs overflow-auto max-h-64">
@@ -407,7 +422,7 @@ export function WebhookDetailClient({ webhook, initialEvents }: WebhookDetailCli
                       </pre>
                     </div>
                   )}
-                  {selectedEvent.response && (
+                  {selectedEvent.response != null && (
                     <div>
                       <h4 className="text-sm font-semibold mb-2">{t.weldconnect.webhookDetail.events.response}</h4>
                       <pre className="bg-muted p-4 rounded-lg text-xs overflow-auto max-h-64">

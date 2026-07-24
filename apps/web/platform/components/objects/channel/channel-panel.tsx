@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useState } from 'react';
 import { Hash, Lock } from 'lucide-react';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import {
@@ -7,7 +7,13 @@ import {
   useObjectPanelTabConfig,
   type ObjectPanelComponentProps,
 } from '@/components/object-panel';
-import { useChannel, useChannelMembers, useMessages, useBookmarks } from '@/hooks/queries/use-weldchat-queries';
+import {
+  useChannel,
+  useChannelMembers,
+  useMessages,
+  useBookmarks,
+  type ChatMessage,
+} from '@/hooks/queries/use-weldchat-queries';
 import { BookmarksPanel } from '@/app/weldchat/components/bookmarks-panel';
 import {
   ChatContext,
@@ -75,23 +81,20 @@ function ChannelPanelTabsBar({
     if (fallback && fallback.id !== activeTab) setActiveTab(fallback.id);
   }, [activeTab, isVisible, setActiveTab]);
 
-  const counts: Record<ChannelTab['id'], number> = {
-    people: memberCount,
-    threads: threadsCount,
-    attachments: attachmentsCount,
-    bookmarks: bookmarksCount,
-  };
-
-  const tabs = useMemo(
-    () =>
-      CHANNEL_TABS.filter((t) => isVisible(t.id)).map((t) => ({
-        id: t.id,
-        label: t.label,
-        icon: t.icon,
-        count: counts[t.id] || undefined,
-      })),
-    [isVisible, memberCount, threadsCount, attachmentsCount, bookmarksCount],
-  );
+  const tabs = useMemo(() => {
+    const counts: Record<ChannelTab['id'], number> = {
+      people: memberCount,
+      threads: threadsCount,
+      attachments: attachmentsCount,
+      bookmarks: bookmarksCount,
+    };
+    return CHANNEL_TABS.filter((t) => isVisible(t.id)).map((t) => ({
+      id: t.id,
+      label: t.label,
+      icon: t.icon,
+      count: counts[t.id] || undefined,
+    }));
+  }, [isVisible, memberCount, threadsCount, attachmentsCount, bookmarksCount]);
 
   return (
     <ObjectPanelTabs
@@ -105,15 +108,19 @@ function ChannelPanelTabsBar({
 export function ChannelPanel(props: ObjectPanelComponentProps) {
   const { id, initialTab, onClose } = props;
   const { data: channelData } = useChannel(id);
-  const channel: any = channelData?.data;
+  const channel = channelData?.data;
 
   const { data: membersData } = useChannelMembers(id);
   const { data: messagesData } = useMessages(id);
   const { data: bookmarksData } = useBookmarks();
 
-  const flatMessages: any[] = useMemo(
+  const flatMessages: ChatMessage[] = useMemo(
     () =>
-      messagesData?.pages?.flatMap((p: any) => p.data?.messages || p.data || []) ?? [],
+      messagesData?.pages?.flatMap((p) => {
+        const data = p?.data as unknown as { messages?: ChatMessage[] } | ChatMessage[] | undefined;
+        if (Array.isArray(data)) return data;
+        return data?.messages ?? [];
+      }) ?? [],
     [messagesData],
   );
   const memberCount = membersData?.data?.length ?? 0;
@@ -123,7 +130,7 @@ export function ChannelPanel(props: ObjectPanelComponentProps) {
     0,
   );
   const bookmarksCount =
-    bookmarksData?.data?.filter((b: any) => b.channelId === id)?.length ?? 0;
+    bookmarksData?.data?.filter((b) => b.channelId === id)?.length ?? 0;
 
   const shell = useObjectPanelShell({
     ...props,

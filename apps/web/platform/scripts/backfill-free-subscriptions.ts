@@ -23,7 +23,11 @@ neonConfig.webSocketConstructor = ws;
 const dryRun = process.argv.includes('--dry-run');
 
 async function main() {
+  // Standalone script invoked directly via `pnpm tsx` (not a turbo task), so
+  // these env vars aren't part of the turbo.json build pipeline declarations.
+  // eslint-disable-next-line turbo/no-undeclared-env-vars
   const dbUrl = process.env.MASTER_DATABASE_URL;
+  // eslint-disable-next-line turbo/no-undeclared-env-vars
   const stripeKey = process.env.STRIPE_SECRET_KEY;
 
   if (!dbUrl) {
@@ -79,7 +83,7 @@ async function main() {
   console.log(`Found ${workspacesWithoutSub.length} workspaces without a subscription\n`);
 
   let created = 0;
-  let skipped = 0;
+  const skipped = 0;
   let failed = 0;
 
   for (const workspace of workspacesWithoutSub) {

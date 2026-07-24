@@ -20,6 +20,7 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import type { ClientApi } from '@weldsuite/api-client/types';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { personKeys } from '@/components/objects/person/use-person-data';
 import { companyKeys } from '@/components/objects/company/use-company-data';
@@ -30,7 +31,7 @@ import { companyKeys } from '@/components/objects/company/use-company-data';
 // company-people listing returned from /api/companies/:id/people.
 // ---------------------------------------------------------------------------
 
-async function findLinkRowId(client: any, customerId: string, contactId: string): Promise<string | null> {
+async function findLinkRowId(client: ClientApi, customerId: string, contactId: string): Promise<string | null> {
   const res = await client.get<{ data: Array<{ id: string; personId: string }> }>(
     `/companies/${encodeURIComponent(customerId)}/people`,
   );
@@ -108,7 +109,6 @@ import {
   EmptyStateIllustration,
   type HeaderColumn,
   type FilterConfig,
-  type RowHandlers,
 } from '@/components/entity-list';
 import { useCustomerDetailContext } from '../customer-detail-provider';
 import type { ContactsSectionProps, CustomerContact } from '../types';
@@ -168,7 +168,7 @@ export function ContactsSection({ customer, contacts }: ContactsSectionProps) {
     },
   ], [t]);
 
-  const renderContactRow = useCallback((contact: CustomerContact, _handlers: RowHandlers<CustomerContact>) => {
+  const renderContactRow = useCallback((contact: CustomerContact) => {
     const name = getContactName(contact);
     return (
       <div key={contact.id}>

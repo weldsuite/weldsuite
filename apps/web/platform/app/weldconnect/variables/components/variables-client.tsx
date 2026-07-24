@@ -1,7 +1,6 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -39,15 +38,13 @@ import {
   Edit,
   Trash2,
   Download,
-  Filter,
-  Settings2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useDeleteVariable } from '@/hooks/queries/use-automation-queries';
 import { VariableDialog } from './variable-dialog';
 
-interface Variable {
+export interface Variable {
   id: string;
   name: string;
   description?: string;
@@ -56,7 +53,7 @@ interface Variable {
   scope: 'global' | 'workflow' | 'execution';
   isSecret: boolean;
   workflowId?: string;
-  createdAt: Date;
+  createdAt: string;
 }
 
 interface VariablesClientProps {
@@ -116,7 +113,6 @@ export function VariablesClient({ initialVariables }: VariablesClientProps) {
     { id: 'created', label: t.weldconnect.variables.columns.created },
   ], [t]);
 
-  const router = useRouter();
   const deleteVariableMutation = useDeleteVariable();
   const [variables, setVariables] = useState<Variable[]>(initialVariables);
 
@@ -146,7 +142,7 @@ export function VariablesClient({ initialVariables }: VariablesClientProps) {
 
   // Filter and sort variables
   const processedVariables = useMemo(() => {
-    let filtered = variables.filter((variable) => {
+    const filtered = variables.filter((variable) => {
       const matchesSearch =
         searchQuery === '' ||
         variable.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -162,8 +158,8 @@ export function VariablesClient({ initialVariables }: VariablesClientProps) {
 
     if (sortConfig) {
       filtered.sort((a, b) => {
-        let aVal: any;
-        let bVal: any;
+        let aVal: string | number;
+        let bVal: string | number;
 
         switch (sortConfig.key) {
           case 'name':

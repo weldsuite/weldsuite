@@ -7,7 +7,6 @@ import {
   CheckCircle,
   FolderOpen,
   Eye,
-  Loader2,
 } from "lucide-react";
 import { ServerHelpArticlesDataTable } from "./server-help-articles-data-table";
 import { useHelpArticleStats } from '@/hooks/queries/use-helpdesk-queries';
@@ -25,7 +24,7 @@ export default function HelpPage() {
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
-  const { totalArticles, publishedCount, draftCount, archivedCount, totalViews, categories } = stats || {
+  const { publishedCount, draftCount, totalViews, categories } = stats || {
     totalArticles: 0,
     publishedCount: 0,
     draftCount: 0,

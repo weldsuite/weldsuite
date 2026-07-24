@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
-import { Trash2, EllipsisVertical, Copy, Pencil, Table2 } from 'lucide-react';
+import { Trash2, EllipsisVertical, Pencil, Table2 } from 'lucide-react';
 import { isToday, isYesterday, isThisWeek, isThisMonth, subMonths, isAfter } from 'date-fns';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -19,7 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
+import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig } from '@/components/entity-list';
 import { useParams, useRouter } from '@/lib/router';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { tablesApi } from '@/app/weldflow/lib/api-client';
@@ -118,7 +118,7 @@ export default function ProjectTablePage() {
     ];
   }, [t]);
 
-  const applyFilters = useCallback((items: TableItem[], _filters: ActiveFilter[]) => {
+  const applyFilters = useCallback((items: TableItem[]) => {
     return items;
   }, []);
 
@@ -136,7 +136,7 @@ export default function ProjectTablePage() {
     } else {
       toast.error(t.projects.table.failedToDeleteTable);
     }
-  }, [projectId]);
+  }, [projectId, t.projects.table.failedToDeleteTable, t.projects.table.tableDeleted]);
 
   const openRenameDialog = useCallback((item: TableItem) => {
     setRenameTableId(item.id);
@@ -157,9 +157,9 @@ export default function ProjectTablePage() {
     } else {
       toast.error(t.projects.table.failedToRenameTable);
     }
-  }, [projectId, renameTableId, renameValue]);
+  }, [projectId, renameTableId, renameValue, t.projects.table.failedToRenameTable, t.projects.table.tableRenamed]);
 
-  const renderRow = useCallback((item: TableItem, _handlers: RowHandlers<TableItem>) => {
+  const renderRow = useCallback((item: TableItem) => {
     return (
       <div
         key={item.id}
@@ -211,7 +211,7 @@ export default function ProjectTablePage() {
         </div>
       </div>
     );
-  }, [canWrite, handleDeleteTable, openRenameDialog, t]);
+  }, [canWrite, handleDeleteTable, openRenameDialog, openTable, t]);
 
   const openCreateDialog = () => {
     setNewTableName('');

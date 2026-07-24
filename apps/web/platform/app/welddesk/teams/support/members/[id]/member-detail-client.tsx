@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weld
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
-import { MessageSquare, CheckCircle, Clock, Mail, User, Phone, Calendar, Building, MoreVertical, Eye, Star, TrendingUp } from 'lucide-react';
+import { CheckCircle, Clock, Mail, User, Phone, Calendar, Building, MoreVertical, Eye, Star, TrendingUp } from 'lucide-react';
 import { EntityDataTable, type ColumnDefinition } from '@/components/entity-overview';
 import { Button } from '@weldsuite/ui/components/button';
 import {

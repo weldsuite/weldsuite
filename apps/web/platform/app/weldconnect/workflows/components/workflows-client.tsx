@@ -109,7 +109,8 @@ const triggerConfig: Record<string, { variant: WorkflowTriggerVariant }> = {
 
 export function WorkflowsClient({
   initialWorkflows,
-  initialStats,
+  // initialStats is accepted for API-compatibility with callers that compute
+  // it, but this view doesn't currently render a stats summary.
   basePath = '/weldconnect/workflows',
   apiBasePath = '/workflows',
   entityLabel = 'Workflow',
@@ -173,7 +174,7 @@ export function WorkflowsClient({
   const isCreating = createWorkflowMutation.isPending;
 
   // Format date
-  const formatDate = (date: Date | null) => {
+  const formatDate = useCallback((date: Date | null) => {
     if (!date) return '—';
     const d = new Date(date);
     const now = new Date();
@@ -191,11 +192,11 @@ export function WorkflowsClient({
     } else {
       return d.toLocaleDateString();
     }
-  };
+  }, [st]);
 
-  const handleDelete = (workflowId: string) => {
+  const handleDelete = useCallback((workflowId: string) => {
     setDeleteConfirm(workflowId);
-  };
+  }, []);
 
   const confirmDelete = () => {
     if (!deleteConfirm) return;
@@ -268,10 +269,10 @@ export function WorkflowsClient({
     }
   };
 
-  const handleActivate = (workflowId: string) => {
+  const handleActivate = useCallback((workflowId: string) => {
     updateStatusMutation.mutate({ id: workflowId, status: 'active' }, {
       onSuccess: () => {
-        setWorkflows(workflows.map(w =>
+        setWorkflows((prev) => prev.map(w =>
           w.id === workflowId ? { ...w, status: 'active' as const } : w
         ));
         toast.success(t.weldconnect.workflows.toasts.activated);
@@ -280,12 +281,12 @@ export function WorkflowsClient({
         toast.error(t.weldconnect.workflows.toasts.activateFailed);
       },
     });
-  };
+  }, [updateStatusMutation, t.weldconnect.workflows.toasts.activated, t.weldconnect.workflows.toasts.activateFailed]);
 
-  const handlePause = (workflowId: string) => {
+  const handlePause = useCallback((workflowId: string) => {
     updateStatusMutation.mutate({ id: workflowId, status: 'paused' }, {
       onSuccess: () => {
-        setWorkflows(workflows.map(w =>
+        setWorkflows((prev) => prev.map(w =>
           w.id === workflowId ? { ...w, status: 'paused' as const } : w
         ));
         toast.success(t.weldconnect.workflows.toasts.paused);
@@ -294,9 +295,9 @@ export function WorkflowsClient({
         toast.error(t.weldconnect.workflows.toasts.pauseFailed);
       },
     });
-  };
+  }, [updateStatusMutation, t.weldconnect.workflows.toasts.paused, t.weldconnect.workflows.toasts.pauseFailed]);
 
-  const handleDuplicate = (workflow: Workflow) => {
+  const handleDuplicate = useCallback((workflow: Workflow) => {
     duplicateWorkflowMutation.mutate({ id: workflow.id }, {
       onSuccess: () => {
         toast.success(t.weldconnect.workflows.toasts.duplicated);
@@ -305,7 +306,7 @@ export function WorkflowsClient({
         toast.error(t.weldconnect.workflows.toasts.duplicateFailed);
       },
     });
-  };
+  }, [duplicateWorkflowMutation, t.weldconnect.workflows.toasts.duplicated, t.weldconnect.workflows.toasts.duplicateFailed]);
 
   const handleCreateWorkflow = () => {
     if (!newWorkflowName.trim()) return;
@@ -435,8 +436,9 @@ export function WorkflowsClient({
   // For workflows, the row opens the conversational builder; the visual editor
   // is still reachable from the builder's "Open in editor" button and from the
   // dropdown's "Open in editor" item.
-  const rowOpenPath = (id: string) =>
-    category === 'workflow' ? `${basePath}/${id}` : `${basePath}/${id}/edit`;
+  const rowOpenPath = useCallback((id: string) =>
+    category === 'workflow' ? `${basePath}/${id}` : `${basePath}/${id}/edit`,
+  [category, basePath]);
 
   // Render row — the visual shell comes from the shared @weldsuite/ui
   // WorkflowListRow; this maps the domain Workflow onto its props.
@@ -518,7 +520,7 @@ export function WorkflowsClient({
         onSelectChange={(checked) => toggleSelect(workflow.id, checked)}
       />
     );
-  }, [router, basePath, category, t, st, triggerLabels, handleDelete, handleActivate, handlePause, handleDuplicate, triggerLabelFn, selectedIds, toggleSelect]);
+  }, [router, basePath, category, t, triggerLabels, handleDelete, handleActivate, handlePause, handleDuplicate, triggerLabelFn, selectedIds, toggleSelect, formatDate, rowOpenPath]);
 
   return (
     <>

@@ -1,13 +1,13 @@
 
 import { useEffect, useState } from 'react';
 import { PageLoader } from '@/components/page-loader';
-import { FeedbackClient } from './feedback-client';
+import { FeedbackClient, type FeatureRequestWithVote, type FeedbackStats } from './feedback-client';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 
 export default function FeedbackSettingsPage() {
   const { getClient } = useAppApiClient();
-  const [requests, setRequests] = useState<any[]>([]);
-  const [stats, setStats] = useState<any>(null);
+  const [requests, setRequests] = useState<FeatureRequestWithVote[]>([]);
+  const [stats, setStats] = useState<FeedbackStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -15,8 +15,8 @@ export default function FeedbackSettingsPage() {
       try {
         const client = await getClient();
         const [requestsResult, statsResult] = await Promise.all([
-          client.get<{ data?: any[] }>('/feature-requests?sortBy=votes'),
-          client.get<{ data?: any }>('/feature-requests/stats'),
+          client.get<{ data?: FeatureRequestWithVote[] }>('/feature-requests?sortBy=votes'),
+          client.get<{ data?: FeedbackStats }>('/feature-requests/stats'),
         ]);
 
         if (requestsResult.data) {

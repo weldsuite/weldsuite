@@ -66,10 +66,10 @@ export default function VatReturnDetailPage() {
       const result = res.data;
       toast.info(result.message);
       if (result.correctionRequired && result.id) {
-        navigate({ to: `/weldbooks/vat/${result.id}` as any });
+        navigate({ to: '/weldbooks/vat/$id', params: { id: result.id } });
       }
     },
-    onError: (err: any) => toast.error(err?.message ?? st('sweep.weldbooks.vat.suppletieCheckFailed')),
+    onError: (err) => toast.error(err?.message ?? st('sweep.weldbooks.vat.suppletieCheckFailed')),
   });
 
   const statusMutation = useMutation({
@@ -78,7 +78,7 @@ export default function VatReturnDetailPage() {
       qc.invalidateQueries({ queryKey: ['accounting', 'vat-returns'] });
       toast.info(tv.statusResult.replace('{status}', String(res.data.status)));
     },
-    onError: (err: any) => toast.error(err?.message ?? st('sweep.weldbooks.vat.statusCheckFailed')),
+    onError: (err) => toast.error(err?.message ?? st('sweep.weldbooks.vat.statusCheckFailed')),
   });
 
   const handleXmlDownload = async () => {
@@ -94,7 +94,7 @@ export default function VatReturnDetailPage() {
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
-  const vr = data?.data as any;
+  const vr = data?.data;
   if (!vr) {
     return <div className="p-6 text-muted-foreground">{tv.vatNotFound}</div>;
   }
@@ -182,7 +182,7 @@ export default function VatReturnDetailPage() {
       {fileMutation.isError && (
         <div className="text-sm text-red-600 flex items-center gap-1">
           <AlertCircle className="h-4 w-4" />
-          {tv.filingFailed.replace('{error}', (fileMutation.error as any)?.message || st('sweep.weldbooks.common.unknownError'))}
+          {tv.filingFailed.replace('{error}', fileMutation.error?.message || st('sweep.weldbooks.common.unknownError'))}
         </div>
       )}
 

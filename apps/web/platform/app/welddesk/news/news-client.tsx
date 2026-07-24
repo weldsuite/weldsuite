@@ -63,7 +63,7 @@ export function NewsClient({
     }
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: string): 'default' | 'secondary' | 'outline' => {
     switch (status) {
       case 'published':
         return 'default';
@@ -127,7 +127,7 @@ export function NewsClient({
       sortable: true,
       width: '100px',
       render: (item) => (
-        <Badge variant={getStatusColor(item.status) as any}>
+        <Badge variant={getStatusColor(item.status)}>
           {item.status}
         </Badge>
       ),

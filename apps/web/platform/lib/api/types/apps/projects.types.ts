@@ -3,8 +3,10 @@
  * Project management and task tracking
  */
 
-import { BaseEntity, User, DateRange, Attachment } from '../common.types';
-
+// The `Projects.X` dot-access pattern below is consumed across many files
+// outside this module's scope (app/weldflow, components/weldflow); converting
+// away from a namespace would require updating every call site.
+// eslint-disable-next-line @typescript-eslint/no-namespace
 export namespace Projects {
   /**
    * Project
@@ -59,6 +61,24 @@ export namespace Projects {
   /**
    * Workload
    */
+  export interface WorkloadTask {
+    id: string;
+    title: string;
+    startDate?: string;
+    dueDate?: string;
+    estimatedHours?: number;
+    projectName?: string;
+  }
+
+  export interface TeamMemberWorkload {
+    userId: string;
+    name: string;
+    avatar?: string;
+    role?: string;
+    capacity?: number; // weekly capacity in hours
+    tasks?: WorkloadTask[];
+  }
+
   export interface WorkloadOverview {
     startDate: Date;
     endDate: Date;

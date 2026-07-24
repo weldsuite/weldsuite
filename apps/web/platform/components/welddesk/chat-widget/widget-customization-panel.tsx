@@ -1,21 +1,12 @@
 
 import { Button } from '@weldsuite/ui/components/button';
 import { Label } from '@weldsuite/ui/components/label';
-import { Slider } from '@weldsuite/ui/components/slider';
 import {
   ColorPicker,
 } from '@weldsuite/ui/components/color-picker';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
-import {
   ChevronDown,
   ChevronRight,
-  Settings,
   Info,
   RotateCcw
 } from 'lucide-react';
@@ -25,7 +16,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@weldsuite/ui/components/tooltip';
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
 
 interface WidgetCustomizationPanelProps {
@@ -124,79 +115,6 @@ const PropertySection = React.memo(function PropertySection({
           {children}
         </div>
       )}
-    </div>
-  );
-});
-
-// Select input component
-const SelectInput = React.memo(function SelectInput({
-  label,
-  value,
-  onChange,
-  options
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: { value: string; label: string }[];
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <Label className="text-xs font-normal text-gray-700 dark:text-muted-foreground flex-shrink-0">{label}</Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="h-9 w-[180px] !text-[13px]">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((option) => (
-            <SelectItem key={option.value} value={option.value} className="text-xs">
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-});
-
-// Slider input component
-const SliderInput = React.memo(function SliderInput({
-  label,
-  value,
-  onChange,
-  min,
-  max,
-  unit
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  min: number;
-  max: number;
-  unit: string;
-}) {
-  const numericValue = parseInt(value) || min;
-  const [localValue, setLocalValue] = useState(numericValue);
-
-  useEffect(() => {
-    setLocalValue(numericValue);
-  }, [numericValue]);
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <Label className="text-xs font-normal text-gray-700 dark:text-muted-foreground">{label}</Label>
-        <span className="text-xs text-gray-500 dark:text-muted-foreground">{localValue}{unit}</span>
-      </div>
-      <Slider
-        value={[localValue]}
-        onValueChange={(values) => setLocalValue(values[0])}
-        onValueCommit={(values) => onChange(`${values[0]}${unit}`)}
-        min={min}
-        max={max}
-        step={1}
-        className="w-full"
-      />
     </div>
   );
 });

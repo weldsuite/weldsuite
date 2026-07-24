@@ -20,7 +20,7 @@ export default function MembersPage() {
   const availableUsers = availableData?.data || [];
 
   // Determine user permissions based on their membership
-  const currentUserMember = members.find((m: any) => m.userId === userId);
+  const currentUserMember = members.find((m) => m.userId === userId);
   const isAdmin = currentUserMember?.role === 'owner' || currentUserMember?.role === 'admin';
   const canWrite = isAdmin || currentUserMember?.role === 'member';
   const isViewer = currentUserMember?.role === 'viewer';

@@ -3,10 +3,24 @@ import { useSearchParams, Link } from '@/lib/router';
 import { Megaphone, PlusCircle, Download, Eye, TrendingUp } from 'lucide-react';
 import { EntityPageHeader, type StatItem } from '@/components/entity-overview/entity-page-header';
 import { Button } from '@weldsuite/ui/components/button';
-import { useAnnouncements } from '@/hooks/queries/use-helpdesk-queries';
+import { useAnnouncements, type Announcement } from '@/hooks/queries/use-helpdesk-queries';
 import { AnnouncementsClient } from './announcements-client';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
+
+/** Raw row shape returned by `GET /helpdesk-announcements` (app-api). */
+interface RawAnnouncement {
+  id?: string;
+  title?: string;
+  content?: string;
+  type?: 'info' | 'warning' | 'success' | 'error';
+  publishedAt?: string | Date;
+  createdAt?: string | Date;
+  expiresAt?: string | Date | null;
+  status?: string;
+  audience?: string;
+  authorName?: string;
+}
 
 export default function AnnouncementsPage() {
   const { t } = useI18n();
@@ -27,8 +41,8 @@ export default function AnnouncementsPage() {
   if (isLoading) return <PageLoader fullScreen={false} />;
 
   // Transform API items to Announcement format
-  const rawItems = data?.data || [];
-  const items = rawItems.map((item: any) => ({
+  const rawItems: RawAnnouncement[] = data?.data || [];
+  const items: Announcement[] = rawItems.map((item) => ({
     id: item.id || '',
     title: item.title || '',
     message: item.content || '',
@@ -53,12 +67,11 @@ export default function AnnouncementsPage() {
   // Calculate stats from items
   const stats = {
     total: pagination.totalCount || pagination.total || items.length,
-    published: items.filter((item: any) => item.published).length,
-    draft: items.filter((item: any) => !item.published).length,
-    active: items.filter((item: any) => item.published && (!item.endDate || new Date(item.endDate) > new Date())).length,
+    published: items.filter((item) => item.published).length,
+    draft: items.filter((item) => !item.published).length,
+    active: items.filter((item) => item.published && (!item.endDate || new Date(item.endDate) > new Date())).length,
   };
 
-  /* eslint-disable */
   const headerStats: StatItem[] = [
     { icon: Megaphone, label: ta.totalAnnouncements, count: stats.total, color: 'text-blue-600' },
     { icon: Eye, label: ta.published, count: stats.published, color: 'text-green-600' },
@@ -111,7 +124,6 @@ export default function AnnouncementsPage() {
       ],
     },
   ];
-  /* eslint-enable */
 
   return (
     <EntityPageHeader

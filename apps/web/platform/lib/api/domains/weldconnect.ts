@@ -14,14 +14,21 @@
  * byte-identical so those consumers are untouched.
  */
 
+export interface WorkflowTriggerSummary {
+  type?: string;
+  kind?: string;
+}
+
+export type WorkflowStepSummary = Record<string, unknown>;
+
 export interface Workflow {
   id: string;
   name: string;
   description?: string;
   status: 'draft' | 'active' | 'paused' | 'archived';
   version: number;
-  triggers?: any[];
-  steps?: any[];
+  triggers?: WorkflowTriggerSummary[];
+  steps?: WorkflowStepSummary[];
   settings?: Record<string, unknown>;
   tags?: string[];
   folderId?: string;

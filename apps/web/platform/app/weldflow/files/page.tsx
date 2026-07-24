@@ -1,58 +1,8 @@
 
-import { useState, useRef } from "react";
 import { useI18n } from "@/lib/i18n/provider";
 import "./files-table.css";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@weldsuite/ui/components/table";
 import { Button } from "@weldsuite/ui/components/button";
-import { Input } from "@weldsuite/ui/components/input";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@weldsuite/ui/components/dropdown-menu";
-import {
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
-  Settings2,
-  Filter,
-  Download,
-  Search,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  MoreVertical,
-  Eye,
-  Trash2,
-  Copy,
-  Edit,
-  FileText,
-  File,
-  Folder,
-  Plus,
-  FileImage,
-  FileVideo,
-  FileAudio,
-  FileCode,
-  FileArchive,
-  Star,
-  Share2,
-  FolderPlus,
-  FolderOpen,
-} from "lucide-react";
-import { Badge } from "@weldsuite/ui/components/badge";
+import { Folder, FolderOpen } from "lucide-react";
 import { Link } from '@/lib/router';
 
 export default function FilesPage() {

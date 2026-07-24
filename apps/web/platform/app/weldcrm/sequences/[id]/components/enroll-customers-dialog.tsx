@@ -30,6 +30,23 @@ interface CustomerOption {
   type?: string;
 }
 
+/**
+ * Loosely-typed shape of a `/companies` search row. `fullName`/`firstName`/
+ * `lastName` are legacy contact-style fields kept as a fallback for rows
+ * that predate the Companies/People merge; the current `Company` schema
+ * only guarantees `name`/`displayName`.
+ */
+interface CompanySearchRow {
+  id: string;
+  fullName?: string;
+  name?: string;
+  tradingName?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  type?: string;
+}
+
 export function EnrollCustomersDialog({
   open,
   onOpenChange,
@@ -53,10 +70,10 @@ export function EnrollCustomersDialog({
       // companies are the identity layer now. Offset paging (`page`/`pageSize`)
       // gave way to cursor paging, so a plain `limit` is all we need here.
       const searchParam = query?.trim() ? `&search=${encodeURIComponent(query.trim())}` : '';
-      const result = await client.get<{ data: any[] }>(`/companies?limit=50${searchParam}`);
+      const result = await client.get<{ data: CompanySearchRow[] }>(`/companies?limit=50${searchParam}`);
       const customersList = result.data || [];
       // Map to CustomerOption format
-      const getCustomerName = (c: any): string => {
+      const getCustomerName = (c: CompanySearchRow): string => {
         if (c.fullName) return c.fullName;
         if (c.name) return c.name;
         if (c.tradingName) return c.tradingName;
@@ -64,7 +81,7 @@ export function EnrollCustomersDialog({
         return c.email || 'Unknown Customer';
       };
       setCustomers(
-        customersList.map((c: any) => ({
+        customersList.map((c) => ({
           id: c.id,
           name: getCustomerName(c),
           type: c.type,

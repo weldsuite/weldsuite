@@ -13,9 +13,20 @@
  * already retired in the companies/people refactor.
  */
 
+import type { WorkflowStepSummary, WorkflowTriggerSummary } from './weldconnect';
+
 // ============================================================================
 // Types
 // ============================================================================
+
+export interface Address {
+  line1?: string;
+  line2?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+}
 
 export interface Customer {
   id: string;
@@ -31,8 +42,8 @@ export interface Customer {
   phone?: string;
   mobile?: string;
   website?: string;
-  billingAddress?: any;
-  shippingAddress?: any;
+  billingAddress?: Address;
+  shippingAddress?: Address;
   segment?: string;
   status: string;
   source?: string;
@@ -46,7 +57,7 @@ export interface Customer {
   isFavorite?: boolean;
   tags?: string[];
   notes?: string;
-  customFields?: Record<string, any>;
+  customFields?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
@@ -76,7 +87,7 @@ export interface Supplier {
   status?: string;
   rating?: number;
   notes?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   tags?: string[];
   createdAt: string;
   updatedAt: string;
@@ -162,7 +173,7 @@ export interface Lead {
   phone?: string;
   mobile?: string;
   website?: string;
-  address?: any;
+  address?: Address;
   source: string;
   channel?: string;
   campaign?: string;
@@ -174,7 +185,7 @@ export interface Lead {
   isQualified?: boolean;
   qualifiedAt?: string;
   productInterest?: string[];
-  budget?: any;
+  budget?: { amount: number; currency: string };
   timeline?: string;
   authority?: boolean;
   need?: string;
@@ -232,7 +243,7 @@ export interface Pipeline {
   template?: string;
   isDefault?: boolean;
   isArchived?: boolean;
-  settings?: Record<string, any>;
+  settings?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
@@ -319,7 +330,7 @@ export interface SequenceSummary {
   name: string;
   description?: string | null;
   status: string;
-  steps: any[];
+  steps: WorkflowStepSummary[];
   tags: string[];
   executionCount: number;
   successCount: number;
@@ -332,8 +343,8 @@ export interface SequenceSummary {
 }
 
 export interface SequenceDetail extends SequenceSummary {
-  triggers: any[];
-  settings: Record<string, any>;
+  triggers: WorkflowTriggerSummary[];
+  settings: Record<string, unknown>;
   failureCount: number;
   completedEnrolledCount: number;
   failedEnrolledCount: number;

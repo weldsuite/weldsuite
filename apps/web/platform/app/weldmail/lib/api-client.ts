@@ -50,10 +50,6 @@ interface AppApiSuccess<T> {
   /** Single-item envelope shape. */
   data: T;
 }
-interface AppApiList<T> {
-  data: T[];
-  pagination?: { totalCount: number; hasMore: boolean; cursor: string | null };
-}
 interface AppApiError {
   error: { code: string; message: string; details?: unknown };
 }

@@ -34,7 +34,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
+import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig } from '@/components/entity-list';
 import { departmentFormSchema, type DepartmentFormValues } from './hooks/use-department-form';
 import { useCreateDepartment } from '@/hooks/queries/use-helpdesk-queries';
 
@@ -58,7 +58,7 @@ export function TeamsClient({ teams }: TeamsClientProps) {
   const tm = t.helpdesk.teams;
   const router = useRouter();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [isPending, startTransition] = useTransition();
+  const [isPending] = useTransition();
   const createDepartmentMutation = useCreateDepartment();
 
   const form = useForm<DepartmentFormValues>({
@@ -94,7 +94,7 @@ export function TeamsClient({ teams }: TeamsClientProps) {
             router.push(`/welddesk/teams/${result.id}`);
           }
         },
-        onError: (error: any) => {
+        onError: (error: Error) => {
           toast.error(t.helpdesk.teamsPage.failedToCreateTeam, { description: error.message });
         },
       }
@@ -108,12 +108,8 @@ export function TeamsClient({ teams }: TeamsClientProps) {
     { label: tm.title },
   ]);
 
-  const handleRowClick = (team: Team) => {
-    router.push(`/welddesk/teams/${team.id}`);
-  };
-
   // Apply filters (no filters for teams, but keep the structure)
-  const applyFilters = useCallback((items: Team[], filters: ActiveFilter[]) => {
+  const applyFilters = useCallback((items: Team[]) => {
     return items;
   }, []);
 
@@ -127,7 +123,7 @@ export function TeamsClient({ teams }: TeamsClientProps) {
   ], [tm]);
 
   // Render row
-  const renderRow = useCallback((team: Team, handlers: RowHandlers<Team>) => {
+  const renderRow = useCallback((team: Team) => {
     return (
       <div
         key={team.id}
@@ -198,7 +194,7 @@ export function TeamsClient({ teams }: TeamsClientProps) {
         </div>
       </div>
     );
-  }, [router]);
+  }, [router, tm]);
 
   const openCreateDialog = () => {
     form.reset();

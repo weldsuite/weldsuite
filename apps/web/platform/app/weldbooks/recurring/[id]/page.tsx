@@ -47,7 +47,7 @@ export default function RecurringInvoiceDetailPage() {
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
-  const rec = data?.data as any;
+  const rec = data?.data;
   if (!rec) return <div className="p-6 text-muted-foreground">{trp.notFound}</div>;
 
   const template = rec.templateData ?? {};
@@ -92,7 +92,7 @@ export default function RecurringInvoiceDetailPage() {
 
       {generateMutation.isSuccess && (
         <div className="text-sm text-green-600">
-          {trp.generatedInvoice.replace('{number}', (generateMutation.data as any)?.data?.invoiceNumber ?? '')}
+          {trp.generatedInvoice.replace('{number}', generateMutation.data?.data?.invoiceNumber ?? '')}
         </div>
       )}
 
@@ -152,7 +152,7 @@ export default function RecurringInvoiceDetailPage() {
           <CardHeader><CardTitle className="text-base">{trp.templateItems}</CardTitle></CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {items.map((item: any, i: number) => (
+              {items.map((item, i: number) => (
                 <div key={i} className="flex justify-between text-sm border-b pb-2">
                   <span>{item.description}</span>
                   <span className="font-medium">

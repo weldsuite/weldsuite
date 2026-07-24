@@ -1,6 +1,5 @@
 
 import { useCallback, useMemo } from 'react';
-import { useRouter } from '@/lib/router';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -11,7 +10,6 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import {
-  PhoneCall,
   PhoneIncoming,
   PhoneOutgoing,
   PhoneMissed,
@@ -24,7 +22,7 @@ import {
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useCall } from '@/contexts/call-context';
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type RowHandlers } from '@/components/entity-list';
+import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 import { cn } from '@/lib/utils';
 import { useCustomerDetailContext } from '../customer-detail-provider';
 import type { CallsSectionProps, Activity } from '../types';
@@ -47,7 +45,6 @@ interface CallItem extends Activity {
 
 export function CallsSection({ customer, activities }: CallsSectionProps) {
   const t = useTranslations();
-  const router = useRouter();
   const { onCall } = useCustomerDetailContext();
   const { setIsDialerOpen } = useCall();
 
@@ -172,7 +169,7 @@ export function CallsSection({ customer, activities }: CallsSectionProps) {
   ], [t]);
 
   // Row renderer
-  const renderCallRow = useCallback((call: CallItem, handlers: RowHandlers<CallItem>) => {
+  const renderCallRow = useCallback((call: CallItem) => {
     const direction = call.computedDirection;
     const DirectionIcon = direction === 'inbound' ? PhoneIncoming
       : direction === 'missed' ? PhoneMissed

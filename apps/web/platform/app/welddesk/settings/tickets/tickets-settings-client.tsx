@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { cn } from '@/lib/utils';
 import {
-  EmptyStateIllustration,
   FilterPills,
   type ActiveFilter,
   type FilterConfig,
@@ -13,10 +12,7 @@ import {
   Plus,
   Pencil,
   Trash2,
-  FileText,
-  Loader2,
   EllipsisVertical,
-  Search,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -56,7 +52,7 @@ export function TicketsSettingsClient() {
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const allTypes = ticketTypes || [];
+  const allTypes = useMemo(() => ticketTypes || [], [ticketTypes]);
 
   const categoryOptions = useMemo(() => {
     const set = new Set<string>();
@@ -115,6 +111,7 @@ export function TicketsSettingsClient() {
       if (editingType) {
         await updateTicketType.mutateAsync(type);
       } else {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { id: _id, createdAt: _c, updatedAt: _u, ...data } = type;
         await createTicketType.mutateAsync(data);
       }

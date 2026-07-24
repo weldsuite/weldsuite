@@ -16,6 +16,7 @@ import {
   useSocialPosts,
   useSyncSocialPostMetrics,
 } from '@/hooks/queries/use-social-queries';
+import type { SocialPost } from '@weldsuite/app-api-client/domains/social';
 
 export function AnalyticsClient() {
   const { t } = useI18n();
@@ -24,7 +25,7 @@ export function AnalyticsClient() {
   const { data: postsData, isLoading: postsLoading } = useSocialPosts({ limit: 20 });
   const syncMetrics = useSyncSocialPostMetrics();
 
-  const overview = (overviewData as any)?.data;
+  const overview = overviewData?.data;
   const posts = postsData?.data || [];
   const platformStats = overview?.platformStats || [];
 
@@ -77,7 +78,7 @@ export function AnalyticsClient() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {platformStats.map((row: any) => (
+                {platformStats.map((row: { platform: string; followers: number; posts: number; engagement: number }) => (
                   <TableRow key={row.platform}>
                     <TableCell className="capitalize">{row.platform}</TableCell>
                     <TableCell>{row.followers ?? 0}</TableCell>
@@ -108,7 +109,7 @@ export function AnalyticsClient() {
             </div>
           ) : (
             <div className="space-y-2">
-              {posts.map((post: any) => (
+              {posts.map((post: SocialPost) => (
                 <div key={post.id} className="flex items-center justify-between gap-3 py-2 border-b last:border-0">
                   <p className="text-sm line-clamp-1 flex-1">{post.content || '—'}</p>
                   <Button

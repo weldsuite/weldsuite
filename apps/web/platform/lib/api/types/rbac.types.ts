@@ -134,36 +134,3 @@ export interface SuccessResponse {
 export interface PermissionCheckResult {
   [permissionCode: string]: boolean;
 }
-
-// ============================================================================
-// System Role Constants
-// ============================================================================
-
-const SystemRoles = {
-  OWNER: 'OWNER',
-  ADMIN: 'ADMIN',
-  MEMBER: 'MEMBER',
-  VIEWER: 'VIEWER',
-} as const;
-
-type SystemRole = keyof typeof SystemRoles;
-
-// ============================================================================
-// Permission Actions
-// ============================================================================
-
-const PermissionActions = {
-  READ: 'read',
-  CREATE: 'create',
-  UPDATE: 'update',
-  DELETE: 'delete',
-  MANAGE: 'manage',
-  INVITE: 'invite',
-  ASSIGN: 'assign',
-  CONVERT: 'convert',
-  REFUND: 'refund',
-  SEND: 'send',
-  PUBLISH: 'publish',
-} as const;
-
-type PermissionAction = (typeof PermissionActions)[keyof typeof PermissionActions];

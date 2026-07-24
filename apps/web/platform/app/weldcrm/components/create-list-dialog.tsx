@@ -1,7 +1,7 @@
 
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useState } from 'react';
-import { LucideIcon, ChevronDown, Building, User } from 'lucide-react';
+import { LucideIcon, Building, User } from 'lucide-react';
 import {
   Dialog,
   DialogContent,

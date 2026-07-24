@@ -3,8 +3,8 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Filter, ChevronDown } from 'lucide-react';
 import type { SpreadsheetRow, SpreadsheetColumn, FilterDescriptor, MergeRange } from './use-spreadsheet';
 import { colLabel, normRange } from './types';
-import type { CellCoord, NormalizedRange, CellFormat, RichTextRun } from './types';
-import { evaluate, isFormula, adjustFormula, getDependencies } from './formula-engine';
+import type { CellCoord, NormalizedRange, CellFormat, RichTextRun, CellDataValue } from './types';
+import { evaluate, isFormula, adjustFormula } from './formula-engine';
 import { getCellFormat, getCellStyle, getDefaultAlign, formatCellDisplay, formatKey, getCellNote, getCellLink } from './cell-format';
 import {
   getRichText,
@@ -15,7 +15,6 @@ import {
   plainTextFromRuns,
   isPlainRuns,
   saveSelection,
-  restoreSelection,
 } from './rich-text';
 
 // --- Constants ---
@@ -30,7 +29,6 @@ const MIN_COL_WIDTH = 40;
 
 // --- Cell component (memoized) ---
 const Cell = memo(function Cell({
-  value,
   displayValue,
   isEditing,
   editValue,
@@ -46,14 +44,13 @@ const Cell = memo(function Cell({
   link,
   note,
 }: {
-  value: string;
   displayValue: string;
   isEditing: boolean;
   editValue: string;
   onEditChange: (v: string) => void;
   inputRef: React.RefObject<HTMLDivElement | null>;
-  cellStyle: React.CSSProperties;
-  align: string;
+  cellStyle: React.CSSProperties & { '--cell-rotation'?: string };
+  align: 'left' | 'right' | 'center';
   isError: boolean;
   cellHeight: number;
   richTextRuns?: RichTextRun[];
@@ -86,7 +83,10 @@ const Cell = memo(function Cell({
     if (!isEditing) {
       initializedRef.current = false;
     }
-  }, [isEditing]);
+    // `initializedRef` gates the body so this only actually runs once per edit
+    // session; `editValue`/`richTextRuns` are read once on that first run, and
+    // `inputRef` is a stable ref object.
+  }, [isEditing, editValue, inputRef, richTextRuns]);
 
   // Track selection changes for toolbar state
   useEffect(() => {
@@ -99,7 +99,7 @@ const Cell = memo(function Cell({
     };
     document.addEventListener('selectionchange', handler);
     return () => document.removeEventListener('selectionchange', handler);
-  }, [isEditing, onSelectionInfo]);
+  }, [isEditing, onSelectionInfo, inputRef]);
 
   const handleInput = useCallback(() => {
     if (!inputRef.current) return;
@@ -108,7 +108,7 @@ const Cell = memo(function Cell({
     const plain = plainTextFromRuns(runs);
     onEditChange(plain);
     onRichTextChange?.(runs);
-  }, [onEditChange, onRichTextChange]);
+  }, [onEditChange, onRichTextChange, inputRef]);
 
   if (isEditing) {
     return (
@@ -134,8 +134,9 @@ const Cell = memo(function Cell({
     );
   }
 
-  const rotation = (cellStyle as any)['--cell-rotation'];
-  const { ['--cell-rotation']: _ignored, ...cleanStyle } = cellStyle as any;
+  const rotation = cellStyle['--cell-rotation'];
+  const cleanStyle: React.CSSProperties & { '--cell-rotation'?: string } = { ...cellStyle };
+  delete cleanStyle['--cell-rotation'];
 
   const renderContent = () => {
     let inner: React.ReactNode;
@@ -186,7 +187,7 @@ const Cell = memo(function Cell({
         fontSize: 12,
         margin: 0,
         boxSizing: 'border-box',
-        textAlign: align as any,
+        textAlign: align,
         overflow: rotation ? 'visible' : 'hidden',
         ...cleanStyle,
       }}
@@ -314,10 +315,10 @@ const DropdownChip = memo(function DropdownChip({
 interface SpreadsheetGridProps {
   columns: SpreadsheetColumn[];
   rows: SpreadsheetRow[];
-  onUpdateRow: (rowId: string, data: Record<string, any>) => Promise<any>;
-  onDeleteRow: (rowId: string) => Promise<any>;
-  onBulkDeleteRows: (ids: string[]) => Promise<any>;
-  onCreateRow: (initialData?: { data?: Record<string, any>; position?: number }) => void;
+  onUpdateRow: (rowId: string, data: Record<string, CellDataValue>) => Promise<void>;
+  onDeleteRow: (rowId: string) => Promise<void>;
+  onBulkDeleteRows: (ids: string[]) => Promise<void>;
+  onCreateRow: (initialData?: { data?: Record<string, CellDataValue>; position?: number }) => void;
   onCreateColumn: (data: { name: string; fieldType: string; options?: string[] }) => void;
   onUpdateColumn?: (colId: string, data: { name?: string; width?: number }) => void;
   onFormatCells?: (cells: Array<{ rowId: string; colId: string }>, format: Partial<CellFormat>) => void;
@@ -347,8 +348,8 @@ export function SpreadsheetGrid({
   columns,
   rows,
   onUpdateRow,
-  onDeleteRow,
-  onBulkDeleteRows,
+  // `onDeleteRow` / `onBulkDeleteRows` are part of the public prop contract but row
+  // deletion is currently dispatched via `onContextMenu` to the parent instead.
   onCreateRow,
   onCreateColumn,
   onUpdateColumn,
@@ -404,8 +405,8 @@ export function SpreadsheetGrid({
   const [openDropdown, setOpenDropdown] = useState<{ col: number; row: number; x: number; y: number; options: string[] } | null>(null);
   const [colWidths, setColWidths] = useState<Record<number, number>>({});
   const [rowHeights, setRowHeights] = useState<Record<number, number>>({});
-  const [resizingCol, setResizingCol] = useState<number | null>(null);
-  const [resizingRow, setResizingRow] = useState<number | null>(null);
+  const [, setResizingCol] = useState<number | null>(null);
+  const [, setResizingRow] = useState<number | null>(null);
   const [editingHeader, setEditingHeader] = useState<number | null>(null);
   const [headerEditValue, setHeaderEditValue] = useState('');
 
@@ -426,7 +427,7 @@ export function SpreadsheetGrid({
   const containerRef = useRef<HTMLDivElement>(null);
   const internalRunsRef = useRef<RichTextRun[]>([]);
   const editingRunsRef = editingRunsExternal || internalRunsRef;
-  const [inlineSelection, setInlineSelection] = useState<{ start: number; end: number } | null>(null);
+  const [, setInlineSelection] = useState<{ start: number; end: number } | null>(null);
   const isDraggingRef = useRef(false);
   const resizeStartRef = useRef<{ col: number; startX: number; startWidth: number } | null>(null);
   const rowResizeStartRef = useRef<{ row: number; startY: number; startHeight: number } | null>(null);
@@ -614,7 +615,7 @@ export function SpreadsheetGrid({
       if (!bc) return;
       if (!br && value) {
         optimisticCellsRef.current.set(`${col},${row}`, value);
-        const data: Record<string, any> = { [bc.id]: value };
+        const data: Record<string, CellDataValue> = { [bc.id]: value };
         if (hasRichText) data[richTextKey(bc.id)] = runs;
         onCreateRow({ data, position: row });
         return;
@@ -623,7 +624,7 @@ export function SpreadsheetGrid({
       const old = br.data?.[bc.id]?.toString() ?? '';
       if (value === old && !hasRichText) return;
       optimisticCellsRef.current.set(`${col},${row}`, value);
-      const updateData: Record<string, any> = { [bc.id]: value || null };
+      const updateData: Record<string, CellDataValue> = { [bc.id]: value || null };
       if (hasRichText) {
         updateData[richTextKey(bc.id)] = runs;
       } else {
@@ -631,7 +632,7 @@ export function SpreadsheetGrid({
       }
       await onUpdateRow(br.id, updateData);
     },
-    [sortedCols, rowByPosition, onUpdateRow, onCreateRow, onCreateColumn]
+    [sortedCols, rowByPosition, onUpdateRow, onCreateRow, onCreateColumn, editingRunsRef]
   );
 
   // --- Select cell ---
@@ -657,7 +658,7 @@ export function SpreadsheetGrid({
         requestAnimationFrame(() => containerRef.current?.focus());
       }
     },
-    [commitValue, getRawCellValue, onSelectedCellChange, onSelectionEndChange, onEditValueChange, onIsEditingChange, rowByPosition, sortedCols]
+    [commitValue, getRawCellValue, onSelectedCellChange, onSelectionEndChange, onEditValueChange, onIsEditingChange, rowByPosition, sortedCols, editingRunsRef]
   );
 
   const startEditing = useCallback((initialChar?: string) => {
@@ -667,7 +668,7 @@ export function SpreadsheetGrid({
       editingRunsRef.current = runsFromPlainText(initialChar);
     }
     requestAnimationFrame(() => inputRef.current?.focus());
-  }, [onIsEditingChange, onEditValueChange]);
+  }, [onIsEditingChange, onEditValueChange, editingRunsRef]);
 
   // --- Mouse handlers ---
   const getCoordsFromEvent = useCallback((e: React.MouseEvent | MouseEvent): CellCoord | null => {
@@ -810,14 +811,6 @@ export function SpreadsheetGrid({
 
         if (hasConstantDiff && seqDiff !== 0) {
           // Number sequence fill
-          const srcCol = sel.minCol + ((c - sel.minCol) % selWidth);
-          const srcRow = sel.minRow + ((r - sel.minRow) % selHeight);
-          const srcIdx = isVertical
-            ? (srcRow - sel.minRow) * selWidth + (srcCol - sel.minCol)
-            : (r - sel.minRow) * selWidth + (c - sel.minCol) % selWidth;
-          const baseIdx = isVertical ? srcCol - sel.minCol : (r - sel.minRow) * selWidth;
-          const baseValue = Number(srcValues[baseIdx] || 0);
-          const steps = isVertical ? r - sel.minRow : c - sel.minCol;
           const stepsFromEnd = isVertical
             ? r - sel.maxRow
             : c - sel.maxCol;
@@ -1464,7 +1457,6 @@ export function SpreadsheetGrid({
                     />
                   ) : (
                     <Cell
-                      value={rawValue}
                       displayValue={formattedValue}
                       isEditing={isEditingThis}
                       editValue={editValue}

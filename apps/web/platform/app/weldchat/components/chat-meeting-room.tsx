@@ -29,12 +29,29 @@ import {
 import { MeetingRoomView } from '@weldsuite/weldmeet-ui';
 import { useI18n } from '@/lib/i18n/provider';
 import { ChannelChatPanel } from './channel-chat-panel';
+import type { RTKParticipant, RTKSelf } from '@cloudflare/realtimekit';
 
 interface CallMember {
   userId?: string;
   name?: string;
   email?: string;
   picture?: string;
+}
+
+/** A live RTK tile — either the local self or a joined remote participant. */
+type CallParticipant = RTKParticipant | RTKSelf;
+
+/** Synthetic "ringing" tile for a DM/group recipient who hasn't picked up yet. */
+interface RingingParticipant {
+  id: string;
+  userId?: string;
+  name?: string;
+  picture?: string;
+  audioEnabled: boolean;
+  videoEnabled: boolean;
+  screenShareEnabled: boolean;
+  ringing: true;
+  ringingLabel: string;
 }
 
 // ============================================================================
@@ -111,7 +128,7 @@ function ChatMeetingRoomAdapter() {
   const { t } = useI18n();
   const { isDmOrGroup, otherMembers, title: meetingTitle } = useCallChannelInfo();
 
-  const [participants, setParticipants] = useState<any[]>([]);
+  const [participants, setParticipants] = useState<CallParticipant[]>([]);
   const [showEffects, setShowEffects] = useState(false);
   // Track whether any remote has joined. Once true the ringback stops.
   const [remoteEverJoined, setRemoteEverJoined] = useState(false);
@@ -155,8 +172,8 @@ function ChatMeetingRoomAdapter() {
     const sharingPeers = () =>
       new Set<string>(
         (meeting.participants?.joined?.toArray?.() ?? [])
-          .filter((p: any) => p?.screenShareEnabled && p?.screenShareTracks?.video)
-          .map((p: any) => p.id),
+          .filter((p) => p?.screenShareEnabled && p?.screenShareTracks?.video)
+          .map((p) => p.id),
       );
 
     const onSelfScreenShareUpdate = (payload: {
@@ -207,7 +224,7 @@ function ChatMeetingRoomAdapter() {
     // not apply.
     setSelfScreenShare({
       enabled: !!meeting.self?.screenShareEnabled,
-      videoTrack: (meeting.self?.screenShareTracks as any)?.video ?? null,
+      videoTrack: meeting.self?.screenShareTracks?.video ?? null,
     });
 
     updateParticipants();
@@ -259,8 +276,8 @@ function ChatMeetingRoomAdapter() {
       // a remount, before the seed-from-getter effect above has committed).
       screenShareEnabled: selfScreenShare.enabled || !!s.screenShareEnabled,
       screenShareTracks: {
-        video: selfScreenShare.videoTrack ?? (s.screenShareTracks as any)?.video ?? null,
-        audio: (s.screenShareTracks as any)?.audio ?? null,
+        video: selfScreenShare.videoTrack ?? s.screenShareTracks?.video ?? null,
+        audio: s.screenShareTracks?.audio ?? null,
       },
       pin: s.pin?.bind(s),
       unpin: s.unpin?.bind(s),
@@ -296,8 +313,8 @@ function ChatMeetingRoomAdapter() {
   // Discord-style outgoing call: recipients who haven't picked up yet are shown
   // as synthetic "ringing" tiles in the SAME grid as a joined call. Replaced by
   // their real RTK tile the moment they join (matched by userId). DM/group only.
-  const ringingPlaceholders = useMemo(() => {
-    if (!isDmOrGroup || ringingExpired) return [] as any[];
+  const ringingPlaceholders = useMemo((): RingingParticipant[] => {
+    if (!isDmOrGroup || ringingExpired) return [];
     const joinedKeys = new Set(
       participants.slice(1).flatMap((p) => [p?.userId, p?.customParticipantId].filter(Boolean)),
     );

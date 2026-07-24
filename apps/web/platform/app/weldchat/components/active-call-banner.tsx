@@ -1,10 +1,10 @@
-import { Phone, Video } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useQuery } from '@tanstack/react-query';
 import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
 import { useI18n } from '@/lib/i18n/provider';
+import type { ChatCall } from '@weldsuite/db/schema/chat-calls';
 
 interface ActiveCallBannerProps {
   channelId: string;
@@ -19,7 +19,7 @@ export function ActiveCallBanner({ channelId }: ActiveCallBannerProps) {
     queryKey: weldchatKeys.activeCall(channelId),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<any>(`/chat-calls/active/${channelId}`);
+      return client.get<{ data: ChatCall | null }>(`/chat-calls/active/${channelId}`);
     },
     staleTime: Infinity,
   });
@@ -33,7 +33,7 @@ export function ActiveCallBanner({ channelId }: ActiveCallBannerProps) {
   if (status !== 'idle') return null;
 
   const isVideo = activeCall.callType === 'video';
-  const participantCount = (activeCall.participants || []).filter((p: any) => !p.leftAt).length;
+  const participantCount = (activeCall.participants || []).filter((p) => !p.leftAt).length;
 
   return (
     <div className="flex items-center gap-3 px-4 h-[45px] bg-green-500/10 dark:bg-green-500/5 border-b border-green-500/20">

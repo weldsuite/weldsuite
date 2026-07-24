@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAuditLogs, type AuditLogFilters } from '@/hooks/queries/use-audit-log-queries';
 import { formatDistanceToNow, format } from 'date-fns';
@@ -11,14 +11,12 @@ import {
   TableRow,
 } from '@weldsuite/ui/components/table';
 import { Button } from '@weldsuite/ui/components/button';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
 import {
   ChevronDown,
   ChevronUp,
   ChevronLeft,
   ChevronRight,
-  Search,
 } from 'lucide-react';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import { cn } from '@/lib/utils';
@@ -93,37 +91,37 @@ export default function ActivitySettingsPage() {
   const [page, setPage] = useState(1);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
-  const entityTypeLabels: Record<string, string> = {
-    all: ts.allEntities,
-    contact: ts.entityTypes.contact,
-    customer: ts.entityTypes.customer,
-    product: ts.entityTypes.product,
-    order: ts.entityTypes.order,
-    invoice: ts.entityTypes.invoice,
-    bill: ts.entityTypes.bill,
-    helpdesk_conversation: ts.entityTypes.conversation,
-    helpdesk_ticket: ts.entityTypes.ticket,
-    project: ts.entityTypes.project,
-    personal_task: ts.entityTypes.task,
-    parcel: ts.entityTypes.parcel,
-    shipment: ts.entityTypes.shipment,
-    lead: ts.entityTypes.lead,
-    opportunity: ts.entityTypes.opportunity,
-    journal_entry: ts.entityTypes.journalEntry,
-    payment: ts.entityTypes.payment,
-    account: ts.entityTypes.account,
-  };
+  const filterConfigs: FilterConfig[] = useMemo(() => {
+    const entityTypeLabels: Record<string, string> = {
+      all: ts.allEntities,
+      contact: ts.entityTypes.contact,
+      customer: ts.entityTypes.customer,
+      product: ts.entityTypes.product,
+      order: ts.entityTypes.order,
+      invoice: ts.entityTypes.invoice,
+      bill: ts.entityTypes.bill,
+      helpdesk_conversation: ts.entityTypes.conversation,
+      helpdesk_ticket: ts.entityTypes.ticket,
+      project: ts.entityTypes.project,
+      personal_task: ts.entityTypes.task,
+      parcel: ts.entityTypes.parcel,
+      shipment: ts.entityTypes.shipment,
+      lead: ts.entityTypes.lead,
+      opportunity: ts.entityTypes.opportunity,
+      journal_entry: ts.entityTypes.journalEntry,
+      payment: ts.entityTypes.payment,
+      account: ts.entityTypes.account,
+    };
 
-  const actionLabels: Record<string, string> = {
-    all: ts.allActions,
-    created: ts.actions.created,
-    updated: ts.actions.updated,
-    deleted: ts.actions.deleted,
-    archived: ts.actions.archived,
-  };
+    const actionLabels: Record<string, string> = {
+      all: ts.allActions,
+      created: ts.actions.created,
+      updated: ts.actions.updated,
+      deleted: ts.actions.deleted,
+      archived: ts.actions.archived,
+    };
 
-  const filterConfigs: FilterConfig[] = useMemo(
-    () => [
+    return [
       {
         field: 'entityType',
         label: ts.entityType,
@@ -155,9 +153,8 @@ export default function ActivitySettingsPage() {
         filterType: 'date',
         options: [],
       },
-    ],
-    [ts, entityTypeLabels, actionLabels],
-  );
+    ];
+  }, [ts]);
 
   const queryFilters: AuditLogFilters = useMemo(() => {
     const next: AuditLogFilters = { page, limit: 50 };

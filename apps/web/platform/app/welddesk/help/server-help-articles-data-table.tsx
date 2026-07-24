@@ -83,7 +83,6 @@ import {
   FolderPlus,
   FilePlus,
   Folder,
-  Plus,
 } from "lucide-react";
 import { useDebounce } from "@/hooks/use-debounce";
 import { Badge } from "@weldsuite/ui/components/badge";
@@ -192,7 +191,6 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: ServerHel
   const [currentFolderPath, setCurrentFolderPath] = useState<string | null>(
     searchParams.get("folder") || null
   );
-  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
 
   const { getClient } = useAppApiClient();
   const createHelpFolderMutation = useCreateHelpFolder();
@@ -477,13 +475,6 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: ServerHel
 
   // Export data
   const handleExport = async () => {
-    const filters: HelpArticlesFilter = {
-      status: statusFilter,
-      search: search,
-      category: categoryFilter,
-      sortBy,
-      sortOrder,
-    };
     try {
       // Exports the rows currently loaded in the table.
       //
@@ -544,7 +535,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: ServerHel
               value = article.lastUpdated
                 ? new Date(article.lastUpdated).toLocaleDateString()
                 : "";
-            else value = (article as any)[key]?.toString() || "";
+            else value = article[key as keyof Article]?.toString() || "";
             return `"${value}"`;
           })
           .join(",")
@@ -639,7 +630,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: ServerHel
       setNewFolderName("");
       setRenameFolderTarget(null);
       await refreshFolders();
-    } catch (error) {
+    } catch {
       toast.error(th.failedToRenameFolder);
     } finally {
       setIsRenaming(false);
@@ -658,7 +649,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: ServerHel
               refreshFolders();
               resolve();
             },
-            onError: (error: any) => {
+            onError: (error: Error) => {
               toast.error(error?.message || th.failedToDeleteFolder);
               reject(error);
             },
@@ -671,7 +662,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: ServerHel
               toast.success(th.deletedArticleSuccess.replace('{name}', deleteTarget.name));
               resolve();
             },
-            onError: (error: any) => {
+            onError: (error: Error) => {
               toast.error(error?.message || th.failedToDeleteArticle);
               reject(error);
             },
@@ -681,7 +672,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: ServerHel
       setShowDeleteDialog(false);
       setDeleteTarget(null);
       loadArticles();
-    } catch (error) {
+    } catch {
       toast.error(th.failedToDelete);
     }
   };

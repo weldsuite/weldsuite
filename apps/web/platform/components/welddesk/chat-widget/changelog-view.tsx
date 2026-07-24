@@ -9,7 +9,6 @@ import {
   Activity,
   Sparkles,
   Calendar,
-  FileText,
   Megaphone,
   Package,
   ChevronRight
@@ -81,13 +80,6 @@ export function ChangelogView({
       tags: [{ label: 'Security', color: 'green' }, { label: 'Update', color: 'gray' }]
     }
   ];
-
-  const tagColors = {
-    gray: 'bg-gray-100 text-gray-700',
-    blue: 'bg-blue-100 text-blue-700',
-    green: 'bg-green-100 text-green-700',
-    purple: 'bg-purple-100 text-purple-700'
-  };
 
   return (
     <div

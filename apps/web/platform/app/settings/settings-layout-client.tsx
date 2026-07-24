@@ -8,10 +8,6 @@ import {
   Users,
   User,
   Building,
-  ShoppingCart,
-  Package,
-  Headset,
-  Mail,
   ChevronLeft,
   Shield,
   ShieldCheck,
@@ -53,14 +49,6 @@ interface SettingsLayoutClientProps {
   children: React.ReactNode;
   installedAppCodes: string[];
 }
-
-// Map settings sidebar items to the app code that must be installed
-const APP_SETTINGS_MAP: Record<string, { appCode: string; title: string; href: string; icon: any }> = {
-  parcel: { appCode: 'parcel', title: 'Parcel', href: '/settings/apps/parcel', icon: Package },
-  weldcrm: { appCode: 'weldcrm', title: 'WeldCRM', href: '/settings/apps/weldcrm', icon: Users },
-  welddesk: { appCode: 'welddesk', title: 'WeldDesk', href: '/settings/apps/welddesk', icon: Headset },
-  weldmail: { appCode: 'weldmail', title: 'WeldMail', href: '/settings/apps/weldmail', icon: Mail },
-};
 
 export function SettingsLayoutClient({ children, installedAppCodes }: SettingsLayoutClientProps) {
   const { t } = useI18n();

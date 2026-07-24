@@ -125,15 +125,15 @@ export default function EditAccountPage() {
     );
   }
 
-  const onSubmit = async (values: any) => {
+  const onSubmit = async (values: AccountFormValues) => {
     await updateAccount.mutateAsync({ id, data: values as Record<string, unknown> });
-    navigate({ to: `/weldbooks/accounts/${id}` as any });
+    navigate({ to: '/weldbooks/accounts/$id', params: { id } });
   };
 
   return (
     <div className="p-6 max-w-3xl space-y-6">
       <div className="flex items-center gap-4">
-        <Link to={`/weldbooks/accounts/${id}` as any}>
+        <Link to="/weldbooks/accounts/$id" params={{ id }}>
           <Button variant="ghost" size="icon">
             <ArrowLeft className="h-4 w-4" />
           </Button>
@@ -252,7 +252,7 @@ export default function EditAccountPage() {
         </Card>
 
         <div className="flex justify-end gap-3">
-          <Link to={`/weldbooks/accounts/${id}` as any}>
+          <Link to="/weldbooks/accounts/$id" params={{ id }}>
             <Button type="button" variant="outline">{ta.cancel}</Button>
           </Link>
           <Button type="submit" disabled={updateAccount.isPending}>

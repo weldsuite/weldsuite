@@ -83,6 +83,9 @@ export interface Customer {
   taxNumber: string | null;
   kvkNumber: string | null;
   iban: string | null;
+  bic: string | null;
+  paymentTermsDays: number | null;
+  notes: string | null;
   outstandingBalance: string | null;
   createdAt: string;
 }
@@ -104,6 +107,8 @@ export interface Invoice {
   amountPaid: string | null;
   balanceDue: string | null;
   reference: string | null;
+  notes: string | null;
+  internalNotes: string | null;
   createdAt: string;
 }
 
@@ -182,6 +187,25 @@ export interface JournalEntry {
   totalCredit: string | null;
   sourceType: string | null;
   isAutomatic: boolean | null;
+}
+
+export interface JournalLine {
+  id: string;
+  journalEntryId: string;
+  accountId: string;
+  description: string | null;
+  debit: string | null;
+  credit: string | null;
+  taxRateId: string | null;
+  taxAmount: string | null;
+  contactId: string | null;
+  currency: string | null;
+  reconciled: boolean | null;
+  sortOrder: number | null;
+}
+
+export interface JournalEntryDetail extends JournalEntry {
+  lines: JournalLine[];
 }
 
 export interface BankAccount {
@@ -264,6 +288,8 @@ export interface VatReturn {
   correctionOfId?: string | null;
   suppletieDeadline?: string | null;
   filingReference?: string | null;
+  filedAt?: string | null;
+  filedBy?: string | null;
   notes?: string | null;
 }
 
@@ -318,14 +344,39 @@ export interface Payment {
   contactId: string;
 }
 
+export interface RecurringInvoiceTemplateItem {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  unit?: string;
+  taxRateId?: string;
+  accountId?: string;
+}
+
+export interface RecurringInvoiceTemplateData {
+  items?: RecurringInvoiceTemplateItem[];
+  notes?: string;
+  internalNotes?: string;
+  paymentTermsDays?: number;
+  revenueAccountId?: string;
+  reference?: string;
+}
+
 export interface RecurringInvoice {
   id: string;
   name: string | null;
   contactId: string;
   frequency: string;
+  dayOfMonth: number | null;
   nextIssueDate: string;
+  endDate: string | null;
   status: string;
+  templateData: RecurringInvoiceTemplateData | null;
+  autoSend: boolean | null;
+  autoFinalize: boolean | null;
   generatedCount: number | null;
+  lastGeneratedAt: string | null;
+  lastGeneratedInvoiceId: string | null;
 }
 
 interface ApiResponse<T> {
@@ -362,7 +413,13 @@ export const accountingApi = {
   seedWorkflows: () => weldbooksApi.post<ApiResponse<{ templatesCreated: number }>>('/accounting-settings/seed-workflows'),
   registerInbox: (email: string) => weldbooksApi.post<ApiResponse<{ email: string; accountId: string }>>('/accounting-settings/inbox', { email }),
   getExchangeRates: () =>
-    weldbooksApi.get<ApiResponse<{ rates: Record<string, number>; currencies: any[]; baseCurrency: string }>>('/accounting-settings/exchange-rates'),
+    weldbooksApi.get<
+      ApiResponse<{
+        rates: Record<string, number>;
+        currencies: Array<{ code: string; name: string; symbol: string }>;
+        baseCurrency: string;
+      }>
+    >('/accounting-settings/exchange-rates'),
   getExchangeRate: (from: string, to: string) =>
     weldbooksApi.get<ApiResponse<{ from: string; to: string; rate: number }>>(`/accounting-settings/exchange-rate/${from}/${to}`),
 
@@ -428,7 +485,7 @@ export const accountingApi = {
   // Journal Entries
   listJournalEntries: (params?: { status?: string; sourceType?: string; from?: string; to?: string; page?: number; pageSize?: number }) =>
     weldbooksApi.get<PaginatedResponse<JournalEntry>>(`/journal-entries${buildQuery(params || {})}`),
-  getJournalEntry: (id: string) => weldbooksApi.get<ApiResponse<JournalEntry>>(`/journal-entries/${id}`),
+  getJournalEntry: (id: string) => weldbooksApi.get<ApiResponse<JournalEntryDetail>>(`/journal-entries/${id}`),
   createJournalEntry: (data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<JournalEntry>>('/journal-entries', data),
   postJournalEntry: (id: string) => weldbooksApi.post<ApiResponse<JournalEntry>>(`/journal-entries/${id}/post`),
   reverseJournalEntry: (id: string) => weldbooksApi.post<ApiResponse<{ id: string; entryNumber: string }>>(`/journal-entries/${id}/reverse`),

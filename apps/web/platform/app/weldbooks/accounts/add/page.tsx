@@ -103,7 +103,7 @@ export default function AddAccountPage() {
   const selectedType = form.watch('type');
   const subtypes = subtypesByType[selectedType] ?? [];
 
-  const onSubmit = async (values: any) => {
+  const onSubmit = async (values: AccountFormValues) => {
     await createAccount.mutateAsync(values as Record<string, unknown>);
     navigate({ to: '/weldbooks/accounts' });
   };

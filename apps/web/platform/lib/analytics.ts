@@ -44,14 +44,18 @@ export function initMixpanel(token: string, debug = false) {
       mixpanel.register(utms);
       try {
         localStorage.setItem('mp_utms', JSON.stringify(utms));
-      } catch {}
+      } catch {
+        // Storage may be unavailable (private browsing, quota exceeded) — non-fatal.
+      }
     } else {
       try {
         const stored = localStorage.getItem('mp_utms');
         if (stored) {
           mixpanel.register(JSON.parse(stored));
         }
-      } catch {}
+      } catch {
+        // Corrupt or inaccessible storage — ignore and continue without stored UTMs.
+      }
     }
 
     mixpanelInstance = mixpanel;
@@ -73,9 +77,4 @@ export function identify(userId: string) {
 export function setUserProperties(props: Record<string, unknown>) {
   if (!mixpanelInstance) return;
   mixpanelInstance.people.set(props);
-}
-
-function reset() {
-  if (!mixpanelInstance) return;
-  mixpanelInstance.reset();
 }

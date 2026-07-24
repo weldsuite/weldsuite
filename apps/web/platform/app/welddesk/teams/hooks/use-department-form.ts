@@ -98,7 +98,7 @@ export function useDepartmentForm({
 }: UseDepartmentFormProps): UseDepartmentFormReturn {
   const { t } = useI18n();
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [isPending] = useTransition();
   const createDepartmentMutation = useCreateDepartment();
   const updateDepartmentMutation = useUpdateDepartment();
 
@@ -182,11 +182,11 @@ export function useDepartmentForm({
           router.push('/welddesk/teams');
         }
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error saving department:', error);
       toast.error(
         mode === 'edit' ? t.helpdesk.teamsPage.failedToUpdateDepartment : t.helpdesk.teamsPage.failedToCreateDepartment,
-        { description: error.message }
+        { description: error instanceof Error ? error.message : undefined }
       );
     }
   };

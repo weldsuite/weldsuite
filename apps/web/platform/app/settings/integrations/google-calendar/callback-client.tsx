@@ -39,7 +39,7 @@ export default function GoogleCalendarCallbackClient() {
         router.push('/settings/integrations/google-calendar');
       }
     })();
-  }, []);
+  }, [callbackMutation, router, ts.failed, ts.invalidCallback, ts.success]);
 
   return (
     <div className="w-full flex items-center justify-center h-full min-h-[calc(100vh-8rem)] pb-[60px]">

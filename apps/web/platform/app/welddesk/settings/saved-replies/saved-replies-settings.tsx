@@ -70,7 +70,7 @@ export function SavedRepliesSettings() {
     { label: srp.breadcrumb },
   ]);
 
-  const items: CannedResponseItem[] = (result as any)?.data || [];
+  const items: CannedResponseItem[] = result?.data || [];
 
   const handleCreate = () => {
     setEditingItem(null);

@@ -126,7 +126,7 @@ function buildTemplateXlsx(): ArrayBuffer {
   return XLSX.write(workbook, { type: "array", bookType: "xlsx" });
 }
 
-function safeString(value: any): string {
+function safeString(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value.trim();
   if (typeof value === "number") return String(value);
@@ -247,7 +247,7 @@ const FieldCombobox = ({
 
 interface DataPreviewListProps {
   currentFocusedField: string | null;
-  data: Record<string, any>[];
+  data: Record<string, unknown>[];
 }
 
 const DataPreviewList = ({ currentFocusedField, data }: DataPreviewListProps) => {
@@ -314,7 +314,7 @@ export function ImportTasksDialog({ open, onOpenChange, projectId }: ImportTasks
   const { getClient } = useAppApiClient();
   const [step, setStep] = useState<"upload" | "mapping" | "running" | "result">("upload");
   const [file, setFile] = useState<File | null>(null);
-  const [parsedData, setParsedData] = useState<Record<string, any>[]>([]);
+  const [parsedData, setParsedData] = useState<Record<string, unknown>[]>([]);
   const [sourceColumns, setSourceColumns] = useState<string[]>([]);
   const [mappings, setMappings] = useState<Record<string, string>>({});
   const [currentFocusedField, setCurrentFocusedField] = useState<string | null>(null);
@@ -429,7 +429,7 @@ export function ImportTasksDialog({ open, onOpenChange, projectId }: ImportTasks
           throw new Error("Could not read the first sheet");
         }
 
-        const jsonData = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet, {
+        const jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, {
           raw: false,
           defval: "",
           blankrows: false,
@@ -511,14 +511,14 @@ export function ImportTasksDialog({ open, onOpenChange, projectId }: ImportTasks
 
     const titleSourceField = titleMapping[0];
 
-    const transformedData: Record<string, any>[] = [];
+    const transformedData: Record<string, string | string[]>[] = [];
     const skippedRows: { row: number; reason: string }[] = [];
 
     parsedData.forEach((row, index) => {
       const rowNum = index + 2;
 
       try {
-        const task: Record<string, any> = {};
+        const task: Record<string, string | string[]> = {};
         const title = safeString(row[titleSourceField]);
 
         if (!title) {
@@ -640,13 +640,14 @@ export function ImportTasksDialog({ open, onOpenChange, projectId }: ImportTasks
               }
             }
           }
-        } catch (pollErr: any) {
+        } catch (pollErr) {
           console.error("[Import] Poll error:", pollErr);
         }
       }, 1500);
-    } catch (error: any) {
+    } catch (error) {
       console.error("[Import] Import error:", error);
-      toast.error(error.message || t.projects.settings.importFailedFallback);
+      const message = error instanceof Error ? error.message : undefined;
+      toast.error(message || t.projects.settings.importFailedFallback);
       setIsImporting(false);
     }
   };

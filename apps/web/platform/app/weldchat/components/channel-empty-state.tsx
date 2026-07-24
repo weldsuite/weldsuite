@@ -2,12 +2,19 @@ import { Hash, Lock, MessageCircle } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
+import type { ChatChannel, ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useChatContext } from './chat-context';
 
+/** Channel row as `ChannelPage` reads it, extended with the DM-specific
+ * `otherMembers` field `/chat-dm` projects. */
+interface ChannelEmptyStateChannel extends ChatChannel {
+  otherMembers?: ChatChannelMember[];
+}
+
 interface ChannelEmptyStateProps {
-  channel: any;
+  channel: ChannelEmptyStateChannel | null | undefined;
 }
 
 function formatCreationDate(iso: string | null | undefined): string {
@@ -37,7 +44,7 @@ export function ChannelEmptyState({ channel }: ChannelEmptyStateProps) {
     const other = channel?.otherMembers?.[0];
     const displayName = isGroupDm
       ? channel?.otherMembers
-          ?.map((m: any) => m.name || m.email || st('sweep.weldchat.channelEmptyState.memberFallback'))
+          ?.map((m) => m.name || m.email || st('sweep.weldchat.channelEmptyState.memberFallback'))
           .join(', ') ||
         channel?.name ||
         st('sweep.weldchat.channelEmptyState.groupFallback')
@@ -80,8 +87,8 @@ export function ChannelEmptyState({ channel }: ChannelEmptyStateProps) {
   const Icon = isPrivate ? Lock : Hash;
   const creator = (() => {
     if (!channel?.createdBy) return null;
-    const members = (membersData as any)?.data ?? [];
-    const m = members.find((mm: any) => mm.userId === channel.createdBy);
+    const members = membersData?.data ?? [];
+    const m = members.find((mm) => mm.userId === channel.createdBy);
     if (!m) return null;
     const name = m.name || m.email || null;
     if (!name) return null;

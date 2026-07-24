@@ -11,7 +11,6 @@ import { getTranslations } from '@/lib/i18n';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { BreadcrumbProvider } from '@/contexts/breadcrumb-context';
-import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
 import { usePathname } from '@/lib/router';
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
 import { useWorkspaceMembers, weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
@@ -23,11 +22,7 @@ import { PinnedMessagesPanel } from './pinned-messages-panel';
 import { ThreadPanel } from './thread-panel';
 import { BookmarksPanel } from './bookmarks-panel';
 import { ChatFiltersPanel } from './chat-filters-panel';
-import { useChannel } from '@/hooks/queries/use-weldchat-queries';
 import { ChatContext, type RightPanel, type ReplyTo, type ChatFilters } from './chat-context';
-import { useCalendarDrawerOpen } from '@/hooks/use-calendar-drawer-open';
-import { useNotificationsPanelOpen } from '@/hooks/use-notifications-panel-open';
-import { useWeldAgentDrawerOpen } from '@/hooks/use-weldagent-drawer-open';
 import { useEntitySheet } from '@/components/entity-sheet/use-entity-sheet';
 import { useObjectPanel } from '@/components/object-panel';
 import { ModuleContent } from '@/components/layout/module-content';
@@ -73,11 +68,6 @@ export function ChatLayoutClient({ children }: { children: ReactNode }) {
   // (panel → panel swaps should be instant). Reset to false on close so a
   // fresh open animates normally.
   const [skipProfilePanelAnim, setSkipProfilePanelAnim] = useState(false);
-
-  const { data: currentChannelData } = useChannel(
-    isChannelPage ? currentChannelId : '',
-  );
-  const currentChannel: any = currentChannelData?.data;
 
   // Clear any stale 'members' rail-panel selection when the channel
   // changes — the unified ChannelPanel auto-open is handled in a separate
@@ -127,20 +117,10 @@ export function ChatLayoutClient({ children }: { children: ReactNode }) {
     };
   }, [closeAllObjectPanels]);
 
-  const { isOpen: isEntitySheetOpen, view: entitySheetView } = useEntitySheet();
-  // Width reserved by the entity sheet on the right edge (default view only —
-  // 'full' view covers the whole content area so shrinking is meaningless).
-  const entitySheetWidth = isEntitySheetOpen && entitySheetView !== 'full' ? 500 : 0;
+  const { isOpen: isEntitySheetOpen } = useEntitySheet();
 
   const { status: callStatus, channelId: callChannelId, isFullscreen: callFullscreen, isPiP: callPiP } = useWeldChatCall();
   const isInlineCall = callStatus !== 'idle' && callStatus !== 'ended' && callChannelId === currentChannelId && !callFullscreen && !callPiP;
-
-  const mobileNav = useMobileNavOptional();
-  const [showWeldAgent, setShowWeldAgentDirect] = useWeldAgentDrawerOpen();
-  const setShowWeldAgent = mobileNav?.setShowWeldAgent ?? setShowWeldAgentDirect;
-
-  const [showCalendar, setShowCalendar] = useCalendarDrawerOpen();
-  const [showNotifications, setShowNotifications] = useNotificationsPanelOpen();
 
   // Pre-read localStorage to know if the member detail panel should be open on mount
   const isDmPage = !!dmMatch?.[1];
@@ -151,11 +131,7 @@ export function ChatLayoutClient({ children }: { children: ReactNode }) {
   // Track whether transitions should be enabled.
   // Disabled until the first user-driven panel toggle to prevent any load animation.
   const hasUserToggled = useRef(false);
-  const [enableTransitions, setEnableTransitions] = useState(false);
-
-  const weldAgentWidth = mobileNav?.weldAgentWidth ?? 480;
-  const calendarWidth = 480;
-  const notificationsWidth = 480;
+  const [, setEnableTransitions] = useState(false);
 
   // Listen for member-detail-panel events to adjust content width
   useEffect(() => {
@@ -224,43 +200,6 @@ export function ChatLayoutClient({ children }: { children: ReactNode }) {
     }
   }, [isEntitySheetOpen]);
 
-  // Detect the render where the entity sheet toggles, so we can suppress the
-  // chat content's `transition-[width]` for that one paint. Otherwise the
-  // 200ms width tween fights the snap swap from members panel ↔ entity sheet
-  // and the user sees a brief slide. Ref is updated AFTER the render so the
-  // toggle render reads the previous value.
-  const prevSheetOpenRef = useRef(isEntitySheetOpen);
-  const sheetTogglingThisRender = prevSheetOpenRef.current !== isEntitySheetOpen;
-  useEffect(() => {
-    prevSheetOpenRef.current = isEntitySheetOpen;
-  }, [isEntitySheetOpen]);
-
-  // Same idea for route changes: when the user navigates between weldchat
-  // pages (e.g. customer entity-sheet view → channel with members panel) the
-  // content area's width can shift, and the 200ms tween makes it look like
-  // the panel is sliding in from the side. Suppress the transition for the
-  // single render where pathname changes so the swap is instant.
-  const prevPathnameRef = useRef(pathname);
-  const pathnameChangingThisRender = prevPathnameRef.current !== pathname;
-  useEffect(() => {
-    prevPathnameRef.current = pathname;
-  }, [pathname]);
-
-  // Always emit a single calc() form — CSS can't smoothly animate between
-  // '100%' and 'calc(100% - Npx)' (different unit forms), which is why the
-  // width change felt janky. calc(100% - 0px) collapses cleanly to 100%.
-  const getContentWidth = () => {
-    let total = 0;
-    if (showWeldAgent) total += weldAgentWidth;
-    if (showCalendar) total += calendarWidth;
-    if (showNotifications) total += notificationsWidth;
-    if (memberDetailWidth) total += memberDetailWidth;
-    if (entitySheetWidth) total += entitySheetWidth;
-    // Object-panel host writes its reservation onto the CSS var; subtract it
-    // so the chat content shrinks when the ChannelPanel slides in.
-    return `calc(100% - ${total}px - var(--object-panel-reservation-width, 0px))`;
-  };
-
   const openThread = useCallback((messageId: string) => {
     setThreadMessageId(messageId);
     setRightPanel('thread');
@@ -311,7 +250,7 @@ export function ChatLayoutClient({ children }: { children: ReactNode }) {
   const profileMember: TeamMemberDetail | null = useMemo(() => {
     if (!selectedProfileUserId || isIndividualDmPage) return null;
     const all = workspaceMembersData?.data || [];
-    const found = all.find((m: any) => m.userId === selectedProfileUserId);
+    const found = all.find((m) => m.userId === selectedProfileUserId);
     return found ? fromTeamMember(found) : null;
   }, [selectedProfileUserId, isIndividualDmPage, workspaceMembersData]);
 

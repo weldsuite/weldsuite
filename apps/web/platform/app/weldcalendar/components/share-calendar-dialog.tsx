@@ -75,7 +75,7 @@ export function ShareCalendarDialog({ calendarId, open, onOpenChange }: ShareCal
                 onChange={(e) => setMemberId(e.target.value)}
                 className="flex-1"
               />
-              <Select value={permission} onValueChange={(v) => setPermission(v as any)}>
+              <Select value={permission} onValueChange={(v) => setPermission(v as 'view' | 'edit' | 'manage')}>
                 <SelectTrigger className="w-32">
                   <SelectValue />
                 </SelectTrigger>
