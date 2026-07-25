@@ -39,6 +39,12 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "parcel-return-portal", "dev"],
       "port": 3017
+    },
+    {
+      "name": "parcel-tracking-portal",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "parcel-tracking-portal", "dev"],
+      "port": 3018
     }
   ]
 }
