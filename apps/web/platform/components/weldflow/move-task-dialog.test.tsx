@@ -21,7 +21,7 @@ vi.mock('@/hooks/queries/use-task-queries', () => ({
 vi.mock('@/lib/i18n/provider', () => ({
   useI18n: () => ({
     t: {
-      common: { cancel: 'Cancel' },
+      common: { actions: { cancel: 'Cancel' } },
       projects: {
         tasks: {
           moveTaskDialogTitle: 'Move task to project',
