@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, desc, eq, ilike, or } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import { getMasterDb, masterSchema } from './db';
 
 const { workspaces, plans, userWorkspaces, users } = masterSchema;
@@ -25,7 +25,36 @@ export interface WorkspaceRow {
   deletedAt: string | null;
   /** True when a schedule was set by an admin (vs the trial-expiry billing policy). */
   adminInitiated: boolean;
+  /** Active memberships. Only populated by {@link listWorkspaces}. */
+  memberCount: number;
 }
+
+/** A single membership row on the workspace detail screen. */
+export interface WorkspaceMemberRow {
+  /** Membership id (`user_workspaces.id`), unique per user/workspace pair. */
+  id: string;
+  userId: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  imageUrl: string | null;
+  jobTitle: string | null;
+  /** Clerk role, e.g. `org:admin` / `org:member`. */
+  role: string;
+  status: 'ACTIVE' | 'PENDING';
+  /** False once the Clerk user has been deleted (we keep the row). */
+  userIsActive: boolean;
+  invitedAt: string | null;
+  joinedAt: string | null;
+  createdAt: string;
+}
+
+/** Active-membership count, as a correlated subquery. */
+const activeMemberCount = sql<number>`(
+  select count(*)::int from ${userWorkspaces}
+  where ${userWorkspaces.workspaceId} = ${workspaces.id}
+    and ${userWorkspaces.status} = 'ACTIVE'
+)`;
 
 function deletionState(row: {
   deletedAt: Date | null;
@@ -65,6 +94,7 @@ export async function listWorkspaces(filters: WorkspaceListFilters = {}): Promis
       deletionRequestedBy: workspaces.deletionRequestedBy,
       deletionReason: workspaces.deletionReason,
       deletedAt: workspaces.deletedAt,
+      memberCount: activeMemberCount,
     })
     .from(workspaces)
     .leftJoin(plans, eq(workspaces.planId, plans.id))
@@ -88,6 +118,7 @@ export async function listWorkspaces(filters: WorkspaceListFilters = {}): Promis
     deletionReason: row.deletionReason,
     deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
     adminInitiated: Boolean(row.deletionRequestedBy),
+    memberCount: Number(row.memberCount ?? 0),
   }));
 }
 
@@ -132,7 +163,56 @@ export async function getWorkspaceById(id: string): Promise<WorkspaceRow | null>
     deletionReason: row.deletionReason,
     deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
     adminInitiated: Boolean(row.deletionRequestedBy),
+    memberCount: 0,
   };
+}
+
+/**
+ * Every membership of a workspace — active and pending — newest role first
+ * (admins above members), then by join date. Read-only: the admin console
+ * surfaces memberships, it does not manage them (Clerk owns that).
+ */
+export async function listWorkspaceMembers(
+  workspaceId: string,
+): Promise<WorkspaceMemberRow[]> {
+  const db = getMasterDb();
+
+  const rows = await db
+    .select({
+      id: userWorkspaces.id,
+      userId: users.id,
+      email: users.email,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      imageUrl: users.imageUrl,
+      jobTitle: users.jobTitle,
+      role: userWorkspaces.role,
+      status: userWorkspaces.status,
+      userIsActive: users.isActive,
+      invitedAt: userWorkspaces.invitedAt,
+      joinedAt: userWorkspaces.joinedAt,
+      createdAt: userWorkspaces.createdAt,
+    })
+    .from(userWorkspaces)
+    .innerJoin(users, eq(userWorkspaces.userId, users.id))
+    .where(eq(userWorkspaces.workspaceId, workspaceId))
+    .orderBy(asc(userWorkspaces.role), asc(userWorkspaces.createdAt));
+
+  return rows.map((row) => ({
+    id: row.id,
+    userId: row.userId,
+    email: row.email,
+    firstName: row.firstName,
+    lastName: row.lastName,
+    imageUrl: row.imageUrl,
+    jobTitle: row.jobTitle,
+    role: row.role,
+    status: row.status,
+    userIsActive: row.userIsActive,
+    invitedAt: row.invitedAt ? row.invitedAt.toISOString() : null,
+    joinedAt: row.joinedAt ? row.joinedAt.toISOString() : null,
+    createdAt: row.createdAt.toISOString(),
+  }));
 }
 
 /**

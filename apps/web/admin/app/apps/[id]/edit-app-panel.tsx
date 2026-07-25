@@ -4,7 +4,17 @@ import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Button } from '@weldsuite/ui/components/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@weldsuite/ui/components/dialog';
 import { AppForm, type AppFormValues } from '@/components/app-form';
+import { PageHeading } from '@/components/shell/admin-shell';
 import type { AppCatalogEntry } from '@/lib/apps-data';
 import { updateApp, deleteApp } from '@/actions/apps';
 
@@ -86,21 +96,23 @@ export function EditAppPanel({ app }: { app: AppCatalogEntry }) {
 
   return (
     <>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Edit app</h1>
-          <p className="text-sm text-muted-foreground mt-1 font-mono">{app.code}</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowDelete(true)}
-          disabled={isDeleting}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm border border-destructive/30 text-destructive hover:bg-destructive/10 disabled:opacity-50"
-        >
-          <Trash2 className="h-4 w-4" />
-          Delete app
-        </button>
-      </div>
+      <PageHeading
+        title="Edit app"
+        description={<span className="font-mono text-sm">{app.code}</span>}
+        actions={
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setShowDelete(true)}
+            disabled={isDeleting}
+            className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+          >
+            <Trash2 className="h-4 w-4" />
+            Delete app
+          </Button>
+        }
+      />
 
       <AppForm
         initial={entryToFormValues(app)}
@@ -112,36 +124,26 @@ export function EditAppPanel({ app }: { app: AppCatalogEntry }) {
         errorMessage={submitError}
       />
 
-      {showDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-popover rounded-lg shadow-xl border max-w-md w-full p-6 space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold">Delete &quot;{app.name}&quot;?</h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                This permanently deletes the catalog entry and any attached screenshots. Workspaces
-                that installed this app will keep their data, but the entry will disappear from the
-                App Store.
-              </p>
-            </div>
-            <div className="flex items-center justify-end gap-2">
-              <button
-                onClick={() => setShowDelete(false)}
-                disabled={isDeleting}
-                className="px-4 py-2 rounded-md text-sm hover:bg-accent disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={isDeleting}
-                className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white text-sm font-medium disabled:opacity-50"
-              >
-                {isDeleting ? 'Deleting…' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Dialog open={showDelete} onOpenChange={setShowDelete}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete &quot;{app.name}&quot;?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes the catalog entry and any attached screenshots. Workspaces
+              that installed this app will keep their data, but the entry will disappear from the
+              App Store.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" disabled={isDeleting} onClick={() => setShowDelete(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" disabled={isDeleting} onClick={handleDelete}>
+              {isDeleting ? 'Deleting…' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

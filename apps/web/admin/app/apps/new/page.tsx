@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
+import { Button } from '@weldsuite/ui/components/button';
 import { requireAdmin } from '@/lib/auth';
+import { PageBody, PageContent, PageHeading } from '@/components/shell/admin-shell';
 import { NewAppForm } from './new-app-form';
 
 export const dynamic = 'force-dynamic';
@@ -8,26 +10,22 @@ export const dynamic = 'force-dynamic';
 export default async function NewAppPage() {
   await requireAdmin();
   return (
-    <div className="h-full overflow-auto">
-      <div className="max-w-3xl mx-auto p-6 space-y-4">
-        <Link
-          href="/apps"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to App Catalog
-        </Link>
+    <PageContent>
+      <PageBody width="narrow" className="space-y-4">
+        <Button variant="ghost" size="sm" asChild className="-ml-2 text-muted-foreground">
+          <Link href="/apps">
+            <ArrowLeft className="h-4 w-4" />
+            Back to App Catalog
+          </Link>
+        </Button>
 
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">New app</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Add a new entry to the App Catalog. It will not be visible in the App Store until you
-            publish it.
-          </p>
-        </div>
+        <PageHeading
+          title="New app"
+          description="Add a new entry to the App Catalog. It will not be visible in the App Store until you publish it."
+        />
 
         <NewAppForm />
-      </div>
-    </div>
+      </PageBody>
+    </PageContent>
   );
 }

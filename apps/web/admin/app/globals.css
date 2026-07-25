@@ -1,4 +1,13 @@
+/*
+ * Admin console theme — kept token-for-token in sync with the platform SPA
+ * (apps/web/platform/app/globals.css) so the two apps read as one product.
+ * If you change a colour here, change it there too.
+ */
 @import "tailwindcss";
+@source "../**/*.{ts,tsx}";
+@source "../../../../packages/design/ui/src/**/*.{ts,tsx}";
+
+@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -22,33 +31,111 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+  --chart-1: #2C7FFF;
+  --chart-2: #8EC5FF;
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
   --radius: 0.625rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
 }
 
 .dark {
-  --background: oklch(0.191 0.003 271);
-  --foreground: oklch(0.882 0.004 271);
-  --card: oklch(0.222 0.006 271);
-  --card-foreground: oklch(0.882 0.004 271);
-  --popover: oklch(0.222 0.006 271);
-  --popover-foreground: oklch(0.882 0.004 271);
-  --primary: oklch(0.546 0.192 262);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.244 0.006 271);
-  --secondary-foreground: oklch(0.882 0.004 271);
-  --muted: oklch(0.244 0.006 271);
-  --muted-foreground: oklch(0.649 0.015 262);
-  --accent: oklch(0.244 0.006 271);
-  --accent-foreground: oklch(0.882 0.004 271);
-  --destructive: oklch(0.671 0.204 25);
-  --destructive-foreground: oklch(0.985 0.004 271);
-  --border: oklch(0.290 0.007 275);
-  --input: oklch(0.367 0.010 261);
-  --ring: oklch(0.693 0.161 262);
-  --sidebar: oklch(0.191 0.003 271);
-  --sidebar-foreground: oklch(0.882 0.004 271);
+  /* Attio dark theme — exact palette from app.attio.com
+     black-50  #101113  primary-background  (sidebar / outer chrome)
+     black-100 #1c1d1f  secondary-background (main content)
+     black-300 #232529  surface-subtle      (cards / popovers / muted)
+     black-400 #2e3238  surface             (hover / accent / subtle stroke)
+     black-500 #383e47  input stroke
+     black-700 #6f7988  default stroke / disabled fg
+     white-100 #ffffff  primary fg
+     white-400 #edeff3  secondary fg
+     white-900 #b5bdc9  tertiary / muted fg
+     blue-500  #266df0  primary accent
+     blue-400  #709ff5  focus ring / link
+     red-500   #ff5b59  destructive
+     green-500 #0fc27b  success
+     yellow-500 #f5b900 warning */
+  --background: #1c1d1f;
+  --foreground: #ffffff;
+  --card: #232529;
+  --card-foreground: #ffffff;
+  --popover: #232529;
+  --popover-foreground: #ffffff;
+  --primary: #266df0;
+  --primary-foreground: #ffffff;
+  --secondary: #2e3238;
+  --secondary-foreground: #edeff3;
+  --muted: #232529;
+  --muted-foreground: #b5bdc9;
+  --accent: #2e3238;
+  --accent-foreground: #edeff3;
+  --destructive: #ff5b59;
+  --destructive-foreground: #ffffff;
+  --border: #2e3238;
+  --input: #383e47;
+  --ring: #709ff5;
+  --chart-1: #266df0;
+  --chart-2: #709ff5;
+  --chart-3: #0fc27b;
+  --chart-4: #f5b900;
+  --chart-5: #ff5b59;
+  --sidebar: #1c1d1f;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #266df0;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #2e3238;
+  --sidebar-accent-foreground: #edeff3;
+  --sidebar-border: #2e3238;
+  --sidebar-ring: #709ff5;
+}
+
+/* Sidebar hover-only scrollbar — `scrollbar-gutter: stable` keeps a fixed
+   gutter so the content width never shifts; the thumb only fades in on hover.
+   Copied from the platform so the module sidebar behaves identically. */
+.sidebar-hover-scrollbar {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 150ms ease;
+}
+.sidebar-hover-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background: transparent;
+}
+.sidebar-hover-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-hover-scrollbar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 9999px;
+  transition: background-color 150ms ease;
+}
+.sidebar-hover-scrollbar:hover {
+  scrollbar-color: rgb(209 213 219) transparent;
+}
+.sidebar-hover-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: rgb(209 213 219);
+}
+.sidebar-hover-scrollbar:hover::-webkit-scrollbar-thumb:hover {
+  background: rgb(156 163 175);
+}
+:is(.dark) .sidebar-hover-scrollbar:hover {
+  scrollbar-color: rgba(143, 153, 168, 0.4) transparent;
+}
+:is(.dark) .sidebar-hover-scrollbar:hover::-webkit-scrollbar-thumb {
+  background: rgba(143, 153, 168, 0.4);
+}
+:is(.dark) .sidebar-hover-scrollbar:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(143, 153, 168, 0.6);
 }
 
 @theme inline {
@@ -71,17 +158,44 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(156, 163, 175, 0.15) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 3px;
+    height: 3px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: rgba(156, 163, 175, 0.15);
+    border-radius: 3px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(156, 163, 175, 0.3);
   }
   body {
     @apply bg-background text-foreground;

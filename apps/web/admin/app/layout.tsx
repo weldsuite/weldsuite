@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import { ClerkProvider } from '@clerk/nextjs';
 import { Toaster } from 'sonner';
-import { Sidebar } from '@/components/sidebar';
+import { AdminShell } from '@/components/shell/admin-shell';
+import { ThemeProvider, themeBootstrapScript } from '@/components/shell/theme';
 import { getAdminIdentity } from '@/lib/auth';
 import './globals.css';
 
@@ -15,19 +16,24 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   return (
     <ClerkProvider>
-      <html lang="en">
+      <html lang="en" suppressHydrationWarning>
+        <head>
+          {/* Set the theme class before first paint — see components/shell/theme.tsx. */}
+          <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
+        </head>
         <body>
-          <div className="flex h-screen">
-            {identity && (
-              <Sidebar
-                name={identity.name}
-                email={identity.email}
-                role={identity.role}
-              />
+          <ThemeProvider>
+            {identity ? (
+              <AdminShell name={identity.name} email={identity.email} role={identity.role}>
+                {children}
+              </AdminShell>
+            ) : (
+              // Signed out (/unauthorized, Clerk redirects) — no shell to hang
+              // navigation off, so render the page bare on the chrome surface.
+              <div className="h-screen overflow-auto bg-background">{children}</div>
             )}
-            <main className="flex-1 overflow-hidden">{children}</main>
-          </div>
-          <Toaster />
+            <Toaster />
+          </ThemeProvider>
         </body>
       </html>
     </ClerkProvider>

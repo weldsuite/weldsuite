@@ -5,11 +5,42 @@ import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { Plus, Search, Pencil, Trash2, Loader2, Package, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
+import { Badge } from '@weldsuite/ui/components/badge';
+import { Button } from '@weldsuite/ui/components/button';
+import { Card, CardContent } from '@weldsuite/ui/components/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@weldsuite/ui/components/dialog';
+import { Input } from '@weldsuite/ui/components/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@weldsuite/ui/components/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@weldsuite/ui/components/table';
 import { LucideIconPreview } from '@/components/lucide-icon-picker';
 import { APP_CATEGORIES } from '@/components/app-form';
 import { cn } from '@/lib/utils';
+import { PageBody, PageContent, PageHeading } from '@/components/shell/admin-shell';
 import type { AppCatalogEntry, AppCatalogStats } from '@/lib/apps-data';
 import { updateApp, deleteApp, seedApps } from '@/actions/apps';
+
+/** Sentinel for "no category filter" — Radix Select can't take an empty value. */
+const ALL_CATEGORIES = '__all__';
 
 export function AppsList({
   apps,
@@ -94,269 +125,254 @@ export function AppsList({
   }
 
   return (
-    <div className="h-full overflow-auto">
-      <div className="max-w-6xl mx-auto p-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-              <Package className="h-6 w-6 text-blue-600" />
+    <PageContent>
+      <PageBody className="space-y-6">
+        <PageHeading
+          title={
+            <span className="flex items-center gap-2">
+              <Package className="h-6 w-6 text-primary" />
               App Catalog
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Manage the apps shown in the App Store and onboarding.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setConfirmSeed('upsert')}
-              disabled={isMutating}
-              className="px-4 py-2 rounded-md border bg-background hover:bg-accent text-sm font-medium flex items-center gap-2 disabled:opacity-50"
-              title="Refresh all catalog entries with curated copy"
-            >
-              {isMutating ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="h-4 w-4" />
-              )}
-              Seed catalog
-            </button>
-            <Link
-              href="/apps/new"
-              className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium flex items-center gap-2"
-            >
-              <Plus className="h-4 w-4" />
-              New app
-            </Link>
-          </div>
-        </div>
+            </span>
+          }
+          description="Manage the apps shown in the App Store and onboarding."
+          actions={
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setConfirmSeed('upsert')}
+                disabled={isMutating}
+                title="Refresh all catalog entries with curated copy"
+              >
+                {isMutating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                Seed catalog
+              </Button>
+              <Button size="sm" asChild>
+                <Link href="/apps/new">
+                  <Plus className="h-4 w-4" />
+                  New app
+                </Link>
+              </Button>
+            </>
+          }
+        />
 
         <div className="grid grid-cols-4 gap-3">
           <StatCard label="Total" value={stats.total} />
           <StatCard label="Active" value={stats.active} />
           <StatCard label="Published" value={stats.published} />
-          <StatCard label="Inactive" value={stats.inactive} muted />
+          <StatCard label="Inactive" value={stats.inactive} />
         </div>
 
-        <form
-          className="flex items-center gap-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            applyFilters(search, category);
-          }}
-        >
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name, code or description…"
-              className="w-full pl-9 pr-3 py-2 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-          </div>
-          <select
-            value={category}
-            onChange={(e) => {
-              setCategory(e.target.value);
-              applyFilters(search, e.target.value);
+        <div className="space-y-3">
+          <form
+            className="flex items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              applyFilters(search, category);
             }}
-            className="px-3 py-2 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           >
-            <option value="">All categories</option>
-            {APP_CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          <button
-            type="submit"
-            className="px-3 py-2 rounded-md border text-sm hover:bg-accent"
-          >
-            Apply
-          </button>
-        </form>
-
-        <div className="rounded-lg border bg-card overflow-hidden">
-          {apps.length === 0 ? (
-            <div className="text-center py-16 text-sm text-muted-foreground">
-              No apps found. Create one to get started.
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name, code or description…"
+                className="h-8 pl-9"
+              />
             </div>
-          ) : (
-            <table className="w-full table-fixed">
-              <colgroup>
-                <col className="w-14" />
-                <col />
-                <col className="w-28" />
-                <col className="w-36" />
-                <col className="w-16" />
-                <col className="w-24" />
-                <col className="w-24" />
-                <col className="w-20" />
-              </colgroup>
-              <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
-                <tr>
-                  <th className="text-left font-medium px-4 py-2.5">Icon</th>
-                  <th className="text-left font-medium px-4 py-2.5">Name</th>
-                  <th className="text-left font-medium px-4 py-2.5">Code</th>
-                  <th className="text-left font-medium px-4 py-2.5">Category</th>
-                  <th className="text-left font-medium px-4 py-2.5">Order</th>
-                  <th className="text-left font-medium px-4 py-2.5">Active</th>
-                  <th className="text-left font-medium px-4 py-2.5">Published</th>
-                  <th className="text-right font-medium px-4 py-2.5">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
+            <Select
+              value={category || ALL_CATEGORIES}
+              onValueChange={(value) => {
+                const next = value === ALL_CATEGORIES ? '' : value;
+                setCategory(next);
+                applyFilters(search, next);
+              }}
+            >
+              <SelectTrigger size="sm" className="w-48">
+                <SelectValue placeholder="All categories" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_CATEGORIES}>All categories</SelectItem>
+                {APP_CATEGORIES.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button type="submit" variant="outline" size="sm" className="h-8">
+              Apply
+            </Button>
+          </form>
+
+          <div className="overflow-hidden rounded-lg border">
+            <Table>
+              <TableHeader className="[&_tr]:border-border/70">
+                <TableRow>
+                  <TableHead className="w-14 text-[13.5px]">Icon</TableHead>
+                  <TableHead className="text-[13.5px]">Name</TableHead>
+                  <TableHead className="w-28 text-[13.5px]">Code</TableHead>
+                  <TableHead className="w-36 text-[13.5px]">Category</TableHead>
+                  <TableHead className="w-16 text-right text-[13.5px]">Order</TableHead>
+                  <TableHead className="w-24 text-[13.5px]">Active</TableHead>
+                  <TableHead className="w-28 text-[13.5px]">Published</TableHead>
+                  <TableHead className="w-20 text-right text-[13.5px]">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody className="[&_tr]:border-border/70">
+                {apps.length === 0 && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={8}
+                      className="py-16 text-center text-sm text-muted-foreground"
+                    >
+                      No apps found. Create one to get started.
+                    </TableCell>
+                  </TableRow>
+                )}
                 {apps.map((app) => (
-                  <tr key={app.id} className="hover:bg-accent/30">
-                    <td className="px-4 py-3">
-                      <div className="h-9 w-9 rounded-md bg-muted flex items-center justify-center">
+                  <TableRow key={app.id} className="group hover:bg-muted/50">
+                    <TableCell className="py-2">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-md bg-muted">
                         <LucideIconPreview name={app.icon} className="h-5 w-5" />
                       </div>
-                    </td>
-                    <td className="px-4 py-3 min-w-0">
-                      <div className="font-medium text-sm truncate">{app.name}</div>
-                      <div className="text-xs text-muted-foreground truncate">
+                    </TableCell>
+                    <TableCell className="min-w-0 py-2">
+                      <div className="truncate text-sm font-medium">{app.name}</div>
+                      <div className="max-w-md truncate text-xs text-muted-foreground">
                         {app.description}
                       </div>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs truncate">{app.code}</td>
-                    <td className="px-4 py-3 text-xs truncate">{app.category}</td>
-                    <td className="px-4 py-3 text-xs tabular-nums">{app.sortOrder}</td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell className="py-2 font-mono text-xs">{app.code}</TableCell>
+                    <TableCell className="py-2 text-xs">{app.category}</TableCell>
+                    <TableCell className="py-2 text-right text-xs tabular-nums">
+                      {app.sortOrder}
+                    </TableCell>
+                    <TableCell className="py-2">
                       <ToggleBadge
                         on={app.isActive}
                         onLabel="Active"
                         offLabel="Inactive"
                         onClick={() => toggleActive(app)}
                       />
-                    </td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell className="py-2">
                       <ToggleBadge
                         on={app.isPublished}
                         onLabel="Published"
                         offLabel="Draft"
                         onClick={() => togglePublished(app)}
                       />
-                    </td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell className="py-2">
                       <div className="flex items-center justify-end gap-1">
-                        <Link
-                          href={`/apps/${app.id}`}
-                          className="p-1.5 rounded hover:bg-accent"
-                          title="Edit"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Link>
-                        <button
-                          onClick={() => setConfirmDelete(app)}
-                          className="p-1.5 rounded hover:bg-destructive/10 text-destructive"
+                        <Button variant="ghost" size="icon-sm" asChild title="Edit">
+                          <Link href={`/apps/${app.id}`}>
+                            <Pencil className="h-4 w-4" />
+                          </Link>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
                           title="Delete"
+                          onClick={() => setConfirmDelete(app)}
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                         >
                           <Trash2 className="h-4 w-4" />
-                        </button>
+                        </Button>
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-
-      {confirmSeed && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-popover rounded-lg shadow-xl border max-w-md w-full p-6 space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-blue-600" />
-                Seed catalog with curated copy
-              </h2>
-              <p className="text-sm text-muted-foreground mt-2">
-                The seed dataset includes 12 first-party WeldSuite apps with human-written
-                descriptions, overviews, features, how-it-works steps, release dates, and resource
-                links.
-              </p>
-              <div className="mt-3 rounded-md border bg-muted/30 p-3 text-xs space-y-2">
-                <div>
-                  <strong>Overwrite existing:</strong> replaces the content of every catalog entry
-                  with the curated copy. Active/published flags are preserved.
-                </div>
-                <div>
-                  <strong>Insert missing only:</strong> only creates entries that don&apos;t exist
-                  yet. Existing entries are left untouched.
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center justify-end gap-2">
-              <button
-                onClick={() => setConfirmSeed(null)}
-                disabled={isMutating}
-                className="px-4 py-2 rounded-md text-sm hover:bg-accent disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => performSeed('insertMissing')}
-                disabled={isMutating}
-                className="px-4 py-2 rounded-md border text-sm hover:bg-accent disabled:opacity-50"
-              >
-                Insert missing only
-              </button>
-              <button
-                onClick={() => performSeed('upsert')}
-                disabled={isMutating}
-                className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-50"
-              >
-                {isMutating ? 'Seeding…' : 'Overwrite existing'}
-              </button>
-            </div>
+              </TableBody>
+            </Table>
           </div>
         </div>
-      )}
+      </PageBody>
 
-      {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-popover rounded-lg shadow-xl border max-w-md w-full p-6 space-y-4">
+      <Dialog open={confirmSeed !== null} onOpenChange={(open) => !open && setConfirmSeed(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" />
+              Seed catalog with curated copy
+            </DialogTitle>
+            <DialogDescription>
+              The seed dataset includes 12 first-party WeldSuite apps with human-written
+              descriptions, overviews, features, how-it-works steps, release dates, and resource
+              links.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 rounded-md border bg-muted/30 p-3 text-xs">
             <div>
-              <h2 className="text-lg font-semibold">Delete &quot;{confirmDelete.name}&quot;?</h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                This permanently deletes the catalog entry and any attached screenshots. Workspaces
-                that installed this app will keep their data, but the entry will disappear from the
-                App Store.
-              </p>
+              <strong>Overwrite existing:</strong> replaces the content of every catalog entry with
+              the curated copy. Active/published flags are preserved.
             </div>
-            <div className="flex items-center justify-end gap-2">
-              <button
-                onClick={() => setConfirmDelete(null)}
-                className="px-4 py-2 rounded-md text-sm hover:bg-accent"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={performDelete}
-                disabled={isMutating}
-                className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white text-sm font-medium disabled:opacity-50"
-              >
-                {isMutating ? 'Deleting…' : 'Delete'}
-              </button>
+            <div>
+              <strong>Insert missing only:</strong> only creates entries that don&apos;t exist yet.
+              Existing entries are left untouched.
             </div>
           </div>
-        </div>
-      )}
-    </div>
+
+          <DialogFooter>
+            <Button variant="ghost" disabled={isMutating} onClick={() => setConfirmSeed(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              disabled={isMutating}
+              onClick={() => performSeed('insertMissing')}
+            >
+              Insert missing only
+            </Button>
+            <Button disabled={isMutating} onClick={() => performSeed('upsert')}>
+              {isMutating ? 'Seeding…' : 'Overwrite existing'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={confirmDelete !== null}
+        onOpenChange={(open) => !open && setConfirmDelete(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete &quot;{confirmDelete?.name}&quot;?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes the catalog entry and any attached screenshots. Workspaces
+              that installed this app will keep their data, but the entry will disappear from the
+              App Store.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmDelete(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" disabled={isMutating} onClick={performDelete}>
+              {isMutating ? 'Deleting…' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </PageContent>
   );
 }
 
-function StatCard({ label, value, muted }: { label: string; value: number; muted?: boolean }) {
+function StatCard({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg border bg-card p-4">
-      <div className={cn('text-xs uppercase tracking-wide', muted ? 'text-muted-foreground' : 'text-muted-foreground')}>
-        {label}
-      </div>
-      <div className="text-2xl font-semibold tabular-nums mt-1">{value}</div>
-    </div>
+    <Card className="py-4">
+      <CardContent className="px-4">
+        <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
+        <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -372,17 +388,16 @@ function ToggleBadge({
   onClick: () => void;
 }) {
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border transition-colors',
-        on
-          ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900 hover:bg-emerald-100 dark:hover:bg-emerald-950/60'
-          : 'bg-muted text-muted-foreground border-border hover:bg-muted-foreground/10',
-      )}
-    >
-      <span className={cn('h-1.5 w-1.5 rounded-full', on ? 'bg-emerald-500' : 'bg-muted-foreground/40')} />
-      {on ? onLabel : offLabel}
+    <button type="button" onClick={onClick}>
+      <Badge
+        variant={on ? 'success' : 'secondary'}
+        className={cn('gap-1.5 transition-colors', on ? 'hover:bg-emerald-500/20' : 'hover:bg-secondary/80')}
+      >
+        <span
+          className={cn('h-1.5 w-1.5 rounded-full', on ? 'bg-emerald-500' : 'bg-muted-foreground/40')}
+        />
+        {on ? onLabel : offLabel}
+      </Badge>
     </button>
   );
 }

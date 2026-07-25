@@ -1,5 +1,8 @@
+import Link from 'next/link';
 import { ShieldAlert } from 'lucide-react';
 import { SignOutButton } from '@clerk/nextjs';
+import { Button } from '@weldsuite/ui/components/button';
+import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { getAdminIdentity } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -10,35 +13,32 @@ export default async function UnauthorizedPage() {
 
   return (
     <div className="flex h-full items-center justify-center p-6">
-      <div className="max-w-md w-full rounded-xl border bg-card p-8 text-center space-y-4">
-        <div className="mx-auto h-12 w-12 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-          <ShieldAlert className="h-6 w-6 text-amber-600" />
-        </div>
-        <div>
-          <h1 className="text-lg font-semibold">Access restricted</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {identity
-              ? 'This area is limited to superadmins. Ask a superadmin if you need access.'
-              : 'Your account doesn’t have admin access. If you believe this is a mistake, ask a WeldSuite superadmin to invite you in Clerk.'}
-          </p>
-        </div>
-        <div className="flex items-center justify-center gap-2 pt-2">
-          {identity ? (
-            <a
-              href="/"
-              className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium"
-            >
-              Back to dashboard
-            </a>
-          ) : (
-            <SignOutButton>
-              <button className="px-4 py-2 rounded-md border text-sm font-medium hover:bg-accent">
-                Sign out
-              </button>
-            </SignOutButton>
-          )}
-        </div>
-      </div>
+      <Card className="w-full max-w-md py-8">
+        <CardContent className="space-y-4 px-8 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10">
+            <ShieldAlert className="h-6 w-6 text-amber-600 dark:text-amber-400" />
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold">Access restricted</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {identity
+                ? 'This area is limited to superadmins. Ask a superadmin if you need access.'
+                : 'Your account doesn’t have admin access. If you believe this is a mistake, ask a WeldSuite superadmin to invite you in Clerk.'}
+            </p>
+          </div>
+          <div className="flex items-center justify-center gap-2 pt-2">
+            {identity ? (
+              <Button asChild>
+                <Link href="/">Back to dashboard</Link>
+              </Button>
+            ) : (
+              <SignOutButton>
+                <Button variant="outline">Sign out</Button>
+              </SignOutButton>
+            )}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

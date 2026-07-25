@@ -2,8 +2,20 @@
 
 import { useState } from 'react';
 import { Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
+import { Button } from '@weldsuite/ui/components/button';
+import { Card, CardContent } from '@weldsuite/ui/components/card';
+import { Checkbox } from '@weldsuite/ui/components/checkbox';
+import { Input } from '@weldsuite/ui/components/input';
+import { Label } from '@weldsuite/ui/components/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@weldsuite/ui/components/select';
+import { Textarea } from '@weldsuite/ui/components/textarea';
 import { LucideIconPicker } from './lucide-icon-picker';
-import { cn } from '@/lib/utils';
 
 export const APP_CATEGORIES = [
   'Sales & Marketing',
@@ -131,84 +143,76 @@ export function AppForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-6 max-w-3xl">
       {error && (
-        <div className="rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}
         </div>
       )}
 
       <Section title="Identity">
-        <Field label="Code" required hint="Unique slug used in code (e.g. weldcrm). Cannot be changed casually.">
-          <input
-            type="text"
+        <Field
+          label="Code"
+          required
+          hint="Unique slug used in code (e.g. weldcrm). Cannot be changed casually."
+        >
+          <Input
             value={values.code}
             onChange={(e) => set('code', e.target.value.toLowerCase())}
             disabled={isEdit}
-            className={cn(inputClass, 'font-mono', isEdit && 'opacity-60 cursor-not-allowed')}
+            className="font-mono"
             placeholder="weldcrm"
           />
         </Field>
 
         <Field label="Name" required>
-          <input
-            type="text"
+          <Input
             value={values.name}
             onChange={(e) => set('name', e.target.value)}
-            className={inputClass}
             placeholder="WeldCRM"
           />
         </Field>
 
         <Field label="Description" required hint="Short one-liner shown in catalog listings.">
-          <input
-            type="text"
+          <Input
             value={values.description}
             onChange={(e) => set('description', e.target.value)}
-            className={inputClass}
             placeholder="Manage leads, contacts, and sales pipelines"
           />
         </Field>
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="Path" required hint="URL path inside the platform.">
-            <input
-              type="text"
+            <Input
               value={values.path}
               onChange={(e) => set('path', e.target.value)}
-              className={cn(inputClass, 'font-mono')}
+              className="font-mono"
               placeholder="/weldcrm"
             />
           </Field>
 
           <Field label="Category" required>
-            <select
-              value={values.category}
-              onChange={(e) => set('category', e.target.value)}
-              className={inputClass}
-            >
-              {APP_CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
+            <Select value={values.category} onValueChange={(v) => set('category', v)}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {APP_CATEGORIES.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </Field>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="Provider">
-            <input
-              type="text"
-              value={values.provider}
-              onChange={(e) => set('provider', e.target.value)}
-              className={inputClass}
-            />
+            <Input value={values.provider} onChange={(e) => set('provider', e.target.value)} />
           </Field>
           <Field label="Version">
-            <input
-              type="text"
+            <Input
               value={values.version}
               onChange={(e) => set('version', e.target.value)}
-              className={inputClass}
               placeholder="1.0.0"
             />
           </Field>
@@ -216,11 +220,10 @@ export function AppForm({
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="Release date" hint="Shown next to version on the detail page.">
-            <input
+            <Input
               type="date"
               value={values.releasedAt}
               onChange={(e) => set('releasedAt', e.target.value)}
-              className={inputClass}
             />
           </Field>
           <Toggle
@@ -234,29 +237,26 @@ export function AppForm({
 
       <Section title="Resources" description="Links shown in the detail page sidebar. Leave blank to hide.">
         <Field label="Website URL">
-          <input
+          <Input
             type="url"
             value={values.websiteUrl}
             onChange={(e) => set('websiteUrl', e.target.value)}
-            className={inputClass}
             placeholder="https://example.com"
           />
         </Field>
         <Field label="Documentation URL">
-          <input
+          <Input
             type="url"
             value={values.documentationUrl}
             onChange={(e) => set('documentationUrl', e.target.value)}
-            className={inputClass}
             placeholder="https://docs.example.com"
           />
         </Field>
         <Field label="Contact URL" hint="Use a mailto: link for an email address.">
-          <input
+          <Input
             type="url"
             value={values.contactUrl}
             onChange={(e) => set('contactUrl', e.target.value)}
-            className={inputClass}
             placeholder="mailto:support@example.com"
           />
         </Field>
@@ -270,10 +270,10 @@ export function AppForm({
 
       <Section title="Detail content" description="Shown on the app's detail page in the App Store.">
         <Field label="Overview" hint="Long description, multi-paragraph supported.">
-          <textarea
+          <Textarea
             value={values.overview}
             onChange={(e) => set('overview', e.target.value)}
-            className={cn(inputClass, 'min-h-[140px] resize-y')}
+            className="min-h-[140px] resize-y"
             placeholder="WeldCRM helps you build stronger customer relationships…"
           />
         </Field>
@@ -310,41 +310,30 @@ export function AppForm({
           />
         </div>
         <Field label="Sort order" hint="Lower = appears first.">
-          <input
+          <Input
             type="number"
             value={values.sortOrder}
             onChange={(e) => set('sortOrder', Number.parseInt(e.target.value) || 0)}
-            className={cn(inputClass, 'w-32')}
+            className="w-32"
           />
         </Field>
       </Section>
 
-      <div className="flex items-center justify-end gap-2 pt-4 border-t">
+      <div className="flex items-center justify-end gap-2 border-t pt-4">
         {onCancel && (
-          <button
-            type="button"
-            onClick={onCancel}
-            className="px-4 py-2 rounded-md text-sm hover:bg-accent"
-          >
+          <Button type="button" variant="ghost" onClick={onCancel}>
             Cancel
-          </button>
+          </Button>
         )}
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-50"
-        >
+        <Button type="submit" disabled={isSubmitting}>
           {isSubmitting ? 'Saving…' : submitLabel}
-        </button>
+        </Button>
       </div>
     </form>
   );
 }
 
 // ----------------------------------------------------------------------------
-
-const inputClass =
-  'w-full px-3 py-2 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring';
 
 function Section({
   title,
@@ -356,13 +345,15 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-lg border bg-card p-5 space-y-4">
-      <div>
-        <h3 className="text-sm font-semibold">{title}</h3>
-        {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
-      </div>
-      {children}
-    </div>
+    <Card className="py-5">
+      <CardContent className="space-y-4 px-5">
+        <div>
+          <h3 className="text-sm font-semibold">{title}</h3>
+          {description && <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>}
+        </div>
+        {children}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -379,10 +370,10 @@ function Field({
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="block text-xs font-medium">
+      <Label className="text-xs font-medium">
         {label}
-        {required && <span className="text-red-500 ml-0.5">*</span>}
-      </label>
+        {required && <span className="ml-0.5 text-destructive">*</span>}
+      </Label>
       {children}
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
@@ -401,18 +392,17 @@ function Toggle({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <label className="flex items-start gap-3 cursor-pointer p-3 rounded-md border hover:bg-accent/50">
-      <input
-        type="checkbox"
+    <Label className="flex cursor-pointer items-start gap-3 rounded-md border p-3 font-normal hover:bg-accent/50">
+      <Checkbox
         checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 h-4 w-4"
+        onCheckedChange={(v) => onChange(v === true)}
+        className="mt-0.5"
       />
       <div className="flex-1">
         <div className="text-sm font-medium">{label}</div>
         {description && <div className="text-xs text-muted-foreground">{description}</div>}
       </div>
-    </label>
+    </Label>
   );
 }
 
@@ -456,29 +446,30 @@ function StringListEditor({
         <div className="space-y-1.5">
           {items.map((item, i) => (
             <div key={i} className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground w-6 text-right">{i + 1}.</span>
-              <input
-                type="text"
-                value={item}
-                onChange={(e) => update(i, e.target.value)}
-                className={inputClass}
+              <span className="w-6 text-right text-xs text-muted-foreground">{i + 1}.</span>
+              <Input value={item} onChange={(e) => update(i, e.target.value)} />
+              <ReorderButtons
+                onUp={() => move(i, -1)}
+                onDown={() => move(i, 1)}
+                disableUp={i === 0}
+                disableDown={i === items.length - 1}
               />
-              <ReorderButtons onUp={() => move(i, -1)} onDown={() => move(i, 1)} disableUp={i === 0} disableDown={i === items.length - 1} />
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-sm"
                 onClick={() => remove(i)}
-                className="p-1.5 rounded hover:bg-destructive/10 text-destructive"
                 aria-label="Remove"
+                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
               >
                 <Trash2 className="h-4 w-4" />
-              </button>
+              </Button>
             </div>
           ))}
         </div>
       )}
       <div className="flex gap-2">
-        <input
-          type="text"
+        <Input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
@@ -488,17 +479,11 @@ function StringListEditor({
             }
           }}
           placeholder={placeholder}
-          className={inputClass}
         />
-        <button
-          type="button"
-          onClick={add}
-          disabled={!draft.trim()}
-          className="px-3 py-2 rounded-md border text-sm flex items-center gap-1 hover:bg-accent disabled:opacity-50"
-        >
+        <Button type="button" variant="outline" onClick={add} disabled={!draft.trim()}>
           <Plus className="h-4 w-4" />
           Add
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -531,44 +516,45 @@ function HowItWorksEditor({
   return (
     <div className="space-y-3">
       {items.map((step, i) => (
-        <div key={i} className="rounded-md border p-3 space-y-2 bg-muted/30">
+        <div key={i} className="space-y-2 rounded-md border bg-muted/30 p-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-muted-foreground">Step {i + 1}</span>
             <div className="flex items-center gap-1">
-              <ReorderButtons onUp={() => move(i, -1)} onDown={() => move(i, 1)} disableUp={i === 0} disableDown={i === items.length - 1} />
-              <button
+              <ReorderButtons
+                onUp={() => move(i, -1)}
+                onDown={() => move(i, 1)}
+                disableUp={i === 0}
+                disableDown={i === items.length - 1}
+              />
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-sm"
                 onClick={() => remove(i)}
-                className="p-1.5 rounded hover:bg-destructive/10 text-destructive"
                 aria-label="Remove step"
+                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
               >
                 <Trash2 className="h-4 w-4" />
-              </button>
+              </Button>
             </div>
           </div>
-          <input
-            type="text"
+          <Input
             value={step.title}
             onChange={(e) => update(i, { title: e.target.value })}
             placeholder="Step title"
-            className={inputClass}
           />
-          <textarea
+          <Textarea
             value={step.description}
             onChange={(e) => update(i, { description: e.target.value })}
             placeholder="Step description"
-            className={cn(inputClass, 'min-h-[60px] resize-y')}
+            className="min-h-[60px] resize-y"
           />
         </div>
       ))}
-      <button
-        type="button"
-        onClick={add}
-        className="px-3 py-2 rounded-md border text-sm flex items-center gap-1 hover:bg-accent"
-      >
+      <Button type="button" variant="outline" onClick={add}>
         <Plus className="h-4 w-4" />
         Add step
-      </button>
+      </Button>
     </div>
   );
 }
@@ -586,24 +572,28 @@ function ReorderButtons({
 }) {
   return (
     <div className="flex items-center gap-0.5">
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="icon-sm"
         onClick={onUp}
         disabled={disableUp}
-        className="p-1.5 rounded hover:bg-accent disabled:opacity-30 disabled:hover:bg-transparent"
         aria-label="Move up"
+        className="disabled:opacity-30"
       >
         <ArrowUp className="h-3.5 w-3.5" />
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
+        variant="ghost"
+        size="icon-sm"
         onClick={onDown}
         disabled={disableDown}
-        className="p-1.5 rounded hover:bg-accent disabled:opacity-30 disabled:hover:bg-transparent"
         aria-label="Move down"
+        className="disabled:opacity-30"
       >
         <ArrowDown className="h-3.5 w-3.5" />
-      </button>
+      </Button>
     </div>
   );
 }
