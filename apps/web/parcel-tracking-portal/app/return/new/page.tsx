@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@weldsuite/ui/components/button";
@@ -67,6 +67,14 @@ const RETURN_REASONS = [
 ];
 
 export default function NewReturnPage() {
+  return (
+    <Suspense fallback={null}>
+      <NewReturnPageContent />
+    </Suspense>
+  );
+}
+
+function NewReturnPageContent() {
   const searchParams = useSearchParams();
   const orderNumber = searchParams.get("order") || "";
 
