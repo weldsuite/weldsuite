@@ -26,9 +26,9 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { toast } from 'sonner';
 import {
-  useCreateAnalyticsReport,
-  useUpdateAnalyticsReport,
-  useDeleteAnalyticsReport,
+  useCreateProjectAnalyticsReport,
+  useUpdateProjectAnalyticsReport,
+  useDeleteProjectAnalyticsReport,
 } from '@/hooks/queries/use-projects-queries';
 
 // Type definition for analytics report (previously imported from actions)
@@ -75,9 +75,9 @@ export function AnalyticsListClient({
   const [selectedReport, setSelectedReport] = useState<AnalyticsReport | null>(null);
   const [formData, setFormData] = useState({ title: '', description: '' });
 
-  const createReportMutation = useCreateAnalyticsReport();
-  const updateReportMutation = useUpdateAnalyticsReport();
-  const deleteReportMutation = useDeleteAnalyticsReport();
+  const createReportMutation = useCreateProjectAnalyticsReport();
+  const updateReportMutation = useUpdateProjectAnalyticsReport();
+  const deleteReportMutation = useDeleteProjectAnalyticsReport();
 
   const isLoading = createReportMutation.isPending || updateReportMutation.isPending || deleteReportMutation.isPending;
 

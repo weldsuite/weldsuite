@@ -1,4 +1,5 @@
 import { isClerkAPIResponseError } from '@clerk/clerk-react/errors';
+import type { ReadonlyURLSearchParams } from '@/lib/router';
 
 /**
  * Auth utility functions for handling redirects safely
@@ -35,7 +36,7 @@ export function isAuthPage(url: string): boolean {
  * Get a safe callback URL from search params, preventing redirect loops.
  * If the callback URL points to an auth page, returns '/' (dashboard) instead.
  */
-export function getSafeCallbackUrl(searchParams: URLSearchParams): string {
+export function getSafeCallbackUrl(searchParams: ReadonlyURLSearchParams): string {
   const callbackUrl = searchParams.get('callbackUrl') || searchParams.get('redirect_url') || '/';
 
   // Prevent redirect loops - if callback points to auth page, go to dashboard

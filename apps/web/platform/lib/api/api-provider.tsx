@@ -7,10 +7,9 @@ import { setProjectsApiTokenProvider } from '@/app/weldflow/lib/api-client';
 /**
  * Wires the module-level API client singletons to Clerk's `getToken`.
  *
- * The platform is a Vite SPA, so the server-side `getAccessToken()` returns null
- * in a browser context — each singleton needs the token pushed in from a React
- * context instead. This component supplies no context of its own; it exists
- * purely for that wiring.
+ * The platform is a Vite SPA with no server context, so each singleton needs the
+ * token pushed in from React instead. This component supplies no context of its
+ * own; it exists purely for that wiring.
  *
  * (It previously also vended a `useApiClient()` hook over two api-worker
  * clients. Those are gone with the worker.)

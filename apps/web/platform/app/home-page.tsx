@@ -129,7 +129,7 @@ export default function HomePage() {
   const startNewChat = (prompt: string) => {
     const trimmed = prompt.trim();
     if (!trimmed) return;
-    navigate({ to: '/new-chat', search: { prompt: trimmed } });
+    navigate({ to: '/new-chat', search: { prompt: trimmed, conversation: undefined } });
   };
 
   const ChatInput = (

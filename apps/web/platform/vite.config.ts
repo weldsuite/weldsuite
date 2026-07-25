@@ -27,7 +27,7 @@ export default defineConfig(async () => {
     chunkSizeWarningLimit: 700,
     rollupOptions: {
       output: {
-        manualChunks(id) {
+        manualChunks(id: string) {
           // Pin Rollup's CJS interop helpers into react-vendor. Without this,
           // Rollup hoists the helper into whatever consumer chunk it picks
           // (charts-vendor, clerk-vendor, …), and react-vendor then imports
@@ -89,8 +89,8 @@ export default defineConfig(async () => {
     proxy: {
       '/mp/lib.min.js': { target: 'https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js', changeOrigin: true, rewrite: () => '' },
       '/mp/lib.js': { target: 'https://cdn.mxpnl.com/libs/mixpanel-2-latest.js', changeOrigin: true, rewrite: () => '' },
-      '/mp/decide': { target: 'https://decide.mixpanel.com', changeOrigin: true, rewrite: (p) => p.replace('/mp', '') },
-      '/mp': { target: 'https://api-eu.mixpanel.com', changeOrigin: true, rewrite: (p) => p.replace('/mp', '') },
+      '/mp/decide': { target: 'https://decide.mixpanel.com', changeOrigin: true, rewrite: (p: string) => p.replace('/mp', '') },
+      '/mp': { target: 'https://api-eu.mixpanel.com', changeOrigin: true, rewrite: (p: string) => p.replace('/mp', '') },
     },
   },
   };

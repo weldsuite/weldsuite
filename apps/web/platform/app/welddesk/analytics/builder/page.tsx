@@ -482,7 +482,8 @@ export default function HelpdeskAnalyticsBuilderPage() {
                             wrapperStyle={{ zIndex: 1000, outline: 'none' }}
                             content={<ChartTooltipContent hideLabel />}
                           />
-                          <Bar dataKey="visitors" layout="vertical" radius={5} />
+                          {/* `layout` lives on BarChart (recharts v3 removed it from Bar); already set above. */}
+                          <Bar dataKey="visitors" radius={5} />
                         </RechartsBarChart>
                       )}
 
@@ -548,8 +549,8 @@ export default function HelpdeskAnalyticsBuilderPage() {
                               className="fill-background"
                               stroke="none"
                               fontSize={12}
-                              formatter={(value: keyof typeof chartConfig) =>
-                                chartConfig[value]?.label || value
+                              formatter={(value) =>
+                                chartConfig[value as keyof typeof chartConfig]?.label || value
                               }
                             />
                           </Pie>

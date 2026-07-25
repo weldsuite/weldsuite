@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { Calendar, CalendarDays } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { useAtomValue } from 'jotai';
 import { getTranslations } from '@/lib/i18n';
@@ -86,7 +87,11 @@ export function useCalendarSidebarItems(enabled: boolean): { menuGroups: MenuGro
             <GoogleCalendarSidebarSection isConnected={gcalConnected} />
           </>
         ),
-        items: ownCalendars.map((c) => ({ title: c.name, href: `/weldcalendar?calendarId=${c.id}` })),
+        // `items` is unused for rendering here (customContent takes over) — it only
+        // feeds cross-group active-path matching and drag-reorder bookkeeping in
+        // app-sidebar-layout.tsx, both keyed by `href`. `icon` is required by
+        // MenuItemProps but never read on this path.
+        items: ownCalendars.map((c) => ({ title: c.name, href: `/weldcalendar?calendarId=${c.id}`, icon: Calendar })),
         onAdd: () => setCreateCalendarOpen(true),
       });
 
@@ -94,7 +99,7 @@ export function useCalendarSidebarItems(enabled: boolean): { menuGroups: MenuGro
         menuGroups.push({
           group: t.calendarSidebar.sharedWithMe,
           customContent: <CalendarSidebarSection calendars={sharedCalendars} />,
-          items: sharedCalendars.map((c) => ({ title: c.name, href: `/weldcalendar?calendarId=${c.id}` })),
+          items: sharedCalendars.map((c) => ({ title: c.name, href: `/weldcalendar?calendarId=${c.id}`, icon: Calendar })),
         });
       }
     }
@@ -124,6 +129,7 @@ export function useCalendarSidebarItems(enabled: boolean): { menuGroups: MenuGro
       items: sidebarBookingPages.map((bp) => ({
         title: bp.name,
         href: bp.isDraft ? '/weldcalendar/scheduling/new' : `/weldcalendar/scheduling/${bp.id}/view`,
+        icon: CalendarDays,
       })),
       onAdd: handleAddBookingPage,
     });

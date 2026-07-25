@@ -84,6 +84,8 @@ const moduleTemplates: Record<ModuleType, { name: string; icon: string }> = {
   analytics: { name: 'Analytics', icon: 'BarChart3' },
   documents: { name: 'Documents', icon: 'FileText' },
   chat: { name: 'Chat', icon: 'MessageSquare' },
+  whiteboard: { name: 'Whiteboard', icon: 'PenTool' },
+  calendar: { name: 'Calendar', icon: 'Calendar' },
 };
 
 function PipelinesProvider({ children }: { children: React.ReactNode }) {

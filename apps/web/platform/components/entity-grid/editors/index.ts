@@ -35,6 +35,9 @@ const editorRegistry: Record<FieldType, React.ComponentType<any>> = {
   'single-select': SelectEditor,
   'multi-select': MultiSelectEditor,
   checkbox: CheckboxEditor,
+  // Grid cells render `star` as a direct toggle (see grid-cell.tsx), same as
+  // `checkbox` — it has no dedicated popover editor.
+  star: CheckboxEditor,
   location: LocationEditor,
   url: UrlEditor,
   company: TextEditor,

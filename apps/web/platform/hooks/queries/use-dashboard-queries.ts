@@ -1,8 +1,6 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-// Legacy client retained only for the documented `/crm/customers` GAP below.
-import { sidebarBadgeKeys, type SidebarBadgeCounts } from '@/hooks/use-sidebar-badges';
 
 // =============================================================================
 // Types
@@ -123,44 +121,6 @@ const dashboardKeys = {
 // =============================================================================
 // Queries
 // =============================================================================
-
-interface DashboardActionStats {
-  unfulfilledOrders: number;
-  openTickets: number;
-  activeDeliveries: number;
-  unreadMessages: number;
-  activeDeals: number;
-  activeProjects: number;
-}
-
-const defaultActionStats: DashboardActionStats = {
-  unfulfilledOrders: 0,
-  openTickets: 0,
-  activeDeliveries: 0,
-  unreadMessages: 0,
-  activeDeals: 0,
-  activeProjects: 0,
-};
-
-/**
- * Derives dashboard action stats from the shared sidebar-badges query.
- * No extra API call — reuses the same cached data as useSidebarBadges().
- */
-function useDashboardStats() {
-  return useQuery({
-    queryKey: sidebarBadgeKeys.counts(),
-    // queryFn is already defined by useSidebarBadges — TanStack Query reuses it
-    select: (data: SidebarBadgeCounts): DashboardActionStats => ({
-      unfulfilledOrders: data.task || 0,
-      openTickets: data.helpdesk || 0,
-      activeDeliveries: 0,
-      unreadMessages: data.mail || 0,
-      activeDeals: 0,
-      activeProjects: 0,
-    }),
-    placeholderData: { mail: 0, helpdesk: 0, task: 0 } as SidebarBadgeCounts,
-  });
-}
 
 function useDashboard() {
   const { getClient } = useAppApiClient();

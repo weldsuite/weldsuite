@@ -299,10 +299,10 @@ export function useCancelSubscription() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data?: Record<string, any>) => {
+    mutationFn: async () => {
       const client = await getClient();
       // Unwrapped to the legacy top-level `{ success: true }`.
-      const res = await client.post<{ data: { success: boolean } }>('/billing/cancel', data || {});
+      const res = await client.post<{ data: { success: boolean } }>('/billing/cancel', {});
       return res.data;
     },
     onSuccess: () => {
@@ -315,9 +315,9 @@ export function useReactivateSubscription() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data?: Record<string, any>) => {
+    mutationFn: async () => {
       const client = await getClient();
-      const res = await client.post<{ data: { success: boolean } }>('/billing/reactivate', data || {});
+      const res = await client.post<{ data: { success: boolean } }>('/billing/reactivate', {});
       return res.data;
     },
     onSuccess: () => {

@@ -14,6 +14,7 @@ import { detectTicketSuggestion } from '@/lib/ai/ticket-suggestion-detector';
 
 // Temporarily disabled emoji picker due to missing dependency
 // const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
+import type { WidgetThemeSettings } from './widget-customization-panel';
 import { ZapietHomeView } from './zapiet-home-view';
 import { MessagesView } from './messages-view';
 import { StatusView } from './status-view';
@@ -40,26 +41,6 @@ function toDisplayMessage(msg: { id?: string; role: string; content: string; cre
     sender: msg.role === 'user' ? 'user' : 'agent',
     timestamp: msg.createdAt || new Date(),
   };
-}
-
-interface WidgetThemeSettings {
-  primaryColor: string;
-  backgroundColor: string;
-  textColor: string;
-  buttonColor: string;
-  buttonTextColor: string;
-  borderRadius: string;
-  fontSize: string;
-  launcherColor: string;
-  headerColor: string;
-  accentColor: string;
-  companyLogoUrl?: string;
-  // Chat interface colors
-  chatBackgroundColor?: string;
-  userBubbleColor?: string;
-  userBubbleTextColor?: string;
-  agentBubbleColor?: string;
-  agentBubbleTextColor?: string;
 }
 
 interface ExactIntercomWidgetProps {

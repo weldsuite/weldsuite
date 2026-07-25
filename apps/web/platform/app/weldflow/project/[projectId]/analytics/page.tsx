@@ -1,6 +1,6 @@
 import { AnalyticsListClient } from '@/app/weldflow/analytics/_components/analytics-list-client';
 import { AnalyticsDashboardClient } from '@/app/weldflow/analytics/_components/analytics-dashboard-client';
-import { useAnalyticsReports } from '@/hooks/queries/use-projects-queries';
+import { useProjectAnalyticsReports } from '@/hooks/queries/use-projects-queries';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { useParams } from '@/lib/router';
@@ -16,7 +16,7 @@ export default function ProjectAnalyticsPage() {
     { label: t.projects.analytics.projectAnalytics },
   ]);
 
-  const { data, isLoading } = useAnalyticsReports();
+  const { data, isLoading } = useProjectAnalyticsReports();
   const reports = data?.data || [];
   const basePath = `/weldflow/project/${projectId}/analytics`;
 

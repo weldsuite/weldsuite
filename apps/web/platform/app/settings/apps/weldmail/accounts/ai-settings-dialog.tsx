@@ -100,9 +100,9 @@ export function AiSettingsDialog({
     if (open) {
       form.reset({
         customInstructions: defaultValues?.customInstructions || '',
-        defaultTone: defaultValues?.defaultTone || '',
-        defaultLength: defaultValues?.defaultLength || '',
-        modelPreference: defaultValues?.modelPreference || '',
+        defaultTone: defaultValues?.defaultTone || NONE,
+        defaultLength: defaultValues?.defaultLength || NONE,
+        modelPreference: defaultValues?.modelPreference || NONE,
       });
     }
   }, [open, defaultValues, form]);

@@ -39,7 +39,7 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
   const { t } = useI18n();
   const st = useTranslations();
   const ts = t.helpdesk.settingsClient;
-  const { theme, setTheme, systemTheme } = useTheme();
+  const { theme, setTheme, resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const updateNotificationsMutation = useUpdateNotificationSettings();
   const updateTicketsMutation = useUpdateTicketSettings();
@@ -150,7 +150,8 @@ export function SettingsClient({ initialSettings }: SettingsClientProps) {
     );
   }
 
-  const currentTheme = theme === 'system' ? systemTheme : theme;
+  // `resolvedTheme` already is "system → OS preference, else the explicit theme".
+  const currentTheme = resolvedTheme;
 
   return (
     <div className="h-full flex flex-col bg-background overflow-hidden">

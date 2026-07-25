@@ -34,6 +34,7 @@ import {
   Trash2,
   Users,
   Check,
+  Send,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -383,7 +384,11 @@ export function SequencesListClient({ initialSequences }: SequencesListClientPro
           onClick: () => setShowCreateDialog(true),
         }}
         emptyState={{
-          icon: <EmptyStateIllustration />,
+          icon: (
+            <EmptyStateIllustration>
+              <Send className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
+            </EmptyStateIllustration>
+          ),
           title: t('crm.sequences.noSequencesYet'),
           description: t('crm.sequences.noSequencesDescription'),
           action: {

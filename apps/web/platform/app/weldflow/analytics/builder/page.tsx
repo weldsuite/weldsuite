@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { useRouter, useSearchParams } from '@/lib/router';
-import { useCreateAnalyticsChart } from '@/hooks/queries/use-projects-queries';
+import { useCreateProjectAnalyticsChart } from '@/hooks/queries/use-projects-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
@@ -220,7 +220,7 @@ export default function ProjectsAnalyticsBuilderPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const reportId = searchParams.get('reportId');
-  const createChartMutation = useCreateAnalyticsChart();
+  const createChartMutation = useCreateProjectAnalyticsChart();
 
   const [selectedChart, setSelectedChart] = useState(chartTypes[0]);
   const [chartTitle, setChartTitle] = useState('');

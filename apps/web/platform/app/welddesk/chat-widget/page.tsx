@@ -157,7 +157,10 @@ export default function ChatWidgetPage() {
           ),
           title: tw.noWidgetsYet,
           description: tw.createFirstWidget,
-          createLabel: tw.createWidget,
+          action: {
+            label: tw.createWidget,
+            onClick: () => setShowCreateDialog(true),
+          },
         }}
       />
 
