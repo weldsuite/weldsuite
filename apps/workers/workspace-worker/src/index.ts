@@ -126,7 +126,9 @@ export default {
 
   // Cron: two triggers configured in wrangler.toml [triggers] crons.
   //  - "*/5 * * * *" — keep the warm database pool topped up so workspace
-  //    creation is instant (see workflows/refill-pool.ts).
+  //    creation is instant (see workflows/refill-pool.ts). The 5-minute tick is
+  //    for reacting quickly to a claim, NOT for polling Postgres: a settled pool
+  //    is confirmed from KV and the tick opens no database at all.
   //  - "0 3 * * *"   — sweep workspaces whose 30-day "add payment or be
   //    deleted" grace period elapsed (see services/deletion-sweep.ts).
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {

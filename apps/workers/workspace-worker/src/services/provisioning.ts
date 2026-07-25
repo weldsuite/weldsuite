@@ -16,6 +16,7 @@ import {
 } from '@weldsuite/neon-provisioning';
 import type { Env } from '../index';
 import { MIGRATION_JOURNAL } from '../generated/tenant-migrations';
+import { invalidatePoolState } from '../workflows/refill-pool';
 
 export interface ProvisionKickoffResult {
   /** True if the database is provisioned or async provisioning was successfully (re)triggered. */
@@ -108,6 +109,13 @@ export async function provisionWorkspaceDatabase(
       `[Provisioning] Neon database for workspace ${workspaceId}: ` +
       `${result.neonProjectId} — ${result.ready ? 'INSTANT (warm slot, ready now)' : 'async provisioning via Cloudflare Workflow'}`
     );
+
+    // Provisioning drains the warm pool, so the refill cron's cached "settled"
+    // verdict is now stale. Clearing it lets the next tick top the pool back up
+    // instead of trusting the cache for hours. Best-effort: a failure here only
+    // delays the refill until the cache entry expires on its own.
+    await invalidatePoolState(env);
+
     return { ok: true, ready: result.ready === true };
   } catch (error) {
     console.error('[Provisioning] Error provisioning database:', error);

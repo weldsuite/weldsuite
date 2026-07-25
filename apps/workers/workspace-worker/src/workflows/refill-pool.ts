@@ -67,9 +67,109 @@ const MAX_CATCHUP_PER_RUN = 5;
  */
 const MIGRATION_STATEMENTS_PER_STEP = 600;
 
+/**
+ * KV keys backing the "nothing to do" fast path.
+ *
+ * The cron fires every few minutes so a drained pool refills quickly, but the
+ * pool is already at target on almost every tick. That matters because the
+ * master DB deliberately uses the un-cached Neon HTTP driver (see ../db): an
+ * unconditional `assess` + `find-stale-slots` query every tick never leaves the
+ * master compute the idle gap it needs to scale to zero, so it stays billing
+ * 24/7. Caching the outcome lets a settled pool be confirmed from KV alone and
+ * the database go quiet between real events.
+ *
+ * `refill-pool:regions` is the index of regions the last run knew about;
+ * `refill-pool:state:<region>` holds that region's `PoolState`.
+ */
+const REGIONS_KEY = 'refill-pool:regions';
+const STATE_KEY_PREFIX = 'refill-pool:state:';
+/** A settled pool is trusted this long before Postgres is consulted again. */
+const SETTLED_TTL_SECONDS = 6 * 60 * 60;
+/**
+ * Backoff after a run that could NOT reach target — no shard capacity, Neon API
+ * failing, or a slot that keeps failing catch-up. Without it such a run retries
+ * every tick indefinitely, and each retry wakes both the master DB and every
+ * shard it probes for a golden-template version.
+ */
+const UNSETTLED_TTL_SECONDS = 30 * 60;
+/** TTL of the region index. Must outlive the per-region state entries so it can
+ *  always be used to find (and invalidate) them. */
+const REGIONS_TTL_SECONDS = 24 * 60 * 60;
+
+interface PoolState {
+  /** Schema version the pool settled at — a deploy invalidates by mismatch. */
+  schemaVersion: string;
+  /** Targets met and no stale slot left behind, i.e. nothing left to do. */
+  settled: boolean;
+}
+
 function targetFromEnv(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value ?? '', 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+/**
+ * True when every region the last run knew about reported a settled pool at the
+ * schema version this deploy carries. Fails open (false) on any KV problem, so
+ * a cache outage degrades to the old always-check-Postgres behaviour.
+ */
+async function poolIsSettled(env: Env): Promise<boolean> {
+  if (!LATEST_SCHEMA_VERSION) return false;
+  try {
+    const regions = await env.WORKSPACE_CACHE.get(REGIONS_KEY, 'json') as string[] | null;
+    if (!regions?.length) return false;
+
+    const states = await Promise.all(
+      regions.map(region =>
+        env.WORKSPACE_CACHE.get(`${STATE_KEY_PREFIX}${region}`, 'json') as Promise<PoolState | null>
+      )
+    );
+    return states.every(state => state?.settled === true && state.schemaVersion === LATEST_SCHEMA_VERSION);
+  } catch (error) {
+    console.warn('[RefillPool] Pool-state cache unavailable, checking Postgres:', error);
+    return false;
+  }
+}
+
+/** Record a region's post-run state so settled ticks can skip Postgres. */
+async function writePoolState(env: Env, region: string, settled: boolean): Promise<void> {
+  if (!LATEST_SCHEMA_VERSION) return;
+  const state: PoolState = { schemaVersion: LATEST_SCHEMA_VERSION, settled };
+  try {
+    await env.WORKSPACE_CACHE.put(`${STATE_KEY_PREFIX}${region}`, JSON.stringify(state), {
+      expirationTtl: settled ? SETTLED_TTL_SECONDS : UNSETTLED_TTL_SECONDS,
+    });
+  } catch (error) {
+    console.warn(`[RefillPool] Could not cache pool state for ${region}:`, error);
+  }
+}
+
+async function cacheRegions(env: Env, regions: string[]): Promise<void> {
+  try {
+    await env.WORKSPACE_CACHE.put(REGIONS_KEY, JSON.stringify(regions), {
+      expirationTtl: REGIONS_TTL_SECONDS,
+    });
+  } catch (error) {
+    console.warn('[RefillPool] Could not cache refill regions:', error);
+  }
+}
+
+/**
+ * Drop the cached per-region state so the next cron tick re-checks Postgres.
+ * Call this whenever the pool is drained outside this workflow — i.e. when a
+ * workspace claims a warm slot. The region index is left in place: it's the
+ * only way to find these keys, and it is rewritten on every real run anyway.
+ */
+export async function invalidatePoolState(env: Env): Promise<void> {
+  try {
+    const regions = await env.WORKSPACE_CACHE.get(REGIONS_KEY, 'json') as string[] | null;
+    if (!regions?.length) return;
+    await Promise.all(
+      regions.map(region => env.WORKSPACE_CACHE.delete(`${STATE_KEY_PREFIX}${region}`))
+    );
+  } catch (error) {
+    console.warn('[RefillPool] Could not invalidate cached pool state:', error);
+  }
 }
 
 export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams> {
@@ -94,23 +194,46 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
         `[RefillPool] region=${region} shared ${counts.shared}/${targetShared} (+${shared}), ` +
         `dedicated ${counts.dedicated}/${targetDedicated} (+${dedicated})`
       );
-      return { shared, dedicated };
+      // haveShared/haveDedicated feed the settled check below — the deficits
+      // above are capped at MAX_CREATES_PER_RUN and so can't reveal the real gap.
+      return { shared, dedicated, haveShared: counts.shared, haveDedicated: counts.dedicated };
     });
 
-    let created = 0;
-
+    let createdShared = 0;
     for (let i = 0; i < deficits.shared; i++) {
-      if (await this.createSharedSlotSteps(step, i, region, targetShared)) created++;
+      if (await this.createSharedSlotSteps(step, i, region, targetShared)) createdShared++;
     }
 
+    let createdDedicated = 0;
     for (let i = 0; i < deficits.dedicated; i++) {
-      if (await this.createSlotSteps(step, 'dedicated', i, region, targetDedicated)) created++;
+      if (await this.createSlotSteps(step, 'dedicated', i, region, targetDedicated)) createdDedicated++;
     }
 
-    const caughtUp = await this.catchUpStaleSlots(step, region);
+    const { caughtUp, staleFound } = await this.catchUpStaleSlots(step, region);
+    const created = createdShared + createdDedicated;
 
-    console.log(`[RefillPool] Done: ${created} slots created, ${caughtUp} caught up`);
-    return { created, caughtUp };
+    /**
+     * Settled = both targets met and no stale slot left behind, so the next
+     * ticks have provably nothing to do and can skip Postgres entirely. A run
+     * that fell short (capacity exhausted, a slot that won't migrate, or a
+     * catch-up batch that filled its MAX_CATCHUP_PER_RUN limit and may have
+     * more behind it) records `false` and gets the short backoff TTL instead.
+     */
+    const settled =
+      deficits.haveShared + createdShared >= targetShared &&
+      deficits.haveDedicated + createdDedicated >= targetDedicated &&
+      caughtUp === staleFound &&
+      staleFound < MAX_CATCHUP_PER_RUN;
+
+    await step.do('record-state', {
+      retries: { limit: 1, delay: '5 seconds', backoff: 'constant' },
+    }, async () => {
+      await writePoolState(this.env, region, settled);
+      return settled;
+    });
+
+    console.log(`[RefillPool] Done: ${created} slots created, ${caughtUp} caught up, settled=${settled}`);
+    return { created, caughtUp, settled };
   }
 
   private async countAvailable(masterDb: ReturnType<typeof getMasterDb>, region: string) {
@@ -400,8 +523,15 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
    * subsequent claims take the instant path instead of the workflow wait.
    * One step per slot per migration batch — the delta is usually tiny, but a
    * slot that fell far behind must not blow a single step's invocation limits.
+   *
+   * Returns both how many were caught up and how many were found, so the caller
+   * can tell "nothing stale" from "some stale slots refused to migrate" and
+   * avoid recording a settled pool in the latter case.
    */
-  private async catchUpStaleSlots(step: WorkflowStep, region: string): Promise<number> {
+  private async catchUpStaleSlots(
+    step: WorkflowStep,
+    region: string,
+  ): Promise<{ caughtUp: number; staleFound: number }> {
     const stale = await step.do('find-stale-slots', {
       retries: { limit: 2, delay: '5 seconds', backoff: 'exponential' },
     }, async () => {
@@ -452,7 +582,7 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
         console.error(`[RefillPool] Failed to catch up slot ${slot.id}:`, error);
       }
     }
-    return caughtUp;
+    return { caughtUp, staleFound: stale.length };
   }
 }
 
@@ -463,6 +593,10 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
  * that region during onboarding, so future signups there deserve warm slots
  * too). A short-TTL KV lock prevents a thundering herd of overlapping runs;
  * the per-step recount inside the workflow is the real overshoot guard.
+ *
+ * Ticks where the pool is already settled return before touching Postgres at
+ * all — see `poolIsSettled`. Without that the cron's own bookkeeping queries
+ * kept the master Neon compute from ever scaling to zero.
  */
 export async function triggerPoolRefill(env: Env): Promise<void> {
   if (!env.REFILL_POOL) {
@@ -471,6 +605,19 @@ export async function triggerPoolRefill(env: Env): Promise<void> {
   }
   if (!env.NEON_API_KEY) {
     console.warn('[RefillPool] NEON_API_KEY not configured, skipping');
+    return;
+  }
+  // Without a bundled journal the workflow can't prepare anything (it bails at
+  // the same check), so stop here rather than paying the region query to find out.
+  if (!LATEST_SCHEMA_VERSION) {
+    console.warn('[RefillPool] No bundled migrations — skipping');
+    return;
+  }
+
+  // Checked before the lock is taken: this path opens no database and starts no
+  // workflow, so it must not leave a 10-minute lock behind either.
+  if (await poolIsSettled(env)) {
+    console.log('[RefillPool] Pool settled per cached state — skipping (no database access)');
     return;
   }
 
@@ -494,6 +641,9 @@ export async function triggerPoolRefill(env: Env): Promise<void> {
       .selectDistinct({ region: neonSharedProjects.region })
       .from(neonSharedProjects);
     regions = [...new Set([defaultRegion, ...shardRegions.map(r => r.region)])];
+    // Cached so `poolIsSettled` knows which regions to check — and so this
+    // enumeration isn't itself a per-tick query against the master DB.
+    await cacheRegions(env, regions);
   } catch (error) {
     console.warn('[RefillPool] Could not enumerate shard regions, refilling default region only:', error);
   }
