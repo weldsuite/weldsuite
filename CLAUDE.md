@@ -141,10 +141,12 @@ pnpm test:coverage
 ### Cloudflare Workers (any worker app)
 ```bash
 pnpm dev                  # wrangler dev
-pnpm deploy:test
-pnpm deploy:preview
-pnpm deploy:production
+pnpm deploy:production    # the only deploy target
 ```
+**Production is the only worker environment.** There is no `deploy:test` or
+`deploy:preview` script — don't add one without provisioning the environment
+first. Some `wrangler.toml` files still carry `[env.test]` / `[env.preview]`
+blocks from an earlier setup; those envs are not deployed to.
 
 ### DB Migrations (`apps/tools/migrate-databases`)
 ```bash
@@ -318,7 +320,7 @@ read-only token. `dispatch-deploy.yml` is the sole exception:
 | `ci.yml` | PR + push to `main`/`develop` | `Type Check · app-api`, `Unit · app-api`, `Unit · platform` block. Lint, platform type-check and build run `continue-on-error: true` while pre-existing failures are worked down. |
 | `secret-scan.yml` | PR + push | yes |
 | `i18n-check.yml` | PR touching locales | yes |
-| `dispatch-deploy.yml` | push to `main`/`develop` | n/a — fires a `repository_dispatch` at the overlay repo |
+| `dispatch-deploy.yml` | push to `main` **only** | n/a — fires a `repository_dispatch` at the overlay repo |
 
 `dispatch-deploy.yml` holds the **only** secret this repo uses,
 `OVERLAY_DISPATCH_TOKEN`, and it can do exactly one thing: trigger a `deploy`
@@ -326,10 +328,12 @@ event on the overlay. No Cloudflare / Neon / Doppler / Expo credentials here.
 
 The actual deploy (`.github/workflows/deploy.yml` in the **overlay** repo) then
 checks out this repo at the dispatched SHA, overlays the real wrangler configs,
-and runs: **Prepare** (`main` → production, `develop` → test; detects migration +
-SDK version changes) → **Migrations** (master DB, then all tenants) → **Workers
-Deploy** (11 workers in parallel) → **Mobile OTA** (production only, path-gated)
-→ **Widget SDK Publish** (on version change).
+and runs: **Prepare** (detects migration + SDK version changes) → **Migrations**
+(master DB, then all tenants) → **Workers Deploy** (11 workers in parallel) →
+**Mobile OTA** (path-gated) → **Widget SDK Publish** (on version change).
+
+Every one of those targets **production** — it is the only environment. A merge
+to `main` goes straight to production, so CI green is the only gate.
 
 `.github/actions/setup-monorepo/action.yml` pins pnpm 10.4.1 + Node 20 and caches the pnpm store + turbo cache.
 
@@ -349,7 +353,10 @@ that breaks the worker deploy still ships the new frontend, and vice versa.
 that `vercel.json` sets `deploymentEnabled: { main: false, develop: false }`.
 Cloudflare Pages is the real path; don't reach for the vercel scripts.
 
-Environments: dev (local wrangler) → test (`develop`) → preview (manual) → production (`main`).
+Environments: dev (local wrangler) → **production** (`main`). That's the whole
+ladder — there is no test or preview worker environment. Pre-production
+verification happens on Cloudflare Pages preview deployments (frontend) and in
+CI (tests, type-check), not in a deployed backend environment.
 
 > There is no `deploy.yml`, `migrate-database.yml`, `publish-widget-sdk.yml` or
 > `sync-secrets.yml` in this repo — those were private-monorepo workflows and are

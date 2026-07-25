@@ -11,7 +11,10 @@ name: Dispatch deploy
 
 on:
   push:
-    branches: [main, develop]
+    # `main` only. Production is the sole deploy environment, so any dispatch
+    # resolves to production — listing `develop` here would mean that creating
+    # that branch (it does not currently exist) silently deploys to production.
+    branches: [main]
 
 # No repo write access needed; the PAT (not GITHUB_TOKEN) does the dispatch.
 permissions: {}
