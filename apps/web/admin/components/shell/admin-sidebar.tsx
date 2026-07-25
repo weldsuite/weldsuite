@@ -17,7 +17,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
-  useSidebar,
 } from '@weldsuite/ui/components/sidebar';
 import { SidebarUserMenu } from '@weldsuite/ui/components/sidebar-user-menu';
 import { Button } from '@weldsuite/ui/components/button';
@@ -45,7 +44,7 @@ const THEME_LABEL: Record<Theme, string> = {
   system: 'System',
 };
 
-function ThemeToggle({ collapsed }: { collapsed: boolean }) {
+function ThemeToggle() {
   const { theme, setTheme } = useTheme();
   const Icon = THEME_ICON[theme];
   const next = THEME_CYCLE[(THEME_CYCLE.indexOf(theme) + 1) % THEME_CYCLE.length]!;
@@ -55,13 +54,10 @@ function ThemeToggle({ collapsed }: { collapsed: boolean }) {
       variant="ghost"
       onClick={() => setTheme(next)}
       title={`Theme: ${THEME_LABEL[theme]} — switch to ${THEME_LABEL[next]}`}
-      className={cn(
-        'w-full gap-2 px-2 text-muted-foreground hover:text-foreground',
-        collapsed ? 'justify-center' : 'justify-start',
-      )}
+      className="w-full justify-start gap-2 px-2 text-muted-foreground hover:text-foreground"
     >
       <Icon className="h-4 w-4 shrink-0" />
-      {!collapsed && <span className="text-sm">{THEME_LABEL[theme]}</span>}
+      <span className="text-sm">{THEME_LABEL[theme]}</span>
     </Button>
   );
 }
@@ -74,9 +70,7 @@ function ThemeToggle({ collapsed }: { collapsed: boolean }) {
  */
 export function AdminSidebar({ name, email, role, avatar }: AdminSidebarProps) {
   const pathname = usePathname() ?? '/';
-  const { state } = useSidebar();
   const { signOut } = useClerk();
-  const collapsed = state === 'collapsed';
 
   const area = getActiveArea(pathname);
   const AreaIcon = area.icon;
@@ -92,6 +86,11 @@ export function AdminSidebar({ name, email, role, avatar }: AdminSidebarProps) {
   }, [area, pathname]);
 
   return (
+    // `offcanvas` matches the platform's module sidebar: collapsing slides the
+    // whole panel off-screen rather than leaving an icon rail — the rail on the
+    // far left already serves that purpose. There is deliberately no icon-only
+    // rendering below, because in this mode the collapsed sidebar is never
+    // visible. Switching to collapsible="icon" would need those states back.
     <Sidebar
       collapsible="offcanvas"
       className={cn(
@@ -103,20 +102,13 @@ export function AdminSidebar({ name, email, role, avatar }: AdminSidebarProps) {
     >
       <SidebarHeader className="pb-2.5">
         <div className="flex flex-col gap-1 px-2 pt-2 pb-0">
-          <div
-            className={cn(
-              'flex items-center gap-2',
-              collapsed ? 'justify-center px-0' : 'px-2',
-            )}
-          >
+          <div className="flex items-center gap-2 px-2">
             <AreaIcon className="h-6 w-6 shrink-0" />
-            {!collapsed && <span className="text-lg font-semibold">{area.name}</span>}
+            <span className="text-lg font-semibold">{area.name}</span>
           </div>
-          {!collapsed && (
-            <div className="px-2 text-xs text-muted-foreground">
-              WeldSuite Admin · {ROLE_LABELS[role]}
-            </div>
-          )}
+          <div className="px-2 text-xs text-muted-foreground">
+            WeldSuite Admin · {ROLE_LABELS[role]}
+          </div>
         </div>
       </SidebarHeader>
 
@@ -146,11 +138,10 @@ export function AdminSidebar({ name, email, role, avatar }: AdminSidebarProps) {
       </SidebarContent>
 
       <SidebarFooter>
-        <ThemeToggle collapsed={collapsed} />
+        <ThemeToggle />
         <SidebarUserMenu
           user={{ name: name ?? email, email, avatar }}
           onSignOut={() => void signOut()}
-          collapsed={collapsed}
         />
       </SidebarFooter>
       <SidebarRail />

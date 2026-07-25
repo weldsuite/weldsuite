@@ -3,11 +3,15 @@
  * (apps/web/platform/app/globals.css) so the two apps read as one product.
  * If you change a colour here, change it there too.
  */
+/* Both @import rules stay above the @source globs — CSS requires @import to
+   precede other statements, and stylelint's no-invalid-position-at-import-rule
+   flags it otherwise. (apps/web/platform/app/globals.css has the same rules in
+   the looser order; worth aligning there separately.) */
 @import "tailwindcss";
+@import "tw-animate-css";
+
 @source "../**/*.{ts,tsx}";
 @source "../../../../packages/design/ui/src/**/*.{ts,tsx}";
-
-@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 

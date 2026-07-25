@@ -2,14 +2,25 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { cn } from '@/lib/utils';
 import type { WorkspaceRow } from '@/lib/workspaces-data';
 
-/** Shared between the workspaces list and the workspace detail screen. */
+/**
+ * Shared between the workspaces list and the workspace detail screen.
+ *
+ * Pinned to UTC on purpose. These strings are rendered by client components
+ * that Next server-renders first: without an explicit zone the server formats
+ * in its own zone (UTC) and the browser in the viewer's, so times — and dates
+ * near midnight — differ between the SSR HTML and hydration. Deletion deadlines
+ * are also the kind of value that shouldn't silently mean something different
+ * depending on who's looking, hence the explicit "UTC" suffix on times.
+ */
 export function formatDate(iso: string, withTime: boolean): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString('en-GB', {
+  const formatted = d.toLocaleString('en-GB', {
+    timeZone: 'UTC',
     dateStyle: 'medium',
     ...(withTime ? { timeStyle: 'short' } : {}),
   });
+  return withTime ? `${formatted} UTC` : formatted;
 }
 
 const DOT_TONE = {

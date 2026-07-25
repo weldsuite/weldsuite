@@ -168,9 +168,27 @@ export async function getWorkspaceById(id: string): Promise<WorkspaceRow | null>
 }
 
 /**
- * Every membership of a workspace — active and pending — newest role first
- * (admins above members), then by join date. Read-only: the admin console
- * surfaces memberships, it does not manage them (Clerk owns that).
+ * Explicit role ranking. Sorting on the raw role string only *happens* to put
+ * `org:admin` before `org:member`; `org:owner` or any custom Clerk role would
+ * land wherever the collation dropped it. Unknown roles sort after the known
+ * ones rather than silently jumping the queue.
+ */
+const ROLE_RANK = sql<number>`case ${userWorkspaces.role}
+  when 'org:owner' then 0
+  when 'org:admin' then 1
+  when 'org:member' then 2
+  else 3
+end`;
+
+/**
+ * Every membership of a workspace — active and pending — ordered by role
+ * (owners, then admins, then members, then anything custom), then by when they
+ * joined, oldest first. Members who never accepted an invite have no
+ * `joinedAt`, so they sort last within their role and fall back to when the
+ * membership row was created.
+ *
+ * Read-only: the admin console surfaces memberships, it does not manage them
+ * (Clerk owns that).
  */
 export async function listWorkspaceMembers(
   workspaceId: string,
@@ -196,7 +214,11 @@ export async function listWorkspaceMembers(
     .from(userWorkspaces)
     .innerJoin(users, eq(userWorkspaces.userId, users.id))
     .where(eq(userWorkspaces.workspaceId, workspaceId))
-    .orderBy(asc(userWorkspaces.role), asc(userWorkspaces.createdAt));
+    .orderBy(
+      asc(ROLE_RANK),
+      sql`${userWorkspaces.joinedAt} asc nulls last`,
+      asc(userWorkspaces.createdAt),
+    );
 
   return rows.map((row) => ({
     id: row.id,

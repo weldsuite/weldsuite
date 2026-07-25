@@ -179,6 +179,7 @@ export function AppsList({
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                aria-label="Search apps"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search by name, code or description…"
@@ -193,7 +194,7 @@ export function AppsList({
                 applyFilters(search, next);
               }}
             >
-              <SelectTrigger size="sm" className="w-48">
+              <SelectTrigger size="sm" aria-label="Filter by category" className="w-48">
                 <SelectValue placeholder="All categories" />
               </SelectTrigger>
               <SelectContent>

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState, useTransition } from 'react';
 import { Building2, CalendarClock, RotateCcw, Search, Trash2, Users } from 'lucide-react';
@@ -111,6 +112,7 @@ export function WorkspacesList({
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                aria-label="Search workspaces"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search by name or slug…"
@@ -152,7 +154,17 @@ export function WorkspacesList({
                     onClick={() => router.push(`/workspaces/${w.id}`)}
                   >
                     <TableCell className="min-w-0 py-2.5">
-                      <div className="truncate text-sm font-medium">{w.name}</div>
+                      {/* The row's onClick is a convenience, not the only path —
+                          this Link is the focusable, screen-reader-reachable
+                          target. stopPropagation keeps the row handler from
+                          firing a second navigation on top of the Link's. */}
+                      <Link
+                        href={`/workspaces/${w.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="block truncate text-sm font-medium hover:underline"
+                      >
+                        {w.name}
+                      </Link>
                       <div className="truncate font-mono text-xs text-muted-foreground">
                         {w.slug}
                       </div>
