@@ -1,6 +1,6 @@
 import { AnalyticsListClient } from './_components/analytics-list-client';
 import { AnalyticsDashboardClient } from './_components/analytics-dashboard-client';
-import { useAnalyticsReports } from '@/hooks/queries/use-projects-queries';
+import { useProjectAnalyticsReports } from '@/hooks/queries/use-projects-queries';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
@@ -12,7 +12,7 @@ export default function ProjectsAnalyticsPage() {
     { label: t.projects.analytics.title },
   ]);
 
-  const { data, isLoading } = useAnalyticsReports();
+  const { data, isLoading } = useProjectAnalyticsReports();
   const reports = data?.data || [];
 
   if (isLoading) return <PageLoader fullScreen={false} />;

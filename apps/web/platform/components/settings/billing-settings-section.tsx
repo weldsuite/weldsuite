@@ -774,7 +774,10 @@ export function BillingSettingsSection() {
     }).format(cents / 100);
   };
 
-  const formatDate = (date: Date | string) => {
+  const formatDate = (date: Date | string | null | undefined) => {
+    // Invoice periods are nullable. Without this guard `new Date(null)` renders
+    // the epoch ("Jan 01, 1970") rather than signalling a missing value.
+    if (!date) return '—';
     const dateObj = typeof date === 'string' ? new Date(date) : date;
     return format(dateObj, 'MMM dd, yyyy');
   };
@@ -1565,7 +1568,7 @@ export function BillingSettingsSection() {
                       </span>
                     )}
                   </div>
-                  <div>{format(new Date(invoice.periodStart), 'do MMM yyyy')}</div>
+                  <div>{invoice.periodStart ? format(new Date(invoice.periodStart), 'do MMM yyyy') : '—'}</div>
                   <div>
                     {getInvoiceStatusBadge(invoice.status)}
                   </div>

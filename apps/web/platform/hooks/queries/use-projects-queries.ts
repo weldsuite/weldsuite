@@ -866,7 +866,7 @@ export function useProjectKpiSummary(
   });
 }
 
-export function useAnalyticsReports() {
+export function useProjectAnalyticsReports() {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: projectKeys.analyticsReports(),
@@ -877,7 +877,7 @@ export function useAnalyticsReports() {
   });
 }
 
-export function useAnalyticsReport(reportId: string, enabled = true) {
+export function useProjectAnalyticsReport(reportId: string, enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: projectKeys.analyticsReport(reportId),
@@ -889,7 +889,7 @@ export function useAnalyticsReport(reportId: string, enabled = true) {
   });
 }
 
-export function useAnalyticsCharts(reportId: string, enabled = true) {
+export function useProjectAnalyticsCharts(reportId: string, enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: projectKeys.analyticsCharts(reportId),
@@ -905,7 +905,7 @@ export function useAnalyticsCharts(reportId: string, enabled = true) {
 // Analytics Mutations
 // =============================================================================
 
-export function useCreateAnalyticsReport() {
+export function useCreateProjectAnalyticsReport() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
@@ -919,7 +919,7 @@ export function useCreateAnalyticsReport() {
   });
 }
 
-export function useUpdateAnalyticsReport() {
+export function useUpdateProjectAnalyticsReport() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
@@ -934,7 +934,7 @@ export function useUpdateAnalyticsReport() {
   });
 }
 
-export function useDeleteAnalyticsReport() {
+export function useDeleteProjectAnalyticsReport() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
@@ -962,7 +962,7 @@ function useDuplicateAnalyticsReport() {
   });
 }
 
-export function useCreateAnalyticsChart() {
+export function useCreateProjectAnalyticsChart() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({

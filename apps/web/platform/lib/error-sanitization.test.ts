@@ -35,7 +35,7 @@ describe('sanitizeError (dev mode)', () => {
 
 describe('sanitizeError (prod mode)', () => {
   beforeEach(() => {
-    vi.stubEnv('PROD', 'true');
+    vi.stubEnv('PROD', true);
   });
 
   it('NEVER leaks the Error message in production', () => {

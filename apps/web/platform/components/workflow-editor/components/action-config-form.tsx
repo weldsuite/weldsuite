@@ -2584,7 +2584,7 @@ function AiAgentForm({ config, onChange }: {
   // The "saved" tab below renders its own empty state off this.
   const { data: savedAgents } = useQuery({
     queryKey: ['ai-agents-all'],
-    queryFn: async (): Promise<Array<{ id: string; name: string; description?: string; moduleKey: string }>> => [],
+    queryFn: async (): Promise<Array<{ id: string; name: string; description?: string; moduleKey: string; modelId?: string }>> => [],
     staleTime: Infinity,
   });
 

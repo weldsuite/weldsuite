@@ -9,14 +9,14 @@
  * apps/web/platform/lib/api/domains/billing.ts.
  */
 
-import { getAccessToken } from '@/lib/auth';
+import { getBrowserAccessToken } from '@/lib/api/app-api-browser-client';
 
 const BILLING_WORKER_URL = import.meta.env.VITE_BILLING_WORKER_URL || 'http://localhost:8788';
 const API_PREFIX = '/api/billing';
 
 class BillingWorkerClient {
   private async getAuthHeaders(): Promise<Record<string, string>> {
-    const token = await getAccessToken();
+    const token = await getBrowserAccessToken();
     return {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),

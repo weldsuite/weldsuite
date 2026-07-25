@@ -1418,8 +1418,8 @@ export function QuickCreateCard({
         meetingUrl: meetingUrl.trim() || undefined,
         attendees: selectedGuests.length > 0 ? selectedGuests.map((g) => ({ email: g.email, name: g.name })) : undefined,
       };
-      if (isEditMode) {
-        const hasExistingAttendees = !!editEvent?.attendees?.length;
+      if (isEditMode && editEvent?.id) {
+        const hasExistingAttendees = !!editEvent.attendees?.length;
         if (hasExistingAttendees) {
           setPendingEventData(eventData);
           setShowUpdateDialog(true);
@@ -2049,6 +2049,10 @@ function MonthView({
   onSelectEvent: (e: CalendarEvent, mouseEvent: React.MouseEvent) => void;
   onSelectSlot: (start: Date, end: Date, e: React.MouseEvent | MouseEvent, wasDrag?: boolean) => void;
   selectedDate?: Date;
+  // Accepted for parity with the timed views (week/day), which render a
+  // start–end preview block. Month-view slot selection is always same-day
+  // (see the day-cell onClick below), so there is no range to highlight here.
+  selectedEndDate?: Date;
   selectedType?: string;
   selectedColor?: string;
   selectedEventId?: string;

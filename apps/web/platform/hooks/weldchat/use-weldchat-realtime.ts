@@ -75,12 +75,15 @@ export function useWeldChatRealtime(
     // Clip transcript updates
     unsubs.push(
       client.on('clip:transcript:updated', (event) => {
+        // `transcript` is `unknown` at the realtime-event layer (opaque JSON
+        // from the transcription service); the cache updater expects an object.
+        if (typeof event.transcript !== 'object' || event.transcript === null) return;
         updateClipTranscriptInCache(
           queryClient,
           channelId,
           event.messageId,
           event.attachmentId,
-          event.transcript,
+          event.transcript as Record<string, unknown>,
         );
       }),
     );
