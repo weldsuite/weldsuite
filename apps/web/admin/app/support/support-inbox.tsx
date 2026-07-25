@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useSupportRoom } from '@weldsuite/realtime/react';
 import {
@@ -10,7 +10,12 @@ import {
   MessageCircle,
   Inbox,
 } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { Badge } from '@weldsuite/ui/components/badge';
+import { Button } from '@weldsuite/ui/components/button';
+import { Textarea } from '@weldsuite/ui/components/textarea';
 import { cn } from '@/lib/utils';
+import { PageContent } from '@/components/shell/admin-shell';
 import type { SupportWorkspace } from '@/lib/support-data';
 import { fetchSupportMessages } from '@/actions/support-messages';
 import { replyToSupport } from '@/actions/support';
@@ -33,13 +38,13 @@ export function SupportInbox({ workspaces }: { workspaces: SupportWorkspace[] })
   const selected = workspaces.find((ws) => ws.clerkOrgId === selectedOrgId);
 
   return (
-    <div className="flex h-full">
-      <div className="w-80 border-r flex flex-col bg-background">
-        <div className="px-4 py-3 border-b flex items-center gap-2 shrink-0">
-          <Headphones className="h-5 w-5 text-blue-600" />
+    <PageContent className="flex-row">
+      <div className="flex w-80 shrink-0 flex-col border-r">
+        <div className="flex shrink-0 items-center gap-2 border-b px-4 py-3">
+          <Headphones className="h-5 w-5 text-primary" />
           <h1 className="text-sm font-semibold">Support Inbox</h1>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <WorkspaceList
             workspaces={workspaces}
             selected={selectedOrgId}
@@ -51,14 +56,14 @@ export function SupportInbox({ workspaces }: { workspaces: SupportWorkspace[] })
       {selectedOrgId && selected ? (
         <ChatView key={selectedOrgId} orgId={selectedOrgId} workspaceName={selected.name} />
       ) : (
-        <div className="flex-1 flex items-center justify-center text-muted-foreground">
-          <div className="text-center space-y-2">
-            <MessageCircle className="h-10 w-10 mx-auto" />
+        <div className="flex flex-1 items-center justify-center text-muted-foreground">
+          <div className="space-y-2 text-center">
+            <MessageCircle className="mx-auto h-10 w-10" />
             <p className="text-sm">Select a workspace to view their support channel</p>
           </div>
         </div>
       )}
-    </div>
+    </PageContent>
   );
 }
 
@@ -97,16 +102,12 @@ function WorkspaceList({
               isSelected ? 'bg-accent' : 'hover:bg-accent/50',
             )}
           >
-            <div className="h-9 w-9 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0 mt-0.5">
-              {ws.imageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={ws.imageUrl} alt="" className="h-9 w-9 rounded-full object-cover" />
-              ) : (
-                <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
-                  {(ws.name || '?').substring(0, 2).toUpperCase()}
-                </span>
-              )}
-            </div>
+            <Avatar className="mt-0.5 h-9 w-9 shrink-0">
+              <AvatarImage src={ws.imageUrl ?? undefined} alt="" />
+              <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">
+                {(ws.name || '?').substring(0, 2).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium truncate">{ws.name}</span>
@@ -237,10 +238,10 @@ function ChatView({ orgId, workspaceName }: { orgId: string; workspaceName: stri
   };
 
   return (
-    <div className="flex-1 flex flex-col min-w-0">
-      <div className="border-b px-6 py-3 flex items-center gap-3 shrink-0">
-        <div className="h-9 w-9 rounded-full bg-blue-600 flex items-center justify-center">
-          <Building2 className="h-5 w-5 text-white" />
+    <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex shrink-0 items-center gap-3 border-b px-6 py-3">
+        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary">
+          <Building2 className="h-5 w-5 text-primary-foreground" />
         </div>
         <div>
           <h2 className="text-sm font-semibold">{workspaceName}</h2>
@@ -277,18 +278,10 @@ function ChatView({ orgId, workspaceName }: { orgId: string; workspaceName: stri
                 key={msg.id}
                 className={cn('flex gap-3 px-4 py-1.5', isSupport && 'flex-row-reverse')}
               >
-                <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0 mt-0.5 overflow-hidden">
-                  {msg.authorAvatar ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={msg.authorAvatar}
-                      alt=""
-                      className="h-8 w-8 rounded-full object-cover"
-                    />
-                  ) : (
-                    <span className="text-xs font-medium">{initials}</span>
-                  )}
-                </div>
+                <Avatar className="mt-0.5 h-8 w-8 shrink-0">
+                  <AvatarImage src={msg.authorAvatar ?? undefined} alt="" />
+                  <AvatarFallback className="text-xs font-medium">{initials}</AvatarFallback>
+                </Avatar>
                 <div className={cn('flex flex-col max-w-[70%]', isSupport && 'items-end')}>
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className="text-xs font-medium">{msg.authorName}</span>
@@ -299,17 +292,17 @@ function ChatView({ orgId, workspaceName }: { orgId: string; workspaceName: stri
                       })}
                     </span>
                     {isSupport && (
-                      <span className="text-[10px] bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 px-1.5 py-0.5 rounded-full">
+                      <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
                         Support
-                      </span>
+                      </Badge>
                     )}
                   </div>
                   <div
                     className={cn(
                       'rounded-xl px-3 py-2 text-sm leading-relaxed',
                       isSupport
-                        ? 'bg-blue-600 text-white rounded-tr-sm'
-                        : 'bg-muted text-foreground rounded-tl-sm',
+                        ? 'rounded-tr-sm bg-primary text-primary-foreground'
+                        : 'rounded-tl-sm bg-muted text-foreground',
                     )}
                   >
                     {msg.content}
@@ -338,9 +331,9 @@ function ChatView({ orgId, workspaceName }: { orgId: string; workspaceName: stri
         </div>
       )}
 
-      <div className="border-t bg-background p-4">
+      <div className="border-t p-4">
         <div className="flex items-end gap-2">
-          <textarea
+          <Textarea
             ref={textareaRef}
             value={content}
             onChange={(e) => {
@@ -355,15 +348,17 @@ function ChatView({ orgId, workspaceName }: { orgId: string; workspaceName: stri
             onKeyDown={handleKeyDown}
             placeholder="Reply as support..."
             rows={1}
-            className="flex-1 resize-none rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            className="min-h-9 flex-1 resize-none"
           />
-          <button
+          <Button
+            size="icon"
             onClick={handleSend}
             disabled={!content.trim() || isSending}
-            className="shrink-0 h-9 w-9 rounded-lg bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-50"
+            className="shrink-0"
+            aria-label="Send reply"
           >
             <Send className="h-4 w-4" />
-          </button>
+          </Button>
         </div>
       </div>
     </div>

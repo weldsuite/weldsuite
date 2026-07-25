@@ -1,12 +1,36 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState, useTransition } from 'react';
-import { Building2, CalendarClock, RotateCcw, Search, Trash2 } from 'lucide-react';
+import { Building2, CalendarClock, RotateCcw, Search, Trash2, Users } from 'lucide-react';
 import { toast } from 'sonner';
+import { Button } from '@weldsuite/ui/components/button';
+import { Card, CardContent } from '@weldsuite/ui/components/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@weldsuite/ui/components/dialog';
+import { Input } from '@weldsuite/ui/components/input';
+import { Label } from '@weldsuite/ui/components/label';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@weldsuite/ui/components/table';
+import { Textarea } from '@weldsuite/ui/components/textarea';
 import { cn } from '@/lib/utils';
+import { PageBody, PageContent, PageHeading } from '@/components/shell/admin-shell';
 import type { WorkspaceRow } from '@/lib/workspaces-data';
 import { cancelWorkspaceDeletion, scheduleWorkspaceDeletion } from '@/actions/workspaces';
+import { StatusBadge, formatDate } from './workspace-presentation';
 
 const PRESETS = [7, 30, 60, 90] as const;
 const DEFAULT_PRESET = 30;
@@ -59,18 +83,17 @@ export function WorkspacesList({
   }, [workspaces]);
 
   return (
-    <div className="h-full overflow-auto">
-      <div className="max-w-6xl mx-auto p-6 space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <Building2 className="h-6 w-6 text-blue-600" />
-            Workspaces
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Schedule a workspace for deletion. It is suspended immediately and permanently
-            deleted on the chosen date — cancel any time before then to restore it.
-          </p>
-        </div>
+    <PageContent>
+      <PageBody className="space-y-6">
+        <PageHeading
+          title={
+            <span className="flex items-center gap-2">
+              <Building2 className="h-6 w-6 text-primary" />
+              Workspaces
+            </span>
+          }
+          description="Schedule a workspace for deletion. It is suspended immediately and permanently deleted on the chosen date — cancel any time before then to restore it."
+        />
 
         <div className="grid grid-cols-3 gap-3">
           <StatCard label="Active" value={counts.active} />
@@ -78,97 +101,121 @@ export function WorkspacesList({
           <StatCard label="Deleted" value={counts.deleted} muted />
         </div>
 
-        <form
-          className="flex items-center gap-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            applySearch(search);
-          }}
-        >
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name or slug…"
-              className="w-full pl-9 pr-3 py-2 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-          </div>
-          <button type="submit" className="px-3 py-2 rounded-md border text-sm hover:bg-accent">
-            Search
-          </button>
-        </form>
-
-        <div className="rounded-lg border bg-card overflow-hidden">
-          {workspaces.length === 0 ? (
-            <div className="text-center py-16 text-sm text-muted-foreground">
-              No workspaces found.
+        <div className="space-y-3">
+          <form
+            className="flex items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              applySearch(search);
+            }}
+          >
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                aria-label="Search workspaces"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name or slug…"
+                className="h-8 pl-9"
+              />
             </div>
-          ) : (
-            <table className="w-full table-fixed">
-              <colgroup>
-                <col />
-                <col className="w-28" />
-                <col className="w-72" />
-                <col className="w-28" />
-                <col className="w-44" />
-              </colgroup>
-              <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
-                <tr>
-                  <th className="text-left font-medium px-4 py-2.5">Workspace</th>
-                  <th className="text-left font-medium px-4 py-2.5">Plan</th>
-                  <th className="text-left font-medium px-4 py-2.5">Status</th>
-                  <th className="text-left font-medium px-4 py-2.5">Created</th>
-                  <th className="text-right font-medium px-4 py-2.5">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
+            <Button type="submit" variant="outline" size="sm" className="h-8">
+              Search
+            </Button>
+          </form>
+
+          <div className="overflow-hidden rounded-lg border">
+            <Table>
+              <TableHeader className="[&_tr]:border-border/70">
+                <TableRow>
+                  <TableHead className="text-[13.5px]">Workspace</TableHead>
+                  <TableHead className="w-28 text-[13.5px]">Plan</TableHead>
+                  <TableHead className="w-24 text-right text-[13.5px]">Members</TableHead>
+                  <TableHead className="w-72 text-[13.5px]">Status</TableHead>
+                  <TableHead className="w-32 text-[13.5px]">Created</TableHead>
+                  <TableHead className="w-44 text-right text-[13.5px]">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody className="[&_tr]:border-border/70">
+                {workspaces.length === 0 && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={6}
+                      className="py-16 text-center text-sm text-muted-foreground"
+                    >
+                      No workspaces found.
+                    </TableCell>
+                  </TableRow>
+                )}
                 {workspaces.map((w) => (
-                  <tr key={w.id} className="hover:bg-accent/30 align-top">
-                    <td className="px-4 py-3 min-w-0">
-                      <div className="font-medium text-sm truncate">{w.name}</div>
-                      <div className="text-xs text-muted-foreground truncate font-mono">{w.slug}</div>
-                    </td>
-                    <td className="px-4 py-3 text-xs">{w.planName ?? '—'}</td>
-                    <td className="px-4 py-3">
-                      <StatusCell workspace={w} />
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground tabular-nums">
+                  <TableRow
+                    key={w.id}
+                    className="group cursor-pointer align-top hover:bg-muted/50"
+                    onClick={() => router.push(`/workspaces/${w.id}`)}
+                  >
+                    <TableCell className="min-w-0 py-2.5">
+                      {/* The row's onClick is a convenience, not the only path —
+                          this Link is the focusable, screen-reader-reachable
+                          target. stopPropagation keeps the row handler from
+                          firing a second navigation on top of the Link's. */}
+                      <Link
+                        href={`/workspaces/${w.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="block truncate text-sm font-medium hover:underline"
+                      >
+                        {w.name}
+                      </Link>
+                      <div className="truncate font-mono text-xs text-muted-foreground">
+                        {w.slug}
+                      </div>
+                    </TableCell>
+                    <TableCell className="py-2.5 text-xs">{w.planName ?? '—'}</TableCell>
+                    <TableCell className="py-2.5 text-right">
+                      <span className="inline-flex items-center gap-1.5 text-sm tabular-nums">
+                        <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                        {w.memberCount}
+                      </span>
+                    </TableCell>
+                    <TableCell className="whitespace-normal py-2.5">
+                      <StatusBadge workspace={w} />
+                    </TableCell>
+                    <TableCell className="py-2.5 text-xs tabular-nums text-muted-foreground">
                       {formatDate(w.createdAt, false)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
+                    </TableCell>
+                    <TableCell className="py-2.5">
+                      <div
+                        className="flex items-center justify-end gap-1"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         {w.deletionState === 'active' && (
-                          <button
+                          <Button
+                            variant="outline"
+                            size="xs"
                             onClick={() => setScheduleTarget(w)}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40"
+                            className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                             Schedule deletion
-                          </button>
+                          </Button>
                         )}
                         {w.deletionState === 'scheduled' && (
-                          <button
-                            onClick={() => setCancelTarget(w)}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium border hover:bg-accent"
-                          >
+                          <Button variant="outline" size="xs" onClick={() => setCancelTarget(w)}>
                             <RotateCcw className="h-3.5 w-3.5" />
                             Cancel deletion
-                          </button>
+                          </Button>
                         )}
                         {w.deletionState === 'deleted' && (
                           <span className="text-xs text-muted-foreground">—</span>
                         )}
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          )}
+              </TableBody>
+            </Table>
+          </div>
         </div>
-      </div>
+      </PageBody>
 
       {scheduleTarget && (
         <ScheduleDialog
@@ -191,39 +238,29 @@ export function WorkspacesList({
         />
       )}
 
-      {cancelTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-popover rounded-lg shadow-xl border max-w-md w-full p-6 space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold">Cancel deletion of &quot;{cancelTarget.name}&quot;?</h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                The workspace will be reactivated immediately and the scheduled deletion
-                {cancelTarget.scheduledDeletionAt
-                  ? ` (${formatDate(cancelTarget.scheduledDeletionAt, true)})`
-                  : ''}{' '}
-                removed. Its owners will be notified that it is active again.
-              </p>
-            </div>
-            <div className="flex items-center justify-end gap-2">
-              <button
-                onClick={() => setCancelTarget(null)}
-                disabled={isMutating}
-                className="px-4 py-2 rounded-md text-sm hover:bg-accent disabled:opacity-50"
-              >
-                Keep scheduled
-              </button>
-              <button
-                onClick={performCancel}
-                disabled={isMutating}
-                className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-50"
-              >
-                {isMutating ? 'Restoring…' : 'Cancel deletion'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+      <Dialog open={cancelTarget !== null} onOpenChange={(open) => !open && setCancelTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cancel deletion of &quot;{cancelTarget?.name}&quot;?</DialogTitle>
+            <DialogDescription>
+              The workspace will be reactivated immediately and the scheduled deletion
+              {cancelTarget?.scheduledDeletionAt
+                ? ` (${formatDate(cancelTarget.scheduledDeletionAt, true)})`
+                : ''}{' '}
+              removed. Its owners will be notified that it is active again.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" disabled={isMutating} onClick={() => setCancelTarget(null)}>
+              Keep scheduled
+            </Button>
+            <Button disabled={isMutating} onClick={performCancel}>
+              {isMutating ? 'Restoring…' : 'Cancel deletion'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </PageContent>
   );
 }
 
@@ -257,188 +294,113 @@ function ScheduleDialog({
   const isValid = deleteAt !== null && deleteAt.getTime() > Date.now() + 5 * 60_000;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-popover rounded-lg shadow-xl border max-w-md w-full p-6 space-y-4">
-        <div>
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <CalendarClock className="h-5 w-5 text-red-600" />
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <CalendarClock className="h-5 w-5 text-destructive" />
             Schedule deletion
-          </h2>
-          <p className="text-sm text-muted-foreground mt-1">
+          </DialogTitle>
+          <DialogDescription>
             <span className="font-medium text-foreground">{workspace.name}</span> will be{' '}
             <strong>suspended immediately</strong> (all members locked out) and permanently deleted
             on the date below. You can cancel any time before then to fully restore it.
-          </p>
-        </div>
+          </DialogDescription>
+        </DialogHeader>
 
         <div className="space-y-2">
-          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <Label className="text-xs uppercase tracking-wide text-muted-foreground">
             Delete after
-          </div>
+          </Label>
           <div className="flex flex-wrap gap-2">
             {PRESETS.map((days) => (
-              <button
+              <Button
                 key={days}
+                type="button"
+                size="sm"
+                variant={mode === 'preset' && presetDays === days ? 'default' : 'outline'}
                 onClick={() => {
                   setMode('preset');
                   setPresetDays(days);
                 }}
-                className={cn(
-                  'px-3 py-1.5 rounded-md border text-sm',
-                  mode === 'preset' && presetDays === days
-                    ? 'bg-blue-600 border-blue-600 text-white'
-                    : 'hover:bg-accent',
-                )}
               >
                 {days} days
-              </button>
+              </Button>
             ))}
-            <button
+            <Button
+              type="button"
+              size="sm"
+              variant={mode === 'custom' ? 'default' : 'outline'}
               onClick={() => setMode('custom')}
-              className={cn(
-                'px-3 py-1.5 rounded-md border text-sm',
-                mode === 'custom' ? 'bg-blue-600 border-blue-600 text-white' : 'hover:bg-accent',
-              )}
             >
               Custom date
-            </button>
+            </Button>
           </div>
 
           {mode === 'custom' && (
-            <input
+            <Input
               type="datetime-local"
               value={customValue}
               onChange={(e) => setCustomValue(e.target.value)}
-              className="w-full px-3 py-2 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             />
           )}
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <Label className="text-xs uppercase tracking-wide text-muted-foreground">
             Reason (optional)
-          </label>
-          <textarea
+          </Label>
+          <Textarea
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             rows={2}
             placeholder="Included in the notification to the workspace owners."
-            className="w-full px-3 py-2 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+            className="resize-none"
           />
         </div>
 
         <div className="rounded-md border bg-muted/30 p-3 text-xs">
           {isValid && deleteAt ? (
             <>
-              Permanent deletion on{' '}
-              <strong>{formatDate(deleteAt.toISOString(), true)}</strong>. The owners will be emailed.
+              Permanent deletion on <strong>{formatDate(deleteAt.toISOString(), true)}</strong>. The
+              owners will be emailed.
             </>
           ) : (
-            <span className="text-red-600">Pick a date at least 5 minutes in the future.</span>
+            <span className="text-destructive">Pick a date at least 5 minutes in the future.</span>
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2">
-          <button
-            onClick={onClose}
-            disabled={isMutating}
-            className="px-4 py-2 rounded-md text-sm hover:bg-accent disabled:opacity-50"
-          >
+        <DialogFooter>
+          <Button variant="ghost" disabled={isMutating} onClick={onClose}>
             Cancel
-          </button>
-          <button
-            onClick={() => deleteAt && onConfirm(deleteAt.toISOString(), reason)}
+          </Button>
+          <Button
+            variant="destructive"
             disabled={isMutating || !isValid}
-            className="px-4 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white text-sm font-medium disabled:opacity-50"
+            onClick={() => deleteAt && onConfirm(deleteAt.toISOString(), reason)}
           >
             {isMutating ? 'Scheduling…' : 'Suspend & schedule deletion'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StatusCell({ workspace: w }: { workspace: WorkspaceRow }) {
-  if (w.deletionState === 'deleted') {
-    return (
-      <div>
-        <Badge tone="gray">Deleted</Badge>
-        {w.deletedAt && (
-          <div className="text-[11px] text-muted-foreground mt-1">{formatDate(w.deletedAt, true)}</div>
-        )}
-      </div>
-    );
-  }
-
-  if (w.deletionState === 'scheduled') {
-    return (
-      <div>
-        <Badge tone="amber">Scheduled</Badge>
-        {w.scheduledDeletionAt && (
-          <div className="text-[11px] text-muted-foreground mt-1">
-            deletes {formatDate(w.scheduledDeletionAt, true)}
-          </div>
-        )}
-        <div className="text-[11px] text-muted-foreground mt-0.5">
-          {w.adminInitiated
-            ? `by ${w.deletionRequestedBy}`
-            : 'trial-expiry policy'}
-        </div>
-        {w.deletionReason && (
-          <div className="text-[11px] text-muted-foreground mt-0.5 italic truncate">
-            “{w.deletionReason}”
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  return <Badge tone="green">Active</Badge>;
-}
-
-function Badge({ tone, children }: { tone: 'green' | 'amber' | 'gray'; children: React.ReactNode }) {
-  const tones: Record<typeof tone, string> = {
-    green:
-      'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-900',
-    amber:
-      'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-900',
-    gray: 'bg-muted text-muted-foreground border-border',
-  };
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border',
-        tones[tone],
-      )}
-    >
-      <span
-        className={cn(
-          'h-1.5 w-1.5 rounded-full',
-          tone === 'green' ? 'bg-emerald-500' : tone === 'amber' ? 'bg-amber-500' : 'bg-muted-foreground/40',
-        )}
-      />
-      {children}
-    </span>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 function StatCard({ label, value, muted }: { label: string; value: number; muted?: boolean }) {
   return (
-    <div className="rounded-lg border bg-card p-4">
-      <div className={cn('text-xs uppercase tracking-wide text-muted-foreground', muted && 'opacity-80')}>
-        {label}
-      </div>
-      <div className="text-2xl font-semibold tabular-nums mt-1">{value}</div>
-    </div>
+    <Card className="py-4">
+      <CardContent className="px-4">
+        <div
+          className={cn(
+            'text-xs uppercase tracking-wide text-muted-foreground',
+            muted && 'opacity-80',
+          )}
+        >
+          {label}
+        </div>
+        <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>
+      </CardContent>
+    </Card>
   );
-}
-
-function formatDate(iso: string, withTime: boolean): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString('en-GB', {
-    dateStyle: 'medium',
-    ...(withTime ? { timeStyle: 'short' } : {}),
-  });
 }
