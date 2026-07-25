@@ -53,7 +53,7 @@
     "mammoth": "^1.9.0",
     "mixpanel-browser": "^2.56.0",
     "nanoid": "^5.1.6",
-    "nodemailer": "^7.0.13",
+    "nodemailer": "^9.0.1",
     "openai": "^4.79.1",
     "pdf-lib": "^1.17.1",
     "postgres": "^3.4.7",
