@@ -144,9 +144,14 @@ pnpm dev                  # wrangler dev
 pnpm deploy:production    # the only deploy target
 ```
 **Production is the only worker environment.** There is no `deploy:test` or
-`deploy:preview` script — don't add one without provisioning the environment
-first. Some `wrangler.toml` files still carry `[env.test]` / `[env.preview]`
-blocks from an earlier setup; those envs are not deployed to.
+`deploy:preview` script, and no `[env.test]` / `[env.preview]` block in any
+worker's `wrangler.toml` — PR #5 removed both deliberately. Don't add them back
+without provisioning the environment first.
+
+Two leftovers that can mislead: `apps/tools/test-dashboard/wrangler.toml` still
+has those env blocks (it's a dev tool, not deployed by CI), and the **private
+overlay's** copies of the worker configs still carry them, so `--env test` looks
+viable from a CI log even though nothing invokes it.
 
 ### DB Migrations (`apps/tools/migrate-databases`)
 ```bash
