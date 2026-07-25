@@ -139,6 +139,8 @@ export interface TimeEntryEventData {
   duration: number;
   startedAt?: string | null;
   endedAt?: string | null;
+  /** Billed cost for the entry, when a rate applies. Consumed by analytics-worker. */
+  cost?: number;
 }
 
 export interface ProjectMemberEventData {

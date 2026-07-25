@@ -44,6 +44,7 @@ import { createTaskSchema, updateTaskSchema, moveTaskSchema } from '@weldsuite/a
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
+import { taskAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import {
   syncValuesForEntity,
   hydrateCustomFields,
@@ -1016,7 +1017,7 @@ app.post(
         entityType: 'project_task',
         entityId: row.id,
         action: 'created',
-        data: { id: row.id, projectId, title: row.title },
+        data: taskAnalyticsPayload(row as Record<string, unknown>, { projectId }),
       });
       dispatchGithubOutboundSync(c, { taskId: row.id, projectId, kinds: ['create'] });
       dispatchAssignmentNotifications(c, {
@@ -1329,7 +1330,7 @@ app.post('/', requirePermission('tasks:create'), zValidator('json', createTaskSc
       entityType: 'project_task',
       entityId: row.id,
       action: 'created',
-      data: { id: row.id, projectId, title: row.title },
+      data: taskAnalyticsPayload(row as Record<string, unknown>, { projectId }),
     });
     dispatchGithubOutboundSync(c, { taskId: row.id, projectId, kinds: ['create'] });
     dispatchAssignmentNotifications(c, {
@@ -1422,7 +1423,7 @@ app.patch(
         entityType: 'project_task',
         entityId: id,
         action: 'updated',
-        data: { id, title: (currentTask as any).title, status: newStatus },
+        data: taskAnalyticsPayload(currentTask as Record<string, unknown>, { status: newStatus }),
       });
 
       if (newStatus !== (currentTask as any).status) {
@@ -1503,7 +1504,7 @@ app.patch(
         entityType: 'project_task',
         entityId: id,
         action: 'updated',
-        data: { id, title: (currentTask as any).title, status },
+        data: taskAnalyticsPayload(currentTask as Record<string, unknown>, { status }),
       });
 
       if (status !== (currentTask as any).status) {
@@ -1546,16 +1547,13 @@ app.patch(
     const data = c.req.valid('json');
 
     try {
-      let currentTask: any = null;
-      if (data.status) {
-        const [task] = await db
-          .select()
-          .from(t)
-          .where(and(eq(t.id, id), isNull(t.deletedAt)))
-          .limit(1);
-        currentTask = task;
-        if (!currentTask) return error.notFound(c, 'Task', id);
-      }
+      const [task] = await db
+        .select()
+        .from(t)
+        .where(and(eq(t.id, id), isNull(t.deletedAt)))
+        .limit(1);
+      if (!task) return error.notFound(c, 'Task', id);
+      const currentTask: any = task;
 
       const updateData: Record<string, any> = { updatedAt: new Date() };
       if (data.position !== undefined) updateData.position = data.position;
@@ -1600,15 +1598,13 @@ app.patch(
         entityType: 'project_task',
         entityId: id,
         action: 'updated',
-        data: {
-          id,
-          title: currentTask?.title ?? '',
+        data: taskAnalyticsPayload(currentTask as Record<string, unknown>, {
           ...(data.position !== undefined && { position: data.position }),
           ...(data.status && { status: data.status }),
-        },
+        }),
       });
 
-      if (data.status && currentTask && data.status !== currentTask.status) {
+      if (data.status && data.status !== currentTask.status) {
         dispatchGithubOutboundSync(c, {
           taskId: id,
           projectId: currentTask.projectId,
@@ -2136,7 +2132,10 @@ app.patch(
         entityType: 'project_task',
         entityId: id,
         action: 'updated',
-        data: { id, title: (data.title as string) || (existing as any).title, ...data },
+        data: taskAnalyticsPayload(
+          { ...(existing as Record<string, unknown>), ...data } as Record<string, unknown>,
+          { id, title: (data.title as string) || (existing as any).title },
+        ),
       });
 
       const ghKinds: GithubOutboundKind[] = [];

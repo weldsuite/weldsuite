@@ -43,14 +43,29 @@ export interface AnalyticsReport {
 
 interface AnalyticsListClientProps {
   reports: AnalyticsReport[];
+  /** Base path for report links (default `/weldflow/analytics`). */
+  basePath?: string;
+  /** When true, omit page title/description (used under KPI hub). */
+  embedded?: boolean;
+  /** Section heading when embedded. */
+  sectionTitle?: string;
 }
 
-export function AnalyticsListClient({ reports: initialReports }: AnalyticsListClientProps) {
+export function AnalyticsListClient({
+  reports: initialReports,
+  basePath = '/weldflow/analytics',
+  embedded = false,
+  sectionTitle,
+}: AnalyticsListClientProps) {
   const { t } = useI18n();
-  useBreadcrumbs([
-    { label: t.projects.title, href: '/weldflow' },
-    { label: t.projects.analytics.title },
-  ]);
+  // When embedded under a KPI hub, the parent page owns the breadcrumb trail.
+  useBreadcrumbs(
+    [
+      { label: t.projects.title, href: '/weldflow' },
+      { label: t.projects.analytics.title },
+    ],
+    { enabled: !embedded },
+  );
 
   const router = useRouter();
   const [reports, setReports] = useState(initialReports);
@@ -78,7 +93,7 @@ export function AnalyticsListClient({ reports: initialReports }: AnalyticsListCl
         setIsCreateDialogOpen(false);
         setFormData({ title: '', description: '' });
         toast.success(t.projects.analyticsReports.reportCreated);
-        router.push(`/weldflow/analytics/${result.data.id}`);
+        router.push(`${basePath}/${result.data.id}`);
       } else {
         toast.error(t.projects.analyticsReports.reportCreatedFailed);
       }
@@ -134,10 +149,18 @@ export function AnalyticsListClient({ reports: initialReports }: AnalyticsListCl
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">{t.projects.analyticsReports.title}</h1>
-          <p className="text-muted-foreground">
-            {t.projects.analyticsReports.description}
-          </p>
+          {embedded ? (
+            <h2 className="text-lg font-semibold tracking-tight">
+              {sectionTitle ?? t.projects.dashboard.customReports}
+            </h2>
+          ) : (
+            <>
+              <h1 className="text-2xl font-bold tracking-tight">{t.projects.analyticsReports.title}</h1>
+              <p className="text-muted-foreground">
+                {t.projects.analyticsReports.description}
+              </p>
+            </>
+          )}
         </div>
         <Button onClick={() => setIsCreateDialogOpen(true)}>
           <Plus className="mr-0.5 h-4 w-4" />
@@ -164,7 +187,7 @@ export function AnalyticsListClient({ reports: initialReports }: AnalyticsListCl
               <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
                 <div className="space-y-1">
                   <CardTitle className="text-base font-semibold">
-                    <Link href={`/weldflow/analytics/${report.id}`} className="hover:underline">
+                    <Link href={`${basePath}/${report.id}`} className="hover:underline">
                       {report.title}
                     </Link>
                   </CardTitle>

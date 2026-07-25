@@ -16,6 +16,7 @@ import {
   Settings,
   PanelLeftOpen,
   PanelRightOpen,
+  BarChart3,
   type LucideIcon,
 } from 'lucide-react';
 import { ProjectChatPanel } from '@/components/project-chat/project-chat-panel';
@@ -116,6 +117,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
     { id: 'pipeline', name: t.projects.projectLayout.tabs.pipeline, href: '/pipeline', icon: SquareKanban },
     { id: 'documents', name: t.projects.projectLayout.tabs.documents, href: '/documents', icon: File },
     { id: 'goals', name: t.projects.projectLayout.tabs.goals, href: '/goals', icon: Target },
+    { id: 'analytics', name: t.projects.projectLayout.tabs.analytics, href: '/analytics', icon: BarChart3 },
     { id: 'settings', name: t.projects.projectLayout.tabs.settings, href: '/settings', icon: Settings },
   ];
 

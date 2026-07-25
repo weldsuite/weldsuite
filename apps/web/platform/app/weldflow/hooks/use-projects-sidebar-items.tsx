@@ -9,6 +9,7 @@ import {
   PanelsTopLeft,
   Edit2,
   Copy,
+  BarChart3,
   type LucideIcon,
 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
@@ -59,7 +60,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
 
   // Track which general pages are visible
   const [visibleGeneralPages, setVisibleGeneralPages] = React.useState<Set<string>>(
-    new Set(['my-tasks', 'all-projects', 'workload', 'timeline', 'list'])
+    new Set(['my-tasks', 'all-projects', 'workload', 'analytics', 'timeline', 'list'])
   );
 
   // Load visible general pages from localStorage
@@ -68,9 +69,18 @@ export function useProjectsSidebarItems(isActive: boolean): {
     const saved = localStorage.getItem('visibleGeneralPages');
     if (saved) {
       const savedPages = new Set<string>(JSON.parse(saved));
+      let dirty = false;
       // Remove legacy my-inbox entry if present
       if (savedPages.has('my-inbox')) {
         savedPages.delete('my-inbox');
+        dirty = true;
+      }
+      // Merge Analytics in for users who saved prefs before it existed
+      if (!savedPages.has('analytics')) {
+        savedPages.add('analytics');
+        dirty = true;
+      }
+      if (dirty) {
         localStorage.setItem('visibleGeneralPages', JSON.stringify(Array.from(savedPages)));
       }
       setVisibleGeneralPages(savedPages);
@@ -357,6 +367,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
     { id: 'my-tasks', title: t.projects.sidebar.myTasks, href: '/weldflow', icon: SquareCheck, actions: [] },
     { id: 'all-projects', title: t.projects.sidebar.allProjects, href: '/weldflow/projects', icon: PanelsTopLeft, actions: [] },
     { id: 'workload', title: t.projects.sidebar.workload, href: '/weldflow/workload', icon: Users, actions: [] },
+    { id: 'analytics', title: t.projects.sidebar.analytics, href: '/weldflow/analytics', icon: BarChart3, actions: [] },
   ];
 
   const visibleGeneralItems = allGeneralPages.filter((page) => visibleGeneralPages.has(page.id));
