@@ -3,9 +3,15 @@ import { AnalyticsDashboardClient } from './_components/analytics-dashboard-clie
 import { useAnalyticsReports } from '@/hooks/queries/use-projects-queries';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
+import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 
 export default function ProjectsAnalyticsPage() {
   const { t } = useI18n();
+  useBreadcrumbs([
+    { label: t.projects.title, href: '/weldflow' },
+    { label: t.projects.analytics.title },
+  ]);
+
   const { data, isLoading } = useAnalyticsReports();
   const reports = data?.data || [];
 

@@ -58,10 +58,14 @@ export function AnalyticsListClient({
   sectionTitle,
 }: AnalyticsListClientProps) {
   const { t } = useI18n();
-  useBreadcrumbs([
-    { label: t.projects.title, href: '/weldflow' },
-    { label: t.projects.analytics.title },
-  ]);
+  // When embedded under a KPI hub, the parent page owns the breadcrumb trail.
+  useBreadcrumbs(
+    [
+      { label: t.projects.title, href: '/weldflow' },
+      { label: t.projects.analytics.title },
+    ],
+    { enabled: !embedded },
+  );
 
   const router = useRouter();
   const [reports, setReports] = useState(initialReports);

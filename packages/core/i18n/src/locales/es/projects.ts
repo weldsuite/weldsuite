@@ -735,7 +735,7 @@ export const projects = {
       myTasks: 'Mis Tareas',
       allProjects: 'Todos los Proyectos',
       workload: 'Carga de trabajo',
-      analytics: 'Analítica',
+      analytics: 'Analíticas',
       newSubProject: 'Nuevo Subproyecto',
       duplicate: 'Duplicar',
       rename: 'Renombrar',

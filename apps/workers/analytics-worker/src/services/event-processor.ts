@@ -247,7 +247,7 @@ const ENTITY_CONFIG: Record<string, EntityConfig> = {
       { source: 'health', target: 'category' },
     ],
     numerics: [
-      { target: 'is_completed', statusCheck: ['completed', 'cancelled'] },
+      { target: 'is_completed', statusCheck: ['completed'] },
       { target: 'progress', field: 'progress' },
       { target: 'amount', field: 'actualAmount' },
       { target: 'actual_hours', field: 'actualHours' },

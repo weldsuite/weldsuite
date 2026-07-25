@@ -4,11 +4,17 @@ import { useAnalyticsReports } from '@/hooks/queries/use-projects-queries';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 import { useParams } from '@/lib/router';
+import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 
 export default function ProjectAnalyticsPage() {
   const { t } = useI18n();
   const params = useParams();
   const projectId = params.projectId as string;
+
+  useBreadcrumbs([
+    { label: t.projects.title, href: '/weldflow' },
+    { label: t.projects.analytics.projectAnalytics },
+  ]);
 
   const { data, isLoading } = useAnalyticsReports();
   const reports = data?.data || [];

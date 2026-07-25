@@ -40,10 +40,13 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 /**
  * GET /summary — workspace-level WeldFlow KPI overview.
  * Query: period=7d|30d|90d
+ *
+ * Access is membership-scoped (same model as /api/projects list), not the
+ * blanket `projects:read` object permission — a member of one project can
+ * still see KPIs for projects they can access.
  */
 app.get(
   '/summary',
-  requirePermission('projects:read'),
   zValidator('query', projectKpiSummaryQuerySchema),
   async (c) => {
     const db = c.get('tenantDb');
@@ -75,7 +78,6 @@ app.get(
  */
 app.get(
   '/projects/:projectId/summary',
-  requirePermission('projects:read'),
   zValidator('query', projectKpiSummaryQuerySchema.omit({ projectId: true })),
   async (c) => {
     const db = c.get('tenantDb');

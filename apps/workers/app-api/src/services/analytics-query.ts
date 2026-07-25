@@ -141,7 +141,8 @@ const COMPOUND_METRICS: Record<string, ResolvedMetric> = {
 
   // WeldFlow — projects
   total_projects:        { metric: 'count' },
-  active_projects:       { metric: 'count', filterOverride: { status: "IN ('Active','Planning')" } },
+  // Align with KPI summary: non-terminal status (isActive is not available in R2 rows).
+  active_projects:       { metric: 'count', filterOverride: { status: "NOT IN ('Completed','Cancelled')" } },
   projects_by_status:    { metric: 'count', groupByOverride: 'status' },
   projects_by_health:    { metric: 'count', groupByOverride: 'health' },
   projects_by_day:       { metric: 'count', groupByOverride: 'day' },

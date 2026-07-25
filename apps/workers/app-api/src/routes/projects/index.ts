@@ -595,12 +595,14 @@ app.post('/', requirePermission('projects:create'), zValidator('json', createPro
       }
     }
 
+    const [createdRow] = await db.select().from(t).where(eq(t.id, id)).limit(1);
+
     publishEntityEvent({
       c,
       entityType: 'project',
       entityId: id,
       action: 'created',
-      data: projectAnalyticsPayload({ id, ...(data as Record<string, unknown>) }),
+      data: projectAnalyticsPayload((createdRow ?? { id, ...data }) as Record<string, unknown>),
     });
     return success(c, { id }, 201);
   } catch (err) {

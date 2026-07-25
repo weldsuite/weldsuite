@@ -1547,16 +1547,13 @@ app.patch(
     const data = c.req.valid('json');
 
     try {
-      let currentTask: any = null;
-      if (data.status) {
-        const [task] = await db
-          .select()
-          .from(t)
-          .where(and(eq(t.id, id), isNull(t.deletedAt)))
-          .limit(1);
-        currentTask = task;
-        if (!currentTask) return error.notFound(c, 'Task', id);
-      }
+      const [task] = await db
+        .select()
+        .from(t)
+        .where(and(eq(t.id, id), isNull(t.deletedAt)))
+        .limit(1);
+      if (!task) return error.notFound(c, 'Task', id);
+      const currentTask: any = task;
 
       const updateData: Record<string, any> = { updatedAt: new Date() };
       if (data.position !== undefined) updateData.position = data.position;
@@ -1607,7 +1604,7 @@ app.patch(
         }),
       });
 
-      if (data.status && currentTask && data.status !== currentTask.status) {
+      if (data.status && data.status !== currentTask.status) {
         dispatchGithubOutboundSync(c, {
           taskId: id,
           projectId: currentTask.projectId,

@@ -7,7 +7,7 @@ export const projects = {
       projectsDashboard: 'Projecten Dashboard',
       // Action items
       tasksDueToday: '{count} taken voor vandaag',
-      tasksDueTodayLabel: 'Vandaag verschuldigd',
+      tasksDueTodayLabel: 'Vervalt vandaag',
       projectsToReview: '{count} projecten te beoordelen',
       upcomingMilestones: '{count} aankomende mijlpalen',
       viewProjectTimeline: 'Bekijk projecttijdlijn',
@@ -696,7 +696,7 @@ export const projects = {
         pipeline: 'Pipeline',
         documents: 'Documenten',
         goals: 'Doelen',
-        analytics: 'Analyses',
+        analytics: 'Analytics',
         settings: 'Instellingen',
       },
       addPage: 'Pagina Toevoegen',

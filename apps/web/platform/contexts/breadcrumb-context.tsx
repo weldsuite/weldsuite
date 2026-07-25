@@ -56,17 +56,22 @@ function useBreadcrumbContext() {
  *   { label: contact.name }
  * ]);
  */
-export function useBreadcrumbs(segments: BreadcrumbSegment[]) {
+export function useBreadcrumbs(
+  segments: BreadcrumbSegment[],
+  options?: { enabled?: boolean },
+) {
   const { setBreadcrumbs } = useBreadcrumbContext();
+  const enabled = options?.enabled !== false;
   const segmentsKey = JSON.stringify(segments);
 
   useEffect(() => {
+    if (!enabled) return;
     setBreadcrumbs(segments);
     // Keyed by content (segmentsKey), not array reference — callers routinely
     // pass a fresh inline array each render, so depending on `segments`
     // directly would re-run this effect (and re-render the header) every time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setBreadcrumbs, segmentsKey]);
+  }, [setBreadcrumbs, segmentsKey, enabled]);
 }
 
 /**
