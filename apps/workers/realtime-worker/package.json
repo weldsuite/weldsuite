@@ -15,7 +15,7 @@
     "@weldsuite/db": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
     "drizzle-orm": "^0.45.1",
-    "hono": "^4.7.0",
+    "hono": "^4.12.27",
     "lib0": "^0.2.99",
     "y-protocols": "^1.0.6",
     "yjs": "^13.6.27"
