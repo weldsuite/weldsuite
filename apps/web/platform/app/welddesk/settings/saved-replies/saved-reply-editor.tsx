@@ -39,6 +39,9 @@ const savedReplySchema = z.object({
 });
 
 type SavedReplyFormData = z.infer<typeof savedReplySchema>;
+// `scope` has a `.default()`, so zodResolver types the raw form values with it
+// optional; useForm's TFieldValues must match that pre-default input shape.
+type SavedReplyFormInput = z.input<typeof savedReplySchema>;
 
 interface SavedReplyEditorProps {
   open: boolean;
@@ -61,7 +64,7 @@ export function SavedReplyEditor({ open, onOpenChange, editingItem }: SavedReply
   const updateMutation = useUpdateCannedResponse();
   const isEditing = !!editingItem;
 
-  const form = useForm<SavedReplyFormData>({
+  const form = useForm<SavedReplyFormInput, any, SavedReplyFormData>({
     resolver: zodResolver(savedReplySchema),
     defaultValues: {
       name: '',

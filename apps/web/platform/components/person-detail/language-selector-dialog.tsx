@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, type JSX } from 'react';
 import { Search, Check, Globe } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import {

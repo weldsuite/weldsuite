@@ -1044,7 +1044,8 @@ function renderChart(chart: AnalyticsChart, data: ChartDataPoint[], totalLabel: 
           <YAxis dataKey="label" type="category" tickLine={false} tickMargin={10} axisLine={false} width={80} />
           <XAxis dataKey="value" type="number" hide />
           <ChartTooltip cursor={false} wrapperStyle={{ zIndex: 1000, outline: 'none' }} content={<ChartTooltipContent hideLabel />} />
-          <Bar dataKey="value" layout="vertical" radius={5} />
+          {/* `layout` lives on BarChart (recharts v3 removed it from Bar); already set above. */}
+          <Bar dataKey="value" radius={5} />
         </BarChart>
       );
 

@@ -33,6 +33,7 @@ const helpdeskKeys = { all: ['helpdesk'] as const };
 const notificationKeys = { all: ['notifications'] as const };
 const weldmeetKeys = { all: ['weldmeet'] as const };
 const calendarKeys = { all: ['calendar'] as const };
+const automationKeys = { all: ['automation'] as const };
 
 /**
  * Maps each DataEventType to the query key(s) that should be invalidated.
@@ -53,6 +54,7 @@ const EVENT_TO_QUERY_KEYS: Record<DataEventType, readonly (readonly unknown[])[]
   'notifications:changed': [notificationKeys.all],
   'meetings:changed': [weldmeetKeys.all],
   'calendar_events:changed': [calendarKeys.all],
+  'workflows:changed': [automationKeys.all],
 };
 
 const DEBOUNCE_MS = 300;

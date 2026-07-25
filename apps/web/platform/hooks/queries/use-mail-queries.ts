@@ -717,7 +717,10 @@ function useSendMailDraft() {
         to: (row.to ?? []) as string[],
         cc: (row.cc ?? undefined) as string[] | undefined,
         bcc: (row.bcc ?? undefined) as string[] | undefined,
-        subject: row.subject ?? undefined,
+        // SendMailMessageInput's `subject` defaults server-side to '(No subject)'
+        // when omitted; matching it here keeps the payload's declared type (which
+        // reflects that applied default) honest without changing behavior.
+        subject: row.subject ?? '(No subject)',
         body: row.body ?? undefined,
         htmlBody: row.htmlBody ?? undefined,
       };

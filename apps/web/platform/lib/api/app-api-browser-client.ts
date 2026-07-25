@@ -46,10 +46,20 @@ async function getClerkBrowserToken(): Promise<string | null> {
 }
 
 /**
+ * The canonical browser token resolution for module-level (non-hook) callers:
+ * the getter `ApiClientProvider` injects when it has mounted, otherwise the
+ * `window.Clerk` fallback. Exported so other singleton clients share one path
+ * rather than re-implementing the fallback.
+ */
+export async function getBrowserAccessToken(): Promise<string | null> {
+  return browserTokenGetter ? browserTokenGetter() : getClerkBrowserToken();
+}
+
+/**
  * Singleton app-api client. Paths are prefix-free — `createClientApi` prepends
  * `/api`, exactly as the legacy transport did, which keeps the swap a drop-in.
  */
 export const appApi = createClientApi({
-  getToken: async () => (browserTokenGetter ? browserTokenGetter() : getClerkBrowserToken()),
+  getToken: getBrowserAccessToken,
   baseUrl: APP_API_URL,
 });

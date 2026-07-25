@@ -76,7 +76,17 @@ const ColorInput = React.memo(function ColorInput({
           </TooltipProvider>
         )}
       </div>
-      <ColorPicker value={value} onChange={onChange} />
+      <ColorPicker
+        value={value}
+        onChange={(next) => {
+          // ColorPicker reports RGBA tuples, not hex — same conversion as
+          // discord-settings-client.tsx's EmbedColorPicker.
+          if (!Array.isArray(next)) return;
+          const [r, g, b] = next as [number, number, number, number];
+          const toHex = (n: number) => Math.round(n).toString(16).padStart(2, '0');
+          onChange(`#${toHex(r)}${toHex(g)}${toHex(b)}`);
+        }}
+      />
     </div>
   );
 });

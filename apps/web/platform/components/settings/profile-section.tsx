@@ -34,7 +34,7 @@ interface ProfileSectionProps {
   profileData: ProfileData
   profileChanged: boolean
   loading: boolean
-  fileInputRef: React.RefObject<HTMLInputElement>
+  fileInputRef: React.RefObject<HTMLInputElement | null>
   onProfileChange: (field: keyof ProfileData, value: string) => void
   onProfileSave: () => void
   onProfileCancel: () => void

@@ -5,5 +5,5 @@ import { useParams as useTanStackParams } from '@tanstack/react-router';
  * Returns the route params as a plain object (matching Next.js signature).
  */
 export function useParams<T extends Record<string, string> = Record<string, string>>(): T {
-  return useTanStackParams({ strict: false }) as T;
+  return useTanStackParams<any, undefined, false>({ strict: false }) as T;
 }

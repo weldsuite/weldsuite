@@ -25,6 +25,10 @@ export const eventFormSchema = z.object({
 });
 
 export type EventFormValues = z.infer<typeof eventFormSchema>;
+// The schema applies `.default()` on several fields, so `zodResolver` types the
+// form's raw (pre-submit) values as the narrower input shape — those fields
+// are optional until Zod fills them in. `useForm`'s TFieldValues must match.
+export type EventFormInput = z.input<typeof eventFormSchema>;
 
 export const EVENT_TYPE_OPTIONS = [
   { label: 'Meeting', value: 'meeting' },

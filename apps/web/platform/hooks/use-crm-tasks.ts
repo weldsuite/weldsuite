@@ -40,6 +40,8 @@ export interface Task {
   scheduledStart?: Date | null;
   scheduledEnd?: Date | null;
   autoScheduled?: boolean | null;
+  /** Minutes. Named `duration` on write payloads but `durationMinutes` on the wire read shape — see `RawTask`. */
+  duration?: number;
   /** GitHub Issues integration — set when this task is linked to an issue. */
   githubIssueNumber?: number | null;
   githubRepoLinkId?: string | null;
@@ -50,10 +52,11 @@ export const crmTasksKeys = {
   list: () => [...crmTasksKeys.all, 'list'] as const,
 };
 
-export type RawTask = Omit<Task, 'dueDate' | 'createdAt' | 'completedAt'> & {
+export type RawTask = Omit<Task, 'dueDate' | 'createdAt' | 'completedAt' | 'duration'> & {
   dueDate?: string | null;
   createdAt: string;
   completedAt?: string | null;
+  durationMinutes?: number | null;
 };
 
 function crmStatusToTaskStatus(s?: Task['status'] | 'in-progress' | 'blocked'): string | undefined {
@@ -69,6 +72,7 @@ function hydrate(task: RawTask): Task {
     dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
     createdAt: new Date(task.createdAt),
     completedAt: task.completedAt ? new Date(task.completedAt) : undefined,
+    duration: task.durationMinutes ?? undefined,
   };
 }
 

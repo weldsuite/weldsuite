@@ -1,7 +1,7 @@
 
 import { useParams } from '@/lib/router';
 import { ReportViewClient } from './_components/report-view-client';
-import { useAnalyticsReport, useAnalyticsCharts } from '@/hooks/queries/use-projects-queries';
+import { useProjectAnalyticsReport, useProjectAnalyticsCharts } from '@/hooks/queries/use-projects-queries';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
 
@@ -10,8 +10,8 @@ export default function ProjectsAnalyticsReportPage() {
   const params = useParams();
   const id = params.id as string;
 
-  const { data: reportResult, isLoading: reportLoading } = useAnalyticsReport(id);
-  const { data: chartsResult, isLoading: chartsLoading } = useAnalyticsCharts(id);
+  const { data: reportResult, isLoading: reportLoading } = useProjectAnalyticsReport(id);
+  const { data: chartsResult, isLoading: chartsLoading } = useProjectAnalyticsCharts(id);
 
   const isLoading = reportLoading || chartsLoading;
 

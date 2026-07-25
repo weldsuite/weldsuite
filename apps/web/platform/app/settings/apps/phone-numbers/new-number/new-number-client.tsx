@@ -158,10 +158,13 @@ export function NewNumberClient({
     return map;
   }, [pricingData]);
 
-  const getPrice = (countryCode: string, numberType: string) =>
-    pricingMap[`${countryCode}:${numberType}`] ?? null;
+  // `countryCode` is optional on AvailableNumber; a missing one simply can't
+  // match a pricing key, so both helpers report "no price" rather than forcing
+  // every call site to guard.
+  const getPrice = (countryCode: string | undefined, numberType: string) =>
+    countryCode ? pricingMap[`${countryCode}:${numberType}`] ?? null : null;
 
-  const formatPrice = (countryCode: string, numberType: string) => {
+  const formatPrice = (countryCode: string | undefined, numberType: string) => {
     const price = getPrice(countryCode, numberType);
     if (!price) return tn.notAvailable;
     return `${price.currency} ${price.monthlyPrice.toFixed(2)}/mo`;
@@ -384,9 +387,9 @@ export function NewNumberClient({
       summaryFields.push({ label: tn.summaryLocation, value: `${displayedNumber.locality}${displayedNumber.region ? `, ${displayedNumber.region}` : ''}` });
     }
     const caps = [
-      displayedNumber.capabilities.voice && 'Voice',
-      displayedNumber.capabilities.sms && 'SMS',
-      displayedNumber.capabilities.mms && 'MMS',
+      displayedNumber.capabilities?.voice && 'Voice',
+      displayedNumber.capabilities?.sms && 'SMS',
+      displayedNumber.capabilities?.mms && 'MMS',
     ].filter(Boolean).join(', ');
     if (caps) {
       summaryFields.push({ label: tn.summaryCapabilities, value: caps });
@@ -436,7 +439,7 @@ export function NewNumberClient({
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">{tn.summaryCapabilities}</span>
                   <span className="font-medium">
-                    {[num.capabilities.voice && 'Voice', num.capabilities.sms && 'SMS', num.capabilities.mms && 'MMS'].filter(Boolean).join(', ')}
+                    {[num.capabilities?.voice && 'Voice', num.capabilities?.sms && 'SMS', num.capabilities?.mms && 'MMS'].filter(Boolean).join(', ')}
                   </span>
                 </div>
               </div>

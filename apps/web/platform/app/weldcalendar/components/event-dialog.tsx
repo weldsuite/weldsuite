@@ -34,6 +34,7 @@ import {
 import {
   eventFormSchema,
   type EventFormValues,
+  type EventFormInput,
   EVENT_TYPE_OPTIONS,
   EVENT_PRIORITY_OPTIONS,
   EVENT_STATUS_OPTIONS,
@@ -76,7 +77,7 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
   // Calendars the user can create events in (own + edit/manage shared)
   const writableCalendars = (calendars || []).filter((c) => c.isOwn || c.permission === 'edit' || c.permission === 'manage');
 
-  const form = useForm<EventFormValues>({
+  const form = useForm<EventFormInput, any, EventFormValues>({
     resolver: zodResolver(eventFormSchema),
     defaultValues: {
       calendarId: defaultCalendarId || '',

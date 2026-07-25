@@ -70,7 +70,7 @@ export default function EmailAccountsSettingsPage() {
       if (f.field === 'provider' && a.provider !== f.value) return false;
       if (f.field === 'status' && a.status !== f.value) return false;
       if (f.field === 'isShared') {
-        const truthy = f.value === 'true' || f.value === true;
+        const truthy = f.value === 'true';
         if (!!a.isShared !== truthy) return false;
       }
     }
