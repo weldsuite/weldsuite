@@ -109,6 +109,50 @@ function targetFromEnv(value: string | undefined, fallback: number): number {
 }
 
 /**
+ * Whether a finished run left the pool with provably nothing to do, so the next
+ * ticks may skip Postgres. Pure and exported so the boundary cases can be
+ * reasoned about (and tested) on their own — a wrong `true` here suppresses
+ * database checks for SETTLED_TTL_SECONDS, which is the costly direction to get
+ * wrong.
+ *
+ * `staleFound < MAX_CATCHUP_PER_RUN` matters because the catch-up query is
+ * LIMITed: a full batch means there may be more stale slots behind it, so even
+ * a fully successful batch can't prove the pool is clean.
+ */
+export function isPoolSettled(counts: {
+  targetShared: number;
+  targetDedicated: number;
+  haveShared: number;
+  haveDedicated: number;
+  createdShared: number;
+  createdDedicated: number;
+  caughtUp: number;
+  staleFound: number;
+}): boolean {
+  return (
+    counts.haveShared + counts.createdShared >= counts.targetShared &&
+    counts.haveDedicated + counts.createdDedicated >= counts.targetDedicated &&
+    counts.caughtUp === counts.staleFound &&
+    counts.staleFound < MAX_CATCHUP_PER_RUN
+  );
+}
+
+/** Read one region's cached state; null when absent or unreadable. */
+async function readPoolState(env: Env, region: string): Promise<PoolState | null> {
+  try {
+    return await env.WORKSPACE_CACHE.get(`${STATE_KEY_PREFIX}${region}`, 'json') as PoolState | null;
+  } catch (error) {
+    console.warn(`[RefillPool] Could not read pool state for ${region}:`, error);
+    return null;
+  }
+}
+
+/** A cached verdict only counts if it was recorded at the deployed schema. */
+function stateIsSettled(state: PoolState | null): boolean {
+  return state?.settled === true && state.schemaVersion === LATEST_SCHEMA_VERSION;
+}
+
+/**
  * True when every region the last run knew about reported a settled pool at the
  * schema version this deploy carries. Fails open (false) on any KV problem, so
  * a cache outage degrades to the old always-check-Postgres behaviour.
@@ -119,16 +163,25 @@ async function poolIsSettled(env: Env): Promise<boolean> {
     const regions = await env.WORKSPACE_CACHE.get(REGIONS_KEY, 'json') as string[] | null;
     if (!regions?.length) return false;
 
-    const states = await Promise.all(
-      regions.map(region =>
-        env.WORKSPACE_CACHE.get(`${STATE_KEY_PREFIX}${region}`, 'json') as Promise<PoolState | null>
-      )
-    );
-    return states.every(state => state?.settled === true && state.schemaVersion === LATEST_SCHEMA_VERSION);
+    const states = await Promise.all(regions.map(region => readPoolState(env, region)));
+    return states.every(stateIsSettled);
   } catch (error) {
     console.warn('[RefillPool] Pool-state cache unavailable, checking Postgres:', error);
     return false;
   }
+}
+
+/**
+ * Narrow a freshly enumerated region list to the regions with work to do.
+ *
+ * `poolIsSettled` is all-or-nothing, so on a tick where one region is unsettled
+ * we would otherwise start a workflow — two more master-DB queries each — for
+ * every settled region alongside it. Regions with no cached state are kept:
+ * unknown is not settled.
+ */
+async function unsettledRegions(env: Env, regions: string[]): Promise<string[]> {
+  const states = await Promise.all(regions.map(region => readPoolState(env, region)));
+  return regions.filter((_region, i) => !stateIsSettled(states[i] ?? null));
 }
 
 /** Record a region's post-run state so settled ticks can skip Postgres. */
@@ -180,7 +233,9 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
 
     if (!LATEST_SCHEMA_VERSION) {
       console.warn('[RefillPool] No bundled migrations — nothing to prepare');
-      return { created: 0, caughtUp: 0 };
+      // Same shape as the normal return below, so anything reading the workflow
+      // instance's output sees `settled` on every path rather than undefined.
+      return { created: 0, caughtUp: 0, settled: false };
     }
 
     const deficits = await step.do('assess', {
@@ -212,18 +267,19 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
     const { caughtUp, staleFound } = await this.catchUpStaleSlots(step, region);
     const created = createdShared + createdDedicated;
 
-    /**
-     * Settled = both targets met and no stale slot left behind, so the next
-     * ticks have provably nothing to do and can skip Postgres entirely. A run
-     * that fell short (capacity exhausted, a slot that won't migrate, or a
-     * catch-up batch that filled its MAX_CATCHUP_PER_RUN limit and may have
-     * more behind it) records `false` and gets the short backoff TTL instead.
-     */
-    const settled =
-      deficits.haveShared + createdShared >= targetShared &&
-      deficits.haveDedicated + createdDedicated >= targetDedicated &&
-      caughtUp === staleFound &&
-      staleFound < MAX_CATCHUP_PER_RUN;
+    // A run that fell short — capacity exhausted, a slot that won't migrate, or
+    // a catch-up batch that filled its limit — records false and takes the short
+    // backoff TTL instead of being trusted for hours. See isPoolSettled.
+    const settled = isPoolSettled({
+      targetShared,
+      targetDedicated,
+      haveShared: deficits.haveShared,
+      haveDedicated: deficits.haveDedicated,
+      createdShared,
+      createdDedicated,
+      caughtUp,
+      staleFound,
+    });
 
     await step.do('record-state', {
       retries: { limit: 1, delay: '5 seconds', backoff: 'constant' },
@@ -648,8 +704,23 @@ export async function triggerPoolRefill(env: Env): Promise<void> {
     console.warn('[RefillPool] Could not enumerate shard regions, refilling default region only:', error);
   }
 
+  // The aggregate check above only tells us SOMETHING needs doing. Drop the
+  // regions whose own cached state is still settled so they don't each pay an
+  // assess + find-stale-slots round-trip on behalf of a noisy neighbour.
+  const pending = await unsettledRegions(env, regions);
+  if (pending.length === 0) {
+    console.log('[RefillPool] All enumerated regions already settled — nothing to trigger');
+    // Nothing was started, so don't sit on the in-flight lock for its full TTL.
+    try {
+      await env.WORKSPACE_CACHE.delete(lockKey);
+    } catch (unlockErr) {
+      console.warn('[RefillPool] Could not release in-flight lock:', unlockErr);
+    }
+    return;
+  }
+
   const stamp = Date.now();
-  for (const region of regions) {
+  for (const region of pending) {
     try {
       const instance = await env.REFILL_POOL.create({
         id: `refill-${region}-${stamp}`,
