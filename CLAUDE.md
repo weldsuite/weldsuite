@@ -309,7 +309,9 @@ The **platform** has its own local shadcn components at `apps/web/platform/compo
 deploy credentials. The real Cloudflare/Neon configs and every deploy secret live
 in the private **`weldsuite/deployment-overlay`** repo.
 
-Workflows in *this* repo (all four are deliberately secret-free):
+Workflows in *this* repo. The three CI workflows are deliberately secret-free —
+they reference no `secrets.*` at all, so fork PRs run them in full with a
+read-only token. `dispatch-deploy.yml` is the sole exception:
 
 | Workflow | Trigger | Blocks a PR? |
 |---|---|---|
@@ -330,6 +332,22 @@ Deploy** (11 workers in parallel) → **Mobile OTA** (production only, path-gate
 → **Widget SDK Publish** (on version change).
 
 `.github/actions/setup-monorepo/action.yml` pins pnpm 10.4.1 + Node 20 and caches the pnpm store + turbo cache.
+
+### The frontend deploys outside GitHub Actions
+
+The platform SPA is **not** deployed by any workflow. The **Cloudflare Pages**
+project `weldsuite` is connected to this repo through Cloudflare's GitHub App:
+pushes to `main` build and publish to `app.weldsuite.org`, and every PR gets a
+`*.weldsuite.pages.dev` preview. You'll see it as the *Cloudflare Pages* check
+on a PR, not as an Actions job.
+
+Consequence worth knowing: **frontend and backend deploy independently.** A push
+that breaks the worker deploy still ships the new frontend, and vice versa.
+
+`apps/web/platform/vercel.json` and the platform's `deploy` / `deploy:preview` /
+`deploy:production` scripts (which shell out to `vercel`) are **dead code** —
+that `vercel.json` sets `deploymentEnabled: { main: false, develop: false }`.
+Cloudflare Pages is the real path; don't reach for the vercel scripts.
 
 Environments: dev (local wrangler) → test (`develop`) → preview (manual) → production (`main`).
 
