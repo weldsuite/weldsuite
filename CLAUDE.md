@@ -282,7 +282,17 @@ import { getTranslations, getLocale, setLocale } from '@/lib/i18n';
 const t = getTranslations('common');   // typed
 setLocale('nl');                       // cookie
 ```
-Locales: `en`, `nl`. Files in `apps/web/platform/lib/i18n/locales/`. **Any new user-visible string must have entries in both `en.json` and `nl.json`.**
+Locales live in **`packages/core/i18n/src/locales/<locale>/`** as **TypeScript
+modules** (`common.ts`, `crm.ts`, `helpdesk.ts`, …), not JSON. `en` and `nl` are
+the maintained pair; `es` and `fr` exist but are partial. The platform's
+`lib/i18n/*` files are one-line re-export shims over `@weldsuite/i18n`.
+
+**Any new user-visible string must have an entry in both `en/` and `nl/`.**
+
+Mind the nesting when reading a key — `common` has an `actions` sub-object, so
+the cancel label is `t.common.actions.cancel`. A wrong path fails at runtime, not
+at compile time, and a test that mocks `useI18n` with the wrong shape will throw
+`Cannot read properties of undefined`.
 
 ### UI
 
@@ -295,17 +305,37 @@ The **platform** has its own local shadcn components at `apps/web/platform/compo
 
 ## CI/CD
 
-GitHub Actions `.github/workflows/deploy.yml` (triggered on push to `main` / `develop`):
-1. **Prepare**, `main` → production, `develop` → test. Detects migration + SDK version changes.
-2. **Migrations**, Master DB, then all tenants.
-3. **Workers Deploy**, All workers in parallel to Cloudflare (test/preview/production).
-4. **Widget SDK Publish**, npm with OIDC provenance when `@weldsuite/helpdesk-widget-sdk` version changes.
+**This repo is the public, secret-free half of a two-repo split.** It carries no
+deploy credentials. The real Cloudflare/Neon configs and every deploy secret live
+in the private **`weldsuite/deployment-overlay`** repo.
 
-Other workflows: `migrate-database.yml` (manual), `publish-widget-sdk.yml` (manual), `sync-secrets.yml`.
+Workflows in *this* repo (all four are deliberately secret-free):
+
+| Workflow | Trigger | Blocks a PR? |
+|---|---|---|
+| `ci.yml` | PR + push to `main`/`develop` | `Type Check · app-api`, `Unit · app-api`, `Unit · platform` block. Lint, platform type-check and build run `continue-on-error: true` while pre-existing failures are worked down. |
+| `secret-scan.yml` | PR + push | yes |
+| `i18n-check.yml` | PR touching locales | yes |
+| `dispatch-deploy.yml` | push to `main`/`develop` | n/a — fires a `repository_dispatch` at the overlay repo |
+
+`dispatch-deploy.yml` holds the **only** secret this repo uses,
+`OVERLAY_DISPATCH_TOKEN`, and it can do exactly one thing: trigger a `deploy`
+event on the overlay. No Cloudflare / Neon / Doppler / Expo credentials here.
+
+The actual deploy (`.github/workflows/deploy.yml` in the **overlay** repo) then
+checks out this repo at the dispatched SHA, overlays the real wrangler configs,
+and runs: **Prepare** (`main` → production, `develop` → test; detects migration +
+SDK version changes) → **Migrations** (master DB, then all tenants) → **Workers
+Deploy** (11 workers in parallel) → **Mobile OTA** (production only, path-gated)
+→ **Widget SDK Publish** (on version change).
 
 `.github/actions/setup-monorepo/action.yml` pins pnpm 10.4.1 + Node 20 and caches the pnpm store + turbo cache.
 
 Environments: dev (local wrangler) → test (`develop`) → preview (manual) → production (`main`).
+
+> There is no `deploy.yml`, `migrate-database.yml`, `publish-widget-sdk.yml` or
+> `sync-secrets.yml` in this repo — those were private-monorepo workflows and are
+> excluded from the public export. Don't add secret-bearing workflows here.
 
 ## Critical Files
 
