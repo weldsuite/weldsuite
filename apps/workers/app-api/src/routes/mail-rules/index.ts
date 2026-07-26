@@ -153,7 +153,7 @@ app.post('/', requirePermission('accounts:create'), zValidator('json', createBod
 });
 
 const updateRoute = async (
-  c: import('hono').Context<{ Bindings: Env; Variables: Variables }>,
+  c: import('hono').Context<{ Bindings: Env; Variables: Variables }, '/:id'>,
 ) => {
   const id = c.req.param('id');
   const data = c.req.valid('json' as never) as z.infer<typeof updateBody>;

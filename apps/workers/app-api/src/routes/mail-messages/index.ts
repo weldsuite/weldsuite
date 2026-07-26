@@ -225,7 +225,7 @@ const patchHandler = async (
 // PUT and PATCH share an identical body — keeping both verbs registered
 // preserves wire compatibility with the legacy api-worker surface.
 const updateRoute = async (
-  c: import('hono').Context<{ Bindings: Env; Variables: Variables }>,
+  c: import('hono').Context<{ Bindings: Env; Variables: Variables }, '/:id'>,
 ) => {
   try {
     return await patchHandler(c, c.req.param('id'), c.req.valid('json' as never) as z.infer<typeof updateBody>);

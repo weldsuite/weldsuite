@@ -12,7 +12,7 @@
   },
   "dependencies": {},
   "peerDependencies": {
-    "hono": "^4.0.0"
+    "hono": "^4.12.27"
   },
   "peerDependenciesMeta": {
     "hono": { "optional": true }
@@ -20,7 +20,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
     "@weldsuite/typescript-config": "workspace:*",
-    "hono": "^4.0.0",
+    "hono": "^4.12.27",
     "typescript": "^5.9.2"
   }
 }
