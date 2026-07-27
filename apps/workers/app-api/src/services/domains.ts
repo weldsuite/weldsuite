@@ -10,12 +10,16 @@
 import { and, asc, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
 import { schema, masterSchema, type Database, type MasterDatabase } from '../db';
 import { generateId } from '../lib/id';
-import type { CloudflareRegistrar } from '@weldsuite/cloudflare-registrar';
+import type {
+  CloudflareRegistrar,
+  DomainSearchResult,
+  DomainUnavailableReason,
+} from '@weldsuite/cloudflare-registrar';
 import {
   createCloudflareZone,
   deleteCloudflareZone,
   getCloudflareZone,
-} from '../lib/cloudflare-zones';
+} from '@weldsuite/cloudflare-zones';
 import { lookupTxt } from '../lib/dns-lookup';
 import { createDomainCheckoutSession } from '../lib/stripe';
 
@@ -34,6 +38,13 @@ export interface TransformedDomainResult {
   currency: string | null;
   domain: string;
   available: boolean;
+  /**
+   * Cloudflare's reason when `available` is false. Only `domain_unavailable`
+   * means the name is taken — the others mean the extension or the domain is
+   * outside what the Registrar API beta can register, which is not the same
+   * thing and should not be rendered as "already registered".
+   */
+  reason?: DomainUnavailableReason;
 }
 
 // ============================================================================
@@ -92,6 +103,25 @@ export function applyMarkup(
 // Search / availability
 // ============================================================================
 
+function transformResult(
+  r: DomainSearchResult,
+  pricingMap: Map<string, typeof masterSchema.hostDomainPricing.$inferSelect>,
+): TransformedDomainResult {
+  const tld = r.name.split('.').slice(1).join('.');
+  const pricing = pricingMap.get(tld.toLowerCase());
+  return {
+    domain_name: r.name,
+    suffix: tld,
+    status: r.available ? 1 : 2,
+    premium: r.premium,
+    price: applyMarkup(r.price, pricing),
+    currency: r.currency ?? pricing?.currency ?? 'EUR',
+    domain: r.name,
+    available: r.available,
+    reason: r.reason,
+  };
+}
+
 export async function searchDomains(
   cf: CloudflareRegistrar,
   masterDb: MasterDatabase,
@@ -102,21 +132,7 @@ export async function searchDomains(
     cf.searchDomains(params.query, limit),
     loadPricingMap(masterDb),
   ]);
-  return cfResults.map((r) => {
-    const tld = r.name.split('.').slice(1).join('.');
-    const pricing = pricingMap.get(tld.toLowerCase());
-    const finalPrice = applyMarkup(r.price, pricing);
-    return {
-      domain_name: r.name,
-      suffix: tld,
-      status: r.available ? 1 : 2,
-      premium: r.premium,
-      price: finalPrice,
-      currency: r.currency ?? pricing?.currency ?? 'EUR',
-      domain: r.name,
-      available: r.available,
-    };
-  });
+  return cfResults.map((r) => transformResult(r, pricingMap));
 }
 
 export async function checkDomains(
@@ -128,21 +144,7 @@ export async function checkDomains(
     cf.checkDomains(params.domains),
     loadPricingMap(masterDb),
   ]);
-  return cfResults.map((r) => {
-    const tld = r.name.split('.').slice(1).join('.');
-    const pricing = pricingMap.get(tld.toLowerCase());
-    const finalPrice = applyMarkup(r.price, pricing);
-    return {
-      domain_name: r.name,
-      suffix: tld,
-      status: r.available ? 1 : 2,
-      premium: r.premium,
-      price: finalPrice,
-      currency: r.currency ?? pricing?.currency ?? 'EUR',
-      domain: r.name,
-      available: r.available,
-    };
-  });
+  return cfResults.map((r) => transformResult(r, pricingMap));
 }
 
 // ============================================================================
@@ -442,7 +444,7 @@ export async function verifyOwnershipAndCreateZone(
   if (!apiToken || !accountId) return { ok: false, reason: 'cf_misconfigured' };
 
   // Lazy import to avoid pulling the CloudflareZoneError type into the union type.
-  const { CloudflareZoneError } = await import('../lib/cloudflare-zones');
+  const { CloudflareZoneError } = await import('@weldsuite/cloudflare-zones');
 
   let zone: { zoneId: string; nameservers: string[]; status: string };
   try {

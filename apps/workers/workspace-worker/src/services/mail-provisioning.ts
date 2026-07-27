@@ -31,23 +31,11 @@
  */
 
 import { CloudflareDomainProvider } from '@weldsuite/email/providers/cloudflare';
+import { findZoneIdByName } from '@weldsuite/cloudflare-zones';
 import type { Env } from '../index';
 
 /** The shared apex zone that hosts every {slug}.weldmail.com mail domain. */
 const MAIL_APEX_ZONE = 'weldmail.com';
-
-async function findZoneIdByName(apiToken: string, domain: string): Promise<string | null> {
-  const res = await fetch(
-    `https://api.cloudflare.com/client/v4/zones?name=${encodeURIComponent(domain)}`,
-    { headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json' } },
-  );
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Cloudflare zones lookup failed: ${res.status} ${body.slice(0, 200)}`);
-  }
-  const json = (await res.json()) as { result?: Array<{ id: string }> };
-  return json.result?.[0]?.id ?? null;
-}
 
 /**
  * Provision a {slug}.weldmail.com email domain for a new workspace.

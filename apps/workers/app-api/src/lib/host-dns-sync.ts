@@ -17,7 +17,7 @@ import {
   CloudflareZoneError,
   type CloudflareDnsRecord,
   type DnsRecordType,
-} from './cloudflare-zones';
+} from '@weldsuite/cloudflare-zones';
 
 type LocalRecordType = (typeof schema.hostDnsRecords.$inferSelect)['type'];
 

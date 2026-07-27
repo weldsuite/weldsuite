@@ -1,42 +1,34 @@
 /**
- * Cloudflare RealtimeKit Service
+ * Cloudflare RealtimeKit Service (meeting-portal)
  *
- * Wraps the Cloudflare RealtimeKit REST API for guest participant management.
- * Adapted from apps/api-worker/src/services/cloudflare-realtime/index.ts
- * to read from process.env instead of Cloudflare Worker Env bindings.
+ * Thin `process.env` adapter over `@weldsuite/cloudflare-realtime`, the single
+ * canonical RealtimeKit client (now backed by the official `cloudflare` SDK).
+ * The portal reads config from `process.env` instead of Cloudflare Worker
+ * `Env` bindings; everything else — routes, payloads, response decoding —
+ * lives in the shared package.
+ *
+ * This file used to hand-roll its own `addParticipant` against a duplicated
+ * base URL and header builder, which is exactly the drift the shared package
+ * exists to prevent.
  */
 
 import {
+  addParticipant as addParticipantShared,
   seedPresets,
   RTK_PRESETS,
   type CloudflareRealtimeEnv,
+  type RtkParticipant,
 } from '@weldsuite/cloudflare-realtime';
 
-const BASE_URL = 'https://api.cloudflare.com/client/v4/accounts';
-
-function getHeaders(): Record<string, string> {
-  const secret = process.env.CF_REALTIME_APP_SECRET;
-  if (!secret) throw new Error('CF_REALTIME_APP_SECRET is not configured');
+function realtimeEnv(): CloudflareRealtimeEnv {
   return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${secret}`,
+    CF_ACCOUNT_ID: process.env.CF_ACCOUNT_ID,
+    CF_REALTIME_APP_ID: process.env.CF_REALTIME_APP_ID,
+    CF_REALTIME_APP_SECRET: process.env.CF_REALTIME_APP_SECRET,
   };
 }
 
-function getBaseUrl(): string {
-  const accountId = process.env.CF_ACCOUNT_ID;
-  const appId = process.env.CF_REALTIME_APP_ID;
-  if (!accountId) throw new Error('CF_ACCOUNT_ID is not configured');
-  if (!appId) throw new Error('CF_REALTIME_APP_ID is not configured');
-  return `${BASE_URL}/${accountId}/realtime/kit/${appId}`;
-}
-
-export interface RtkParticipant {
-  id: string;
-  name: string;
-  token: string;
-  custom_participant_id?: string;
-}
+export type { RtkParticipant };
 
 /**
  * Preset names used by WeldMeet. Re-exported from the canonical
@@ -53,30 +45,14 @@ export async function addParticipant(
   meetingId: string,
   params: {
     name: string;
-    customParticipantId?: string;
+    /** Required by RealtimeKit — the id inbound webhooks echo back. */
+    customParticipantId: string;
     presetName?: string;
     /** Avatar URL — surfaced on the participant object to every client. */
     picture?: string;
   },
 ): Promise<RtkParticipant> {
-  const res = await fetch(`${getBaseUrl()}/meetings/${meetingId}/participants`, {
-    method: 'POST',
-    headers: getHeaders(),
-    body: JSON.stringify({
-      name: params.name,
-      preset_name: params.presetName ?? RTK_PRESETS.MEMBER,
-      custom_participant_id: params.customParticipantId,
-      picture: params.picture,
-    }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Failed to add RTK participant: ${res.status} ${text}`);
-  }
-
-  const json: any = await res.json();
-  return json.data ?? json.result?.data ?? json.result ?? json;
+  return addParticipantShared(realtimeEnv(), meetingId, params);
 }
 
 // In-memory flag to skip preset checks after first successful run
@@ -100,19 +76,13 @@ let presetsSeeded = false;
  * and RTK returned 404 on `addParticipant` for every waiting-room guest. The
  * portal now owns its own dependency. `seedPresets` lists existing presets and
  * only creates the missing ones, so this is idempotent, and it throws on any
- * non-2xx — a failed create leaves `presetsSeeded` false so the next request
+ * failure — a failed create leaves `presetsSeeded` false so the next request
  * retries instead of caching a half-seed.
  */
 export async function ensurePresets(): Promise<void> {
   if (presetsSeeded) return;
 
-  const env: CloudflareRealtimeEnv = {
-    CF_ACCOUNT_ID: process.env.CF_ACCOUNT_ID,
-    CF_REALTIME_APP_ID: process.env.CF_REALTIME_APP_ID,
-    CF_REALTIME_APP_SECRET: process.env.CF_REALTIME_APP_SECRET,
-  };
-
-  await seedPresets(env);
+  await seedPresets(realtimeEnv());
 
   presetsSeeded = true;
 }

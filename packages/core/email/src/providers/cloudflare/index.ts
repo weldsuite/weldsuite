@@ -19,7 +19,7 @@
 
 export * from './types';
 export * from './send-binding';
-export { CloudflareApiClient } from './api-client';
+export { CloudflareApiClient, type CloudflareFetch } from './api-client';
 export { CloudflareSendProvider, type CloudflareSendProviderOptions } from './send';
 export {
   CloudflareReceiveProvider,

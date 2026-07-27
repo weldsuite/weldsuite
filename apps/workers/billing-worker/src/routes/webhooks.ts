@@ -1747,8 +1747,15 @@ async function handleDomainRegistrationCheckout(
           .where(eq(tenantSchema.hostDomains.id, domainId));
 
         console.log(`[Domain Registration] Registered ${domainRow.fullDomain} (id=${domainId}) → active`);
+      } else if (result.status === 'failed') {
+        // Cloudflare accepted the call, then the registration workflow itself
+        // ended in failure. Same outcome for the customer as a rejected call,
+        // so take the same path below: mark it failed and refund.
+        throw new Error(
+          `Cloudflare registration workflow failed (${result.code}): ${result.message}`,
+        );
       } else {
-        // CF returned 202 — async workflow
+        // Registration is always asynchronous — poll the workflow from here.
         await tenantDb
           .update(tenantSchema.hostDomains)
           .set({
@@ -1758,7 +1765,10 @@ async function handleDomainRegistrationCheckout(
           })
           .where(eq(tenantSchema.hostDomains.id, domainId));
 
-        console.log(`[Domain Registration] ${domainRow.fullDomain} pending CF workflow: ${result.workflowUrl}`);
+        console.log(
+          `[Domain Registration] ${domainRow.fullDomain} pending CF workflow: ${result.workflowUrl}` +
+            (result.actionRequired ? ' — ACTION REQUIRED, polling will not resolve this' : ''),
+        );
       }
     } catch (cfErr) {
       const cfError = cfErr instanceof CloudflareApiError ? cfErr : null;

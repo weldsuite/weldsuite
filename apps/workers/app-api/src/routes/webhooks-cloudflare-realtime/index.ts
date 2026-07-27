@@ -39,6 +39,7 @@ import {
   type RtkMeetingMapping,
 } from '../../services/rtk-webhook';
 import { verifyWebhookToken } from '../../lib/webhook-token';
+import { registerWebhook } from '@weldsuite/cloudflare-realtime';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -125,28 +126,18 @@ app.post('/setup', async (c) => {
   const token = env.CF_REALTIME_WEBHOOK_TOKEN;
   const webhookUrl = `${baseUrl}/api/webhooks/cloudflare-realtime${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 
-  const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/realtime/kit/${env.CF_REALTIME_APP_ID}/webhooks`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${env.CF_REALTIME_APP_SECRET}`,
-      },
-      body: JSON.stringify({
-        name: `WeldSuite meeting lifecycle (${environment})`,
-        url: webhookUrl,
-        events: ['meeting.ended', 'meeting.participantLeft'],
-        enabled: true,
-      }),
-    },
-  );
-
-  const result = await res.json();
-
-  if (!res.ok) {
-    console.error('[RTK Webhook Setup] Failed:', result);
-    return c.json({ error: 'Failed to register webhook', details: result }, 500);
+  let result: { id?: string };
+  try {
+    result = await registerWebhook(env, {
+      name: `WeldSuite meeting lifecycle (${environment})`,
+      url: webhookUrl,
+      events: ['meeting.ended', 'meeting.participantLeft'],
+      enabled: true,
+    });
+  } catch (err) {
+    const details = err instanceof Error ? err.message : String(err);
+    console.error('[RTK Webhook Setup] Failed:', details);
+    return c.json({ error: 'Failed to register webhook', details }, 500);
   }
 
   console.log(`[RTK Webhook Setup] Registered webhook for ${environment}: ${webhookUrl}`);

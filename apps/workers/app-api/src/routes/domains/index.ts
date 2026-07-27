@@ -26,11 +26,12 @@ import {
   toggleLockInput,
   completeRegistrationInput,
 } from '@weldsuite/core-api-client/schemas/domains';
+import type { Context } from 'hono';
 import type { Env, Variables } from '../../types';
 import { error, list, noContent, success } from '../../lib/response';
 import * as domainsService from '../../services/domains';
 import { getMasterDb } from '../../db';
-import { CloudflareRegistrar } from '@weldsuite/cloudflare-registrar';
+import { CloudflareApiError, CloudflareRegistrar } from '@weldsuite/cloudflare-registrar';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -45,6 +46,64 @@ function getRegistrar(env: Env): CloudflareRegistrar | null {
   const accountId = env.CLOUDFLARE_ACCOUNT_ID ?? env.CF_ACCOUNT_ID;
   if (!apiToken || !accountId) return null;
   return new CloudflareRegistrar({ accountId, apiToken });
+}
+
+/**
+ * Registrar calls used to be caught and logged as `console.error(scope, err)`,
+ * which Workers Logs rendered as a bare stack trace — a token missing the
+ * Registrar permission and a malformed query produced byte-identical lines, and
+ * the client got the same opaque 500 either way. Log the HTTP status and the
+ * Cloudflare error codes, and map the status onto a response that says which
+ * side is at fault.
+ */
+function registrarFailure(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  scope: string,
+  err: unknown,
+  fallback: string,
+): Response {
+  if (err instanceof CloudflareApiError) {
+    console.error(
+      `[app-api/domains] ${scope} failed:`,
+      JSON.stringify({
+        status: err.status,
+        endpoint: err.endpoint,
+        cfCode: err.code,
+        cfMessage: err.message,
+        cfErrors: err.errors,
+      }),
+    );
+    if (err.status === 401 || err.status === 403) {
+      return c.json(
+        {
+          error: {
+            code: 'REGISTRAR_UNAUTHORIZED',
+            message:
+              'Cloudflare Registrar rejected our API credentials. CLOUDFLARE_API_TOKEN needs Registrar permissions on the configured account.',
+          },
+        },
+        502,
+      );
+    }
+    if (err.status === 400 || err.status === 422) {
+      return error.badRequest(c, err.message);
+    }
+    return c.json(
+      {
+        error: {
+          code: 'REGISTRAR_UNAVAILABLE',
+          message: `Cloudflare Registrar returned ${err.status}`,
+        },
+      },
+      502,
+    );
+  }
+
+  console.error(
+    `[app-api/domains] ${scope} failed:`,
+    err instanceof Error ? `${err.name}: ${err.message}\n${err.stack ?? ''}` : String(err),
+  );
+  return error.internal(c, fallback);
 }
 
 // ============================================================================
@@ -100,8 +159,7 @@ app.get(
       const results = await domainsService.searchDomains(cf, masterDb, { query: q, limit });
       return success(c, results);
     } catch (err) {
-      console.error('[app-api/domains] search failed:', err);
-      return error.internal(c, 'Domain search failed');
+      return registrarFailure(c, 'search', err, 'Domain search failed');
     }
   },
 );
@@ -118,8 +176,7 @@ app.post(
       const results = await domainsService.checkDomains(cf, masterDb, c.req.valid('json'));
       return success(c, results);
     } catch (err) {
-      console.error('[app-api/domains] check failed:', err);
-      return error.internal(c, 'Domain availability check failed');
+      return registrarFailure(c, 'check', err, 'Domain availability check failed');
     }
   },
 );
@@ -172,8 +229,7 @@ app.post(
         );
       }
     } catch (err) {
-      console.error('[app-api/domains] checkout failed:', err);
-      return error.internal(c, 'Failed to initiate checkout');
+      return registrarFailure(c, 'checkout', err, 'Failed to initiate checkout');
     }
   },
 );
