@@ -9,5 +9,4 @@ export const PARCELS_ENTITY_EVENTS = {
   parcel_pickup: ['created', 'updated', 'deleted', 'completed'],
   parcel_wallet: ['created', 'updated', 'deleted'],
   parcel_settings: ['updated'],
-  notification_template: ['created', 'updated', 'deleted'],
 } as const;

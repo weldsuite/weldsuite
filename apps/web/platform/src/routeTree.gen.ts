@@ -132,6 +132,7 @@ import { Route as WeldconnectTriggersIndexRouteImport } from './routes/weldconne
 import { Route as WeldconnectTemplatesIndexRouteImport } from './routes/weldconnect/templates/index'
 import { Route as WeldconnectIntegrationsIndexRouteImport } from './routes/weldconnect/integrations/index'
 import { Route as WeldconnectExecutionsIndexRouteImport } from './routes/weldconnect/executions/index'
+import { Route as WeldconnectConnectorsIndexRouteImport } from './routes/weldconnect/connectors/index'
 import { Route as WeldconnectAnalyticsIndexRouteImport } from './routes/weldconnect/analytics/index'
 import { Route as WeldconnectActionsIndexRouteImport } from './routes/weldconnect/actions/index'
 import { Route as WeldchatSearchIndexRouteImport } from './routes/weldchat/search/index'
@@ -1013,6 +1014,12 @@ const WeldconnectExecutionsIndexRoute =
   WeldconnectExecutionsIndexRouteImport.update({
     id: '/executions/',
     path: '/executions/',
+    getParentRoute: () => WeldconnectRouteRoute,
+  } as any)
+const WeldconnectConnectorsIndexRoute =
+  WeldconnectConnectorsIndexRouteImport.update({
+    id: '/connectors/',
+    path: '/connectors/',
     getParentRoute: () => WeldconnectRouteRoute,
   } as any)
 const WeldconnectAnalyticsIndexRoute =
@@ -2607,6 +2614,7 @@ export interface FileRoutesByFullPath {
   '/weldchat/search/': typeof WeldchatSearchIndexRoute
   '/weldconnect/actions/': typeof WeldconnectActionsIndexRoute
   '/weldconnect/analytics/': typeof WeldconnectAnalyticsIndexRoute
+  '/weldconnect/connectors/': typeof WeldconnectConnectorsIndexRoute
   '/weldconnect/executions/': typeof WeldconnectExecutionsIndexRoute
   '/weldconnect/integrations/': typeof WeldconnectIntegrationsIndexRoute
   '/weldconnect/templates/': typeof WeldconnectTemplatesIndexRoute
@@ -2956,6 +2964,7 @@ export interface FileRoutesByTo {
   '/weldchat/search': typeof WeldchatSearchIndexRoute
   '/weldconnect/actions': typeof WeldconnectActionsIndexRoute
   '/weldconnect/analytics': typeof WeldconnectAnalyticsIndexRoute
+  '/weldconnect/connectors': typeof WeldconnectConnectorsIndexRoute
   '/weldconnect/executions': typeof WeldconnectExecutionsIndexRoute
   '/weldconnect/integrations': typeof WeldconnectIntegrationsIndexRoute
   '/weldconnect/templates': typeof WeldconnectTemplatesIndexRoute
@@ -3339,6 +3348,7 @@ export interface FileRoutesById {
   '/weldchat/search/': typeof WeldchatSearchIndexRoute
   '/weldconnect/actions/': typeof WeldconnectActionsIndexRoute
   '/weldconnect/analytics/': typeof WeldconnectAnalyticsIndexRoute
+  '/weldconnect/connectors/': typeof WeldconnectConnectorsIndexRoute
   '/weldconnect/executions/': typeof WeldconnectExecutionsIndexRoute
   '/weldconnect/integrations/': typeof WeldconnectIntegrationsIndexRoute
   '/weldconnect/templates/': typeof WeldconnectTemplatesIndexRoute
@@ -3723,6 +3733,7 @@ export interface FileRouteTypes {
     | '/weldchat/search/'
     | '/weldconnect/actions/'
     | '/weldconnect/analytics/'
+    | '/weldconnect/connectors/'
     | '/weldconnect/executions/'
     | '/weldconnect/integrations/'
     | '/weldconnect/templates/'
@@ -4072,6 +4083,7 @@ export interface FileRouteTypes {
     | '/weldchat/search'
     | '/weldconnect/actions'
     | '/weldconnect/analytics'
+    | '/weldconnect/connectors'
     | '/weldconnect/executions'
     | '/weldconnect/integrations'
     | '/weldconnect/templates'
@@ -4454,6 +4466,7 @@ export interface FileRouteTypes {
     | '/weldchat/search/'
     | '/weldconnect/actions/'
     | '/weldconnect/analytics/'
+    | '/weldconnect/connectors/'
     | '/weldconnect/executions/'
     | '/weldconnect/integrations/'
     | '/weldconnect/templates/'
@@ -5591,6 +5604,13 @@ declare module '@tanstack/react-router' {
       path: '/executions'
       fullPath: '/weldconnect/executions/'
       preLoaderRoute: typeof WeldconnectExecutionsIndexRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldconnect/connectors/': {
+      id: '/weldconnect/connectors/'
+      path: '/connectors'
+      fullPath: '/weldconnect/connectors/'
+      preLoaderRoute: typeof WeldconnectConnectorsIndexRouteImport
       parentRoute: typeof WeldconnectRouteRoute
     }
     '/weldconnect/analytics/': {
@@ -7804,6 +7824,7 @@ interface WeldconnectRouteRouteChildren {
   WeldconnectIntegrationsCallbackRoute: typeof WeldconnectIntegrationsCallbackRoute
   WeldconnectActionsIndexRoute: typeof WeldconnectActionsIndexRoute
   WeldconnectAnalyticsIndexRoute: typeof WeldconnectAnalyticsIndexRoute
+  WeldconnectConnectorsIndexRoute: typeof WeldconnectConnectorsIndexRoute
   WeldconnectExecutionsIndexRoute: typeof WeldconnectExecutionsIndexRoute
   WeldconnectIntegrationsIndexRoute: typeof WeldconnectIntegrationsIndexRoute
   WeldconnectTemplatesIndexRoute: typeof WeldconnectTemplatesIndexRoute
@@ -7824,6 +7845,7 @@ const WeldconnectRouteRouteChildren: WeldconnectRouteRouteChildren = {
   WeldconnectIntegrationsCallbackRoute: WeldconnectIntegrationsCallbackRoute,
   WeldconnectActionsIndexRoute: WeldconnectActionsIndexRoute,
   WeldconnectAnalyticsIndexRoute: WeldconnectAnalyticsIndexRoute,
+  WeldconnectConnectorsIndexRoute: WeldconnectConnectorsIndexRoute,
   WeldconnectExecutionsIndexRoute: WeldconnectExecutionsIndexRoute,
   WeldconnectIntegrationsIndexRoute: WeldconnectIntegrationsIndexRoute,
   WeldconnectTemplatesIndexRoute: WeldconnectTemplatesIndexRoute,

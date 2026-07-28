@@ -5,6 +5,7 @@ import {
   BarChart3,
   Users,
   BookOpen,
+  Plug,
   Globe,
   Briefcase,
   FolderOpen,
@@ -138,6 +139,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         group: t.navigation.moduleSidebar.groups.execution,
         items: [
           { title: t.navigation.moduleSidebar.weldconnect.executions, href: '/weldconnect/executions', icon: History },
+          { title: t.navigation.moduleSidebar.weldconnect.connectors, href: '/weldconnect/connectors', icon: Plug },
         ],
       },
     ],
