@@ -103,6 +103,7 @@ export const host = {
       free: 'Gratis',
       remove: 'Verwijderen',
       renewsAt: 'Verlengd voor {price}',
+      priceUnavailable: 'Prijs niet beschikbaar',
       selectAtLeastOne: 'Selecteer minimaal één domein',
       redirectingToCheckout: 'Doorsturen naar afrekenen voor {count} domein{plural}',
     },

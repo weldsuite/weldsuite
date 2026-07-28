@@ -227,10 +227,10 @@ export function DomainRegistrationClient() {
    * Prices arrive in cents. The previous formatter rendered them as decimals
    * (1125 cents became "11,25") and fell back to a literal 11.25 — a currency
    * unit summed into a cents total. A domain with no price can't be added to
-   * the cart at all, so null here is an anomaly: show a dash, never a guess.
+   * the cart at all, so null here is an anomaly: say so, never guess a figure.
    */
   const formatPrice = (cents: number | null | undefined, currency?: string | null) =>
-    formatDomainPrice(cents, currency ?? cartCurrency, language) ?? '—';
+    formatDomainPrice(cents, currency ?? cartCurrency, language) ?? tr.priceUnavailable;
 
   const totalCents = selectedDomains.reduce((sum, domain) => sum + (domain.price ?? 0), 0);
   const totalFormatted = formatPrice(totalCents);

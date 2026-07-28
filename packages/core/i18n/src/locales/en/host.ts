@@ -103,6 +103,7 @@ export const host = {
       free: 'Free',
       remove: 'Remove',
       renewsAt: 'Renews at {price}',
+      priceUnavailable: 'Price unavailable',
       selectAtLeastOne: 'Please select at least one domain',
       redirectingToCheckout: 'Redirecting to checkout for {count} domain{plural}',
     },
