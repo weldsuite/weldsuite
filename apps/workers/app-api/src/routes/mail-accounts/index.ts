@@ -245,7 +245,7 @@ app.post('/', requirePermission('accounts:create'), zValidator('json', createBod
 // Keeping both verbs registered preserves wire compatibility with the
 // legacy api-worker surface (the frontend uses both interchangeably).
 const updateRoute = async (
-  c: import('hono').Context<{ Bindings: Env; Variables: Variables }>,
+  c: import('hono').Context<{ Bindings: Env; Variables: Variables }, '/:id'>,
 ) => {
   const id = c.req.param('id');
   const data = c.req.valid('json' as never) as z.infer<typeof updateBody>;

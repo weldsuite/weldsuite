@@ -161,7 +161,12 @@ function isCancellable(status: string | null): boolean {
 
 const PORTING_PERMISSION = 'telephony:manage';
 
-type PortingContext = Context<{ Bindings: TelnyxEnv; Variables: Variables }>;
+// `P` carries the route path so `c.req.param()` stays typed as `string` rather
+// than `string | undefined` (Hono only narrows it for a concrete path).
+type PortingContext<P extends string = string> = Context<
+  { Bindings: TelnyxEnv; Variables: Variables },
+  P
+>;
 
 function publishPortingEvent(
   c: PortingContext,
@@ -394,7 +399,10 @@ app.post('/:id/loa-template', requirePermission(PORTING_PERMISSION), async (c) =
 
 // ---------- Document upload (LOA + bill copy share the same handler) ----------
 
-async function handleDocumentUpload(c: PortingContext, type: PortDocType) {
+async function handleDocumentUpload(
+  c: PortingContext<'/:id/loa' | '/:id/bill-copy'>,
+  type: PortDocType,
+) {
   const workspaceId = c.get('workspaceId');
   if (!workspaceId) return error.internal(c, 'Workspace context missing');
 
