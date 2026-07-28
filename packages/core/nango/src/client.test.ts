@@ -27,7 +27,7 @@ describe('NangoClient transport', () => {
     await makeClient(fetchImpl as unknown as typeof fetch).listConnections();
 
     const [url, init] = fetchImpl.mock.calls[0]!;
-    expect(url).toBe('https://nango.test/connection');
+    expect(url).toBe('https://nango.test/connections');
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer sk_test');
     expect(String(url)).not.toContain('sk_test');
   });

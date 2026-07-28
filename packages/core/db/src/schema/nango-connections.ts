@@ -104,8 +104,14 @@ export const nangoSyncRuns = pgTable(
     id: varchar('id', { length: 30 }).primaryKey(),
     createdAt: timestamp('created_at').notNull().defaultNow(),
 
-    /** FK to `nango_connections.id` (local row, not the Nango connection id). */
-    connectionId: varchar('connection_id', { length: 30 }).notNull(),
+    /**
+     * The local `nango_connections` row (not the Nango connection id).
+     * Cascades: a connection that is genuinely gone leaves no orphan audit rows.
+     * Disconnecting is a soft delete, so run history survives that.
+     */
+    connectionId: varchar('connection_id', { length: 30 })
+      .notNull()
+      .references(() => nangoConnections.id, { onDelete: 'cascade' }),
 
     syncName: varchar('sync_name', { length: 100 }).notNull(),
     /** Nango model the run carried, e.g. `HubspotContact`. */

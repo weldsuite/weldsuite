@@ -14,7 +14,7 @@
  * so a missing entry can always be repaired by reconnecting.
  */
 
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { NangoClient, createNangoClient, getConnector } from '@weldsuite/nango';
 import type { NangoSyncRunStatus, NangoSyncTrigger } from '@weldsuite/db/schema';
 import type { Env } from '../../types';
@@ -295,7 +295,7 @@ export async function finishSyncRun(args: {
   applied?: { created: number; modified: number; skipped: number; deleted: number; failed: number };
   error?: string | null;
   errorSamples?: Array<{ externalId: string; message: string }>;
-  /** Watermark to advance for this model, when the run succeeded. */
+  /** Watermark to advance for this model. Applied ONLY when status is 'success'. */
   watermark?: { model: string; at: string } | null;
 }): Promise<void> {
   const now = new Date();
@@ -325,19 +325,21 @@ export async function finishSyncRun(args: {
 
   const applied = (args.applied?.created ?? 0) + (args.applied?.modified ?? 0);
   const [connection] = await args.db
-    .select({
-      recordsSynced: schema.nangoConnections.recordsSynced,
-      syncWatermarks: schema.nangoConnections.syncWatermarks,
-      status: schema.nangoConnections.status,
-    })
+    .select({ status: schema.nangoConnections.status })
     .from(schema.nangoConnections)
     .where(eq(schema.nangoConnections.id, args.connectionId))
     .limit(1);
 
-  const watermarks = { ...(connection?.syncWatermarks ?? {}) };
-  if (args.watermark && args.status !== 'error') {
-    watermarks[args.watermark.model] = args.watermark.at;
-  }
+  /**
+   * Advance the watermark ONLY on a clean run.
+   *
+   * `partial` means at least one record failed to import. Those records are
+   * already behind `modifiedAfter`, so advancing past them means they are never
+   * re-read unless the provider happens to touch them again — silent data loss
+   * dressed up as a successful sync. Leaving the watermark put costs a re-read
+   * of records the checksum will skip anyway.
+   */
+  const advanceWatermark = args.watermark && args.status === 'success';
 
   await args.db
     .update(schema.nangoConnections)
@@ -346,8 +348,18 @@ export async function finishSyncRun(args: {
       lastSyncStatus: args.status,
       lastError: args.error ? args.error.slice(0, 2000) : null,
       lastErrorAt: args.error ? now : null,
-      recordsSynced: (connection?.recordsSynced ?? 0) + applied,
-      syncWatermarks: watermarks,
+      // Computed in SQL, not read-modify-write: Nango delivers one sync webhook
+      // per model and they land concurrently, so a JS-side increment would lose
+      // counts and a whole-object JSONB write would clobber another model's
+      // watermark with a stale snapshot.
+      recordsSynced: sql`${schema.nangoConnections.recordsSynced} + ${applied}`,
+      ...(advanceWatermark
+        ? {
+            syncWatermarks: sql`COALESCE(${schema.nangoConnections.syncWatermarks}, '{}'::jsonb) || ${JSON.stringify(
+              { [args.watermark!.model]: args.watermark!.at },
+            )}::jsonb`,
+          }
+        : {}),
       // A failing sync must not silently downgrade an auth error — the tenant
       // still needs to reconnect in that case.
       status:

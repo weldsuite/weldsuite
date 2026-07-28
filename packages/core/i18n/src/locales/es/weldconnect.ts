@@ -34,6 +34,8 @@ export const weldconnect = {
     syncStarted: 'Sincronización iniciada — los registros llegarán en breve',
     syncFailed: 'No se pudo iniciar la sincronización',
     pausedToast: 'Sincronizaciones pausadas',
+    pauseFailed: 'No se pudieron pausar las sincronizaciones',
+    resumeFailed: 'No se pudieron reanudar las sincronizaciones',
     resumedToast: 'Sincronizaciones reanudadas',
     disconnectTitle: '¿Desconectar {name}?',
     disconnectDescription:

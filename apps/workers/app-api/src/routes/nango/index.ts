@@ -12,6 +12,16 @@
  * Permissions: integrations:read | integrations:create | integrations:update |
  * integrations:delete — the same keys the legacy `/api/integrations` surface
  * uses, so a role that could manage integrations can manage connectors.
+ *
+ * Entity events: connection lifecycle mutations here publish none, because
+ * `nango_connection` is not in the @weldsuite/entity-events catalog — the same
+ * gap `integration_connection` has in routes/integrations/index.ts. The events
+ * that carry the actual business data (`company`, `person`, `opportunity`) are
+ * published by the ingest, so audit logging, workflows and analytics see every
+ * synced record; only "a connector was connected/paused" is invisible. Closing
+ * it means adding an entity type to the catalog, which also defines new
+ * workflow triggers and agent subscriptions — a deliberate decision rather than
+ * a drive-by, and tracked with the `integration_connection` gap.
  */
 
 import { Hono } from 'hono';
@@ -230,8 +240,15 @@ app.post(
         connectionId: nangoConnectionId,
         providerConfigKey: row.providerConfigKey,
       });
+
+      // FAIL CLOSED. A missing org stamp is not permission to proceed: this
+      // handler goes on to point the connection→workspace KV mapping at the
+      // caller's org, so accepting an unverified id would route another
+      // workspace's sync webhooks into this tenant's database. Rejecting here
+      // costs nothing — the auth webhook activates the connection on its own,
+      // and it carries the org stamp independently.
       const ownerOrg = detail.end_user?.organization?.id;
-      if (ownerOrg && ownerOrg !== orgId) {
+      if (ownerOrg !== orgId) {
         return error.forbidden(c, 'Connection belongs to a different workspace');
       }
 

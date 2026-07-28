@@ -15,7 +15,7 @@ import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { getConnector } from '@weldsuite/nango';
 import type { ConnectorDef, ConnectorSyncDef } from '@weldsuite/nango';
-import { ingestRecords, recordChecksum, resolveSync } from './ingest';
+import { ingestRecords, recordChecksum, resolveSync, sanitiseErrorMessage } from './ingest';
 import { createPgliteDb } from '../../test/pglite';
 import { schema, type Database } from '../../db';
 
@@ -216,6 +216,69 @@ describe('ingestRecords · companies', () => {
     expect(company?.deletedAt).toBeInstanceOf(Date);
   });
 
+  it('resurrects a soft-deleted row when the provider undeletes it', async () => {
+    const connectionId = nextConnectionId();
+    const live = { id: 'hs-undel', name: 'Back From The Dead BV', ...meta() };
+
+    await ingest(connectionId, COMPANY_SYNC, [live]);
+    await ingest(connectionId, COMPANY_SYNC, [
+      { ...live, ...meta({ last_action: 'DELETED', deleted_at: '2026-07-02T00:00:00Z' }) },
+    ]);
+
+    // The provider resends the record byte-identical to before the delete —
+    // the checksum must not make this a no-op skip.
+    const revived = await ingest(connectionId, COMPANY_SYNC, [live]);
+    expect(revived).toMatchObject({ modified: 1, skipped: 0 });
+
+    const [mapping] = await db
+      .select()
+      .from(schema.integrationEntityMappings)
+      .where(
+        and(
+          eq(schema.integrationEntityMappings.connectionId, connectionId),
+          eq(schema.integrationEntityMappings.externalEntityId, 'hs-undel'),
+        ),
+      );
+    const [company] = await db
+      .select()
+      .from(schema.companies)
+      .where(eq(schema.companies.id, mapping!.internalEntityId));
+    expect(company?.deletedAt).toBeNull();
+  });
+
+  it('picks the oldest row when several share the dedup email', async () => {
+    const connectionId = nextConnectionId();
+    const email = `shared-${Date.now()}@acme.example`;
+
+    await db.insert(schema.companies).values({
+      id: 'comp_dedup_oldest',
+      name: 'Oldest',
+      displayName: 'Oldest',
+      email,
+      createdAt: new Date('2020-01-01T00:00:00Z'),
+    });
+    await db.insert(schema.companies).values({
+      id: 'comp_dedup_newest',
+      name: 'Newest',
+      displayName: 'Newest',
+      email,
+      createdAt: new Date('2024-01-01T00:00:00Z'),
+    });
+
+    await ingest(connectionId, COMPANY_SYNC, [{ id: 'hs-shared', name: 'From HubSpot', email, ...meta() }]);
+
+    const [mapping] = await db
+      .select()
+      .from(schema.integrationEntityMappings)
+      .where(
+        and(
+          eq(schema.integrationEntityMappings.connectionId, connectionId),
+          eq(schema.integrationEntityMappings.externalEntityId, 'hs-shared'),
+        ),
+      );
+    expect(mapping?.internalEntityId).toBe('comp_dedup_oldest');
+  });
+
   it('counts an unmappable record as skipped without failing the page', async () => {
     const connectionId = nextConnectionId();
     const result = await ingest(connectionId, COMPANY_SYNC, [
@@ -369,5 +432,30 @@ describe('ingestRecords · opportunities', () => {
     ]);
 
     expect(result).toMatchObject({ created: 0, skipped: 1, failed: 0 });
+  });
+});
+
+describe('sanitiseErrorMessage', () => {
+  it('redacts the offending value out of a Postgres constraint error', () => {
+    const message = sanitiseErrorMessage(
+      new Error('duplicate key value violates unique constraint "companies_email_key": Key (email)=(jelle@acme.example) already exists.'),
+    );
+    expect(message).not.toContain('jelle@acme.example');
+    // The column is the diagnostic worth keeping.
+    expect(message).toContain('(email)=(redacted)');
+  });
+
+  it('redacts quoted literals from a failing statement', () => {
+    expect(sanitiseErrorMessage(new Error("invalid input for 'nadia@example.com'"))).not.toContain(
+      'nadia@example.com',
+    );
+  });
+
+  it('bounds the length so one driver error cannot fill the run row', () => {
+    expect(sanitiseErrorMessage(new Error('x'.repeat(5000))).length).toBeLessThanOrEqual(200);
+  });
+
+  it('handles non-Error throws', () => {
+    expect(sanitiseErrorMessage('plain string failure')).toBe('plain string failure');
   });
 });

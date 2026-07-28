@@ -103,13 +103,23 @@ function useConnectFlow(onSettled: () => void) {
   const createSession = useCreateNangoConnectSession();
   const finalize = useFinalizeNangoConnection();
   const [connecting, setConnecting] = useState<string | null>(null);
-  const pendingRef = useRef<{ connectionId: string; providerConfigKey: string } | null>(null);
+  const pendingRef = useRef<{
+    connectionId: string;
+    providerConfigKey: string;
+    /** Origin of the Connect UI — the only sender we accept a connection id from. */
+    origin: string;
+  } | null>(null);
 
   // Fast path — the Connect UI reports the new connection id.
   useEffect(() => {
     function onMessage(event: MessageEvent) {
       const pending = pendingRef.current;
       if (!pending) return;
+      // Any page can postMessage to this window. Without this check a hostile
+      // tab could hand us a connection id during a pending connect and have the
+      // server bind it to this workspace. Derived from the session URL rather
+      // than hardcoded, because NANGO_CONNECT_URL moves when Nango is self-hosted.
+      if (event.origin !== pending.origin) return;
       const data = event.data as { connectionId?: string; payload?: { connectionId?: string } } | null;
       const nangoConnectionId = data?.connectionId ?? data?.payload?.connectionId;
       if (typeof nangoConnectionId !== 'string' || !nangoConnectionId) return;
@@ -131,7 +141,11 @@ function useConnectFlow(onSettled: () => void) {
       setConnecting(providerConfigKey);
       try {
         const session = await createSession.mutateAsync(providerConfigKey);
-        pendingRef.current = { connectionId: session.connectionId, providerConfigKey };
+        pendingRef.current = {
+          connectionId: session.connectionId,
+          providerConfigKey,
+          origin: new URL(session.connectUrl).origin,
+        };
 
         const popup = window.open(session.connectUrl, 'nango-connect', 'width=520,height=720');
         if (!popup) {
@@ -155,6 +169,12 @@ function useConnectFlow(onSettled: () => void) {
           }
         }
         return { ok: false, reason: 'timeout' as const };
+      } catch (err) {
+        // Without this the rejection escapes into a synchronous onClick and
+        // becomes an unhandled promise rejection — the spinner clears and the
+        // user is told nothing. Reported as a result so the caller can toast.
+        console.error('[connectors] connect failed:', err);
+        return { ok: false, reason: 'error' as const };
       } finally {
         setConnecting(null);
         pendingRef.current = null;
@@ -282,7 +302,10 @@ function ConnectionDetails({ connectionId, onOpenChange, onDisconnect }: Connect
     if (!connectionId) return;
     setPaused.mutate(
       { connectionId, paused },
-      { onSuccess: () => toast.success(paused ? tc.pausedToast : tc.resumedToast) },
+      {
+        onSuccess: () => toast.success(paused ? tc.pausedToast : tc.resumedToast),
+        onError: () => toast.error(paused ? tc.pauseFailed : tc.resumeFailed),
+      },
     );
   };
 
@@ -462,6 +485,8 @@ export function ConnectorsClient() {
       toast.success(tc.connected);
     } else if (result.reason === 'popup_blocked') {
       toast.error(tc.connectWindowBlocked);
+    } else if (result.reason === 'error') {
+      toast.error(tc.connectFailed);
     }
     // A timeout is not an error worth shouting about — the auth webhook may
     // still land, and the card reflects the truth on the next refetch.

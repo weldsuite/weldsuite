@@ -81,10 +81,14 @@ imported opportunities, so attribution survives without making access personal.
   watermark. Records are not read from the webhook body, so a large sync is
   paged rather than delivered in one payload.
 - **Incremental by default, full resync on request.** The per-model watermark
-  lives in `nango_connections.sync_watermarks` and only advances after a
-  complete pass. A run truncated by the page ceiling leaves it untouched, so the
-  remainder is picked up next run instead of being skipped. "Full resync" in the
-  UI sets Nango's `full_resync`.
+  lives in `nango_connections.sync_watermarks` and only advances on a run that
+  read every page **and** imported every record — a run truncated by the page
+  ceiling, or one where any record failed (`partial`), leaves it untouched. Both
+  cases are records the next run must re-read; advancing past them would drop
+  them permanently, since the provider has no reason to touch them again. The
+  cost of not advancing is a re-read the checksum turns into a skip. `finishSyncRun`
+  enforces the status half of this independently of its callers. "Full resync"
+  in the UI sets Nango's `full_resync`.
 - **Re-delivery is cheap.** Every record is checksummed (excluding Nango's
   `_nango_metadata` envelope, whose cursor changes on every delivery) and
   compared against `integration_entity_mappings.sync_checksum`; unchanged

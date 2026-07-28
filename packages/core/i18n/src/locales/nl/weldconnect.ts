@@ -34,6 +34,8 @@ export const weldconnect = {
     syncStarted: 'Synchronisatie gestart — records volgen zo',
     syncFailed: 'Kon de synchronisatie niet starten',
     pausedToast: 'Synchronisatie gepauzeerd',
+    pauseFailed: 'Kon de synchronisatie niet pauzeren',
+    resumeFailed: 'Kon de synchronisatie niet hervatten',
     resumedToast: 'Synchronisatie hervat',
     disconnectTitle: '{name} loskoppelen?',
     disconnectDescription:

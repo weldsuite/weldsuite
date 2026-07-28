@@ -34,6 +34,8 @@ export const weldconnect = {
     syncStarted: 'Sync started — records arrive shortly',
     syncFailed: 'Could not start the sync',
     pausedToast: 'Syncs paused',
+    pauseFailed: 'Could not pause the syncs',
+    resumeFailed: 'Could not resume the syncs',
     resumedToast: 'Syncs resumed',
     disconnectTitle: 'Disconnect {name}?',
     disconnectDescription:

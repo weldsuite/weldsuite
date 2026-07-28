@@ -17,9 +17,19 @@
  * Tenant isolation: `db` is already the tenant database resolved from the
  * connection's workspace. Nothing here takes a workspace id — there is no code
  * path that could address another tenant's rows.
+ *
+ * IMPORTANT — the entity write and its mapping write are NOT one transaction.
+ * The tenant DB is Neon's HTTP driver (`drizzle-orm/neon-http`), which throws
+ * "No transactions support" for `db.transaction()` (same constraint documented
+ * in `services/desk/parts.ts`). If a Worker dies between the two statements the
+ * row exists with no mapping, and the next delivery re-creates it — a duplicate
+ * for opportunities, which have no natural dedup key. The window is two
+ * sequential awaits and the failure is bounded, so this is accepted rather than
+ * worked around; it closes for free if the tenant DB ever moves to the WebSocket
+ * driver.
  */
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
 import type { ConnectorDef, ConnectorSyncDef } from '@weldsuite/nango';
@@ -102,6 +112,27 @@ function emptyCounts(): IngestCounts {
   return { created: 0, modified: 0, skipped: 0, deleted: 0, failed: 0 };
 }
 
+/** Longest error text we keep per record. */
+const MAX_ERROR_MESSAGE_LENGTH = 200;
+
+/**
+ * Strip customer data out of a driver error before it is logged or persisted.
+ *
+ * Postgres embeds the offending value in its messages — `Key (email)=(jelle@
+ * acme.example) already exists` — and these strings land in `nango_sync_runs`
+ * and are rendered in the WeldConnect UI. The column name is the diagnostic
+ * worth keeping; the value is the tenant's contact data.
+ */
+export function sanitiseErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  return raw
+    // `Key (col)=(value)` → `Key (col)=(redacted)`
+    .replace(/\(([^)]*)\)=\([^)]*\)/g, '($1)=(redacted)')
+    // Quoted literals in a failing statement.
+    .replace(/'[^']*'/g, "'redacted'")
+    .slice(0, MAX_ERROR_MESSAGE_LENGTH);
+}
+
 /** Table + id prefix + dedup column for each mapped entity. */
 function targetFor(entity: MappedRecord['entity']): {
   table: PgTable;
@@ -120,15 +151,18 @@ function targetFor(entity: MappedRecord['entity']): {
   }
 }
 
-/** Look up the internal id an external record was previously mapped to. */
-async function findMappedInternalId(
+/** Look up the mapping row for an external record, if we have one. */
+async function findMapping(
   db: Database,
   connectionId: string,
   externalEntityType: string,
   externalEntityId: string,
-): Promise<string | null> {
+): Promise<{ id: string; internalEntityId: string } | null> {
   const [row] = await db
-    .select({ internalEntityId: schema.integrationEntityMappings.internalEntityId })
+    .select({
+      id: schema.integrationEntityMappings.id,
+      internalEntityId: schema.integrationEntityMappings.internalEntityId,
+    })
     .from(schema.integrationEntityMappings)
     .where(
       and(
@@ -138,7 +172,7 @@ async function findMappedInternalId(
       ),
     )
     .limit(1);
-  return row?.internalEntityId ?? null;
+  return row ?? null;
 }
 
 /** The connector's company sync — used to resolve an account reference. */
@@ -189,7 +223,9 @@ async function upsertByMapping(args: {
     }
     await db
       .update(args.table)
-      .set({ ...args.values, updatedAt: new Date() } as never)
+      // `deletedAt: null` resurrects a row we previously soft-deleted for a
+      // provider delete — the mapping survived, so an undelete lands here.
+      .set({ ...args.values, deletedAt: null, updatedAt: new Date() } as never)
       .where(eq(cols.id, mapping.internalEntityId));
     await db
       .update(schema.integrationEntityMappings)
@@ -200,10 +236,15 @@ async function upsertByMapping(args: {
 
   const dedupValue = args.dedupColumn ? (args.values[args.dedupColumn] as string | undefined) : undefined;
   if (args.dedupColumn && dedupValue && cols[args.dedupColumn]) {
+    // Oldest row wins. `email` is not unique on `companies` (shared info@
+    // addresses are common), and without an ORDER BY the row we overwrite would
+    // be whatever Postgres happened to return first — non-deterministic, and
+    // destructive since the provider's values are written over it.
     const [match] = await db
       .select({ id: cols.id })
       .from(args.table)
       .where(and(eq(cols[args.dedupColumn], dedupValue), isNull(cols.deletedAt)))
+      .orderBy(asc(cols.createdAt), asc(cols.id))
       .limit(1);
 
     if (match) {
@@ -274,17 +315,28 @@ async function linkPersonToCompany(db: Database, personId: string, companyId: st
  * The mapping row is kept: if the record comes back (a provider "undelete", or
  * a filter change that re-includes it) it re-links to the same internal row
  * instead of creating a duplicate.
+ *
+ * Its checksum is cleared, though. Providers typically resend an undeleted
+ * record byte-identical to what we last saw, so leaving the checksum in place
+ * would make the next delivery match and return `skipped` — `deletedAt` would
+ * never be cleared and the "it comes back" promise above would be a lie.
+ * Nulling it forces that delivery down the update path, which resurrects the row.
  */
 async function softDeleteMapped(
   db: Database,
   table: PgTable,
   internalId: string,
+  mappingId: string,
 ): Promise<void> {
   const cols = table as unknown as Record<string, any>;
   await db
     .update(table)
     .set({ deletedAt: new Date(), updatedAt: new Date() } as never)
     .where(eq(cols.id, internalId));
+  await db
+    .update(schema.integrationEntityMappings)
+    .set({ syncChecksum: null, lastSyncedAt: new Date(), updatedAt: new Date() })
+    .where(eq(schema.integrationEntityMappings.id, mappingId));
 }
 
 // ============================================================================
@@ -312,14 +364,15 @@ export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
 
     try {
       if (isDeletedRecord(record)) {
-        const internalId = await findMappedInternalId(
+        const mapping = await findMapping(
           args.db,
           args.connectionId,
           args.sync.externalEntityType,
           externalId,
         );
-        if (internalId) {
-          await softDeleteMapped(args.db, target.table, internalId);
+        if (mapping) {
+          const internalId = mapping.internalEntityId;
+          await softDeleteMapped(args.db, target.table, internalId, mapping.id);
           counts.deleted++;
           await publishEntityEventRaw({
             env: args.env as never,
@@ -352,12 +405,14 @@ export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
         // account is normal on a first run — the next run links it.
         accountInternalId =
           mapped.accountExternalId && companySync
-            ? await findMappedInternalId(
-                args.db,
-                args.connectionId,
-                companySync.externalEntityType,
-                mapped.accountExternalId,
-              )
+            ? ((
+                await findMapping(
+                  args.db,
+                  args.connectionId,
+                  companySync.externalEntityType,
+                  mapped.accountExternalId,
+                )
+              )?.internalEntityId ?? null)
             : null;
 
         if (mapped.entity === 'opportunity') {
@@ -397,6 +452,11 @@ export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
       }
 
       if (outcome.action !== 'skipped') {
+        // Outside the failure accounting on purpose. The row and its checksum
+        // are already committed, so counting a queue/realtime hiccup as a
+        // record failure would mark the run `partial` over data that landed
+        // fine — and the checksum guarantees the retry skips the record, so the
+        // "failure" could never be repaired anyway.
         await publishEntityEventRaw({
           env: args.env as never,
           db: args.db as never,
@@ -406,17 +466,16 @@ export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
           action: outcome.action === 'created' ? 'created' : 'updated',
           entityId: outcome.internalId,
           data: { id: outcome.internalId, ...values },
+        }).catch((err: unknown) => {
+          console.error(`[nango/ingest] entity event for ${outcome.internalId} failed to publish:`, err);
         });
       }
     } catch (err) {
       counts.failed++;
       if (errorSamples.length < MAX_ERROR_SAMPLES) {
-        errorSamples.push({
-          externalId,
-          message: err instanceof Error ? err.message : String(err),
-        });
+        errorSamples.push({ externalId, message: sanitiseErrorMessage(err) });
       }
-      console.error(`[nango/ingest] record ${externalId} failed:`, err);
+      console.error(`[nango/ingest] record ${externalId} failed: ${sanitiseErrorMessage(err)}`);
     }
   }
 

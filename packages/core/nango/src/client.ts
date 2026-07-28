@@ -146,7 +146,7 @@ export class NangoClient {
 
   async listConnections(params: { connectionId?: string; search?: string } = {}): Promise<NangoConnectionSummary[]> {
     const res = await this.request<{ connections: NangoConnectionSummary[] }>({
-      path: '/connection',
+      path: '/connections',
       query: { connectionId: params.connectionId, search: params.search },
     });
     return res?.connections ?? [];
@@ -165,7 +165,7 @@ export class NangoClient {
     refreshToken?: boolean;
   }): Promise<NangoConnectionDetail> {
     return this.request<NangoConnectionDetail>({
-      path: `/connection/${encodeURIComponent(params.connectionId)}`,
+      path: `/connections/${encodeURIComponent(params.connectionId)}`,
       query: {
         provider_config_key: params.providerConfigKey,
         refresh_token: params.refreshToken ? 'true' : undefined,
@@ -176,7 +176,7 @@ export class NangoClient {
   async deleteConnection(params: { connectionId: string; providerConfigKey: string }): Promise<void> {
     await this.request<void>({
       method: 'DELETE',
-      path: `/connection/${encodeURIComponent(params.connectionId)}`,
+      path: `/connections/${encodeURIComponent(params.connectionId)}`,
       query: { provider_config_key: params.providerConfigKey },
     });
   }
@@ -189,7 +189,7 @@ export class NangoClient {
   }): Promise<void> {
     await this.request<void>({
       method: 'POST',
-      path: '/connection/metadata',
+      path: '/connections/metadata',
       body: {
         connection_id: params.connectionId,
         provider_config_key: params.providerConfigKey,
