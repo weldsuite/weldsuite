@@ -34,6 +34,12 @@ export class CloudflareZoneError extends Error {
       | 'UNKNOWN',
     message: string,
     public readonly cfErrors?: { code: number; message: string }[],
+    /**
+     * The HTTP status, kept as a field so callers can branch on it. It also
+     * appears in `message`, but matching that string would couple every caller
+     * to the wording below.
+     */
+    public readonly status?: number,
   ) {
     super(message);
     this.name = 'CloudflareZoneError';
@@ -99,6 +105,7 @@ function toZoneError(err: unknown): CloudflareZoneError {
       'DOMAIN_IN_ANOTHER_CF_ACCOUNT',
       first ?? 'Domain is already in use on Cloudflare',
       cfErrors,
+      err.status,
     );
   }
   if (err.status === 401 || err.status === 403) {
@@ -106,15 +113,22 @@ function toZoneError(err: unknown): CloudflareZoneError {
       'AUTH_FAILED',
       'Cloudflare API token is missing or lacks the required scope',
       cfErrors,
+      err.status,
     );
   }
   if (codes.includes(1049) || codes.includes(1097)) {
-    return new CloudflareZoneError('INVALID_DOMAIN', first ?? 'Invalid domain', cfErrors);
+    return new CloudflareZoneError(
+      'INVALID_DOMAIN',
+      first ?? 'Invalid domain',
+      cfErrors,
+      err.status,
+    );
   }
   return new CloudflareZoneError(
     'UNKNOWN',
     `Cloudflare API error ${err.status ?? '(no status)'}: ${first ?? err.message ?? 'unknown'}`,
     cfErrors,
+    err.status,
   );
 }
 
@@ -131,8 +145,17 @@ export async function createCloudflareZone(
   accountId: string,
   domain: string,
 ): Promise<{ zoneId: string; nameservers: string[]; status: string }> {
+  // maxRetries: 0 — zone creation is not idempotent. The SDK retries 408/409/429
+  // and 5xx by default, so a dropped response on a create that actually
+  // succeeded would be replayed and come back as "already exists" (code 1061),
+  // which `toZoneError` maps to DOMAIN_IN_ANOTHER_CF_ACCOUNT — telling the
+  // customer their domain is taken when we had just created it ourselves. One
+  // attempt; a genuine transient failure surfaces to the caller instead.
   const zone = await zoneCall(() =>
-    client(apiToken).zones.create({ name: domain, account: { id: accountId }, type: 'full' }),
+    client(apiToken).zones.create(
+      { name: domain, account: { id: accountId }, type: 'full' },
+      { maxRetries: 0 },
+    ),
   );
   return {
     zoneId: zone.id,
@@ -155,7 +178,7 @@ export async function getCloudflareZone(
   } catch (err) {
     if (err instanceof CloudflareZoneError && err.kind === 'UNKNOWN') {
       if (err.cfErrors?.some((e) => e.code === 1001 || e.code === 7003)) return null;
-      if (err.message.includes('Cloudflare API error 404')) return null;
+      if (err.status === 404) return null;
     }
     throw err;
   }
@@ -195,7 +218,16 @@ export type DnsRecordType = CreateDnsRecordInput['type'];
 export interface CloudflareDnsRecord {
   id: string;
   zone_id: string;
-  type: DnsRecordType;
+  /**
+   * `null` for record types this module cannot edit — a zone contains types
+   * outside {@link DnsRecordType} (SOA, HTTPS, SVCB, PTR, …) and
+   * {@link listDnsRecordsInZone} returns all of them. Callers must not feed a
+   * record with a null type back into {@link updateDnsRecordInZone}: it would
+   * fall through the simple-content branch and rewrite the record wrongly.
+   */
+  type: DnsRecordType | null;
+  /** Raw type string as Cloudflare reported it, even when `type` is null. */
+  rawType: string;
   name: string;
   content: string;
   ttl: number;
@@ -211,6 +243,10 @@ export interface CloudflareDnsRecord {
     value?: string;
   };
 }
+
+const EDITABLE_RECORD_TYPES = new Set<string>([
+  'A', 'AAAA', 'CNAME', 'MX', 'TXT', 'CAA', 'SRV', 'NS',
+]);
 
 /**
  * SRV content in zone-file form: `<priority> <weight> <port> <target>`.
@@ -273,6 +309,27 @@ function toCreateParams(
 }
 
 /**
+ * SRV and CAA carry no flat `content` on the wire — only `data` — so rebuild
+ * the zone-file string callers display and diff against. Inverse of
+ * {@link parseSrvContent} / {@link parseCaaContent}.
+ */
+function contentFromData(type: string, data: CloudflareDnsRecord['data']): string | undefined {
+  if (!data) return undefined;
+  if (type === 'SRV') {
+    const { priority, weight, port, value } = data;
+    const target = value ?? (data as { target?: string }).target;
+    if ([priority, weight, port, target].some((v) => v === undefined)) return undefined;
+    return `${priority} ${weight} ${port} ${target}`;
+  }
+  if (type === 'CAA') {
+    const { flags, tag, value } = data;
+    if ([flags, tag, value].some((v) => v === undefined)) return undefined;
+    return `${flags} ${tag} "${value}"`;
+  }
+  return undefined;
+}
+
+/**
  * Flatten the SDK's discriminated response back into the shape callers already
  * consume. `zone_id` is not on the response — it is the zone we just addressed.
  */
@@ -280,12 +337,14 @@ function toDnsRecord(zoneId: string, r: RecordResponse): CloudflareDnsRecord {
   const withData = r as { data?: CloudflareDnsRecord['data'] };
   const withContent = r as { content?: string };
   const withPriority = r as { priority?: number };
+  const rawType = String(r.type);
   return {
     id: r.id,
     zone_id: zoneId,
-    type: r.type as DnsRecordType,
+    type: EDITABLE_RECORD_TYPES.has(rawType) ? (rawType as DnsRecordType) : null,
+    rawType,
     name: r.name,
-    content: withContent.content ?? '',
+    content: withContent.content ?? contentFromData(rawType, withData.data) ?? '',
     ttl: typeof r.ttl === 'number' ? r.ttl : 1,
     priority: withPriority.priority,
     proxied: r.proxied,
@@ -309,7 +368,6 @@ export async function createDnsRecordInZone(
       if (err.cfErrors?.some((e) => e.code === 81057 || e.code === 81058)) {
         return { created: false, duplicate: true };
       }
-      if (err.message.includes('81057')) return { created: false, duplicate: true };
     }
     throw err;
   }

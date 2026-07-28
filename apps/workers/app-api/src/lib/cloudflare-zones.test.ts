@@ -160,6 +160,43 @@ describe('zones', () => {
 
     await expect(getCloudflareZone('tok', 'gone')).resolves.toBeNull();
   });
+
+  it('falls back to the HTTP status when Cloudflare sends no error code', async () => {
+    // The 404 path used to be recovered by substring-matching the composed
+    // message, which broke silently if the wording changed.
+    withResponses([{ status: 404, body: { success: false, errors: [], result: null } }]);
+
+    await expect(getCloudflareZone('tok', 'gone')).resolves.toBeNull();
+  });
+
+  it('carries the HTTP status on the error', async () => {
+    withResponses([
+      {
+        status: 500,
+        body: { success: false, errors: [{ code: 1, message: 'boom' }], result: null },
+      },
+    ]);
+
+    const err = (await createCloudflareZone('tok', 'acct_1', 'example.com').catch(
+      (e: unknown) => e,
+    )) as CloudflareZoneError;
+
+    expect(err.status).toBe(500);
+    expect(err.kind).toBe('UNKNOWN');
+  });
+
+  it('does not retry zone creation', async () => {
+    // A replayed create that already succeeded comes back as "already exists",
+    // which would be misreported to the customer as their domain being taken.
+    const calls = withResponses([
+      { status: 500, body: { success: false, errors: [{ code: 1, message: 'boom' }], result: null } },
+    ]);
+
+    await expect(createCloudflareZone('tok', 'acct_1', 'example.com')).rejects.toBeInstanceOf(
+      CloudflareZoneError,
+    );
+    expect(calls).toHaveLength(1);
+  });
 });
 
 describe('DNS records', () => {
@@ -284,6 +321,57 @@ describe('DNS records', () => {
     expect(calls[0]!.url).toContain('per_page=100');
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({ id: 'rec_1', zone_id: 'zone_1', type: 'A' });
+  });
+
+  // SRV/CAA carry no flat `content` on the wire, so a straight passthrough left
+  // these blank for anything that displays or diffs the record.
+  it('rebuilds content from data when reading SRV and CAA back', async () => {
+    withResponses([
+      {
+        body: ok([
+          {
+            id: 'rec_srv',
+            type: 'SRV',
+            name: '_sip._tcp.example.com',
+            ttl: 3600,
+            data: { priority: 10, weight: 60, port: 5060, target: 'sipserver.example.com' },
+          },
+          {
+            id: 'rec_caa',
+            type: 'CAA',
+            name: 'example.com',
+            ttl: 3600,
+            data: { flags: 0, tag: 'issue', value: 'letsencrypt.org' },
+          },
+        ]),
+      },
+    ]);
+
+    const records = await listDnsRecordsInZone('tok', 'zone_1');
+
+    expect(records[0]!.content).toBe('10 60 5060 sipserver.example.com');
+    expect(records[1]!.content).toBe('0 issue "letsencrypt.org"');
+    // The round trip has to survive: content -> data -> content.
+    expect(records[0]!.data).toMatchObject({ priority: 10, port: 5060 });
+  });
+
+  // A zone always contains types this module cannot edit. Casting them into
+  // DnsRecordType would let a caller feed one back into an update and have it
+  // rewritten through the wrong branch.
+  it('marks record types it cannot edit rather than mislabelling them', async () => {
+    withResponses([
+      {
+        body: ok([
+          { id: 'rec_soa', type: 'SOA', name: 'example.com', content: 'ns.example.com', ttl: 3600 },
+          { id: 'rec_a', type: 'A', name: 'a.example.com', content: '1.2.3.4', ttl: 3600 },
+        ]),
+      },
+    ]);
+
+    const records = await listDnsRecordsInZone('tok', 'zone_1');
+
+    expect(records[0]).toMatchObject({ type: null, rawType: 'SOA' });
+    expect(records[1]).toMatchObject({ type: 'A', rawType: 'A' });
   });
 
   it('treats an already-deleted record as gone, not an error', async () => {

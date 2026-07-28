@@ -135,9 +135,13 @@ app.post('/setup', async (c) => {
       enabled: true,
     });
   } catch (err) {
-    const details = err instanceof Error ? err.message : String(err);
-    console.error('[RTK Webhook Setup] Failed:', details);
-    return c.json({ error: 'Failed to register webhook', details }, 500);
+    // This route is unauthenticated (see the note above), so the RealtimeKit
+    // status and error payload stay in the logs rather than the response.
+    console.error(
+      '[RTK Webhook Setup] Failed:',
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json({ error: 'Failed to register webhook' }, 500);
   }
 
   console.log(`[RTK Webhook Setup] Registered webhook for ${environment}: ${webhookUrl}`);

@@ -33,7 +33,19 @@ import {
   type RealtimeFetch,
 } from '@weldsuite/cloudflare-realtime';
 
-type FetchCall = { url: string; method: string | undefined; auth: string | null; body: any };
+type JsonObject = Record<string, unknown>;
+type FetchCall = {
+  url: string;
+  method: string | undefined;
+  auth: string | null;
+  body: JsonObject | undefined;
+};
+
+/** Narrow a captured request body at the assertion site. */
+function body<T extends JsonObject = JsonObject>(call: FetchCall | undefined): T {
+  if (!call?.body) throw new Error('expected the call to carry a JSON body');
+  return call.body as T;
+}
 
 function withResponses(responses: Array<{ status?: number; body: unknown }>) {
   const calls: FetchCall[] = [];
@@ -157,7 +169,7 @@ describe('participants', () => {
 
     await addParticipant(env, 'm1', { name: 'Gert', customParticipantId: 'u' });
 
-    expect(calls[0]!.body.preset_name).toBe(RTK_PRESETS.MEMBER);
+    expect(body<{ preset_name: string }>(calls[0]).preset_name).toBe(RTK_PRESETS.MEMBER);
   });
 
   it('removes a participant on the nested route', async () => {
@@ -183,7 +195,7 @@ describe('presets', () => {
 
     expect(calls).toHaveLength(3);
     expect(calls[0]!.method).toBe('GET');
-    expect(calls.slice(1).map((c) => c.body.name)).toEqual([
+    expect(calls.slice(1).map((c) => body<{ name: string }>(c).name)).toEqual([
       RTK_PRESETS.GUEST,
       RTK_PRESETS.GUEST_WAITING,
     ]);
@@ -200,32 +212,47 @@ describe('presets', () => {
 
     await seedPresets(env);
 
-    const byName = new Map(calls.slice(1).map((c) => [c.body.name as string, c.body]));
+    type PresetBody = {
+      name: string;
+      permissions: { waiting_room_type: string; [k: string]: unknown };
+      config: { view_type: string; media: { screenshare: JsonObject } };
+    };
+    const presets = new Map(
+      calls.slice(1).map((c) => {
+        const preset = body<PresetBody>(c);
+        return [preset.name, preset] as const;
+      }),
+    );
+    const preset = (name: string): PresetBody => {
+      const found = presets.get(name);
+      if (!found) throw new Error(`no preset created for ${name}`);
+      return found;
+    };
 
     // Hosts skip the waiting room and can record; guests wait.
-    expect(byName.get(RTK_PRESETS.HOST).permissions).toMatchObject({
+    expect(preset(RTK_PRESETS.HOST).permissions).toMatchObject({
       waiting_room_type: 'SKIP',
       accept_waiting_requests: true,
       can_record: true,
     });
-    expect(byName.get(RTK_PRESETS.GUEST).permissions.waiting_room_type).toBe(
+    expect(preset(RTK_PRESETS.GUEST).permissions.waiting_room_type).toBe(
       'ON_PRIVILEGED_USER_ENTRY',
     );
     // The explicit-admit preset — a regression here sends share-link guests
     // straight into the call instead of the waiting room.
-    expect(byName.get(RTK_PRESETS.GUEST_WAITING).permissions.waiting_room_type).toBe(
+    expect(preset(RTK_PRESETS.GUEST_WAITING).permissions.waiting_room_type).toBe(
       'SKIP_ON_ACCEPT',
     );
 
     // WeldMeet overrides RTK's hd/5fps screenshare default.
-    expect(byName.get(RTK_PRESETS.HOST).config.media.screenshare).toEqual({
+    expect(preset(RTK_PRESETS.HOST).config.media.screenshare).toEqual({
       quality: 'fhd',
       frame_rate: 30,
     });
     // permissions and ui sit at the ROOT, not under config — RTK rejects the
     // body outright otherwise.
-    expect(byName.get(RTK_PRESETS.HOST)).toHaveProperty('ui.design_tokens.colors.brand.500');
-    expect(byName.get(RTK_PRESETS.HOST).config.view_type).toBe('GROUP_CALL');
+    expect(preset(RTK_PRESETS.HOST)).toHaveProperty('ui.design_tokens.colors.brand.500');
+    expect(preset(RTK_PRESETS.HOST).config.view_type).toBe('GROUP_CALL');
   });
 
   it('does not write the seeded marker when a create fails', async () => {
@@ -298,8 +325,8 @@ describe('webhooks', () => {
 
     expect(calls[0]!.url).toContain('/realtime/kit/app_1/webhooks');
     expect(calls[0]!.method).toBe('POST');
-    expect(calls[0]!.body.events).toEqual(['meeting.ended', 'meeting.participantLeft']);
-    expect(calls[0]!.body.enabled).toBe(true);
+    expect(body<{ events: string[] }>(calls[0]).events).toEqual(['meeting.ended', 'meeting.participantLeft']);
+    expect(body<{ enabled: boolean }>(calls[0]).enabled).toBe(true);
     expect(result.id).toBe('wh1');
   });
 });

@@ -49,6 +49,29 @@ function withResponse(status: number, body: unknown, opts: { raw?: string } = {}
   return { cf, calls };
 }
 
+/** Same, but serving a different response per call, in order. */
+function withResponseSequence(bodies: unknown[]) {
+  const calls: FetchCall[] = [];
+  let i = 0;
+  const fetchStub: RegistrarFetch = async (input, init) => {
+    calls.push({
+      url: String(input instanceof Request ? input.url : input),
+      init: init as RequestInit | undefined,
+    });
+    const body = bodies[Math.min(i++, bodies.length - 1)];
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  const cf = new CloudflareRegistrar({
+    accountId: 'acct_test',
+    apiToken: 'tok_test',
+    fetch: fetchStub,
+  });
+  return { cf, calls };
+}
+
 const okSearch = (domains: unknown[]) => ({ success: true, errors: [], result: { domains } });
 
 describe('CloudflareRegistrar.searchDomains', () => {
@@ -312,6 +335,78 @@ describe('CloudflareRegistrar.register', () => {
         privacyMode: 'redaction',
       },
     });
+  });
+});
+
+describe('CloudflareRegistrar.getRegistrationStatus', () => {
+  const registration = {
+    domain_name: 'weldsuite.dev',
+    status: 'active',
+    auto_renew: true,
+    locked: false,
+    privacy_mode: 'redaction',
+    created_at: '2026-07-26T00:00:00Z',
+    expires_at: '2027-07-26T00:00:00Z',
+  };
+
+  /**
+   * A terminal `succeeded` with no registration attached would otherwise map to
+   * `pending` on every poll, leaving a paid domain in `pending_workflow`
+   * forever. The client re-reads the registration instead.
+   */
+  it('re-reads the registration when a succeeded workflow carries none', async () => {
+    const { cf, calls } = withResponseSequence([
+      {
+        success: true,
+        errors: [],
+        result: {
+          state: 'succeeded',
+          completed: true,
+          created_at: '2026-07-26T00:00:00Z',
+          updated_at: '2026-07-26T00:00:00Z',
+          links: { self: 'https://api.cloudflare.com/.../status' },
+        },
+      },
+      { success: true, errors: [], result: registration },
+    ]);
+
+    const result = await cf.getRegistrationStatus('weldsuite.dev');
+
+    // Status poll, then the follow-up read of the registration itself.
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.url).toContain('/registrar/registrations/weldsuite.dev');
+    expect(result).toEqual({
+      status: 'completed',
+      domain: {
+        id: 'weldsuite.dev',
+        name: 'weldsuite.dev',
+        status: 'active',
+        expiresAt: '2027-07-26T00:00:00Z',
+        autoRenew: true,
+        locked: false,
+        privacyMode: 'redaction',
+      },
+    });
+  });
+
+  it('uses the attached registration without a second call', async () => {
+    const { cf, calls } = withResponse(200, {
+      success: true,
+      errors: [],
+      result: {
+        state: 'succeeded',
+        completed: true,
+        created_at: '2026-07-26T00:00:00Z',
+        updated_at: '2026-07-26T00:00:00Z',
+        links: { self: 'https://api.cloudflare.com/.../status' },
+        context: { registration },
+      },
+    });
+
+    const result = await cf.getRegistrationStatus('weldsuite.dev');
+
+    expect(calls).toHaveLength(1);
+    expect(result).toMatchObject({ status: 'completed' });
   });
 });
 

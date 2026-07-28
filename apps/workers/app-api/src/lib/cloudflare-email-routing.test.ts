@@ -249,6 +249,20 @@ describe('error classification', () => {
     expect(err).toBeInstanceOf(TransientProviderError);
   });
 
+  // The SDK retries 408/409 itself, so reaching the caller means its retries
+  // were exhausted — a transient condition, not a permanent rejection.
+  it('treats a 409 as transient', async () => {
+    const { client } = withResponse(409, {
+      success: false,
+      errors: [{ code: 1, message: 'Conflict' }],
+      result: null,
+    });
+
+    await expect(client.getRoutingSettings('zone_1')).rejects.toBeInstanceOf(
+      TransientProviderError,
+    );
+  });
+
   it('treats a 429 as transient', async () => {
     const { client } = withResponse(429, {
       success: false,

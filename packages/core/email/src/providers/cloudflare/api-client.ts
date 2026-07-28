@@ -364,9 +364,15 @@ export class CloudflareApiClient {
 }
 
 /**
- * Preserve the transient/permanent split callers retry on. A connection-level
- * failure arrives with no status — that is retryable, so it counts as
- * transient rather than falling through to permanent.
+ * Statuses the SDK itself considers retryable, so reaching this point means its
+ * own retries were already exhausted — the condition is transient, not a
+ * permanent rejection the caller should stop on. A connection-level failure
+ * arrives with no status at all and counts the same way.
+ */
+const TRANSIENT_STATUSES = new Set([408, 409, 429]);
+
+/**
+ * Preserve the transient/permanent split callers retry on.
  */
 async function call<T>(fn: () => Promise<T>): Promise<T> {
   try {
@@ -382,7 +388,8 @@ async function call<T>(fn: () => Promise<T>): Promise<T> {
       (err.errors ?? []).map((e) => `${e.code}:${e.message}`).join('; ') ||
       err.message ||
       `HTTP ${err.status ?? 'unknown'}`;
-    const transient = err.status === undefined || err.status >= 500 || err.status === 429;
+    const transient =
+      err.status === undefined || err.status >= 500 || TRANSIENT_STATUSES.has(err.status);
     const Err = transient ? TransientProviderError : PermanentProviderError;
     throw new Err(`Cloudflare API ${err.status ?? '(no status)'}: ${detail}`, PROVIDER);
   }

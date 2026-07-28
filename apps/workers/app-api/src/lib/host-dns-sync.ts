@@ -34,7 +34,12 @@ const RECORD_TYPES: ReadonlyArray<LocalRecordType> = [
   'A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SRV', 'CAA', 'PTR', 'SOA',
 ];
 
-function mapType(t: DnsRecordType | string): LocalRecordType | null {
+/**
+ * `null` arrives for record types the zones client cannot edit (SOA, HTTPS, …);
+ * those are skipped by the caller rather than synced.
+ */
+function mapType(t: DnsRecordType | string | null): LocalRecordType | null {
+  if (!t) return null;
   return (RECORD_TYPES as readonly string[]).includes(t) ? (t as LocalRecordType) : null;
 }
 

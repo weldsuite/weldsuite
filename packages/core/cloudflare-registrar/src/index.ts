@@ -18,7 +18,7 @@
  */
 
 import { createClient } from 'cloudflare/tree-shakable';
-import { APIError } from 'cloudflare/core/error';
+import { APIConnectionError, APIError } from 'cloudflare/core/error';
 import type { ClientOptions } from 'cloudflare/client';
 import { BaseRegistrar } from 'cloudflare/resources/registrar/registrar';
 import { BaseRegistrations } from 'cloudflare/resources/registrar/registrations';
@@ -57,13 +57,18 @@ export class CloudflareApiError extends Error {
 
 /**
  * Run an SDK call, converting `APIError` into {@link CloudflareApiError}.
- * Anything that is not an API-level failure (a network drop, an abort) is
- * re-thrown untouched — those are not Cloudflare telling us something.
+ *
+ * `APIConnectionError` and its timeout subclass extend `APIError` despite
+ * carrying no HTTP status, so they have to be excluded explicitly — otherwise a
+ * dropped socket is reported as "Cloudflare API 0", which reads like a response
+ * we never got. Those, and anything that is not an API error at all, are
+ * re-thrown untouched: they are not Cloudflare telling us something.
  */
 async function translateErrors<T>(endpoint: string, fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (err) {
+    if (err instanceof APIConnectionError) throw err;
     if (!(err instanceof APIError)) throw err;
     const errors = (err.errors ?? []).map((e) => ({
       code: Number(e.code ?? 0),
@@ -216,43 +221,76 @@ function mapContacts(contact: RegisterInput['contact']) {
   if (!contact) return undefined;
   const name = [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim();
   const street = [contact.address1, contact.address2].filter(Boolean).join(', ').trim();
-  if (
-    !name ||
-    !street ||
-    !contact.email ||
-    !contact.phone ||
-    !contact.city ||
-    !contact.state ||
-    !contact.postalCode ||
-    !contact.country
-  ) {
+
+  // Cloudflare's registrant schema types every one of these as required —
+  // including `state`, which many ccTLD addresses (NL, BE, DE, …) do not have.
+  // We cannot omit it, and inventing a value would falsify a registry record,
+  // so an address without one still falls back to the account default
+  // registrant. Log which fields were missing: the fallback is otherwise
+  // invisible, and "the WHOIS shows the wrong registrant" is a miserable thing
+  // to debug from no signal at all.
+  const required = {
+    name,
+    street,
+    email: contact.email,
+    phone: contact.phone,
+    city: contact.city,
+    state: contact.state,
+    postalCode: contact.postalCode,
+    country: contact.country,
+  };
+  const missing = Object.entries(required)
+    .filter(([, value]) => !value)
+    .map(([field]) => field);
+
+  if (missing.length) {
+    console.warn(
+      `[cloudflare-registrar] registrant contact incomplete (missing: ${missing.join(', ')}) — ` +
+        'falling back to the account default registrant',
+    );
     return undefined;
   }
+
+  // Every value is a non-empty string past the guard above.
+  const r = required as { [K in keyof typeof required]: string };
+
   return {
     registrant: {
-      email: contact.email,
-      phone: contact.phone,
+      email: r.email,
+      phone: r.phone,
       postal_info: {
-        name,
+        name: r.name,
         ...(contact.organization ? { organization: contact.organization } : {}),
         address: {
-          street,
-          city: contact.city,
-          state: contact.state,
-          postal_code: contact.postalCode,
-          country_code: contact.country,
+          street: r.street,
+          city: r.city,
+          state: r.state,
+          postal_code: r.postalCode,
+          country_code: r.country,
         },
       },
     },
   };
 }
 
+/** The registration Cloudflare attaches to a succeeded workflow, if it did. */
+function workflowRegistration(w: WorkflowStatus): Registration | undefined {
+  return (w.context as { registration?: Registration } | undefined)?.registration;
+}
+
+/**
+ * Map a workflow to a caller-facing result.
+ *
+ * `succeeded` without an attached registration is deliberately NOT reported as
+ * completed here — there is no domain to hand back. {@link register} returns
+ * `pending` for it, and {@link getRegistrationStatus} resolves it by re-reading
+ * the registration; see the note there. Returning `completed` with a
+ * half-empty domain would write a bad row.
+ */
 function mapWorkflow(w: WorkflowStatus): RegisterResult {
   if (w.state === 'succeeded') {
-    const registration = (w.context as { registration?: Registration } | undefined)?.registration;
+    const registration = workflowRegistration(w);
     if (registration) return { status: 'completed', domain: mapRegistration(registration) };
-    // Terminal success without the resource attached: treat as pending so the
-    // caller re-reads the registration rather than writing a half-empty row.
     return { status: 'pending', workflowUrl: w.links.self, pollAfter: 0, actionRequired: false };
   }
   if (w.state === 'failed') {
@@ -344,11 +382,19 @@ export class CloudflareRegistrar {
    * GET /accounts/{accountId}/registrar/registrations/{domain}/status
    * Poll after {@link register} returns `pending`. Stop on `action_required`:
    * that state needs a human and will not resolve by waiting.
+   *
+   * When the workflow reports `succeeded` but carries no registration in its
+   * context, this re-reads the registration itself. Without that the poll would
+   * answer `pending` on every call — a terminal state that never resolves — and
+   * a paid domain would sit in `pending_workflow` forever.
    */
   async getRegistrationStatus(domainName: string): Promise<RegisterResult> {
     const workflow = await translateErrors('registration-status', () =>
       this.client.registrar.registrationStatus.get(domainName, { account_id: this.accountId }),
     );
+    if (workflow.state === 'succeeded' && !workflowRegistration(workflow)) {
+      return { status: 'completed', domain: await this.getDomain(domainName) };
+    }
     return mapWorkflow(workflow);
   }
 
