@@ -102,7 +102,7 @@ export const host = {
       support247: '24/7',
       free: 'Gratis',
       remove: 'Verwijderen',
-      renewsAt: 'Verlengd voor US$ {price}',
+      renewsAt: 'Verlengd voor {price}',
       selectAtLeastOne: 'Selecteer minimaal één domein',
       redirectingToCheckout: 'Doorsturen naar afrekenen voor {count} domein{plural}',
     },

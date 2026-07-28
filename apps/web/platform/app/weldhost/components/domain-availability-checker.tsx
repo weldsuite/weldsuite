@@ -19,6 +19,7 @@ import { useAppApi } from '@/lib/api/use-app-api';
 import { isApiError, isNetworkError } from '@weldsuite/api-client';
 import type { DomainSearchResult } from '@weldsuite/core-api-client/schemas/domains';
 import { useI18n } from '@/lib/i18n/provider';
+import { formatDomainPrice } from '../lib/format-domain-price';
 
 // Re-export under the legacy name so existing consumers (domain-search-client.tsx,
 // domain-registration-client.tsx) keep compiling without changes.
@@ -43,7 +44,7 @@ export function DomainAvailabilityChecker({
   initialSearchTerm = '',
   mobileSlot,
 }: DomainAvailabilityCheckerProps) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const ta = t.host.availability;
 
   const [searchTerm, setSearchTerm] = useState(initialSearchTerm);
@@ -215,7 +216,10 @@ export function DomainAvailabilityChecker({
               <div className="divide-y divide-border">
                 {domainResults.map((result) => {
                   const isUnavailable = result.status === 2;
-                  const hasPrice = result.price != null;
+                  // `price` is in cents — formatDomainPrice divides. It returns
+                  // null when there is nothing to show, which also gates the cart.
+                  const priceLabel = formatDomainPrice(result.price, result.currency, language);
+                  const hasPrice = priceLabel !== null;
                   const isSelected = selectedDomainNames.includes(result.domain_name);
 
                   return (
@@ -236,9 +240,7 @@ export function DomainAvailabilityChecker({
                           <p
                             className={`text-sm md:text-base font-medium ${isUnavailable ? 'text-gray-400' : 'text-gray-900'}`}
                           >
-                            {hasPrice ? (
-                              `US$ ${typeof result.price === 'number' ? result.price.toFixed(2) : result.price}`
-                            ) : (
+                            {priceLabel ?? (
                               <span className="text-muted-foreground text-xs md:text-sm">{ta.unavailable}</span>
                             )}
                           </p>

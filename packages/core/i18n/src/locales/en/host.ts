@@ -102,7 +102,7 @@ export const host = {
       support247: '24/7',
       free: 'Free',
       remove: 'Remove',
-      renewsAt: 'Renews at US$ {price}',
+      renewsAt: 'Renews at {price}',
       selectAtLeastOne: 'Please select at least one domain',
       redirectingToCheckout: 'Redirecting to checkout for {count} domain{plural}',
     },

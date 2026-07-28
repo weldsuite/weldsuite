@@ -10,9 +10,10 @@ import { useAppApi } from '@/lib/api/use-app-api';
 import { cn } from '@/lib/utils';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useI18n } from '@/lib/i18n/provider';
+import { formatDomainPrice } from '../../lib/format-domain-price';
 
 export function DomainRegistrationClient() {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const tr = t.host.registration;
 
   const rotatingPhrases = [
@@ -218,30 +219,38 @@ export function DomainRegistrationClient() {
     );
   }
 
-  const formatPrice = (price: number | null | undefined) => {
-    if (price === undefined || price === null) return '11,25';
-    return price.toFixed(2).replace('.', ',');
-  };
+  // Stripe checkout is single-currency, so the cart takes whichever currency
+  // the selected domains carry.
+  const cartCurrency = selectedDomains.find((d) => d.currency)?.currency ?? null;
 
-  const totalPrice = selectedDomains.reduce((sum, domain) => sum + (domain.price || 11.25), 0);
-  const totalFormatted = formatPrice(totalPrice);
+  /**
+   * Prices arrive in cents. The previous formatter rendered them as decimals
+   * (1125 cents became "11,25") and fell back to a literal 11.25 — a currency
+   * unit summed into a cents total. A domain with no price can't be added to
+   * the cart at all, so null here is an anomaly: show a dash, never a guess.
+   */
+  const formatPrice = (cents: number | null | undefined, currency?: string | null) =>
+    formatDomainPrice(cents, currency ?? cartCurrency, language) ?? '—';
+
+  const totalCents = selectedDomains.reduce((sum, domain) => sum + (domain.price ?? 0), 0);
+  const totalFormatted = formatPrice(totalCents);
 
   // Mobile summary content (shown under search on mobile)
   const mobileSummaryContent = selectedDomains.length > 0 ? (
     <div className="bg-background rounded-lg border border-border p-4 space-y-3">
       <h3 className="text-sm font-semibold">{tr.purchaseSummary}</h3>
       {selectedDomains.map((domain, index) => {
-        const priceFormatted = formatPrice(domain.price);
+        const priceFormatted = formatPrice(domain.price, domain.currency);
         return (
           <div key={domain.domain_name} className={`flex items-center justify-between ${index > 0 ? 'pt-2 border-t border-input' : ''}`}>
             <span className="text-sm truncate mr-2">{domain.domain_name}</span>
-            <span className="text-sm font-medium flex-shrink-0">US$ {priceFormatted}</span>
+            <span className="text-sm font-medium flex-shrink-0">{priceFormatted}</span>
           </div>
         );
       })}
       <div className="flex items-center justify-between pt-2 border-t border-input">
         <span className="text-sm font-semibold">{tr.total}</span>
-        <span className="text-sm font-semibold">US$ {totalFormatted}</span>
+        <span className="text-sm font-semibold">{totalFormatted}</span>
       </div>
       <Button
         onClick={handleSubmit}
@@ -278,7 +287,7 @@ export function DomainRegistrationClient() {
   const summaryBottomFields: HostSummaryField[] = [
     {
       label: <span className="text-base">{tr.total}</span>,
-      value: <span className="text-base font-semibold">US$ {totalFormatted}</span>,
+      value: <span className="text-base font-semibold">{totalFormatted}</span>,
       bordered: false,
     },
   ];
@@ -286,7 +295,7 @@ export function DomainRegistrationClient() {
   const summaryContent = selectedDomains.length > 0 ? (
     <div className="space-y-3">
       {selectedDomains.map((domain, index) => {
-        const priceFormatted = formatPrice(domain.price);
+        const priceFormatted = formatPrice(domain.price, domain.currency);
         const isExpanded = expandedDomains.has(domain.domain_name);
 
         return (
@@ -303,7 +312,7 @@ export function DomainRegistrationClient() {
                   <ChevronDown className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                 )}
               </div>
-              <span className="text-sm font-medium">US$ {priceFormatted}</span>
+              <span className="text-sm font-medium">{priceFormatted}</span>
             </div>
 
             {isExpanded && (
