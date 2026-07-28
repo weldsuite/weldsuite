@@ -282,15 +282,16 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
   }, [status, getToken]);
 
   // ── Camera pre-warm ──────────────────────────────────────────────────────
-  // While the user is on /weldmeet/new (the meeting-start lobby), pre-acquire
-  // the camera + mic via RealtimeKitClient.initMedia. The returned SelfMedia
-  // is later passed to RealtimeKitClient.init as `defaults.mediaHandler`, so
-  // RTK reuses these exact tracks when the meeting connects — no flicker, no
-  // second permission prompt, and Chrome sees a real getUserMedia stream
-  // active on the origin from the moment the lobby loads. That's what makes
-  // "click Start an instant meeting → immediate tab switch" produce auto-PiP
-  // straight away (Google Meet's pattern), instead of needing the user to
-  // first click somewhere inside the meeting room.
+  // Pre-acquire the camera + mic via RealtimeKitClient.initMedia, from inside
+  // the user gesture that starts a meeting (never from a mount effect — see
+  // the note below `prewarmMedia`). The returned SelfMedia is later passed to
+  // RealtimeKitClient.init as `defaults.mediaHandler`, so RTK reuses these
+  // exact tracks when the meeting connects — no flicker, no second permission
+  // prompt, and Chrome sees a real getUserMedia stream active on the origin
+  // from the moment of the click. That's what makes "click Start an instant
+  // meeting → immediate tab switch" produce auto-PiP straight away (Google
+  // Meet's pattern), instead of needing the user to first click somewhere
+  // inside the meeting room.
   const releasePrewarm = useCallback(() => {
     const m = prewarmedMediaRef.current;
     if (!m) return;
@@ -308,7 +309,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
   }, []);
 
   // In-flight prewarm so `prewarmMedia()` is idempotent across concurrent
-  // callers (e.g. the layout-mount effect AND the click handler).
+  // callers (e.g. a click handler firing twice on a double click).
   const prewarmInFlightRef = useRef<Promise<void> | null>(null);
 
   const prewarmMedia = useCallback(async (): Promise<void> => {
@@ -344,22 +345,15 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
     return promise;
   }, []);
 
-  useEffect(() => {
-    // Pre-warm only on /weldmeet/new — the lobby page where the user has
-    // explicit intent to start a meeting. Acquiring the mic anywhere else
-    // under /weldmeet would surface the browser's "microphone in use"
-    // indicator on dashboard / list views and read as "the meeting is
-    // already running", which it isn't.
-    //
-    // The click handler in /weldmeet/new also calls `prewarmMedia()`
-    // synchronously, which covers the case where the user lands on a
-    // different /weldmeet page and clicks Start before the lobby useEffect
-    // has had a chance to run.
-    const isLobby = !!pathname && pathname.startsWith('/weldmeet/new');
-    if (!isLobby || status !== 'idle') return;
-    if (prewarmedMediaRef.current) return;
-    void prewarmMedia();
-  }, [pathname, status, prewarmMedia]);
+  // NOTE: there is deliberately no route-mount pre-warm. Merely *rendering* a
+  // page — even the /weldmeet/new lobby — is not intent to join a meeting, and
+  // acquiring the devices there turned the browser's camera/microphone
+  // indicator on for anyone who happened to land on the page. The mic is only
+  // ever opened from an explicit user action: the "Start an instant meeting"
+  // click handler in /weldmeet/new calls `prewarmMedia()` synchronously inside
+  // the gesture (which is also what makes Chrome auto-PiP the meeting on the
+  // next tab switch), and `joinMeeting` / `connectToMeeting` acquire media
+  // when the user actually enters a room.
 
   // Release the pre-warm if the user navigates away from any /weldmeet/*
   // route without joining. /weldmeet/$id/room keeps it (initMeeting will
