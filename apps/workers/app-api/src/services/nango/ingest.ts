@@ -18,15 +18,9 @@
  * connection's workspace. Nothing here takes a workspace id — there is no code
  * path that could address another tenant's rows.
  *
- * IMPORTANT — the entity write and its mapping write are NOT one transaction.
- * The tenant DB is Neon's HTTP driver (`drizzle-orm/neon-http`), which throws
- * "No transactions support" for `db.transaction()` (same constraint documented
- * in `services/desk/parts.ts`). If a Worker dies between the two statements the
- * row exists with no mapping, and the next delivery re-creates it — a duplicate
- * for opportunities, which have no natural dedup key. The window is two
- * sequential awaits and the failure is bounded, so this is accepted rather than
- * worked around; it closes for free if the tenant DB ever moves to the WebSocket
- * driver.
+ * Each entity write and its mapping write commit together — see `atomically`.
+ * neon-http has no interactive transactions, so this goes through `db.batch()`,
+ * which Neon runs as one transaction per HTTP request.
  */
 
 import { and, asc, eq, isNull } from 'drizzle-orm';
@@ -180,6 +174,48 @@ function companySyncOf(connector: ConnectorDef): ConnectorSyncDef | undefined {
   return connector.syncs.find((s) => s.internalEntity === 'company');
 }
 
+/**
+ * Commit related writes as one unit.
+ *
+ * An entity row and its `integration_entity_mappings` row must land together.
+ * Split across two statements, a Worker dying in between leaves a row with no
+ * mapping — and the next delivery re-creates it, which for opportunities (no
+ * natural dedup key) is an unbounded duplicate per retry.
+ *
+ * The tenant DB is neon-http, which has no interactive transactions
+ * (`db.transaction()` throws "No transactions support"). It does have
+ * `db.batch()`, which Neon executes as a single transaction in one HTTP
+ * request — the guarantee we need. Drivers with it the other way round (pglite,
+ * which the tests use) fall back to a real transaction, so both paths are
+ * atomic and the tests exercise the production semantics rather than a
+ * weaker stand-in.
+ *
+ * `build` is called with the handle to construct against. Drizzle query
+ * builders are lazy, so building does not execute.
+ */
+async function atomically(
+  db: Database,
+  build: (handle: Database) => unknown[],
+): Promise<void> {
+  const driver = db as unknown as {
+    batch?: (items: unknown[]) => Promise<unknown>;
+    transaction?: (fn: (tx: Database) => Promise<void>) => Promise<void>;
+  };
+
+  if (typeof driver.batch === 'function') {
+    await driver.batch(build(db));
+    return;
+  }
+  if (typeof driver.transaction === 'function') {
+    await driver.transaction(async (tx) => {
+      for (const statement of build(tx)) await (statement as Promise<unknown>);
+    });
+    return;
+  }
+  // No driver we know of lands here; sequential is strictly better than throwing.
+  for (const statement of build(db)) await (statement as Promise<unknown>);
+}
+
 // ============================================================================
 // Upsert
 // ============================================================================
@@ -221,16 +257,20 @@ async function upsertByMapping(args: {
     if (mapping.syncChecksum === args.checksum) {
       return { action: 'skipped', internalId: mapping.internalEntityId };
     }
-    await db
-      .update(args.table)
-      // `deletedAt: null` resurrects a row we previously soft-deleted for a
-      // provider delete — the mapping survived, so an undelete lands here.
-      .set({ ...args.values, deletedAt: null, updatedAt: new Date() } as never)
-      .where(eq(cols.id, mapping.internalEntityId));
-    await db
-      .update(schema.integrationEntityMappings)
-      .set({ syncChecksum: args.checksum, lastSyncedAt: new Date(), updatedAt: new Date() })
-      .where(eq(schema.integrationEntityMappings.id, mapping.id));
+    // Atomic: if the checksum landed without the row update, the next delivery
+    // would match the checksum and skip — the update lost forever.
+    await atomically(db, (h) => [
+      h
+        .update(args.table)
+        // `deletedAt: null` resurrects a row we previously soft-deleted for a
+        // provider delete — the mapping survived, so an undelete lands here.
+        .set({ ...args.values, deletedAt: null, updatedAt: new Date() } as never)
+        .where(eq(cols.id, mapping.internalEntityId)),
+      h
+        .update(schema.integrationEntityMappings)
+        .set({ syncChecksum: args.checksum, lastSyncedAt: new Date(), updatedAt: new Date() })
+        .where(eq(schema.integrationEntityMappings.id, mapping.id)),
+    ]);
     return { action: 'updated', internalId: mapping.internalEntityId };
   }
 
@@ -248,36 +288,43 @@ async function upsertByMapping(args: {
       .limit(1);
 
     if (match) {
-      await db.insert(schema.integrationEntityMappings).values({
-        id: generateId('iem'),
-        connectionId,
-        externalEntityType,
-        externalEntityId,
-        internalEntityType,
-        internalEntityId: match.id,
-        lastSyncedAt: new Date(),
-        syncChecksum: args.checksum,
-      });
-      await db
-        .update(args.table)
-        .set({ ...args.values, updatedAt: new Date() } as never)
-        .where(eq(cols.id, match.id));
+      await atomically(db, (h) => [
+        h.insert(schema.integrationEntityMappings).values({
+          id: generateId('iem'),
+          connectionId,
+          externalEntityType,
+          externalEntityId,
+          internalEntityType,
+          internalEntityId: match.id,
+          lastSyncedAt: new Date(),
+          syncChecksum: args.checksum,
+        }),
+        h
+          .update(args.table)
+          .set({ ...args.values, updatedAt: new Date() } as never)
+          .where(eq(cols.id, match.id)),
+      ]);
       return { action: 'updated', internalId: match.id };
     }
   }
 
+  // The branch the atomicity matters most for: a row created without its
+  // mapping is re-created on every redelivery, and opportunities have no
+  // natural key to dedup the duplicates against.
   const newId = generateId(args.idPrefix);
-  await db.insert(args.table).values({ id: newId, ...args.values } as never);
-  await db.insert(schema.integrationEntityMappings).values({
-    id: generateId('iem'),
-    connectionId,
-    externalEntityType,
-    externalEntityId,
-    internalEntityType,
-    internalEntityId: newId,
-    lastSyncedAt: new Date(),
-    syncChecksum: args.checksum,
-  });
+  await atomically(db, (h) => [
+    h.insert(args.table).values({ id: newId, ...args.values } as never),
+    h.insert(schema.integrationEntityMappings).values({
+      id: generateId('iem'),
+      connectionId,
+      externalEntityType,
+      externalEntityId,
+      internalEntityType,
+      internalEntityId: newId,
+      lastSyncedAt: new Date(),
+      syncChecksum: args.checksum,
+    }),
+  ]);
   return { action: 'created', internalId: newId };
 }
 
@@ -329,14 +376,19 @@ async function softDeleteMapped(
   mappingId: string,
 ): Promise<void> {
   const cols = table as unknown as Record<string, any>;
-  await db
-    .update(table)
-    .set({ deletedAt: new Date(), updatedAt: new Date() } as never)
-    .where(eq(cols.id, internalId));
-  await db
-    .update(schema.integrationEntityMappings)
-    .set({ syncChecksum: null, lastSyncedAt: new Date(), updatedAt: new Date() })
-    .where(eq(schema.integrationEntityMappings.id, mappingId));
+  // Atomic: a cleared checksum without the soft delete would re-import the
+  // record as an update; a soft delete without the cleared checksum would make
+  // the undelete unreachable.
+  await atomically(db, (h) => [
+    h
+      .update(table)
+      .set({ deletedAt: new Date(), updatedAt: new Date() } as never)
+      .where(eq(cols.id, internalId)),
+    h
+      .update(schema.integrationEntityMappings)
+      .set({ syncChecksum: null, lastSyncedAt: new Date(), updatedAt: new Date() })
+      .where(eq(schema.integrationEntityMappings.id, mappingId)),
+  ]);
 }
 
 // ============================================================================

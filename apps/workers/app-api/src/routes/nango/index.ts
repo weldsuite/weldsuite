@@ -13,21 +13,17 @@
  * integrations:delete — the same keys the legacy `/api/integrations` surface
  * uses, so a role that could manage integrations can manage connectors.
  *
- * Entity events: connection lifecycle mutations here publish none, because
- * `nango_connection` is not in the @weldsuite/entity-events catalog — the same
- * gap `integration_connection` has in routes/integrations/index.ts. The events
- * that carry the actual business data (`company`, `person`, `opportunity`) are
- * published by the ingest, so audit logging, workflows and analytics see every
- * synced record; only "a connector was connected/paused" is invisible. Closing
- * it means adding an entity type to the catalog, which also defines new
- * workflow triggers and agent subscriptions — a deliberate decision rather than
- * a drive-by, and tracked with the `integration_connection` gap.
+ * Entity events: every mutation publishes a `connector_connection` event, so
+ * audit logging, workflows, analytics and agents see the connector lifecycle.
+ * The events carrying the synced business data (`company`, `person`,
+ * `opportunity`) are published separately by the ingest.
  */
 
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
+import { publishEntityEvent } from '@weldsuite/entity-events';
 import { NangoApiError, connectorSyncNames, getConnector, listConnectors } from '@weldsuite/nango';
 import type { Env, Variables } from '../../types';
 import { error, success } from '../../lib/response';
@@ -191,6 +187,14 @@ app.post(
         allowed_integrations: [providerConfigKey],
       });
 
+      publishEntityEvent({
+        c,
+        entityType: 'connector_connection',
+        action: 'created',
+        entityId: connection.id,
+        data: sanitizeConnection(connection) as unknown as Record<string, unknown>,
+      });
+
       return success(c, {
         connectionId: connection.id,
         providerConfigKey,
@@ -264,6 +268,13 @@ app.post(
       await rememberConnectionWorkspace(c.env, row.providerConfigKey, nangoConnectionId, orgId);
 
       const updated = await getConnectionRow(db, row.id);
+      publishEntityEvent({
+        c,
+        entityType: 'connector_connection',
+        action: 'connected',
+        entityId: row.id,
+        data: sanitizeConnection(updated!) as unknown as Record<string, unknown>,
+      });
       return success(c, sanitizeConnection(updated!));
     } catch (err) {
       console.error('[app-api/nango] finalize failed:', err);
@@ -349,6 +360,19 @@ app.post(
         .set({ status: 'active', lastError: null, lastErrorAt: null, updatedAt: new Date() })
         .where(eq(schema.nangoConnections.id, row.id));
 
+      publishEntityEvent({
+        c,
+        entityType: 'connector_connection',
+        action: 'sync_started',
+        entityId: row.id,
+        data: {
+          id: row.id,
+          providerConfigKey: row.providerConfigKey,
+          syncs,
+          full: body.full ?? false,
+        },
+      });
+
       return success(c, { triggered: syncs, full: body.full ?? false });
     } catch (err) {
       console.error('[app-api/nango] trigger sync failed:', err);
@@ -358,6 +382,13 @@ app.post(
           connectionId: row.id,
           status: 'auth_error',
           message: 'Provider rejected the stored credentials',
+        });
+        publishEntityEvent({
+          c,
+          entityType: 'connector_connection',
+          action: 'auth_error',
+          entityId: row.id,
+          data: { id: row.id, providerConfigKey: row.providerConfigKey },
         });
       }
       return nangoErrorResponse(c, err);
@@ -384,6 +415,13 @@ app.post('/connections/:id/pause', requirePermission('integrations:update'), asy
       .update(schema.nangoConnections)
       .set({ status: 'paused', updatedAt: new Date() })
       .where(eq(schema.nangoConnections.id, row.id));
+    publishEntityEvent({
+      c,
+      entityType: 'connector_connection',
+      action: 'paused',
+      entityId: row.id,
+      data: { id: row.id, providerConfigKey: row.providerConfigKey, status: 'paused' },
+    });
     return success(c, { status: 'paused' });
   } catch (err) {
     console.error('[app-api/nango] pause failed:', err);
@@ -409,6 +447,13 @@ app.post('/connections/:id/resume', requirePermission('integrations:update'), as
       .update(schema.nangoConnections)
       .set({ status: 'active', updatedAt: new Date() })
       .where(eq(schema.nangoConnections.id, row.id));
+    publishEntityEvent({
+      c,
+      entityType: 'connector_connection',
+      action: 'resumed',
+      entityId: row.id,
+      data: { id: row.id, providerConfigKey: row.providerConfigKey, status: 'active' },
+    });
     return success(c, { status: 'active' });
   } catch (err) {
     console.error('[app-api/nango] resume failed:', err);
@@ -444,6 +489,13 @@ app.delete('/connections/:id', requirePermission('integrations:delete'), async (
   }
 
   await markConnectionDisconnected(db, row.id);
+  publishEntityEvent({
+    c,
+    entityType: 'connector_connection',
+    action: 'disconnected',
+    entityId: row.id,
+    data: { id: row.id, providerConfigKey: row.providerConfigKey, provider: row.provider },
+  });
   return success(c, { id: row.id, disconnected: true });
 });
 

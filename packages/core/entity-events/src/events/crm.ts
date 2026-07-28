@@ -34,7 +34,5 @@ export const CRM_ENTITY_EVENTS = {
   sequence: ['created', 'updated', 'deleted'],
   call: ['created', 'updated', 'deleted'],
   transcription: ['created', 'updated', 'deleted'],
-  meeting_bot_session: ['created', 'updated', 'deleted'],
   customer_status: ['created', 'updated', 'deleted'],
-  analytics_report: ['created', 'updated', 'deleted'],
 } as const;

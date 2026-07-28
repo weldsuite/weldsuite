@@ -32,6 +32,7 @@ import {
   type NangoAuthWebhook,
   type NangoSyncWebhook,
 } from '@weldsuite/nango';
+import { publishEntityEventRaw } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../types';
 import { getTenantDbForWorkspace, type Database } from '../db';
 import { ingestRecords, resolveSync } from '../services/nango/ingest';
@@ -96,6 +97,39 @@ interface WebhookOutcome {
   status?: 200 | 503;
 }
 
+/**
+ * Publish a connector lifecycle event from the webhook path.
+ *
+ * `publishEntityEventRaw` rather than `publishEntityEvent`: there is no Hono
+ * context carrying a tenant DB here. The actor is `system` — the webhook is
+ * Nango calling us, not a user acting. Failures are logged, never fatal: the
+ * connection state is already committed, and a thrown event would turn a
+ * successful authorisation into a webhook Nango retries forever.
+ */
+async function publishConnectionEvent(
+  env: Env,
+  clerkOrgId: string,
+  db: Database,
+  connectionId: string,
+  action: 'connected' | 'auth_error',
+  data: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await publishEntityEventRaw({
+      env: env as never,
+      db: db as never,
+      workspaceId: clerkOrgId,
+      userId: 'system',
+      entityType: 'connector_connection',
+      action,
+      entityId: connectionId,
+      data: { id: connectionId, ...data },
+    });
+  } catch (err) {
+    console.error(`[nango-webhook] failed to publish ${action} for ${connectionId}:`, err);
+  }
+}
+
 // ============================================================================
 // auth
 // ============================================================================
@@ -138,6 +172,10 @@ async function handleAuthWebhook(env: Env, payload: NangoAuthWebhook): Promise<W
       status: 'auth_error',
       message: payload.error?.description ?? 'Authorisation failed',
     });
+    await publishConnectionEvent(env, clerkOrgId, db, connection.id, 'auth_error', {
+      providerConfigKey: payload.providerConfigKey,
+      error: payload.error?.description ?? 'Authorisation failed',
+    });
     return { body: { ok: true, status: 'auth_error' } };
   }
 
@@ -147,6 +185,14 @@ async function handleAuthWebhook(env: Env, payload: NangoAuthWebhook): Promise<W
     nangoConnectionId: payload.connectionId,
   });
   await rememberConnectionWorkspace(env, payload.providerConfigKey, payload.connectionId, clerkOrgId);
+
+  // Same event the finalize route emits — whichever path wins the race, the
+  // lifecycle looks identical to workflows and the audit log.
+  await publishConnectionEvent(env, clerkOrgId, db, connection.id, 'connected', {
+    providerConfigKey: payload.providerConfigKey,
+    provider: payload.provider,
+    operation: payload.operation,
+  });
 
   return { body: { ok: true, status: 'active', operation: payload.operation } };
 }
