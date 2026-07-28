@@ -349,6 +349,17 @@ describe('CloudflareRegistrar.getRegistrationStatus', () => {
     expires_at: '2027-07-26T00:00:00Z',
   };
 
+  /** What `registration` above must map to. */
+  const mappedDomain = {
+    id: 'weldsuite.dev',
+    name: 'weldsuite.dev',
+    status: 'active',
+    expiresAt: '2027-07-26T00:00:00Z',
+    autoRenew: true,
+    locked: false,
+    privacyMode: 'redaction',
+  };
+
   /**
    * A terminal `succeeded` with no registration attached would otherwise map to
    * `pending` on every poll, leaving a paid domain in `pending_workflow`
@@ -372,21 +383,15 @@ describe('CloudflareRegistrar.getRegistrationStatus', () => {
 
     const result = await cf.getRegistrationStatus('weldsuite.dev');
 
-    // Status poll, then the follow-up read of the registration itself.
+    // Status poll, then the follow-up read of the registration itself. The stub
+    // answers any URL, so both requests are pinned — otherwise a regression
+    // that sent the first one to the wrong resource would still pass.
     expect(calls).toHaveLength(2);
-    expect(calls[1]!.url).toContain('/registrar/registrations/weldsuite.dev');
-    expect(result).toEqual({
-      status: 'completed',
-      domain: {
-        id: 'weldsuite.dev',
-        name: 'weldsuite.dev',
-        status: 'active',
-        expiresAt: '2027-07-26T00:00:00Z',
-        autoRenew: true,
-        locked: false,
-        privacyMode: 'redaction',
-      },
-    });
+    expect(calls[0]!.url).toContain('/registrar/registrations/weldsuite.dev/registration-status');
+    expect(calls[0]!.init?.method).toBe('GET');
+    expect(calls[1]!.url).toMatch(/\/registrar\/registrations\/weldsuite\.dev$/);
+    expect(calls[1]!.init?.method).toBe('GET');
+    expect(result).toEqual({ status: 'completed', domain: mappedDomain });
   });
 
   it('uses the attached registration without a second call', async () => {
@@ -406,7 +411,10 @@ describe('CloudflareRegistrar.getRegistrationStatus', () => {
     const result = await cf.getRegistrationStatus('weldsuite.dev');
 
     expect(calls).toHaveLength(1);
-    expect(result).toMatchObject({ status: 'completed' });
+    expect(calls[0]!.url).toContain('/registrar/registrations/weldsuite.dev/registration-status');
+    // Assert the full mapping, not just the status: a version that dropped
+    // `context.registration` and re-read it would also produce 'completed'.
+    expect(result).toEqual({ status: 'completed', domain: mappedDomain });
   });
 });
 
