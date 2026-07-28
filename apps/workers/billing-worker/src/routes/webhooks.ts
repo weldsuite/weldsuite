@@ -1649,6 +1649,18 @@ async function handleDomainRegistrationCheckout(
     return;
   }
 
+  // Delayed payment methods (SEPA, Bacs, bank transfer) complete the session
+  // with payment_status='unpaid' and re-fire as async_payment_succeeded once
+  // funds settle — both events route here. Domain registration is billable and
+  // non-refundable, so it has to wait for the paid signal: registering on the
+  // unpaid completion buys the domain for a payment that can still fail.
+  if (session.payment_status && session.payment_status !== 'paid') {
+    console.log(
+      `[Domain Registration] Session ${sessionId} not paid yet (${session.payment_status}), skipping`,
+    );
+    return;
+  }
+
   let registrationIds: string[];
   try {
     registrationIds = JSON.parse(registrationIdsRaw) as string[];
