@@ -22,7 +22,8 @@ export interface CfRoutingRule {
   id: string;
   name?: string;
   enabled: boolean;
-  matchers: Array<{ type: 'literal' | 'all'; field?: string; value?: string }>;
+  /** `field` is `'to'` — the only field Cloudflare matches routing rules on. */
+  matchers: Array<{ type: 'literal' | 'all'; field?: 'to'; value?: string }>;
   actions: Array<{ type: 'forward' | 'worker' | 'drop'; value?: string[] }>;
   priority?: number;
 }
@@ -35,14 +36,20 @@ export interface CfDestinationAddress {
   modified: string;
 }
 
+/**
+ * Everything but `enabled` and `name` is optional on the wire, and the status
+ * set is wider than the three values this used to declare — Cloudflare also
+ * reports `misconfigured/locked` and `unlocked`. Callers check for `'ready'`,
+ * so the extra states just need to not be silently narrowed away.
+ */
 export interface CfRoutingSettings {
   enabled: boolean;
   name: string;
-  tag: string;
-  status: 'ready' | 'unconfigured' | 'misconfigured';
-  modified: string;
-  created: string;
-  skip_wizard: boolean;
+  tag?: string;
+  status?: 'ready' | 'unconfigured' | 'misconfigured' | 'misconfigured/locked' | 'unlocked';
+  modified?: string;
+  created?: string;
+  skip_wizard?: boolean;
 }
 
 export interface CfDnsRecord {

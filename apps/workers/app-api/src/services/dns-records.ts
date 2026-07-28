@@ -13,7 +13,7 @@ import {
   createDnsRecordInZone,
   updateDnsRecordInZone,
   deleteDnsRecordInZone,
-} from '../lib/cloudflare-zones';
+} from '@weldsuite/cloudflare-zones';
 import { scanDomainRecords, type DnsRecord as PublicDnsRecord } from '../lib/dns-lookup';
 import {
   syncZoneRecordsFromCloudflare,

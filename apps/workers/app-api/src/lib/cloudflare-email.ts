@@ -20,7 +20,7 @@ import {
 } from '@weldsuite/email/providers/cloudflare';
 import { PendingVerificationError } from '@weldsuite/email';
 import type { EmailAttachment } from '@weldsuite/email/core/types';
-import { findZoneIdByName } from './cloudflare-zones';
+import { findZoneIdByName } from '@weldsuite/cloudflare-zones';
 import type { Env } from '../types';
 
 export interface SendEmailParams {

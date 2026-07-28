@@ -988,7 +988,7 @@ importers:
         version: 0.32.15(expo@54.0.30)(react-native@0.81.4(@babel/core@7.28.5)(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.1.0)(utf-8-validate@5.0.10))(react@19.1.0)
       expo-router:
         specifier: ~6.0.7
-        version: 6.0.21(ae82f5749d5f4d220af327db580764db)
+        version: 6.0.21(5a1773111c8a697ad7f0966d2b439281)
       expo-secure-store:
         specifier: ^15.0.8
         version: 15.0.8(expo@54.0.30)
@@ -1055,7 +1055,7 @@ importers:
         version: 6.9.4
       jest:
         specifier: ^30.2.0
-        version: 30.2.0(@types/node@20.19.27)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@20.19.27)(typescript@5.9.3))
+        version: 30.2.0(@types/node@26.1.1)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@26.1.1)(typescript@5.9.3))
       jest-junit:
         specifier: ^16.0.0
         version: 16.0.0
@@ -1480,7 +1480,7 @@ importers:
         version: 0.32.15(expo@54.0.30)(react-native@0.81.4(@babel/core@7.28.5)(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.1.0)(utf-8-validate@5.0.10))(react@19.1.0)
       expo-router:
         specifier: ~6.0.7
-        version: 6.0.21(5a1773111c8a697ad7f0966d2b439281)
+        version: 6.0.21(ae82f5749d5f4d220af327db580764db)
       expo-secure-store:
         specifier: ^15.0.8
         version: 15.0.8(expo@54.0.30)
@@ -1562,7 +1562,7 @@ importers:
         version: 5.4.3(react-native@0.81.4(@babel/core@7.28.5)(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.1.0)(utf-8-validate@5.0.10))(react-test-renderer@19.2.3(react@19.1.0))(react@19.1.0)
       '@testing-library/react-native':
         specifier: ^13.3.3
-        version: 13.3.3(jest@30.2.0(@types/node@26.1.1)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@26.1.1)(typescript@5.9.3)))(react-native@0.81.4(@babel/core@7.28.5)(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.1.0)(utf-8-validate@5.0.10))(react-test-renderer@19.2.3(react@19.1.0))(react@19.1.0)
+        version: 13.3.3(jest@30.2.0(@types/node@20.19.27)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@20.19.27)(typescript@5.9.3)))(react-native@0.81.4(@babel/core@7.28.5)(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.1.0)(utf-8-validate@5.0.10))(react-test-renderer@19.2.3(react@19.1.0))(react@19.1.0)
       '@types/jest':
         specifier: ^30.0.0
         version: 30.0.0
@@ -1580,10 +1580,10 @@ importers:
         version: 10.0.0(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)
       jest:
         specifier: ^30.2.0
-        version: 30.2.0(@types/node@26.1.1)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@26.1.1)(typescript@5.9.3))
+        version: 30.2.0(@types/node@20.19.27)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@20.19.27)(typescript@5.9.3))
       jest-expo:
         specifier: ^54.0.13
-        version: 54.0.16(@babel/core@7.28.5)(bufferutil@4.1.0)(expo@54.0.30)(jest@30.2.0(@types/node@26.1.1)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@26.1.1)(typescript@5.9.3)))(react-native@0.81.4(@babel/core@7.28.5)(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.1.0)(utf-8-validate@5.0.10))(react@19.1.0)(utf-8-validate@5.0.10)
+        version: 54.0.16(@babel/core@7.28.5)(bufferutil@4.1.0)(expo@54.0.30)(jest@30.2.0(@types/node@20.19.27)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@20.19.27)(typescript@5.9.3)))(react-native@0.81.4(@babel/core@7.28.5)(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.1.0)(utf-8-validate@5.0.10))(react@19.1.0)(utf-8-validate@5.0.10)
       jest-junit:
         specifier: ^16.0.0
         version: 16.0.0
@@ -2822,6 +2822,9 @@ importers:
       '@weldsuite/cloudflare-registrar':
         specifier: workspace:*
         version: link:../../../packages/core/cloudflare-registrar
+      '@weldsuite/cloudflare-zones':
+        specifier: workspace:*
+        version: link:../../../packages/core/cloudflare-zones
       '@weldsuite/core-api-client':
         specifier: workspace:*
         version: link:../../../packages/clients/core-api-client
@@ -2852,6 +2855,9 @@ importers:
       '@weldsuite/workflow-integrations':
         specifier: workspace:*
         version: link:../../../packages/core/workflow-integrations
+      cloudflare:
+        specifier: ^7.0.0
+        version: 7.0.0
       drizzle-orm:
         specifier: ^0.45.1
         version: 0.45.1(@cloudflare/workers-types@4.20260113.0)(@electric-sql/pglite@0.4.5)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(bun-types@1.3.6)(gel@2.2.0)(pg@8.20.0)(postgres@3.4.7)(sqlite3@5.1.7)
@@ -3376,6 +3382,9 @@ importers:
       '@neondatabase/serverless':
         specifier: ^1.0.1
         version: 1.0.2
+      '@weldsuite/cloudflare-zones':
+        specifier: workspace:*
+        version: link:../../../packages/core/cloudflare-zones
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../../packages/core/db
@@ -3525,6 +3534,10 @@ importers:
         version: 2.1.9(@types/node@20.19.27)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(lightningcss@1.31.1)(sass@1.51.0)(terser@5.49.0)
 
   packages/core/cloudflare-realtime:
+    dependencies:
+      cloudflare:
+        specifier: ^7.0.0
+        version: 7.0.0
     devDependencies:
       '@weldsuite/typescript-config':
         specifier: workspace:*
@@ -3534,6 +3547,26 @@ importers:
         version: 5.9.2
 
   packages/core/cloudflare-registrar:
+    dependencies:
+      cloudflare:
+        specifier: ^7.0.0
+        version: 7.0.0
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20250110.0
+        version: 4.20260113.0
+      '@weldsuite/typescript-config':
+        specifier: workspace:*
+        version: link:../../config/typescript-config
+      typescript:
+        specifier: ^5.7
+        version: 5.9.2
+
+  packages/core/cloudflare-zones:
+    dependencies:
+      cloudflare:
+        specifier: ^7.0.0
+        version: 7.0.0
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20250110.0
@@ -3643,6 +3676,9 @@ importers:
 
   packages/core/email:
     dependencies:
+      cloudflare:
+        specifier: ^7.0.0
+        version: 7.0.0
       dom-serializer:
         specifier: ^2.0.0
         version: 2.0.0
@@ -12090,6 +12126,10 @@ packages:
   clone@1.0.4:
     resolution: {integrity: sha512-JQHZ2QMW6l3aH/j6xCqQThY/9OH4D/9ls34cgkUBiEeocRTU04tHfKPBsUK1PqZCUQM7GiA0IIXJSuXHI64Kbg==}
     engines: {node: '>=0.8'}
+
+  cloudflare@7.0.0:
+    resolution: {integrity: sha512-ZU8Yp1biaRRf+i1Hlap/VUwSBeKnOa4kkygIU9naE07JILnHdgLr9Wq/iPEeEf2in0N5m1giTp1ohY+cNQZEGQ==}
+    hasBin: true
 
   clsx@1.2.1:
     resolution: {integrity: sha512-EcR6r5a8bj6pu3ycsa/E/cKVGuTgZJZdsyUYHOksG/UHIiKfjxzRxYJpyVBwYaQeOvghal9fcc4PidlgzugAQg==}
@@ -29142,7 +29182,6 @@ snapshots:
       redent: 3.0.0
     optionalDependencies:
       jest: 30.2.0(@types/node@20.19.27)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@20.19.27)(typescript@5.9.3))
-    optional: true
 
   '@testing-library/react-native@13.3.3(jest@30.2.0(@types/node@26.1.1)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@26.1.1)(typescript@5.9.2)))(react-native@0.81.4(@babel/core@7.28.5)(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.1.0)(utf-8-validate@5.0.10))(react-test-renderer@19.2.3(react@19.1.0))(react@19.1.0)':
     dependencies:
@@ -29181,6 +29220,7 @@ snapshots:
       redent: 3.0.0
     optionalDependencies:
       jest: 30.2.0(@types/node@26.1.1)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@26.1.1)(typescript@5.9.3))
+    optional: true
 
   '@testing-library/react-native@13.3.3(jest@30.2.0(@types/node@26.1.1)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@26.1.1)(typescript@5.9.3)))(react-native@0.81.4(@babel/core@7.28.5)(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.1.0)(utf-8-validate@6.0.6))(react-test-renderer@19.2.3(react@19.1.0))(react@19.1.0)':
     dependencies:
@@ -31614,6 +31654,8 @@ snapshots:
       mimic-response: 1.0.1
 
   clone@1.0.4: {}
+
+  cloudflare@7.0.0: {}
 
   clsx@1.2.1: {}
 
@@ -36144,7 +36186,7 @@ snapshots:
       - utf-8-validate
       - webpack
 
-  jest-expo@54.0.16(@babel/core@7.28.5)(bufferutil@4.1.0)(expo@54.0.30)(jest@30.2.0(@types/node@26.1.1)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@26.1.1)(typescript@5.9.3)))(react-native@0.81.4(@babel/core@7.28.5)(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.1.0)(utf-8-validate@5.0.10))(react@19.1.0)(utf-8-validate@5.0.10):
+  jest-expo@54.0.16(@babel/core@7.28.5)(bufferutil@4.1.0)(expo@54.0.30)(jest@30.2.0(@types/node@20.19.27)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@20.19.27)(typescript@5.9.3)))(react-native@0.81.4(@babel/core@7.28.5)(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.1.0)(utf-8-validate@5.0.10))(react@19.1.0)(utf-8-validate@5.0.10):
     dependencies:
       '@expo/config': 12.0.13
       '@expo/json-file': 10.0.8
@@ -36155,7 +36197,7 @@ snapshots:
       jest-environment-jsdom: 29.7.0(bufferutil@4.1.0)(utf-8-validate@5.0.10)
       jest-snapshot: 29.7.0
       jest-watch-select-projects: 2.0.0
-      jest-watch-typeahead: 2.2.1(jest@30.2.0(@types/node@26.1.1)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@26.1.1)(typescript@5.9.3)))
+      jest-watch-typeahead: 2.2.1(jest@30.2.0(@types/node@20.19.27)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@20.19.27)(typescript@5.9.3)))
       json5: 2.2.3
       lodash: 4.17.21
       react-native: 0.81.4(@babel/core@7.28.5)(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.1.0)(utf-8-validate@5.0.10)
@@ -36531,11 +36573,11 @@ snapshots:
       string-length: 5.0.1
       strip-ansi: 7.1.2
 
-  jest-watch-typeahead@2.2.1(jest@30.2.0(@types/node@26.1.1)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@26.1.1)(typescript@5.9.3))):
+  jest-watch-typeahead@2.2.1(jest@30.2.0(@types/node@20.19.27)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@20.19.27)(typescript@5.9.3))):
     dependencies:
       ansi-escapes: 6.2.1
       chalk: 4.1.2
-      jest: 30.2.0(@types/node@26.1.1)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@26.1.1)(typescript@5.9.3))
+      jest: 30.2.0(@types/node@20.19.27)(babel-plugin-macros@3.1.0)(esbuild-register@3.6.0(esbuild@0.27.3))(ts-node@10.9.2(@swc/core@1.15.8(@swc/helpers@0.5.23))(@types/node@20.19.27)(typescript@5.9.3))
       jest-regex-util: 29.6.3
       jest-watcher: 29.7.0
       slash: 5.1.0

@@ -16,7 +16,7 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { getMasterDb, masterSchema, schema } from '../../db';
-import { createDnsRecordInZone, deleteDnsRecordInZone, CloudflareZoneError } from '../../lib/cloudflare-zones';
+import { createDnsRecordInZone, deleteDnsRecordInZone, CloudflareZoneError } from '@weldsuite/cloudflare-zones';
 import { addHelpcenterDomain, removeHelpcenterDomain, isVercelConfigured, VercelError, VERCEL_CNAME_TARGET } from '../../lib/vercel';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
