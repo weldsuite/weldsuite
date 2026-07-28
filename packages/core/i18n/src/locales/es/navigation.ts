@@ -85,6 +85,7 @@ export const navigation = {
         workflows: 'Flujos de trabajo',
         templates: 'Plantillas',
         executions: 'Ejecuciones',
+        connectors: 'Conectores',
       },
       welddesk: {
         dashboard: 'Panel',

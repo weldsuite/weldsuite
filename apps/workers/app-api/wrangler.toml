@@ -48,6 +48,15 @@ head_sampling_rate = 1
 # - POSTPEER_WEBHOOK_SECRET (WeldSocial: HMAC secret to verify PostPeer delivery
 #   webhooks at /public/social/postpeer/webhook. `wrangler secret put`.)
 #   (POSTPEER_BASE_URL defaults to https://api.postpeer.dev/v1; override via [vars].)
+# - NANGO_SECRET_KEY (WeldConnect connectors: Nango secret key. Server-side only —
+#   the browser only ever receives a short-lived Connect session token. Unset
+#   leaves /api/nango/* answering 503 and changes nothing else.)
+# - NANGO_WEBHOOK_SECRET (WeldConnect connectors: HMAC secret verifying
+#   X-Nango-Signature on /public/nango/webhook. Unset means EVERY webhook is
+#   rejected — the receiver has no development bypass. `wrangler secret put`.)
+#   (NANGO_HOST + NANGO_CONNECT_URL are non-secret [vars] below; they default to
+#   Nango Cloud and are the switch to a self-hosted Nango. See
+#   docs/decisions/nango-connector-framework.md.)
 #
 # Legacy api-worker phase-out (W3/W4) — secrets to provision per env, values
 # copied from api-worker (wrangler secret put / Doppler sync-secrets):
@@ -108,6 +117,12 @@ CF_ACCOUNT_ID = "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 # helpdesk-workflow-worker /respond target for /api/helpdesk-workflows resume.
 HELPDESK_WORKFLOW_WORKER_URL = "http://localhost:8790"
+
+# WeldConnect connector framework (Nango). These two vars are the ONLY thing
+# that has to change to move from Nango Cloud to a self-hosted Nango — no code
+# knows which one it is talking to.
+NANGO_HOST = "https://api.nango.dev"
+NANGO_CONNECT_URL = "https://connect.nango.dev"
 # WeldBooks → Belastingdienst SBR filing. 'simulated' builds the SOAP envelope
 # but transmits nothing. Flip to 'preprod' (then 'production') ONLY after the
 # PKIoverheid SBR services server certificate is uploaded and the
@@ -280,6 +295,10 @@ CF_ACCOUNT_ID = "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
 WORKSPACE_WORKER_URL = "https://workspace-worker.weldsuite.org"
 HELPDESK_WORKFLOW_WORKER_URL = "https://helpdesk-workflow-worker.weldsuite.org"
+# WeldConnect connector framework (Nango). Repoint both at a self-hosted Nango
+# origin to move off Nango Cloud — no code change is involved.
+NANGO_HOST = "https://api.nango.dev"
+NANGO_CONNECT_URL = "https://connect.nango.dev"
 
 # Cloudflare Flagship feature-flag binding.
 # app id from the dashboard, and create each flag (e.g. `upgrade-button`) there.

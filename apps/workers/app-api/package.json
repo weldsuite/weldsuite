@@ -28,6 +28,7 @@
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/workflow-integrations": "workspace:*",
     "@weldsuite/feature-flags": "workspace:*",
+    "@weldsuite/nango": "workspace:*",
     "@weldsuite/notifications": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
