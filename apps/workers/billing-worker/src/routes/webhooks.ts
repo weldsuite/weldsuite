@@ -127,7 +127,16 @@ webhookRoutes.post('/', async (c) => {
         break;
 
       case 'checkout.session.expired':
-        await handleCheckoutExpired(c.env, masterDb, event.data.object as StripeCheckoutSession);
+      // A delayed payment that never settles strands exactly the rows an
+      // expired session does: the paid guard held, so nothing was registered
+      // and the domain row is still pending_payment. Both finalize the same way.
+      case 'checkout.session.async_payment_failed':
+        await handleDomainCheckoutFailed(
+          c.env,
+          masterDb,
+          event.data.object as StripeCheckoutSession,
+          event.type,
+        );
         break;
 
       case 'customer.subscription.created':
@@ -1649,6 +1658,24 @@ async function handleDomainRegistrationCheckout(
     return;
   }
 
+  // Delayed payment methods (SEPA, Bacs, bank transfer) complete the session
+  // with payment_status='unpaid' and re-fire as async_payment_succeeded once
+  // funds settle — both events route here. Domain registration is billable and
+  // non-refundable, so it has to wait for the paid signal: registering on the
+  // unpaid completion buys the domain for a payment that can still fail.
+  //
+  // Fails closed on a missing status, unlike the credit-topup guard below.
+  // Stripe always sets payment_status on a mode='payment' session, so this only
+  // fires if the shape drifts — and the two failure modes are not symmetric.
+  // Skipping wrongly strands a pending_payment row, which support can settle;
+  // registering wrongly spends money that cannot be clawed back.
+  if (session.payment_status !== 'paid') {
+    console.log(
+      `[Domain Registration] Session ${sessionId} not paid (${session.payment_status ?? 'no status'}), skipping`,
+    );
+    return;
+  }
+
   let registrationIds: string[];
   try {
     registrationIds = JSON.parse(registrationIdsRaw) as string[];
@@ -1800,13 +1827,21 @@ async function handleDomainRegistrationCheckout(
 }
 
 // ============================================================================
-// Domain Registration — checkout.session.expired
+// Domain Registration — checkout.session.expired / async_payment_failed
 // ============================================================================
+//
+// Both events mean the same thing for a domain row: payment will not arrive,
+// and the paid guard in handleDomainRegistrationCheckout means nothing was
+// registered. Soft-delete the rows still sitting at pending_payment. Scoped by
+// registrationStatus so a row that did register (paid, then a later event
+// arrives out of order) is never cancelled underneath a live domain.
 
-async function handleCheckoutExpired(
+async function handleDomainCheckoutFailed(
   env: Env,
   masterDb: ReturnType<typeof getMasterDb>,
   session: StripeCheckoutSession,
+  /** Stripe event type, for the log — 'expired' vs 'async_payment_failed'. */
+  reason: string,
 ): Promise<void> {
   if (session.metadata?.kind !== 'domain_registration') return;
 
@@ -1841,8 +1876,8 @@ async function handleCheckoutExpired(
         ),
       );
 
-    console.log(`[Domain Registration] Soft-deleted ${registrationIds.length} pending rows for expired session ${session.id}`);
+    console.log(`[Domain Registration] Soft-deleted ${registrationIds.length} pending rows for session ${session.id} (${reason})`);
   } catch (err) {
-    console.error('[Domain Registration] handleCheckoutExpired failed:', err);
+    console.error('[Domain Registration] handleDomainCheckoutFailed failed:', err);
   }
 }
