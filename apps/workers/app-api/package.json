@@ -45,7 +45,7 @@
     "@electric-sql/pglite": "^0.4.5",
     "@types/node": "^20",
     "typescript": "^5.7",
-    "vitest": "^2.1.8",
+    "vitest": "^3.2.6",
     "wrangler": "^4.95.0"
   }
 }

@@ -32,7 +32,7 @@
     "@types/node": "^20",
     "@weldsuite/typescript-config": "workspace:*",
     "typescript": "^5.9.2",
-    "vitest": "^2.1.8",
+    "vitest": "^3.2.6",
     "wrangler": "^4.0.0"
   }
 }
