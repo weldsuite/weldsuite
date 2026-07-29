@@ -36,6 +36,12 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
     userMemberships: true,
   });
 
+  /** Drop persisted query cache so the reload fetches a fresh workspace list. */
+  const clearCacheAndRedirect = React.useCallback(() => {
+    try { window.localStorage.removeItem('weldsuite:query-cache'); } catch {}
+    window.location.href = '/';
+  }, []);
+
   const createWorkspaceMutation = useCreateWorkspace();
   const finalizeMutation = useFinalizeOnboarding();
   const { data: dbStatus } = useDatabaseStatus(isProvisioning);
@@ -137,9 +143,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
         }
       }
 
-      setTimeout(() => {
-        window.location.href = '/';
-      }, 1000);
+      clearCacheAndRedirect();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dbStatus?.provisioned, dbStatus?.migrated]);
@@ -186,7 +190,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
         } catch (finalizeErr) {
           console.error('[Workspace] Error finalizing (continuing):', finalizeErr);
         }
-        window.location.href = '/';
+        clearCacheAndRedirect();
         return;
       }
 
