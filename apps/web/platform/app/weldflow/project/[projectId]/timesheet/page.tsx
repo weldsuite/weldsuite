@@ -52,6 +52,8 @@ import {
   useStartTimer,
   useStopTimer,
 } from '@/hooks/queries/use-timer-queries';
+import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
+import { TeamTimesheetView } from './team-timesheet-view';
 
 interface TimeEntry {
   id: string;
@@ -195,6 +197,16 @@ export default function TimesheetPage() {
 
   const [hoveredCell, setHoveredCell] = useState<{ task: string; day: number } | null>(null);
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
+
+  // Own timesheet vs. the whole project team. Only project managers/owners get
+  // the toggle; the server enforces the same boundary on /team-summary, so
+  // hiding it here is the affordance, not the guard.
+  const { isAdmin, isLoading: permissionsLoading } = useProjectPermissions();
+  const canSeeTeam = !permissionsLoading && isAdmin;
+  const [audience, setAudience] = useState<'mine' | 'team'>('mine');
+  // Losing the grant mid-session (role change, project switch) must not strand
+  // the user on a view they can no longer read.
+  const showTeamView = audience === 'team' && canSeeTeam;
 
   // Filter and search state
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
@@ -687,6 +699,26 @@ export default function TimesheetPage() {
     return format(currentMonth, 'MMMM yyyy');
   }, [currentMonth]);
 
+  // The active range as inclusive `yyyy-MM-dd` bounds, so the team view follows
+  // the same week/month navigation the personal grid uses. Formatted from local
+  // parts (not toISOString) — a UTC conversion shifts the boundary a day for
+  // anyone east of GMT and would silently drop entries from the edges.
+  const teamRange = useMemo(() => {
+    const start =
+      viewMode === 'week'
+        ? currentWeekStart
+        : new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+    const end =
+      viewMode === 'week'
+        ? new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate() + 6)
+        : new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
+    return {
+      fromDate: format(start, 'yyyy-MM-dd'),
+      toDate: format(end, 'yyyy-MM-dd'),
+      label: viewMode === 'week' ? format(start, 'yyyy-MM-dd') : format(start, 'yyyy-MM'),
+    };
+  }, [viewMode, currentWeekStart, currentMonth]);
+
   // Generate month weeks for calendar view
   const monthWeeks = useMemo(() => {
     const weeks: WeekDay[][] = [];
@@ -770,15 +802,44 @@ export default function TimesheetPage() {
       {/* Header */}
       <div className="flex items-center justify-between px-4 h-[53px] border-b border-border bg-background">
         <div className="flex items-center gap-2">
-          {/* Filter Pills */}
-          <div className="hidden md:flex items-center">
-            <FilterPills
-              filters={activeFilters}
-              filterConfigs={filterConfigs}
-              maxFilters={5}
-              onFiltersChange={setActiveFilters}
-            />
-          </div>
+          {/* Mine / Team — only for project managers and owners. */}
+          {canSeeTeam && (
+            <div className="flex items-center rounded-md border border-border p-0.5">
+              {(
+                [
+                  ['mine', st('sweep.weldflow.timesheetPage.audienceMine')],
+                  ['team', st('sweep.weldflow.timesheetPage.audienceTeam')],
+                ] as const
+              ).map(([value, label]) => (
+                <Button
+                  key={value}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setAudience(value)}
+                  className={cn(
+                    'h-7 px-2.5 text-sm shadow-none',
+                    audience === value
+                      ? 'bg-muted text-foreground'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+          )}
+
+          {/* Filter Pills — the grid's own filters; the team view has none yet. */}
+          {!showTeamView && (
+            <div className="hidden md:flex items-center">
+              <FilterPills
+                filters={activeFilters}
+                filterConfigs={filterConfigs}
+                maxFilters={5}
+                onFiltersChange={setActiveFilters}
+              />
+            </div>
+          )}
 
           {/* View Mode Select */}
           <Popover>
@@ -982,6 +1043,15 @@ export default function TimesheetPage() {
         </div>
       </div>
 
+      {showTeamView ? (
+        <TeamTimesheetView
+          projectId={projectId}
+          fromDate={teamRange.fromDate}
+          toDate={teamRange.toDate}
+          rangeLabel={teamRange.label}
+        />
+      ) : (
+        <>
       {/* Timesheet Grid */}
       <div className="flex-1 overflow-auto">
         {viewMode === 'week' ? (
@@ -1454,6 +1524,8 @@ export default function TimesheetPage() {
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
 
       {/* Add Entry Dialog */}

@@ -118,6 +118,57 @@ export interface ApiTimeEntry {
   isRemote: boolean | null;
 }
 
+/** One member's slice of a project's team timesheet. */
+export interface ApiTeamTimesheetMember {
+  userId: string;
+  name: string;
+  email: string;
+  avatar: string;
+  initials: string;
+  role: string | null;
+  /** False for someone who logged hours then left the project roster. */
+  isActiveMember: boolean;
+  totalMinutes: number;
+  billableMinutes: number;
+  nonBillableMinutes: number;
+  entryCount: number;
+}
+
+export interface ApiTeamTimesheetEntry {
+  id: string;
+  projectId: string | null;
+  taskId: string | null;
+  userId: string;
+  userName: string;
+  date: string;
+  startTime: string | null;
+  endTime: string | null;
+  duration: number;
+  description: string | null;
+  activity: string | null;
+  billable: boolean;
+  status: string;
+  task?: { id: string; title: string };
+}
+
+export interface ApiTeamTimesheetSummary {
+  projectId: string;
+  projectName: string;
+  range: { fromDate: string | null; toDate: string | null };
+  totals: {
+    totalMinutes: number;
+    billableMinutes: number;
+    nonBillableMinutes: number;
+    entryCount: number;
+    memberCount: number;
+    contributorCount: number;
+  };
+  members: ApiTeamTimesheetMember[];
+  entries: ApiTeamTimesheetEntry[];
+  /** True when the entry list was capped; `totals` stay exact regardless. */
+  entriesTruncated: boolean;
+}
+
 export interface ApiTaskComment {
   id: string;
   content: string;
@@ -1177,12 +1228,32 @@ export const whiteboardApi = {
 // ============ TIME ENTRIES ============
 
 export const timeEntriesApi = {
-  list: (projectId: string, params?: { page?: number; limit?: number; search?: string }) => {
+  list: (
+    projectId: string,
+    params?: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      /**
+       * 'team' reads every project member's entries instead of just your own.
+       * Backend-gated to project managers/owners — a plain member gets a 403,
+       * so this is a request, not a grant.
+       */
+      scope?: 'own' | 'team';
+      userId?: string;
+      fromDate?: string;
+      toDate?: string;
+    },
+  ) => {
     const searchParams = new URLSearchParams();
     searchParams.set('projectId', projectId);
     if (params?.page) searchParams.set('page', String(params.page));
     if (params?.limit) searchParams.set('limit', String(params.limit));
     if (params?.search) searchParams.set('search', params.search);
+    if (params?.scope) searchParams.set('scope', params.scope);
+    if (params?.userId) searchParams.set('userId', params.userId);
+    if (params?.fromDate) searchParams.set('fromDate', params.fromDate);
+    if (params?.toDate) searchParams.set('toDate', params.toDate);
     return appApiGet<ApiTimeEntry[] | { items: ApiTimeEntry[]; total?: number }>(`/time-entries?${searchParams}`);
   },
 
@@ -1239,6 +1310,31 @@ export const timeEntriesApi = {
 
   approve: (_projectId: string, entryId: string) =>
     appApiPatch<ApiTimeEntry>(`/time-entries/${entryId}/approve`),
+
+  /**
+   * Per-member hour totals for a project, with the billable split.
+   * Backend-gated to project managers/owners — a plain member gets a 403.
+   */
+  teamSummary: (
+    projectId: string,
+    filters?: {
+      fromDate?: string;
+      toDate?: string;
+      userId?: string;
+      taskId?: string;
+      billable?: boolean;
+      limit?: number;
+    },
+  ) => {
+    const searchParams = new URLSearchParams({ projectId });
+    if (filters?.fromDate) searchParams.set('fromDate', filters.fromDate);
+    if (filters?.toDate) searchParams.set('toDate', filters.toDate);
+    if (filters?.userId) searchParams.set('userId', filters.userId);
+    if (filters?.taskId) searchParams.set('taskId', filters.taskId);
+    if (filters?.billable !== undefined) searchParams.set('billable', String(filters.billable));
+    if (filters?.limit) searchParams.set('limit', String(filters.limit));
+    return appApiGet<ApiTeamTimesheetSummary>(`/time-entries/team-summary?${searchParams}`);
+  },
 };
 
 // ============ RUNNING TIMER ============
