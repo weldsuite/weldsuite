@@ -14,7 +14,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@clerk/backend": "^2.29.0",
+    "@clerk/backend": "^2.33.3",
     "@hono/zod-validator": "^0.4.0",
     "@neondatabase/serverless": "^1.0.1",
     "@weldsuite/ai": "workspace:*",
