@@ -19,7 +19,7 @@
     "@neondatabase/serverless": "^1.0.1",
     "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
-    "drizzle-orm": "^0.45.1",
+    "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.7",
     "ws": "^8.18.0"
   },

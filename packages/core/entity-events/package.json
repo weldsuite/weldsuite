@@ -18,7 +18,7 @@
   "dependencies": {
     "@weldsuite/db": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
-    "drizzle-orm": "^0.45.1"
+    "drizzle-orm": "^0.45.2"
   },
   "peerDependencies": {
     "hono": "^4.0.0"
