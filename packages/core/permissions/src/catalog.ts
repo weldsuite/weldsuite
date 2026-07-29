@@ -146,7 +146,12 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
 
   // ── Inventory / Commerce / Parcel — share several merged objects ──────
   objectPermissions('products',      'Products'),
-  objectPermissions('inventory',     'Inventory',            ['read', 'update', 'manage']),
+  // `create`/`delete` cover creating and soft-deleting stock buckets
+  // (POST/DELETE /api/inventory). They are listed explicitly because `manage`
+  // is a peer action, not a superset — the matcher in engine.ts only widens on
+  // a literal `*`, so without these keys the routes are grantable to nobody
+  // but Owner.
+  objectPermissions('inventory',     'Inventory',            ['read', 'create', 'update', 'delete', 'manage']),
   objectPermissions('orders',        'Orders'),
   objectPermissions('picklists',     'Pick Lists'),
   objectPermissions('locations',     'Locations'),

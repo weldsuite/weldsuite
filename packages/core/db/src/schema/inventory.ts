@@ -8,7 +8,9 @@ import {
   text,
   numeric,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 // Inventory - Product inventory at specific locations
 export const inventory = pgTable('inventory', {
@@ -64,6 +66,19 @@ export const inventory = pgTable('inventory', {
   index('inventory_lot_idx').on(table.lotNumber),
   index('inventory_expiry_idx').on(table.expiryDate),
   index('inventory_status_idx').on(table.status),
+  // One stock bucket per natural key. The ledger's "increment, and create the
+  // bucket if the increment matched nothing" is a check-then-act across two
+  // round-trips; without this index two simultaneous first receipts each see no
+  // row and each insert, leaving one key with two buckets.
+  //
+  // Created with NULLS NOT DISTINCT (see the migration) — most buckets have no
+  // variant, location or lot, and under the default NULLS DISTINCT those rows
+  // never collide, which is precisely the case that needs protecting. Drizzle
+  // 0.45's index builder cannot express the modifier, so the migration carries
+  // it by hand.
+  uniqueIndex('inventory_bucket_unique')
+    .on(table.productId, table.warehouseId, table.variantId, table.locationId, table.lotNumber)
+    .where(sql`deleted_at IS NULL`),
 ]);
 
 export type Inventory = typeof inventory.$inferSelect;

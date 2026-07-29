@@ -37,6 +37,9 @@ export const productVariants = pgTable('product_variants', {
 
   // Inventory
   trackInventory: boolean('track_inventory').default(true),
+  // Denormalised roll-up of `inventory.quantity_on_hand` for this variant,
+  // maintained by the stock ledger. See the note on `products.inventoryQuantity`
+  // — lot/serial/expiry tracking flags live on the parent product.
   inventoryQuantity: integer('inventory_quantity').default(0),
   lowStockThreshold: integer('low_stock_threshold').default(5),
   allowBackorder: boolean('allow_backorder').default(false),

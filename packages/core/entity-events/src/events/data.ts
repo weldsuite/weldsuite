@@ -344,6 +344,13 @@ export interface InventoryEventData {
   productName?: string | null;
   locationId?: string | null;
   quantity?: number | null;
+  /**
+   * On-hand before the change. Paired with `quantity` it lets a subscriber see
+   * the direction and size of a move — a "stock fell below threshold" workflow
+   * trigger needs the previous value to fire on the crossing rather than on
+   * every write while stock sits low.
+   */
+  previousQuantity?: number | null;
   adjustmentType?: string | null;
 }
 

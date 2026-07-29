@@ -1219,6 +1219,13 @@
       "when": 1785262507204,
       "tag": "0173_lumpy_scorpion",
       "breakpoints": true
+    },
+    {
+      "idx": 174,
+      "version": "7",
+      "when": 1785347719341,
+      "tag": "0174_true_shriek",
+      "breakpoints": true
     }
   ]
 }

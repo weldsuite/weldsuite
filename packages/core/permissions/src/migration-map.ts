@@ -47,7 +47,10 @@ const RAW_MIGRATION: ReadonlyArray<readonly [string, string, string, readonly st
 
   // ── weldstash (WMS) ─────────────────────────────────────────────────────
   ['weldstash', 'products',   'products',   ['read', 'create', 'update', 'delete']],
-  ['weldstash', 'inventory',  'inventory',  ['read', 'update', 'manage']],
+  // create/delete added alongside the stock-bucket endpoints — this list is what
+  // an admin's `weldstash:*` expands into, so omitting them would leave admins
+  // unable to create or retire a bucket.
+  ['weldstash', 'inventory',  'inventory',  ['read', 'create', 'update', 'delete', 'manage']],
   ['weldstash', 'orders',     'orders',     ['read', 'create', 'update', 'delete']],
   ['weldstash', 'picklists',  'picklists',  ['read', 'create', 'update', 'delete']],
   ['weldstash', 'locations',  'locations',  ['read', 'create', 'update', 'delete']],

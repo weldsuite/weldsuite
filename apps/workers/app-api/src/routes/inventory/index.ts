@@ -1,23 +1,48 @@
 /**
  * Inventory routes — flat /api/inventory/* surface backed by `inventory`.
  *
+ * `inventory` rows (per warehouse / location / lot) are the source of truth for
+ * stock. Quantity changes go through the ledger service rather than being
+ * written here, so the audit trail and the `products.inventory_quantity`
+ * roll-up stay consistent — see services/inventory-ledger.ts.
+ *
  * Permissions: inventory:read | inventory:create | inventory:update | inventory:delete.
  */
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, lte, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
-import { createInventorySchema, updateInventorySchema } from '@weldsuite/core-api-client/schemas/inventory';
-import { adjustStockSchema } from '@weldsuite/core-api-client/schemas/weldstash';
+import {
+  adjustInventorySchema,
+  createInventoryBucketSchema,
+  inventoryLedgerQuerySchema,
+  transferInventorySchema,
+  updateInventoryBucketSchema,
+} from '@weldsuite/app-api-client/schemas/inventory-ledger';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '../../db';
+import { applyStockChange, StockLedgerError, transferStock } from '../../services/inventory-ledger';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.inventory;
+
+/**
+ * Ledger errors name a condition the caller can fix (unknown product,
+ * insufficient stock, missing lot). Anything else is ours, and stays a 500.
+ */
+function ledgerError(c: Parameters<typeof error.badRequest>[0], err: unknown, fallback: string) {
+  if (err instanceof StockLedgerError) {
+    if (err.code === 'PRODUCT_NOT_FOUND') return error.notFound(c, 'Product');
+    if (err.code === 'INSUFFICIENT_STOCK') return error.conflict(c, err.message, { code: err.code });
+    return error.badRequest(c, err.message, { code: err.code });
+  }
+  console.error(`[app-api/inventory] ${fallback}:`, err);
+  return error.internal(c, fallback);
+}
 
 app.get('/', requirePermission('inventory:read'), async (c) => {
   const db = c.get('tenantDb');
@@ -26,7 +51,7 @@ app.get('/', requirePermission('inventory:read'), async (c) => {
 
   const { products, warehouses, warehouseLocations } = schema;
 
-  const conditions: any[] = [isNull(t.deletedAt)];
+  const conditions: SQL[] = [isNull(t.deletedAt)];
   if (q.productId !== undefined && q.productId !== '') conditions.push(eq(t.productId, q.productId));
   if (q.warehouseId !== undefined && q.warehouseId !== '') conditions.push(eq(t.warehouseId, q.warehouseId));
   if (q.lowStockOnly === 'true') {
@@ -91,6 +116,88 @@ app.get('/', requirePermission('inventory:read'), async (c) => {
   }
 });
 
+/**
+ * Stock ledger — the movement history behind current quantities, read from
+ * `stock_adjustments` and enriched with product / warehouse / location names.
+ *
+ * `/api/stock-adjustments` remains the raw table surface (and the only way to
+ * write a standalone audit row); this endpoint is the reporting view, filtered
+ * by bucket and date range.
+ */
+app.get('/ledger', requirePermission('inventory:read'), zValidator('query', inventoryLedgerQuerySchema), async (c) => {
+  const db = c.get('tenantDb');
+  const q = c.req.valid('query');
+  const limit = q.limit ?? 25;
+  const { stockAdjustments, products, warehouses, warehouseLocations } = schema;
+
+  const conditions: SQL[] = [];
+  if (q.productId) conditions.push(eq(stockAdjustments.productId, q.productId));
+  if (q.variantId) conditions.push(eq(stockAdjustments.variantId, q.variantId));
+  if (q.warehouseId) conditions.push(eq(stockAdjustments.warehouseId, q.warehouseId));
+  if (q.locationId) conditions.push(eq(stockAdjustments.locationId, q.locationId));
+  if (q.lotNumber) conditions.push(eq(stockAdjustments.lotNumber, q.lotNumber));
+  if (q.type) conditions.push(eq(stockAdjustments.type, q.type));
+  if (q.sourceType) conditions.push(eq(stockAdjustments.sourceType, q.sourceType));
+  if (q.from) conditions.push(gte(stockAdjustments.createdAt, q.from));
+  if (q.to) conditions.push(lte(stockAdjustments.createdAt, q.to));
+
+  // Snapshot the filters before the cursor predicate joins them — a stale
+  // cursor matches no row and pushes nothing, so trimming the last element
+  // afterwards would drop a real filter from the count instead.
+  const filterConditions = [...conditions];
+  if (q.cursor) {
+    const [cur] = await db
+      .select({ createdAt: stockAdjustments.createdAt, id: stockAdjustments.id })
+      .from(stockAdjustments)
+      .where(eq(stockAdjustments.id, q.cursor))
+      .limit(1);
+    if (cur?.createdAt) {
+      conditions.push(
+        sql`(${stockAdjustments.createdAt} < ${cur.createdAt} OR (${stockAdjustments.createdAt} = ${cur.createdAt} AND ${stockAdjustments.id} < ${cur.id}))`,
+      );
+    }
+  }
+
+  try {
+    const [rows, countRes] = await Promise.all([
+      db
+        .select({
+          entry: stockAdjustments,
+          productName: products.name,
+          productSku: products.sku,
+          warehouseName: warehouses.name,
+          locationCode: warehouseLocations.code,
+        })
+        .from(stockAdjustments)
+        .leftJoin(products, eq(stockAdjustments.productId, products.id))
+        .leftJoin(warehouses, eq(stockAdjustments.warehouseId, warehouses.id))
+        .leftJoin(warehouseLocations, eq(stockAdjustments.locationId, warehouseLocations.id))
+        .where(conditions.length ? and(...conditions) : undefined)
+        .orderBy(desc(stockAdjustments.createdAt), desc(stockAdjustments.id))
+        .limit(limit + 1),
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(stockAdjustments)
+        .where(filterConditions.length ? and(...filterConditions) : undefined),
+    ]);
+
+    const hasMore = rows.length > limit;
+    const trimmed = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = hasMore && trimmed.length > 0 ? trimmed[trimmed.length - 1].entry.id : null;
+    const data = trimmed.map((row) => ({
+      ...row.entry,
+      productName: row.productName,
+      productSku: row.productSku,
+      warehouseName: row.warehouseName,
+      locationCode: row.locationCode,
+    }));
+    return list(c, data, cursorPagination(Number(countRes[0]?.count ?? 0), hasMore, nextCursor));
+  } catch (err) {
+    console.error('[app-api/inventory] ledger failed:', err);
+    return error.internal(c, 'Failed to list stock ledger');
+  }
+});
+
 app.get('/:id', requirePermission('inventory:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
@@ -104,19 +211,47 @@ app.get('/:id', requirePermission('inventory:read'), async (c) => {
   }
 });
 
-app.post('/', requirePermission('inventory:create'), zValidator('json', createInventorySchema), async (c) => {
+/**
+ * Create an empty stock bucket. Quantities start at zero and are filled by
+ * `POST /adjust` — creating a bucket pre-loaded with stock would put units on
+ * the shelf with no audit row explaining where they came from.
+ */
+app.post('/', requirePermission('inventory:create'), zValidator('json', createInventoryBucketSchema), async (c) => {
   const db = c.get('tenantDb');
-  const data = c.req.valid('json') as Record<string, any>;
+  const data = c.req.valid('json');
   const id = generateId('inv');
   const now = new Date();
   try {
-    await db.insert(t).values({ id, ...data, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
+    await db.insert(t).values({
+      id,
+      productId: data.productId,
+      variantId: data.variantId ?? null,
+      warehouseId: data.warehouseId,
+      locationId: data.locationId ?? null,
+      lotNumber: data.lotNumber ?? null,
+      batchNumber: data.batchNumber ?? null,
+      serialNumber: data.serialNumber ?? null,
+      expiryDate: data.expiryDate ?? null,
+      manufactureDate: data.manufactureDate ?? null,
+      unitCost: data.unitCost !== null && data.unitCost !== undefined ? String(data.unitCost) : null,
+      currency: data.currency,
+      status: data.status ?? 'available',
+      qualityStatus: data.qualityStatus,
+      metadata: data.metadata,
+      quantityOnHand: 0,
+      quantityAllocated: 0,
+      quantityAvailable: 0,
+      quantityIncoming: 0,
+      quantityOutgoing: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
     publishEntityEvent({
       c,
       entityType: 'inventory',
       entityId: id,
       action: 'created',
-      data: { id, productId: data.productId ?? '', locationId: data.locationId },
+      data: { id, productId: data.productId, locationId: data.locationId },
     });
     return success(c, { id }, 201);
   } catch (err) {
@@ -126,131 +261,136 @@ app.post('/', requirePermission('inventory:create'), zValidator('json', createIn
 });
 
 /**
- * Adjust stock by a delta — ported from core-api POST /weldstash/inventory/adjust.
- * Upserts the matching inventory row and records an `inventoryMovements` entry.
+ * Adjust stock by a signed delta.
+ *
+ * Delegates to the ledger, so the increment is atomic, the change is audited in
+ * `stock_adjustments`, and `products.inventory_quantity` is recomputed. An
+ * issue that would oversell a product without `allowBackorder` is rejected with
+ * 409 rather than driving stock negative.
  */
-app.post('/adjust', requirePermission('inventory:update'), zValidator('json', adjustStockSchema), async (c) => {
+app.post('/adjust', requirePermission('inventory:update'), zValidator('json', adjustInventorySchema), async (c) => {
   const db = c.get('tenantDb');
   const data = c.req.valid('json');
   const userId = c.get('userId');
-  const { products, inventoryMovements } = schema;
-  const now = new Date();
 
   try {
-    const [product] = await db
-      .select({ id: products.id, name: products.name, sku: products.sku })
-      .from(products)
-      .where(and(eq(products.id, data.productId), isNull(products.deletedAt)))
-      .limit(1);
-    if (!product) return error.badRequest(c, 'Product not found');
-
-    const locationCondition = data.locationId
-      ? eq(t.locationId, data.locationId)
-      : isNull(t.locationId);
-
-    const [existing] = await db
-      .select()
-      .from(t)
-      .where(and(
-        eq(t.productId, data.productId),
-        eq(t.warehouseId, data.warehouseId),
-        locationCondition,
-        data.lotNumber ? eq(t.lotNumber, data.lotNumber) : sql`TRUE`,
-        isNull(t.deletedAt),
-      ))
-      .limit(1);
-
-    let inventoryId: string;
-    let newOnHand: number;
-
-    if (existing) {
-      inventoryId = existing.id;
-      newOnHand = (existing.quantityOnHand ?? 0) + data.delta;
-      const allocated = existing.quantityAllocated ?? 0;
-      await db
-        .update(t)
-        .set({
-          quantityOnHand: newOnHand,
-          quantityAvailable: newOnHand - allocated,
-          unitCost: data.unitCost !== undefined ? String(data.unitCost) : existing.unitCost,
-          updatedAt: now,
-        })
-        .where(eq(t.id, existing.id));
-    } else {
-      inventoryId = generateId('inv');
-      newOnHand = data.delta;
-      await db.insert(t).values({
-        id: inventoryId,
-        productId: data.productId,
-        warehouseId: data.warehouseId,
-        locationId: data.locationId,
-        lotNumber: data.lotNumber,
-        quantityOnHand: newOnHand,
-        quantityAllocated: 0,
-        quantityAvailable: newOnHand,
-        quantityIncoming: 0,
-        quantityOutgoing: 0,
-        unitCost: data.unitCost !== undefined ? String(data.unitCost) : undefined,
-        status: 'available',
-        receivedDate: now,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-
-    const movementId = generateId('mov');
-    const movementNumber = `ADJ-${Date.now().toString(36).toUpperCase()}`;
-    await db.insert(inventoryMovements).values({
-      id: movementId,
-      movementNumber,
-      movementType: 'adjustment',
-      status: 'completed',
-      destWarehouseId: data.warehouseId,
-      destLocationId: data.locationId,
+    const result = await applyStockChange(db, {
       productId: data.productId,
-      sku: product.sku,
-      name: product.name,
-      quantity: data.delta,
+      variantId: data.variantId,
+      warehouseId: data.warehouseId,
+      locationId: data.locationId,
       lotNumber: data.lotNumber,
+      batchNumber: data.batchNumber,
+      expiryDate: data.expiryDate,
+      delta: data.delta,
+      type: data.type ?? (data.delta > 0 ? 'increase' : 'decrease'),
       reason: data.reason,
-      createdBy: userId,
-      completedBy: userId,
-      startedAt: now,
-      completedAt: now,
-      createdAt: now,
-      updatedAt: now,
+      reasonCode: data.reasonCode,
+      notes: data.notes,
+      unitCost: data.unitCost,
+      sourceType: data.sourceType ?? 'manual',
+      sourceId: data.sourceId,
+      sourceNumber: data.sourceNumber,
+      performedBy: userId,
     });
 
     publishEntityEvent({
       c,
       entityType: 'inventory',
-      entityId: inventoryId,
+      entityId: result.inventoryId,
       action: 'updated',
       data: {
-        id: inventoryId,
+        id: result.inventoryId,
         productId: data.productId,
-        productName: product.name,
         locationId: data.locationId,
-        quantity: newOnHand,
-        adjustmentType: 'adjustment',
+        quantity: result.newQuantity,
+        previousQuantity: result.previousQuantity,
+        adjustmentType: data.type ?? (data.delta > 0 ? 'increase' : 'decrease'),
       },
     });
-    return success(c, { inventoryId, movementId, quantityOnHand: newOnHand });
+
+    return success(c, {
+      inventoryId: result.inventoryId,
+      adjustmentId: result.adjustmentId,
+      previousQuantity: result.previousQuantity,
+      quantityOnHand: result.newQuantity,
+      productQuantity: result.productQuantity,
+    });
   } catch (err) {
-    console.error('[app-api/inventory] adjust failed:', err);
-    return error.internal(c, 'Failed to adjust stock');
+    return ledgerError(c, err, 'Failed to adjust stock');
   }
 });
 
-app.patch('/:id', requirePermission('inventory:update'), zValidator('json', updateInventorySchema), async (c) => {
+/**
+ * Move stock between two buckets (warehouse / location / lot).
+ *
+ * Writes both legs through the ledger and records one `inventory_movements`
+ * row tying them together.
+ */
+app.post('/transfer', requirePermission('inventory:update'), zValidator('json', transferInventorySchema), async (c) => {
+  const db = c.get('tenantDb');
+  const data = c.req.valid('json');
+  const userId = c.get('userId');
+
+  try {
+    const result = await transferStock(db, {
+      productId: data.productId,
+      variantId: data.variantId,
+      quantity: data.quantity,
+      from: data.from,
+      to: data.to,
+      reason: data.reason,
+      notes: data.notes,
+      performedBy: userId,
+    });
+
+    publishEntityEvent({
+      c,
+      entityType: 'wms_inventory_movement',
+      entityId: result.movementId,
+      action: 'created',
+      data: {
+        id: result.movementId,
+        movementNumber: result.movementNumber,
+        movementType: 'transfer',
+        productId: data.productId,
+        quantity: data.quantity,
+        sourceWarehouseId: data.from.warehouseId,
+        destWarehouseId: data.to.warehouseId,
+      },
+    });
+
+    return success(c, {
+      movementId: result.movementId,
+      movementNumber: result.movementNumber,
+      from: { inventoryId: result.out.inventoryId, quantityOnHand: result.out.newQuantity },
+      to: { inventoryId: result.in.inventoryId, quantityOnHand: result.in.newQuantity },
+    }, 201);
+  } catch (err) {
+    return ledgerError(c, err, 'Failed to transfer stock');
+  }
+});
+
+/**
+ * Patch a bucket's attributes — lot metadata, quality status, quarantine.
+ *
+ * Quantities are not patchable here: `updateInventoryBucketSchema` has no
+ * quantity fields, so the only way to move stock is through `/adjust` and
+ * `/transfer`, which audit it.
+ */
+app.patch('/:id', requirePermission('inventory:update'), zValidator('json', updateInventoryBucketSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  const data = c.req.valid('json') as Record<string, any>;
+  const data = c.req.valid('json');
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Inventory', id);
-    const update: Record<string, any> = { updatedAt: new Date() };
-    for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
+    const update: Record<string, unknown> = { updatedAt: new Date() };
+    for (const [k, v] of Object.entries(data)) {
+      if (v === undefined) continue;
+      // `unitCost` is numeric in Postgres and round-trips as a string.
+      update[k] = k === 'unitCost' && typeof v === 'number' ? String(v) : v;
+    }
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
     publishEntityEvent({
       c,

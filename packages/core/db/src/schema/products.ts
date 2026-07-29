@@ -34,9 +34,20 @@ export const products = pgTable('products', {
 
   // Inventory
   trackInventory: boolean('track_inventory').default(true),
+  // Denormalised roll-up of `inventory.quantity_on_hand` across every warehouse,
+  // location and lot for this product. Maintained by the stock ledger
+  // (app-api services/inventory-ledger.ts) — never write it directly, or it
+  // drifts from the inventory rows that are the real source of truth.
   inventoryQuantity: integer('inventory_quantity').default(0),
   lowStockThreshold: integer('low_stock_threshold').default(5),
   allowBackorder: boolean('allow_backorder').default(false),
+
+  // Lot / serial / expiry tracking — opt-in per product. The stock ledger only
+  // demands a lot number (or serial, or expiry date) on receipt when the
+  // product opts in, so products that don't need traceability stay frictionless.
+  trackLots: boolean('track_lots').default(false),
+  trackSerials: boolean('track_serials').default(false),
+  trackExpiry: boolean('track_expiry').default(false),
 
   // Physical Properties
   weight: numeric('weight', { precision: 10, scale: 3 }),
