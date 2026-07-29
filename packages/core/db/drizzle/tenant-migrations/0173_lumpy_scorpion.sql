@@ -1,0 +1,1 @@
+ALTER TABLE "nango_sync_runs" ADD CONSTRAINT "nango_sync_runs_connection_id_nango_connections_id_fk" FOREIGN KEY ("connection_id") REFERENCES "public"."nango_connections"("id") ON DELETE cascade ON UPDATE no action;
