@@ -20,6 +20,7 @@
     "./schemas/wms-suppliers": "./src/schemas/wms-suppliers.ts",
     "./schemas/stock-adjustments": "./src/schemas/stock-adjustments.ts",
     "./schemas/inventory-ledger": "./src/schemas/inventory-ledger.ts",
+    "./schemas/product-categories": "./src/schemas/product-categories.ts",
     "./schemas/object-templates": "./src/schemas/object-templates.ts",
     "./schemas/user-apps": "./src/schemas/user-apps.ts",
     "./schemas/mail-accounts": "./src/schemas/mail-accounts.ts",
