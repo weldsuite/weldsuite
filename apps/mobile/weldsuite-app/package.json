@@ -19,7 +19,7 @@
     "@weldsuite/api-client": "workspace:*",
     "@weldsuite/i18n": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
-    "@clerk/expo": "^3.1.6",
+    "@clerk/expo": "^3.2.2",
     "@clerk/shared": "^4.4.0",
     "@expo/metro-runtime": "^6.1.2",
     "@expo/vector-icons": "^15.0.2",
