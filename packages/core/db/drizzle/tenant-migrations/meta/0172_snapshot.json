@@ -1,5 +1,5 @@
 {
-  "id": "f38219a7-c99a-4020-9cd0-6aeb40588702",
+  "id": "a2390db5-c3ce-4a3c-ae10-e224451216d8",
   "prevId": "244fda7e-601e-4f3f-8b14-f0e620819b0f",
   "version": "7",
   "dialect": "postgresql",
@@ -8813,27 +8813,6 @@
           "notNull": false,
           "default": false
         },
-        "track_lots": {
-          "name": "track_lots",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false,
-          "default": false
-        },
-        "track_serials": {
-          "name": "track_serials",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false,
-          "default": false
-        },
-        "track_expiry": {
-          "name": "track_expiry",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false,
-          "default": false
-        },
         "weight": {
           "name": "weight",
           "type": "numeric(10, 3)",
@@ -16988,21 +16967,7 @@
           "with": {}
         }
       },
-      "foreignKeys": {
-        "nango_sync_runs_connection_id_nango_connections_id_fk": {
-          "name": "nango_sync_runs_connection_id_nango_connections_id_fk",
-          "tableFrom": "nango_sync_runs",
-          "tableTo": "nango_connections",
-          "columnsFrom": [
-            "connection_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},

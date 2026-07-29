@@ -1,6 +1,6 @@
 {
-  "id": "e60673a4-3ad0-4a7b-b236-c4a2d89d7c29",
-  "prevId": "f38219a7-c99a-4020-9cd0-6aeb40588702",
+  "id": "630769e7-157f-47bb-9903-995cb37119ed",
+  "prevId": "a2390db5-c3ce-4a3c-ae10-e224451216d8",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -8813,27 +8813,6 @@
           "notNull": false,
           "default": false
         },
-        "track_lots": {
-          "name": "track_lots",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false,
-          "default": false
-        },
-        "track_serials": {
-          "name": "track_serials",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false,
-          "default": false
-        },
-        "track_expiry": {
-          "name": "track_expiry",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false,
-          "default": false
-        },
         "weight": {
           "name": "weight",
           "type": "numeric(10, 3)",
@@ -9484,39 +9463,6 @@
           "notNull": false,
           "default": 1
         },
-        "published_at": {
-          "name": "published_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "type": {
-          "name": "type",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "'manual'"
-        },
-        "rules": {
-          "name": "rules",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "rules_match": {
-          "name": "rules_match",
-          "type": "varchar(3)",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "'all'"
-        },
-        "sort_order": {
-          "name": "sort_order",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "'manual'"
-        },
         "product_count": {
           "name": "product_count",
           "type": "integer",
@@ -9567,21 +9513,6 @@
           "columns": [
             {
               "expression": "path",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "categories_type_idx": {
-          "name": "categories_type_idx",
-          "columns": [
-            {
-              "expression": "type",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -9664,27 +9595,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "category_products_unique": {
-          "name": "category_products_unique",
-          "columns": [
-            {
-              "expression": "category_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "product_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}

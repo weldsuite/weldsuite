@@ -45,10 +45,6 @@ CREATE TABLE "nango_sync_runs" (
 	"error_samples" jsonb
 );
 --> statement-breakpoint
-ALTER TABLE "products" ADD COLUMN "track_lots" boolean DEFAULT false;--> statement-breakpoint
-ALTER TABLE "products" ADD COLUMN "track_serials" boolean DEFAULT false;--> statement-breakpoint
-ALTER TABLE "products" ADD COLUMN "track_expiry" boolean DEFAULT false;--> statement-breakpoint
-ALTER TABLE "nango_sync_runs" ADD CONSTRAINT "nango_sync_runs_connection_id_nango_connections_id_fk" FOREIGN KEY ("connection_id") REFERENCES "public"."nango_connections"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "nango_connections_provider_config_key_unique" ON "nango_connections" USING btree ("provider_config_key");--> statement-breakpoint
 CREATE INDEX "nango_connections_nango_connection_id_idx" ON "nango_connections" USING btree ("nango_connection_id");--> statement-breakpoint
 CREATE INDEX "nango_connections_status_idx" ON "nango_connections" USING btree ("status");--> statement-breakpoint
