@@ -1,7 +1,7 @@
 
 import { useMemo } from 'react';
 import { format } from 'date-fns';
-import { AlertCircle, Download, Users } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Download, Users } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { cn } from '@/lib/utils';
@@ -29,10 +29,18 @@ function formatDuration(minutes: number): string {
   return `${(minutes / 60).toFixed(1)}h`;
 }
 
-/** RFC 4180 quoting — descriptions routinely contain commas and quotes. */
+/**
+ * RFC 4180 quoting — descriptions routinely contain commas and quotes.
+ *
+ * Descriptions, task titles and member names are user-controlled, and Excel and
+ * Sheets execute a cell that opens with `=`, `+`, `-`, `@`, tab or CR as a
+ * formula. Prefixing those with an apostrophe pins the cell to text, so opening
+ * an exported timesheet can't run anything (CSV injection, CWE-1236).
+ */
 function csvCell(value: unknown): string {
   const s = value === null || value === undefined ? '' : String(value);
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
 function buildCsv(entries: TeamTimesheetEntry[], headers: string[]): string {
@@ -143,16 +151,35 @@ export function TeamTimesheetView({
               <Users className="h-4 w-4 text-muted-foreground" />
               {st('sweep.weldflow.timesheetPage.teamPerMember')}
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 shadow-none"
-              onClick={handleExport}
-              disabled={!entries.length}
-            >
-              <Download className="h-3.5 w-3.5 mr-1.5" />
-              {st('sweep.weldflow.timesheetPage.teamExport')}
-            </Button>
+            <div className="flex items-center gap-2">
+              {/* The CSV carries exactly the rows below it, so say so here —
+                  next to the button — rather than only under the table. A
+                  manager exporting for billing must not get a short file
+                  silently. */}
+              {data.entriesTruncated && (
+                <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">
+                    {st('sweep.weldflow.timesheetPage.teamExportPartial')}
+                  </span>
+                </span>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 shadow-none"
+                onClick={handleExport}
+                disabled={!entries.length}
+                title={
+                  data.entriesTruncated
+                    ? st('sweep.weldflow.timesheetPage.teamExportPartialHint')
+                    : undefined
+                }
+              >
+                <Download className="h-3.5 w-3.5 mr-1.5" />
+                {st('sweep.weldflow.timesheetPage.teamExport')}
+              </Button>
+            </div>
           </div>
 
           {members.length === 0 ? (

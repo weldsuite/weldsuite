@@ -2997,6 +2997,8 @@ export const sweep = {
       "teamExportDate": "Datum",
       "teamExportDescription": "Omschrijving",
       "teamExportHours": "Uren",
+      "teamExportPartial": "Gedeeltelijke export",
+      "teamExportPartialHint": "Alleen de hieronder getoonde registraties zitten in het bestand. De totalen hierboven beslaan de volledige periode.",
       "teamExportStatus": "Status",
       "teamFormerMember": "Voormalig lid",
       "teamLoadFailed": "Laden van het teamurenoverzicht mislukt",

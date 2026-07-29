@@ -2997,6 +2997,8 @@ export const sweep = {
       "teamExportDate": "Date",
       "teamExportDescription": "Description",
       "teamExportHours": "Hours",
+      "teamExportPartial": "Partial export",
+      "teamExportPartialHint": "Only the entries listed below are included. The totals above cover the full range.",
       "teamExportStatus": "Status",
       "teamFormerMember": "Former member",
       "teamLoadFailed": "Failed to load the team timesheet",

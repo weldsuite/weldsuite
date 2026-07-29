@@ -418,6 +418,47 @@ describe('/api/time-entries · pglite integration', () => {
     expect(gone?.name).toBe('Gone Contributor');
   });
 
+  it('GET /team-summary keeps totals exact when the entry list is capped', async () => {
+    // The whole point of aggregating totals in SQL: a capped `entries` array
+    // must not understate `totals`. The UI warns off the CSV export on this
+    // flag, so it has to flip when — and only when — rows were dropped.
+    const proj = 'proj_summary_cap';
+    await seedProject(db, proj, 'user_pm');
+    for (const n of [1, 2, 3]) {
+      await seedEntry(db, `time_cap_${n}`, 'user_pm', { projectId: proj, duration: '30' });
+    }
+
+    const { request } = createTestApp('/api/time-entries', timeEntriesRoutes, {
+      context: {
+        permissions: permissions('time:read', 'projects:read'),
+        userId: 'user_pm',
+        tenantDb: db,
+      },
+    });
+
+    const capped = await request(`/api/time-entries/team-summary?projectId=${proj}&limit=2`);
+    expect(capped.status).toBe(200);
+    const cappedBody = (await capped.json()) as {
+      data: {
+        totals: { totalMinutes: number; entryCount: number };
+        entries: unknown[];
+        entriesTruncated: boolean;
+      };
+    };
+    expect(cappedBody.data.entries.length).toBe(2);
+    expect(cappedBody.data.totals.entryCount).toBe(3);
+    expect(cappedBody.data.totals.totalMinutes).toBe(90);
+    expect(cappedBody.data.entriesTruncated).toBe(true);
+
+    // Same data, room for every row — the flag must stay down.
+    const full = await request(`/api/time-entries/team-summary?projectId=${proj}&limit=10`);
+    const fullBody = (await full.json()) as {
+      data: { entries: unknown[]; entriesTruncated: boolean };
+    };
+    expect(fullBody.data.entries.length).toBe(3);
+    expect(fullBody.data.entriesTruncated).toBe(false);
+  });
+
   it('GET /team-summary respects the date range', async () => {
     const proj = 'proj_summary_range';
     await seedProject(db, proj, 'user_pm');

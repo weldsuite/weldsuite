@@ -29,7 +29,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -58,7 +58,7 @@ const listFiltersSchema = z.object({
   scope: z.enum(['own', 'team']).optional(),
 });
 
-/** Filters shared by the team list and the team summary. */
+/** Filters for GET /team-summary; mirrors the team-scoped list filters. */
 const teamSummarySchema = z.object({
   projectId: z.string(),
   taskId: z.string().optional(),
@@ -90,16 +90,6 @@ const createTimeEntrySchema = z
   .passthrough();
 
 const updateTimeEntrySchema = createTimeEntrySchema.partial();
-
-/** A team-scoped list row, before the joined columns are nested. */
-type TeamEntryRow = {
-  userId: string;
-  taskId: string | null;
-  userName: string | null;
-  userEmail: string | null;
-  userAvatar: string | null;
-  taskTitle: string | null;
-} & Record<string, unknown>;
 
 function computeCost(rate?: string | number | null, duration?: string | number | null): string | null {
   if (rate === undefined || rate === null || duration === undefined || duration === null) return null;
@@ -136,7 +126,7 @@ app.get('/', requirePermission('time:read'), zValidator('query', listFiltersSche
     }
   }
 
-  const conditions: any[] = [isNull(t.deletedAt)];
+  const conditions: SQL[] = [isNull(t.deletedAt)];
   // Own-scope pins the caller. Team-scope is already bounded by the project
   // filter below, and may optionally narrow to a single member.
   if (!wantsTeam) conditions.push(eq(t.userId, callerId));
@@ -151,11 +141,21 @@ app.get('/', requirePermission('time:read'), zValidator('query', listFiltersSche
   const where = and(...conditions);
 
   try {
-    // Team reads join the member/task lookups the grid needs to label a row it
-    // did not author. The own-scope path keeps the plain `select()` so the
-    // personal timesheet's payload shape is untouched.
-    const rowsQuery = wantsTeam
-      ? db
+    const countQuery = db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(t)
+      .where(where);
+    const paginate = (countRes: { count: number }[], returned: number) => {
+      const totalCount = Number(countRes[0]?.count ?? 0);
+      return { totalCount, hasMore: offset + returned < totalCount, cursor: null };
+    };
+
+    // Team reads join the member/task lookups the grid needs to label a row the
+    // caller did not author. Kept as a separate branch rather than a ternary so
+    // each query keeps its own row type — a union of the two breaks inference.
+    if (wantsTeam) {
+      const [rawRows, countRes] = await Promise.all([
+        db
           .select({
             id: t.id,
             projectId: t.projectId,
@@ -184,41 +184,38 @@ app.get('/', requirePermission('time:read'), zValidator('query', listFiltersSche
           .where(where)
           .orderBy(desc(t.date), desc(t.createdAt))
           .limit(limit)
-          .offset(offset)
-      : db
-          .select()
-          .from(t)
-          .where(where)
-          .orderBy(desc(t.date), desc(t.createdAt))
-          .limit(limit)
-          .offset(offset);
+          .offset(offset),
+        countQuery,
+      ]);
 
-    const [rawRows, countRes] = await Promise.all([
-      rowsQuery,
-      db.select({ count: sql<number>`count(*)::int` }).from(t).where(where),
+      // Reshape the joined columns into the nested `user` / `task` objects the
+      // timesheet grid already reads (`entry.user?.name`, `entry.task?.title`).
+      const rows = rawRows.map(({ userName, userEmail, userAvatar, taskTitle, ...entry }) => ({
+        ...entry,
+        user: {
+          id: entry.userId,
+          name: userName ?? userEmail ?? entry.userId,
+          email: userEmail ?? '',
+          avatar: userAvatar ?? '',
+        },
+        task: entry.taskId && taskTitle ? { id: entry.taskId, title: taskTitle } : undefined,
+      }));
+      return list(c, rows, paginate(countRes, rows.length));
+    }
+
+    // Own scope keeps the plain `select()` so the personal timesheet's payload
+    // shape is untouched.
+    const [rows, countRes] = await Promise.all([
+      db
+        .select()
+        .from(t)
+        .where(where)
+        .orderBy(desc(t.date), desc(t.createdAt))
+        .limit(limit)
+        .offset(offset),
+      countQuery,
     ]);
-
-    // Reshape the joined columns into the nested `user` / `task` objects the
-    // timesheet grid already reads (`entry.user?.name`, `entry.task?.title`).
-    const rows = wantsTeam
-      ? (rawRows as TeamEntryRow[]).map(({ userName, userEmail, userAvatar, taskTitle, ...entry }) => ({
-          ...entry,
-          user: {
-            id: entry.userId,
-            name: userName ?? userEmail ?? entry.userId,
-            email: userEmail ?? '',
-            avatar: userAvatar ?? '',
-          },
-          task: entry.taskId && taskTitle ? { id: entry.taskId, title: taskTitle } : undefined,
-        }))
-      : rawRows;
-
-    const totalCount = Number(countRes[0]?.count ?? 0);
-    return list(c, rows, {
-      totalCount,
-      hasMore: offset + rows.length < totalCount,
-      cursor: null,
-    });
+    return list(c, rows, paginate(countRes, rows.length));
   } catch (err) {
     console.error('[app-api/time-entries] list failed:', err);
     return error.internal(c, 'Failed to list time entries');
@@ -250,7 +247,7 @@ app.get(
       return error.forbidden(c, 'You cannot view the team timesheet for this project');
     }
 
-    const conditions: any[] = [isNull(t.deletedAt), eq(t.projectId, f.projectId)];
+    const conditions: SQL[] = [isNull(t.deletedAt), eq(t.projectId, f.projectId)];
     if (f.userId) conditions.push(eq(t.userId, f.userId));
     if (f.taskId) conditions.push(eq(t.taskId, f.taskId));
     if (f.status) conditions.push(eq(t.status, f.status));
