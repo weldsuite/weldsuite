@@ -5,11 +5,17 @@
  * status / billable) come through as query params; mutations infer `userId`
  * from the Clerk session.
  *
- * OWNERSHIP MODEL (this batch):
- *   - GET /           — always scoped to the calling user's own entries.
- *                       A future `time:scope:all` grant would let managers
- *                       browse team timesheets via the `userId` query param
- *                       (out of scope here — add when the grant is wired).
+ * OWNERSHIP MODEL:
+ *   - GET /           — scoped to the calling user's own entries by DEFAULT.
+ *                       Pass `scope=team` together with a `projectId` to read
+ *                       the whole team's entries for that project; that widening
+ *                       requires `canManageProject` (project manager, an active
+ *                       owner/admin member, or a `projects:scope:all` holder).
+ *                       `userId` narrows the result and is only honoured under
+ *                       `scope=team` — on the default own-scope it is ignored,
+ *                       so it can never be used to read a colleague's rows.
+ *   - GET /team-summary — per-member totals + billable split for one project.
+ *                       Same `canManageProject` gate as `scope=team`.
  *   - GET /:id        — owner-only; 404 for another user's entry.
  *   - PATCH /:id      — owner-only; 404 for another user's entry.
  *   - DELETE /:id     — owner-only; 404 for another user's entry.
@@ -23,13 +29,14 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, list, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { timeEntryAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
+import { canManageProject } from '../../lib/project-access';
 import { schema } from '../../db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -47,6 +54,21 @@ const listFiltersSchema = z.object({
   page: z.coerce.number().int().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
   search: z.string().optional(),
+  /** 'team' widens the read to every member of `projectId` — managers only. */
+  scope: z.enum(['own', 'team']).optional(),
+});
+
+/** Filters shared by the team list and the team summary. */
+const teamSummarySchema = z.object({
+  projectId: z.string(),
+  taskId: z.string().optional(),
+  userId: z.string().optional(),
+  status: z.string().optional(),
+  billable: z.coerce.boolean().optional(),
+  fromDate: z.string().optional(),
+  toDate: z.string().optional(),
+  /** Caps the returned entry list. Totals are aggregated in SQL and stay exact. */
+  limit: z.coerce.number().int().min(1).max(2000).optional(),
 });
 
 const createTimeEntrySchema = z
@@ -69,6 +91,16 @@ const createTimeEntrySchema = z
 
 const updateTimeEntrySchema = createTimeEntrySchema.partial();
 
+/** A team-scoped list row, before the joined columns are nested. */
+type TeamEntryRow = {
+  userId: string;
+  taskId: string | null;
+  userName: string | null;
+  userEmail: string | null;
+  userAvatar: string | null;
+  taskTitle: string | null;
+} & Record<string, unknown>;
+
 function computeCost(rate?: string | number | null, duration?: string | number | null): string | null {
   if (rate === undefined || rate === null || duration === undefined || duration === null) return null;
   const r = Number(rate);
@@ -79,9 +111,11 @@ function computeCost(rate?: string | number | null, duration?: string | number |
 
 // ============================================================================
 // GET / — list with filters + page/limit pagination (matches api-worker shape).
-// Always filtered to the calling user's own entries. The `userId` query param
-// is accepted for forward-compatibility but is IGNORED until a `time:scope:all`
-// grant is introduced to let managers view team timesheets.
+//
+// Own-scope by default. `scope=team` + `projectId` reads the whole project
+// team's entries and is gated by `canManageProject`, so a plain member or
+// viewer can never widen past their own rows. `userId` narrows a team read to
+// one colleague; on an own-scope read it stays ignored.
 // ============================================================================
 
 app.get('/', requirePermission('time:read'), zValidator('query', listFiltersSchema), async (c) => {
@@ -92,12 +126,23 @@ app.get('/', requirePermission('time:read'), zValidator('query', listFiltersSche
   const limit = f.limit ?? 50;
   const offset = (page - 1) * limit;
 
-  const conditions: any[] = [isNull(t.deletedAt), eq(t.userId, callerId)];
+  const wantsTeam = f.scope === 'team';
+  if (wantsTeam) {
+    if (!f.projectId) {
+      return error.badRequest(c, 'scope=team requires a projectId');
+    }
+    if (!(await canManageProject(c, f.projectId))) {
+      return error.forbidden(c, 'You cannot view the team timesheet for this project');
+    }
+  }
+
+  const conditions: any[] = [isNull(t.deletedAt)];
+  // Own-scope pins the caller. Team-scope is already bounded by the project
+  // filter below, and may optionally narrow to a single member.
+  if (!wantsTeam) conditions.push(eq(t.userId, callerId));
+  else if (f.userId) conditions.push(eq(t.userId, f.userId));
   if (f.projectId) conditions.push(eq(t.projectId, f.projectId));
   if (f.taskId) conditions.push(eq(t.taskId, f.taskId));
-  // NOTE: f.userId is intentionally ignored here until a time:scope:all grant
-  // is wired. Managers who need cross-user views should use the approve/reject
-  // workflow or a future manager-summary endpoint.
   if (f.status) conditions.push(eq(t.status, f.status));
   if (f.billable !== undefined) conditions.push(eq(t.billable, f.billable));
   if (f.fromDate) conditions.push(sql`${t.date} >= ${f.fromDate}`);
@@ -106,16 +151,68 @@ app.get('/', requirePermission('time:read'), zValidator('query', listFiltersSche
   const where = and(...conditions);
 
   try {
-    const [rows, countRes] = await Promise.all([
-      db
-        .select()
-        .from(t)
-        .where(where)
-        .orderBy(desc(t.date), desc(t.createdAt))
-        .limit(limit)
-        .offset(offset),
+    // Team reads join the member/task lookups the grid needs to label a row it
+    // did not author. The own-scope path keeps the plain `select()` so the
+    // personal timesheet's payload shape is untouched.
+    const rowsQuery = wantsTeam
+      ? db
+          .select({
+            id: t.id,
+            projectId: t.projectId,
+            taskId: t.taskId,
+            userId: t.userId,
+            date: t.date,
+            startTime: t.startTime,
+            endTime: t.endTime,
+            duration: t.duration,
+            description: t.description,
+            activity: t.activity,
+            billable: t.billable,
+            status: t.status,
+            approvedBy: t.approvedBy,
+            approvedAt: t.approvedAt,
+            createdAt: t.createdAt,
+            updatedAt: t.updatedAt,
+            userName: schema.workspaceMembers.name,
+            userEmail: schema.workspaceMembers.email,
+            userAvatar: schema.workspaceMembers.picture,
+            taskTitle: schema.tasks.title,
+          })
+          .from(t)
+          .leftJoin(schema.workspaceMembers, eq(t.userId, schema.workspaceMembers.userId))
+          .leftJoin(schema.tasks, eq(t.taskId, schema.tasks.id))
+          .where(where)
+          .orderBy(desc(t.date), desc(t.createdAt))
+          .limit(limit)
+          .offset(offset)
+      : db
+          .select()
+          .from(t)
+          .where(where)
+          .orderBy(desc(t.date), desc(t.createdAt))
+          .limit(limit)
+          .offset(offset);
+
+    const [rawRows, countRes] = await Promise.all([
+      rowsQuery,
       db.select({ count: sql<number>`count(*)::int` }).from(t).where(where),
     ]);
+
+    // Reshape the joined columns into the nested `user` / `task` objects the
+    // timesheet grid already reads (`entry.user?.name`, `entry.task?.title`).
+    const rows = wantsTeam
+      ? (rawRows as TeamEntryRow[]).map(({ userName, userEmail, userAvatar, taskTitle, ...entry }) => ({
+          ...entry,
+          user: {
+            id: entry.userId,
+            name: userName ?? userEmail ?? entry.userId,
+            email: userEmail ?? '',
+            avatar: userAvatar ?? '',
+          },
+          task: entry.taskId && taskTitle ? { id: entry.taskId, title: taskTitle } : undefined,
+        }))
+      : rawRows;
+
     const totalCount = Number(countRes[0]?.count ?? 0);
     return list(c, rows, {
       totalCount,
@@ -127,6 +224,210 @@ app.get('/', requirePermission('time:read'), zValidator('query', listFiltersSche
     return error.internal(c, 'Failed to list time entries');
   }
 });
+
+// ============================================================================
+// GET /team-summary — per-member hour totals for one project, with the billable
+// split, over an optional date range. Gated by `canManageProject`: the project
+// manager, an active owner/admin member, or a `projects:scope:all` holder.
+//
+// Totals are aggregated in SQL over the FULL match set, so they stay exact even
+// when the caller pages the entry list separately via `GET /?scope=team`.
+// Members with no entries in range are still returned (at zero) — "who logged
+// nothing" is the question a manager most often opens this view to answer.
+//
+// MUST stay registered above `GET /:id`, or Hono matches it as an entry id.
+// ============================================================================
+
+app.get(
+  '/team-summary',
+  requirePermission('time:read'),
+  zValidator('query', teamSummarySchema),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const f = c.req.valid('query');
+
+    if (!(await canManageProject(c, f.projectId))) {
+      return error.forbidden(c, 'You cannot view the team timesheet for this project');
+    }
+
+    const conditions: any[] = [isNull(t.deletedAt), eq(t.projectId, f.projectId)];
+    if (f.userId) conditions.push(eq(t.userId, f.userId));
+    if (f.taskId) conditions.push(eq(t.taskId, f.taskId));
+    if (f.status) conditions.push(eq(t.status, f.status));
+    if (f.billable !== undefined) conditions.push(eq(t.billable, f.billable));
+    if (f.fromDate) conditions.push(sql`${t.date} >= ${f.fromDate}`);
+    if (f.toDate) conditions.push(sql`${t.date} <= ${f.toDate}`);
+    const where = and(...conditions);
+
+    try {
+      const { projects, projectMembers, workspaceMembers, tasks } = schema;
+
+      const [project] = await db
+        .select({ id: projects.id, name: projects.name })
+        .from(projects)
+        .where(and(eq(projects.id, f.projectId), isNull(projects.deletedAt)))
+        .limit(1);
+      if (!project) return error.notFound(c, 'Project', f.projectId);
+
+      const [members, totals, entries] = await Promise.all([
+        // Active roster, so zero-hour members still get a row.
+        db
+          .select({
+            userId: projectMembers.userId,
+            role: projectMembers.role,
+            name: workspaceMembers.name,
+            email: workspaceMembers.email,
+            avatar: workspaceMembers.picture,
+          })
+          .from(projectMembers)
+          .leftJoin(workspaceMembers, eq(projectMembers.userId, workspaceMembers.userId))
+          .where(
+            and(
+              eq(projectMembers.projectId, f.projectId),
+              eq(projectMembers.isActive, true),
+              isNull(projectMembers.deletedAt),
+            ),
+          ),
+        // Exact per-member/per-billable rollup over every matching row.
+        db
+          .select({
+            userId: t.userId,
+            billable: t.billable,
+            minutes: sql<number>`coalesce(sum(${t.duration}), 0)::float8`,
+            entryCount: sql<number>`count(*)::int`,
+          })
+          .from(t)
+          .where(where)
+          .groupBy(t.userId, t.billable),
+        db
+          .select({
+            id: t.id,
+            projectId: t.projectId,
+            taskId: t.taskId,
+            userId: t.userId,
+            date: t.date,
+            startTime: t.startTime,
+            endTime: t.endTime,
+            duration: t.duration,
+            description: t.description,
+            activity: t.activity,
+            billable: t.billable,
+            status: t.status,
+            taskTitle: tasks.title,
+          })
+          .from(t)
+          .leftJoin(tasks, eq(t.taskId, tasks.id))
+          .where(where)
+          .orderBy(desc(t.date), desc(t.createdAt))
+          .limit(f.limit ?? 1000),
+      ]);
+
+      // Roster first, then anyone with hours who has since left the project —
+      // dropping those rows would silently understate the project's total.
+      const byUser = new Map<
+        string,
+        {
+          userId: string;
+          name: string;
+          email: string;
+          avatar: string;
+          initials: string;
+          role: string | null;
+          isActiveMember: boolean;
+          totalMinutes: number;
+          billableMinutes: number;
+          nonBillableMinutes: number;
+          entryCount: number;
+        }
+      >();
+
+      const blank = (
+        userId: string,
+        info?: { name?: string | null; email?: string | null; avatar?: string | null; role?: string | null },
+        isActiveMember = true,
+      ) => {
+        const name = info?.name ?? info?.email ?? userId;
+        return {
+          userId,
+          name,
+          email: info?.email ?? '',
+          avatar: info?.avatar ?? '',
+          initials: name.slice(0, 2).toUpperCase(),
+          role: info?.role ?? null,
+          isActiveMember,
+          totalMinutes: 0,
+          billableMinutes: 0,
+          nonBillableMinutes: 0,
+          entryCount: 0,
+        };
+      };
+
+      for (const m of members) byUser.set(m.userId, blank(m.userId, m));
+
+      // Contributors who are no longer on the roster have no `members` row, so
+      // resolve their display names from the workspace directory rather than
+      // rendering a raw user id. One extra query, and only when there are any.
+      const offRoster = [...new Set(totals.map((r) => r.userId))].filter((id) => !byUser.has(id));
+      if (offRoster.length) {
+        const formerMembers = await db
+          .select({
+            userId: workspaceMembers.userId,
+            name: workspaceMembers.name,
+            email: workspaceMembers.email,
+            avatar: workspaceMembers.picture,
+          })
+          .from(workspaceMembers)
+          .where(inArray(workspaceMembers.userId, offRoster));
+        const directory = new Map(formerMembers.map((m) => [m.userId, m]));
+        for (const id of offRoster) byUser.set(id, blank(id, directory.get(id), false));
+      }
+
+      for (const row of totals) {
+        const bucket = byUser.get(row.userId);
+        if (!bucket) continue;
+        const minutes = Number(row.minutes) || 0;
+        bucket.totalMinutes += minutes;
+        if (row.billable) bucket.billableMinutes += minutes;
+        else bucket.nonBillableMinutes += minutes;
+        bucket.entryCount += Number(row.entryCount) || 0;
+      }
+
+      const teamMembers = [...byUser.values()].sort((a, b) => b.totalMinutes - a.totalMinutes);
+      const rollup = teamMembers.reduce(
+        (acc, m) => ({
+          totalMinutes: acc.totalMinutes + m.totalMinutes,
+          billableMinutes: acc.billableMinutes + m.billableMinutes,
+          nonBillableMinutes: acc.nonBillableMinutes + m.nonBillableMinutes,
+          entryCount: acc.entryCount + m.entryCount,
+        }),
+        { totalMinutes: 0, billableMinutes: 0, nonBillableMinutes: 0, entryCount: 0 },
+      );
+
+      return success(c, {
+        projectId: project.id,
+        projectName: project.name,
+        range: { fromDate: f.fromDate ?? null, toDate: f.toDate ?? null },
+        totals: {
+          ...rollup,
+          memberCount: teamMembers.length,
+          contributorCount: teamMembers.filter((m) => m.entryCount > 0).length,
+        },
+        members: teamMembers,
+        entries: entries.map(({ taskTitle, ...e }) => ({
+          ...e,
+          duration: Number(e.duration) || 0,
+          userName: byUser.get(e.userId)?.name ?? e.userId,
+          task: e.taskId && taskTitle ? { id: e.taskId, title: taskTitle } : undefined,
+        })),
+        // Signals the entry list was capped while `totals` stayed exact.
+        entriesTruncated: rollup.entryCount > entries.length,
+      });
+    } catch (err) {
+      console.error('[app-api/time-entries] team summary failed:', err);
+      return error.internal(c, 'Failed to fetch team timesheet summary');
+    }
+  },
+);
 
 // ============================================================================
 // TIMER — /api/time-entries/timer/*

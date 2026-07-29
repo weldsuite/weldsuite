@@ -1177,12 +1177,32 @@ export const whiteboardApi = {
 // ============ TIME ENTRIES ============
 
 export const timeEntriesApi = {
-  list: (projectId: string, params?: { page?: number; limit?: number; search?: string }) => {
+  list: (
+    projectId: string,
+    params?: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      /**
+       * 'team' reads every project member's entries instead of just your own.
+       * Backend-gated to project managers/owners — a plain member gets a 403,
+       * so this is a request, not a grant.
+       */
+      scope?: 'own' | 'team';
+      userId?: string;
+      fromDate?: string;
+      toDate?: string;
+    },
+  ) => {
     const searchParams = new URLSearchParams();
     searchParams.set('projectId', projectId);
     if (params?.page) searchParams.set('page', String(params.page));
     if (params?.limit) searchParams.set('limit', String(params.limit));
     if (params?.search) searchParams.set('search', params.search);
+    if (params?.scope) searchParams.set('scope', params.scope);
+    if (params?.userId) searchParams.set('userId', params.userId);
+    if (params?.fromDate) searchParams.set('fromDate', params.fromDate);
+    if (params?.toDate) searchParams.set('toDate', params.toDate);
     return appApiGet<ApiTimeEntry[] | { items: ApiTimeEntry[]; total?: number }>(`/time-entries?${searchParams}`);
   },
 
