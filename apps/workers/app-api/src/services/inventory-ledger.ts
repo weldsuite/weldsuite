@@ -21,14 +21,19 @@
  * the audit trail is derived as `new - delta`, which stays exact no matter how
  * many writers interleave.
  *
+ * Creating a bucket is the other half of that: an increment that matches
+ * nothing falls through to an insert, and two first receipts for the same key
+ * would race there. `inventory_bucket_unique` (partial, NULLS NOT DISTINCT)
+ * settles it — the loser's insert is a no-op and it re-runs the increment
+ * against the winner's row.
+ *
  * ## Atomicity
  *
  * The tenant DB is neon-http, which has no interactive transactions
  * (`db.transaction()` throws "No transactions support"). It does have
  * `db.batch()`, which Neon executes as a single transaction in one HTTP
- * request. Writes that must land together use {@link atomically}; drivers with
- * the support the other way round (pglite, used by tests) fall back to a real
- * transaction, so both paths are atomic.
+ * request. Writes that must land together go through `lib/atomically`, which
+ * picks whichever the driver has.
  *
  * The one thing a batch cannot express is "update, and insert only if the
  * update matched nothing" — that needs the update's result first. So a stock
@@ -39,6 +44,7 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Database } from '../db';
 import { schema } from '../db';
+import { atomically } from '../lib/atomically';
 import { generateId } from '../lib/id';
 
 const { inventory, products, productVariants, stockAdjustments, inventoryMovements } = schema;
@@ -114,30 +120,6 @@ export class StockLedgerError extends Error {
     super(message);
     this.name = 'StockLedgerError';
   }
-}
-
-/**
- * Commit related writes as one unit. See the module note on neon-http above.
- * `build` receives the handle to construct against; Drizzle query builders are
- * lazy, so building does not execute.
- */
-async function atomically(db: Database, build: (handle: Database) => unknown[]): Promise<void> {
-  const driver = db as unknown as {
-    batch?: (items: unknown[]) => Promise<unknown>;
-    transaction?: (fn: (tx: Database) => Promise<void>) => Promise<void>;
-  };
-
-  if (typeof driver.batch === 'function') {
-    await driver.batch(build(db));
-    return;
-  }
-  if (typeof driver.transaction === 'function') {
-    await driver.transaction(async (tx) => {
-      for (const statement of build(tx)) await (statement as Promise<unknown>);
-    });
-    return;
-  }
-  for (const statement of build(db)) await (statement as Promise<unknown>);
 }
 
 /**
@@ -292,19 +274,22 @@ export async function applyStockChange(
       ? and(matchStockKey(params), sql`${inventory.quantityOnHand} >= ${-params.delta}`)
       : matchStockKey(params);
 
-  const updated = await db
-    .update(inventory)
-    .set({
-      quantityOnHand: sql`${inventory.quantityOnHand} + ${params.delta}`,
-      quantityAvailable: sql`${inventory.quantityOnHand} + ${params.delta} - COALESCE(${inventory.quantityAllocated}, 0)`,
-      unitCost: costExpr,
-      totalValue: sql`ROUND(COALESCE(${costExpr}, 0) * (${inventory.quantityOnHand} + ${params.delta}::numeric), 2)`,
-      expiryDate: params.expiryDate ?? sql`${inventory.expiryDate}`,
-      receivedDate: params.delta > 0 ? now : sql`${inventory.receivedDate}`,
-      updatedAt: now,
-    })
-    .where(guard)
-    .returning({ id: inventory.id, quantityOnHand: inventory.quantityOnHand });
+  const increment = () =>
+    db
+      .update(inventory)
+      .set({
+        quantityOnHand: sql`${inventory.quantityOnHand} + ${params.delta}`,
+        quantityAvailable: sql`${inventory.quantityOnHand} + ${params.delta} - COALESCE(${inventory.quantityAllocated}, 0)`,
+        unitCost: costExpr,
+        totalValue: sql`ROUND(COALESCE(${costExpr}, 0) * (${inventory.quantityOnHand} + ${params.delta}::numeric), 2)`,
+        expiryDate: params.expiryDate ?? sql`${inventory.expiryDate}`,
+        receivedDate: params.delta > 0 ? now : sql`${inventory.receivedDate}`,
+        updatedAt: now,
+      })
+      .where(guard)
+      .returning({ id: inventory.id, quantityOnHand: inventory.quantityOnHand });
+
+  const updated = await increment();
 
   let inventoryId: string;
   let newQuantity: number;
@@ -335,32 +320,73 @@ export async function applyStockChange(
       );
     }
 
-    inventoryId = generateId('inv');
-    newQuantity = params.delta;
-    await db.insert(inventory).values({
-      id: inventoryId,
-      productId: params.productId,
-      variantId: params.variantId ?? null,
-      warehouseId: params.warehouseId,
-      locationId: params.locationId ?? null,
-      lotNumber: params.lotNumber ?? null,
-      batchNumber: params.batchNumber ?? null,
-      expiryDate: params.expiryDate ?? null,
-      quantityOnHand: newQuantity,
-      quantityAllocated: 0,
-      quantityAvailable: newQuantity,
-      quantityIncoming: 0,
-      quantityOutgoing: 0,
-      unitCost: params.unitCost !== null && params.unitCost !== undefined ? String(params.unitCost) : null,
-      totalValue:
-        params.unitCost !== null && params.unitCost !== undefined
-          ? String((params.unitCost * newQuantity).toFixed(2))
-          : null,
-      status: 'available',
-      receivedDate: params.delta > 0 ? now : null,
-      createdAt: now,
-      updatedAt: now,
-    });
+    // Creating the bucket is the one check-then-act left in this path: two
+    // simultaneous first receipts both find no row and both insert. Deferring
+    // to `inventory_bucket_unique` makes the insert idempotent — the loser gets
+    // no row back and simply applies its delta to the winner's bucket instead,
+    // which is what it would have done had it arrived a moment later.
+    const candidateId = generateId('inv');
+    const created = await db
+      .insert(inventory)
+      .values({
+        id: candidateId,
+        productId: params.productId,
+        variantId: params.variantId ?? null,
+        warehouseId: params.warehouseId,
+        locationId: params.locationId ?? null,
+        lotNumber: params.lotNumber ?? null,
+        batchNumber: params.batchNumber ?? null,
+        expiryDate: params.expiryDate ?? null,
+        quantityOnHand: params.delta,
+        quantityAllocated: 0,
+        quantityAvailable: params.delta,
+        quantityIncoming: 0,
+        quantityOutgoing: 0,
+        unitCost: params.unitCost !== null && params.unitCost !== undefined ? String(params.unitCost) : null,
+        totalValue:
+          params.unitCost !== null && params.unitCost !== undefined
+            ? String((params.unitCost * params.delta).toFixed(2))
+            : null,
+        status: 'available',
+        receivedDate: params.delta > 0 ? now : null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing({
+        target: [
+          inventory.productId,
+          inventory.warehouseId,
+          inventory.variantId,
+          inventory.locationId,
+          inventory.lotNumber,
+        ],
+        // On `onConflictDoNothing` this renders as the ON CONFLICT (…) WHERE …
+        // predicate, which is what names the partial index as the arbiter —
+        // without it Postgres cannot infer which index is meant.
+        where: sql`${inventory.deletedAt} IS NULL`,
+      })
+      .returning({ id: inventory.id, quantityOnHand: inventory.quantityOnHand });
+
+    if (created.length > 0) {
+      inventoryId = created[0].id;
+      newQuantity = created[0].quantityOnHand ?? params.delta;
+    } else {
+      const retried = await increment();
+      if (retried.length === 0) {
+        // The concurrent creator's bucket exists but can't absorb this issue.
+        const [raced] = await db
+          .select({ quantityOnHand: inventory.quantityOnHand })
+          .from(inventory)
+          .where(matchStockKey(params))
+          .limit(1);
+        throw new StockLedgerError(
+          `Insufficient stock: ${raced?.quantityOnHand ?? 0} on hand, ${-params.delta} requested`,
+          'INSUFFICIENT_STOCK',
+        );
+      }
+      inventoryId = retried[0].id;
+      newQuantity = retried[0].quantityOnHand ?? 0;
+    }
   }
 
   const previousQuantity = newQuantity - params.delta;
@@ -447,17 +473,25 @@ export async function transferStock(db: Database, params: TransferParams): Promi
     throw new StockLedgerError('Transfer quantity must be positive', 'INVALID_DELTA');
   }
 
+  // An omitted destination lot means "keep the lot it came from", so the guard
+  // has to compare the *resolved* destination. Comparing `to.lotNumber` raw let
+  // A/L1 → A pass as a cross-bucket move and then debit and credit the same
+  // bucket, leaving an offsetting pair plus a movement row for a no-op.
+  const toLotNumber = params.to.lotNumber ?? params.from.lotNumber ?? null;
   const sameBucket =
     params.from.warehouseId === params.to.warehouseId &&
     (params.from.locationId ?? null) === (params.to.locationId ?? null) &&
-    (params.from.lotNumber ?? null) === (params.to.lotNumber ?? null);
+    (params.from.lotNumber ?? null) === toLotNumber;
   if (sameBucket) {
     throw new StockLedgerError('Source and destination are the same location', 'SAME_LOCATION');
   }
 
   const now = new Date();
   const movementId = generateId('mov');
-  const movementNumber = `TRF-${now.getTime().toString(36).toUpperCase()}`;
+  // The timestamp alone collides for transfers started in the same
+  // millisecond, and `sourceNumber` is how the two audit legs are tied back to
+  // this movement — so the id, which is already unique, disambiguates it.
+  const movementNumber = `TRF-${now.getTime().toString(36).toUpperCase()}-${movementId.slice(-6).toUpperCase()}`;
 
   const outResult = await applyStockChange(db, {
     productId: params.productId,
@@ -483,7 +517,7 @@ export async function transferStock(db: Database, params: TransferParams): Promi
       variantId: params.variantId,
       warehouseId: params.to.warehouseId,
       locationId: params.to.locationId,
-      lotNumber: params.to.lotNumber ?? params.from.lotNumber,
+      lotNumber: toLotNumber,
       delta: params.quantity,
       type: 'transfer_in',
       reason: params.reason,

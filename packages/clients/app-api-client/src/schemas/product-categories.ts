@@ -107,7 +107,29 @@ const requireRulesWhenAutomated = <T extends z.ZodTypeAny>(s: T) =>
   });
 
 export const createProductCategorySchema = requireRulesWhenAutomated(categoryBase);
-export const updateProductCategorySchema = requireRulesWhenAutomated(categoryBase.partial());
+
+/**
+ * Deliberately *not* refined.
+ *
+ * A refinement on a partial schema only sees the fields the body happens to
+ * carry, which gets the invariant wrong in both directions: `{ type:
+ * 'automated' }` on a category that already has rules would be rejected, while
+ * `{ rules: [] }` on an already-automated one would pass and persist. The
+ * merged (existing + patch) state is what has to satisfy it, so the PATCH
+ * handler checks it — see {@link automatedWithoutRules}.
+ */
+export const updateProductCategorySchema = categoryBase.partial();
+
+/**
+ * Does the state a PATCH would leave behind violate the automated/rules
+ * invariant? Callers pass the merged type and rules.
+ */
+export function automatedWithoutRules(
+  type: string | null | undefined,
+  rules: unknown[] | null | undefined,
+): boolean {
+  return type === 'automated' && (!rules || rules.length === 0);
+}
 
 /** Attach products to a manual category. */
 export const addCategoryProductsSchema = z.object({
@@ -131,7 +153,12 @@ export const categoryProductsQuerySchema = z.object({
 export const categoryTreeQuerySchema = z.object({
   /** Subtree root. Omitted returns the whole forest. */
   rootId: z.string().max(30).optional(),
-  includeInactive: z.coerce.boolean().optional(),
+  // Not `z.coerce.boolean()`: that runs the value through `Boolean()`, and every
+  // non-empty string is truthy — so `?includeInactive=false` would read as true.
+  includeInactive: z
+    .enum(['true', 'false', '1', '0'])
+    .transform((v) => v === 'true' || v === '1')
+    .optional(),
 });
 
 export type CategoryRuleColumn = z.infer<typeof categoryRuleColumnSchema>;

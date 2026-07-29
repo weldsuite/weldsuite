@@ -237,8 +237,12 @@ function ruleToPredicate(rule: StoredCategoryRule): SQL {
       case 'equals':
         return exists(sql`tag_value = ${value}`);
       case 'not_equals':
-      case 'not_contains':
         return sql`NOT ${exists(sql`tag_value = ${value}`)}`;
+      // `not_contains` has to negate the substring test, not the equality one:
+      // a product tagged `summer` does contain "sum" even though no tag equals
+      // it. Folding the two together made the pair non-inverse.
+      case 'not_contains':
+        return sql`NOT ${exists(sql`tag_value ILIKE ${`%${likeLiteral(value)}%`}`)}`;
       case 'contains':
         return exists(sql`tag_value ILIKE ${`%${likeLiteral(value)}%`}`);
       case 'starts_with':
@@ -306,10 +310,18 @@ export function rulesToPredicate(
 // Member listing
 // ---------------------------------------------------------------------------
 
+/**
+ * `sales_count` is nullable, and Postgres sorts NULLs first on DESC — which
+ * would put never-sold products at the top of "best selling". Coalescing also
+ * keeps the ORDER BY expression identical to the one {@link cursorPredicate}
+ * compares against, without which paging drifts.
+ */
+const bestSellingKey = sql`COALESCE(${products.salesCount}, 0)`;
+
 function orderFor(sortOrder: CategorySortOrder | null | undefined): SQL[] {
   switch (sortOrder) {
     case 'best-selling':
-      return [desc(products.salesCount), desc(products.id)];
+      return [desc(bestSellingKey), desc(products.id)];
     case 'alpha-asc':
       return [asc(products.name), asc(products.id)];
     case 'alpha-desc':
@@ -323,6 +335,50 @@ function orderFor(sortOrder: CategorySortOrder | null | undefined): SQL[] {
     case 'created-desc':
     default:
       return [desc(products.createdAt), desc(products.id)];
+  }
+}
+
+/** The cursor row's sort keys — everything {@link cursorPredicate} compares. */
+interface CursorRow {
+  id: string;
+  createdAt: Date;
+  name: string;
+  price: string | null;
+  salesCount: number | null;
+}
+
+/**
+ * Keyset predicate for one page, built from the *same* columns the ORDER BY
+ * uses.
+ *
+ * Keying the cursor on `created_at` while ordering by price is the classic way
+ * to both skip and repeat rows: the second page keeps everything created after
+ * the cursor product regardless of where it falls in the price ordering. So the
+ * leading column here tracks `sort`, with `id` as the tiebreaker that makes the
+ * ordering total.
+ */
+function cursorPredicate(sort: CategorySortOrder, cur: CursorRow): SQL {
+  const after = (col: SQL, value: unknown, direction: 'asc' | 'desc'): SQL =>
+    direction === 'asc'
+      ? sql`(${col} > ${value} OR (${col} = ${value} AND ${products.id} > ${cur.id}))`
+      : sql`(${col} < ${value} OR (${col} = ${value} AND ${products.id} < ${cur.id}))`;
+
+  switch (sort) {
+    case 'best-selling':
+      return after(bestSellingKey, cur.salesCount ?? 0, 'desc');
+    case 'alpha-asc':
+      return after(sql`${products.name}`, cur.name, 'asc');
+    case 'alpha-desc':
+      return after(sql`${products.name}`, cur.name, 'desc');
+    case 'price-asc':
+      return after(sql`${products.price}`, cur.price, 'asc');
+    case 'price-desc':
+      return after(sql`${products.price}`, cur.price, 'desc');
+    case 'created-asc':
+      return after(sql`${products.createdAt}`, cur.createdAt, 'asc');
+    case 'created-desc':
+    default:
+      return after(sql`${products.createdAt}`, cur.createdAt, 'desc');
   }
 }
 
@@ -399,19 +455,17 @@ export async function listCategoryMembers(
 
   if (opts.cursor) {
     const [cur] = await db
-      .select({ createdAt: products.createdAt, id: products.id })
+      .select({
+        id: products.id,
+        createdAt: products.createdAt,
+        name: products.name,
+        price: products.price,
+        salesCount: products.salesCount,
+      })
       .from(products)
       .where(eq(products.id, opts.cursor))
       .limit(1);
-    if (cur?.createdAt) {
-      // Keyset pagination is only sound on the created/id ordering; the other
-      // sorts fall back to it so a cursor never skips or repeats rows.
-      base.push(
-        effectiveSort === 'created-asc'
-          ? sql`(${products.createdAt} > ${cur.createdAt} OR (${products.createdAt} = ${cur.createdAt} AND ${products.id} > ${cur.id}))`
-          : sql`(${products.createdAt} < ${cur.createdAt} OR (${products.createdAt} = ${cur.createdAt} AND ${products.id} < ${cur.id}))`,
-      );
-    }
+    if (cur) base.push(cursorPredicate(effectiveSort, cur));
   }
 
   const [rows, countRes] = await Promise.all([
@@ -492,32 +546,31 @@ export async function addMembers(
     throw new CategoryError(`Unknown product ids: ${missing.join(', ')}`, 'PRODUCTS_NOT_FOUND');
   }
 
-  const existing = await db
-    .select({ productId: categoryProducts.productId })
-    .from(categoryProducts)
-    .where(and(eq(categoryProducts.categoryId, category.id), inArray(categoryProducts.productId, unique)));
-  const already = new Set(existing.map((e) => e.productId));
-
-  const toInsert = unique.filter((id) => !already.has(id));
-  if (toInsert.length === 0) return { added: 0, skipped: unique.length };
-
   const [maxRow] = await db
     .select({ max: sql<number>`COALESCE(MAX(${categoryProducts.position}), -1)` })
     .from(categoryProducts)
     .where(eq(categoryProducts.categoryId, category.id));
   let position = Number(maxRow?.max ?? -1);
 
-  await db.insert(categoryProducts).values(
-    toInsert.map((productId) => ({
-      id: makeId(),
-      categoryId: category.id,
-      productId,
-      position: ++position,
-      createdAt: new Date(),
-    })),
-  );
+  // Let `category_products_unique` decide what is already a member rather than
+  // reading first: a read-then-insert turns a double-submit into a 500 on the
+  // unique index instead of the no-op it should be. `added` is the row count
+  // the insert actually produced, so `skipped` stays accurate either way.
+  const inserted = await db
+    .insert(categoryProducts)
+    .values(
+      unique.map((productId) => ({
+        id: makeId(),
+        categoryId: category.id,
+        productId,
+        position: ++position,
+        createdAt: new Date(),
+      })),
+    )
+    .onConflictDoNothing({ target: [categoryProducts.categoryId, categoryProducts.productId] })
+    .returning({ productId: categoryProducts.productId });
 
-  return { added: toInsert.length, skipped: unique.length - toInsert.length };
+  return { added: inserted.length, skipped: unique.length - inserted.length };
 }
 
 export async function removeMember(

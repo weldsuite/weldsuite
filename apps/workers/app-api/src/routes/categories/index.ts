@@ -13,11 +13,12 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, asc, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   addCategoryProductsSchema,
+  automatedWithoutRules,
   categoryProductsQuerySchema,
   categoryTreeQuerySchema,
   createProductCategorySchema,
@@ -26,6 +27,7 @@ import {
 } from '@weldsuite/app-api-client/schemas/product-categories';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
+import { atomically } from '../../lib/atomically';
 import { generateId } from '../../lib/id';
 import { schema } from '../../db';
 import {
@@ -61,9 +63,13 @@ function categoryError(c: Context, err: unknown, fallback: string) {
 app.get('/', requirePermission('categories:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  // `?limit=abc` parses to NaN and `?limit=-5` to a negative, both of which
+  // reach the driver as a nonsense LIMIT. Clamp into range and fall back to the
+  // default for anything unparseable.
+  const parsedLimit = q.limit ? Number.parseInt(q.limit, 10) : 25;
+  const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 25;
 
-  const conditions: any[] = [isNull(t.deletedAt)];
+  const conditions: SQL[] = [isNull(t.deletedAt)];
   // `parentId=null` is the only way to ask for roots — an absent param means
   // "any parent", so the two cases cannot share a branch.
   if (q.parentId === 'null') conditions.push(isNull(t.parentId));
@@ -112,7 +118,7 @@ app.get('/tree', requirePermission('categories:read'), zValidator('query', categ
   const db = c.get('tenantDb');
   const q = c.req.valid('query');
   try {
-    const conditions: any[] = [isNull(t.deletedAt)];
+    const conditions: SQL[] = [isNull(t.deletedAt)];
     if (!q.includeInactive) conditions.push(eq(t.isActive, 1));
     const rows = await db
       .select()
@@ -240,6 +246,18 @@ app.patch('/:id', requirePermission('categories:update'), zValidator('json', upd
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Category', id);
 
+    // The invariant is about the state this PATCH leaves behind, not about the
+    // body in isolation, so it is checked against the merge. A partial-body
+    // refinement would both reject `{ type: 'automated' }` on a category that
+    // already has rules and let `{ rules: [] }` empty out an automated one.
+    const mergedType = data.type ?? existing.type;
+    const mergedRules = data.rules !== undefined ? data.rules : existing.rules;
+    if (automatedWithoutRules(mergedType, mergedRules)) {
+      return error.badRequest(c, 'An automated category needs at least one rule', {
+        code: 'RULES_REQUIRED',
+      });
+    }
+
     const update: Record<string, unknown> = { updatedAt: now };
 
     if (data.name !== undefined) update.name = data.name;
@@ -317,8 +335,14 @@ app.delete('/:id', requirePermission('categories:delete'), async (c) => {
       );
     }
 
-    await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));
-    await db.delete(schema.categoryProducts).where(eq(schema.categoryProducts.categoryId, id));
+    // One unit: as two statements, a failing junction delete leaves the
+    // category flagged deleted with orphaned `category_products` rows behind a
+    // 500 the caller can't act on.
+    const deletedAt = new Date();
+    await atomically(db, (handle) => [
+      handle.update(t).set({ deletedAt, updatedAt: deletedAt }).where(eq(t.id, id)),
+      handle.delete(schema.categoryProducts).where(eq(schema.categoryProducts.categoryId, id)),
+    ]);
 
     publishEntityEvent({ c, entityType: 'category', entityId: id, action: 'deleted', data: { id } });
     return noContent(c);

@@ -131,6 +131,28 @@ describe('applyStockChange', () => {
     expect(all).toHaveLength(1);
   });
 
+  it('creates one bucket when several first receipts race', async () => {
+    const productId = await makeProduct();
+
+    // Every one of these finds no bucket and tries to create it. Without
+    // `inventory_bucket_unique` they all succeed and the key ends up with five
+    // buckets, after which each later update touches only one of them while
+    // the product roll-up keeps summing all five.
+    await Promise.all(
+      Array.from({ length: 5 }, () =>
+        applyStockChange(db, { productId, warehouseId: WAREHOUSE_A, delta: 2, type: 'received' }),
+      ),
+    );
+
+    const all = await db
+      .select()
+      .from(schema.inventory)
+      .where(and(eq(schema.inventory.productId, productId), isNull(schema.inventory.deletedAt)));
+    expect(all).toHaveLength(1);
+    expect(all[0].quantityOnHand).toBe(10);
+    expect(await productQuantity(productId)).toBe(10);
+  });
+
   it('keeps concurrent adjustments from losing each other', async () => {
     const productId = await makeProduct();
     await applyStockChange(db, { productId, warehouseId: WAREHOUSE_A, delta: 100, type: 'received' });
@@ -345,6 +367,50 @@ describe('transferStock', () => {
         to: { warehouseId: WAREHOUSE_A },
       }),
     ).rejects.toMatchObject({ code: 'SAME_LOCATION' });
+  });
+
+  it('rejects a self-transfer whose destination lot is only implied', async () => {
+    const productId = await makeProduct();
+    await applyStockChange(db, {
+      productId,
+      warehouseId: WAREHOUSE_A,
+      lotNumber: 'L1',
+      delta: 5,
+      type: 'received',
+    });
+
+    // An omitted destination lot inherits the source's, so this targets the
+    // same bucket — comparing the raw `to.lotNumber` let it through and booked
+    // an offsetting debit/credit pair plus a movement row for a no-op.
+    await expect(
+      transferStock(db, {
+        productId,
+        quantity: 1,
+        from: { warehouseId: WAREHOUSE_A, lotNumber: 'L1' },
+        to: { warehouseId: WAREHOUSE_A },
+      }),
+    ).rejects.toMatchObject({ code: 'SAME_LOCATION' });
+  });
+
+  it('gives concurrent transfers distinct movement numbers', async () => {
+    const productId = await makeProduct();
+    await applyStockChange(db, { productId, warehouseId: WAREHOUSE_A, delta: 10, type: 'received' });
+
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () =>
+        transferStock(db, {
+          productId,
+          quantity: 1,
+          from: { warehouseId: WAREHOUSE_A },
+          to: { warehouseId: WAREHOUSE_B },
+        }),
+      ),
+    );
+
+    // A bare `Date.now()` collides here, and `sourceNumber` is how the audit
+    // legs are tied back to a movement.
+    const numbers = results.map((r) => r.movementNumber);
+    expect(new Set(numbers).size).toBe(numbers.length);
   });
 
   it('rejects a non-positive quantity', async () => {

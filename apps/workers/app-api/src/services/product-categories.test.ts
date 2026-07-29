@@ -197,6 +197,27 @@ describe('manual membership', () => {
     expect(rows.map((r) => r.position).sort()).toEqual([0, 1]);
   });
 
+  it('stays a no-op when the same attach lands twice at once', async () => {
+    const cat = await makeCategory();
+    const p1 = await makeProduct();
+
+    // A double-submit issues both attaches before either commits, so neither
+    // sees the other's row. `category_products_unique` has to absorb it —
+    // a read-then-insert would surface the second as a 500.
+    const [a, b] = await Promise.all([
+      addMembers(db, cat, [p1], () => generateId('cprod')),
+      addMembers(db, cat, [p1], () => generateId('cprod')),
+    ]);
+    expect(a.added + b.added).toBe(1);
+    expect(a.skipped + b.skipped).toBe(1);
+
+    const rows = await db
+      .select()
+      .from(schema.categoryProducts)
+      .where(eq(schema.categoryProducts.categoryId, cat.id));
+    expect(rows).toHaveLength(1);
+  });
+
   it('rejects unknown product ids instead of creating dangling rows', async () => {
     const cat = await makeCategory();
     await expect(
@@ -320,6 +341,26 @@ describe('automated membership', () => {
     expect((await listCategoryMembers(db, cat, { limit: 10 })).rows.map((r) => r.id)).toEqual([untagged]);
   });
 
+  it('negates the substring test on `tag not_contains`, not equality', async () => {
+    const marker = `T-${generateId('t')}`;
+    const summer = await makeProduct({ brand: marker, tags: ['summer'] });
+    const winter = await makeProduct({ brand: marker, tags: ['winter'] });
+
+    // No tag *equals* "sum", but `summer` does contain it — folding
+    // `not_contains` into the `not_equals` branch would keep `summer`.
+    const cat = await makeCategory({
+      type: 'automated',
+      rulesMatch: 'all',
+      rules: [
+        { column: 'brand', relation: 'equals', condition: marker },
+        { column: 'tag', relation: 'not_contains', condition: 'sum' },
+      ],
+    });
+    const ids = (await listCategoryMembers(db, cat, { limit: 10 })).rows.map((r) => r.id);
+    expect(ids).toEqual([winter]);
+    expect(ids).not.toContain(summer);
+  });
+
   it('treats % in a condition as a literal, not a wildcard', async () => {
     const marker = `L-${generateId('l')}`;
     const literal = await makeProduct({ name: `${marker} 50% off`, brand: marker });
@@ -387,6 +428,38 @@ describe('automated membership', () => {
     const asc = await listCategoryMembers(db, cat, { limit: 10, sortOrder: 'price-asc' });
     expect(asc.rows.map((r) => r.id)).toEqual([cheap, dear]);
   });
+
+  it('pages a non-created sort without skipping or repeating', async () => {
+    const marker = `K-${generateId('k')}`;
+    // Insertion order is deliberately the reverse of price order: a cursor
+    // keyed on `created_at` while ordering by price would page the wrong set.
+    const prices = ['10.00', '40.00', '20.00', '50.00', '30.00'];
+    for (const price of prices) await makeProduct({ brand: marker, price });
+
+    const cat = await makeCategory({
+      type: 'automated',
+      rules: [{ column: 'brand', relation: 'equals', condition: marker }],
+      sortOrder: 'price-asc',
+    });
+
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 5; page++) {
+      const result = await listCategoryMembers(db, cat, { limit: 2, cursor });
+      seen.push(...result.rows.map((r) => r.id));
+      if (!result.hasMore) break;
+      cursor = result.nextCursor ?? undefined;
+    }
+
+    const walked = await Promise.all(
+      seen.map(async (id) => {
+        const [row] = await db.select().from(schema.products).where(eq(schema.products.id, id)).limit(1);
+        return row.price;
+      }),
+    );
+    expect(new Set(seen).size).toBe(prices.length);
+    expect(walked).toEqual([...prices].sort((a, b) => Number(a) - Number(b)));
+  });
 });
 
 describe('previewMembers', () => {
@@ -404,7 +477,10 @@ describe('previewMembers', () => {
     expect(result.rows.map((r) => r.id)).toEqual([match]);
     expect(result.totalCount).toBe(1);
 
-    const stored = await db.select().from(schema.categoryProducts);
-    expect(stored.every((r) => r.productId !== match || r.categoryId !== undefined)).toBe(true);
+    const stored = await db
+      .select()
+      .from(schema.categoryProducts)
+      .where(eq(schema.categoryProducts.productId, match));
+    expect(stored).toEqual([]);
   });
 });

@@ -11,7 +11,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, lte, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import {
   adjustInventorySchema,
@@ -51,7 +51,7 @@ app.get('/', requirePermission('inventory:read'), async (c) => {
 
   const { products, warehouses, warehouseLocations } = schema;
 
-  const conditions: any[] = [isNull(t.deletedAt)];
+  const conditions: SQL[] = [isNull(t.deletedAt)];
   if (q.productId !== undefined && q.productId !== '') conditions.push(eq(t.productId, q.productId));
   if (q.warehouseId !== undefined && q.warehouseId !== '') conditions.push(eq(t.warehouseId, q.warehouseId));
   if (q.lowStockOnly === 'true') {
@@ -130,7 +130,7 @@ app.get('/ledger', requirePermission('inventory:read'), zValidator('query', inve
   const limit = q.limit ?? 25;
   const { stockAdjustments, products, warehouses, warehouseLocations } = schema;
 
-  const conditions: any[] = [];
+  const conditions: SQL[] = [];
   if (q.productId) conditions.push(eq(stockAdjustments.productId, q.productId));
   if (q.variantId) conditions.push(eq(stockAdjustments.variantId, q.variantId));
   if (q.warehouseId) conditions.push(eq(stockAdjustments.warehouseId, q.warehouseId));
