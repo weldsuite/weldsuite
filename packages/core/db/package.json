@@ -21,7 +21,7 @@
     "@weldsuite/permissions": "workspace:*",
     "drizzle-orm": "^0.45.1",
     "postgres": "^3.4.7",
-    "ws": "^8.18.0"
+    "ws": "^8.21.0"
   },
   "peerDependencies": {
     "@clerk/nextjs": "^6.0.0",
