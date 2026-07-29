@@ -5,7 +5,7 @@
     "@blocknote/core": "^0.47.3",
     "@blocknote/react": "^0.47.3",
     "@blocknote/shadcn": "^0.47.3",
-    "@clerk/clerk-react": "^5.60.2",
+    "@clerk/clerk-react": "^5.61.6",
     "@clerk/types": "^4.101.9",
     "@cloudflare/realtimekit": "^1.2.5",
     "@cloudflare/realtimekit-react": "^1.2.5",
