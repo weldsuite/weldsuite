@@ -438,6 +438,8 @@ export function MessageInput({
   // the click event fires (~50–250ms head-start) so the stream is already
   // open by the time the user releases. Without this, the user sees ~1s of
   // dead time between click and the recorder actually starting.
+  // Deliberately NOT wired to hover: pointerdown is the earliest signal that
+  // still means "the user wants to record".
   const prewarmVoiceRecording = useCallback(() => {
     if (voicePrewarmedRef.current) return;
     if (voiceRecorder.state !== 'idle') return;
@@ -1181,16 +1183,11 @@ export function MessageInput({
                 <div className="relative">
                   <Button
                     variant="ghost"
-                    onMouseEnter={() => {
-                      // Hover pre-warm — the longest head start on desktop.
-                      // By the time the user actually clicks, the audio
-                      // device is usually already acquired so recording
-                      // starts truly instantly.
-                      if (isPending || isVoiceRecording) return;
-                      prewarmVoiceRecording();
-                    }}
                     onPointerDown={(e) => {
-                      // Touch/mobile fallback — fires before click.
+                      // Pre-warm on press — NOT on hover. Hovering is not
+                      // intent to record, and a hover pre-warm turned the
+                      // browser's microphone indicator on just from the
+                      // cursor passing over this button.
                       if (e.button !== 0 || isPending || isVoiceRecording) return;
                       prewarmVoiceRecording();
                     }}
