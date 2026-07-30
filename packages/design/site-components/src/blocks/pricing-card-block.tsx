@@ -34,7 +34,6 @@ export function PricingCardBlock({
   backgroundColor = '#ffffff',
   textColor = '#000000',
   accentColor = '#3b82f6',
-  mode = 'live'
 }: PricingCardBlockProps) {
   return (
     <div

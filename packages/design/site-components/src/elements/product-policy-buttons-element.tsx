@@ -15,7 +15,6 @@ export function ProductPolicyButtonsElement({
   refundPolicyText = 'Terugbetalingsbeleid',
   showShippingPolicy = true,
   showRefundPolicy = true,
-  mode = 'live',
 }: ProductPolicyButtonsElementProps) {
   if (!showShippingPolicy && !showRefundPolicy) {
     return null;

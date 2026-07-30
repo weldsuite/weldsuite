@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect } from 'react';
-import { ArrowRight } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
 
 interface ImageWithTextSectionProps {
@@ -33,8 +32,6 @@ export function ImageWithTextSection({
   textColor = '#000000',
   paddingTop = 80,
   paddingBottom = 80,
-  imageWidth = 50,
-  sectionId,
   textFont = 'Inter',
   textFontWeight = 'font-normal',
   textSize = 'text-lg',

@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { ShoppingCart, Heart, Plus } from 'lucide-react';
+import { Heart, Plus } from 'lucide-react';
 
 interface Money {
   amount: number;

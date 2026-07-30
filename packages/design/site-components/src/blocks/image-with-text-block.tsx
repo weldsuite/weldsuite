@@ -51,10 +51,8 @@ export function ImageWithTextBlock({
   buttonLabel = 'Button label',
   buttonLink = '#',
   buttonStyle = 'primary',
-  colorScheme = 'scheme-1',
   blocks = [],
   selectedBlockId,
-  store,
 }: ImageWithTextBlockProps) {
 
   // Extract settings from blocks if they exist

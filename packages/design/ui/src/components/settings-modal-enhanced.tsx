@@ -3,17 +3,8 @@
 import * as React from "react"
 import {
   Bell,
-  Check,
-  Globe,
-  Home,
   Keyboard,
-  Link,
-  Lock,
-  Menu,
-  MessageCircle,
   Paintbrush,
-  Settings,
-  Video,
   Users,
   Building2,
   CreditCard,
@@ -26,34 +17,19 @@ import {
   Sun,
   Monitor,
   Mail,
-  Smartphone,
-  Eye,
-  Volume2,
   UserPlus,
   Plus,
   Search,
-  Filter,
   MoreVertical,
   Edit,
   Trash,
   Copy,
   RefreshCw,
   Download,
-  ChevronRight,
   Crown,
-  CheckCircle,
-  XCircle,
-  Clock,
-  AlertTriangle,
-  GitBranch,
-  Zap,
   Save,
-  X,
-  UserX,
-  Activity,
-  DollarSign,
   Loader2,
-} from "lucide-react"
+} from "lucide-react";
 
 import {
   Breadcrumb,
@@ -97,10 +73,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./car
 import { Separator } from "./separator"
 import { RadioGroup, RadioGroupItem } from "./radio-group"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./table"
-import { Avatar, AvatarFallback, AvatarImage } from "./avatar"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "./dropdown-menu"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./tabs"
-import { Progress } from "./progress"
+import { Avatar, AvatarFallback } from "./avatar";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "./dropdown-menu";
 import { Checkbox } from "./checkbox"
 import { ScrollArea } from "./scroll-area"
 import { cn } from "../lib/utils"

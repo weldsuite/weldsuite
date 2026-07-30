@@ -16,7 +16,6 @@ export function ProductTitleRatingElement({
   showRating = true,
   rating = 4.8,
   reviewCount = 14600,
-  mode = 'live',
 }: ProductTitleRatingElementProps) {
   return (
     <div>

@@ -20,7 +20,6 @@ interface LoginPageProps {
 export function LoginPage({
   appName = 'WeldSuite',
   showSocialLogin = true,
-  redirectTo = '/dashboard'
 }: LoginPageProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

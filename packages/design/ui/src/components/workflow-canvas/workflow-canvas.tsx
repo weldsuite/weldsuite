@@ -11,7 +11,6 @@ import {
   addEdge,
   useReactFlow,
   type Connection,
-  type Edge,
   type Node,
   type IsValidConnection,
   BackgroundVariant,
@@ -184,7 +183,6 @@ function WorkflowCanvasInner({
   triggerLocked,
   variableItems,
   labels: labelsProp,
-  onNotify,
   className,
 }: WorkflowCanvasProps) {
   // Merge caller-provided labels with English defaults

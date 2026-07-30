@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, ChevronsUpDown, Plus, Building2, AlertCircle } from "lucide-react";
+import { Check, ChevronsUpDown, Plus, Building2 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { Button } from "./button";
 import {
@@ -13,15 +13,6 @@ import {
   CommandList,
   CommandSeparator,
 } from "./command";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "./dialog";
 import {
   Popover,
   PopoverContent,

@@ -33,8 +33,6 @@ export function AboutProfileBlock({
   cardBackgroundColor = "#fafafa",
   cardTextColor = "#09090b",
   className,
-  mode = 'live',
-  store,
 }: AboutProfileBlockProps) {
   return (
     <section

@@ -15,7 +15,6 @@ export function ProductPriceDisplayElement({
   compareAtPrice,
   showShipping = true,
   shippingText = '🚚 Verzendkosten worden berekend bij de checkout',
-  mode = 'live',
 }: ProductPriceDisplayElementProps) {
   return (
     <>

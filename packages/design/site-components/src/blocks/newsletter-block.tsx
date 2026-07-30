@@ -17,10 +17,8 @@ export function NewsletterBlock({
   heading = 'Subscribe to our emails',
   description = 'Be the first to know about new collections and exclusive offers.',
   placeholder = 'Email',
-  backgroundColor = '#ffffff',
   textColor = '#000000',
   onSubmit,
-  mode = 'live'
 }: NewsletterBlockProps) {
   const [email, setEmail] = React.useState('');
   const [isSubmitted, setIsSubmitted] = React.useState(false);

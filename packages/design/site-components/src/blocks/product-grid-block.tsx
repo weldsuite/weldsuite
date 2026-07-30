@@ -184,7 +184,6 @@ export function ProductGridBlock({
   collectionHandle,
   filterBy = 'all',
   store,
-  mode = 'live',
   // Product Card Settings
   imageRatio = '4/5',
   imageShape = 'square',

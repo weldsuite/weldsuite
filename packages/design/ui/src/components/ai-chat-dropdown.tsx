@@ -6,19 +6,15 @@ import {
   Send,
   Sparkles,
   Code,
-  Lightbulb,
   FileSearch,
   Bug,
-  MessageSquare,
   User,
-  Loader2,
   ChevronDown,
   Trash2,
-} from "lucide-react"
+} from "lucide-react";
 import { Button } from "./button"
 import { Input } from "./input"
 import { ScrollArea } from "./scroll-area"
-import { Badge } from "./badge"
 import { Avatar, AvatarFallback } from "./avatar"
 import { cn } from "../lib/utils"
 import {
@@ -26,7 +22,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "./popover"
-import { Separator } from "./separator"
 import { TypingIndicator, StreamingCursor } from "./ai-typing-indicator"
 
 interface Message {

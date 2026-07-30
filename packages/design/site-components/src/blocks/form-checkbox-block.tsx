@@ -19,7 +19,6 @@ export function FormCheckboxBlock({
   name,
   labelColor = '#374151',
   checkboxColor = '#3b82f6',
-  mode = 'live'
 }: FormCheckboxBlockProps) {
   const [isChecked, setIsChecked] = React.useState(checked);
 

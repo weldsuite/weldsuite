@@ -32,7 +32,6 @@ export function CtaBannerBlock({
   borderRadius = 16,
   className,
   mode = 'live',
-  store,
 }: CtaBannerBlockProps) {
   const isEditing = mode === 'edit' || mode === 'preview';
 

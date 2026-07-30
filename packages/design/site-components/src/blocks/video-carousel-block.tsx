@@ -151,8 +151,6 @@ export function VideoCarouselBlock({
   backgroundColor = "#ffffff",
   textColor = "#000000",
   className,
-  mode = 'live',
-  store,
 }: VideoCarouselBlockProps) {
   return (
     <section

@@ -40,7 +40,6 @@ export function HeroInteractiveBlock({
   headingFont = "Inter",
   className,
   mode = 'live',
-  store,
 }: HeroInteractiveBlockProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { x, y } = useMousePosition(containerRef);

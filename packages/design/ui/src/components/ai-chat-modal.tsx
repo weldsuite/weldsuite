@@ -4,21 +4,18 @@ import * as React from "react"
 import {
   Bot,
   Send,
-  X,
   Code,
   Lightbulb,
   FileSearch,
   Bug,
-  MessageSquare,
   User,
   Loader2,
-} from "lucide-react"
+} from "lucide-react";
 import { Button } from "./button"
 import { Input } from "./input"
 import { ScrollArea } from "./scroll-area"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card"
-import { Badge } from "./badge"
-import { Avatar, AvatarFallback, AvatarImage } from "./avatar"
+import { Card, CardDescription, CardHeader, CardTitle } from "./card";
+import { Avatar, AvatarFallback } from "./avatar";
 import { cn } from "../lib/utils"
 import {
   Sheet,

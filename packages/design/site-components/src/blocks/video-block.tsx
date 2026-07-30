@@ -69,7 +69,6 @@ export function VideoBlock({
   fullWidth = false,
   // Legacy props
   controls = true,
-  mode = 'live',
   store
 }: VideoBlockProps) {
   return (

@@ -29,9 +29,6 @@ export function SectionRenderer({
   section,
   mode = 'live',
   store,
-  settings,
-  onSelectElement,
-  onUpdateElement,
   onSelectBlock,
   onMoveBlockUp,
   onMoveBlockDown,
@@ -39,8 +36,6 @@ export function SectionRenderer({
   onDeleteBlock,
   selectedBlockId,
   previewMode = 'desktop',
-  isSelected = false,
-  isHovered = false
 }: SectionRendererProps) {
   const isEditing = mode === 'edit';
   const [hoveredBlockId, setHoveredBlockId] = React.useState<string | null>(null);

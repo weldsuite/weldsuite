@@ -22,8 +22,6 @@ export function ProductPolicyButtonsBlock({
   shippingPolicyText = 'Shipping Policy',
   refundPolicyText = 'Refund Policy',
   borderRadius = 8,
-  mode = 'live',
-  store,
 }: ProductPolicyButtonsBlockProps) {
   if (!showShippingPolicy && !showRefundPolicy) {
     return null;

@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { Element, ElementSettings, RenderMode } from '../types';
+import { Element, RenderMode } from '../types';
 import { cn } from '@weldsuite/ui/lib/utils';
 import Image from 'next/image';
 

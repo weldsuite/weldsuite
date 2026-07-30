@@ -26,11 +26,6 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '../../collapsible';
-import {
   Dialog,
   DialogContent,
   DialogDescription,

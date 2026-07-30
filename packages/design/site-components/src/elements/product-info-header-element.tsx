@@ -9,7 +9,6 @@ export interface ProductInfoHeaderElementProps {
 
 export function ProductInfoHeaderElement({
   storeName = 'rhode',
-  mode = 'live',
 }: ProductInfoHeaderElementProps) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>

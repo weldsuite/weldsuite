@@ -57,10 +57,7 @@ export function VideoPlayerBlock({
   overlayOpacity = 0.3,
   textColor = '#ffffff',
   contentAlignment = 'center',
-  fullWidth = false,
   controls = true,
-  mode = 'live',
-  store
 }: VideoPlayerBlockProps) {
   const [isPlaying, setIsPlaying] = useState(autoplay);
   const videoRef = useRef<HTMLVideoElement>(null);

@@ -17,7 +17,6 @@ export function ProductQuantitySelectorElement({
   minQuantity = 1,
   maxQuantity = 99,
   label = 'Aantal',
-  mode = 'live',
 }: ProductQuantitySelectorElementProps) {
   return (
     <div>

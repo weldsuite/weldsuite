@@ -16,8 +16,6 @@ export default function HeroSection({
   subtitle = "Discover amazing products at great prices",
   buttonText = "Shop Now",
   backgroundImage,
-  store,
-  settings
 }: HeroSectionProps) {
   return (
     <section 

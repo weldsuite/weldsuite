@@ -7,11 +7,7 @@ import {
   Copy,
   MoreVertical,
   Trash,
-  Shield,
-  AlertCircle,
   CheckCircle,
-  Eye,
-  EyeOff,
   RefreshCw,
   Loader2,
 } from 'lucide-react';
@@ -115,15 +111,12 @@ interface ApiKeysContentProps {
 
 export function ApiKeysContent({
   apiKeys,
-  loading,
-  onAddNew,
   onDelete,
   showForm,
   formData,
   setFormData,
   onFormSubmit,
   setShowForm,
-  formMode,
   newApiToken,
   setNewApiToken,
 }: ApiKeysContentProps) {

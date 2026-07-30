@@ -40,7 +40,6 @@ export function ProductDetailGalleryBlock({
   imageRounding = 8,
   images,
   textColor = '#171717',
-  mode = 'live',
   store,
 }: ProductDetailGalleryBlockProps) {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -282,7 +281,6 @@ export function ProductDetailTitleBlock({
   textColor = '#171717',
   fontSize = 'lg',
   fontWeight = 'normal',
-  mode = 'live',
   store,
 }: ProductDetailTitleBlockProps) {
   const displayTitle = store?.selectedProduct?.name || title;
@@ -329,7 +327,6 @@ export function ProductDetailPriceBlock({
   salePrice,
   currency = 'USD',
   textColor = '#171717',
-  mode = 'live',
   store,
 }: ProductDetailPriceBlockProps) {
   const displayPrice = store?.selectedProduct?.price || price;
@@ -394,8 +391,6 @@ export function ProductDetailVariantSelectorBlock({
     { id: 'red', label: 'Red', value: 'red', inStock: false },
   ],
   textColor = '#171717',
-  mode = 'live',
-  store,
 }: ProductDetailVariantSelectorBlockProps) {
   const [selectedValue, setSelectedValue] = useState(options.find(o => o.inStock)?.value || options[0]?.value);
 
@@ -442,8 +437,6 @@ export interface ProductDetailQuantityBlockProps {
 export function ProductDetailQuantityBlock({
   label = 'Quantity',
   textColor = '#171717',
-  mode = 'live',
-  store,
 }: ProductDetailQuantityBlockProps) {
   const [quantity, setQuantity] = useState(1);
 
@@ -501,7 +494,6 @@ export function ProductDetailButtonsBlock({
   showBuyNow = true,
   textColor = '#171717',
   mode = 'live',
-  store,
 }: ProductDetailButtonsBlockProps) {
   return (
     <div className="flex flex-col gap-3">
@@ -543,7 +535,6 @@ export interface ProductDetailDescriptionBlockProps {
 export function ProductDetailDescriptionBlock({
   description = 'Our sculptural, soft-structured handbag brings elegance and utility together in one refined piece. With a simple adjustment, it transforms from a shoulder bag to a top-handle or crossbody companion.',
   textColor = '#171717',
-  mode = 'live',
   store,
 }: ProductDetailDescriptionBlockProps) {
   const displayDescription = store?.selectedProduct?.description || description;
@@ -587,7 +578,6 @@ export function ProductDetailAccordionBlock({
   items = DEFAULT_ACCORDION_ITEMS,
   textColor = '#171717',
   borderColor = '#e5e5e5',
-  mode = 'live',
   store,
 }: ProductDetailAccordionBlockProps) {
   const [openItem, setOpenItem] = useState<string | null>(null);
@@ -633,12 +623,10 @@ export interface ProductDetailBlockProps {
 }
 
 export function ProductDetailBlock({
-  productId,
   galleryStyle = 'grid',
   imageRounding = 8,
   backgroundColor = '#ffffff',
   textColor = '#171717',
-  showAccordion = true,
   mode = 'live',
   store,
   children,

@@ -63,8 +63,6 @@ export default function VideoSection({
   textColor = '#ffffff',
   contentAlignment = 'center',
   fullWidth = false,
-  store,
-  settings
 }: VideoSectionProps) {
   const [isPlaying, setIsPlaying] = useState(autoplay);
   const videoRef = useRef<HTMLVideoElement>(null);

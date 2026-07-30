@@ -12,7 +12,6 @@ export interface EmailFormBlockProps {
 export function EmailFormBlock({
   placeholder = 'Email',
   onSubmit,
-  mode = 'live'
 }: EmailFormBlockProps) {
   const [email, setEmail] = React.useState('');
   const [isSubmitted, setIsSubmitted] = React.useState(false);

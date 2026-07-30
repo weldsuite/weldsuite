@@ -18,8 +18,6 @@ export default function ImageSection({
   caption,
   fullWidth = false,
   height = 400,
-  store,
-  settings
 }: ImageSectionProps) {
   return (
     <section className={`py-12 ${fullWidth ? '' : 'px-4'}`}>

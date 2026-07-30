@@ -35,7 +35,6 @@ export function ProductImageGalleryBlock({
   borderRadius = 12,
   buttonBorderRadius = 9999,
   layout = 'horizontal',
-  mode = 'live',
   store,
 }: ProductImageGalleryBlockProps) {
   // Use product data from store if available

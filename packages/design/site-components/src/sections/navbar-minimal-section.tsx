@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { Search, ShoppingBag, User, Menu, X } from 'lucide-react';
+import { Search, ShoppingBag, User, X } from 'lucide-react';
 
 interface NavbarMinimalSectionProps {
   logo?: string;
@@ -33,7 +33,6 @@ interface NavbarMinimalSectionProps {
 export function NavbarMinimalSection({
   logo,
   logoText = 'YOUR BRAND',
-  logoPosition = 'center',
   logoStyle = 'text',
   logoFontSize = 18,
   logoFontWeight = '500',
@@ -52,9 +51,7 @@ export function NavbarMinimalSection({
   stickyHeader = true,
   showBorder = false,
   borderColor = '#333333',
-  minimalStyle = true,
   store,
-  mode = 'live'
 }: NavbarMinimalSectionProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const [searchOpen, setSearchOpen] = React.useState(false);

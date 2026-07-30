@@ -17,8 +17,6 @@ export default function NewsletterSection({
   description = "Subscribe to our newsletter and get exclusive offers",
   buttonText = "Subscribe",
   placeholder = "Enter your email",
-  store,
-  settings
 }: NewsletterSectionProps) {
   return (
     <section className="py-16 px-4 bg-primary/5">

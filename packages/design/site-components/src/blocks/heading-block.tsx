@@ -17,7 +17,6 @@ export function HeadingBlock({
   alignment = 'left',
   color = '#000000',
   fontWeight = 'bold',
-  mode = 'live'
 }: HeadingBlockProps) {
   const Tag = level;
 

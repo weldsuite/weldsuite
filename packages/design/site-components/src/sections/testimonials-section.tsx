@@ -39,8 +39,6 @@ const defaultTestimonials = [
 export default function TestimonialsSection({
   title = "What Our Customers Say",
   testimonials = defaultTestimonials,
-  store,
-  settings
 }: TestimonialsSectionProps) {
   return (
     <section className="py-16 px-4">

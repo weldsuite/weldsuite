@@ -110,7 +110,6 @@ export function NavbarLuxurySection({
   navBorderColor = '#333333',
 
   store,
-  mode = 'live'
 }: NavbarLuxurySectionProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const [searchOpen, setSearchOpen] = React.useState(false);

@@ -33,7 +33,6 @@ export function FlexBlock({
   borderWidth = 1,
   borderRadius = 8,
   children,
-  mode = 'live'
 }: FlexBlockProps) {
   const directionClass = direction === 'row' ? 'flex-row' : 'flex-col';
 

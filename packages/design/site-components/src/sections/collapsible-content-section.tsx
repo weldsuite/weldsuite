@@ -2,7 +2,6 @@
 
 import React, { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { cn } from '@weldsuite/ui/lib/utils';
 
 interface CollapsibleItem {
   question: string;
@@ -32,7 +31,6 @@ export function CollapsibleContentSection({
   textColor = '#000000',
   paddingTop = 60,
   paddingBottom = 60,
-  sectionId,
 }: CollapsibleContentSectionProps) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 

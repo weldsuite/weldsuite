@@ -1,7 +1,6 @@
 "use client";
 
 import React from 'react';
-import { cn } from '@weldsuite/ui/lib/utils';
 
 export interface CategorySplitBlockProps {
   title?: string;
@@ -37,8 +36,6 @@ export function CategorySplitBlock({
   textColor = '#000000',
   borderRadius = 12,
   imagePosition = 'right',
-  mode = 'live',
-  store,
 }: CategorySplitBlockProps) {
   const contentSection = (
     <div className="flex h-full place-content-center place-items-center px-8 md:px-20 py-8">

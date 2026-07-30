@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react';
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import { Button } from '../../button';
 import { Input } from '../../input';
 import {
@@ -14,7 +14,7 @@ import {
 import { Plus, X } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { VariableInput } from './variable-input';
-import { getEntityFields, type FieldDefinition } from './field-builder';
+import { getEntityFields } from './field-builder';
 
 const OPERATOR_SYMBOLS: Record<string, string> = {
   eq: '=', neq: '!=', gt: '>', gte: '>=', lt: '<', lte: '<=',

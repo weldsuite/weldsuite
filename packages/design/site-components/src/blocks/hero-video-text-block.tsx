@@ -23,7 +23,6 @@ export function HeroVideoTextHeadingBlock({
   fontFamily = "Cal Sans, system-ui, sans-serif",
   fontSize = "200px",
   className,
-  mode = 'live',
   store,
   // Also accept from settings prop spread
   settings,
@@ -71,8 +70,6 @@ export function HeroVideoTextDescriptionBlock({
   fontSize = "lg",
   maxWidth = "xl",
   className,
-  mode = 'live',
-  store,
 }: HeroVideoTextDescriptionBlockProps) {
   const maxWidthClasses: Record<string, string> = {
     sm: 'max-w-sm',
@@ -127,7 +124,6 @@ export function HeroVideoTextButtonBlock({
   showIcon = true,
   className,
   mode = 'live',
-  store,
 }: HeroVideoTextButtonBlockProps) {
   const isEditing = mode === 'edit' || mode === 'preview';
 

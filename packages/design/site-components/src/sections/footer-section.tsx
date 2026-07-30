@@ -31,7 +31,6 @@ export default function FooterSection({
   companyName,
   links = defaultLinks,
   store,
-  settings
 }: FooterSectionProps) {
   const displayName = companyName || store?.name || "Your Store";
   const currentYear = new Date().getFullYear();

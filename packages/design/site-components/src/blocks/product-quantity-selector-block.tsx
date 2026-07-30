@@ -20,7 +20,6 @@ export function ProductQuantitySelectorBlock({
   minQuantity = 1,
   maxQuantity = 99,
   borderRadius = 8,
-  mode = 'live',
   store,
 }: ProductQuantitySelectorBlockProps) {
   // Use product stock as max quantity if available

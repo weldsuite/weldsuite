@@ -473,7 +473,6 @@ function PanelBody({
   sidebarMaxSize,
   sidebarPersistKey,
   sidebarDefaultCollapsed,
-  sidebarShowResizeHandle = true,
   loading,
   contentClassName,
 }: PanelBodyProps) {

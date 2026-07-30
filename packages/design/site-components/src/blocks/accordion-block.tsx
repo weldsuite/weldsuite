@@ -16,7 +16,6 @@ export function AccordionBlock({
   items = [],
   allowMultiple = false,
   defaultOpen = [0],
-  mode = 'live'
 }: AccordionBlockProps) {
   const [openItems, setOpenItems] = React.useState<number[]>(defaultOpen);
 

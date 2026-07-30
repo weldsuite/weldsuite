@@ -36,7 +36,6 @@ export function AccordionGalleryBlock({
       code: "#0034",
     },
   ],
-  mode = 'live',
 }: AccordionGalleryBlockProps) {
   const [activeImage, setActiveImage] = useState<number>(0);
 

@@ -1,7 +1,6 @@
 "use client";
 
 import React from 'react';
-import { cn } from '@weldsuite/ui/lib/utils';
 
 type ImageMedia = {
   type: "image";
@@ -81,7 +80,6 @@ export function ProductCategoriesBlock({
   buttonTextColor = '#ffffff',
   imageRounding = 0,
   mode = 'live',
-  store,
 }: ProductCategoriesBlockProps) {
   const category1 = categories[0];
   const category2 = categories[1];

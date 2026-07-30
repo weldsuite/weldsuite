@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { ShoppingBag, Star, ArrowRight, Plus } from 'lucide-react';
+import { ShoppingBag, Star, ArrowRight } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
@@ -130,11 +130,8 @@ const mockProducts = [
 ];
 
 export function FeaturedCollectionSection({
-  sectionId,
   heading = 'Featured collection',
   subheading = '',
-  collectionTitle = 'Best Sellers',
-  layout = 'grid',
   columns = 4,
   productsToShow = 4,
   showViewAll = false,
@@ -171,7 +168,6 @@ export function FeaturedCollectionSection({
   // Store data
   store,
   products,
-  collectionId,
 }: FeaturedCollectionSectionProps) {
   // Use real products if available, otherwise fall back to mock data
   const sourceProducts = products && products.length > 0 ? products :

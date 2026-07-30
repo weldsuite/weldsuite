@@ -38,7 +38,6 @@ export function ProductPriceBlock({
   compareAtPrice = '',
   currency = '€',
   textColor = '#000000',
-  mode = 'live',
   store,
 }: ProductPriceBlockProps) {
   // Use product data from store if available

@@ -336,8 +336,6 @@ export function BlockRenderer({
   onDuplicateBlock,
   onDeleteBlock,
   sectionId,
-  parentBlockId,
-  blockIndex
 }: BlockRendererProps) {
   const blockComponents: Record<string, React.ComponentType<any>> = {
     // Original blocks

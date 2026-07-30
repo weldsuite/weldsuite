@@ -71,8 +71,6 @@ export interface AnnouncementBarBlockProps {
 }
 
 export function AnnouncementBarBlock({
-  rating = 4.8,
-  reviewCount = 25000,
   features = {
     freeShipping: { enabled: true, text: 'Free shipping over $75' },
     returns: { enabled: true, text: '30-day free returns' },
@@ -80,9 +78,6 @@ export function AnnouncementBarBlock({
     support: { enabled: true, text: '24/7 support' },
   },
   featuresList,
-  showRating = true,
-  showVerifiedBadge = false,
-  verifiedBadgeText = 'Verified Seller',
   showSocialIcons = false,
   socialMediaLinks = [],
   socialIconsColor,

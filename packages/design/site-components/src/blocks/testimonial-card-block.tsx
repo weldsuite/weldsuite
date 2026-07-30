@@ -21,7 +21,6 @@ export function TestimonialCardBlock({
   rating = 5,
   backgroundColor = '#ffffff',
   textColor = '#000000',
-  mode = 'live'
 }: TestimonialCardBlockProps) {
   return (
     <div

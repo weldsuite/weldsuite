@@ -30,7 +30,6 @@ export function ProductShippingFeaturesBlock({
   returnsDays = '30 dagen',
   textColor = '#000000',
   iconColor = '#000000',
-  mode = 'live',
 }: ProductShippingFeaturesBlockProps) {
   return (
     <div className="w-full space-y-3">

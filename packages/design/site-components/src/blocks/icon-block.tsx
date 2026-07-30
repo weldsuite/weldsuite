@@ -45,7 +45,6 @@ export function IconBlock({
   size = 24,
   color = '#000000',
   alignment = 'center',
-  mode = 'live'
 }: IconBlockProps) {
   const Icon = iconMap[icon] || Star;
 

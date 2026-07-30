@@ -27,7 +27,6 @@ export function ProductCardBlock({
   variant = 'default',
   productUrl = '#',
   onAddToCart,
-  mode = 'live'
 }: ProductCardBlockProps) {
   const isCompact = variant === 'compact';
   const isFeatured = variant === 'featured';

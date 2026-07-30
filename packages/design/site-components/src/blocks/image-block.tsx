@@ -30,7 +30,6 @@ export function ImageBlock({
   alignment = 'center',
   objectFit = 'cover',
   borderRadius = 0,
-  mode = 'live'
 }: ImageBlockProps) {
   // Calculate dimensions - custom values take priority
   const calculatedWidth = customWidth

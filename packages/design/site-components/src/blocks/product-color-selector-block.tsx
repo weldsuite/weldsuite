@@ -25,7 +25,6 @@ export function ProductColorSelectorBlock({
   ],
   textColor = '#000000',
   borderRadius = 9999,
-  mode = 'live',
   store,
 }: ProductColorSelectorBlockProps) {
   // Extract colors from product variants if available

@@ -54,7 +54,6 @@ export function FAQSection({
   textColor = '#000000',
   paddingTop = 64,
   paddingBottom = 64,
-  mode = 'live',
 }: FAQSectionProps) {
   return (
     <div

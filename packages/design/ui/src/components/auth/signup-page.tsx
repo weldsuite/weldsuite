@@ -20,7 +20,6 @@ interface SignupPageProps {
 export function SignupPage({ 
   appName = 'WeldSuite',
   showSocialLogin = true,
-  redirectTo = '/verify-email'
 }: SignupPageProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

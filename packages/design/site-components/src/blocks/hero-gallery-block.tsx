@@ -1,7 +1,6 @@
 "use client";
 
 import React from 'react';
-import { cn } from '@weldsuite/ui/lib/utils';
 import { motion } from 'framer-motion';
 
 const DEFAULT_GALLERY_IMAGES = [
@@ -52,7 +51,6 @@ export function HeroGalleryBlock({
   textColor = '#ffffff',
   animationSpeed = 30,
   mode = 'live',
-  store,
 }: HeroGalleryBlockProps) {
   // Convert newlines to <br> for display
   const titleLines = title.split('\n');

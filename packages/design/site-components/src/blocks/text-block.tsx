@@ -17,7 +17,6 @@ export function TextBlock({
   fontSize = 'base',
   fontWeight = 'normal',
   color = '#000000',
-  mode = 'live'
 }: TextBlockProps) {
   const alignmentClass = {
     left: 'text-left',

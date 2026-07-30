@@ -19,7 +19,6 @@ export function AccountIconBlock({
   isLoggedIn = false,
   showLabel = false,
   labelText,
-  mode = 'live'
 }: AccountIconBlockProps) {
   const sizeMap = {
     sm: 20,

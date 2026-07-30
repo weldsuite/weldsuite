@@ -16,7 +16,6 @@ interface TimeLeft {
 
 export function CountdownTimerBlock({
   endDate = "2025-12-31",
-  mode = 'live',
 }: CountdownTimerBlockProps) {
   const [timeLeft, setTimeLeft] = useState<TimeLeft>({
     days: 0,

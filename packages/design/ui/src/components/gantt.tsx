@@ -31,7 +31,7 @@ import {
 } from 'date-fns';
 import { atom, useAtom } from 'jotai';
 import throttle from 'lodash.throttle';
-import { EyeIcon, PencilIcon, PlusIcon, TrashIcon } from 'lucide-react';
+import { PencilIcon, PlusIcon, TrashIcon } from 'lucide-react';
 import type {
   CSSProperties,
   FC,
@@ -51,7 +51,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Card } from './card';
 import {
   ContextMenu,
   ContextMenuContent,

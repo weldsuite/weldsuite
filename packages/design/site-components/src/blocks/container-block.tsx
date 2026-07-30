@@ -31,7 +31,6 @@ export function ContainerBlock({
   border = false,
   borderColor = '#e5e7eb',
   borderWidth = 1,
-  mode = 'live'
 }: ContainerBlockProps) {
   // Use contentWidth if provided, otherwise fall back to maxWidth for backward compatibility
   const widthSetting = contentWidth || (maxWidth && {

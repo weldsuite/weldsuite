@@ -15,7 +15,6 @@ export default function HeaderSection({
   title,
   links = ["Home", "Products", "About", "Contact"],
   store,
-  settings
 }: HeaderSectionProps) {
   const displayTitle = title || store?.name || "Your Store";
   const logo = store?.logo;
