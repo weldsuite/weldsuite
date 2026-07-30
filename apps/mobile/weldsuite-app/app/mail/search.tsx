@@ -208,13 +208,6 @@ export default function MailSearchScreen() {
     closeFilterModal();
   };
 
-  const clearFilter = (filter: string) => {
-    setActiveFilters(prev => {
-      const newFilters = { ...prev };
-      delete newFilters[filter];
-      return newFilters;
-    });
-  };
 
   const renderFilterChip = (filter: string) => {
     const selectedValue = activeFilters[filter];

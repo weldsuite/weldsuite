@@ -386,10 +386,6 @@ export default function InboxScreen() {
     setSortModalVisible(false);
   };
 
-  const getCurrentSortLabel = () => {
-    const option = SORT_OPTIONS.find(o => o.key === sortBy && o.order === sortOrder);
-    return option?.label || 'Newest First';
-  };
 
   const handleConversationPress = (conversation: Conversation) => {
     // Auto-assign unassigned conversations to the current agent

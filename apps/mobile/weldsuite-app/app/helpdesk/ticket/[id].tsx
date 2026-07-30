@@ -567,17 +567,7 @@ export default function ConversationChatScreen() {
     };
   });
 
-  const animatedTicketOverlayStyle = useAnimatedStyle(() => {
-    return {
-      opacity: ticketOverlayOpacity.value,
-    };
-  });
 
-  const animatedTicketSheetStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ translateY: ticketSheetTranslateY.value }],
-    };
-  });
 
   const animatedQuickActionsOverlayStyle = useAnimatedStyle(() => {
     return {

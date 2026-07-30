@@ -108,14 +108,6 @@ export default function LeadsScreen() {
     return colors.muted;
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  };
 
   const getStatusConfig = (status: string) => {
     return LEAD_STATUS_CONFIG[status] || {

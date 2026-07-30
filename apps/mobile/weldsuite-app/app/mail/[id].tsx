@@ -734,54 +734,6 @@ export default function EmailDetailScreen() {
     }
   };
 
-  const saveReplyDraft = async () => {
-    if (!email) return;
-
-    try {
-      setSavingDraft(true);
-
-      // Build quoted original message for reply/forward
-      const quotedMessage = `\n\n---------- ${composeMode === 'forward' ? 'Forwarded message' : 'Original message'} ---------\nFrom: ${getSenderName(email.from)} (${email.fromEmail || getSenderEmail(email.from)})\nDate: ${email.date} at ${email.time}\nSubject: ${email.subject}\n\n${email.body}`;
-
-      const success = await saveDraftToContext({
-        emailAccountId: email.emailAccountId,
-        to: replyTo.trim() || undefined,
-        cc: replyCc.trim() || undefined,
-        bcc: replyBcc.trim() || undefined,
-        subject: replySubject.trim() || '(No subject)',
-        body: (replyBody || '') + quotedMessage,
-        inReplyTo: composeMode !== 'forward' ? ((email as any).messageId || email.inReplyTo || undefined) : undefined,
-        threadId: email.threadId,
-      });
-
-      if (success) {
-        toast.success('Draft saved successfully');
-        setComposeModalVisible(false);
-        // Clear form
-        setReplyTo('');
-        setReplyCc('');
-        setReplyBcc('');
-        setReplySubject('');
-        setReplyBody('');
-      } else if (!isConnected) {
-        toast.warning('Draft queued for when you\'re back online');
-        setComposeModalVisible(false);
-        // Clear form
-        setReplyTo('');
-        setReplyCc('');
-        setReplyBcc('');
-        setReplySubject('');
-        setReplyBody('');
-      } else {
-        toast.error('Failed to save draft');
-      }
-    } catch (error) {
-      console.error('Error saving draft:', error);
-      toast.error('Failed to save draft');
-    } finally {
-      setSavingDraft(false);
-    }
-  };
 
   if (loading) {
     return (

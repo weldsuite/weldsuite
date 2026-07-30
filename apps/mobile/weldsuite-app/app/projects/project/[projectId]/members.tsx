@@ -57,9 +57,6 @@ const getMemberEmail = (member: Member): string => {
   return member.email || member.user?.email || member.userId;
 };
 
-const getMemberAvatar = (member: Member): string | undefined => {
-  return member.picture || member.user?.avatar;
-};
 
 const roleConfig: Record<string, { label: string; color: string; bgColor: string; description: string }> = {
   owner: {

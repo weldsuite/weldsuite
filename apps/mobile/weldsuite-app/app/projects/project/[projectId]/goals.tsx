@@ -97,7 +97,6 @@ const MISSION_CARD_HEIGHT = 100;
 export default function ProjectGoalsScreen() {
   const { projectId } = useLocalSearchParams<{ projectId: string }>();
   const { width } = useWindowDimensions();
-  const scrollViewRef = useRef<ScrollView>(null);
 
   // State
   const [goalsData, setGoalsData] = useState<ProjectGoalsData>({ goals: [] });

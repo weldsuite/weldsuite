@@ -293,13 +293,6 @@ export default function ProjectTimesheetScreen() {
   };
 
   // Get entries for a specific date
-  const getEntriesForDate = (date: Date) => {
-    const dateKey = formatDateKey(date);
-    return timesheetRows.map(row => ({
-      taskName: row.taskName,
-      hours: row.hours[dateKey] || 0,
-    })).filter(e => e.hours > 0 || isToday(date));
-  };
 
   // Check if a day column is today's weekday
   const isTodayColumn = (dayIndex: number): boolean => {

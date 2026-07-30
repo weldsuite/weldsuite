@@ -48,49 +48,6 @@ export default function BankTransactionsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'withdrawal' | 'deposit'>('all');
 
-  const getBankLogo = (bankName: string) => {
-    const logoStyle = { width: 48, height: 48, borderRadius: 8 };
-    const iconColor = colors.background;
-    
-    switch (bankName.toLowerCase()) {
-      case 'chase':
-        return (
-          <View style={[logoStyle, { backgroundColor: '#117ACA', alignItems: 'center', justifyContent: 'center' }]}>
-            <Text style={{ color: iconColor, fontSize: 18, fontWeight: '600' }}>C</Text>
-          </View>
-        );
-      case 'american express':
-        return (
-          <View style={[logoStyle, { backgroundColor: '#006FCF', alignItems: 'center', justifyContent: 'center' }]}>
-            <Text style={{ color: iconColor, fontSize: 18, fontWeight: '600' }}>AE</Text>
-          </View>
-        );
-      case 'wells fargo':
-        return (
-          <View style={[logoStyle, { backgroundColor: '#D71E2B', alignItems: 'center', justifyContent: 'center' }]}>
-            <Text style={{ color: iconColor, fontSize: 18, fontWeight: '600' }}>WF</Text>
-          </View>
-        );
-      case 'bank of america':
-        return (
-          <View style={[logoStyle, { backgroundColor: '#E31837', alignItems: 'center', justifyContent: 'center' }]}>
-            <Text style={{ color: iconColor, fontSize: 18, fontWeight: '600' }}>BA</Text>
-          </View>
-        );
-      case 'fidelity':
-        return (
-          <View style={[logoStyle, { backgroundColor: '#4CAF50', alignItems: 'center', justifyContent: 'center' }]}>
-            <Text style={{ color: iconColor, fontSize: 18, fontWeight: '600' }}>F</Text>
-          </View>
-        );
-      default:
-        return (
-          <View style={[logoStyle, { backgroundColor: colors.muted, alignItems: 'center', justifyContent: 'center' }]}>
-            <Ionicons name="business" size={24} color={iconColor} />
-          </View>
-        );
-    }
-  };
 
   useEffect(() => {
     loadAccountAndTransactions();

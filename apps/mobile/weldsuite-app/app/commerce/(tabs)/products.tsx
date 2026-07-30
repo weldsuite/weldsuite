@@ -242,20 +242,7 @@ export default function ProductsAdminScreen() {
     setSelectedProducts([]);
   };
 
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'active': return 'ACTIVE';
-      case 'draft': return 'DRAFT';
-      case 'archived': return 'ARCHIVED';
-      default: return status.toUpperCase();
-    }
-  };
 
-  const getStockText = (quantity: number) => {
-    if (quantity === 0) return 'OUT OF STOCK';
-    if (quantity < 10) return 'LOW STOCK';
-    return 'IN STOCK';
-  };
 
   const renderProduct = ({ item }: { item: Product }) => {
     const isSelected = selectedProducts.includes(item.id);

@@ -261,14 +261,6 @@ export default function ProjectWorkloadScreen() {
   };
 
   // Get status badge text
-  const getStatusText = (status: WorkloadMember['status']): string => {
-    switch (status) {
-      case 'overallocated': return 'Over';
-      case 'near-capacity': return 'Busy';
-      case 'available': return 'Free';
-      default: return '';
-    }
-  };
 
   // Get tasks that span the visible date range for each member
   const getMemberTasks = (memberId: string): TaskWithDates[] => {

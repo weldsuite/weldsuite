@@ -591,16 +591,7 @@ export default function ProjectTableScreen() {
   };
 
   // Date helper functions
-  const isToday = (date: Date) => {
-    const today = new Date();
-    return date.toDateString() === today.toDateString();
-  };
 
-  const isTomorrow = (date: Date) => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    return date.toDateString() === tomorrow.toDateString();
-  };
 
   const getDateOption = (option: 'today' | 'tomorrow' | 'nextWeek' | 'clear') => {
     const date = new Date();

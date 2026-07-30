@@ -75,31 +75,6 @@ export default function AppsScreen() {
   }, [installedApps]);
 
   // Group apps by category
-  const appSections = useMemo(() => {
-    const categoryMap = new Map<string, AppItem[]>();
-
-    appItems.forEach(app => {
-      const installedApp = installedApps.find(a => a.id === app.id);
-      const category = installedApp?.category || 'Other';
-
-      if (!categoryMap.has(category)) {
-        categoryMap.set(category, []);
-      }
-      categoryMap.get(category)!.push(app);
-    });
-
-    // Sort apps within each category by display order
-    const sections: AppSection[] = [];
-    categoryMap.forEach((apps, category) => {
-      apps.sort((a, b) => a.displayOrder - b.displayOrder);
-      sections.push({ title: category, data: apps });
-    });
-
-    // Sort sections alphabetically
-    sections.sort((a, b) => a.title.localeCompare(b.title));
-
-    return sections;
-  }, [appItems, installedApps]);
 
   const handleAppPress = (app: AppItem) => {
     if (app.status === 'disabled') {

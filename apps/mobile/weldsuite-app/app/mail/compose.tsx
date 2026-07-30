@@ -69,8 +69,6 @@ export default function ComposeScreen() {
   const [linkUrl, setLinkUrl] = useState('');
   const [attachments, setAttachments] = useState<{ name: string; uri: string; type: string }[]>([]);
   const bodyContentRef = useRef<string>('');
-  const scrollViewRef = useRef<ScrollView>(null);
-  const scrollPositionRef = useRef<number>(0);
 
   // Initialize rich text editor
   const editor = useEditorBridge({
@@ -568,9 +566,6 @@ export default function ComposeScreen() {
   };
 
   // Track scroll position
-  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    scrollPositionRef.current = event.nativeEvent.contentOffset.y;
-  }, []);
 
   // Restore scroll position before toolbar action
 

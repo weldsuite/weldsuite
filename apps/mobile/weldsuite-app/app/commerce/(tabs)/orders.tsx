@@ -306,11 +306,6 @@ export default function OrdersAdminScreen() {
     </View>
   );
 
-  const renderHeader = () => (
-    <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.divider }]}>
-      <Text style={[styles.headerTitle, { color: colors.text }]}>Orders ({filteredOrders.length})</Text>
-    </View>
-  );
 
   if (loading) {
     return (

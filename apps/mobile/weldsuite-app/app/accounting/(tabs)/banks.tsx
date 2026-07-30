@@ -152,9 +152,6 @@ export default function BanksScreen() {
     return accounts.reduce((total, account) => total + account.balance, 0);
   };
 
-  const getAccountsByType = (type: BankAccount['type']) => {
-    return accounts.filter(account => account.type === type);
-  };
 
   const renderAccount = ({ item }: { item: BankAccount }) => {
     const statusConfig = SYNC_STATUS_CONFIG[item.status];

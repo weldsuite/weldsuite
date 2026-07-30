@@ -115,22 +115,6 @@ export default function TasksScreen() {
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'todo':
-        return colors.muted;
-      case 'in_progress':
-        return '#3B82F6';
-      case 'review':
-        return '#F59E0B';
-      case 'done':
-        return '#10B981';
-      case 'blocked':
-        return '#EF4444';
-      default:
-        return colors.muted;
-    }
-  };
 
   const getPriorityColor = (priority: string) => {
     switch (priority.toLowerCase()) {

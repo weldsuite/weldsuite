@@ -38,11 +38,6 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; backgroundCo
   },
 };
 
-const STATUS_TABS = [
-  { key: null, label: 'All' },
-  { key: 'active', label: 'Active' },
-  { key: 'inactive', label: 'Inactive' },
-];
 
 export default function ContactsScreen() {
   const { colors } = useTheme();
@@ -200,34 +195,6 @@ export default function ContactsScreen() {
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   };
 
-  const renderStatusTabs = () => (
-    <View style={[styles.filterContainer, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterList}>
-        {STATUS_TABS.map((item) => (
-          <TouchableOpacity
-            key={item.key || 'all'}
-            style={[
-              styles.filterButton,
-              {
-                backgroundColor: selectedStatus === item.key ? colors.text : colors.background,
-                borderColor: selectedStatus === item.key ? colors.text : colors.buttonBorder,
-              }
-            ]}
-            onPress={() => setSelectedStatus(item.key)}
-          >
-            <Text
-              style={[
-                styles.filterButtonText,
-                { color: selectedStatus === item.key ? colors.background : colors.text }
-              ]}
-            >
-              {item.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-    </View>
-  );
 
   const renderContact = ({ item }: { item: Contact }) => {
     const name = getContactName(item);

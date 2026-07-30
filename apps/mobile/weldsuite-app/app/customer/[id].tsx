@@ -123,17 +123,6 @@ export default function CustomerDetailScreen() {
     }
   };
 
-  const getOrderStatusColor = (status: string) => {
-    switch (status) {
-      case 'pending': return '#ff9500';
-      case 'processing': return '#007AFF';
-      case 'shipped': return '#34c759';
-      case 'delivered': return '#28a745';
-      case 'cancelled': return '#dc3545';
-      case 'refunded': return '#6c757d';
-      default: return '#666';
-    }
-  };
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
