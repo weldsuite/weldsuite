@@ -32,6 +32,7 @@ export function taskAnalyticsPayload(
   return {
     id: merged.id as string,
     title: merged.title as string,
+    number: (merged.number as number | null | undefined) ?? null,
     projectId: (merged.projectId as string | null | undefined) ?? null,
     status: status ?? null,
     priority: (merged.priority as string | null | undefined) ?? null,

@@ -63,6 +63,7 @@ import { toast } from 'sonner';
 import { tasksApi, membersApi, labelsApi, stagesApi } from '@/app/weldflow/lib/api-client';
 import { useFeatureFlag } from '@/hooks/queries/use-feature-flags-queries';
 import { MoveTaskDialog } from '@/components/weldflow/move-task-dialog';
+import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
 import type { Projects } from '@/lib/api/types/apps/projects.types';
 import { ProjectPermissionContext } from '@/app/weldflow/contexts/project-permission-context';
@@ -71,6 +72,8 @@ import { TaskDialog } from '@/app/weldcrm/task-dialog';
 
 interface Task {
   id: string;
+  /** Workspace-wide sequential number, rendered as TASK-<n>. */
+  number?: number | null;
   title: string;
   description?: string;
   stageId?: string | null;
@@ -177,6 +180,7 @@ function transformApiTask(apiTask: RawApiTask): Task {
     : 0;
   return {
     id: apiTask.id,
+    number: apiTask.number ?? null,
     title: apiTask.title,
     description: apiTask.description || undefined,
     stageId: apiTask.stageId ?? null,
@@ -696,6 +700,7 @@ export function TasksClient({
     // Convert event data to local Task format
     const newTask: Task = {
       id: taskData.id,
+      number: taskData.number ?? null,
       title: taskData.title,
       description: taskData.description,
       status: (taskData.status as Task['status']) || 'todo',
@@ -1435,6 +1440,9 @@ export function TasksClient({
 
         {/* Task Title */}
         <div className="min-w-[200px] flex-1 flex items-center gap-2">
+          {task.number != null && (
+            <TaskNumberBadge number={task.number} className="flex-shrink-0" />
+          )}
           <span className={cn(
             "text-sm font-medium truncate min-w-0",
             isVisuallyDone ? "line-through text-gray-400" : "text-gray-900 dark:text-foreground"

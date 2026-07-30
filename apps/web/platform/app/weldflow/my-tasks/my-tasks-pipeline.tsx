@@ -27,6 +27,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/av
 import { Badge } from '@weldsuite/ui/components/badge';
 import { cn } from '@/lib/utils';
 import { LabelOverflowList } from '../lib/label-overflow-list';
+import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { FilterPills } from '@/components/entity-list';
 import type { FilterConfig, ActiveFilter } from '@/components/entity-list';
 
@@ -34,6 +35,8 @@ import type { FilterConfig, ActiveFilter } from '@/components/entity-list';
 
 interface Task {
   id: string;
+  /** Workspace-wide sequential number, rendered as TASK-<n>. */
+  number?: number | null;
   title: string;
   description?: string;
   status: 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'testing' | 'done' | 'cancelled';
@@ -180,6 +183,11 @@ function TaskCard({ task, availableLabels = [], priorityConfig, unassignedLabel,
 
   const cardContent = (
     <>
+      {/* Task number */}
+      {task.number != null && (
+        <TaskNumberBadge number={task.number} className="mb-1" />
+      )}
+
       {/* Title */}
       <span className="font-medium text-gray-900 dark:text-foreground truncate block" style={{ fontSize: '15px' }}>
         {task.title}

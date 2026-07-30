@@ -23,6 +23,8 @@ import {
 import { EntityDetailPanel, type EntityField, type Comment, type ActivityItem } from '@weldsuite/ui/components/entity-detail-panel';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { cn } from '@/lib/utils';
+import { formatTaskNumber } from '@/lib/task-number';
+import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { format, formatDistance } from 'date-fns';
 import {
   startOfDay,
@@ -53,6 +55,8 @@ interface TeamMember {
 
 interface Task {
   id: string;
+  /** Workspace-wide sequential number, rendered as TASK-<n>. */
+  number?: number | null;
   name: string;
   assigneeId: string;
   startAt: Date;
@@ -99,6 +103,7 @@ function transformApiData(data: Projects.WorkloadOverview | null): { members: Te
 
         tasks.push({
           id: task.id,
+          number: task.number ?? null,
           name: task.title,
           assigneeId: member.userId,
           startAt,
@@ -164,6 +169,9 @@ const TaskSidebarItem = memo(({
         className="shrink-0 rounded-full h-1.5 w-1.5"
         style={{ backgroundColor: task.color }}
       />
+      {task.number != null && (
+        <TaskNumberBadge number={task.number} className="flex-shrink-0" />
+      )}
       <p className="flex-1 truncate text-left text-muted-foreground">
         {task.name}
       </p>
@@ -532,7 +540,14 @@ const WorkloadAreaChart = memo(({
                           style={{ backgroundColor: task.color }}
                         />
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm truncate leading-tight">{task.name}</div>
+                          <div className="text-sm truncate leading-tight">
+                            {task.number != null && (
+                              <span className="font-mono text-muted-foreground mr-1">
+                                {formatTaskNumber(task.number)}
+                              </span>
+                            )}
+                            {task.name}
+                          </div>
                         </div>
                         <span className="text-xs font-medium text-muted-foreground tabular-nums shrink-0">
                           {task.hoursPerDay.toFixed(1)}h
@@ -584,7 +599,12 @@ const TaskTimelineRow = memo(({
       style={{ height: rowHeight }}
     >
       <GanttFeatureItem {...feature}>
-        <p className="flex-1 truncate text-xs">{task.name}</p>
+        <p className="flex-1 truncate text-xs">
+          {task.number != null && (
+            <span className="font-mono opacity-70 mr-1">{formatTaskNumber(task.number)}</span>
+          )}
+          {task.name}
+        </p>
       </GanttFeatureItem>
     </div>
   );
