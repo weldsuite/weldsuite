@@ -15,9 +15,59 @@ import {
 } from '@weldsuite/permissions/server';
 import { createTenantDb } from '../api/db';
 import type { McpSession, HonoEnv } from '../lib/api-types';
-import { protectedResourceMetadataUrl } from '../lib/well-known';
+import { clerkFrontendApiUrl, protectedResourceMetadataUrl } from '../lib/well-known';
 
 const KV_TTL_SECONDS = 300;
+
+/**
+ * Ask Clerk's OIDC userinfo endpoint which organization a token is scoped to.
+ *
+ * Needed because an OAuth application can be configured to issue **opaque**
+ * access tokens instead of JWTs (Clerk's escape hatch for instant revocation).
+ * Opaque tokens have no readable payload, so there is no `org_id` claim to
+ * decode — `/oauth/userinfo` is the only way to recover the org, and it returns
+ * `org_id` / `org_name` / `org_slug` whenever `user:org:read` was granted.
+ *
+ * Cached in KV by token id: the org is chosen at consent and fixed for the life
+ * of the token, so this costs one round trip per token rather than per request.
+ */
+async function fetchOrgFromUserinfo(
+  kv: KVNamespace,
+  publishableKey: string,
+  token: string,
+  tokenId: string,
+): Promise<{ orgId: string | null; orgName: string | null }> {
+  const cacheKey = `mcp:userinfo:${tokenId}`;
+  const cached = (await kv.get(cacheKey, 'json')) as {
+    orgId: string | null;
+    orgName: string | null;
+  } | null;
+  if (cached) return cached;
+
+  const res = await fetch(`${clerkFrontendApiUrl(publishableKey)}/oauth/userinfo`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+  });
+
+  if (!res.ok) {
+    throw new Error(`userinfo returned ${res.status}`);
+  }
+
+  const body = (await res.json()) as { org_id?: string; org_name?: string };
+  const result = {
+    orgId: body.org_id ?? null,
+    orgName: body.org_name ?? null,
+  };
+
+  await kv.put(cacheKey, JSON.stringify(result), { expirationTtl: KV_TTL_SECONDS });
+
+  // Logged on cache miss only — once per token rather than once per request —
+  // so the org-resolution path stays observable without flooding the logs.
+  console.log(
+    `[MCP Auth] userinfo resolved org ${result.orgId ?? '(none)'} for token ${tokenId}`,
+  );
+
+  return result;
+}
 
 interface CachedWorkspace {
   workspaceId: string;
@@ -185,21 +235,43 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
     );
   }
 
-  // Clerk drops the org from the typed auth object, so read it off the token.
-  // Claim names only in the log — never values, which carry user identifiers.
+  // Clerk drops the org from the typed auth object, so recover it ourselves.
+  //
+  // JWT access tokens carry it as an `org_id` claim, which is free to read. But
+  // an OAuth application can be configured to issue opaque tokens instead, and
+  // those have no payload at all — for them the userinfo endpoint is the only
+  // route. Try the free path first, then fall back to the network call.
   const payload = decodeVerifiedJwtPayload(token);
-  const clerkOrgId =
+  let clerkOrgId =
     (payload?.org_id as string | undefined) ??
     ((payload?.o as { id?: string } | undefined)?.id ?? null);
 
   if (!clerkOrgId) {
+    try {
+      const userinfo = await fetchOrgFromUserinfo(
+        c.env.API_CACHE,
+        c.env.CLERK_PUBLISHABLE_KEY,
+        token,
+        tokenId,
+      );
+      clerkOrgId = userinfo.orgId;
+    } catch (error) {
+      console.error('[MCP Auth] userinfo lookup failed:', error);
+    }
+  }
+
+  if (!clerkOrgId) {
+    // Claim names only — never values, which carry user identifiers.
     return unauthorized(
       'Token is not scoped to an organization. Re-authorize requesting the "user:org:read" scope and select a workspace.',
       `no org_id for user ${userId} via client ${clientId}: ` +
-        `format=${payload ? 'jwt' : 'opaque/undecodable'}, ` +
-        `claims=[${payload ? Object.keys(payload).sort().join(',') : ''}]`,
+        `format=${payload ? 'jwt' : 'opaque'}, ` +
+        `claims=[${payload ? Object.keys(payload).sort().join(',') : ''}], ` +
+        'userinfo also had none — the client most likely lacks the user:org:read scope',
     );
   }
+
+  console.log(`[MCP Auth] org ${clerkOrgId} resolved from ${orgSource} for user ${userId}`);
 
   const masterSql = neon(c.env.DATABASE_URL_MASTER);
   const masterDb = drizzleNeonHttp({ client: masterSql, schema: masterSchema });
