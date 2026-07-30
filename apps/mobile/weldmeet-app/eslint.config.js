@@ -1,6 +1,7 @@
 // https://docs.expo.dev/guides/using-eslint/
 const { defineConfig } = require('eslint/config');
 const expoConfig = require('eslint-config-expo/flat');
+const tsPlugin = require('@typescript-eslint/eslint-plugin');
 
 module.exports = defineConfig([
   expoConfig,
@@ -13,6 +14,27 @@ module.exports = defineConfig([
       'import/resolver': {
         typescript: { project: './tsconfig.json' },
       },
+    },
+  },
+  {
+    files: ['**/*.{ts,tsx}'],
+    plugins: { '@typescript-eslint': tsPlugin },
+    rules: {
+      // Match the `_` convention the rest of the monorepo uses (see
+      // packages/config/eslint-config/base.js) — eslint-config-expo doesn't
+      // set these options, so a `_`-prefixed binding was still reported.
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        {
+          args: 'after-used',
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrors: 'all',
+          caughtErrorsIgnorePattern: '^_',
+          destructuredArrayIgnorePattern: '^_',
+          ignoreRestSiblings: true,
+        },
+      ],
     },
   },
   {
