@@ -84,11 +84,6 @@ export function useOpportunity(id: string, enabled = true) {
     enabled: !!id && enabled,
   });
 }
-
-function useSearchOpportunities(query: string, enabled = true) {
-  return useOpportunities({ search: query, ...(enabled ? {} : {}) } as OpportunityFilters);
-}
-
 export function useOpportunityActivities(opportunityId: string, enabled = true) {
   const { getClient } = useAppApiClient();
   useOpportunityLiveSync();
@@ -96,7 +91,7 @@ export function useOpportunityActivities(opportunityId: string, enabled = true) 
     queryKey: opportunityKeys.activities(opportunityId),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<ListResponse<any>>(
+      return client.get<ListResponse<unknown>>(
         `/activities?type=&opportunityId=${encodeURIComponent(opportunityId)}`,
       );
     },
@@ -117,39 +112,7 @@ export function useOpportunitiesByPipeline(pipelineId: string, enabled = true) {
     },
     enabled: !!pipelineId && enabled,
   });
-}
-
-function useContactOpportunities(contactId: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  useOpportunityLiveSync();
-  return useQuery({
-    queryKey: opportunityKeys.byContact(contactId),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<ListResponse<Opportunity>>(
-        `/opportunities?contactId=${encodeURIComponent(contactId)}`,
-      );
-    },
-    enabled: !!contactId && enabled,
-  });
-}
-
-function useCompanyOpportunities(companyId: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  useOpportunityLiveSync();
-  return useQuery({
-    queryKey: opportunityKeys.byCompany(companyId),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<ListResponse<Opportunity>>(
-        `/opportunities?customerId=${encodeURIComponent(companyId)}`,
-      );
-    },
-    enabled: !!companyId && enabled,
-  });
-}
-
-export function useCreateOpportunity() {
+}export function useCreateOpportunity() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
@@ -241,101 +204,6 @@ export function useLoseOpportunity() {
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: opportunityKeys.all });
       qc.invalidateQueries({ queryKey: opportunityKeys.detail(variables.id) });
-    },
-  });
-}
-
-function useCloneOpportunity() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, overrides }: { id: string; overrides?: Partial<Opportunity> }) => {
-      const client = await getClient();
-      const existing = await client.get<DetailResponse<Opportunity>>(`/opportunities/${id}`);
-      if (!existing?.data) throw new Error('Opportunity not found');
-      const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = existing.data;
-      const res = await client.post<DetailResponse<{ id: string }>>('/opportunities', {
-        ...rest,
-        name: `${rest.name} (Copy)`,
-        ...overrides,
-      });
-      return res.data;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: opportunityKeys.all });
-    },
-  });
-}
-
-function useAddOpportunityActivity() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      opportunityId,
-      data,
-    }: {
-      opportunityId: string;
-      data: { type: string; subject: string; description?: string; dueDate?: string };
-    }) => {
-      const client = await getClient();
-      const res = await client.post<DetailResponse<{ id: string }>>('/activities', {
-        ...data,
-        opportunityId,
-      });
-      return res.data;
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: opportunityKeys.activities(variables.opportunityId) });
-      qc.invalidateQueries({ queryKey: ['crm', 'activities'] });
-    },
-  });
-}
-
-function useBulkUpdateOpportunities() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ ids, data }: { ids: string[]; data: Partial<Opportunity> }) => {
-      const client = await getClient();
-      let succeeded = 0;
-      let failed = 0;
-      for (const id of ids) {
-        try {
-          await client.patch(`/opportunities/${id}`, data);
-          succeeded++;
-        } catch {
-          failed++;
-        }
-      }
-      return { success: true, succeeded, failed, total: ids.length };
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: opportunityKeys.all });
-    },
-  });
-}
-
-function useBulkDeleteOpportunities() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (ids: string[]) => {
-      const client = await getClient();
-      let succeeded = 0;
-      let failed = 0;
-      for (const id of ids) {
-        try {
-          await client.delete(`/opportunities/${id}`);
-          succeeded++;
-        } catch {
-          failed++;
-        }
-      }
-      return { success: true, succeeded, failed, total: ids.length };
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: opportunityKeys.all });
     },
   });
 }

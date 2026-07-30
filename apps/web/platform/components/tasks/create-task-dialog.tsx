@@ -47,7 +47,7 @@ interface CreateTaskDialogProps {
   onOpenChange: (open: boolean) => void;
   defaultTitle?: string;
   defaultDescription?: string;
-  onTaskCreated?: (task: any) => void;
+  onTaskCreated?: (task: unknown) => void;
 }
 
 export function CreateTaskDialog({

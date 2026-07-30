@@ -1,7 +1,7 @@
 
 import { format } from 'date-fns';
 import { Link } from '@tanstack/react-router';
-import { Clock, LogIn, LogOut, Phone, Timer, Video, UserCircle2, ExternalLink } from 'lucide-react';
+import { LogIn, LogOut, Phone, Timer, Video, UserCircle2, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { detectPlatform, formatDuration } from './utils';
 import type { MeetingIntelligenceCall, MeetingAttendeeDetail } from './types';

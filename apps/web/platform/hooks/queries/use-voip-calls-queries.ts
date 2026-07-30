@@ -17,6 +17,7 @@ import type {
   PaginatedResponse,
   SingleResponse,
 } from '@/lib/api/domains/call-intelligence';
+import type { Transcription } from '@/app/weldcall/[callId]/call-detail-client';
 
 export type { VoipCall, CallFilters, CallStats, VoipPhoneNumber } from '@/lib/api/domains/call-intelligence';
 
@@ -25,7 +26,7 @@ export type { VoipCall, CallFilters, CallStats, VoipPhoneNumber } from '@/lib/ap
 // Helper
 // =============================================================================
 
-function buildQueryString(params: Record<string, any>): string {
+function buildQueryString(params: Record<string, unknown>): string {
   const queryParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
@@ -43,7 +44,7 @@ function buildQueryString(params: Record<string, any>): string {
 const voipCallKeys = {
   all: ['crm', 'voip-calls'] as const,
   lists: () => [...voipCallKeys.all, 'list'] as const,
-  list: (filters?: Record<string, any>) => [...voipCallKeys.lists(), filters] as const,
+  list: (filters?: CallFilters) => [...voipCallKeys.lists(), filters] as const,
   detail: (id: string) => [...voipCallKeys.all, 'detail', id] as const,
   stats: () => [...voipCallKeys.all, 'stats'] as const,
   phoneNumbers: () => [...voipCallKeys.all, 'phone-numbers'] as const,
@@ -138,86 +139,13 @@ export function useVoipCallTranscription(callId: string, enabled = true) {
     queryKey: voipCallKeys.transcription(callId),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<any>(`/call-intelligence/calls/${callId}/transcription`);
+      return client.get<{ success: boolean; transcription: Transcription | null }>(
+        `/call-intelligence/calls/${callId}/transcription`,
+      );
     },
     enabled: !!callId && enabled,
   });
-}
-
-function useVoipCallTranscriptionStatus(callId: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: voipCallKeys.transcriptionStatus(callId),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<any>(`/call-intelligence/calls/${callId}/transcription/status`);
-    },
-    enabled: !!callId && enabled,
-  });
-}
-
-// =============================================================================
-// Mutations
-// =============================================================================
-
-function useInitiateVoipCall() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: {
-      toNumber: string;
-      fromNumber: string;
-      customerId?: string;
-      contactId?: string;
-      opportunityId?: string;
-      enableRecording?: boolean;
-    }) => {
-      const client = await getClient();
-      return client.post<{ data: { id: string } }>('/calls', {
-        direction: 'outbound',
-        fromNumber: data.fromNumber,
-        toNumber: data.toNumber,
-        customerId: data.customerId,
-        contactId: data.contactId,
-        opportunityId: data.opportunityId,
-        isRecorded: data.enableRecording ?? true,
-        provider: 'telnyx',
-      });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: voipCallKeys.all });
-    },
-  });
-}
-
-function useUpdateVoipCall() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ callId, data }: {
-      callId: string;
-      data: {
-        status?: string;
-        answeredAt?: string;
-        endedAt?: string;
-        duration?: number;
-        customerId?: string | null;
-        contactId?: string | null;
-        opportunityId?: string | null;
-        notes?: string;
-      };
-    }) => {
-      const client = await getClient();
-      return client.put<{ data: Partial<VoipCall> }>(`/calls/${callId}`, data);
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: voipCallKeys.all });
-      qc.invalidateQueries({ queryKey: voipCallKeys.detail(variables.callId) });
-    },
-  });
-}
-
-export function useDeleteVoipCall() {
+}export function useDeleteVoipCall() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
@@ -230,29 +158,6 @@ export function useDeleteVoipCall() {
     },
   });
 }
-
-function useLinkVoipCallToCrm() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ callId, data }: {
-      callId: string;
-      data: {
-        customerId?: string | null;
-        contactId?: string | null;
-        opportunityId?: string | null;
-      };
-    }) => {
-      const client = await getClient();
-      return client.put<{ data: Partial<VoipCall> }>(`/calls/${callId}`, data);
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: voipCallKeys.all });
-      qc.invalidateQueries({ queryKey: voipCallKeys.detail(variables.callId) });
-    },
-  });
-}
-
 /**
  * Queues a transcription for a call. app-api models this as "create the
  * transcription record" (`POST .../transcription`) rather than the legacy
@@ -264,7 +169,7 @@ export function useTranscribeVoipCall() {
   return useMutation({
     mutationFn: async ({ callId, language }: { callId: string; language?: string }) => {
       const client = await getClient();
-      return client.post<any>(`/call-intelligence/calls/${callId}/transcription`, { language });
+      return client.post<unknown>(`/call-intelligence/calls/${callId}/transcription`, { language });
     },
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: voipCallKeys.transcription(variables.callId) });

@@ -5,7 +5,7 @@
  * Messages are stored in meeting_messages, not chat_messages.
  */
 
-import { useQuery, useMutation, useQueryClient, useInfiniteQuery, type QueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery, type QueryClient, type InfiniteData } from '@tanstack/react-query';
 import { useAuth, useUser } from '@clerk/clerk-react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 
@@ -20,6 +20,30 @@ export const meetingChatKeys = {
 };
 
 // ============================================================================
+// Wire shapes
+// ============================================================================
+
+/**
+ * A meeting chat message as it comes off the wire. Consumers (meeting-chat-panel,
+ * meeting-chat-history) cast this to their own `ChatMessage` view type, so this
+ * stays a loose bag rather than mirroring every field.
+ */
+type MeetingChatMessage = Record<string, unknown> & { id: string };
+
+interface MeetingMessagesPageData {
+  messages: MeetingChatMessage[];
+  hasMore: boolean;
+  nextCursor?: string | null;
+}
+
+/** app-api envelope: `{ data: { messages, hasMore, nextCursor } }`. */
+interface MeetingMessagesPage {
+  data: MeetingMessagesPageData;
+}
+
+type MeetingMessagesCache = InfiniteData<MeetingMessagesPage>;
+
+// ============================================================================
 // Real-Time Cache Merge Utilities
 // ============================================================================
 
@@ -32,21 +56,21 @@ export function mergeMeetingMessageIntoCache(
   meetingId: string,
   message: Record<string, unknown>,
 ) {
-  queryClient.setQueryData(meetingChatKeys.messages(meetingId), (old: any) => {
+  queryClient.setQueryData<MeetingMessagesCache>(meetingChatKeys.messages(meetingId), (old) => {
     if (!old?.pages) return old;
 
     // Check for duplicates across all pages
     for (const page of old.pages) {
       const messages = page?.data?.messages;
-      if (messages?.some((m: any) => m.id === message.id)) {
+      if (messages?.some((m) => m.id === message.id)) {
         // Already exists — replace it (handles optimistic → real swap)
         return {
           ...old,
-          pages: old.pages.map((p: any) => ({
+          pages: old.pages.map((p) => ({
             ...p,
             data: {
               ...p.data,
-              messages: p.data?.messages?.map((m: any) =>
+              messages: p.data?.messages?.map((m) =>
                 m.id === message.id ? { ...m, ...message, _optimistic: undefined } : m,
               ),
             },
@@ -56,14 +80,14 @@ export function mergeMeetingMessageIntoCache(
     }
 
     // Remove any optimistic message with matching content (best-effort dedup)
-    const newPages = old.pages.map((p: any, idx: number) => {
+    const newPages = old.pages.map((p, idx) => {
       if (idx !== 0) return p;
       const messages = p.data?.messages?.filter(
-        (m: any) => !m._optimistic || m.content !== message.content,
+        (m) => !m._optimistic || m.content !== message.content,
       ) ?? [];
       return {
         ...p,
-        data: { ...p.data, messages: [message, ...messages] },
+        data: { ...p.data, messages: [message as MeetingChatMessage, ...messages] },
       };
     });
 
@@ -79,15 +103,15 @@ export function removeMeetingMessageFromCache(
   meetingId: string,
   messageId: string,
 ) {
-  queryClient.setQueryData(meetingChatKeys.messages(meetingId), (old: any) => {
+  queryClient.setQueryData<MeetingMessagesCache>(meetingChatKeys.messages(meetingId), (old) => {
     if (!old?.pages) return old;
     return {
       ...old,
-      pages: old.pages.map((p: any) => ({
+      pages: old.pages.map((p) => ({
         ...p,
         data: {
           ...p.data,
-          messages: p.data?.messages?.filter((m: any) => m.id !== messageId),
+          messages: p.data?.messages?.filter((m) => m.id !== messageId),
         },
       })),
     };
@@ -109,10 +133,10 @@ export function useMeetingMessages(meetingId: string) {
       if (pageParam) qs.set('before', pageParam);
       qs.set('limit', '50');
       // app-api returns { data: { messages, hasMore, nextCursor } }
-      return client.get<any>(`/meeting-messages?${qs.toString()}`);
+      return client.get<MeetingMessagesPage>(`/meeting-messages?${qs.toString()}`);
     },
     initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage: any) => {
+    getNextPageParam: (lastPage: MeetingMessagesPage) => {
       const inner = lastPage?.data;
       if (!inner?.messages?.length || !inner.hasMore) return undefined;
       return inner.nextCursor ?? undefined;
@@ -150,7 +174,7 @@ export function useSendMeetingMessage() {
     mutationFn: async ({ meetingId, _optimisticId, ...data }: SendMeetingMessageVars) => {
       const client = await getClient();
       // app-api: POST /meeting-messages with body { meetingId, content, htmlContent?, attachments? }
-      return client.post<any>('/meeting-messages', { meetingId, ...data });
+      return client.post<{ data: MeetingChatMessage }>('/meeting-messages', { meetingId, ...data });
     },
     onMutate: async (variables) => {
       const { meetingId, _optimisticId } = variables;
@@ -174,7 +198,7 @@ export function useSendMeetingMessage() {
         _optimistic: true,
       };
 
-      queryClient.setQueryData(meetingChatKeys.messages(meetingId), (old: any) => {
+      queryClient.setQueryData<MeetingMessagesCache>(meetingChatKeys.messages(meetingId), (old) => {
         if (!old?.pages) return old;
         const newPages = [...old.pages];
         const firstPage = newPages[0];
@@ -182,7 +206,7 @@ export function useSendMeetingMessage() {
           ...firstPage,
           data: {
             ...firstPage.data,
-            messages: [optimisticMessage, ...(firstPage.data?.messages ?? [])],
+            messages: [optimisticMessage as MeetingChatMessage, ...(firstPage.data?.messages ?? [])],
           },
         };
         return { ...old, pages: newPages };
@@ -190,15 +214,15 @@ export function useSendMeetingMessage() {
     },
     onError: (_error, variables) => {
       if (variables._optimisticId) {
-        queryClient.setQueryData(meetingChatKeys.messages(variables.meetingId), (old: any) => {
+        queryClient.setQueryData<MeetingMessagesCache>(meetingChatKeys.messages(variables.meetingId), (old) => {
           if (!old?.pages) return old;
           return {
             ...old,
-            pages: old.pages.map((p: any) => ({
+            pages: old.pages.map((p) => ({
               ...p,
               data: {
                 ...p.data,
-                messages: p.data?.messages?.filter((m: any) => m.id !== variables._optimisticId),
+                messages: p.data?.messages?.filter((m) => m.id !== variables._optimisticId),
               },
             })),
           };
@@ -219,7 +243,7 @@ export function usePinnedMeetingMessages(meetingId: string) {
     queryFn: async () => {
       const client = await getClient();
       // app-api returns { data: { messages: [...] } }
-      return client.get<any>(`/meeting-messages/pinned?meetingId=${encodeURIComponent(meetingId)}`);
+      return client.get<{ data: { messages: MeetingChatMessage[] } }>(`/meeting-messages/pinned?meetingId=${encodeURIComponent(meetingId)}`);
     },
     enabled: !!meetingId,
   });
@@ -230,9 +254,9 @@ export function usePinMeetingMessage() {
   const { getClient } = useAppApiClient();
 
   return useMutation({
-    mutationFn: async ({ meetingId, messageId }: { meetingId: string; messageId: string }) => {
+    mutationFn: async ({ messageId }: { meetingId: string; messageId: string }) => {
       const client = await getClient();
-      return client.post<any>(`/meeting-messages/${messageId}/pin`, {});
+      return client.post<unknown>(`/meeting-messages/${messageId}/pin`, {});
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: meetingChatKeys.pinned(variables.meetingId) });
@@ -246,9 +270,9 @@ export function useUnpinMeetingMessage() {
   const { getClient } = useAppApiClient();
 
   return useMutation({
-    mutationFn: async ({ meetingId, messageId }: { meetingId: string; messageId: string }) => {
+    mutationFn: async ({ messageId }: { meetingId: string; messageId: string }) => {
       const client = await getClient();
-      return client.delete<any>(`/meeting-messages/${messageId}/pin`);
+      return client.delete<unknown>(`/meeting-messages/${messageId}/pin`);
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: meetingChatKeys.pinned(variables.meetingId) });

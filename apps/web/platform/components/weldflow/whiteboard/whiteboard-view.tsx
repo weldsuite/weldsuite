@@ -7,7 +7,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Slider } from '@weldsuite/ui/components/slider';
@@ -20,11 +19,6 @@ import {
 } from '@weldsuite/ui/components/select';
 import { ToggleGroup, ToggleGroupItem } from '@weldsuite/ui/components/toggle-group';
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@weldsuite/ui/components/popover';
-import {
   MousePointer2,
   Square,
   Circle,
@@ -33,7 +27,6 @@ import {
   Pen,
   Eraser,
   Hand,
-  Search,
   ArrowUpRight,
   ChevronDown,
   Presentation,
@@ -51,18 +44,13 @@ import {
   AlignRight,
   Trash2,
   Copy,
-  Lock,
-  Unlock,
   Link,
-  List,
-  ListOrdered,
   BringToFront,
   SendToBack,
   ArrowUp,
   ArrowDown,
   Clipboard,
   ClipboardPaste,
-  ChevronLeft
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -73,6 +61,9 @@ import { RemoteCursors } from './remote-cursors';
 import { PresenceIndicator } from './presence-indicator';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useTranslations } from '@weldsuite/i18n/client';
+
+// Fixed zoom stops. Module scope so the array identity is stable across renders.
+const zoomLevels = [0.025, 0.05, 0.1, 0.15, 0.25, 0.33, 0.5, 0.75, 1, 1.5, 2, 3, 4, 5]; // Same as commerce builder
 
 type Tool = 'select' | 'pan' | 'rectangle' | 'circle' | 'text' | 'sticky' | 'pen' | 'eraser' | 'arrow';
 
@@ -128,7 +119,7 @@ interface WhiteboardViewProps {
   onBack?: () => void;
 }
 
-export function WhiteboardView({ projectId, whiteboardId, initialElements = [], onBack }: WhiteboardViewProps) {
+export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }: WhiteboardViewProps) {
   const st = useTranslations();
   const { canWrite } = useProjectPermissions();
   const { user } = useUser();
@@ -147,19 +138,18 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
 
   // Real-time collaboration
   const {
-    isConnected,
-    remoteCursors,
-    remotePresence,
-    userColor,
-    broadcastElementAdd,
-    broadcastElementUpdate,
-    broadcastElementDelete,
-    broadcastCursor,
-    broadcastSelectionChange,
-    onElementAdd,
-    onElementUpdate,
-    onElementDelete,
-  } = useWhiteboardCollaboration({
+  isConnected,
+  remoteCursors,
+  remotePresence,
+  broadcastElementAdd,
+  broadcastElementUpdate,
+  broadcastElementDelete,
+  broadcastCursor,
+  broadcastSelectionChange,
+  onElementAdd,
+  onElementUpdate,
+  onElementDelete,
+} = useWhiteboardCollaboration({
     projectId,
     whiteboardId,
     userId: user?.id || '',
@@ -173,7 +163,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
   const containerRef = useRef<HTMLDivElement>(null);
   const [tool, setTool] = useState<Tool>(canWrite ? 'select' : 'pan');
   const [elements, setElements] = useState<WhiteboardElement[]>(initialElements);
-  const [isSaving, setIsSaving] = useState(false);
+  const [_isSaving, setIsSaving] = useState(false);
 
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
   const [selectedElements, setSelectedElements] = useState<Set<string>>(new Set());
@@ -189,7 +179,6 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
   const [panPosition, setPanPosition] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1); // Start at 100% zoom (1.0 scale)
   const [zoomIndex, setZoomIndex] = useState(8); // Index 8 = 100% in zoomLevels array
-  const zoomLevels = [0.025, 0.05, 0.1, 0.15, 0.25, 0.33, 0.5, 0.75, 1, 1.5, 2, 3, 4, 5]; // Same as commerce builder
   const [startPoint, setStartPoint] = useState({ x: 0, y: 0 });
   const [currentPath, setCurrentPath] = useState<{ x: number; y: number }[]>([]);
   const [selectedColor, setSelectedColor] = useState('#FFE500');
@@ -205,7 +194,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
   const [arrowType, setArrowType] = useState<ArrowType>('arrow');
   const [isResizing, setIsResizing] = useState(false);
   const [resizeHandle, setResizeHandle] = useState<'nw' | 'ne' | 'sw' | 'se' | null>(null);
-  const [resizeStartPoint, setResizeStartPoint] = useState({ x: 0, y: 0 });
+  const [_resizeStartPoint, setResizeStartPoint] = useState({ x: 0, y: 0 });
   const [resizeStartSize, setResizeStartSize] = useState({ width: 0, height: 0, x: 0, y: 0 });
   const [editingElement, setEditingElement] = useState<string | null>(null);
   const [isMiddleMouseDown, setIsMiddleMouseDown] = useState(false);
@@ -280,18 +269,25 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
     }
   }, [selectedElement, broadcastElementUpdate]);
   
-  // Update stroke width for selected element
+  // Update stroke width for selected element. Deliberately keyed on
+  // strokeWidth/tool only — this effect calls updateSelectedElement, which
+  // calls setElements; including `elements` would re-trigger itself on its
+  // own write and loop. `selectedElement` isn't included either since this
+  // must fire on a toolbar change, not on selection change (that's the
+  // "Sync properties" effect below, which runs the opposite direction).
   useEffect(() => {
     if (selectedElement && tool !== 'eraser') {
       const element = elements.find(el => el.id === selectedElement);
-      if (element && (element.type === 'rectangle' || element.type === 'circle' || 
+      if (element && (element.type === 'rectangle' || element.type === 'circle' ||
           element.type === 'arrow' || element.type === 'path')) {
         updateSelectedElement({ strokeWidth });
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strokeWidth, tool]);
-  
-  // Update font size for selected element
+
+  // Update font size for selected element. Same reasoning as above — must
+  // stay keyed on fontSize only to avoid looping through its own setElements.
   useEffect(() => {
     if (selectedElement) {
       const element = elements.find(el => el.id === selectedElement);
@@ -299,24 +295,30 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
         updateSelectedElement({ fontSize });
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fontSize]);
-  
-  // Update fill mode for selected element  
+
+  // Update fill mode for selected element. Same reasoning as above — must
+  // stay keyed on fillMode only to avoid looping through its own setElements.
   useEffect(() => {
     if (selectedElement) {
       const element = elements.find(el => el.id === selectedElement);
       if (element && (element.type === 'rectangle' || element.type === 'circle')) {
         const newColor = fillMode === 'stroke' ? 'transparent' : (element.color === 'transparent' ? selectedColor : element.color);
         const newStrokeColor = fillMode === 'fill' ? 'transparent' : (element.strokeColor === 'transparent' ? strokeColor : element.strokeColor);
-        updateSelectedElement({ 
+        updateSelectedElement({
           color: newColor,
-          strokeColor: newStrokeColor 
+          strokeColor: newStrokeColor
         });
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fillMode]);
-  
-  // Sync properties when selecting an element
+
+  // Sync properties when selecting an element. Deliberately excludes
+  // `elements` — this must fire only on selection change, not on every
+  // element mutation (e.g. dragging), or it would keep resyncing the
+  // toolbar mid-interaction.
   useEffect(() => {
     if (selectedElement && tool !== 'eraser') {
       const element = elements.find(el => el.id === selectedElement);
@@ -343,7 +345,42 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
         }
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedElement, tool]);
+
+  // Canvas bounds constants
+  const CANVAS_WIDTH = 16000;
+  const CANVAS_HEIGHT = 9000;
+  const CANVAS_MARGIN = 500; // Gray border area
+  const TOTAL_CANVAS_WIDTH = CANVAS_WIDTH + CANVAS_MARGIN * 2;
+  const TOTAL_CANVAS_HEIGHT = CANVAS_HEIGHT + CANVAS_MARGIN * 2;
+
+  // Clamp pan position to canvas bounds
+  // Canvas SVG is centered at origin: extends from (-8500,-5000) to (8500,5000) including margin
+  // panPosition maps SVG origin (0,0) to screen position, so canvas edges in screen space are:
+  //   left: panPosition.x - halfW, right: panPosition.x + halfW (where halfW = TOTAL_CANVAS_WIDTH/2 * zoom)
+  const clampPanPosition = useCallback((x: number, y: number, currentZoom: number) => {
+    const { width: viewportWidth, height: viewportHeight } = viewportSizeRef.current;
+    const halfW = (TOTAL_CANVAS_WIDTH / 2) * currentZoom;
+    const halfH = (TOTAL_CANVAS_HEIGHT / 2) * currentZoom;
+
+    // Keep at least 30% of viewport overlapping with canvas
+    const overlapX = viewportWidth * 0.3;
+    const overlapY = viewportHeight * 0.3;
+
+    // Canvas right edge (x + halfW) must be at least overlapX into viewport
+    const minX = overlapX - halfW;
+    // Canvas left edge (x - halfW) must not go past viewportWidth - overlapX
+    const maxX = viewportWidth - overlapX + halfW;
+
+    const minY = overlapY - halfH;
+    const maxY = viewportHeight - overlapY + halfH;
+
+    return {
+      x: Math.min(maxX, Math.max(minX, x)),
+      y: Math.min(maxY, Math.max(minY, y)),
+    };
+  }, [TOTAL_CANVAS_WIDTH, TOTAL_CANVAS_HEIGHT]);
 
   // Handle document-level mouse events during resize/drag/connection to prevent losing track when hovering over toolbar
   useEffect(() => {
@@ -416,8 +453,8 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
             default: fixedX = resizeStartSize.x; fixedY = resizeStartSize.y;
           }
 
-          let newWidth = Math.max(minSize, Math.abs(point.x - fixedX));
-          let newHeight = Math.max(minSize, Math.abs(point.y - fixedY));
+          const newWidth = Math.max(minSize, Math.abs(point.x - fixedX));
+          const newHeight = Math.max(minSize, Math.abs(point.y - fixedY));
           let newRx = newWidth / 2;
           let newRy = newHeight / 2;
 
@@ -560,7 +597,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
 
         // Determine which element to show connection points on
         // Priority: element with snapped point > element cursor is inside
-        const hoveredElement = nearestPointElement || elementUnderCursor;
+        const _hoveredElement = nearestPointElement || elementUnderCursor;
 
         // Snap to nearest connection point if within range, otherwise use mouse position
         if (nearestPoint && nearestPointElement) {
@@ -657,7 +694,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
       document.removeEventListener('mousemove', handleDocumentMouseMove);
       document.removeEventListener('mouseup', handleDocumentMouseUp);
     };
-  }, [isResizing, isDraggingElement, isPanning, isDrawing, isDrawingConnection, isDraggingArrowHandle, isMiddleMouseDown, selectedElement, resizeHandle, resizeStartSize, dragStartPos, dragElementStart, dragElementsStart, panStart, panPosition, zoom, elements, connectionStart, arrowDragStart]);
+  }, [isResizing, isDraggingElement, isPanning, isDrawing, isDrawingConnection, isDraggingArrowHandle, isMiddleMouseDown, selectedElement, resizeHandle, resizeStartSize, dragStartPos, dragElementStart, dragElementsStart, panStart, panPosition, zoom, elements, connectionStart, arrowDragStart, clampPanPosition]);
 
   const lastProcessedPoint = useRef<{ x: number; y: number } | null>(null);
   const eraserUpdateQueue = useRef<Array<{ point: { x: number; y: number }, size: number }>>([]);
@@ -689,11 +726,11 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
       // an existing board, `POST /api/whiteboards` (with projectId) to create one.
       // The client throws on a non-2xx, so reaching the next line means it saved.
       if (whiteboardId) {
-        await client.patch<{ data: any }>(`/whiteboards/${whiteboardId}`, {
+        await client.patch<{ data: unknown }>(`/whiteboards/${whiteboardId}`, {
           elements: elementsToSave,
         });
       } else {
-        await client.post<{ data: any }>('/whiteboards', {
+        await client.post<{ data: unknown }>('/whiteboards', {
           projectId,
           elements: elementsToSave,
         });
@@ -705,7 +742,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
     } finally {
       setIsSaving(false);
     }
-  }, [projectId, whiteboardId, getClient]);
+  }, [projectId, whiteboardId, getClient, st]);
 
   useEffect(() => {
     // Skip initial render (when initialElements are being loaded)
@@ -733,17 +770,17 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
   useEffect(() => {
     if (!isConnected) return;
 
-    const unsubAdd = onElementAdd((element: WhiteboardElement, userId: string) => {
-      setElements(prev => [...prev, element]);
+    const unsubAdd = onElementAdd((element: unknown, _userId: string) => {
+      setElements(prev => [...prev, element as WhiteboardElement]);
     });
 
-    const unsubUpdate = onElementUpdate((elementId: string, changes: Partial<WhiteboardElement>, userId: string) => {
+    const unsubUpdate = onElementUpdate((elementId: string, changes: Partial<WhiteboardElement>, _userId: string) => {
       setElements(prev => prev.map(el =>
         el.id === elementId ? { ...el, ...changes } : el
       ));
     });
 
-    const unsubDelete = onElementDelete((elementId: string, userId: string) => {
+    const unsubDelete = onElementDelete((elementId: string, _userId: string) => {
       setElements(prev => prev.filter(el => el.id !== elementId));
     });
 
@@ -814,9 +851,9 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
     setElements(prev => [...prev, element]);
     // Always try to broadcast - the broadcast function checks connection internally
     broadcastElementAdd(element);
-  }, [broadcastElementAdd, isConnected]);
+  }, [broadcastElementAdd]);
 
-  const updateElementWithBroadcast = useCallback((elementId: string, changes: Partial<WhiteboardElement>) => {
+  const _updateElementWithBroadcast = useCallback((elementId: string, changes: Partial<WhiteboardElement>) => {
     setElements(prev => prev.map(el =>
       el.id === elementId ? { ...el, ...changes } : el
     ));
@@ -908,7 +945,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
     const updatedElements = elements.map(el => {
       if (el.type !== 'arrow') return el;
 
-      let updates: Partial<WhiteboardElement> = {};
+      const updates: Partial<WhiteboardElement> = {};
 
       // Update start position if connected to an element
       if (el.startElementId && el.startConnectionPoint) {
@@ -972,7 +1009,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [selectedElement, undo, redo, addToHistory, editingElement]);
+  }, [selectedElement, undo, redo, addToHistory, editingElement, deleteElementWithBroadcast]);
 
   // Colors for sticky notes and shapes
   const colors = [
@@ -987,10 +1024,9 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
   
   const [currentPoint, setCurrentPoint] = useState({ x: 0, y: 0, shiftKey: false });
   
-  // Performance optimization constants
-  const ERASER_RING_THICKNESS = 3; // Single constant for ring thickness
-  const MAX_INTERPOLATION_STEPS = 5; // Limit interpolation for performance
-  const ERASER_PROCESS_THRESHOLD = 5; // Minimum movement before processing
+   // Single constant for ring thickness
+   // Limit interpolation for performance
+   // Minimum movement before processing
   
   // Calculate viewBox for minimap based on all elements - memoized for performance
   const getMinimapViewBox = useCallback(() => {
@@ -1242,13 +1278,6 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
     );
   };
 
-  // Canvas bounds constants
-  const CANVAS_WIDTH = 16000;
-  const CANVAS_HEIGHT = 9000;
-  const CANVAS_MARGIN = 500; // Gray border area
-  const TOTAL_CANVAS_WIDTH = CANVAS_WIDTH + CANVAS_MARGIN * 2;
-  const TOTAL_CANVAS_HEIGHT = CANVAS_HEIGHT + CANVAS_MARGIN * 2;
-
   // Cache viewport dimensions to avoid layout thrashing
   const viewportSizeRef = useRef({ width: 800, height: 600 });
 
@@ -1275,33 +1304,6 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
     return () => window.removeEventListener('resize', updateViewportSize);
   }, []);
 
-  // Clamp pan position to canvas bounds
-  // Canvas SVG is centered at origin: extends from (-8500,-5000) to (8500,5000) including margin
-  // panPosition maps SVG origin (0,0) to screen position, so canvas edges in screen space are:
-  //   left: panPosition.x - halfW, right: panPosition.x + halfW (where halfW = TOTAL_CANVAS_WIDTH/2 * zoom)
-  const clampPanPosition = useCallback((x: number, y: number, currentZoom: number) => {
-    const { width: viewportWidth, height: viewportHeight } = viewportSizeRef.current;
-    const halfW = (TOTAL_CANVAS_WIDTH / 2) * currentZoom;
-    const halfH = (TOTAL_CANVAS_HEIGHT / 2) * currentZoom;
-
-    // Keep at least 30% of viewport overlapping with canvas
-    const overlapX = viewportWidth * 0.3;
-    const overlapY = viewportHeight * 0.3;
-
-    // Canvas right edge (x + halfW) must be at least overlapX into viewport
-    const minX = overlapX - halfW;
-    // Canvas left edge (x - halfW) must not go past viewportWidth - overlapX
-    const maxX = viewportWidth - overlapX + halfW;
-
-    const minY = overlapY - halfH;
-    const maxY = viewportHeight - overlapY + halfH;
-
-    return {
-      x: Math.min(maxX, Math.max(minX, x)),
-      y: Math.min(maxY, Math.max(minY, y)),
-    };
-  }, []);
-
   // Cache canvas rect position to avoid layout thrashing
   const canvasRectRef = useRef({ left: 0, top: 0 });
 
@@ -1322,13 +1324,13 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
   }, []);
 
   // Convert screen coordinates to canvas coordinates
-  const screenToCanvas = (screenX: number, screenY: number) => {
+  const screenToCanvas = useCallback((screenX: number, screenY: number) => {
     const { left, top } = canvasRectRef.current;
     return {
       x: (screenX - left - panPosition.x) / zoom,
       y: (screenY - top - panPosition.y) / zoom
     };
-  };
+  }, [panPosition, zoom]);
 
   // Fullscreen functions
   const enterFullscreen = async () => {
@@ -1430,7 +1432,8 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
                            eraserPoint.y > element.y! + element.height! + currentEraserSize + 10;
               break;
             case 'circle':
-              const circleRx = element.radiusX ?? element.radius ?? 50;
+              {
+const circleRx = element.radiusX ?? element.radius ?? 50;
               const circleRy = element.radiusY ?? element.radius ?? 50;
               const maxRadius = Math.max(circleRx, circleRy);
               const circleDist = Math.sqrt(
@@ -1439,6 +1442,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
               );
               quickReject = circleDist > maxRadius + currentEraserSize + 10;
               break;
+              }
           }
 
           if (quickReject) continue;
@@ -1465,7 +1469,8 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
 
             case 'rectangle':
             case 'sticky':
-              const closestX = Math.max(element.x!, Math.min(eraserPoint.x, element.x! + element.width!));
+              {
+const closestX = Math.max(element.x!, Math.min(eraserPoint.x, element.x! + element.width!));
               const closestY = Math.max(element.y!, Math.min(eraserPoint.y, element.y! + element.height!));
               const distToRect = Math.sqrt(
                 Math.pow(eraserPoint.x - closestX, 2) +
@@ -1473,16 +1478,19 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
               );
               isIntersecting = distToRect <= currentEraserSize;
               break;
+              }
 
             case 'circle':
               // For ellipse intersection, check if eraser point is close to ellipse boundary
-              const eraseRx = element.radiusX ?? element.radius ?? 50;
+              {
+const eraseRx = element.radiusX ?? element.radius ?? 50;
               const eraseRy = element.radiusY ?? element.radius ?? 50;
               // Normalize the point to unit circle space and check distance
               const normalizedX = (eraserPoint.x - element.x) / (eraseRx + currentEraserSize);
               const normalizedY = (eraserPoint.y - element.y) / (eraseRy + currentEraserSize);
               isIntersecting = (normalizedX * normalizedX + normalizedY * normalizedY) <= 1;
               break;
+              }
 
             case 'arrow':
               if (element.endX !== undefined && element.endY !== undefined) {
@@ -1496,7 +1504,8 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
               break;
 
             case 'text':
-              const textWidth = (element.text?.length || 0) * (element.fontSize || 16) * 0.6;
+              {
+const textWidth = (element.text?.length || 0) * (element.fontSize || 16) * 0.6;
               const textHeight = element.fontSize || 16;
               const textClosestX = Math.max(element.x, Math.min(eraserPoint.x, element.x + textWidth));
               const textClosestY = Math.max(element.y - textHeight, Math.min(eraserPoint.y, element.y));
@@ -1506,6 +1515,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
               );
               isIntersecting = distToText <= currentEraserSize;
               break;
+              }
           }
 
           if (isIntersecting) {
@@ -1594,16 +1604,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
     return Math.sqrt(dx * dx + dy * dy);
   };
 
-  // Check if a point is inside a selection box
-  const isPointInSelectionBox = (x: number, y: number, box: typeof selectionBox) => {
-    if (!box) return false;
-    const minX = Math.min(box.startX, box.endX);
-    const maxX = Math.max(box.startX, box.endX);
-    const minY = Math.min(box.startY, box.endY);
-    const maxY = Math.max(box.startY, box.endY);
-    return x >= minX && x <= maxX && y >= minY && y <= maxY;
-  };
-
+  
   // Strict segment-vs-segment intersection (excludes collinear/endpoint-only
   // touches). Used to test if a line-shaped element actually crosses the
   // marquee — bounding-box overlap alone gives false positives for diagonals.
@@ -1640,21 +1641,25 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
                 element.y! > maxY);
       case 'circle':
         // Check if ellipse intersects with box using bounding box check
-        const selRx = element.radiusX ?? element.radius ?? 50;
+        {
+const selRx = element.radiusX ?? element.radius ?? 50;
         const selRy = element.radiusY ?? element.radius ?? 50;
         // Simple bounding box intersection for ellipse
         return !(element.x + selRx < minX ||
                 element.x - selRx > maxX ||
                 element.y + selRy < minY ||
                 element.y - selRy > maxY);
+        }
       case 'text':
-        const textWidth = (element.text?.length || 0) * (element.fontSize || 16) * 0.6;
+        {
+const textWidth = (element.text?.length || 0) * (element.fontSize || 16) * 0.6;
         const textHeight = element.fontSize || 16;
         // Check if text box intersects
         return !(element.x + textWidth < minX || 
                 element.x > maxX ||
                 element.y < minY || 
                 element.y - textHeight > maxY);
+        }
       case 'arrow': {
         // The line is selected only if its endpoints are inside the marquee
         // OR the actual segment crosses one of the marquee sides — not just
@@ -1841,10 +1846,12 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
           }
           case 'text':
             // Use minimum width for empty text to make it clickable
-            const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0.6);
+            {
+const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0.6);
             const textHeight = (el.fontSize || 16) * 1.5;
             return point.x >= el.x && point.x <= el.x + textWidth &&
                    point.y >= el.y - textHeight && point.y <= el.y;
+            }
           case 'arrow': {
             // Check proximity to the arrow line. Tolerance scales with zoom so
             // the clickable strip stays ~12px wide on screen at any zoom level.
@@ -2723,7 +2730,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
         return clampPanPosition(newX, newY, zoomRef.current);
       });
     }
-  }, [zoomLevels, clampPanPosition, isZooming]);
+  }, [clampPanPosition, isZooming]);
 
   // Touch state refs for mobile support
   const touchStartRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
@@ -2977,7 +2984,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
       lastTouchDistanceRef.current = newDistance;
       lastTouchCenterRef.current = { x: centerX, y: centerY };
     }
-  }, [zoom, zoomLevels, clampPanPosition, panPosition, tool, isDrawing, isDraggingElement, selectedElement, dragStartPos, dragElementStart]);
+  }, [zoom, clampPanPosition, panPosition, tool, isDrawing, isDraggingElement, selectedElement, dragStartPos, dragElementStart]);
 
   // Handle touch end - finalize drawing, dragging, or end panning
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
@@ -3110,16 +3117,20 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
           return point.x >= el.x && point.x <= el.x + (el.width || 0) &&
                  point.y >= el.y && point.y <= el.y + (el.height || 0);
         case 'circle':
-          const ctxRx = el.radiusX ?? el.radius ?? 50;
+          {
+const ctxRx = el.radiusX ?? el.radius ?? 50;
           const ctxRy = el.radiusY ?? el.radius ?? 50;
           // Ellipse equation check
           const ctxNormDist = Math.pow(point.x - el.x, 2) / (ctxRx * ctxRx) + Math.pow(point.y - el.y, 2) / (ctxRy * ctxRy);
           return ctxNormDist <= 1;
+          }
         case 'text':
-          const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0.6);
+          {
+const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0.6);
           const textHeight = (el.fontSize || 16) * 1.5;
           return point.x >= el.x && point.x <= el.x + textWidth &&
                  point.y >= el.y - textHeight && point.y <= el.y;
+          }
         case 'arrow': {
           // Tolerance scales with zoom so the clickable strip stays ~12px
           // wide on screen regardless of zoom level.
@@ -3316,6 +3327,25 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
     }
   }, [contextMenu]);
 
+  // Delete selected element(s)
+  const deleteSelectedElement = useCallback(() => {
+    if (selectedElements.size > 0) {
+      // Delete multiple elements and broadcast
+      selectedElements.forEach(id => {
+        if (isConnected) {
+          broadcastElementDelete(id);
+        }
+      });
+      setElements(elements.filter(el => !selectedElements.has(el.id)));
+      setSelectedElements(new Set());
+      setTimeout(addToHistory, 100);
+    } else if (selectedElement) {
+      deleteElementWithBroadcast(selectedElement);
+      setSelectedElement(null);
+      setTimeout(addToHistory, 100);
+    }
+  }, [selectedElements, selectedElement, isConnected, broadcastElementDelete, elements, addToHistory, deleteElementWithBroadcast]);
+
   // Keyboard shortcuts for copy, paste, delete, duplicate
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -3458,26 +3488,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedElement, selectedElements, clipboard, elements, editingElement, copyElement, pasteElement, addToHistory]);
-
-  // Delete selected element(s)
-  const deleteSelectedElement = () => {
-    if (selectedElements.size > 0) {
-      // Delete multiple elements and broadcast
-      selectedElements.forEach(id => {
-        if (isConnected) {
-          broadcastElementDelete(id);
-        }
-      });
-      setElements(elements.filter(el => !selectedElements.has(el.id)));
-      setSelectedElements(new Set());
-      setTimeout(addToHistory, 100);
-    } else if (selectedElement) {
-      deleteElementWithBroadcast(selectedElement);
-      setSelectedElement(null);
-      setTimeout(addToHistory, 100);
-    }
-  };
+  }, [selectedElement, selectedElements, clipboard, elements, editingElement, copyElement, pasteElement, addToHistory, deleteSelectedElement]);
 
   // Cleanup eraser paths periodically for performance
   useEffect(() => {
@@ -3622,7 +3633,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [selectedElement, elements, undo, redo, zoom, zoomIndex, zoomLevels, editingElement]);
+  }, [selectedElement, elements, undo, redo, zoom, zoomIndex, editingElement, clampPanPosition, deleteSelectedElement]);
 
   // Render element with eraser mask
   const renderElement = (element: WhiteboardElement) => {
@@ -3931,7 +3942,8 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
 
       case 'circle':
         // Support both legacy radius and new radiusX/radiusY for ellipses
-        const ellipseRx = element.radiusX ?? element.radius ?? 50;
+        {
+const ellipseRx = element.radiusX ?? element.radius ?? 50;
         const ellipseRy = element.radiusY ?? element.radius ?? 50;
         return (
           <>
@@ -4149,9 +4161,11 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
             )}
           </>
         );
+        }
 
       case 'text':
-        const isTextEditing = editingElement === element.id;
+        {
+const isTextEditing = editingElement === element.id;
         const textFontSize = element.fontSize || 16;
         const textElementLines = (element.text || '').split('\n');
         const maxLineLength = Math.max(...textElementLines.map(line => line.length), 1);
@@ -4525,10 +4539,12 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
             )}
           </g>
         );
+        }
 
       case 'sticky':
         // Use stored height if available, otherwise calculate based on text content
-        const textLines = (element.text || '').split('\n');
+        {
+const textLines = (element.text || '').split('\n');
         const lineHeight = (element.fontSize || 16) * 1.5;
         const minHeight = 200;
         const padding = 24; // p-3 = 12px top + 12px bottom
@@ -4797,9 +4813,11 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
             )}
           </g>
         );
+        }
       
       case 'path':
-        const pathData = element.points?.map((p, i) => 
+        {
+const pathData = element.points?.map((p, i) => 
           i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`
         ).join(' ');
         return (
@@ -4814,6 +4832,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
             onClick={() => setSelectedElement(element.id)}
           />
         );
+        }
       
       case 'arrow':
         if (element.endX !== undefined && element.endY !== undefined) {
@@ -5145,7 +5164,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [], 
           
           {(tool === 'rectangle' || tool === 'circle') && (
             <div className="flex items-center gap-2 ml-2">
-              <ToggleGroup type="single" value={fillMode} onValueChange={(value) => value && setFillMode(value as any)}>
+              <ToggleGroup type="single" value={fillMode} onValueChange={(value) => value && setFillMode(value as 'fill' | 'both' | 'stroke')}>
                 <ToggleGroupItem value="fill" size="sm" className="h-6 px-2">
                   <span className="text-xs">{st('sweep.weldflow.whiteboardView.fill')}</span>
                 </ToggleGroupItem>

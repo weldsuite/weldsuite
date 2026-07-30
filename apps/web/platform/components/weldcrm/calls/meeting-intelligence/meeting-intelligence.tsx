@@ -7,9 +7,6 @@ import { Tabs, TabsContent } from '@weldsuite/ui/components/tabs';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
   Captions,
-  Info,
-  Loader2,
-  Phone,
   Users,
   Video,
 } from 'lucide-react';
@@ -26,8 +23,8 @@ import { AudioPlayer } from './audio-player';
 import { TranscriptTabContent } from './transcript-tab';
 import { SpeakersTabContent } from './speakers-tab';
 import { MeetingDetailsTab } from './meeting-details-tab';
-import { SPEAKER_COLORS, SPEAKER_COLOR_HEX_MAP, getSpeakerColor, getSpeakerHex } from './speaker-colors';
-import { parseSpeakerId, formatDuration } from './utils';
+import { getSpeakerHex } from './speaker-colors';
+import { parseSpeakerId } from './utils';
 import { useActiveWord } from './use-active-word';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type {
@@ -51,7 +48,6 @@ export function MeetingIntelligence({
   backUrl,
   breadcrumbs,
   tabs = ['transcript', 'speakers', 'meeting'],
-  layout = 'full-width',
   renderSidebar,
   headerActions,
   headerMenuActions,
@@ -120,7 +116,7 @@ export function MeetingIntelligence({
       setCurrentTime(pending.currentTime);
       setSmoothTime(pending.currentTime);
     }
-  }, [call.id, floatingVideoCtx?.pendingRestore, enableFloatingVideo]);
+  }, [call.id, floatingVideoCtx, enableFloatingVideo]);
 
   // Restore from floating call panel
   useEffect(() => {
@@ -133,7 +129,7 @@ export function MeetingIntelligence({
       setCurrentTime(pending.currentTime);
       setSmoothTime(pending.currentTime);
     }
-  }, [call.id, floatingCallCtx?.pendingRestore, enableFloatingVideo]);
+  }, [call.id, floatingCallCtx, enableFloatingVideo]);
 
   // Speakers derived state
   const speakers = useMemo<SpeakerInfo[]>(() => {
@@ -367,9 +363,9 @@ export function MeetingIntelligence({
       }
 
       startPolling(true);
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error(t('sweep.weldcrm.meetingIntelligence.transcriptionFailed'), {
-        description: error?.message || t('sweep.weldcrm.meetingIntelligence.failedToStartTranscription'),
+        description: (error as Error)?.message || t('sweep.weldcrm.meetingIntelligence.failedToStartTranscription'),
       });
       setIsTranscribing(false);
       setTranscriptionProgress(0);
@@ -394,9 +390,9 @@ export function MeetingIntelligence({
       });
 
       router.push(deleteRedirectUrl || '/weldcrm/calls');
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error(t('sweep.weldcrm.meetingIntelligence.failedToDeleteCall'), {
-        description: error?.message || t('sweep.weldcrm.meetingIntelligence.deleteCallErrorDescription'),
+        description: (error as Error)?.message || t('sweep.weldcrm.meetingIntelligence.deleteCallErrorDescription'),
       });
     } finally {
       setShowDeleteDialog(false);
@@ -451,6 +447,10 @@ ${transcriptionText}
         weldAgentContext.setEntityContext(null);
       }
     };
+    // weldAgentContext is a fresh object every render (context value isn't
+    // memoized) — depending on the whole object would re-run this on every
+    // render and fight with the setEntityContext call inside it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [call.id, call.subject, transcription, enableWeldAgent, weldAgentContext?.setEntityContext, t]);
 
   // Update active segment based on video time
@@ -575,7 +575,14 @@ ${transcriptionText}
         videoSrc: stableRecordingUrl.current,
         currentTime: videoRef.current?.currentTime || currentTime,
         isPlaying,
-        segments: (transcription?.segments || []) as any,
+        segments: (transcription?.segments || []).map((s) => ({
+          id: s.id,
+          speaker: s.speaker || '',
+          speakerName: s.speakerName,
+          text: s.text,
+          start: s.start,
+          end: s.end,
+        })),
         attendees: call.attendees,
         platform: call.platform || '',
         meetingUrl: call.meetingUrl || '',

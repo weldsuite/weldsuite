@@ -13,8 +13,6 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import {
-  Phone,
-  PhoneCall,
   PhoneOff,
   X,
   Minus,
@@ -26,7 +24,6 @@ import {
   Pause,
   Play,
   Loader2,
-  Volume2,
   Hash,
   RefreshCcw,
 } from 'lucide-react';
@@ -133,7 +130,7 @@ export function GlobalCallPanel() {
     if (isDialerOpen && composeContext?.isComposeOpen) {
       composeContext.closeCompose();
     }
-  }, [isDialerOpen]);
+  }, [isDialerOpen, composeContext]);
 
   // Pre-fill dialer number when opened with a number
   useEffect(() => {
@@ -170,7 +167,7 @@ export function GlobalCallPanel() {
       };
       initTwilio();
     }
-  }, [isDialerOpen, voipConfigured, isVoipReady, initializeVoip]);
+  }, [isDialerOpen, voipConfigured, isVoipReady, initializeVoip, fetchVoiceToken, t]);
 
   // Function to reset and reinitialize
   const handleResetTwilio = async () => {
@@ -209,6 +206,10 @@ export function GlobalCallPanel() {
         clearInterval(durationIntervalRef.current);
       }
     };
+    // Intentionally keyed on callState?.status only — other callState fields
+    // (e.g. live transcript data) update far more often and must not reset
+    // the duration timer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callState?.status]);
 
   // Close dialer when call ends so it doesn't revert to "Make a Call"
@@ -287,7 +288,7 @@ export function GlobalCallPanel() {
         isRecorded: enableRecording,
         provider: 'telnyx',
       }).then(r => ({ success: !!r.data?.id, callId: r.data?.id, error: undefined as string | undefined }))
-        .catch((err: unknown) => {
+        .catch((err) => {
           const message = err instanceof Error ? err.message : '';
           return {
             success: false,

@@ -14,5 +14,12 @@ export default function EditDepartmentPage() {
 
   if (!result?.success || !result?.data) return null;
 
-  return <DepartmentForm mode="edit" department={result.data} />;
+  const department = result.data;
+  // app-api's business hours don't carry a per-department timezone; the form
+  // only reads it for display, so default rather than block the edit form.
+  const businessHours = department.businessHours
+    ? { timezone: 'UTC', ...department.businessHours }
+    : undefined;
+
+  return <DepartmentForm mode="edit" department={{ ...department, businessHours }} />;
 }

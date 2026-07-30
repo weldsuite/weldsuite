@@ -23,22 +23,6 @@ const customerNoteKeys = {
   all: ['crm', 'customer-notes'] as const,
   list: (customerId: string) => [...customerNoteKeys.all, customerId] as const,
 };
-
-function useCustomerNotes(customerId: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  useCustomerNoteAndCommentLiveSync();
-  return useQuery({
-    queryKey: customerNoteKeys.list(customerId),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: any[] }>(
-        `/activities?customerId=${encodeURIComponent(customerId)}&type=note`,
-      );
-    },
-    enabled: !!customerId && enabled,
-  });
-}
-
 export function useCreateCustomerNote() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
@@ -53,7 +37,7 @@ export function useCreateCustomerNote() {
       entityType?: 'customer' | 'contact';
     }) => {
       const client = await getClient();
-      const activityData: Record<string, any> = {
+      const activityData: Record<string, unknown> = {
         type: 'note',
         subject: 'Note',
         description: content,
@@ -141,7 +125,7 @@ export function useCustomerComments(
     queryKey: customerCommentKeys.list(entityId, entityType),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: any[] }>(
+      return client.get<{ data: unknown[] }>(
         `/activities?${param}=${encodeURIComponent(entityId)}&type=comment`,
       );
     },
@@ -163,7 +147,7 @@ export function useCreateCustomerComment() {
       entityType?: 'customer' | 'contact';
     }) => {
       const client = await getClient();
-      const activityData: Record<string, any> = {
+      const activityData: Record<string, unknown> = {
         type: 'comment',
         subject: 'Comment',
         description: content,

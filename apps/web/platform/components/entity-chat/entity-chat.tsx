@@ -11,9 +11,12 @@ import {
   removeMessageFromCache,
   useWorkspaceMembers,
   weldchatKeys,
+  type ChatMessage,
 } from '@/hooks/queries/use-weldchat-queries';
 import { useWeldChatRoom } from '@/hooks/weldchat/use-weldchat-room';
 import { useWeldChatMessagesRealtime } from '@/hooks/weldchat/use-weldchat-messages-realtime';
+import type { WeldChatRealtimeMessage } from '@/hooks/weldchat/use-weldchat-messages-realtime';
+import type { MessageItemMessage } from '@/app/weldchat/components/message-item';
 import { useWeldChatRealtime } from '@/hooks/weldchat/use-weldchat-realtime';
 import { useWeldChatPresence } from '@/hooks/weldchat/use-weldchat-presence';
 import {
@@ -149,18 +152,18 @@ function FirstMessageComposer({
   entityType: string;
   entityId: string;
   currentUser: ReturnType<typeof useUser>['user'];
-  onSent: (channel: EntityChannel, message: any) => void;
+  onSent: (channel: EntityChannel, message: MessageItemMessage) => void;
 }) {
   const t = useTranslations();
   const { data: membersData } = useWorkspaceMembers();
   const membersMap = useMemo(() => {
     const map = new Map<string, string>();
-    const list: any[] = membersData?.data ?? [];
+    const list: Array<{ userId?: string; name?: string }> = membersData?.data ?? [];
     for (const m of list) if (m?.userId && m?.name) map.set(m.userId, m.name);
     return map;
   }, [membersData]);
 
-  const [pending, setPending] = useState<Array<any>>([]);
+  const [pending, setPending] = useState<MessageItemMessage[]>([]);
 
   const sendMutation = useMutation({
     mutationFn: (payload: { content: string; mentions: string[] }) =>
@@ -188,19 +191,19 @@ function FirstMessageComposer({
         placeholder={t('sweep.weldchat.entityChat.messagePlaceholder')}
         onSubmitOverride={async (payload) => {
           const id = `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-          const optimistic = {
+          const optimistic: MessageItemMessage = {
             id,
             channelId: '',
             authorId: currentUser?.id ?? '',
             authorName: currentUser?.fullName || currentUser?.firstName || t('sweep.weldchat.entityChat.you'),
             authorAvatar: currentUser?.imageUrl ?? null,
             content: payload.content,
-            htmlContent: null,
+            htmlContent: undefined,
             type: 'message',
-            parentId: null,
+            parentId: undefined,
             reactions: {},
             mentions: payload.mentions,
-            attachments: payload.attachments.length > 0 ? payload.attachments : null,
+            attachments: payload.attachments.length > 0 ? (payload.attachments as unknown as ChatMessage['attachments']) : undefined,
             hasAttachments: payload.attachments.length > 0,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
@@ -231,11 +234,11 @@ function EmbeddedChannelChat({ channelId }: { channelId: string }) {
   const { client } = useWeldChatRoom(channelId);
 
   useWeldChatMessagesRealtime(client, channelId, {
-    onMessageCreated: (message: any) => {
-      mergeMessageIntoCache(queryClient, channelId, message);
+    onMessageCreated: (message: WeldChatRealtimeMessage) => {
+      mergeMessageIntoCache(queryClient, channelId, message as unknown as ChatMessage);
     },
-    onMessageUpdated: (message: any) => {
-      updateMessageInCache(queryClient, channelId, message.id, message);
+    onMessageUpdated: (message: WeldChatRealtimeMessage) => {
+      updateMessageInCache(queryClient, channelId, message.id, message as unknown as Record<string, unknown>);
     },
     onMessageDeleted: (messageId: string) => {
       removeMessageFromCache(queryClient, channelId, messageId);

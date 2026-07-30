@@ -67,7 +67,7 @@ export function useChatActivity(filter: ListActivityQuery['filter'] = 'all') {
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => {
-      const pagination = (lastPage as any)?.pagination;
+      const pagination = lastPage?.pagination;
       if (!pagination?.hasMore) return undefined;
       return pagination.cursor ?? undefined;
     },
@@ -222,23 +222,6 @@ export function useDeleteDraft() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: weldchatExtrasKeys.draftsList() });
-    },
-  });
-}
-
-// ============================================================================
-// Directory hooks
-// ============================================================================
-
-function useChannelDirectory(search?: string) {
-  const { getClient } = useAppApiClient();
-
-  return useQuery({
-    queryKey: weldchatExtrasKeys.directoryChannels(search),
-    queryFn: async () => {
-      const client = await getClient();
-      const qs = search ? `?search=${encodeURIComponent(search)}` : '';
-      return client.get<{ data: DirectoryChannelItem[] }>(`/chat-directories/channels${qs}`);
     },
   });
 }

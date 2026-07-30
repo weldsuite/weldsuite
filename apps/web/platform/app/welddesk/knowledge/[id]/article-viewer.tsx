@@ -23,7 +23,7 @@ interface Article {
   tags: string[];
   author: string;
   status: 'published' | 'draft' | 'archived' | 'review' | 'outdated';
-  visibility: 'public' | 'private' | 'internal' | 'logged_in' | 'specific_users';
+  visibility: 'public' | 'private' | 'internal' | 'logged_in' | 'specific_users' | 'restricted';
   lastUpdated: Date;
   views?: number;
   helpful?: number;

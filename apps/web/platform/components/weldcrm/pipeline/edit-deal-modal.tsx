@@ -1,5 +1,6 @@
 
 import { useState, useEffect } from 'react';
+import type { Opportunity } from '@/hooks/queries/use-opportunities-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import {
   Dialog,
@@ -29,13 +30,10 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Calendar } from '@weldsuite/ui/components/calendar';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import {
-  Building2,
   Calendar as CalendarIcon,
   DollarSign,
   Loader2,
-  Trash2,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { useTranslations } from '@weldsuite/i18n/client';
 
 interface Deal {
@@ -72,7 +70,7 @@ interface EditDealModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   deal: Deal | null;
-  onSubmit: (dealId: string, data: any) => Promise<void>;
+  onSubmit: (dealId: string, data: Partial<Opportunity>) => Promise<void>;
   onDelete?: (dealId: string) => Promise<void>;
 }
 
@@ -138,8 +136,8 @@ export function EditDealModal({
         title: dealTitle,
         value: parseFloat(dealValue),
         probability: probability ? parseInt(probability) : undefined,
-        expectedCloseDate,
-        notes,
+        expectedCloseDate: expectedCloseDate?.toISOString(),
+        description: notes,
       });
       onOpenChange(false);
     } catch (error) {

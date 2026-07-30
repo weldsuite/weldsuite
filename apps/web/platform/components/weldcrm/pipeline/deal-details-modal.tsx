@@ -1,5 +1,6 @@
 
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import type { PipelineCustomerLike } from './pipeline-kanban';
 import {
   Dialog,
   DialogContent,
@@ -61,8 +62,8 @@ interface DealDetailsModalProps {
   onOpenChange: (open: boolean) => void;
   stages: Stage[];
   selectedStageId: string;
-  customers: Customer[];
-  onSubmit: (data: any) => Promise<void>;
+  customers: PipelineCustomerLike[];
+  onSubmit: (data: Record<string, unknown>) => Promise<void>;
   lockedCustomer?: { id: string; name: string };
 }
 
@@ -85,7 +86,6 @@ export function DealDetailsModal({
   onOpenChange,
   stages,
   selectedStageId,
-  customers,
   onSubmit,
   lockedCustomer,
 }: DealDetailsModalProps) {
@@ -159,7 +159,7 @@ export function DealDetailsModal({
         // app-api pages by cursor, so `page`/`pageSize` collapse to `limit`,
         // and there's no `success` flag — a failure throws instead.
         const search = recordSearchQuery?.trim();
-        const result = await client.get<{ data: any[] }>(
+        const result = await client.get<{ data: Customer[] }>(
           `/companies?limit=50${search ? `&search=${encodeURIComponent(search)}` : ''}`,
         );
         setSearchedCustomers(result.data || []);

@@ -179,8 +179,8 @@ export function WysiwygEditor({
   const titleRef = externalTitleRef || internalTitleRef;
   const contentRef = externalContentRef || internalContentRef;
 
-  const [title, setTitle] = useState(initialTitle);
-  const [content, setContent] = useState(initialContent);
+  const [_title, setTitle] = useState(initialTitle);
+  const [_content, setContent] = useState(initialContent);
   const [coverImage, setCoverImage] = useState<string | undefined>(externalCoverImage);
   const [showCommandMenu, setShowCommandMenu] = useState(false);
   const [commandMenuPosition, setCommandMenuPosition] = useState({ top: 0, left: 0 });
@@ -246,7 +246,9 @@ export function WysiwygEditor({
     }
   }, []);
 
-  // Focus title on mount
+  // Focus title on mount. Intentionally mount-only — showTitle/initialTitle
+  // are seed values; re-running on their later changes would blow away
+  // whatever the user has since typed into the title.
   useEffect(() => {
     if (titleRef.current && showTitle) {
       if (initialTitle) {
@@ -254,9 +256,12 @@ export function WysiwygEditor({
       }
       titleRef.current.focus();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Initialize content on mount only
+  // Initialize content on mount only. Intentionally mount-only — initialContent
+  // is a seed value; re-running on its later changes would overwrite the
+  // user's in-progress edits.
   useEffect(() => {
     if (contentRef.current) {
       if (initialContent) {
@@ -289,21 +294,10 @@ export function WysiwygEditor({
 
       return () => observer.disconnect();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Check active formats on selection change
-  useEffect(() => {
-    const handleSelectionChange = () => {
-      checkActiveFormats();
-    };
-
-    document.addEventListener('selectionchange', handleSelectionChange);
-    return () => {
-      document.removeEventListener('selectionchange', handleSelectionChange);
-    };
-  }, []);
-
-  const checkActiveFormats = () => {
+  const checkActiveFormats = useCallback(() => {
     const formats = new Set<string>();
 
     if (document.queryCommandState('bold')) formats.add('bold');
@@ -352,7 +346,19 @@ export function WysiwygEditor({
     }
 
     setActiveFormats(formats);
-  };
+  }, [contentRef]);
+
+  // Check active formats on selection change
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      checkActiveFormats();
+    };
+
+    document.addEventListener('selectionchange', handleSelectionChange);
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange);
+    };
+  }, [checkActiveFormats]);
 
   const handleTitleInput = (e: React.FormEvent<HTMLDivElement>) => {
     const text = e.currentTarget.textContent || '';
@@ -632,7 +638,7 @@ export function WysiwygEditor({
 
     contentRef.current?.focus();
     checkActiveFormats();
-  }, [contentRef]);
+  }, [contentRef, checkActiveFormats]);
 
   const changeFontFamily = useCallback((font: string) => {
     setFontFamily(font);
@@ -717,7 +723,7 @@ export function WysiwygEditor({
     document.execCommand('unlink', false);
     contentRef.current?.focus();
     checkActiveFormats();
-  }, [contentRef]);
+  }, [contentRef, checkActiveFormats]);
 
   const insertBlock = (tagName: string, attributes: Record<string, string> = {}) => {
     const selection = window.getSelection();

@@ -1,5 +1,6 @@
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { usePageAgentContext } from '@/components/weldagent-wrapper';
@@ -9,11 +10,7 @@ import { workflowEditorKeys } from '@/hooks/use-workflow-editor-data';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Textarea } from '@weldsuite/ui/components/textarea';
-import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
-import { Badge } from '@weldsuite/ui/components/badge';
 import {
-  Play,
-  Save,
   Trash2,
   Settings,
   Zap,
@@ -45,9 +42,7 @@ import {
   Eye,
   EyeOff,
   X,
-  PanelRightClose,
   GitPullRequest,
-  AlignHorizontalDistributeCenter,
   History,
   UserPlus,
   Tag,
@@ -74,13 +69,14 @@ import { useUpdateWorkflow, useTestWorkflow, useUpdateWorkflowStatus } from '@/h
 import { ActionConfigForm } from './components/action-config-form';
 import { GenerateWithAiDialog } from './components/generate-with-ai-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import type { GeneratedWorkflowDraft } from '@/hooks/queries/use-automation-queries';
+import type { GeneratedWorkflowDraft, ActionType, TriggerType, EntityEvent } from '@/hooks/queries/use-automation-queries';
 import { WorkflowCanvas } from '@weldsuite/ui/components/workflow-canvas';
 import {
   getConditionBranchIds,
   getMissingRequiredFields,
   isStepConfigured,
 } from '@weldsuite/ui/components/workflow-canvas';
+import type { WorkflowStep, TriggerConfig, WorkflowCanvasLabels } from '@weldsuite/ui/components/workflow-canvas';
 import { buildAllVariables } from '@weldsuite/ui/components/workflow-canvas/parts/variable-picker';
 import { WorkflowTemplateDialog } from '@/app/weldconnect/components/workflow-template-dialog';
 import { TriggerEmptyState } from './components/trigger-empty-state';
@@ -103,11 +99,78 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 
+/**
+ * A workflow step's shape varies by `type` (send_email / http_request /
+ * condition / delay / branch / ...), and the editor spreads, nests, and
+ * mutates these freely while the user edits — so this stays a loose bag
+ * with the handful of cross-type fields the shell itself reads, rather than
+ * a discriminated union.
+ */
+export interface WorkflowStepBag extends Record<string, unknown> {
+  id?: string;
+  type?: string;
+  name?: string;
+  description?: string;
+  config?: Record<string, unknown>;
+  parentBranchId?: string;
+}
+
+/** Fill in `WorkflowStep`'s required fields for the shared canvas/validation helpers. */
+function asWorkflowStep(s: WorkflowStepBag): WorkflowStep {
+  return {
+    ...s,
+    id: s.id || '',
+    type: s.type || '',
+    name: s.name || '',
+    config: s.config || {},
+    inputs: (s.inputs as Record<string, unknown> | undefined) || {},
+  };
+}
+
+/** Fill in `TriggerConfig`'s required fields for `<WorkflowCanvas trigger={...} />`. */
+function asTriggerConfig(t: WorkflowTriggerBag | undefined): TriggerConfig | null {
+  if (!t) return null;
+  return {
+    id: (t.id as string | undefined) || 'trigger',
+    type: (t.type as TriggerConfig['type']) || 'manual',
+    name: (t.name as string | undefined) || '',
+    isEnabled: (t.isEnabled as boolean | undefined) ?? true,
+    config: (t.config as Record<string, unknown> | undefined) || {},
+  };
+}
+
+/** Same rationale as `WorkflowStepBag` — trigger config shape varies by `type`. */
+export type WorkflowTriggerBag = { type?: string } & Record<string, unknown>;
+
+/**
+ * The shell is mounted from three different domains (WeldConnect workflows,
+ * WeldCRM sequences, WeldDesk workflows) whose backend row shapes differ.
+ * This models only the fields the shell itself reads — everything else stays
+ * in `steps`/`triggers` as opaque per-action-type config.
+ */
+export interface EditorWorkflow {
+  id: string;
+  name: string;
+  status?: string | null;
+  description?: string | null;
+  triggers?: WorkflowTriggerBag[];
+  /** Legacy single-trigger shape some callers still pass instead of `triggers[]`. */
+  trigger?: WorkflowTriggerBag;
+  steps?: WorkflowStepBag[];
+}
+
+// The entity-events endpoint reports each object's events as bare type
+// strings (e.g. "created"); give each one a display name until the API
+// carries richer metadata. Mirrors app/weldconnect/triggers/page.tsx.
+function humanizeEventType(eventType: string): string {
+  return eventType.charAt(0).toUpperCase() + eventType.slice(1).replace(/_/g, ' ');
+}
+
 interface WorkflowEditorClientProps {
-  workflow: any;
-  actionTypes: any[];
-  triggerTypes: any[];
-  entityEvents: any[];
+  workflow: EditorWorkflow;
+  actionTypes: ActionType[];
+  triggerTypes: TriggerType[];
+  entityEvents: EntityEvent[];
   emailAccounts?: Array<{ id: string; email: string; displayName?: string }>;
   workspaceMembers?: Array<{ id: string; name: string; email: string; avatar?: string }>;
   workflowVariables?: Array<{ name: string; type?: string }>;
@@ -125,7 +188,7 @@ interface WorkflowEditorClientProps {
   listLabel?: string;
   allowedActionIds?: string[];
   editorHref?: string;
-  replaceExecutionsTab?: { label: string; href: string; icon: any };
+  replaceExecutionsTab?: { label: string; href: string; icon: LucideIcon };
   triggerLocked?: boolean;
   extraVariableGroups?: Array<{
     id: string;
@@ -156,7 +219,7 @@ interface WorkflowEditorClientProps {
 }
 
 // Action type icons and colors
-const ACTION_META: Record<string, { icon: any; color: string; bgColor: string }> = {
+const ACTION_META: Record<string, { icon: LucideIcon; color: string; bgColor: string }> = {
   send_email: { icon: Mail, color: 'text-blue-600', bgColor: 'bg-blue-100 dark:bg-blue-900/30' },
   http_request: { icon: Globe, color: 'text-purple-600', bgColor: 'bg-purple-100 dark:bg-purple-900/30' },
   condition: { icon: GitBranch, color: 'text-orange-600', bgColor: 'bg-orange-100 dark:bg-orange-900/30' },
@@ -192,7 +255,12 @@ function getActionMeta(type: string) {
   return ACTION_META[type] || { icon: Zap, color: 'text-primary', bgColor: 'bg-primary/10' };
 }
 
-function getTriggerWarningMessage(trigger: any, triggerType: string): string | null {
+// Trigger shape varies by `triggerType` (entity_event / schedule / workflow_complete
+// each nest their fields differently, and some payloads flatten `config` onto the
+// trigger itself) — this reads defensively across all of them.
+type TriggerBag = Record<string, unknown> & { config?: Record<string, unknown> };
+
+function getTriggerWarningMessage(trigger: TriggerBag | null | undefined, triggerType: string): string | null {
   if (!trigger || !triggerType) return 'No trigger configured';
 
   switch (triggerType) {
@@ -276,17 +344,9 @@ const HELPDESK_ACTION_TYPES: SidebarActionType[] = [
   { id: 'send_notification', name: 'Send Notification', description: 'Send an in-app notification', icon: Bell, category: 'communication' },
 ];
 
-const categoryColors: Record<string, string> = {
-  communication: 'text-blue-500',
-  data: 'text-green-500',
-  logic: 'text-amber-500',
-  integration: 'text-pink-500',
-  ai: 'text-violet-500',
-  helpdesk: 'text-teal-500',
-};
 
 // Trigger type static metadata (icons/colors only — names resolved from i18n at runtime)
-const TRIGGER_TYPE_META: Record<string, { icon: any; color: string }> = {
+const TRIGGER_TYPE_META: Record<string, { icon: LucideIcon; color: string }> = {
   entity_event: { icon: Zap, color: 'bg-purple-500' },
   schedule: { icon: Calendar, color: 'bg-blue-500' },
   workflow_complete: { icon: GitMerge, color: 'bg-orange-500' },
@@ -337,7 +397,7 @@ const TIMEZONE_OPTIONS = [
   { value: 'UTC', label: 'UTC' },
 ];
 
-function getConfigSummary(actionType: string, config: Record<string, any>): string {
+function getConfigSummary(actionType: string, config: Record<string, unknown>): string {
   switch (actionType) {
     case 'send_email':
       if (config.to && config.subject) return `To: ${config.to} • ${config.subject}`;
@@ -354,9 +414,11 @@ function getConfigSummary(actionType: string, config: Record<string, any>): stri
       if (config.minutes) return `Wait ${config.minutes} minutes`;
       if (config.hours) return `Wait ${config.hours} hours`;
       return '';
-    case 'log_message':
-      if (config.message) return config.message.substring(0, 60) + (config.message.length > 60 ? '...' : '');
+    case 'log_message': {
+      const message = config.message;
+      if (typeof message === 'string') return message.substring(0, 60) + (message.length > 60 ? '...' : '');
       return '';
+    }
     case 'create_record':
     case 'update_record':
       if (config.entityType || config.entity) return `Entity: ${config.entityType || config.entity}`;
@@ -368,13 +430,10 @@ function getConfigSummary(actionType: string, config: Record<string, any>): stri
 
 export function WorkflowEditorClient({
   workflow: initialWorkflow,
-  actionTypes,
-  triggerTypes,
   entityEvents,
   emailAccounts = [],
   workspaceMembers = [],
   workflowVariables = [],
-  workflowsForChaining = [],
   webhookData,
   basePath = '/weldconnect/workflows',
   parentLabel = 'Task',
@@ -522,7 +581,7 @@ export function WorkflowEditorClient({
   const filteredEntityEvents = useMemo(() => {
     if (module === 'helpdesk') {
       // Only show helpdesk entity types
-      return entityEvents.filter((e: any) => e.category === 'Helpdesk');
+      return entityEvents.filter((e) => e.category === 'Helpdesk');
     }
     return entityEvents;
   }, [module, entityEvents]);
@@ -531,8 +590,8 @@ export function WorkflowEditorClient({
   // ~150 entity types, so a flat list would be unusable. Preserves the order
   // entities arrive in within each category.
   const groupedEntityEvents = useMemo(() => {
-    const groups: Array<{ category: string; entities: any[] }> = [];
-    const byCategory = new Map<string, any[]>();
+    const groups: Array<{ category: string; entities: EntityEvent[] }> = [];
+    const byCategory = new Map<string, EntityEvent[]>();
     for (const entity of filteredEntityEvents) {
       const category = entity.category || 'Other';
       let bucket = byCategory.get(category);
@@ -560,7 +619,7 @@ export function WorkflowEditorClient({
   const defaultTriggers = triggerLocked
     ? [{ id: 'trigger-enrollment', type: 'manual', name: 'Person Enrolled' }]
     : (initialWorkflow.triggers || []);
-  const [workflow, setWorkflow] = useState({
+  const [workflow, setWorkflow] = useState<EditorWorkflow & { triggers: WorkflowTriggerBag[]; steps: WorkflowStepBag[] }>({
     ...initialWorkflow,
     triggers: defaultTriggers,
     steps: initialWorkflow.steps || [],
@@ -586,16 +645,16 @@ export function WorkflowEditorClient({
   const updateStatusMutation = useUpdateWorkflowStatus(apiBasePath);
   const isSaving = updateWorkflowMutation.isPending || updateStatusMutation.isPending;
   const isTesting = testWorkflowMutation.isPending;
-  const [editingStep, setEditingStep] = useState<any | null>(null);
-  const [selectedStepIndex, setSelectedStepIndex] = useState<number | null>(null);
+  const [editingStep, setEditingStep] = useState<WorkflowStepBag | null>(null);
+  const [_selectedStepIndex, setSelectedStepIndex] = useState<number | null>(null);
 
   // --- Validation: which steps / the trigger still need required config -----
   const incompleteStepIds = useMemo(
-    () => new Set(workflow.steps.filter((s: any) => !isStepConfigured(s)).map((s: any) => s.id)),
+    () => new Set(workflow.steps.filter((s) => !isStepConfigured(asWorkflowStep(s))).map((s) => s.id)),
     [workflow.steps],
   );
   const firstIncompleteStepIndex = useMemo(
-    () => workflow.steps.findIndex((s: any) => !isStepConfigured(s)),
+    () => workflow.steps.findIndex((s) => !isStepConfigured(asWorkflowStep(s))),
     [workflow.steps],
   );
   const triggerIssue = useMemo(
@@ -616,8 +675,8 @@ export function WorkflowEditorClient({
     warnings: string[];
   } | null>(null);
   const [triggerType, setTriggerType] = useState<string>(workflow.triggers?.[0]?.type || 'entity_event');
-  const [triggerEntityType, setTriggerEntityType] = useState(workflow.triggers?.[0]?.entityType || '');
-  const [triggerEventType, setTriggerEventType] = useState(workflow.triggers?.[0]?.eventType || '');
+  const [triggerEntityType, setTriggerEntityType] = useState((workflow.triggers?.[0]?.entityType as string | undefined) || '');
+  const [triggerEventType, setTriggerEventType] = useState((workflow.triggers?.[0]?.eventType as string | undefined) || '');
 
   // Schedule trigger state
   const [scheduleType, setScheduleType] = useState<'one_time' | 'recurring'>('recurring');
@@ -654,7 +713,20 @@ export function WorkflowEditorClient({
   // Fetch full agent definition when editing a sub-agent
   const { data: editSubAgentData } = useQuery({
     queryKey: ['ai-agent-detail', editSubAgentId],
-    queryFn: async (): Promise<any> => undefined,
+    queryFn: async (): Promise<{
+      name?: string;
+      description?: string;
+      systemPrompt?: string;
+      modelId?: string;
+      temperature?: string | number;
+      maxTokens?: number;
+      maxIterations?: number;
+      maxTotalTokens?: number;
+      enabledBuiltinTools?: string[];
+      integrationIds?: string[];
+      integrationToolPermissions?: Record<string, string[]>;
+      escalationRules?: { escalateOnFailure?: boolean; escalateOnMaxIterations?: boolean };
+    } | undefined> => undefined,
     enabled: false,
   });
 
@@ -673,7 +745,7 @@ export function WorkflowEditorClient({
           [key: string]: unknown;
         };
       }> }>('/integrations/connections');
-      return (res.data || []).filter((c: any) => c.provider === 'mcp_server' && c.status === 'active');
+      return (res.data || []).filter((c) => c.provider === 'mcp_server' && c.status === 'active');
     },
   });
 
@@ -700,7 +772,7 @@ export function WorkflowEditorClient({
         description: editSubAgentData.description || '',
         systemPrompt: editSubAgentData.systemPrompt || '',
         modelId: editSubAgentData.modelId || 'openai/gpt-4o',
-        temperature: parseFloat(editSubAgentData.temperature) || 0.7,
+        temperature: parseFloat(String(editSubAgentData.temperature ?? '')) || 0.7,
         maxTokens: editSubAgentData.maxTokens || 1024,
         maxIterations: editSubAgentData.maxIterations || 10,
         maxTotalTokens: editSubAgentData.maxTotalTokens || 20000,
@@ -719,7 +791,7 @@ export function WorkflowEditorClient({
     // AI has been removed platform-wide — sub-agent definitions can no
     // longer be saved. Short-circuit instead of hitting the removed
     // `/ai/agent-definitions` endpoint.
-    mutationFn: async (_params: { id: string; data: any }): Promise<never> => {
+    mutationFn: async (_params: { id: string; data: unknown }): Promise<never> => {
       throw new Error('AI is currently unavailable');
     },
     onError: () => toast.error(tec.toasts.agentUpdateFailed),
@@ -781,14 +853,14 @@ export function WorkflowEditorClient({
         id: workflow.id,
         data: {
           name: workflow.name,
-          description: workflow.description,
+          description: workflow.description ?? undefined,
           triggers: workflow.triggers,
           steps: workflow.steps,
         },
       });
       savedSnapshotRef.current = JSON.stringify({ triggers: workflow.triggers, steps: workflow.steps });
       toast.success(tec.toasts.workflowSaved);
-    } catch (error) {
+    } catch {
       toast.error(tec.toasts.saveFailed);
     }
   };
@@ -864,7 +936,7 @@ export function WorkflowEditorClient({
       order: i,
     }));
 
-    setWorkflow((prev: any) => ({
+    setWorkflow((prev) => ({
       ...prev,
       name: draft.name || prev.name,
       description: draft.description ?? prev.description,
@@ -899,7 +971,7 @@ export function WorkflowEditorClient({
     // Resolve user-friendly name from locale
     const actions = t.weldconnect.addNodePanel.actions as Record<string, { name: string; description: string }>;
 
-    const newStep: any = {
+    const newStep: WorkflowStepBag = {
       id: `step-${Date.now()}`,
       type: actionType,
       name: actions[actionType]?.name || actionType,
@@ -917,7 +989,7 @@ export function WorkflowEditorClient({
         newStep.parentBranchId = addStepSourceNodeId;
       } else {
         // Adding from a step that may itself be a branch child — inherit its branch
-        const sourceStep = workflow.steps.find((s: any) => s.id === addStepSourceNodeId);
+        const sourceStep = workflow.steps.find((s) => s.id === addStepSourceNodeId);
         if (sourceStep?.parentBranchId) {
           newStep.parentBranchId = sourceStep.parentBranchId;
         }
@@ -932,24 +1004,24 @@ export function WorkflowEditorClient({
     setAddStepSourceNodeId(null); // Clear after use
   }, [workflow, addStepSourceNodeId, t]);
 
-  const handleUpdateStep = (stepId: string, data: any) => {
+  const handleUpdateStep = (stepId: string, data: Record<string, unknown>) => {
     setWorkflow({
       ...workflow,
-      steps: workflow.steps.map((s: any) =>
+      steps: workflow.steps.map((s) =>
         s.id === stepId ? { ...s, ...data } : s
       ),
     });
   };
 
-  const handleUpdateConfig = useCallback((stepId: string, config: Record<string, any>) => {
-    setWorkflow((prev: any) => ({
+  const handleUpdateConfig = useCallback((stepId: string, config: Record<string, unknown>) => {
+    setWorkflow((prev) => ({
       ...prev,
-      steps: prev.steps.map((s: any) =>
+      steps: prev.steps.map((s) =>
         s.id === stepId ? { ...s, config: { ...s.config, ...config } } : s
       ),
     }));
     // Also update editingStep if it's the same step
-    setEditingStep((prev: any) =>
+    setEditingStep((prev) =>
       prev?.id === stepId ? { ...prev, config: { ...prev.config, ...config } } : prev
     );
   }, []);
@@ -960,25 +1032,25 @@ export function WorkflowEditorClient({
 
     // Recursively collect all step IDs that should be deleted
     const idsToDelete = new Set<string>();
-    function collectDeletions(id: string, type: string, config?: any) {
+    function collectDeletions(id: string, type: string, config?: unknown) {
       idsToDelete.add(id);
       if (type === 'condition') {
         const branchIds = getConditionBranchIds({ id, config });
         branchIds.forEach((branchId) => {
-          workflow.steps.forEach((s: any) => {
+          workflow.steps.forEach((s) => {
             if (s.parentBranchId === branchId) {
-              collectDeletions(s.id, s.type, s.config);
+              collectDeletions(s.id || '', s.type || '', s.config);
             }
           });
         });
       }
     }
-    collectDeletions(stepToDelete.id, stepToDelete.type, stepToDelete.config);
+    collectDeletions(stepToDelete.id || '', stepToDelete.type || '', stepToDelete.config);
 
     const updatedSteps = workflow.steps
-      .filter((s: any) => !idsToDelete.has(s.id))
-      .map((step: any, i: number) => ({ ...step, order: i }));
-    setWorkflow((prev: any) => ({ ...prev, steps: updatedSteps }));
+      .filter((s) => !idsToDelete.has(s.id || ''))
+      .map((step, i) => ({ ...step, order: i }));
+    setWorkflow((prev) => ({ ...prev, steps: updatedSteps }));
     setSelectedStepIndex(null);
     setEditingStep(null);
     setEditingBranch(null);
@@ -989,21 +1061,22 @@ export function WorkflowEditorClient({
     if (workflow.triggers.length > 0) {
       const trigger = workflow.triggers[0];
       setTriggerType(trigger.type || 'entity_event');
-      setTriggerEntityType(trigger.entityType || '');
-      setTriggerEventType(trigger.eventType || '');
+      setTriggerEntityType((trigger.entityType as string | undefined) || '');
+      setTriggerEventType((trigger.eventType as string | undefined) || '');
 
       // Load schedule settings if it's a schedule trigger
       if (trigger.type === 'schedule') {
-        setScheduleType(trigger.scheduleType || 'recurring');
-        setScheduleTimezone(trigger.timezone || 'Europe/Amsterdam');
-        setScheduleExecuteAt(trigger.executeAt || '');
-        if (trigger.cronExpression) {
-          const preset = CRON_PRESETS.find((p) => p.cron === trigger.cronExpression);
+        setScheduleType((trigger.scheduleType as 'recurring' | 'one_time' | undefined) || 'recurring');
+        setScheduleTimezone((trigger.timezone as string | undefined) || 'Europe/Amsterdam');
+        setScheduleExecuteAt((trigger.executeAt as string | undefined) || '');
+        const cronExpression = trigger.cronExpression as string | undefined;
+        if (cronExpression) {
+          const preset = CRON_PRESETS.find((p) => p.cron === cronExpression);
           if (preset) {
             setScheduleCronPreset(preset.id);
           } else {
             setScheduleCronPreset('custom');
-            setScheduleCustomCron(trigger.cronExpression);
+            setScheduleCustomCron(cronExpression);
           }
         }
       }
@@ -1023,7 +1096,7 @@ export function WorkflowEditorClient({
     setEditingStep(null);
     setEditingBranch(null);
     setSelectedStepIndex(null);
-  }, [workflow.triggers]);
+  }, [workflow.triggers, CRON_PRESETS]);
 
   const handleSelectStep = useCallback((index: number) => {
     setSelectedStepIndex(index);
@@ -1056,8 +1129,8 @@ export function WorkflowEditorClient({
     setShowAddActionPanel(false);
   }, []);
 
-  const handleStepsChange = useCallback((updatedSteps: any[]) => {
-    setWorkflow((prev: any) => ({ ...prev, steps: updatedSteps }));
+  const handleStepsChange = useCallback((updatedSteps: WorkflowStep[]) => {
+    setWorkflow((prev) => ({ ...prev, steps: updatedSteps as unknown as WorkflowStepBag[] }));
   }, []);
 
   // Memoized so their identity is stable across renders — the canvas's
@@ -1091,10 +1164,10 @@ export function WorkflowEditorClient({
 
   const handleSelectSubAgent = useCallback((agentId: string, agentName: string) => {
     if (!addSubAgentForStepId) return;
-    const step = workflow.steps.find((s: any) => s.id === addSubAgentForStepId);
+    const step = workflow.steps.find((s) => s.id === addSubAgentForStepId);
     if (!step) return;
-    const currentIds: string[] = (step.config as any)?.subAgentIds || [];
-    const currentNames: Record<string, string> = (step.config as any)?.subAgentNames || {};
+    const currentIds: string[] = ((step.config as Record<string, unknown> | undefined)?.subAgentIds as string[] | undefined) || [];
+    const currentNames: Record<string, string> = ((step.config as Record<string, unknown> | undefined)?.subAgentNames as Record<string, string> | undefined) || {};
     handleUpdateConfig(addSubAgentForStepId, {
       subAgentIds: [...currentIds, agentId],
       subAgentNames: { ...currentNames, [agentId]: agentName },
@@ -1102,7 +1175,9 @@ export function WorkflowEditorClient({
     setAddSubAgentForStepId(null);
   }, [addSubAgentForStepId, workflow.steps, handleUpdateConfig]);
 
-  const sortedSteps = [...workflow.steps].sort((a: any, b: any) => (a.order || 0) - (b.order || 0));
+  const sortedSteps: WorkflowStep[] = [...workflow.steps]
+    .sort((a, b) => ((a.order as number | undefined) || 0) - ((b.order as number | undefined) || 0))
+    .map(asWorkflowStep);
 
   return (
     <div className="h-full flex flex-col bg-muted/30 overflow-hidden">
@@ -1330,7 +1405,7 @@ export function WorkflowEditorClient({
             <TriggerEmptyState
               onSelectType={(type) => {
                 setTriggerType(type);
-                setWorkflow((prev: any) => ({
+                setWorkflow((prev) => ({
                   ...prev,
                   triggers: [{ id: `trigger-${Date.now()}`, type, isEnabled: true }],
                 }));
@@ -1343,7 +1418,7 @@ export function WorkflowEditorClient({
             />
           ) : (
           <WorkflowCanvas
-            trigger={workflow.triggers[0] || null}
+            trigger={asTriggerConfig(workflow.triggers[0])}
             steps={sortedSteps}
             onSelectTrigger={handleSelectTrigger}
             onSelectStep={handleSelectStep}
@@ -1360,7 +1435,7 @@ export function WorkflowEditorClient({
             addStepSourceNodeId={addStepSourceNodeId}
             triggerLocked={triggerLocked}
             variableItems={canvasVariableItems}
-            labels={t.weldconnect.flowEditor as any}
+            labels={t.weldconnect.flowEditor as WorkflowCanvasLabels}
             onNotify={(level, msg) => toast[level](msg)}
             className="w-full h-full"
           />
@@ -1520,7 +1595,7 @@ export function WorkflowEditorClient({
                             setTriggerType('entity_event');
                             setTriggerEntityType(rt.entityType);
                             setTriggerEventType(rt.eventType);
-                            const triggerData: any = {
+                            const triggerData: WorkflowTriggerBag = {
                               type: 'entity_event',
                               isEnabled: true,
                               entityType: rt.entityType,
@@ -1562,7 +1637,7 @@ export function WorkflowEditorClient({
                             onClick={() => {
                               setTriggerType(type.id);
                               // Update workflow immediately
-                              const triggerData: any = { type: type.id, isEnabled: true };
+                              const triggerData: WorkflowTriggerBag = { type: type.id, isEnabled: true };
                               if (workflow.triggers.length > 0) {
                                 setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
                               } else {
@@ -1607,7 +1682,7 @@ export function WorkflowEditorClient({
                           setTriggerEntityType(v);
                           setTriggerEventType('');
                           // Update workflow immediately
-                          const triggerData: any = { type: 'entity_event', entityType: v, eventType: '' };
+                          const triggerData: WorkflowTriggerBag = { type: 'entity_event', entityType: v, eventType: '' };
                           if (workflow.triggers.length > 0) {
                             setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
                           } else {
@@ -1621,7 +1696,7 @@ export function WorkflowEditorClient({
                             {groupedEntityEvents.map((group) => (
                               <SelectGroup key={group.category}>
                                 <SelectLabel>{group.category}</SelectLabel>
-                                {group.entities.map((entity: any) => (
+                                {group.entities.map((entity) => (
                                   <SelectItem key={entity.entityType} value={entity.entityType}>
                                     {entity.label}
                                   </SelectItem>
@@ -1637,7 +1712,7 @@ export function WorkflowEditorClient({
                           <Select value={triggerEventType} onValueChange={(v) => {
                             setTriggerEventType(v);
                             // Update workflow immediately
-                            const triggerData: any = { type: 'entity_event', entityType: triggerEntityType, eventType: v };
+                            const triggerData: WorkflowTriggerBag = { type: 'entity_event', entityType: triggerEntityType, eventType: v };
                             if (workflow.triggers.length > 0) {
                               setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
                             } else {
@@ -1648,9 +1723,9 @@ export function WorkflowEditorClient({
                               <SelectValue placeholder={tec.triggerPanel.selectEventPlaceholder} />
                             </SelectTrigger>
                             <SelectContent>
-                              {filteredEntityEvents.find((e: any) => e.entityType === triggerEntityType)?.events.map((event: any) => (
-                                <SelectItem key={event.id} value={event.id}>
-                                  {event.name}
+                              {filteredEntityEvents.find((e) => e.entityType === triggerEntityType)?.events.map((eventType) => (
+                                <SelectItem key={eventType} value={eventType}>
+                                  {humanizeEventType(eventType)}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -1674,7 +1749,7 @@ export function WorkflowEditorClient({
                             const cronExpression = scheduleCronPreset === 'custom'
                               ? scheduleCustomCron
                               : CRON_PRESETS.find((p) => p.id === scheduleCronPreset)?.cron || '0 9 * * *';
-                            const triggerData: any = {
+                            const triggerData: WorkflowTriggerBag = {
                               type: 'schedule',
                               scheduleType: newType,
                               ...(newType === 'one_time' ? { executeAt: scheduleExecuteAt } : { cronExpression }),
@@ -1714,7 +1789,7 @@ export function WorkflowEditorClient({
                             value={scheduleExecuteAt}
                             onChange={(e) => {
                               setScheduleExecuteAt(e.target.value);
-                              const triggerData: any = {
+                              const triggerData: WorkflowTriggerBag = {
                                 type: 'schedule',
                                 scheduleType: 'one_time',
                                 executeAt: e.target.value,
@@ -1746,7 +1821,7 @@ export function WorkflowEditorClient({
                                 const cron = v === 'custom'
                                   ? scheduleCustomCron
                                   : CRON_PRESETS.find((p) => p.id === v)?.cron || '0 9 * * *';
-                                const triggerData: any = {
+                                const triggerData: WorkflowTriggerBag = {
                                   type: 'schedule',
                                   scheduleType: 'recurring',
                                   cronExpression: cron,
@@ -1780,7 +1855,7 @@ export function WorkflowEditorClient({
                                 value={scheduleCustomCron}
                                 onChange={(e) => {
                                   setScheduleCustomCron(e.target.value);
-                                  const triggerData: any = {
+                                  const triggerData: WorkflowTriggerBag = {
                                     type: 'schedule',
                                     scheduleType: 'recurring',
                                     cronExpression: e.target.value,
@@ -1813,7 +1888,7 @@ export function WorkflowEditorClient({
                             const cronExpression = scheduleCronPreset === 'custom'
                               ? scheduleCustomCron
                               : CRON_PRESETS.find((p) => p.id === scheduleCronPreset)?.cron || '0 9 * * *';
-                            const triggerData: any = {
+                            const triggerData: WorkflowTriggerBag = {
                               type: 'schedule',
                               scheduleType,
                               ...(scheduleType === 'one_time' ? { executeAt: scheduleExecuteAt } : { cronExpression }),
@@ -1975,7 +2050,7 @@ export function WorkflowEditorClient({
                         </Label>
                         <div>
                           {actionsInCategory.map((action) => {
-                            const Icon = action.icon;
+                            const Icon = getActionMeta(action.id).icon;
                             return (
                               <Button
                                 key={action.id}
@@ -2009,13 +2084,13 @@ export function WorkflowEditorClient({
             // Branch Edit Panel
             (() => {
               const parentStep = workflow.steps[editingBranch.parentConditionStepIndex];
-              const branchChildren = workflow.steps.filter((s: any) => s.parentBranchId === editingBranch.branchNodeId);
+              const branchChildren = workflow.steps.filter((s) => s.parentBranchId === editingBranch.branchNodeId);
               const conditionExpression = parentStep?.config?.field
                 ? `${parentStep.config.field} ${parentStep.config.operator || ''} ${parentStep.config.value || ''}`
-                : parentStep?.config?.expression || '';
+                : (parentStep?.config?.expression as string | undefined) || '';
 
               // Branch display styling
-              const branchStyleMap: Record<string, { bg: string; icon: any; iconColor: string; label: string; borderColor: string; description: string }> = {
+              const branchStyleMap: Record<string, { bg: string; icon: LucideIcon; iconColor: string; label: string; borderColor: string; description: string }> = {
                 if: { bg: 'bg-green-100 dark:bg-green-900/30', icon: CheckCircle2, iconColor: 'text-green-600', label: 'If True', borderColor: 'border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-900', description: 'Executes when the condition is true' },
                 if_not: { bg: 'bg-gray-100 dark:bg-secondary', icon: X, iconColor: 'text-gray-500 dark:text-muted-foreground', label: 'If False', borderColor: 'border-gray-200 bg-gray-50 dark:bg-background/20 dark:border-border', description: 'Executes when the condition is false' },
                 escalated: { bg: 'bg-amber-100 dark:bg-amber-900/30', icon: ArrowUpRight, iconColor: 'text-amber-600', label: 'Escalated', borderColor: 'border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-900', description: 'Executes when the agent escalates to a human' },
@@ -2105,10 +2180,10 @@ export function WorkflowEditorClient({
                           </div>
                         ) : (
                           <div className="space-y-2">
-                            {branchChildren.map((childStep: any) => {
-                              const meta = getActionMeta(childStep.type);
+                            {branchChildren.map((childStep) => {
+                              const meta = getActionMeta(childStep.type || '');
                               const Icon = meta.icon;
-                              const stepIndex = workflow.steps.findIndex((s: any) => s.id === childStep.id);
+                              const stepIndex = workflow.steps.findIndex((s) => s.id === childStep.id);
                               return (
                                 <Button
                                   key={childStep.id}
@@ -2122,9 +2197,9 @@ export function WorkflowEditorClient({
                                     </div>
                                     <div className="flex-1 min-w-0">
                                       <p className="text-sm font-medium truncate">{childStep.name}</p>
-                                      {getConfigSummary(childStep.type, childStep.config || {}) && (
+                                      {getConfigSummary(childStep.type || '', childStep.config || {}) && (
                                         <p className="text-xs text-muted-foreground truncate mt-0.5">
-                                          {getConfigSummary(childStep.type, childStep.config || {})}
+                                          {getConfigSummary(childStep.type || '', childStep.config || {})}
                                         </p>
                                       )}
                                     </div>
@@ -2160,7 +2235,7 @@ export function WorkflowEditorClient({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     {(() => {
-                      const meta = getActionMeta(editingStep.type);
+                      const meta = getActionMeta(editingStep.type || '');
                       const Icon = meta.icon;
                       return (
                         <div className={cn('p-1.5 rounded-md', meta.bgColor)}>
@@ -2184,8 +2259,8 @@ export function WorkflowEditorClient({
                 </div>
               </div>
               {(() => {
-                const acf = t.weldconnect.actionConfigForm as Record<string, any>;
-                const missing = getMissingRequiredFields(editingStep.type, editingStep.config || {});
+                const acf = t.weldconnect.actionConfigForm as Record<string, unknown>;
+                const missing = getMissingRequiredFields(editingStep.type || '', editingStep.config || {});
                 if (missing.length === 0) {
                   return (
                     <div className="mx-3 mt-3 p-2.5 rounded-lg bg-emerald-50 dark:bg-muted border border-emerald-200 dark:border-border">
@@ -2211,7 +2286,7 @@ export function WorkflowEditorClient({
                           key={m.labelKey}
                           className="inline-flex items-center rounded-md border border-amber-200 bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
                         >
-                          {acf[m.labelKey] || m.labelKey}
+                          {(acf[m.labelKey] as string | undefined) || m.labelKey}
                         </span>
                       ))}
                     </div>
@@ -2223,11 +2298,11 @@ export function WorkflowEditorClient({
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{tec.editStepPanel.actionNameLabel}</Label>
                     <Input
-                      value={editingStep.name}
+                      value={editingStep.name || ''}
                       onChange={(e) => {
                         const newName = e.target.value;
                         setEditingStep({ ...editingStep, name: newName });
-                        handleUpdateStep(editingStep.id, { name: newName });
+                        handleUpdateStep(editingStep.id || '', { name: newName });
                       }}
                       placeholder={tec.editStepPanel.actionNamePlaceholder}
                     />
@@ -2240,7 +2315,7 @@ export function WorkflowEditorClient({
                       onChange={(e) => {
                         const newDescription = e.target.value;
                         setEditingStep({ ...editingStep, description: newDescription });
-                        handleUpdateStep(editingStep.id, { description: newDescription });
+                        handleUpdateStep(editingStep.id || '', { description: newDescription });
                       }}
                       placeholder={tec.editStepPanel.descriptionPlaceholder}
                       rows={3}
@@ -2250,20 +2325,20 @@ export function WorkflowEditorClient({
                   <div className="border-t pt-4">
                     <h4 className="text-xs font-medium mb-3 text-muted-foreground uppercase tracking-wide">{tec.editStepPanel.settingsLabel}</h4>
                     <ActionConfigForm
-                      actionType={editingStep.type}
+                      actionType={editingStep.type || ''}
                       config={editingStep.config || {}}
                       onChange={(config) => {
                         setEditingStep({ ...editingStep, config });
-                        handleUpdateStep(editingStep.id, { config });
+                        handleUpdateStep(editingStep.id || '', { config });
                       }}
                       emailAccounts={emailAccounts}
                       workspaceMembers={workspaceMembers}
-                      workflowSteps={workflow.steps.map((s: any) => ({
-                        id: s.id,
-                        name: s.name,
-                        type: s.type,
+                      workflowSteps={workflow.steps.map((s) => ({
+                        id: s.id || '',
+                        name: s.name || '',
+                        type: s.type || '',
                       }))}
-                      currentStepIndex={workflow.steps.findIndex((s: any) => s.id === editingStep.id)}
+                      currentStepIndex={workflow.steps.findIndex((s) => s.id === editingStep.id)}
                       workflowVariables={workflowVariables}
                       triggerType={workflow.triggers?.[0]?.type}
                       extraVariableGroups={extraVariableGroups}
@@ -2277,7 +2352,7 @@ export function WorkflowEditorClient({
                   variant="outline"
                   className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
                   onClick={() => {
-                    const stepIndex = workflow.steps.findIndex((s: any) => s.id === editingStep.id);
+                    const stepIndex = workflow.steps.findIndex((s) => s.id === editingStep.id);
                     if (stepIndex !== -1) {
                       handleDeleteStep(stepIndex);
                       setEditingStep(null);
@@ -2347,14 +2422,14 @@ export function WorkflowEditorClient({
                     )}
 
                     {/* Steps that need configuration */}
-                    {workflow.steps.map((step: any, index: number) => {
-                      const missing = getMissingRequiredFields(step.type, step.config || {});
+                    {workflow.steps.map((step, index) => {
+                      const missing = getMissingRequiredFields(step.type || '', step.config || {});
                       if (missing.length === 0) return null;
 
-                      const acf = t.weldconnect.actionConfigForm as Record<string, any>;
+                      const acf = t.weldconnect.actionConfigForm as Record<string, unknown>;
                       const missingLabels = missing.map((m) => acf[m.labelKey] || m.labelKey).join(', ');
-                      const actionMeta = filteredActionTypes.find(a => a.id === step.type);
-                      const Icon = actionMeta?.icon || Code;
+                      const actionMeta = filteredActionTypes.find((a) => a.id === step.type);
+                      const Icon = step.type ? getActionMeta(step.type).icon : Code;
 
                       return (
                         <Button
@@ -2388,7 +2463,7 @@ export function WorkflowEditorClient({
                     {/* All configured message */}
                     {(triggerLocked || !triggerIssue) &&
                       workflow.steps.length > 0 &&
-                      workflow.steps.every((step: any) => isStepConfigured(step)) && (
+                      workflow.steps.every((step) => isStepConfigured(asWorkflowStep(step))) && (
                         <div className="flex items-center gap-2 px-3 py-[11px] rounded-lg border border-border text-muted-foreground">
                           <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                           <span className="text-sm">{tec.overviewPanel.allStepsConfigured}</span>
@@ -2435,7 +2510,7 @@ export function WorkflowEditorClient({
         onSelectTemplate={(template) => {
           if (template.id === 'blank') {
             // Reset to blank workflow
-            setWorkflow((prev: any) => ({ ...prev, triggers: [], steps: [] }));
+            setWorkflow((prev) => ({ ...prev, triggers: [], steps: [] }));
             setTriggerType('entity_event');
             setTriggerEntityType('');
             setTriggerEventType('');
@@ -2446,10 +2521,10 @@ export function WorkflowEditorClient({
 
           if (template.trigger && template.steps) {
             // Apply template trigger and steps
-            setWorkflow((prev: any) => ({
+            setWorkflow((prev) => ({
               ...prev,
-              triggers: [template.trigger],
-              steps: template.steps,
+              triggers: [template.trigger as WorkflowTriggerBag],
+              steps: template.steps as unknown as WorkflowStepBag[],
             }));
 
             // Update trigger panel state to match template
@@ -2513,9 +2588,9 @@ export function WorkflowEditorClient({
           </DialogHeader>
           <div className="grid grid-cols-2 gap-2 max-h-[400px] overflow-y-auto">
             {(() => {
-              const step = addSubAgentForStepId ? workflow.steps.find((s: any) => s.id === addSubAgentForStepId) : null;
-              const currentSubIds: string[] = (step?.config as any)?.subAgentIds || [];
-              const headAgentId = (step?.config as any)?.agentDefinitionId;
+              const step = addSubAgentForStepId ? workflow.steps.find((s) => s.id === addSubAgentForStepId) : null;
+              const currentSubIds: string[] = ((step?.config as Record<string, unknown> | undefined)?.subAgentIds as string[] | undefined) || [];
+              const headAgentId = (step?.config as Record<string, unknown> | undefined)?.agentDefinitionId;
               const available = (savedAgents || []).filter(
                 (a) => a.id !== headAgentId && !currentSubIds.includes(a.id)
               );
@@ -2751,7 +2826,7 @@ export function WorkflowEditorClient({
                                   setSubAgentForm((prev) => {
                                     if (!prev) return prev;
                                     if (checked) {
-                                      const allToolNames = discoveredTools.map((t: any) => t.name);
+                                      const allToolNames = discoveredTools.map((t) => t.name);
                                       return {
                                         ...prev,
                                         integrationIds: [...prev.integrationIds, conn.id],
@@ -2775,7 +2850,7 @@ export function WorkflowEditorClient({
                             </label>
                             {isEnabled && discoveredTools.length > 0 && (
                               <div className="ml-6 space-y-0.5">
-                                {discoveredTools.map((tool: any) => (
+                                {discoveredTools.map((tool) => (
                                   <label key={tool.name} className="flex items-center gap-2 cursor-pointer">
                                     <Checkbox
                                       checked={allowedTools.includes(tool.name)}

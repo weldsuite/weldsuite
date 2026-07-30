@@ -4,16 +4,9 @@ import { CustomerDetailClient } from './customer-detail-client';
 import { useHelpdeskCustomer, useHelpdeskCustomerConversations } from '@/hooks/queries/use-helpdesk-queries';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
+import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 
-interface RawCustomerConversation {
-  id: string;
-  subject?: string;
-  lastMessage?: { content?: string };
-  status: string;
-  channel: string;
-  createdAt: string;
-  lastMessageAt?: string;
-}
+type RawCustomerConversation = Helpdesk.Conversation;
 
 export default function CustomerDetailPage() {
   const params = useParams();
@@ -50,10 +43,13 @@ export default function CustomerDetailPage() {
     avatar: getInitials(customer.name),
     phone: customer.phone,
     company: customer.company,
-    location: customer.location,
+    // `/helpdesk-contacts` doesn't return a location field.
+    location: undefined as string | undefined,
     status: customer.status,
     tags: customer.tags,
-    lastContact: customer.lastContact,
+    lastContact: customer.lastConversationDate
+      ? new Date(customer.lastConversationDate)
+      : new Date(customer.createdAt),
     conversationCount: customer.conversationCount,
     totalSpent: customer.totalSpent,
     orderCount: customer.orderCount,
@@ -61,7 +57,7 @@ export default function CustomerDetailPage() {
     conversations: (conversationsResult?.data || []).map((conv: RawCustomerConversation) => ({
       id: conv.id,
       subject: conv.subject || tc.noSubject,
-      preview: conv.lastMessage?.content || tc.noMessages,
+      preview: conv.preview || conv.lastMessage || tc.noMessages,
       status: conv.status,
       channel: conv.channel,
       createdAt: new Date(conv.createdAt),

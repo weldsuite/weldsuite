@@ -7,13 +7,11 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
-import type { ListMembersQuery, InviteMemberInput, UpdateMemberRoleInput } from '@weldsuite/core-api-client/schemas/members';
+import type { ListMembersQuery } from '@weldsuite/core-api-client/schemas/members';
 import type {
   UpdateMemberProfileInput,
   MemberNoteInput,
   CommonConceptCategory,
-  MemberProfile,
-  MemberNote,
   ListMemberActivityQuery,
 } from '@weldsuite/core-api-client/schemas/member-profile';
 
@@ -100,19 +98,6 @@ export function useUpsertMemberNote(userId: string) {
     },
   });
 }
-
-function useDeleteMemberNote(userId: string) {
-  const { teamMembers: team } = useAppApi();
-  const qc = useQueryClient();
-
-  return useMutation({
-    mutationFn: () => team.deleteMyNote(userId),
-    onSuccess: () => {
-      qc.setQueryData(teamKeys.note(userId), { data: null });
-    },
-  });
-}
-
 export function useCommonConcepts(
   userId: string | null | undefined,
   categories?: CommonConceptCategory[],
@@ -169,19 +154,6 @@ export function useSyncTeamFromClerk() {
     mutationFn: () => team.syncFromClerk(),
   });
 }
-
-function useInviteMember() {
-  const { teamMembers: team } = useAppApi();
-  const qc = useQueryClient();
-
-  return useMutation({
-    mutationFn: (data: InviteMemberInput) => team.inviteMember(data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: teamKeys.all });
-    },
-  });
-}
-
 export function useRemoveMember() {
   const { teamMembers: team } = useAppApi();
   const qc = useQueryClient();
@@ -193,20 +165,6 @@ export function useRemoveMember() {
     },
   });
 }
-
-function useUpdateMemberRole() {
-  const { teamMembers: team } = useAppApi();
-  const qc = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: UpdateMemberRoleInput }) =>
-      team.updateMemberRole(id, data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: teamKeys.all });
-    },
-  });
-}
-
 export function useResendInvite() {
   const { teamMembers: team } = useAppApi();
   const qc = useQueryClient();

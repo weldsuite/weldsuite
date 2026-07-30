@@ -32,6 +32,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { WorkspaceApiKey } from '@/components/settings/api-keys-section';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { installedAppsKeys } from '@/hooks/use-installed-apps';
 import { teamKeys } from '@/hooks/queries/use-team-queries';
@@ -43,7 +44,7 @@ import { teamKeys } from '@/hooks/queries/use-team-queries';
 const settingsKeys = {
   all: ['settings'] as const,
   workspace: () => [...settingsKeys.all, 'workspace'] as const,
-  members: (filters?: Record<string, any>) => [...settingsKeys.all, 'members', filters] as const,
+  members: (filters?: Record<string, unknown>) => [...settingsKeys.all, 'members', filters] as const,
   apiKeys: () => [...settingsKeys.all, 'api-keys'] as const,
   workspaceApiKeys: () => [...settingsKeys.all, 'workspace-api-keys'] as const,
   myApps: () => [...settingsKeys.all, 'my-apps'] as const,
@@ -67,7 +68,7 @@ const settingsKeys = {
 // Helper to build query string
 // =============================================================================
 
-function buildQueryString(params: Record<string, any>): string {
+function buildQueryString(params: Record<string, unknown>): string {
   const queryParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
@@ -96,7 +97,7 @@ export function useWorkspaceSettings() {
     queryKey: settingsKeys.workspace(),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: any }>('/workspace-settings');
+      return client.get<{ data: { language?: string } }>('/workspace-settings');
     },
   });
 }
@@ -115,6 +116,18 @@ export function useWorkspaceSettings() {
  * email). The legacy route was `team:read`-gated, so non-admins previously got
  * a 403 and an empty list.
  */
+/** `GET /team-members` row, as `useWorkspaceMembers` consumers read it. */
+export interface WorkspaceMember {
+  id?: string;
+  userId: string;
+  name?: string | null;
+  email?: string | null;
+  picture?: string | null;
+  role?: string;
+  status?: string;
+  memberType?: string;
+}
+
 export function useWorkspaceMembers(page?: number, pageSize?: number) {
   const filters = { page, pageSize };
   const { getClient } = useAppApiClient();
@@ -127,7 +140,7 @@ export function useWorkspaceMembers(page?: number, pageSize?: number) {
         memberType: 'all',
       });
       return client.get<{
-        data: any[];
+        data: WorkspaceMember[];
         pagination: {
           totalCount: number;
           hasMore: boolean;
@@ -137,23 +150,6 @@ export function useWorkspaceMembers(page?: number, pageSize?: number) {
     },
   });
 }
-
-/**
- * The caller's own personal API keys — app-api `GET /api/api-keys` (was
- * api-worker `GET /settings/api-keys`). Scoped to the JWT user server-side;
- * `keyHash` is never returned.
- */
-function useApiKeys() {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: settingsKeys.apiKeys(),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: any[] }>('/api-keys');
-    },
-  });
-}
-
 /**
  * Workspace-wide API keys — app-api `GET /api/workspace-api-keys` (was
  * api-worker `GET /settings/workspace-api-keys`).
@@ -167,23 +163,10 @@ export function useWorkspaceApiKeys() {
     queryKey: settingsKeys.workspaceApiKeys(),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: any[] }>('/workspace-api-keys');
+      return client.get<{ data: unknown[] }>('/workspace-api-keys');
     },
   });
 }
-
-function useMyApps() {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: settingsKeys.myApps(),
-    queryFn: async () => {
-      const client = await getClient();
-      // app-api GET /api/appstore/my-apps (was /settings/my-apps).
-      return client.get<{ data: string[] }>('/appstore/my-apps');
-    },
-  });
-}
-
 /**
  * List all roles in the workspace (system + custom). Used by the team-member
  * panel role select so admins can assign custom roles.
@@ -225,7 +208,7 @@ export function useMemberApps(memberId: string, enabled = true) {
     queryKey: settingsKeys.memberApps(memberId),
     queryFn: async () => {
       const client = await getClient();
-      const result = await client.get<{ data: any[] }>(`/team-members/${memberId}/apps`);
+      const result = await client.get<{ data: unknown[] }>(`/team-members/${memberId}/apps`);
       return { success: true as const, data: result.data };
     },
     enabled: !!memberId && enabled,
@@ -280,7 +263,7 @@ export function useIntegrations() {
     queryFn: async () => {
       const client = await getClient();
       return client.get<{
-        data: any[];
+        data: unknown[];
         pagination: { totalCount: number; hasMore: boolean; cursor: string | null };
       }>('/integrations?limit=100');
     },
@@ -310,7 +293,7 @@ export function usePrintNodeSettings() {
     queryKey: settingsKeys.printNode(),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: any }>('/printnode');
+      return client.get<{ data: unknown }>('/printnode');
     },
   });
 }
@@ -331,57 +314,15 @@ export function useUpdateWorkspaceSettings() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: Record<string, any>) => {
+    mutationFn: async (data: Record<string, unknown>) => {
       const client = await getClient();
-      return client.put<{ data: any }>('/workspace-settings', data);
+      return client.put<{ data: unknown }>('/workspace-settings', data);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: settingsKeys.workspace() });
     },
   });
-}
-
-/**
- * Mint a personal API key — app-api `POST /api/api-keys`. The response carries
- * the plaintext `key` exactly once; it is unrecoverable afterwards.
- */
-function useCreateApiKey() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: {
-      name: string;
-      description?: string;
-      scopes?: string[];
-      expiresAt?: string;
-    }) => {
-      const client = await getClient();
-      const result = await client.post<{ data: any }>('/api-keys', data);
-      return { success: true as const, data: result.data };
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: settingsKeys.apiKeys() });
-    },
-  });
-}
-
-/** Revoke a personal API key — app-api `DELETE /api/api-keys/:id` (204). */
-function useRevokeApiKey() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const client = await getClient();
-      await client.delete<void>(`/api-keys/${id}`);
-      return { success: true as const };
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: settingsKeys.apiKeys() });
-    },
-  });
-}
-
-/**
+}/**
  * Mint a workspace API key — app-api `POST /api/workspace-api-keys`. The
  * response carries the plaintext `key` exactly once; it is unrecoverable
  * afterwards, which is why api-keys-section.tsx shows it in a one-time dialog.
@@ -396,7 +337,9 @@ export function useCreateWorkspaceApiKey() {
       scopes?: string[];
     }) => {
       const client = await getClient();
-      const result = await client.post<{ data: any }>('/workspace-api-keys', data);
+      const result = await client.post<{
+        data: Omit<WorkspaceApiKey, 'createdAt'> & { createdAt?: string };
+      }>('/workspace-api-keys', data);
       return { success: true as const, data: result.data };
     },
     onSuccess: () => {
@@ -435,7 +378,7 @@ export function useUpdateWorkspaceApiKey() {
       data: { name?: string; description?: string; scopes?: string[] };
     }) => {
       const client = await getClient();
-      const result = await client.put<{ data: any }>(`/workspace-api-keys/${id}`, data);
+      const result = await client.put<{ data: unknown }>(`/workspace-api-keys/${id}`, data);
       return { success: true as const, data: result.data };
     },
     onSuccess: () => {
@@ -554,7 +497,7 @@ export function useUpdatePrintNodeSettings() {
   return useMutation({
     mutationFn: async (data: { apiKey: string }) => {
       const client = await getClient();
-      return client.put<{ data: any }>('/printnode', data);
+      return client.put<{ data: unknown }>('/printnode', data);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: settingsKeys.printNode() });
@@ -623,34 +566,7 @@ export function useCustomFields(entityType?: string) {
       return result.data;
     },
   });
-}
-
-function useAllCustomFields() {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: settingsKeys.customFieldsAll(),
-    queryFn: async () => {
-      const client = await getClient();
-      const result = await client.get<{ data: Record<string, CustomFieldDefinition[]> }>('/custom-fields/all');
-      return result.data;
-    },
-  });
-}
-
-function useCustomField(id: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: settingsKeys.customField(id),
-    queryFn: async () => {
-      const client = await getClient();
-      const result = await client.get<{ data: CustomFieldDefinition }>(`/custom-fields/${id}`);
-      return result.data;
-    },
-    enabled: !!id && enabled,
-  });
-}
-
-// =============================================================================
+}// =============================================================================
 // Custom Fields — Mutations
 // =============================================================================
 
@@ -699,66 +615,7 @@ export function useDeleteCustomField() {
       qc.invalidateQueries({ queryKey: settingsKeys.customFieldsAll() });
     },
   });
-}
-
-function useReorderCustomFields() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (items: { id: string; sortOrder: number }[]) => {
-      const client = await getClient();
-      return client.put<{ data: { reordered: number } }>('/custom-fields/reorder', { items });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: settingsKeys.customFields() });
-      qc.invalidateQueries({ queryKey: settingsKeys.customFieldsAll() });
-    },
-  });
-}
-
-// =============================================================================
-// Telephony Pricing — Queries
-// =============================================================================
-
-interface TelephonyPricingEntry {
-  countryCode: string;
-  numberType: string;
-  monthlyPrice: number;
-  currency: string;
-  stripePriceId?: string;
-}
-
-// app-api /api/telephony/* (was api-worker /settings/telephony/*). The legacy
-// worker returned `pricing` / `rates` at the top level; app-api nests them
-// inside the standard `{ data }` envelope.
-
-function useTelephonyPricing() {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: settingsKeys.telephonyPricing(),
-    queryFn: async () => {
-      const client = await getClient();
-      const result = await client.get<{ data: { pricing: TelephonyPricingEntry[] } }>('/telephony/pricing');
-      return result.data.pricing;
-    },
-  });
-}
-
-function useTelephonyServiceRates() {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: settingsKeys.telephonyServiceRates(),
-    queryFn: async () => {
-      const client = await getClient();
-      const result = await client.get<{
-        data: { rates: { voipCallMinute: number; callTranscriptionMinute: number } };
-      }>('/telephony/service-rates');
-      return result.data.rates;
-    },
-  });
-}
-
-// =============================================================================
+}// =============================================================================
 // Invitations — Queries & Mutations
 // =============================================================================
 
@@ -831,7 +688,7 @@ export interface AvailableApp {
   websiteUrl?: string | null;
   documentationUrl?: string | null;
   contactUrl?: string | null;
-  screenshots?: any[];
+  screenshots?: unknown[];
 }
 
 // The legacy /settings app-store surface is split across two app-api routes:
@@ -899,19 +756,6 @@ export function useCanManageApps() {
     },
   });
 }
-
-function useInstalledApps() {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: [...settingsKeys.all, 'installed-apps'] as const,
-    queryFn: async () => {
-      const client = await getClient();
-      const result = await client.get<{ data: any[] }>('/appstore/installed-apps');
-      return result.data || [];
-    },
-  });
-}
-
 /**
  * Install an app for the workspace.
  *
@@ -926,7 +770,7 @@ export function useInstallApp() {
   return useMutation({
     mutationFn: async ({ appCode, assignToAllMembers = false }: { appCode: string; assignToAllMembers?: boolean }) => {
       const client = await getClient();
-      const result = await client.post<{ data: any }>(`/app-catalog/${appCode}/install`, {});
+      const result = await client.post<{ data: unknown }>(`/app-catalog/${appCode}/install`, {});
       if (assignToAllMembers) {
         await client.post<{ data: { appCode: string; assignedCount: number } }>(
           `/appstore/apps/${appCode}/assign-all-members`,
@@ -1016,16 +860,6 @@ export interface UserPreferences {
   };
   workingHours?: WorkingHours | null;
 }
-
-interface TeamMemberWorkingHours {
-  id: string;
-  userId: string;
-  name: string | null;
-  email: string | null;
-  picture: string | null;
-  workingHours: WorkingHours | null;
-}
-
 // ---------------------------------------------------------------------------
 // User preferences — backed by `app-api` at /api/user-preferences. The legacy
 // /settings/preferences routes in api-worker still exist for back-compat with
@@ -1085,23 +919,6 @@ export function useUpdateFontSize() {
     },
   });
 }
-
-function useUpdateSidebarAppOrder() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (appOrder: string[]) => {
-      const client = await getClient();
-      return client.put<{ data: UserPreferences }>('/user-preferences', {
-        uiPreferences: { sidebarAppOrder: appOrder },
-      });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [...settingsKeys.all, 'preferences'] });
-    },
-  });
-}
-
 const preferencesKey = [...settingsKeys.all, 'preferences'] as const;
 
 // Optimistically patch the cached uiPreferences so mail landing prefs feel
@@ -1176,7 +993,7 @@ export function useUpdateGridView() {
       data: { columnVisibility: Record<string, boolean>; columnWidths: Record<string, number> };
     }) => {
       const client = await getClient();
-      return client.put<{ data: any }>(`/grid-views/${params.gridName}`, params.data);
+      return client.put<{ data: unknown }>(`/grid-views/${params.gridName}`, params.data);
     },
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: [...settingsKeys.all, 'grid-view', variables.gridName] });
@@ -1234,19 +1051,6 @@ export function useUpdateWorkingHours() {
     },
   });
 }
-
-function useTeamWorkingHours() {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: [...settingsKeys.all, 'team-working-hours'] as const,
-    queryFn: async () => {
-      const client = await getClient();
-      const result = await client.get<{ data: TeamMemberWorkingHours[] }>('/working-hours/team');
-      return result.data;
-    },
-  });
-}
-
 export function useMemberWorkingHours(memberId: string | null | undefined) {
   const { getClient } = useAppApiClient();
   return useQuery({

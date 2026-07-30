@@ -29,7 +29,7 @@ import {
   Contact,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { format, isToday, isYesterday, isThisWeek, isThisMonth, isThisYear, subWeeks } from 'date-fns';
+import { format, isToday, isYesterday, isThisWeek, isThisMonth, isThisYear } from 'date-fns';
 import {
   useCreateNote,
   useUpdateNote,
@@ -511,9 +511,7 @@ export function NotesView({ initialNotes = [] }: NotesViewProps) {
   // Group configurations by time
   const groupConfigs: GroupConfig<Note>[] = useMemo(() => {
     const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const startOfYesterday = new Date(startOfToday.getTime() - 24 * 60 * 60 * 1000);
-    const lastWeekStart = subWeeks(new Date(), 1);
+    const _startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     return [
       {
@@ -604,8 +602,8 @@ export function NotesView({ initialNotes = [] }: NotesViewProps) {
       setNotes((prev) =>
         prev.map((n) => (n.id === noteId ? { ...n, content, updatedAt: new Date() } : n))
       );
-    } catch (error: any) {
-      throw new Error(error?.message || t('sweep.weldcrm.notesView.failedToUpdateNote'));
+    } catch (error) {
+      throw new Error((error as Error)?.message || t('sweep.weldcrm.notesView.failedToUpdateNote'));
     }
   };
 
@@ -644,19 +642,19 @@ export function NotesView({ initialNotes = [] }: NotesViewProps) {
     }
   };
 
-  const handleDelete = async (noteId: string) => {
+  const handleDelete = useCallback(async (noteId: string) => {
     try {
       await deleteNoteMutation.mutateAsync(noteId);
       setNotes((prev) => prev.filter((n) => n.id !== noteId));
       setShowEditor(false);
       setSelectedNote(null);
       toast.success(t('sweep.weldcrm.notesView.noteDeleted'));
-    } catch (error) {
+    } catch {
       toast.error(t('sweep.weldcrm.notesView.failedToDeleteNote'));
     }
-  };
+  }, [deleteNoteMutation, t]);
 
-  const handleToggleFavorite = async (noteId: string) => {
+  const handleToggleFavorite = useCallback(async (noteId: string) => {
     const current = notes.find((n) => n.id === noteId);
     const next = !current?.isPinned;
     // Optimistic flip — keeps the star snappy.
@@ -672,7 +670,7 @@ export function NotesView({ initialNotes = [] }: NotesViewProps) {
       );
       toast.error(t('sweep.weldcrm.notesView.failedToUpdateFavorite'));
     }
-  };
+  }, [notes, toggleFavoriteMutation, t]);
 
   const handleRecordSelect = async (record: SelectableRecord) => {
     setShowRecordSelection(false);
@@ -680,7 +678,7 @@ export function NotesView({ initialNotes = [] }: NotesViewProps) {
   };
 
   // Row renderer
-  const renderNoteRow = useCallback((note: Note, handlers: RowHandlers<Note>) => (
+  const renderNoteRow = useCallback((note: Note, _handlers: RowHandlers<Note>) => (
     <div
       key={note.id}
       onClick={() => openEditDialog(note)}
@@ -810,7 +808,7 @@ export function NotesView({ initialNotes = [] }: NotesViewProps) {
         </DropdownMenu>
       </div>
     </div>
-  ), [notes, openEditDialog, t]);
+  ), [openEditDialog, handleDelete, handleToggleFavorite, openPanel, t]);
 
   // Header column definitions
   const headerColumns: HeaderColumn[] = useMemo(() => [

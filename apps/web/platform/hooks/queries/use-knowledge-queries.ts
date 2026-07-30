@@ -181,19 +181,6 @@ export function useKnowledgePageVersions(pageId: string, enabled = true) {
     enabled: !!pageId && enabled,
   });
 }
-
-function useKnowledgePageVersion(pageId: string, versionId: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: knowledgeKeys.version(pageId, versionId),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: KnowledgePageVersion }>(`/knowledge/pages/${pageId}/versions/${versionId}`);
-    },
-    enabled: !!pageId && !!versionId && enabled,
-  });
-}
-
 // =============================================================================
 // Queries — Favorites
 // =============================================================================

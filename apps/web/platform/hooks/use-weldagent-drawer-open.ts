@@ -39,7 +39,7 @@ export function useWeldAgentDrawerOpen() {
     const apply = () => {
       try {
         window.sessionStorage.setItem(STORAGE_KEY, String(value));
-      } catch {}
+      } catch { /* best-effort only; failure is not actionable */ }
       setOpenState(value);
       window.dispatchEvent(new CustomEvent(CHANGE_EVENT));
     };

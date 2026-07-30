@@ -67,7 +67,7 @@ function getNoteTitle(content: string): string {
 // Helper to get note content preview (excluding title)
 function getNotePreview(content: string): string {
   if (!content) return '';
-  let preview = content.replace(/<h[1-3][^>]*>.*?<\/h[1-3]>/i, '');
+  const preview = content.replace(/<h[1-3][^>]*>.*?<\/h[1-3]>/i, '');
   return stripHtml(preview).trim();
 }
 
@@ -89,11 +89,11 @@ export function NoteEditorDialog({
   const t = useTranslations();
   const pinnedNoteContext = usePinnedNote();
   const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
+  const [_content, setContent] = useState('');
   const contentRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLDivElement>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [_lastSaved, setLastSaved] = useState<Date | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedContentRef = useRef<string>('');
   const [isMinimized, setIsMinimized] = useState(false);

@@ -2,7 +2,7 @@ import { useCallback, useRef } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { crmTasksKeys } from '@/hooks/use-crm-tasks';
+import { crmTasksKeys, type RawTask } from '@/hooks/use-crm-tasks';
 import { mailKeys } from '@/hooks/queries/use-mail-queries';
 import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
 import { weldmeetKeys } from '@/hooks/queries/use-weldmeet-queries';
@@ -54,8 +54,8 @@ const PREFETCHERS: Record<string, Prefetcher> = {
       queryFn: async () => {
         const client = await appClient();
         const params = new URLSearchParams({ assigneeId: userId, crmLinked: 'true' });
-        const res = await client.get<{ data: any[] }>(`/tasks?${params.toString()}`);
-        return (res.data ?? []).map((task: any) => ({
+        const res = await client.get<{ data: RawTask[] }>(`/tasks?${params.toString()}`);
+        return (res.data ?? []).map((task) => ({
           ...task,
           dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
           createdAt: new Date(task.createdAt),
@@ -71,7 +71,7 @@ const PREFETCHERS: Record<string, Prefetcher> = {
       queryKey: mailKeys.accounts(),
       queryFn: async () => {
         const client = await appClient();
-        return client.get<{ data: any[] }>('/mail-accounts');
+        return client.get<{ data: unknown[] }>('/mail-accounts');
       },
       staleTime: PREFETCH_STALE_TIME_MS,
     }),
@@ -81,7 +81,7 @@ const PREFETCHERS: Record<string, Prefetcher> = {
       queryKey: weldchatKeys.channels(),
       queryFn: async () => {
         const client = await appClient();
-        return client.get<any>('/channels');
+        return client.get<unknown>('/channels');
       },
       staleTime: PREFETCH_STALE_TIME_MS,
     }),
@@ -93,8 +93,8 @@ const PREFETCHERS: Record<string, Prefetcher> = {
       queryFn: async () => {
         const client = await appClient();
         const qs = `?days=${params.days}&limit=${params.limit}`;
-        const res = await client.get<{ data: any[] }>(`/meetings/upcoming${qs}`);
-        return (res as any).data ?? [];
+        const res = await client.get<{ data: unknown[] }>(`/meetings/upcoming${qs}`);
+        return res.data ?? [];
       },
       staleTime: PREFETCH_STALE_TIME_MS,
     });

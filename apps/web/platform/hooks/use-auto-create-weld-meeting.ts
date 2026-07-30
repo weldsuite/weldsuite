@@ -25,9 +25,10 @@ export function useAutoCreateWeldMeeting() {
       const meetingPortalUrl = import.meta.env.VITE_MEETING_PORTAL_URL || window.location.origin;
       const url = `${meetingPortalUrl}/${workspaceId}/${joinCode}`;
       return { url, meetingId: created.id };
-    } catch (err: any) {
+    } catch (err) {
+      const e = err as { response?: { data?: { error?: string } }; message?: string };
       toast.error('Failed to create WeldMeet link', {
-        description: err?.response?.data?.error || err?.message || 'Please try again.',
+        description: e?.response?.data?.error || e?.message || 'Please try again.',
       });
       return null;
     }

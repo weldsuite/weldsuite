@@ -58,18 +58,11 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { labelsApi } from '@/app/weldflow/lib/api-client';
 import { localeConfig } from '@/lib/i18n/locales';
 import { useLocale } from '@/hooks/use-preferences';
-import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
+import { useWorkspaceMembers, type WorkspaceMember } from '@/hooks/queries/use-settings-queries';
 import { useCompanies } from '@/components/objects/company/use-company-data';
 import { useDebounce } from '@/hooks/use-debounce';
 
 type CompanyOption = { id: string; name: string; avatar?: string };
-
-interface WorkspaceMemberInfo {
-  id?: string;
-  userId?: string;
-  name?: string;
-  picture?: string;
-}
 
 const TASK_STATUS_ORDER = ['backlog', 'todo', 'in_progress', 'in_review', 'testing', 'done', 'cancelled'];
 const TASK_PRIORITY_ORDER = ['low', 'medium', 'high'];
@@ -277,7 +270,7 @@ export default function CrmTasksClient() {
   const availableAssignees = useMemo(() => {
     const members = membersData?.data || [];
     return members
-      .filter((m: WorkspaceMemberInfo): m is WorkspaceMemberInfo & { userId: string; name: string } =>
+      .filter((m: WorkspaceMember): m is WorkspaceMember & { name: string } =>
         Boolean(m.userId) && Boolean(m.name))
       .map((m) => ({ id: m.userId, name: m.name, avatar: m.picture || undefined }));
   }, [membersData]);

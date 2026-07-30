@@ -7,14 +7,6 @@
 import { useState, useEffect } from 'react';
 import type { RoomClient } from '@weldsuite/realtime/client';
 import type { PresenceMember } from '@weldsuite/realtime/types';
-
-interface PresenceData {
-  userId: string;
-  userName?: string;
-  avatar?: string;
-  status: 'online' | 'away' | 'dnd' | 'offline';
-}
-
 /**
  * Track presence for a specific chat channel using the RoomClient.
  * Enters presence on connect, leaves on disconnect.

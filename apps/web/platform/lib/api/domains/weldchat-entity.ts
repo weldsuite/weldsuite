@@ -7,6 +7,7 @@
  */
 
 import { appApi } from '../app-api-browser-client';
+import type { MessageItemMessage } from '@/app/weldchat/components/message-item';
 
 export interface SendEntityMessageRequest {
   content: string;
@@ -58,10 +59,10 @@ export const weldchatEntityApi = {
     entityType: string,
     entityId: string,
     data: SendEntityMessageRequest,
-  ): Promise<{ channel: EntityChannel; message: unknown; createdChannel: boolean }> => {
+  ): Promise<{ channel: EntityChannel; message: MessageItemMessage; createdChannel: boolean }> => {
     const res = await appApi.post<Envelope<{
       channel: EntityChannel;
-      message: unknown;
+      message: MessageItemMessage;
       createdChannel: boolean;
     }>>(
       `/chat-entity-channels/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}/messages`,

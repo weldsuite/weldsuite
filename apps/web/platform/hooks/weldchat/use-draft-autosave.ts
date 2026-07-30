@@ -22,16 +22,16 @@ import {
   useUpsertDraft,
   useDeleteDraft,
 } from '@/hooks/queries/use-weldchat-extras-queries';
-import type { DraftItem } from '@weldsuite/core-api-client/schemas/weldchat-drafts';
+import type { DraftItem, ChatAttachmentInput } from '@weldsuite/core-api-client/schemas/weldchat-drafts';
 
 export interface DraftAutosaveOptions {
   channelId: string;
   threadParentMessageId?: string;
   /** Plain-text content from the editor (what would be sent). */
   content: string;
-  attachments?: any[];
+  attachments?: ChatAttachmentInput[];
   /** Called with the restored content + attachments when a draft is found on mount. */
-  onRestore?: (content: string, attachments: any[]) => void;
+  onRestore?: (content: string, attachments: ChatAttachmentInput[]) => void;
 }
 
 export interface DraftAutosaveResult {
@@ -54,7 +54,7 @@ export function useDraftAutosave({
   const { mutate: upsert } = useUpsertDraft();
   const { mutate: deleteDraftMutate } = useDeleteDraft();
 
-  const drafts: DraftItem[] = (draftsData as any)?.data ?? [];
+  const drafts: DraftItem[] = draftsData?.data ?? [];
 
   // Find the matching draft for this context.
   const matchingDraft = drafts.find(

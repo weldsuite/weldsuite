@@ -2,30 +2,26 @@
 import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Button } from '@weldsuite/ui/components/button';
-import { Input } from '@weldsuite/ui/components/input';
-import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from '@weldsuite/ui/components/select';
 import {
   X,
   Calendar,
   User,
   Building2,
-  Flag,
-  Clock
+  Clock,
 } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 
 interface NewTaskModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (task: any) => void;
+  onSave: (task: { title: string; description?: string; status?: string; dueDate?: Date }) => void;
 }
 
 export function NewTaskModal({ isOpen, onClose, onSave }: NewTaskModalProps) {

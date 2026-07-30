@@ -9,7 +9,6 @@ import { useCallback, useMemo } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { useWhiteboardRoom } from '@weldsuite/realtime/react';
 import type { WhiteboardPresence, BatchChange } from '@/lib/realtime/whiteboard/types';
-import { PRESENCE_COLORS } from '@/lib/realtime/whiteboard/types';
 
 const REALTIME_URL = import.meta.env.VITE_REALTIME_URL?.replace(/\/ws$/, '') || 'ws://localhost:8790';
 
@@ -30,15 +29,15 @@ export interface UseWhiteboardCollaborationReturn {
   remotePresence: WhiteboardPresence[];
   remoteCursors: Array<WhiteboardPresence & { cursor: { x: number; y: number } }>;
 
-  broadcastElementAdd: (element: any) => Promise<void>;
-  broadcastElementUpdate: (elementId: string, changes: Partial<any>) => Promise<void>;
+  broadcastElementAdd: (element: unknown) => Promise<void>;
+  broadcastElementUpdate: (elementId: string, changes: Partial<unknown>) => Promise<void>;
   broadcastElementDelete: (elementId: string) => Promise<void>;
   broadcastBatchChange: (batch: Omit<BatchChange, 'timestamp' | 'userId'>) => Promise<void>;
   broadcastCursor: (x: number, y: number, tool?: string) => void;
   broadcastSelectionChange: (elementIds: string[]) => Promise<void>;
 
-  onElementAdd: (handler: (element: any, userId: string) => void) => () => void;
-  onElementUpdate: (handler: (elementId: string, changes: Partial<any>, userId: string) => void) => () => void;
+  onElementAdd: (handler: (element: unknown, userId: string) => void) => () => void;
+  onElementUpdate: (handler: (elementId: string, changes: Partial<unknown>, userId: string) => void) => () => void;
   onElementDelete: (handler: (elementId: string, userId: string) => void) => () => void;
   onBatchChange: (handler: (batch: BatchChange) => void) => () => void;
 

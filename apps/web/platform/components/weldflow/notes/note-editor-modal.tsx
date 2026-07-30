@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from '@/lib/router';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { VisuallyHidden } from '@weldsuite/ui/components/visually-hidden';
 import { usePinnedNotes } from '@/contexts/pinned-notes-context';
 import { Button } from '@weldsuite/ui/components/button';
@@ -13,15 +13,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { 
+import {
   MoreHorizontal,
-  Link2,
   Copy,
   Star,
   Trash2,
   X,
-  Building2,
-  Pin
+  Pin,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';

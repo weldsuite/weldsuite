@@ -96,7 +96,7 @@ export function useClipRecorder(): UseClipRecorderReturn {
       compositeRafRef.current = 0;
     }
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
-      try { recorderRef.current.stop(); } catch {}
+      try { recorderRef.current.stop(); } catch { /* best-effort only; failure is not actionable */ }
     }
     recorderRef.current = null;
     canvasRef.current = null;
@@ -198,7 +198,7 @@ export function useClipRecorder(): UseClipRecorderReturn {
         setError(msg);
       }
     }
-  }, [mode, startAudioMonitoring]);
+  }, [startAudioMonitoring]);
 
   const beginRecording = useCallback((recordStream: MediaStream) => {
     const mimeType = getPreferredMimeType(modeRef.current);

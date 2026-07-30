@@ -32,10 +32,10 @@ interface CannedResponseItem {
   id: string;
   name: string;
   content: string;
-  category: string | null;
+  category?: string;
   scope: string;
-  shortcut: string | null;
-  usageCount: number | null;
+  shortcut?: string;
+  usageCount?: number;
   isActive: boolean;
 }
 

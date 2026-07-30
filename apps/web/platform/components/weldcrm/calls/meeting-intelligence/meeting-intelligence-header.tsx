@@ -21,10 +21,7 @@ import {
   CalendarPlus,
   FileText,
 } from 'lucide-react';
-import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
-import { detectPlatform, formatDuration } from './utils';
+import { detectPlatform } from './utils';
 import type { MeetingIntelligenceCall, HeaderAction } from './types';
 import { useTranslations } from '@weldsuite/i18n/client';
 
@@ -52,26 +49,23 @@ interface MeetingIntelligenceHeaderProps {
 export function MeetingIntelligenceHeader({
   call,
   mediaType = 'video',
-  videoDuration,
   isTranscribing,
   hasTranscription,
   isLoadingTranscription,
   onBack,
   onTranscribe,
   onDelete,
-  onMinimize,
   onRename,
   onCopyJoinCode,
   onCopyLink,
   onScheduleAgain,
   onDownloadRecording,
-  onDeleteRecording,
   onExportTranscript,
   headerActions,
 }: MeetingIntelligenceHeaderProps) {
   const t = useTranslations();
-  const callDate = new Date(call.date);
-  const callDuration = call.duration || 0;
+  const _callDate = new Date(call.date);
+  const _callDuration = call.duration || 0;
   const platformInfo = detectPlatform(call.platform, call.meetingUrl);
 
   return (
@@ -118,7 +112,7 @@ export function MeetingIntelligenceHeader({
         {headerActions?.map((action, i) => (
           <Button
             key={i}
-            variant={(action.variant as any) || 'ghost'}
+            variant={action.variant || 'ghost'}
             size="icon-sm"
             onClick={action.onClick}
             disabled={action.disabled}

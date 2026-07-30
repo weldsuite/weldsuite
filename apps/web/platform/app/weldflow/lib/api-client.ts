@@ -1500,7 +1500,7 @@ export const tablesApi = {
   // No-op for now — reordering xlsx files would require a new column on `files`
   // (e.g. listPosition). Kept on the API (with its real signature) so future
   // call sites can adopt it without an API shape change.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   reorderTables: async (_projectId: string, _fileIds: string[]) =>
     ({ success: true, data: { reordered: true } }) as ApiResponse<{ reordered: boolean }>,
 };

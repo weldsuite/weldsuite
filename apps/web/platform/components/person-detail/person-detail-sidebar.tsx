@@ -1,6 +1,6 @@
 
 import { ReactNode, useState, useRef, useEffect } from 'react';
-import { Check, Circle, X } from 'lucide-react';
+import { Check, Circle } from 'lucide-react';
 import { Input } from '@weldsuite/ui/components/input';
 import { useTranslations } from '@weldsuite/i18n/client';
 

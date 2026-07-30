@@ -24,19 +24,6 @@ export function useObjectTemplates(entityType?: ObjectTemplateEntityType) {
     },
   });
 }
-
-function useObjectTemplate(id: string, enabled = true) {
-  const { objectTemplates } = useAppApi();
-  return useQuery({
-    queryKey: objectTemplateKeys.one(id),
-    queryFn: async () => {
-      const res = await objectTemplates.get(id);
-      return res.data;
-    },
-    enabled: !!id && enabled,
-  });
-}
-
 export function useCreateObjectTemplate() {
   const { objectTemplates } = useAppApi();
   const qc = useQueryClient();

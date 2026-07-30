@@ -5,7 +5,7 @@ import pluginReactHooks from "eslint-plugin-react-hooks"
 import globals from "globals"
 import tseslint from "typescript-eslint"
 
-import { config as baseConfig } from "./base.js"
+import { config as baseConfig, unusedVarsRule } from "./base.js"
 
 /**
  * A custom ESLint configuration for libraries that use React.
@@ -36,6 +36,9 @@ export const config = [
       // React scope no longer necessary with new JSX transform.
       "react/react-in-jsx-scope": "off",
       "react/prop-types": "off",
+      // Must come after the `tseslint.configs.recommended` spread above,
+      // which would otherwise reset this rule to its default options.
+      ...unusedVarsRule,
     },
   },
 ]

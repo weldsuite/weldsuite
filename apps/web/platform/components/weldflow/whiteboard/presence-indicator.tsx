@@ -92,7 +92,6 @@ const PresenceAvatar = memo(function PresenceAvatar({
 
 export const PresenceIndicator = memo(function PresenceIndicator({
   presence,
-  isConnected,
   className,
 }: PresenceIndicatorProps) {
   const maxVisible = 5;
@@ -135,7 +134,7 @@ interface ElementEditIndicatorProps {
   viewTransform: { x: number; y: number; scale: number };
 }
 
-const ElementEditIndicator = memo(function ElementEditIndicator({
+const _ElementEditIndicator = memo(function ElementEditIndicator({
   editor,
   elementBounds,
   viewTransform,

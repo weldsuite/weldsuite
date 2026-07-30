@@ -20,7 +20,6 @@ import type {
   WeldstashProduct,
   WeldstashWarehouse,
   WeldstashStockRow,
-  WeldstashStockMovement,
 } from '@weldsuite/core-api-client/schemas/weldstash';
 import type {
   CreateWmsSupplierInput,
@@ -93,19 +92,6 @@ export function useWeldstashProducts(params?: WeldstashListQuery) {
     },
   });
 }
-
-function useWeldstashProduct(id: string) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: weldstashKeys.product(id),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<DataResponse<WeldstashProduct>>(`/products/${id}`);
-    },
-    enabled: !!id,
-  });
-}
-
 export function useCreateWeldstashProduct() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
@@ -167,19 +153,6 @@ export function useWeldstashSuppliers(params?: WeldstashListQuery) {
     },
   });
 }
-
-function useWeldstashSupplier(id: string) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: weldstashKeys.supplier(id),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<DataResponse<WmsSupplier>>(`/wms-suppliers/${id}`);
-    },
-    enabled: !!id,
-  });
-}
-
 export function useCreateWeldstashSupplier() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
@@ -232,19 +205,6 @@ export function useWeldstashWarehouses(params?: WeldstashListQuery) {
     },
   });
 }
-
-function useWeldstashWarehouse(id: string) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: weldstashKeys.warehouse(id),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<DataResponse<WeldstashWarehouse>>(`/warehouses/${id}`);
-    },
-    enabled: !!id,
-  });
-}
-
 export function useCreateWeldstashWarehouse() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
@@ -313,18 +273,6 @@ export function useAdjustWeldstashStock() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: weldstashKeys.stock() });
       qc.invalidateQueries({ queryKey: [...weldstashKeys.all, 'movements'] });
-    },
-  });
-}
-
-function useWeldstashMovements(params?: { productId?: string; warehouseId?: string; limit?: number; cursor?: string }) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: weldstashKeys.movements(params),
-    queryFn: async () => {
-      const client = await getClient();
-      const qs = buildQueryString((params ?? {}) as Record<string, unknown>);
-      return client.get<ListResponse<WeldstashStockMovement>>(`/inventory-movements${qs}`);
     },
   });
 }

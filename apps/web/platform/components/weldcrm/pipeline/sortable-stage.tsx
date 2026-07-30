@@ -6,8 +6,8 @@ import { ReactNode, createContext, useContext } from 'react';
 import { useDroppableContext } from './droppable-stage';
 
 interface SortableStageContextType {
-  attributes: any;
-  listeners: any;
+  attributes: unknown;
+  listeners: unknown;
   isDragging: boolean;
 }
 
@@ -46,7 +46,7 @@ export function SortableStage({ id, children, isDragging }: SortableStageProps) 
   };
 
   const droppableContext = useDroppableContext();
-  const isOver = droppableContext?.isOver || false;
+  const _isOver = droppableContext?.isOver || false;
 
   return (
     <SortableStageContext.Provider value={{ attributes, listeners, isDragging: isSorting }}>

@@ -17,7 +17,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import type { CustomerList, CustomerListFilters, CustomerListMemberFilters } from '@/lib/api/domains/weldcrm';
+import type { CustomerList, CustomerListFilters } from '@/lib/api/domains/weldcrm';
 
 export type { CustomerList } from '@/lib/api/domains/weldcrm';
 
@@ -49,7 +49,7 @@ function mapList(row: CustomerList): CustomerList {
   return { ...row, kind: fromApiKind(kind) } as CustomerList;
 }
 
-function buildQueryString(params: Record<string, any>): string {
+function buildQueryString(params: Record<string, unknown>): string {
   const queryParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
@@ -63,10 +63,10 @@ function buildQueryString(params: Record<string, any>): string {
 const customerListKeys = {
   all: ['crm', 'lists'] as const,
   lists: () => [...customerListKeys.all, 'list'] as const,
-  list: (filters?: Record<string, any>) => [...customerListKeys.lists(), filters] as const,
+  list: (filters?: CustomerListFilters) => [...customerListKeys.lists(), filters] as const,
   detail: (id: string) => [...customerListKeys.all, 'detail', id] as const,
-  customers: (listId: string, filters?: Record<string, any>) => filters ? [...customerListKeys.all, listId, 'customers', filters] as const : [...customerListKeys.all, listId, 'customers'] as const,
-  contacts: (listId: string, filters?: Record<string, any>) => filters ? [...customerListKeys.all, listId, 'contacts', filters] as const : [...customerListKeys.all, listId, 'contacts'] as const,
+  customers: (listId: string, filters?: Record<string, unknown>) => filters ? [...customerListKeys.all, listId, 'customers', filters] as const : [...customerListKeys.all, listId, 'customers'] as const,
+  contacts: (listId: string, filters?: Record<string, unknown>) => filters ? [...customerListKeys.all, listId, 'contacts', filters] as const : [...customerListKeys.all, listId, 'contacts'] as const,
 };
 
 export function useCustomerLists(filters?: CustomerListFilters) {
@@ -76,119 +76,17 @@ export function useCustomerLists(filters?: CustomerListFilters) {
     queryFn: async () => {
       const client = await getClient();
       // Offset paging (`page`/`pageSize`) became cursor paging; `limit` caps at 200.
-      const { page: _page, pageSize, kind, ...rest } = (filters ?? {}) as Record<string, any>;
+      const { page: _page, pageSize, kind, ...rest } = (filters ?? {}) as Record<string, unknown>;
       const query = buildQueryString({
         ...rest,
         ...(pageSize ? { limit: Math.min(Number(pageSize), 200) } : {}),
-        ...(toApiKind(kind) ? { kind: toApiKind(kind) } : {}),
+        ...(toApiKind(kind as string | undefined) ? { kind: toApiKind(kind as string | undefined) } : {}),
       });
       const result = await client.get<ListEnvelope<CustomerList>>(`/lists${query}`);
       return { ...result, data: (result.data ?? []).map(mapList) };
     },
   });
-}
-
-function useCustomerList(id: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: customerListKeys.detail(id),
-    queryFn: async () => {
-      const client = await getClient();
-      const result = await client.get<Envelope<CustomerList>>(`/lists/${id}`);
-      return { ...result, data: result.data ? mapList(result.data) : result.data };
-    },
-    enabled: !!id && enabled,
-  });
-}
-
-/**
- * Members of a `kind='company'` list. app-api returns
- * `{ memberId, entityId, addedAt, entity }` rows; unwrap to the entity so
- * callers keep seeing a plain customer array.
- */
-function useCustomerListMembers(listId: string, _filters?: CustomerListMemberFilters) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: customerListKeys.customers(listId, _filters),
-    queryFn: async () => {
-      const client = await getClient();
-      const result = await client.get<Envelope<Array<{ entityId: string; addedAt: string; entity: any }>>>(
-        `/lists/${listId}/members`,
-      );
-      return { data: (result.data ?? []).map((row) => row.entity) };
-    },
-    enabled: !!listId,
-  });
-}
-
-/** Members of a `kind='person'` list — same endpoint, kind is a property of the list. */
-function useContactListMembers(listId: string, _filters?: CustomerListMemberFilters) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: customerListKeys.contacts(listId, _filters),
-    queryFn: async () => {
-      const client = await getClient();
-      const result = await client.get<Envelope<Array<{ entityId: string; addedAt: string; entity: any }>>>(
-        `/lists/${listId}/members`,
-      );
-      return { data: (result.data ?? []).map((row) => row.entity) };
-    },
-    enabled: !!listId,
-  });
-}
-
-function useCreateCustomerList() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: { name: string; color: string; icon: string; description?: string; kind?: string }) => {
-      const client = await getClient();
-      const { kind, ...rest } = data;
-      // `kind` is immutable server-side and required at create; default to
-      // company lists, matching the legacy customer-first behaviour.
-      const result = await client.post<Envelope<CustomerList>>('/lists', {
-        ...rest,
-        kind: toApiKind(kind) ?? 'company',
-      });
-      return { ...result, data: result.data ? mapList(result.data) : result.data };
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: customerListKeys.all });
-    },
-  });
-}
-
-function useUpdateCustomerList() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: Partial<{ name: string; color: string; icon: string; description: string }> }) => {
-      const client = await getClient();
-      const result = await client.patch<Envelope<CustomerList>>(`/lists/${id}`, data);
-      return { ...result, data: result.data ? mapList(result.data) : result.data };
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: customerListKeys.all });
-      qc.invalidateQueries({ queryKey: customerListKeys.detail(variables.id) });
-    },
-  });
-}
-
-function useDeleteCustomerList() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const client = await getClient();
-      return client.delete<Record<string, never>>(`/lists/${id}`);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: customerListKeys.all });
-    },
-  });
-}
-
-export function useAddCustomersToList() {
+}export function useAddCustomersToList() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
@@ -204,22 +102,6 @@ export function useAddCustomersToList() {
     },
   });
 }
-
-function useRemoveCustomerFromList() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ listId, customerId }: { listId: string; customerId: string }) => {
-      const client = await getClient();
-      return client.delete<Record<string, never>>(`/lists/${listId}/members/${customerId}`);
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: customerListKeys.customers(variables.listId) });
-      qc.invalidateQueries({ queryKey: customerListKeys.detail(variables.listId) });
-    },
-  });
-}
-
 export function useAddContactsToList() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
@@ -229,21 +111,6 @@ export function useAddContactsToList() {
       return client.post<Envelope<{ id: string; added: number }>>(`/lists/${listId}/members`, {
         entityIds: contactIds,
       });
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: customerListKeys.contacts(variables.listId) });
-      qc.invalidateQueries({ queryKey: customerListKeys.detail(variables.listId) });
-    },
-  });
-}
-
-function useRemoveContactFromList() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ listId, contactId }: { listId: string; contactId: string }) => {
-      const client = await getClient();
-      return client.delete<Record<string, never>>(`/lists/${listId}/members/${contactId}`);
     },
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: customerListKeys.contacts(variables.listId) });

@@ -37,16 +37,6 @@ export function useDriveFiles(params?: DriveFilesParams) {
     }>,
   });
 }
-
-function useDriveFile(id: string) {
-  const { files } = useAppApi();
-  return useQuery({
-    queryKey: driveKeys.file(id),
-    queryFn: () => files.get(id) as unknown as Promise<{ success: boolean; data: DriveFile }>,
-    enabled: !!id,
-  });
-}
-
 // ── Folder Queries ──────────────────────────────────────────────────────
 
 export function useDriveFolders(parentId?: string | null) {

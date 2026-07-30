@@ -61,16 +61,6 @@ export function useSocialPosts(params?: Record<string, unknown>) {
     queryFn: () => social.posts.list(params),
   });
 }
-
-function useSocialPost(id: string) {
-  const { social } = useAppApi();
-  return useQuery({
-    queryKey: socialKeys.post(id),
-    queryFn: () => social.posts.get(id),
-    enabled: !!id,
-  });
-}
-
 export function useCreateSocialPost() {
   const { social } = useAppApi();
   const qc = useQueryClient();
@@ -267,18 +257,6 @@ export function useCreateSocialMedia() {
     },
   });
 }
-
-function useDeleteSocialMedia() {
-  const { social } = useAppApi();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => social.media.remove(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: socialKeys.media() });
-    },
-  });
-}
-
 // =============================================================================
 // Approvals
 // =============================================================================
