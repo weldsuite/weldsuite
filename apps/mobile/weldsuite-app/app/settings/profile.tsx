@@ -72,7 +72,7 @@ export default function ProfileScreen() {
             phone: response.data.phone || '',
           }));
         }
-      } catch (apiError) {
+      } catch {
         // API might not be available, use token data
       }
     } catch (error) {
@@ -155,7 +155,7 @@ export default function ProfileScreen() {
               } else {
                 showToast('Failed to send reset email', 'error');
               }
-            } catch (error) {
+            } catch {
               showToast('Failed to send reset email', 'error');
             }
           },

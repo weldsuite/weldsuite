@@ -237,7 +237,7 @@ export default function ProjectMembersScreen() {
               } else {
                 toast.error(response.error || 'Failed to remove member');
               }
-            } catch (error) {
+            } catch {
               toast.error('Failed to remove member');
             }
           },
@@ -262,7 +262,7 @@ export default function ProjectMembersScreen() {
       } else {
         toast.error(response.error || 'Failed to update role');
       }
-    } catch (error) {
+    } catch {
       toast.error('Failed to update role');
     }
   };

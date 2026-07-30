@@ -91,7 +91,7 @@ export default function AppDetailScreen() {
       setApp((prev) => (prev ? { ...prev, isInstalled: true } : null));
       refreshApps(); // Refresh installed apps list
       toast.success(`${app.name} has been installed`);
-    } catch (error) {
+    } catch {
       toast.error('Failed to install app');
     } finally {
       setIsInstalling(false);
@@ -112,7 +112,7 @@ export default function AppDetailScreen() {
       refreshApps();
       setShowUninstallModal(false);
       toast.success(`${app.name} has been uninstalled`);
-    } catch (error) {
+    } catch {
       toast.error('Failed to uninstall app');
     } finally {
       setIsInstalling(false);

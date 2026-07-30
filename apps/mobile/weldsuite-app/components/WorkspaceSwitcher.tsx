@@ -50,7 +50,7 @@ export function WorkspaceSwitcher({ compact = false }: WorkspaceSwitcherProps) {
       await switchWorkspace(workspace.clerkOrgId);
       setModalVisible(false);
       toast.success(`Switched to ${workspace.name}`);
-    } catch (error) {
+    } catch {
       toast.error('Failed to switch workspace');
     } finally {
       setSwitching(false);

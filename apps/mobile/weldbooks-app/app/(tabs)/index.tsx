@@ -55,7 +55,7 @@ export default function DashboardScreen() {
       if (response.data) {
         setData(response.data);
       }
-    } catch (err) {
+    } catch {
       setError('Failed to load dashboard data');
     } finally {
       setLoading(false);

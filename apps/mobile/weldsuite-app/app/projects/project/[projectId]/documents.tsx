@@ -172,7 +172,7 @@ export default function ProjectDocumentsScreen() {
         setEditContent(response.data.content || '');
         setViewMode('edit');
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to create document');
     } finally {
       setSaving(false);
@@ -199,7 +199,7 @@ export default function ProjectDocumentsScreen() {
         setEditContent(htmlContent);
         setViewMode('view');
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to save document');
     } finally {
       setSaving(false);
@@ -217,7 +217,7 @@ export default function ProjectDocumentsScreen() {
         setSelectedDocument(null);
         setViewMode('list');
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to delete document');
     }
   };

@@ -24,9 +24,11 @@ let DocumentScanner: any = null;
 let isDocumentScannerAvailable = false;
 
 try {
+  // Optional native plugin — absent in Expo Go and in builds without it.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   DocumentScanner = require('react-native-document-scanner-plugin').default;
   isDocumentScannerAvailable = true;
-} catch (error) {
+} catch {
   isDocumentScannerAvailable = false;
 }
 

@@ -452,7 +452,7 @@ export default function InboxScreen() {
       } else {
         toast.error(getApiErrorMessage(response.error, 'Failed to snooze conversation'));
       }
-    } catch (error) {
+    } catch {
       toast.error('Failed to snooze conversation');
     }
   };
@@ -473,7 +473,7 @@ export default function InboxScreen() {
       } else {
         toast.error(getApiErrorMessage(response.error, 'Failed to archive conversation'));
       }
-    } catch (error) {
+    } catch {
       toast.error('Failed to archive conversation');
     }
   };
@@ -494,7 +494,7 @@ export default function InboxScreen() {
       } else {
         toast.error(getApiErrorMessage(response.error, 'Failed to close conversation'));
       }
-    } catch (error) {
+    } catch {
       toast.error('Failed to close conversation');
     }
   };

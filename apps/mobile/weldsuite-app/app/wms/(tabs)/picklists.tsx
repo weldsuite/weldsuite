@@ -36,7 +36,8 @@ const STATUS_OPTIONS: { key: PickListStatus | 'all'; label: string }[] = [
 export default function PickListsTabScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { } = useWms();
+  // Asserts we are inside a WmsProvider; this screen reads nothing from it.
+  useWms();
 
   const [pickLists, setPickLists] = useState<PickListDto[]>([]);
   const [loading, setLoading] = useState(true);

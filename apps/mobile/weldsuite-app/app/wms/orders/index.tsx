@@ -44,7 +44,8 @@ const PRIORITY_OPTIONS: { key: OrderPriority | 'all'; label: string }[] = [
 export default function OrdersListScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { } = useWms();
+  // Asserts we are inside a WmsProvider; this screen reads nothing from it.
+  useWms();
 
   const [orders, setOrders] = useState<WmsOrderDto[]>([]);
   const [loading, setLoading] = useState(true);

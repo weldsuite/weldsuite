@@ -31,6 +31,11 @@ module.exports = defineConfig([
         afterEach: 'readonly',
       },
     },
+    rules: {
+      // Tests re-`require()` a module after mutating process.env so it
+      // re-evaluates; a static import would be hoisted and cached.
+      '@typescript-eslint/no-require-imports': 'off',
+    },
   },
   {
     // Metro/Babel/Jest config files run in Node, not the RN runtime.

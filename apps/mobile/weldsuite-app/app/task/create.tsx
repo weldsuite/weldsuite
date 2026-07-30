@@ -69,7 +69,7 @@ export default function CreateTaskScreen() {
       } else {
         Alert.alert('Error', 'Failed to create task. Please try again.');
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'An error occurred while creating the task.');
     } finally {
       setIsSubmitting(false);

@@ -36,7 +36,8 @@ const STATUS_OPTIONS: { key: ReturnStatus | 'all'; label: string }[] = [
 export default function ReturnsListScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { } = useWms();
+  // Asserts we are inside a WmsProvider; this screen reads nothing from it.
+  useWms();
 
   const [returns, setReturns] = useState<ReturnDto[]>([]);
   const [loading, setLoading] = useState(true);

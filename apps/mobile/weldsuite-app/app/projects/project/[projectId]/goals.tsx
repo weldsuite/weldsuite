@@ -343,7 +343,7 @@ export default function ProjectGoalsScreen() {
         setGoalsData(prev => ({ ...prev, goals: updatedGoals }));
         setShowGoalModal(false);
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to save goal');
     } finally {
       setSaving(false);
@@ -373,7 +373,7 @@ export default function ProjectGoalsScreen() {
         setShowDeleteConfirm(false);
         setDeletingGoal(null);
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to delete goal');
     }
   };
@@ -393,7 +393,7 @@ export default function ProjectGoalsScreen() {
         }));
         setShowMissionModal(false);
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to save mission');
     } finally {
       setSaving(false);

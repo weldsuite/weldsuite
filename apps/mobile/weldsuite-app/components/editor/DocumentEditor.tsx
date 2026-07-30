@@ -190,7 +190,7 @@ export function DocumentEditor({
         setPages(updatedPages);
         lastSavedContentRef.current = { title, content: currentContent, pagesCount: updatedPages.length };
       }
-    } catch (error) {
+    } catch {
       if (!isAutoSave) {
         Alert.alert('Error', 'Failed to save document');
       }

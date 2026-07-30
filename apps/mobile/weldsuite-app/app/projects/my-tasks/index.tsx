@@ -190,7 +190,7 @@ export default function MyTasksScreen() {
 
     try {
       await api.updateTask(taskId, { status: newStatus });
-    } catch (error) {
+    } catch {
       // Revert on error
       setTasks(tasks.map(t =>
         t.id === taskId ? { ...t, completed: task.completed, status: task.status } : t

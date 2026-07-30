@@ -66,7 +66,7 @@ export default function InvoiceDetailScreen() {
       if (response.data) {
         setInvoice(response.data);
       }
-    } catch (err) {
+    } catch {
       setError('Failed to load invoice');
     } finally {
       setLoading(false);
@@ -86,7 +86,7 @@ export default function InvoiceDetailScreen() {
       try {
         await api.updateInvoiceStatus(id, newStatus);
         await fetchInvoice();
-      } catch (err) {
+      } catch {
         Alert.alert('Error', 'Failed to update invoice status');
       } finally {
         setActionLoading(false);

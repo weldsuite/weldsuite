@@ -78,7 +78,7 @@ export default function ExternalDomainScreen() {
       setDomainName('');
       setRegistrar('');
       setConfirmNameservers(false);
-    } catch (error) {
+    } catch {
       toast.error('Failed to add external domain');
     } finally {
       setIsPending(false);

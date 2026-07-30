@@ -65,7 +65,11 @@ let notifUtils: {
 
 if (!isExpoGo) {
   try {
+    // Loaded with require() on purpose: a static import would pull the
+    // native module in under Expo Go, where it isn't available.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     Notifications = require('expo-notifications');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     notifUtils = require('@weldsuite/mobile-ui/services/notifications');
   } catch {
     // Not available

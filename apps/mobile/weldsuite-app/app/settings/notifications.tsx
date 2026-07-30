@@ -106,7 +106,7 @@ export default function NotificationPreferencesScreen() {
         setPreferences((prev) => ({ ...prev, [key]: previousValue }));
         toast.error(response.error || 'Failed to update setting');
       }
-    } catch (error) {
+    } catch {
       setPreferences((prev) => ({ ...prev, [key]: previousValue }));
       toast.error('Failed to update setting');
     } finally {
@@ -126,7 +126,7 @@ export default function NotificationPreferencesScreen() {
         setPreferences((prev) => ({ ...prev, [fullKey]: previousValue }));
         toast.error(response.error || 'Failed to update setting');
       }
-    } catch (error) {
+    } catch {
       setPreferences((prev) => ({ ...prev, [fullKey]: previousValue }));
       toast.error('Failed to update setting');
     } finally {
@@ -165,7 +165,7 @@ export default function NotificationPreferencesScreen() {
         }));
         toast.error(response.error || 'Failed to update module preferences');
       }
-    } catch (error) {
+    } catch {
       setPreferences((prev) => ({
         ...prev,
         modulePreferences: {

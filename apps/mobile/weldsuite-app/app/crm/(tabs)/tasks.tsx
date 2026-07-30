@@ -183,7 +183,7 @@ export default function TasksScreen() {
 
     try {
       await api.updateCrmTask(taskId, { completed: !task.completed });
-    } catch (error) {
+    } catch {
       // Revert on error
       setTasks(tasks.map(t =>
         t.id === taskId ? { ...t, completed: task.completed } : t

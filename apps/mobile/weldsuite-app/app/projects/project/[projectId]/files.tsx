@@ -194,7 +194,7 @@ export default function ProjectFilesScreen() {
       } else {
         toast.error('File URL not available');
       }
-    } catch (error) {
+    } catch {
       toast.error('Failed to open file');
     }
   };
@@ -217,7 +217,7 @@ export default function ProjectFilesScreen() {
               } else {
                 toast.error(response.error || 'Failed to delete file');
               }
-            } catch (error) {
+            } catch {
               toast.error('Failed to delete file');
             }
           },

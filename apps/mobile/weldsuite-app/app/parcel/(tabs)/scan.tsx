@@ -115,7 +115,7 @@ export default function ScanScreen() {
           setRecentScans((prev) => [trackingNumber, ...prev.slice(0, 4)]);
         }
       }
-    } catch (error) {
+    } catch {
       // Use mock data for demo
       setScanResult({
         found: true,

@@ -34,7 +34,8 @@ const STATUS_OPTIONS: { key: CycleCountStatus | 'all'; label: string }[] = [
 export default function CycleCountsListScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { } = useWms();
+  // Asserts we are inside a WmsProvider; this screen reads nothing from it.
+  useWms();
 
   const [cycleCounts, setCycleCounts] = useState<CycleCountDto[]>([]);
   const [loading, setLoading] = useState(true);

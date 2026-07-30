@@ -234,7 +234,7 @@ export default function ProjectTasksScreen() {
 
     try {
       await api.updateProjectTask(projectId as string, taskId, { status: newStatus });
-    } catch (error) {
+    } catch {
       setTasks(tasks.map(t =>
         t.id === taskId ? { ...t, completed: task.completed, status: task.status } : t
       ));

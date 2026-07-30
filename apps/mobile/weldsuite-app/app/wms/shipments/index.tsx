@@ -37,7 +37,8 @@ const STATUS_OPTIONS: { key: ShipmentStatus | 'all'; label: string }[] = [
 export default function ShipmentsListScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { } = useWms();
+  // Asserts we are inside a WmsProvider; this screen reads nothing from it.
+  useWms();
 
   const [shipments, setShipments] = useState<ShipmentDto[]>([]);
   const [loading, setLoading] = useState(true);

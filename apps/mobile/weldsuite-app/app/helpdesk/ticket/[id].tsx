@@ -928,7 +928,7 @@ export default function ConversationChatScreen() {
                     toast.error(getApiErrorMessage(response.error, 'Failed to close conversation'));
                     setClosing(false);
                   }
-                } catch (error) {
+                } catch {
                   toast.error('Failed to close conversation');
                   setClosing(false);
                 }
@@ -978,7 +978,7 @@ export default function ConversationChatScreen() {
                     } else {
                       toast.error(getApiErrorMessage(response.error, 'Failed to snooze'));
                     }
-                  } catch (error) {
+                  } catch {
                     toast.error('Failed to snooze conversation');
                   }
                 }}
@@ -1002,7 +1002,7 @@ export default function ConversationChatScreen() {
                     } else {
                       toast.error(getApiErrorMessage(response.error, 'Failed to update star'));
                     }
-                  } catch (error) {
+                  } catch {
                     toast.error('Failed to update star');
                   }
                 }}
@@ -1043,7 +1043,7 @@ export default function ConversationChatScreen() {
                     } else {
                       toast.error(getApiErrorMessage(response.error, 'Failed to archive'));
                     }
-                  } catch (error) {
+                  } catch {
                     toast.error('Failed to archive conversation');
                   }
                 }}
@@ -1084,7 +1084,7 @@ export default function ConversationChatScreen() {
                             } else {
                               toast.error(getApiErrorMessage(response.error, 'Failed to delete'));
                             }
-                          } catch (error) {
+                          } catch {
                             toast.error('Failed to delete conversation');
                           }
                         },
@@ -1345,7 +1345,7 @@ export default function ConversationChatScreen() {
                   } else {
                     toast.error(getApiErrorMessage(response.error, 'Failed to create ticket'));
                   }
-                } catch (error) {
+                } catch {
                   toast.error('Failed to create ticket');
                 } finally {
                   setCreatingTicket(false);

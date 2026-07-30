@@ -127,7 +127,7 @@ export default function NewProductScreen() {
 
       toast.success(`Product "${form.title}" has been created successfully!`);
       router.push('/(tabs)/products');
-    } catch (error) {
+    } catch {
       toast.error('Failed to create product. Please try again.');
     } finally {
       setLoading(false);

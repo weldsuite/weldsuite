@@ -59,7 +59,7 @@ export default function TaskDetailScreen() {
       } else {
         setError(response.error || 'Failed to load task');
       }
-    } catch (err) {
+    } catch {
       setError('An error occurred while loading the task');
     } finally {
       setLoading(false);
@@ -77,7 +77,7 @@ export default function TaskDetailScreen() {
           status: task.status === 'completed' ? 'todo' : 'completed',
         });
       }
-    } catch (err) {
+    } catch {
       Alert.alert('Error', 'Failed to update task status');
     }
   };
@@ -93,7 +93,7 @@ export default function TaskDetailScreen() {
           isImportant: !task.isImportant,
         });
       }
-    } catch (err) {
+    } catch {
       Alert.alert('Error', 'Failed to update task');
     }
   };
@@ -113,7 +113,7 @@ export default function TaskDetailScreen() {
             } else {
               Alert.alert('Error', 'Failed to delete task');
             }
-          } catch (err) {
+          } catch {
             Alert.alert('Error', 'An error occurred while deleting the task');
           }
         },

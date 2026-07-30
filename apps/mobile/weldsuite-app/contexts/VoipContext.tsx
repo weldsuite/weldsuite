@@ -3,12 +3,12 @@ import { AppState, AppStateStatus } from 'react-native';
 import { api } from '@/services/api';
 
 // Types for VoIP calls
-export type VoipProvider = 'twilio' | 'telnyx';
+export type VoipProviderName = 'twilio' | 'telnyx';
 export type CallStatus = 'idle' | 'dialing' | 'ringing' | 'connected' | 'ended' | 'failed';
 
 interface VoipCall {
   id: string;
-  provider: VoipProvider;
+  provider: VoipProviderName;
   providerCallId?: string;
   direction: 'inbound' | 'outbound';
   status: string;
@@ -29,7 +29,7 @@ interface VoipCall {
 
 interface VoipPhoneNumber {
   id: string;
-  provider: VoipProvider;
+  provider: VoipProviderName;
   phoneNumber: string;
   formattedNumber?: string;
   countryCode: string;
@@ -59,7 +59,7 @@ interface VoipContextType {
   // Configuration
   isConfigured: boolean;
   isInitialized: boolean;
-  provider: VoipProvider;
+  provider: VoipProviderName;
 
   // Phone numbers
   phoneNumbers: VoipPhoneNumber[];
@@ -103,7 +103,7 @@ interface VoipProviderProps {
 export function VoipProvider({ children }: VoipProviderProps) {
   const [isConfigured, setIsConfigured] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
-  const [provider] = useState<VoipProvider>('twilio');
+  const [provider] = useState<VoipProviderName>('twilio');
   const [phoneNumbers, setPhoneNumbers] = useState<VoipPhoneNumber[]>([]);
   const [calls, setCalls] = useState<VoipCall[]>([]);
   const [isLoadingCalls, setIsLoadingCalls] = useState(false);

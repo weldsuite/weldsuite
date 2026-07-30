@@ -100,7 +100,7 @@ export default function VatReturnDetailScreen() {
               } else {
                 Alert.alert('Error', 'Failed to submit VAT return');
               }
-            } catch (error) {
+            } catch {
               Alert.alert('Error', 'An error occurred while submitting');
             } finally {
               setSubmitting(false);

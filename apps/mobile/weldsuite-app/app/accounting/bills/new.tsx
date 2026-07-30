@@ -141,7 +141,7 @@ export default function NewBillScreen() {
           { text: 'OK', onPress: () => router.back() },
         ]);
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Success', 'Bill created successfully', [
         { text: 'OK', onPress: () => router.back() },
       ]);

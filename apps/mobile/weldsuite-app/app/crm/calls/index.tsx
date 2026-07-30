@@ -80,7 +80,7 @@ export default function CallsScreen() {
       setLoading(true);
       // Call intelligence API not yet available on mobile — use VoIP calls if available
       setCalls([]);
-    } catch (error) {
+    } catch {
       // Fail silently — API not yet implemented
     } finally {
       setLoading(false);

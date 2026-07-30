@@ -37,7 +37,8 @@ const STATUS_OPTIONS: { key: PurchaseOrderStatus | 'all'; label: string }[] = [
 export default function PurchaseOrdersListScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { } = useWms();
+  // Asserts we are inside a WmsProvider; this screen reads nothing from it.
+  useWms();
 
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderDto[]>([]);
   const [loading, setLoading] = useState(true);

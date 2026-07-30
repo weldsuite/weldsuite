@@ -95,7 +95,7 @@ export default function ReconciliationScreen() {
       // Refresh stats
       const updatedStats = await api.getReconciliationStats();
       setStats(updatedStats);
-    } catch (err) {
+    } catch {
       Alert.alert('Error', 'Failed to match transaction. Please try again.');
     } finally {
       setMatchingId(null);

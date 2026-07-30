@@ -224,7 +224,7 @@ export default function ComposeEmailForm({
         const errorMsg = getApiErrorMessage(response.error, 'Failed to generate draft. Please try again.');
         setAiMessages(prev => [...prev, { role: 'assistant', content: `Error: ${errorMsg}` }]);
       }
-    } catch (err) {
+    } catch {
       setAiMessages(prev => [...prev, { role: 'assistant', content: 'Failed to generate draft. Please try again.' }]);
     } finally {
       setAiGenerating(false);
@@ -665,6 +665,7 @@ export default function ComposeEmailForm({
                             <TouchableOpacity style={aiStyles.feedbackButton} onPress={async () => {
                               haptics.light();
                               try {
+                                // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy: only needed on this tap
                                 const Clip = require('expo-clipboard');
                                 await Clip.setStringAsync(msg.content);
                               } catch {
