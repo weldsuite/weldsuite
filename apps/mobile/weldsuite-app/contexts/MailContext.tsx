@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
-import api from '../services/api';
+import { api } from '../services/api';
 import { useClerkAuth } from './ClerkAuthContext';
 import { useWorkspaceClientMaybe } from '@weldsuite/realtime/react';
 import { topics } from '@weldsuite/realtime/topics';

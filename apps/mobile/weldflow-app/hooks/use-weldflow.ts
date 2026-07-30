@@ -8,7 +8,7 @@ import type {
   UpdateTaskStatusInput,
   CreateLabelInput,
 } from '@/types/weldflow';
-import api from '@/services/app-api';
+import { appApi as api } from '@/services/app-api';
 
 export const qk = {
   projects: (params?: ListProjectsQuery) => ['weldflow', 'projects', params ?? {}] as const,

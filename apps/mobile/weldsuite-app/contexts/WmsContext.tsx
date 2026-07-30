@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type {
   DashboardOverviewDto,
 } from '../types/wms';
-import api from '../services/api';
+import { api } from '../services/api';
 
 // ============================================================================
 // TYPES
