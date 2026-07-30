@@ -60,7 +60,8 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'create_project',
     scope: 'projects:write',
-    description: 'Create a new WeldFlow project.',
+    description:
+      'Create a new WeldFlow project. The authenticated user is added as the project owner (and as project manager when ownerId is omitted).',
     inputSchema: createProjectSchema.shape,
     method: 'POST',
     path: '/v1/projects',
