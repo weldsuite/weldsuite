@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@clerk/expo": "^3.2.2",
-    "@clerk/shared": "^4.4.0",
+    "@clerk/shared": "^4.15.0",
     "@cloudflare/react-native-webrtc": "^125.0.5",
     "@cloudflare/realtimekit-react-native": "^1.0.0",
     "@cloudflare/realtimekit-react-native-ui": "^1.0.0",
