@@ -146,7 +146,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     init();
     return () => { if (cleanupRef.current) cleanupRef.current(); };
-  }, [user, organizationId, getCredentials]);
+  }, [user, organizationId, getCredentials, router]);
 
   return (
     <NotificationContext.Provider value={{ unreadCount, isConnected, isPermissionGranted, requestPermissions, openNotificationSettings, refreshBadgeCount }}>

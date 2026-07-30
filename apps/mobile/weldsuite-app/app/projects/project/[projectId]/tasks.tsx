@@ -102,7 +102,7 @@ export default function ProjectTasksScreen() {
         useNativeDriver: true,
       }).start(() => setShowCreateModal(false));
     }
-  }, [isCreateModalVisible]);
+  }, [isCreateModalVisible, fadeAnim]);
 
   useEffect(() => {
     loadTasks();

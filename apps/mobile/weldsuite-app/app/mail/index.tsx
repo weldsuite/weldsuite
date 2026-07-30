@@ -297,13 +297,13 @@ export default function MailScreen() {
     setDrawerVisible(true);
     setShowDrawer(true);
     drawerTranslateX.value = withSpring(0, { damping: 25, stiffness: 200 });
-  }, []);
+  }, [drawerTranslateX]);
 
   const closeDrawer = useCallback(() => {
     drawerTranslateX.value = withSpring(-DRAWER_WIDTH, { damping: 25, stiffness: 200 }, (finished) => {
       if (finished) runOnJS(doCloseDrawer)();
     });
-  }, [doCloseDrawer]);
+  }, [doCloseDrawer, drawerTranslateX]);
 
   const drawerScrollNativeGesture = useMemo(() => Gesture.Native(), []);
 
@@ -401,7 +401,7 @@ export default function MailScreen() {
     } else {
       router.push(`/mail/${email.id}` as any);
     }
-  }, [markAsRead, isSplitView]);
+  }, [markAsRead, isSplitView, drawerTranslateX]);
 
 
   const handleDelete = useCallback(async (emailId: string) => {

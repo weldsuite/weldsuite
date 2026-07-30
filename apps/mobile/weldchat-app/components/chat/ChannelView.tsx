@@ -975,7 +975,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
 
   const openThread = useCallback((message: Message) => {
     router.push({ pathname: '/thread/[messageId]', params: { messageId: message.id, channelId } } as any);
-  }, [channelId]);
+  }, [channelId, router]);
 
   const formatDateLabel = useCallback((dateStr: string) => {
     const date = new Date(dateStr);

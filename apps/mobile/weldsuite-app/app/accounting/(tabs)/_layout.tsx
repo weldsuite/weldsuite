@@ -137,7 +137,7 @@ export default function AccountingTabsLayout() {
         scaleAnim.setValue(1);
       });
     }
-  }, [agentModalVisible]);
+  }, [agentModalVisible, fadeAnim, scaleAnim, slideAnim]);
 
   useEffect(() => {
     if (menuModalVisible) {

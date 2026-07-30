@@ -180,7 +180,7 @@ export default function AddOrderScreen() {
         scaleAnim.setValue(1);
       });
     }
-  }, [showCustomerModal]);
+  }, [showCustomerModal, fadeAnim, scaleAnim, slideAnim]);
 
   // Handle modal animations for product modal
   useEffect(() => {

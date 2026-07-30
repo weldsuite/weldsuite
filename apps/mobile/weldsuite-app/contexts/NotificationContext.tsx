@@ -219,7 +219,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         cleanupRef.current();
       }
     };
-  }, [user, organizationId, getCredentials]);
+  }, [user, organizationId, getCredentials, router]);
 
   return (
     <NotificationContext.Provider

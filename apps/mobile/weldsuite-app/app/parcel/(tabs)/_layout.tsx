@@ -132,7 +132,7 @@ export default function ParcelTabsLayout() {
         scaleAnim.setValue(1);
       });
     }
-  }, [agentModalVisible]);
+  }, [agentModalVisible, fadeAnim, scaleAnim, slideAnim]);
 
   const HeaderLeft = () => (
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>

@@ -216,7 +216,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         cleanupRef.current = null;
       }
     };
-  }, [user, organizationId]);
+  }, [user, organizationId, router]);
 
   return (
     <NotificationContext.Provider

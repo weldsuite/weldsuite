@@ -83,7 +83,7 @@ export default function ProjectPipelineScreen() {
         useNativeDriver: true,
       }).start(() => setShowModal(false));
     }
-  }, [isModalVisible]);
+  }, [isModalVisible, fadeAnim]);
 
   const loadPipeline = async () => {
     try {
