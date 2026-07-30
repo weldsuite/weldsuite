@@ -67,7 +67,7 @@ export default function ComposeEmailPanel({
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [isDraft, setIsDraft] = useState(false);
+  const [_isDraft, setIsDraft] = useState(false);
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
   const [showDiscardModal, setShowDiscardModal] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);

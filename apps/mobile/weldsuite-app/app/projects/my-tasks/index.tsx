@@ -47,9 +47,9 @@ export default function MyTasksScreen() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [total, setTotal] = useState(0);
+  const [_total, setTotal] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showCompleted, setShowCompleted] = useState(true);
+  const [showCompleted, _setShowCompleted] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);

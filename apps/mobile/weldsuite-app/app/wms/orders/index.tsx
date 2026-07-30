@@ -53,7 +53,7 @@ export default function OrdersListScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus | 'all'>('all');
   const [selectedPriority, setSelectedPriority] = useState<OrderPriority | 'all'>('all');
-  const [totalOrders, setTotalOrders] = useState(0);
+  const [_totalOrders, setTotalOrders] = useState(0);
 
   useEffect(() => {
     loadOrders();

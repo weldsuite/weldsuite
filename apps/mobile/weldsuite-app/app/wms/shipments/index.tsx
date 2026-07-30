@@ -45,7 +45,7 @@ export default function ShipmentsListScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<ShipmentStatus | 'all'>('all');
-  const [totalShipments, setTotalShipments] = useState(0);
+  const [_totalShipments, setTotalShipments] = useState(0);
 
   useEffect(() => {
     loadShipments();

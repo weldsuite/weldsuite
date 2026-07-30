@@ -72,7 +72,7 @@ interface ProjectWorkloadData {
   members: WorkloadMember[];
 }
 
-const { width: screenWidth } = Dimensions.get('window');
+Dimensions.get('window');
 const DAY_WIDTH = 50;
 const MEMBER_ROW_HEIGHT = 60;
 const HEADER_HEIGHT = 80;

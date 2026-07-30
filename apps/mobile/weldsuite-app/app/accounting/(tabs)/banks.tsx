@@ -64,7 +64,7 @@ export default function BanksScreen() {
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedAccount, setSelectedAccount] = useState<BankAccount | null>(null);
+  const [selectedAccount, _setSelectedAccount] = useState<BankAccount | null>(null);
   const [accountModalVisible, setAccountModalVisible] = useState(false);
 
   useEffect(() => {

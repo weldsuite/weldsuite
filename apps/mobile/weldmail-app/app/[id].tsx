@@ -228,7 +228,7 @@ export default function EmailDetailScreen() {
   const isDark = theme === 'dark';
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { accounts, refreshMail } = useMail();
+  const { refreshMail } = useMail();
   const cache = useMailCache();
   const outbox = useMailOutbox();
   const { isPinned: isMessagePinned, togglePin } = usePinnedMessages();
@@ -244,7 +244,7 @@ export default function EmailDetailScreen() {
   const [loadOutcome, setLoadOutcome] = useState<'gone' | 'failed' | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
   const [showEmailDetails, setShowEmailDetails] = useState(false);
-  const [isScrolled, setIsScrolled] = useState(false);
+  const [_isScrolled, setIsScrolled] = useState(false);
   const [expandedThreadIds, setExpandedThreadIds] = useState<Set<string>>(new Set());
   const [snoozePickerVisible, setSnoozePickerVisible] = useState(false);
   const [labelPickerVisible, setLabelPickerVisible] = useState(false);

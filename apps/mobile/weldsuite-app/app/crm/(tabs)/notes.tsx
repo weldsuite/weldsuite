@@ -41,7 +41,7 @@ export default function NotesScreen() {
   const { colors } = useTheme();
   const toast = useToast();
   const [notes, setNotes] = useState<Note[]>([]);
-  const [total, setTotal] = useState(0);
+  const [_total, setTotal] = useState(0);
   const [filteredNotes, setFilteredNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);

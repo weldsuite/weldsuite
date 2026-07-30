@@ -37,10 +37,9 @@ export default function AddOrderScreen() {
   const toast = useToast();
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
-  const [showProductModal, setShowProductModal] = useState(false);
-  const [currentItemIndex, setCurrentItemIndex] = useState<number | null>(null);
+  const [showProductModal, _setShowProductModal] = useState(false);
   const [customerSearch, setCustomerSearch] = useState('');
-  const [productSearch, setProductSearch] = useState('');
+  const [productSearch, _setProductSearch] = useState('');
   const [shippingAddress, setShippingAddress] = useState('');
   const [items, setItems] = useState<OrderItem[]>([
     { id: '1', productName: '', quantity: 1, price: 0 }
@@ -49,12 +48,12 @@ export default function AddOrderScreen() {
 
   // Loading states
   const [loadingCustomers, setLoadingCustomers] = useState(false);
-  const [loadingProducts, setLoadingProducts] = useState(false);
+  const [_loadingProducts, setLoadingProducts] = useState(false);
   const [creatingOrder, setCreatingOrder] = useState(false);
 
   // Data lists
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [_products, setProducts] = useState<Product[]>([]);
 
   // Animation values for stacked page effect
   const slideAnim = useRef(new Animated.Value(1000)).current;

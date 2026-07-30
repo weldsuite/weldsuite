@@ -529,7 +529,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
   }, []);
 
   // Subscribe to realtime updates
-  const { typingUsers, onKeystroke, onSend, client } = useChatRealtime(channelId, loadMessages);
+  const { typingUsers, onKeystroke, onSend } = useChatRealtime(channelId, loadMessages);
 
   const openAttachmentPicker = useCallback(() => {
     Alert.alert('Attach', undefined, [

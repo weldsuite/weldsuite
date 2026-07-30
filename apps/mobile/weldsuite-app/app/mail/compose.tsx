@@ -47,19 +47,17 @@ export default function ComposeScreen() {
     selectAccount,
   } = useMail();
 
-  const [bodyFocused, setBodyFocused] = useState(false);
   const [to, setTo] = useState('');
   const [cc, setCc] = useState('');
   const [bcc, setBcc] = useState('');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
-  const [showCcBcc, setShowCcBcc] = useState(false);
+  const [_showCcBcc, setShowCcBcc] = useState(false);
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [isDraft, setIsDraft] = useState(false);
+  const [_isDraft, setIsDraft] = useState(false);
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
-  const [showFromPicker, setShowFromPicker] = useState(false);
   const [showDiscardModal, setShowDiscardModal] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);

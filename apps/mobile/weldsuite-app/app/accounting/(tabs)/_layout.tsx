@@ -31,7 +31,7 @@ export default function AccountingTabsLayout() {
   const [menuModalVisible, setMenuModalVisible] = useState(false);
   const [scanModalVisible, setScanModalVisible] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [_hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [flashMode, setFlashMode] = useState<'off' | 'on'>('off');
   const [processing, setProcessing] = useState(false);
   const [autoCapture, setAutoCapture] = useState(true);
@@ -39,7 +39,7 @@ export default function AccountingTabsLayout() {
   const [detectionQuality, setDetectionQuality] = useState<'good' | 'poor' | 'none'>('none');
   const [receiptBoundaries, setReceiptBoundaries] = useState<{ x: number; y: number }[] | null>(null);
   const [message, setMessage] = useState('');
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [_isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const cameraRef = useRef<any>(null);
   const detectionTimerRef = useRef<any>(null);
   const slideAnim = useRef(new Animated.Value(1000)).current;

@@ -78,7 +78,7 @@ interface ProjectsSidebarProps {
 }
 
 export default function ProjectsSidebar({ onCollapse }: ProjectsSidebarProps) {
-  const { colors } = useTheme();
+  useTheme();
   const toast = useToast();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();

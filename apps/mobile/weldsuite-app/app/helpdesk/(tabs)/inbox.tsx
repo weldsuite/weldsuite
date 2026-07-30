@@ -124,7 +124,7 @@ export default function InboxScreen() {
   }, [resetHeader]);
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [initialLoading, setInitialLoading] = useState(true);
+  const [_initialLoading, setInitialLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -154,7 +154,7 @@ export default function InboxScreen() {
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
+  const [_totalCount, setTotalCount] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [sortBy, setSortBy] = useState('createdAt');
@@ -248,7 +248,7 @@ export default function InboxScreen() {
   }, []);
 
   // Setup realtime updates
-  const { isConnected, connect: connectRealtime } = useInboxRealtime({
+  const { connect: connectRealtime } = useInboxRealtime({
     agentId: session?.user?.id || '',
     agentName: session?.user?.fullName || session?.user?.firstName || 'Agent',
     agentEmail: session?.user?.primaryEmailAddress?.emailAddress,

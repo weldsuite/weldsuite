@@ -36,7 +36,7 @@ export default function ProductsAdminScreen() {
   const toast = useToast();
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
-  const [totalProducts, setTotalProducts] = useState<number>(0);
+  const [_totalProducts, setTotalProducts] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [hasMore, setHasMore] = useState<boolean>(true);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -44,9 +44,8 @@ export default function ProductsAdminScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [filterLoading, setFilterLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedCategory, _setSelectedCategory] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [showFilters, setShowFilters] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [bulkActionModalVisible, setBulkActionModalVisible] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);

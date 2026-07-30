@@ -149,7 +149,7 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
   const [bodyFocused, setBodyFocused] = useState(false);
   const [attachments, setAttachments] = useState<{ name: string; uri: string; type: string }[]>([]);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
-  const [editorReady, setEditorReady] = useState(false);
+  const [_editorReady, setEditorReady] = useState(false);
   const [bodyHtml, setBodyHtml] = useState('');
   const [formats, setFormats] = useState({ b: false, i: false, u: false, l: false, ol: false });
   const editorRef = useRef<WebView>(null);
@@ -161,7 +161,7 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
     setActiveRecipientField(field);
   }, []);
   const [contactSuggestions, setContactSuggestions] = useState<{ id: string; email: string; name: string; company?: string | null }[]>([]);
-  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [_loadingSuggestions, setLoadingSuggestions] = useState(false);
   const contactSearchRef = useRef<NodeJS.Timeout>();
 
   useEffect(() => {

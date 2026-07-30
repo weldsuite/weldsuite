@@ -96,7 +96,7 @@ const MISSION_CARD_HEIGHT = 100;
 
 export default function ProjectGoalsScreen() {
   const { projectId } = useLocalSearchParams<{ projectId: string }>();
-  const { width, height } = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const scrollViewRef = useRef<ScrollView>(null);
 
   // State
@@ -104,7 +104,7 @@ export default function ProjectGoalsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [zoom, setZoom] = useState(100);
+  const [_zoom, setZoom] = useState(100);
 
   // Gesture values for pinch-to-zoom
   const scale = useSharedValue(1);

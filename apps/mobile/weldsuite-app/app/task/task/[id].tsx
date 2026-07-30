@@ -32,7 +32,6 @@ export default function TaskDetailScreen() {
 
   const [task, setTask] = useState<TaskItem | null>(null);
   const [comments, setComments] = useState<TaskComment[]>([]);
-  const [activities, setActivities] = useState<TaskActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

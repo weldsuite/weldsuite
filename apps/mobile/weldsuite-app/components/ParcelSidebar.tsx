@@ -79,7 +79,7 @@ interface ParcelSidebarProps {
 }
 
 export default function ParcelSidebar({ onCollapse }: ParcelSidebarProps) {
-  const { colors } = useTheme();
+  useTheme();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
 

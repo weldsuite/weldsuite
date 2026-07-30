@@ -67,7 +67,7 @@ export default function ConversationChatScreen() {
   const [agents, setAgents] = useState<{ id: string; userId: string; name: string; email: string; role: string; availability: string }[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [typingUsers, setTypingUsers] = useState<Map<string, TypingIndicatorType>>(new Map());
-  const [customerOnline, setCustomerOnline] = useState(false);
+  const [_customerOnline, setCustomerOnline] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   // Get agent info from Clerk user

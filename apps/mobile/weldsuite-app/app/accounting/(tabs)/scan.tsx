@@ -43,7 +43,7 @@ export default function ScanScreen() {
   const { colors } = useTheme();
   const toast = useToast();
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [processing, setProcessing] = useState(false);
+  const [processing, _setProcessing] = useState(false);
   const [scannedDocument, setScannedDocument] = useState<ScannedDocument | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [uploading, setUploading] = useState(false);

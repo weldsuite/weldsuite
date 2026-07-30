@@ -44,7 +44,7 @@ export default function PickListsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<PickListStatus | 'all'>('all');
-  const [totalPickLists, setTotalPickLists] = useState(0);
+  const [_totalPickLists, setTotalPickLists] = useState(0);
 
   useEffect(() => {
     loadPickLists();

@@ -152,7 +152,7 @@ function HelpdeskTabsContent() {
     );
   };
 
-  const { isCollapsed } = useCollapsibleHeader();
+  useCollapsibleHeader();
 
   const renderHeader = () => {
     // On mobile, no separate header — Home button is in each tab's content

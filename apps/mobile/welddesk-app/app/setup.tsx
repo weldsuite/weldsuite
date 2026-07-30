@@ -287,7 +287,7 @@ function ProvisioningStep({ onComplete, colors }: {
   onComplete: () => void; colors: any;
 }) {
   const [currentPhase, setCurrentPhase] = useState(0);
-  const [pollCount, setPollCount] = useState(0);
+  const [_pollCount, setPollCount] = useState(0);
   const [failed, setFailed] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -420,7 +420,7 @@ const provisionStyles = StyleSheet.create({
 function NotificationStep({ onNext, colors }: {
   onNext: () => void; colors: any;
 }) {
-  const { requestPermissions, isPermissionGranted } = useNotifications();
+  const { requestPermissions } = useNotifications();
   const [loading, setLoading] = useState(false);
 
   const handleEnable = async () => {

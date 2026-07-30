@@ -58,7 +58,7 @@ export default function CustomersScreen() {
   const [columns, setColumns] = useState<Column[]>([]);
   const [customers, setCustomers] = useState<CustomerRecord[]>([]);
   const [pipelines, setPipelines] = useState<PipelineWithStages[]>([]);
-  const [opportunities, setOpportunities] = useState<OpportunityRecord[]>([]);
+  const [_opportunities, setOpportunities] = useState<OpportunityRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');

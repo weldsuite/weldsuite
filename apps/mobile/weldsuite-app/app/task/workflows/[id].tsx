@@ -104,7 +104,7 @@ const STEP_TYPES: StepType[] = [
 const STEP_CATEGORIES = ['Communication', 'Data', 'Logic & Flow', 'Integration'];
 
 export default function WorkflowEditorPage() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();

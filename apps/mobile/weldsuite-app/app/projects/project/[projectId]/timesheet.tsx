@@ -24,7 +24,7 @@ import {
 } from 'lucide-react-native';
 import { api, TimeEntry, ProjectTask } from '@/services/api';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // Calculate column widths to fill screen
 const TASK_COLUMN_WIDTH = 150;
 const TOTAL_COLUMN_WIDTH = 67;
@@ -138,8 +138,8 @@ const WEEKDAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
 export default function ProjectTimesheetScreen() {
   const { projectId } = useLocalSearchParams();
-  const [entries, setEntries] = useState<TimeEntry[]>([]);
-  const [tasks, setTasks] = useState<ProjectTask[]>([]);
+  const [_entries, setEntries] = useState<TimeEntry[]>([]);
+  const [_tasks, setTasks] = useState<ProjectTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [currentDate, setCurrentDate] = useState<Date>(new Date());

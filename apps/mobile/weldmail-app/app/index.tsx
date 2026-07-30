@@ -283,8 +283,8 @@ export default function MailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ draftSaved?: string; draftId?: string; draftAccountId?: string; draftTo?: string; draftCc?: string; draftBcc?: string; draftSubject?: string; draftBody?: string }>();
   const insets = useSafeAreaInsets();
-  const { width: windowWidth } = useWindowDimensions();
-  const { selectedLabel, labels, customLabels, selectedAccount, isUnifiedInbox, accounts, selectAccount, updateLabelCount, mailVersion } = useMail();
+  useWindowDimensions();
+  const { selectedLabel, labels, customLabels, selectedAccount, isUnifiedInbox, accounts, updateLabelCount, mailVersion } = useMail();
   const cache = useMailCache();
   const outbox = useMailOutbox();
   const { organizationId } = useClerkAuth();

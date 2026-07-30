@@ -45,7 +45,7 @@ export default function PurchaseOrdersListScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<PurchaseOrderStatus | 'all'>('all');
-  const [totalPOs, setTotalPOs] = useState(0);
+  const [_totalPOs, setTotalPOs] = useState(0);
 
   useEffect(() => {
     loadPurchaseOrders();

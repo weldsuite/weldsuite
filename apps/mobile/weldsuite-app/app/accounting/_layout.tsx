@@ -5,7 +5,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import MiniSidebar, { useShouldShowMiniSidebar } from '@/components/layout/MiniSidebar';
 
 export default function AccountingLayout() {
-  const { colors } = useTheme();
+  useTheme();
   const showMiniSidebar = useShouldShowMiniSidebar();
 
   if (showMiniSidebar) {

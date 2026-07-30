@@ -69,7 +69,7 @@ export default function AppStoreScreen() {
   const [apps, setApps] = useState<AvailableApp[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedCategory, _setSelectedCategory] = useState<string | null>(null);
 
   const fetchApps = useCallback(async () => {
     try {

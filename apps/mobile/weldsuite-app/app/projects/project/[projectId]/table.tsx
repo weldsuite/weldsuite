@@ -101,7 +101,6 @@ export default function ProjectTableScreen() {
   const [members, setMembers] = useState<ProjectMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedTasks, setSelectedTasks] = useState<Set<string>>(new Set());
 
   // Modal states
   const [showAddModal, setShowAddModal] = useState(false);
@@ -112,8 +111,8 @@ export default function ProjectTableScreen() {
   const [editValue, setEditValue] = useState('');
   const [showPicker, setShowPicker] = useState(false);
   const [showTaskPicker, setShowTaskPicker] = useState(false);
-  const [allProjectTasks, setAllProjectTasks] = useState<ProjectTask[]>([]);
-  const [taskPickerRowId, setTaskPickerRowId] = useState<string | null>(null);
+  const [allProjectTasks, _setAllProjectTasks] = useState<ProjectTask[]>([]);
+  const [_taskPickerRowId, setTaskPickerRowId] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showDatePickerModal, setShowDatePickerModal] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());

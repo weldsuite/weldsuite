@@ -63,7 +63,7 @@ export default function ContactDetailsScreen() {
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const [contact, setContact] = useState<Contact | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [_loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<SidebarTab>('details');
   const [recordDetailsExpanded, setRecordDetailsExpanded] = useState(true);
   const [conversationsExpanded, setConversationsExpanded] = useState(false);

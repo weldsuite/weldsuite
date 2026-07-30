@@ -55,7 +55,7 @@ export default function InventoryScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
-  const [showLowStockOnly, setShowLowStockOnly] = useState(false);
+  const [showLowStockOnly, _setShowLowStockOnly] = useState(false);
   const [adjustStockModalVisible, setAdjustStockModalVisible] = useState(false);
   const [selectedItem, setSelectedItem] = useState<InventoryDto | null>(null);
   const [adjustmentQuantity, setAdjustmentQuantity] = useState('');

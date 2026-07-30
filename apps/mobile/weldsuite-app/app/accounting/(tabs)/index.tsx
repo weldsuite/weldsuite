@@ -50,7 +50,7 @@ export default function AccountingDashboardScreen() {
   const [stats, setStats] = useState<AccountingStats | null>(null);
   const [recentInvoices, setRecentInvoices] = useState<RecentInvoice[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<RecentTransaction[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [_loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {

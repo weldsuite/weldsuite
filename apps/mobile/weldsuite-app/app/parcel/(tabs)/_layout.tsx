@@ -23,7 +23,7 @@ export default function ParcelTabsLayout() {
   const insets = useSafeAreaInsets();
   const [agentModalVisible, setAgentModalVisible] = useState(false);
   const [message, setMessage] = useState('');
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [_isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const slideAnim = useRef(new Animated.Value(1000)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -176,7 +176,7 @@ export default function ParcelTabsLayout() {
   if (isTablet) {
     const HeaderCenterTablet = () => {
       const [searchText, setSearchText] = useState('');
-      const [isFocused, setIsFocused] = useState(false);
+      const [_isFocused, setIsFocused] = useState(false);
       const searchInputRef = useRef<TextInput>(null);
       
       return (

@@ -496,7 +496,7 @@ export default function EmailDetailScreen() {
   const [replySubject, setReplySubject] = useState('');
   const [replyBody, setReplyBody] = useState('');
   const [sending, setSending] = useState(false);
-  const [savingDraft, setSavingDraft] = useState(false);
+  const [_savingDraft, setSavingDraft] = useState(false);
 
   useEffect(() => {
     if (id) {

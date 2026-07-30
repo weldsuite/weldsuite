@@ -38,8 +38,8 @@ export default function CreateTaskScreen() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('medium');
-  const [dueDate, setDueDate] = useState('');
-  const [projectId, setProjectId] = useState<string | undefined>();
+  const [dueDate, _setDueDate] = useState('');
+  const [projectId, _setProjectId] = useState<string | undefined>();
   const [isImportant, setIsImportant] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 

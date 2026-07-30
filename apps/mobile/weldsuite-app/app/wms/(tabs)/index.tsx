@@ -28,7 +28,7 @@ export default function WmsDashboardScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const toast = useToast();
-  const { dashboardData, loadDashboard, refreshDashboard, loading } = useWms();
+  const { dashboardData, loadDashboard, refreshDashboard } = useWms();
 
   const [refreshing, setRefreshing] = useState(false);
 

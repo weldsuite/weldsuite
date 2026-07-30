@@ -202,7 +202,7 @@ export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchi
   const isDark = theme === 'dark';
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { accounts } = useMail();
+  useMail();
   const outbox = useMailOutbox();
   const { openCompose: openComposeOverlay } = useComposeOverlay();
 

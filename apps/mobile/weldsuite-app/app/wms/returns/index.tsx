@@ -44,7 +44,7 @@ export default function ReturnsListScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<ReturnStatus | 'all'>('all');
-  const [totalReturns, setTotalReturns] = useState(0);
+  const [_totalReturns, setTotalReturns] = useState(0);
 
   useEffect(() => {
     loadReturns();

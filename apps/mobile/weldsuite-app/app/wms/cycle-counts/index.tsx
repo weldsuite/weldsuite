@@ -42,7 +42,7 @@ export default function CycleCountsListScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<CycleCountStatus | 'all'>('all');
-  const [totalCounts, setTotalCounts] = useState(0);
+  const [_totalCounts, setTotalCounts] = useState(0);
 
   useEffect(() => {
     loadCycleCounts();
