@@ -56,8 +56,13 @@ export const searchIndex = pgTable(
      * is the deciding factor for an en/nl product: an English-only embedding
      * model puts Dutch records in a different region of the space than the
      * English query that should find them.
+     *
+     * NOT NULL on purpose. Nothing writes a row before embedding it, and a null
+     * vector would be invisible to the ANN query while still occupying the
+     * record's unique slot — a bug that silently drops a record from search
+     * rather than failing. The constraint turns that into an insert error.
      */
-    embedding: vector('embedding', { dimensions: 1024 }),
+    embedding: vector('embedding', { dimensions: 1024 }).notNull(),
     /**
      * Which model produced `embedding`. Vectors from different models are not
      * comparable, so a model change means a re-embed — this column is what
@@ -76,9 +81,11 @@ export const searchIndex = pgTable(
       table.entityId,
       table.chunkIndex,
     ),
-    // Type-scoped ANN: a parsed query narrows to one or two entity types, so
-    // the filter is applied far more often than a bare nearest-neighbour scan.
-    index('search_index_entity_type_idx').on(table.entityType),
+    // No standalone index on `entity_type`: the composite unique index above
+    // is (entity_type, entity_id, chunk_index), so a type-only filter is
+    // already served by its leftmost prefix. A second one would just add
+    // write and storage cost.
+    //
     // Re-embed sweeps after a model change scan by model id.
     index('search_index_embed_model_idx').on(table.embedModel),
     // NOTE: the HNSW index on `embedding` is intentionally absent from this

@@ -125,22 +125,20 @@ describe('search_index (tenant migration 0175)', () => {
     expect(rows).toHaveLength(2);
   });
 
-  it('permits a null embedding so a row can be queued before it is embedded', async () => {
-    await db.insert(schema.searchIndex).values({
-      id: 'si_pending',
-      entityType: 'ticket',
-      entityId: 'tkt_pending',
-      chunkIndex: 0,
-      content: 'awaiting embedding',
-      contentHash: 'h_pending',
-      embedModel: '@cf/baai/bge-m3',
-    });
-
-    const [row] = await db
-      .select()
-      .from(schema.searchIndex)
-      .where(eq(schema.searchIndex.entityId, 'tkt_pending'));
-
-    expect(row!.embedding).toBeNull();
+  it('rejects a row with no embedding', async () => {
+    // NOT NULL is deliberate: a null vector is invisible to the ANN query but
+    // still occupies the record's unique slot, so it would silently drop the
+    // record from search instead of failing.
+    await expect(
+      db.insert(schema.searchIndex).values({
+        id: 'si_pending',
+        entityType: 'ticket',
+        entityId: 'tkt_pending',
+        chunkIndex: 0,
+        content: 'awaiting embedding',
+        contentHash: 'h_pending',
+        embedModel: '@cf/baai/bge-m3',
+      } as unknown as typeof schema.searchIndex.$inferInsert),
+    ).rejects.toThrow();
   });
 });

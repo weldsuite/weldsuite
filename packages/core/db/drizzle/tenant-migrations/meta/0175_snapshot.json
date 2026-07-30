@@ -1,5 +1,5 @@
 {
-  "id": "f0cdc3d5-0f83-487d-b9fa-e363894f1a5d",
+  "id": "3741c7c1-9eef-470b-80e9-317cebaccea0",
   "prevId": "bf563108-3d84-459f-9049-bc024383d2a4",
   "version": "7",
   "dialect": "postgresql",
@@ -30957,7 +30957,7 @@
           "name": "embedding",
           "type": "vector(1024)",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "embed_model": {
           "name": "embed_model",
@@ -31008,21 +31008,6 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "search_index_entity_type_idx": {
-          "name": "search_index_entity_type_idx",
-          "columns": [
-            {
-              "expression": "entity_type",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}

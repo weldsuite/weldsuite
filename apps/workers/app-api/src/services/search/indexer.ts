@@ -23,7 +23,11 @@ import {
   embedMany,
   recommended,
 } from '@weldsuite/ai';
-import type { SearchEntityType } from '@weldsuite/app-api-client/schemas/search';
+import type {
+  SearchEntityType,
+  BackfillCursor,
+  ReindexProgress,
+} from '@weldsuite/app-api-client/schemas/search';
 import type { Env } from '../../types';
 import type { Database } from '../../db';
 import { schema } from '../../db';
@@ -52,10 +56,23 @@ const MAX_CHUNKS_PER_ENTITY = 40;
 // Chunking + hashing
 // ---------------------------------------------------------------------------
 
+/** Tail of the previous chunk, cut back to a word boundary where possible. */
+function overlapTail(chunk: string): string {
+  if (chunk.length <= CHUNK_OVERLAP_CHARS) return chunk;
+  const tail = chunk.slice(-CHUNK_OVERLAP_CHARS);
+  const boundary = tail.search(/\s/);
+  return boundary === -1 ? tail : tail.slice(boundary + 1);
+}
+
 /**
  * Split text on paragraph boundaries, packing up to {@link CHUNK_CHARS} and
  * carrying a small overlap so a sentence spanning a boundary still matches.
  * A paragraph longer than the target on its own is hard-split.
+ *
+ * The overlap applies on BOTH paths — packing and hard-split. It used to be
+ * hard-split only, which quietly dropped the boundary guarantee for exactly
+ * the documents that need it most: well-paragraphed prose, where a topic
+ * routinely straddles two paragraphs.
  */
 export function chunkText(text: string): string[] {
   const clean = text.trim();
@@ -82,8 +99,14 @@ export function chunkText(text: string): string[] {
     }
 
     if (current.length + paragraph.length + 1 > CHUNK_CHARS) {
+      const carried = overlapTail(current);
       push();
       if (chunks.length >= MAX_CHUNKS_PER_ENTITY) return chunks.slice(0, MAX_CHUNKS_PER_ENTITY);
+      // Seed the next chunk with the tail of the previous one. Skipped when the
+      // carry-over would leave no room for the paragraph itself.
+      if (carried && carried.length + paragraph.length + 1 <= CHUNK_CHARS) {
+        current = carried;
+      }
     }
     current = current ? `${current}\n${paragraph}` : paragraph;
   }
@@ -308,20 +331,13 @@ export async function indexEntity(
 // Backfill
 // ---------------------------------------------------------------------------
 
-export interface BackfillCursor {
-  /** Which entity type this page is walking. */
-  entityType: SearchEntityType;
-  /** Last id processed, exclusive. `null` starts the type. */
-  afterId: string | null;
-}
-
-export interface BackfillProgress {
-  cursor: BackfillCursor | null;
-  done: boolean;
-  processed: number;
-  embedded: number;
-  skipped: number;
-}
+/**
+ * Cursor + progress shapes are the wire contract for `POST /api/search/reindex`,
+ * so they are imported from the shared schema package rather than redeclared.
+ * A redeclared copy type-checks fine on both sides while silently diverging.
+ */
+export type { BackfillCursor };
+export type BackfillProgress = ReindexProgress;
 
 /** Records pulled per batch. Kept small — each one may cost an embed call. */
 const BACKFILL_PAGE_SIZE = 25;
@@ -329,6 +345,54 @@ const BACKFILL_PAGE_SIZE = 25;
 /** The first cursor of a full backfill. */
 export function initialBackfillCursor(): BackfillCursor {
   return { entityType: INDEXED_ENTITY_TYPES[0]!, afterId: null };
+}
+
+// ---------------------------------------------------------------------------
+// Concurrency guard
+// ---------------------------------------------------------------------------
+
+/**
+ * The reindex loop is driven by the client, so nothing stops two admins — or a
+ * script that was restarted — from walking the same corpus at once. The content
+ * hash keeps the *result* correct, but each concurrent walk still pays for the
+ * first pass of embeddings, so the cost multiplies by the number of walkers.
+ *
+ * A short-lived KV lease bounds that. It is advisory, not a distributed lock:
+ * KV is eventually consistent, so a genuine race can still slip two walkers
+ * through. That is an acceptable trade for something whose only failure mode is
+ * spending money twice — the alternative is a real lock nobody needs.
+ */
+const REINDEX_LOCK_PREFIX = 'search-reindex-lock:';
+/** Comfortably longer than one batch, short enough to self-heal after a crash. */
+const REINDEX_LOCK_TTL_SECONDS = 120;
+
+export interface ReindexLease {
+  acquired: boolean;
+  release(): Promise<void>;
+}
+
+export async function acquireReindexLease(env: Env, workspaceId: string): Promise<ReindexLease> {
+  const key = `${REINDEX_LOCK_PREFIX}${workspaceId}`;
+  const noop = { acquired: true, release: async () => {} };
+
+  try {
+    const held = await env.WORKSPACE_CACHE.get(key);
+    if (held) return { acquired: false, release: async () => {} };
+
+    await env.WORKSPACE_CACHE.put(key, new Date().toISOString(), {
+      expirationTtl: REINDEX_LOCK_TTL_SECONDS,
+    });
+
+    return {
+      acquired: true,
+      release: async () => {
+        await env.WORKSPACE_CACHE.delete(key).catch(() => undefined);
+      },
+    };
+  } catch {
+    // KV unavailable: proceed unguarded rather than block an admin action.
+    return noop;
+  }
 }
 
 /** The cursor for the type after this one, or `null` when the walk is over. */
@@ -357,16 +421,20 @@ export async function backfillBatch(
     return { cursor: next, done: next === null, processed: 0, embedded: 0, skipped: 0 };
   }
 
-  const docs = await loader.page(db, cursor.afterId, BACKFILL_PAGE_SIZE);
+  const { documents, rowsRead, lastScannedId } = await loader.page(
+    db,
+    cursor.afterId,
+    BACKFILL_PAGE_SIZE,
+  );
 
-  if (docs.length === 0) {
+  if (rowsRead === 0) {
     const next = nextEntityType(cursor.entityType);
     return { cursor: next, done: next === null, processed: 0, embedded: 0, skipped: 0 };
   }
 
   let embedded = 0;
   let skipped = 0;
-  for (const doc of docs) {
+  for (const doc of documents) {
     // One failing record must not abort the page — the cursor would stall on
     // it forever and the backfill could never pass that row.
     try {
@@ -381,18 +449,20 @@ export async function backfillBatch(
     }
   }
 
-  const lastId = docs[docs.length - 1]!.entityId;
-  // A short page means this type is exhausted; move on rather than spend a
-  // whole round trip discovering it next time.
-  const exhausted = docs.length < BACKFILL_PAGE_SIZE;
+  // Both of these come from the SCANNED rows, never from `documents`. The
+  // limit is applied in SQL before mapping, so a page containing rows that map
+  // to null yields fewer documents than rows read — judging "exhausted" or the
+  // next cursor from the filtered array would skip every record after the last
+  // mappable one and abandon the rest of the entity type.
+  const exhausted = rowsRead < BACKFILL_PAGE_SIZE;
   const next = exhausted
     ? nextEntityType(cursor.entityType)
-    : { entityType: cursor.entityType, afterId: lastId };
+    : { entityType: cursor.entityType, afterId: lastScannedId };
 
   return {
     cursor: next,
     done: next === null,
-    processed: docs.length,
+    processed: rowsRead,
     embedded,
     skipped,
   };

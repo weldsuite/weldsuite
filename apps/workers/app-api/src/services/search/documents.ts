@@ -33,12 +33,28 @@ export interface IndexableDocument {
   content: string;
 }
 
+/**
+ * One page of a backfill walk.
+ *
+ * `rowsRead` and `lastScannedId` describe the rows the query actually returned,
+ * which is NOT the same as `documents`: a row whose mapper yields `null` (a
+ * nameless contact, an empty page) is dropped from `documents` but was still
+ * scanned. The cursor has to advance on the scanned set, or the walk would
+ * treat a partly-filtered page as the end of the entity type and abandon
+ * everything after it.
+ */
+export interface DocumentPage {
+  documents: IndexableDocument[];
+  rowsRead: number;
+  lastScannedId: string | null;
+}
+
 export interface DocumentLoader {
   type: SearchEntityType;
   /** One record by id. `null` when it is missing or soft-deleted. */
   load(db: Database, entityId: string): Promise<IndexableDocument | null>;
   /** A page of records ordered by id, for backfill. */
-  page(db: Database, afterId: string | null, limit: number): Promise<IndexableDocument[]>;
+  page(db: Database, afterId: string | null, limit: number): Promise<DocumentPage>;
 }
 
 /** Join the parts of a document, dropping empties and normalising whitespace. */
@@ -84,7 +100,11 @@ function defineLoader<T extends { id: string }>(config: {
     },
     async page(db, afterId, limit) {
       const rows = await config.select(db).after(afterId, limit);
-      return rows.map(build).filter((d): d is IndexableDocument => d !== null);
+      return {
+        documents: rows.map(build).filter((d): d is IndexableDocument => d !== null),
+        rowsRead: rows.length,
+        lastScannedId: rows.length > 0 ? rows[rows.length - 1]!.id : null,
+      };
     },
   };
 }

@@ -1,14 +1,37 @@
 /**
- * Tests for the SEARCH_EVENTS batch grouping.
+ * Tests for the SEARCH_EVENTS consumer — batch grouping and message disposition.
  *
  * Coalescing is the consumer's whole reason for existing: an edit burst on one
  * record produces a stream of events, and re-embedding once per event would
  * multiply the cost of the feature by however fast someone types.
+ *
+ * The ack/retry branches matter just as much and are less obvious: acking the
+ * wrong failure permanently drops a record from search, retrying the wrong one
+ * recycles a poison message until the queue gives up on it.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { EntityEventMessage } from '@weldsuite/entity-events';
-import { groupBatch } from './search-index-consumer';
+import { groupBatch, handleSearchIndexBatch } from './search-index-consumer';
+import type { Env } from '../types';
+
+vi.mock('../services/search/indexer', () => ({
+  createEmbedder: vi.fn(() => ({ embed: vi.fn() })),
+  indexEntity: vi.fn(async () => ({
+    entityType: 'ticket',
+    entityId: 'tkt_1',
+    embedded: 1,
+    skipped: 0,
+    removed: 0,
+  })),
+}));
+
+vi.mock('../db', () => ({
+  getTenantDbForWorkspace: vi.fn(async () => ({}) as never),
+}));
+
+const { createEmbedder, indexEntity } = await import('../services/search/indexer');
+const { getTenantDbForWorkspace } = await import('../db');
 
 function message(
   overrides: {
@@ -110,5 +133,107 @@ describe('groupBatch', () => {
 
     expect(grouped.size).toBe(0);
     expect(noWorkspace.ack).toHaveBeenCalledOnce();
+  });
+});
+
+describe('handleSearchIndexBatch', () => {
+  const env = {} as Env;
+
+  function batch(messages: TestMessage[]) {
+    return {
+      queue: 'search-index',
+      messages: messages as unknown as Message<EntityEventMessage>[],
+      retryAll: vi.fn(),
+      ackAll: vi.fn(),
+    };
+  }
+
+  beforeEach(() => {
+    // Clear call history FIRST, then install implementations. The reverse order
+    // happens to work (clearAllMocks keeps implementations) but breaks the day
+    // someone reaches for resetAllMocks instead.
+    vi.clearAllMocks();
+    vi.mocked(createEmbedder).mockReturnValue({ embed: vi.fn() });
+    vi.mocked(getTenantDbForWorkspace).mockResolvedValue({} as never);
+    vi.mocked(indexEntity).mockResolvedValue({
+      entityType: 'ticket',
+      entityId: 'tkt_1',
+      embedded: 1,
+      skipped: 0,
+      removed: 0,
+    });
+  });
+
+  it('acks every message backing a job that indexed successfully', async () => {
+    const messages = [message(), message()];
+    await handleSearchIndexBatch(batch(messages) as never, env);
+
+    // Two events, one record: indexed once, both acked.
+    expect(indexEntity).toHaveBeenCalledOnce();
+    for (const m of messages) {
+      expect(m.ack).toHaveBeenCalledOnce();
+      expect(m.retry).not.toHaveBeenCalled();
+    }
+  });
+
+  it('retries the whole batch when the AI gateway is unconfigured', async () => {
+    vi.mocked(createEmbedder).mockImplementation(() => {
+      throw new Error('gateway not configured');
+    });
+    const b = batch([message()]);
+
+    await handleSearchIndexBatch(b as never, env);
+
+    // An environment fault a redeploy fixes — dropping would leave the index
+    // permanently behind with nothing to signal it.
+    expect(b.retryAll).toHaveBeenCalledOnce();
+    expect(indexEntity).not.toHaveBeenCalled();
+  });
+
+  it('acks and drops a workspace that no longer resolves', async () => {
+    vi.mocked(getTenantDbForWorkspace).mockRejectedValue(new Error('no such workspace'));
+    const m = message();
+
+    await handleSearchIndexBatch(batch([m]) as never, env);
+
+    // Usually a deleted workspace, not an outage — retrying would recycle
+    // its backlog forever.
+    expect(m.ack).toHaveBeenCalledOnce();
+    expect(m.retry).not.toHaveBeenCalled();
+  });
+
+  it('retries only the messages of the job that failed', async () => {
+    vi.mocked(indexEntity)
+      .mockRejectedValueOnce(new Error('embed failed'))
+      .mockResolvedValueOnce({
+        entityType: 'ticket',
+        entityId: 'tkt_2',
+        embedded: 1,
+        skipped: 0,
+        removed: 0,
+      });
+
+    const failing = message({ entityId: 'tkt_1' });
+    const succeeding = message({ entityId: 'tkt_2' });
+
+    await handleSearchIndexBatch(batch([failing, succeeding]) as never, env);
+
+    expect(failing.retry).toHaveBeenCalledOnce();
+    expect(failing.ack).not.toHaveBeenCalled();
+    expect(succeeding.ack).toHaveBeenCalledOnce();
+    expect(succeeding.retry).not.toHaveBeenCalled();
+  });
+
+  it('resolves one DB handle per workspace, not per record', async () => {
+    await handleSearchIndexBatch(
+      batch([
+        message({ workspaceId: 'org_1', entityId: 'tkt_1' }),
+        message({ workspaceId: 'org_1', entityId: 'tkt_2' }),
+        message({ workspaceId: 'org_2', entityId: 'tkt_3' }),
+      ]) as never,
+      env,
+    );
+
+    expect(getTenantDbForWorkspace).toHaveBeenCalledTimes(2);
   });
 });

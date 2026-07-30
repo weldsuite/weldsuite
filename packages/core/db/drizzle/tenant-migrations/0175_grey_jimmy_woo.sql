@@ -12,7 +12,7 @@ CREATE TABLE "search_index" (
 	"chunk_index" integer DEFAULT 0 NOT NULL,
 	"content" text NOT NULL,
 	"content_hash" varchar(64) NOT NULL,
-	"embedding" vector(1024),
+	"embedding" vector(1024) NOT NULL,
 	"embed_model" varchar(100) NOT NULL,
 	"title" varchar(500),
 	"subtitle" varchar(500),
@@ -20,7 +20,6 @@ CREATE TABLE "search_index" (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX "search_index_entity_chunk_idx" ON "search_index" USING btree ("entity_type","entity_id","chunk_index");--> statement-breakpoint
-CREATE INDEX "search_index_entity_type_idx" ON "search_index" USING btree ("entity_type");--> statement-breakpoint
 CREATE INDEX "search_index_embed_model_idx" ON "search_index" USING btree ("embed_model");--> statement-breakpoint
 -- Approximate-nearest-neighbour index for the semantic leg. Cosine ops match
 -- bge-m3's normalised output. Hand-added: declaring it in the Drizzle schema

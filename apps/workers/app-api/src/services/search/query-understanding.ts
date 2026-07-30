@@ -41,6 +41,7 @@ import {
   SEARCH_ENTITY_TYPES,
   SEARCH_ENTITY_TYPES_SET,
   type SearchEntityType,
+  type SearchUnderstanding,
 } from '@weldsuite/app-api-client/schemas/search';
 import type { Env } from '../../types';
 import { assertAiCredits, chargeAiUsage, type AiMetering } from '../ai/billing';
@@ -49,8 +50,12 @@ import { assertAiCredits, chargeAiUsage, type AiMetering } from '../ai/billing';
 // Result shape
 // ---------------------------------------------------------------------------
 
-/** How a query's structure was determined — surfaced for telemetry + tests. */
-export type QueryUnderstandingSource = 'lexical' | 'lexicon' | 'model' | 'model_failed';
+/**
+ * How a query's structure was determined — surfaced for telemetry + tests.
+ * Sourced from the shared schema so the wire contract and the implementation
+ * cannot drift: adding a tier here without adding it there won't compile.
+ */
+export type QueryUnderstandingSource = SearchUnderstanding['source'];
 
 export interface ParsedSearchQuery {
   /**
@@ -298,21 +303,36 @@ function buildSystemPrompt(): string {
 const CACHE_PREFIX = 'search-parse:v1:';
 const CACHE_TTL_SECONDS = 60 * 60 * 24;
 
-function cacheKey(q: string): string {
-  return `${CACHE_PREFIX}${q.trim().toLowerCase().replace(/\s+/g, ' ')}`;
+/**
+ * Keys are namespaced per workspace.
+ *
+ * The cached value is currently a pure function of the query text, so sharing
+ * it globally would not leak authorization — but it would store one tenant's
+ * typed search strings under a key every other tenant can read, and it would
+ * turn into a real leak the moment anything tenant-derived enters
+ * {@link ParsedSearchQuery}. Namespacing costs nothing and removes the class.
+ */
+export function cacheKey(workspaceId: string, q: string): string {
+  const normalized = q.trim().toLowerCase().replace(/\s+/g, ' ');
+  return `${CACHE_PREFIX}${workspaceId}:${normalized}`;
 }
 
-async function readCache(env: Env, q: string): Promise<ParsedSearchQuery | null> {
+async function readCache(env: Env, workspaceId: string, q: string): Promise<ParsedSearchQuery | null> {
   try {
-    const hit = await env.WORKSPACE_CACHE.get(cacheKey(q), 'json');
+    const hit = await env.WORKSPACE_CACHE.get(cacheKey(workspaceId, q), 'json');
     return (hit as ParsedSearchQuery | null) ?? null;
   } catch {
     return null;
   }
 }
 
-function writeCache(env: Env, q: string, parsed: ParsedSearchQuery): Promise<void> {
-  return env.WORKSPACE_CACHE.put(cacheKey(q), JSON.stringify(parsed), {
+function writeCache(
+  env: Env,
+  workspaceId: string,
+  q: string,
+  parsed: ParsedSearchQuery,
+): Promise<void> {
+  return env.WORKSPACE_CACHE.put(cacheKey(workspaceId, q), JSON.stringify(parsed), {
     expirationTtl: CACHE_TTL_SECONDS,
   }).catch(() => undefined);
 }
@@ -339,7 +359,7 @@ export function normalizeModelOutput(raw: ModelParseOutput, q: string): ParsedSe
 async function parseWithModel(
   env: Env,
   q: string,
-  metering: AiMetering | null,
+  resolveMetering: MeteringResolver,
 ): Promise<ParsedSearchQuery | null> {
   try {
     assertGatewayConfigured(env);
@@ -347,6 +367,12 @@ async function parseWithModel(
     // No gateway configured — this is a valid deployment state, not an error.
     return null;
   }
+
+  // Resolved here rather than by the caller: this is the only tier that bills,
+  // and the lookup hits the master DB. Doing it up front would put a master-DB
+  // round trip on every keystroke, including the short prefixes and identifiers
+  // the tiering exists to keep fast.
+  const metering = await resolveMetering();
 
   try {
     await assertAiCredits(metering);
@@ -389,28 +415,42 @@ export function passthrough(q: string, source: QueryUnderstandingSource = 'lexic
 }
 
 /**
+ * Lazily resolves the credit-metering context.
+ *
+ * A thunk rather than a value so the master-DB lookup only happens on the one
+ * tier that actually bills — see {@link parseWithModel}.
+ */
+export type MeteringResolver = () => Promise<AiMetering | null>;
+
+export interface UnderstandQueryOptions {
+  /** Namespaces the parse cache. Pass the Clerk org id. */
+  workspaceId: string;
+  resolveMetering: MeteringResolver;
+}
+
+/**
  * Resolve a raw search string into a scoped query. Never throws — every
  * failure path returns a passthrough so the caller can always run a search.
  */
 export async function understandQuery(
   env: Env,
   q: string,
-  metering: AiMetering | null,
+  opts: UnderstandQueryOptions,
 ): Promise<ParsedSearchQuery> {
   if (!shouldUnderstand(q)) return passthrough(q);
 
   const fromLexicon = parseWithLexicon(q);
   if (fromLexicon) return fromLexicon;
 
-  const cached = await readCache(env, q);
+  const cached = await readCache(env, opts.workspaceId, q);
   if (cached) return cached;
 
-  const fromModel = await parseWithModel(env, q, metering);
+  const fromModel = await parseWithModel(env, q, opts.resolveMetering);
   if (!fromModel) return passthrough(q, 'model_failed');
 
   // Cache write is not awaited into the response path — a slow KV put must not
   // add latency to a keystroke-driven search.
-  void writeCache(env, q, fromModel);
+  void writeCache(env, opts.workspaceId, q, fromModel);
   return fromModel;
 }
 

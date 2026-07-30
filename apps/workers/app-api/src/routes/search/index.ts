@@ -17,7 +17,12 @@ import { zValidator } from '@hono/zod-validator';
 import { ensurePermissionsResolved, requirePermission } from '@weldsuite/permissions/server';
 import { hasAnyPermission } from '@weldsuite/permissions';
 import { searchInputSchema, reindexInputSchema } from '@weldsuite/app-api-client/schemas/search';
-import { createEmbedder, backfillBatch, initialBackfillCursor } from '../../services/search/indexer';
+import {
+  createEmbedder,
+  backfillBatch,
+  initialBackfillCursor,
+  acquireReindexLease,
+} from '../../services/search/indexer';
 import type { Env, Variables } from '../../types';
 import { error } from '../../lib/response';
 import { runSearch, getPermittedTypes, type PermissionLike } from '../../services/search';
@@ -52,8 +57,16 @@ app.post('/', zValidator('json', searchInputSchema), async (c) => {
     // queries can actually match. Never throws — an unparseable query, an
     // unconfigured gateway or an empty credit wallet all fall back to the raw
     // string, i.e. exactly the behaviour before this layer existed.
-    const metering = await resolveAiMetering(c.env, c.get('workspaceId') ?? '', c.get('userId') ?? '');
-    const parsed = await understandQuery(c.env, input.q, metering);
+    //
+    // Metering is passed as a thunk, not a value: resolving it hits the master
+    // DB, and only the model tier bills. Resolving eagerly would put that round
+    // trip on every keystroke — including the short prefixes and identifiers
+    // the tiering exists to keep fast.
+    const parsed = await understandQuery(c.env, input.q, {
+      workspaceId,
+      resolveMetering: () =>
+        resolveAiMetering(c.env, c.get('workspaceId') ?? '', c.get('userId') ?? ''),
+    });
 
     // An explicit `types` filter from the UI always wins over the parse — the
     // user narrowing to a tab is a stronger signal than the model's guess.
@@ -119,12 +132,29 @@ app.post(
       );
     }
 
+    // Advisory lease: two admins walking the same corpus stay correct thanks to
+    // the content hash, but each pays for the first pass of embeddings.
+    const lease = await acquireReindexLease(c.env, c.get('workspaceId') ?? '');
+    if (!lease.acquired) {
+      return c.json(
+        {
+          error: {
+            code: 'REINDEX_IN_PROGRESS',
+            message: 'A reindex is already running for this workspace',
+          },
+        },
+        409,
+      );
+    }
+
     try {
       const progress = await backfillBatch(db, embedder, cursor ?? initialBackfillCursor());
       return c.json({ data: progress });
     } catch (err) {
       console.error('[app-api/search] reindex batch failed:', err);
       return error.internal(c, 'Failed to run reindex batch');
+    } finally {
+      await lease.release();
     }
   },
 );

@@ -266,6 +266,70 @@ describe('indexEntity against real rows', () => {
   });
 });
 
+describe('backfillBatch page boundaries', () => {
+  // 30 > BACKFILL_PAGE_SIZE (25), so the walk must take more than one page —
+  // and some rows map to null, which is precisely the case that used to make
+  // the cursor treat a partly-filtered page as the end of the entity type.
+  const TOTAL = 30;
+  const NAMELESS = 4;
+  /**
+   * The nameless rows sit INSIDE the first page, not at the tail — that
+   * placement is what makes this a regression test. With them at the end, the
+   * last page is short either way and the buggy and correct implementations
+   * agree. Inside a full page, the old code saw 21 documents from 25 scanned
+   * rows, concluded the type was exhausted, and abandoned rows 25-29.
+   */
+  const NAMELESS_FROM = 5;
+
+  beforeAll(async () => {
+    await db.delete(schema.searchIndex);
+    await db.delete(schema.companies);
+
+    const rows = Array.from({ length: TOTAL }, (_, i) => ({
+      // Zero-padded so lexicographic id order matches insertion order; the
+      // cursor pages with `gt(id)`, so a stable ordering is load-bearing.
+      id: `cmp_bf_${String(i).padStart(3, '0')}`,
+      // These have no name at all, so `toDocument` returns null and they
+      // vanish from `documents` while still counting as scanned rows.
+      name: i >= NAMELESS_FROM && i < NAMELESS_FROM + NAMELESS ? '' : `Backfill Corp ${i}`,
+      // Required by the table but not read by the customer mapper, which keys
+      // off `name`/`tradingName` — so these rows still map to null.
+      displayName: `row ${i}`,
+    }));
+    await db
+      .insert(schema.companies)
+      .values(rows as unknown as (typeof schema.companies.$inferInsert)[]);
+  }, 60_000);
+
+  it('indexes every mappable record across page boundaries', async () => {
+    const stub = createStubEmbedder();
+    let cursor: ReturnType<typeof initialBackfillCursor> | null = {
+      entityType: 'customer',
+      afterId: null,
+    };
+    let scanned = 0;
+
+    // Walk only the `customer` type; stop as soon as the cursor moves on.
+    for (let i = 0; i < 50 && cursor && cursor.entityType === 'customer'; i += 1) {
+      const progress = await backfillBatch(db, stub.embedder, cursor);
+      scanned += progress.processed;
+      cursor = progress.cursor;
+    }
+
+    // Every row was scanned — not just the ones that produced a document.
+    expect(scanned).toBe(TOTAL);
+
+    const indexed = await db
+      .select({ entityId: schema.searchIndex.entityId })
+      .from(schema.searchIndex)
+      .where(eq(schema.searchIndex.entityType, 'customer'));
+
+    // …and every mappable row landed in the index. Deriving the cursor from the
+    // filtered array instead of the scanned rows loses records here.
+    expect(indexed).toHaveLength(TOTAL - NAMELESS);
+  });
+});
+
 describe('backfillBatch', () => {
   it('walks every indexed entity type and terminates', async () => {
     const stub = createStubEmbedder();
