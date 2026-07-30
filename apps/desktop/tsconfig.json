@@ -5,7 +5,9 @@
     "moduleResolution": "Bundler",
     "types": ["node", "electron"],
     "outDir": "dist",
-    "rootDir": "src",
+    // No `rootDir`: this config is type-check only (`noEmit`), and `include`
+    // deliberately reaches outside src for electron.vite.config.ts, which
+    // `rootDir: "src"` rejected outright (TS6059).
     "noEmit": true,
     "allowSyntheticDefaultImports": true
   },
