@@ -15,7 +15,7 @@
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
-    "drizzle-orm": "^0.45.1",
+    "drizzle-orm": "^0.45.2",
     "hono": "^4.12.27",
     "nanoid": "^5.1.5",
     "postgres": "^3.4.7",

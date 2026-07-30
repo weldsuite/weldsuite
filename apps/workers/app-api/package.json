@@ -14,7 +14,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@clerk/backend": "^2.29.0",
+    "@clerk/backend": "^2.33.3",
     "@hono/zod-validator": "^0.4.0",
     "@neondatabase/serverless": "^1.0.1",
     "@weldsuite/ai": "workspace:*",
@@ -34,7 +34,7 @@
     "@weldsuite/realtime": "workspace:*",
     "@weldsuite/workflow-integrations": "workspace:*",
     "cloudflare": "^7.0.0",
-    "drizzle-orm": "^0.45.1",
+    "drizzle-orm": "^0.45.2",
     "fflate": "^0.8.2",
     "hono": "4.12.27",
     "nanoid": "^5.1.5",
@@ -45,7 +45,7 @@
     "@electric-sql/pglite": "^0.4.5",
     "@types/node": "^20",
     "typescript": "^5.7",
-    "vitest": "^2.1.8",
+    "vitest": "^3.2.6",
     "wrangler": "^4.95.0"
   }
 }

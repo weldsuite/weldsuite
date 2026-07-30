@@ -22,7 +22,7 @@
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@neondatabase/serverless": "^1.0.1",
-    "drizzle-orm": "^0.45.1",
+    "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.7",
     "zod": "^3.25.76"
   },
@@ -32,7 +32,7 @@
     "@types/node": "^20",
     "@weldsuite/typescript-config": "workspace:*",
     "typescript": "^5.9.2",
-    "vitest": "^2.1.8",
+    "vitest": "^3.2.6",
     "wrangler": "^4.0.0"
   }
 }
