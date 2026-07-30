@@ -29,8 +29,12 @@ const PREFIX = 'TASK-';
  */
 export function presentTaskNumber<T extends Record<string, unknown>>(
   row: T,
-): Omit<T, 'number'> & { number?: string } {
-  if (typeof row.number !== 'number') return row as Omit<T, 'number'> & { number?: string };
+): Omit<T, 'number'> & { number?: string | null } {
+  // Pre-backfill rows carry a null `number`, which passes through untouched —
+  // so the return type has to admit null, not just string | undefined.
+  if (typeof row.number !== 'number') {
+    return row as Omit<T, 'number'> & { number?: string | null };
+  }
   return { ...row, number: `${PREFIX}${row.number}` };
 }
 
