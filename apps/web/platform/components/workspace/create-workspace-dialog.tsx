@@ -38,7 +38,11 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
 
   /** Drop persisted query cache so the reload fetches a fresh workspace list. */
   const clearCacheAndRedirect = React.useCallback(() => {
-    try { window.localStorage.removeItem('weldsuite:query-cache'); } catch {}
+    try {
+      window.localStorage.removeItem('weldsuite:query-cache');
+    } catch {
+      /* localStorage unavailable (private mode / blocked) — reload anyway */
+    }
     window.location.href = '/';
   }, []);
 

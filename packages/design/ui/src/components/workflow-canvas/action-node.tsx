@@ -146,9 +146,9 @@ function ActionNodeComponent({ data, selected }: NodeProps) {
 
   const getDescription = () => {
     if (nodeData.step?.description) return nodeData.step.description;
-    const config = nodeData.step?.config as Record<string, any> | undefined;
+    const config = nodeData.step?.config as Record<string, unknown> | undefined;
     if (!config || Object.keys(config).length === 0) return labels.noDescription || 'Not configured';
-    if (config.description) return config.description;
+    if (typeof config.description === 'string' && config.description) return config.description;
 
     switch (nodeData.actionType) {
       case 'send_email':

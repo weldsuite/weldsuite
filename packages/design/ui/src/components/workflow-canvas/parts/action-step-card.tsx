@@ -34,18 +34,26 @@ import {
   DialogTitle,
 } from '../../dialog';
 import { cn } from '../../../lib/utils';
+import type { WorkflowStep } from '../types';
+
+/** One selectable action type in the step picker. */
+export interface ActionTypeOption {
+  type: string;
+  name: string;
+  description?: string;
+}
 
 interface ActionStepCardProps {
-  step: any;
+  step: WorkflowStep;
   index: number;
   totalSteps: number;
-  actionTypes: any[];
-  onUpdate: (data: any) => void;
+  actionTypes: ActionTypeOption[];
+  onUpdate: (data: Partial<WorkflowStep>) => void;
   onDelete: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
   /** Platform-provided: renders the action config form inside the dialog. */
-  renderConfigForm?: (props: { actionType: string; config: Record<string, any>; onChange: (config: Record<string, any>) => void }) => React.ReactNode;
+  renderConfigForm?: (props: { actionType: string; config: Record<string, unknown>; onChange: (config: Record<string, unknown>) => void }) => React.ReactNode;
   /** Called when the user saves the config dialog. Useful for host-side notifications. */
   onSaved?: () => void;
   labels?: {
@@ -62,7 +70,7 @@ interface ActionStepCardProps {
   };
 }
 
-const ACTION_ICONS: Record<string, any> = {
+const ACTION_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   email: Mail, send_email: Mail,
   http: Globe, http_request: Globe,
   webhook: Webhook, api_call: Globe,
@@ -88,7 +96,7 @@ const ACTION_COLORS: Record<string, string> = {
   set_variable: 'bg-indigo-500',
 };
 
-function getConfigSummary(actionType: string, config: Record<string, any>): string[] {
+function getConfigSummary(actionType: string, config: Record<string, unknown>): string[] {
   const summary: string[] = [];
   switch (actionType) {
     case 'send_email':
@@ -111,14 +119,14 @@ function getConfigSummary(actionType: string, config: Record<string, any>): stri
       break;
     case 'log_message':
       if (config.level) summary.push(`Level: ${config.level}`);
-      if (config.message) summary.push(config.message.substring(0, 50) + (config.message.length > 50 ? '...' : ''));
+      if (config.message) { const msg = String(config.message); summary.push(msg.substring(0, 50) + (msg.length > 50 ? '...' : '')); }
       break;
     case 'create_record':
     case 'update_record':
       if (config.entityType || config.entity) summary.push(`Entity: ${config.entityType || config.entity}`);
       break;
     case 'transform_data':
-      if (config.transformation) summary.push(config.transformation.substring(0, 40) + '...');
+      if (config.transformation) summary.push(String(config.transformation).substring(0, 40) + '...');
       break;
     case 'loop':
       if (config.items) summary.push(`Items: ${config.items}`);
@@ -143,7 +151,6 @@ export function ActionStepCard({
   onSaved,
   labels = {},
 }: ActionStepCardProps) {
-  const [isOpen, setIsOpen] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [config, setConfig] = useState(step.config || {});
   const [name, setName] = useState(step.name || '');

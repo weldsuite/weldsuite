@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "./dialog";
 import { WorkspaceSwitcher, Workspace } from "./workspace-switcher";
+import { errorMessage } from "../lib/utils";
 
 export interface WorkspaceSwitcherWithDialogProps {
   currentWorkspace: Workspace | null;
@@ -120,8 +121,8 @@ export function WorkspaceSwitcherWithDialog({
       setDialogOpen(false);
       setFormData({ name: "", slug: "", description: "" });
       setFormErrors({});
-    } catch (err: any) {
-      setError(err.message || "Failed to create workspace");
+    } catch (err) {
+      setError(errorMessage(err, "Failed to create workspace"));
     } finally {
       setCreating(false);
     }

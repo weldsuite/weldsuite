@@ -176,38 +176,6 @@ const tabs = [
   },
 ]
 
-// Settings state management
-const useSettingsState = () => {
-  const loadSetting = (key: string, defaultValue: any) => {
-    if (typeof window === 'undefined') return defaultValue
-    const stored = localStorage.getItem(key)
-    if (stored) {
-      try {
-        return JSON.parse(stored)
-      } catch {
-        return defaultValue
-      }
-    }
-    return defaultValue
-  }
-
-  const [theme, setTheme] = React.useState<"light" | "dark" | "system">(() => 
-    loadSetting('theme', 'system')
-  )
-  
-  const saveSetting = (key: string, value: any) => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(key, JSON.stringify(value))
-    }
-  }
-
-  React.useEffect(() => { saveSetting('theme', theme) }, [theme])
-
-  return {
-    theme, setTheme,
-  }
-}
-
 export function SettingsDialogFull({
   open = false,
   onOpenChange,

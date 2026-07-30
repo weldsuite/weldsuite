@@ -227,16 +227,9 @@ export function SettingsModalEnhanced({
     permissions: [] as string[]
   })
 
-  // Load data when modal opens or section changes
-  React.useEffect(() => {
-    if (open && serverActions) {
-      loadDataForSection(activeSection)
-    }
-  }, [open, activeSection, serverActions])
-
-  const loadDataForSection = async (section: string) => {
+  const loadDataForSection = React.useCallback(async (section: string) => {
     if (!serverActions) return
-    
+
     setLoading(true)
     try {
       switch (section) {
@@ -275,7 +268,14 @@ export function SettingsModalEnhanced({
     } finally {
       setLoading(false)
     }
-  }
+  }, [serverActions])
+
+  // Load data when modal opens or section changes
+  React.useEffect(() => {
+    if (open && serverActions) {
+      loadDataForSection(activeSection)
+    }
+  }, [open, activeSection, serverActions, loadDataForSection])
 
   const handleCreateUser = async () => {
     if (!serverActions) return

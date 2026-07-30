@@ -1176,8 +1176,6 @@ export type GanttSubtaskConnectorProps = {
 export const GanttSubtaskConnector: FC<GanttSubtaskConnectorProps> = ({
   feature,
   parentFeature,
-  isLastChild,
-  isFirstChild,
 }) => {
   const gantt = useContext(GanttContext);
   const timelineStartDate = useMemo(
@@ -1198,8 +1196,6 @@ export const GanttSubtaskConnector: FC<GanttSubtaskConnectorProps> = ({
 
   // Position the vertical line 12px after the parent task ends
   const verticalLineX = parentEndX + 12;
-  const rowHeight = gantt.rowHeight;
-
   return (
     <>
       {/* Horizontal line to subtask */}
@@ -1467,9 +1463,12 @@ export const GanttProvider: FC<GanttProviderProps> = ({
     };
   }, []);
 
-  // Fix the useCallback to include all dependencies
-  const handleScroll = useCallback(
-    throttle(() => {
+  // `useMemo` rather than `useCallback` because the argument is a throttled
+  // wrapper, not an inline function — useCallback can't see through it to
+  // check dependencies. Deps stay empty so the listener registered below keeps
+  // a stable identity, matching the existing behaviour.
+  const handleScroll = useMemo(
+    () => throttle(() => {
       const scrollElement = scrollRef.current;
       if (!scrollElement) {
         return;
@@ -1533,6 +1532,7 @@ export const GanttProvider: FC<GanttProviderProps> = ({
         setScrollX(scrollElement.scrollLeft);
       }
     }, 100),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
 

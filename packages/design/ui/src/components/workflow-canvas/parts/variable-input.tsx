@@ -211,7 +211,7 @@ export function VariableInput({
   return (
     <div className="relative">
       <InputComponent
-        ref={inputRef as any}
+        ref={inputRef as React.Ref<HTMLInputElement & HTMLTextAreaElement>}
         value={value}
         onChange={(e) => handleInputChange(e.target.value)}
         onKeyDown={handleKeyDown}

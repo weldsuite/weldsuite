@@ -94,14 +94,22 @@ interface ApiKey {
   isActive?: boolean;
 }
 
+/** Fields on the create/edit API-key form. */
+export interface ApiKeyFormData {
+  name?: string;
+  description?: string;
+  environment?: string;
+  expiresIn?: string;
+}
+
 interface ApiKeysContentProps {
   apiKeys: ApiKey[];
   loading: boolean;
   onAddNew: () => void;
   onDelete: (id: string) => void;
   showForm: boolean;
-  formData: any;
-  setFormData: (data: any) => void;
+  formData: ApiKeyFormData;
+  setFormData: (data: ApiKeyFormData) => void;
   onFormSubmit: (e: React.FormEvent) => void;
   setShowForm: (show: boolean) => void;
   formMode: 'add' | 'edit';

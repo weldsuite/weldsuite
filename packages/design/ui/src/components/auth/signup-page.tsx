@@ -57,7 +57,7 @@ export function SignupPage({
       setPasswordError('Password must contain at least one number');
       return false;
     }
-    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+    if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password)) {
       setPasswordError('Password must contain at least one special character');
       return false;
     }

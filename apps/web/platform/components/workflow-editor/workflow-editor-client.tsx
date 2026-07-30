@@ -1032,7 +1032,7 @@ export function WorkflowEditorClient({
 
     // Recursively collect all step IDs that should be deleted
     const idsToDelete = new Set<string>();
-    function collectDeletions(id: string, type: string, config?: unknown) {
+    function collectDeletions(id: string, type: string, config?: Record<string, unknown>) {
       idsToDelete.add(id);
       if (type === 'condition') {
         const branchIds = getConditionBranchIds({ id, config });

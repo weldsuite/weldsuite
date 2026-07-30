@@ -5,7 +5,18 @@ import { memo, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Zap, Calendar, Webhook, MousePointerClick, GitMerge, Plus } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import type { TriggerConfig } from './types';
 import type { TriggerNodeData } from './flow-utils';
+
+/** Kind-specific fields older saved triggers store flat on the trigger. */
+interface LegacyTriggerFields {
+  entityType?: string;
+  eventType?: string;
+  scheduleType?: string;
+  cronExpression?: string;
+  executeAt?: string;
+  triggerOn?: string;
+}
 
 const triggerIcons: Record<string, React.ElementType> = {
   entity_event: Zap,
@@ -42,7 +53,9 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
   const clickToConfigure = desc?.clickToConfigure ?? 'Click to configure';
 
   const getDescription = () => {
-    const trigger = nodeData.trigger as any;
+    // Saved triggers carry their kind-specific fields flat on the object
+    // (older shape) rather than nested under `config`.
+    const trigger = nodeData.trigger as (TriggerConfig & LegacyTriggerFields) | undefined;
     if (!trigger) return clickToConfigure;
     if (nodeData.label === 'Select Trigger') return clickToConfigure;
 
@@ -50,16 +63,16 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
       case 'entity_event':
         return nodeData.entityEvent || clickToConfigure;
       case 'schedule': {
-        const scheduleType = trigger.scheduleType || trigger.config?.scheduleType;
-        const cronExpression = trigger.cronExpression || trigger.config?.cronExpression;
-        const executeAt = trigger.executeAt || trigger.config?.executeAt;
+        const scheduleType = trigger.scheduleType || (trigger.config?.scheduleType as string | undefined);
+        const cronExpression = trigger.cronExpression || (trigger.config?.cronExpression as string | undefined);
+        const executeAt = trigger.executeAt || (trigger.config?.executeAt as string | undefined);
         if (scheduleType === 'recurring') return cronExpression || (desc?.recurringSchedule ?? 'Recurring schedule');
         if (scheduleType === 'one_time' && executeAt) return new Date(executeAt).toLocaleString();
         if (scheduleType || cronExpression || executeAt) return cronExpression || (desc?.scheduled ?? 'Scheduled');
         return clickToConfigure;
       }
       case 'workflow_complete': {
-        const triggerOn = trigger.triggerOn || trigger.config?.triggerOn;
+        const triggerOn = trigger.triggerOn || (trigger.config?.triggerOn as string | undefined);
         const template = desc?.onCompletion ?? 'On {triggerOn}';
         return template.replace('{triggerOn}', triggerOn || 'completion');
       }

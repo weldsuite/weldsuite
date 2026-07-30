@@ -23,6 +23,7 @@ import {
   TooltipTrigger,
 } from "./tooltip"
 import { AiChatDropdown } from "./ai-chat-dropdown"
+import type { AiChatAction, AiChatChunk } from "./ai-chat-dropdown"
 
 /**
  * Props for a link component compatible with both `next/link` and the
@@ -65,11 +66,11 @@ export interface GlobalBreadcrumbProps {
     title: string
     href?: string
   }>
-  onAiAction?: (action: any) => void
+  onAiAction?: (action: AiChatAction) => void
   onAiSendMessage?: (message: string) => Promise<string>
   onStartStream?: (message: string) => Promise<{ streamId: string }>
   onGetChunks?: (streamId: string, lastIndex: number) => Promise<{
-    chunks: any[]
+    chunks: AiChatChunk[]
     isComplete: boolean
     error?: string
   }>

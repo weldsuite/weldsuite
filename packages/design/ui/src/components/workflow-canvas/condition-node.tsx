@@ -26,15 +26,21 @@ interface ConditionNodeLabels {
   branchLabels?: Record<string, string>;
 }
 
-function getConditionSummary(config: Record<string, any>, operatorLabels: Record<string, string>): string | null {
-  const field = config?.field;
-  if (!field) return null;
-  const op = OPERATOR_SYMBOLS[config.operator] ?? operatorLabels[config.operator] ?? config.operator ?? '=';
-  const value = config.value;
-  const shortField = field
+/** Shorten the `{{steps.…}}` / `{{trigger.data.…}}` prefixes for display. */
+function shortenFieldPath(field: string): string {
+  return field
     .replace(/\{\{steps\.[^.]+\./, '{{agent.')
     .replace(/\{\{trigger\.data\./, '{{');
-  if (['isEmpty', 'isNotEmpty'].includes(config.operator)) {
+}
+
+function getConditionSummary(config: Record<string, unknown>, operatorLabels: Record<string, string>): string | null {
+  const field = typeof config?.field === 'string' ? config.field : '';
+  if (!field) return null;
+  const operator = typeof config.operator === 'string' ? config.operator : '';
+  const op = OPERATOR_SYMBOLS[operator] ?? operatorLabels[operator] ?? operator ?? '=';
+  const value = config.value;
+  const shortField = shortenFieldPath(field);
+  if (['isEmpty', 'isNotEmpty'].includes(operator)) {
     return `${shortField} ${op}`;
   }
   return `${shortField} ${op} ${value || '?'}`;
@@ -45,7 +51,7 @@ function ConditionNodeComponent({ data, selected }: NodeProps) {
   const labels = nodeData.labels || {};
   const operatorLabels = (labels.operators || {}) as Record<string, string>;
 
-  const config = (nodeData.step?.config || {}) as Record<string, any>;
+  const config = (nodeData.step?.config || {}) as Record<string, unknown>;
   const hasMultiBranch = config.branches && Array.isArray(config.branches);
   const summary = getConditionSummary(config, operatorLabels);
   const conditionLabel = labels.label || 'Condition';
@@ -54,8 +60,8 @@ function ConditionNodeComponent({ data, selected }: NodeProps) {
   // Display-only summary text — editing happens in the side panel.
   let bodyText: string;
   if (hasMultiBranch) {
-    bodyText = config.field
-      ? config.field.replace(/\{\{steps\.[^.]+\./, '{{agent.').replace(/\}\}$/, '}}')
+    bodyText = typeof config.field === 'string' && config.field
+      ? shortenFieldPath(config.field)
       : (labels.checkAgentStatus || 'Check agent status');
   } else if (summary) {
     bodyText = summary;

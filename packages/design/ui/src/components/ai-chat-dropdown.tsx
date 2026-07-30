@@ -41,15 +41,49 @@ interface Suggestion {
   category: "code" | "debug" | "improve" | "search"
 }
 
+/** Best-effort display name for a record returned by an action. */
+function recordName(value: unknown): string | null {
+  if (value && typeof value === "object" && "name" in value) {
+    const name = (value as { name?: unknown }).name
+    if (typeof name === "string" && name) return name
+  }
+  return null
+}
+
+/** An action the assistant asks the host app to run. */
+export interface AiChatAction {
+  type?: string
+  params?: { model?: string } & Record<string, unknown>
+}
+
+/** What the host app returns after running an AiChatAction. */
+export interface AiActionResult {
+  success?: boolean
+  /** Echoes the action kind, e.g. `count_customers`, `list_customers`. */
+  type?: string
+  /** A count for `count*`, a row array for `list*`, a single row for `found*`. */
+  data?: number | Record<string, unknown> | Array<Record<string, unknown>> | null
+  message?: string
+  /** Failure reason when `success` is false. */
+  error?: string
+}
+
+/** A streamed chunk from the assistant. */
+export interface AiChatChunk {
+  type?: string
+  content?: string
+  action?: AiChatAction
+}
+
 interface AiChatDropdownProps {
   onSendMessage?: (message: string) => Promise<string>
   onStartStream?: (message: string) => Promise<{ streamId: string }>
   onGetChunks?: (streamId: string, lastIndex: number) => Promise<{
-    chunks: any[]
+    chunks: AiChatChunk[]
     isComplete: boolean
     error?: string
   }>
-  onAction?: (action: any) => void
+  onAction?: (action: AiChatAction) => AiActionResult | Promise<AiActionResult | void> | void
   className?: string
 }
 
@@ -99,7 +133,7 @@ export function AiChatDropdown({
   const [messages, setMessages] = React.useState<Message[]>([])
   const [input, setInput] = React.useState("")
   const [isLoading, setIsLoading] = React.useState(false)
-  const [streamingMessageId, setStreamingMessageId] = React.useState<string | null>(null)
+  const [_streamingMessageId, setStreamingMessageId] = React.useState<string | null>(null)
   const scrollAreaRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
   
@@ -166,7 +200,7 @@ export function AiChatDropdown({
         // Poll for chunks with batching to reduce re-renders
         let accumulatedContent = ""
         let updateTimer: NodeJS.Timeout | null = null
-        const pendingActions: any[] = []
+        const pendingActions: AiChatAction[] = []
         
         const updateMessage = () => {
           if (accumulatedContent) {
@@ -212,7 +246,7 @@ export function AiChatDropdown({
                 accumulatedContent += chunk.content
                 hasNewContent = true
               } else if (chunk.type === "action" && onAction) {
-                pendingActions.push(chunk.action)
+                if (chunk.action) pendingActions.push(chunk.action)
               }
             }
             
@@ -232,7 +266,7 @@ export function AiChatDropdown({
               // Execute action immediately without waiting
               if (onAction) {
                 const actionHandler = onAction;
-                Promise.resolve(actionHandler(action)).then((result: any) => {
+                Promise.resolve(actionHandler(action)).then((result) => {
                   if (result) {
                     
                     if (result.success) {
@@ -251,7 +285,7 @@ export function AiChatDropdown({
                                 .trim()
                               
                               // Add the result
-                              const resultText = `You have ${result.data} ${action.params.model?.toLowerCase() || 'item'}s in your workspace.`
+                              const resultText = `You have ${result.data} ${action.params?.model?.toLowerCase() || 'item'}s in your workspace.`
                               return { ...msg, content: `${cleanContent} ${resultText}`.trim() }
                             }
                             return msg
@@ -263,16 +297,18 @@ export function AiChatDropdown({
                         let resultText = ""
                         
                         if (count === 0) {
-                          resultText = `I couldn't find any ${action.params.model?.toLowerCase() || 'item'}s in your workspace.`
+                          resultText = `I couldn't find any ${action.params?.model?.toLowerCase() || 'item'}s in your workspace.`
                         } else if (count === 1) {
-                          resultText = `I found 1 ${action.params.model?.toLowerCase() || 'item'}.`
-                          if (result.data[0]?.name) {
-                            resultText += ` It's "${result.data[0].name}".`
+                          resultText = `I found 1 ${action.params?.model?.toLowerCase() || 'item'}.`
+                          const firstName = recordName(result.data[0]);
+                          if (firstName) {
+                            resultText += ` It's "${firstName}".`
                           }
                         } else {
-                          resultText = `I found ${count} ${action.params.model?.toLowerCase() || 'item'}s.`
-                          if (result.data[0]?.name) {
-                            resultText += ` Including "${result.data[0].name}".`
+                          resultText = `I found ${count} ${action.params?.model?.toLowerCase() || 'item'}s.`
+                          const firstName = recordName(result.data[0]);
+                          if (firstName) {
+                            resultText += ` Including "${firstName}".`
                           }
                         }
                         
@@ -297,12 +333,13 @@ export function AiChatDropdown({
                         let resultText = ""
                         
                         if (result.data) {
-                          resultText = `I found the ${action.params.model?.toLowerCase() || 'item'}.`
-                          if (result.data.name) {
-                            resultText += ` It's "${result.data.name}".`
+                          resultText = `I found the ${action.params?.model?.toLowerCase() || 'item'}.`
+                          const name = recordName(result.data)
+                          if (name) {
+                            resultText += ` It's "${name}".`
                           }
                         } else {
-                          resultText = `I couldn't find that ${action.params.model?.toLowerCase() || 'item'}.`
+                          resultText = `I couldn't find that ${action.params?.model?.toLowerCase() || 'item'}.`
                         }
                         
                         setMessages((prev) => 
@@ -345,7 +382,7 @@ export function AiChatDropdown({
                       )
                     }
                   }
-                }).catch((error: any) => {
+                }).catch((error: unknown) => {
                   console.error("Action error:", error)
                   setMessages((prev) => 
                     prev.map(msg => 
@@ -385,7 +422,7 @@ export function AiChatDropdown({
           }
         }, 100) // Poll every 100ms
         
-      } catch (error) {
+      } catch {
         setMessages((prev) => 
           prev.map(msg => 
             msg.id === assistantMessageId 
@@ -428,7 +465,7 @@ export function AiChatDropdown({
   }
 
   const handleSuggestionClick = (suggestion: Suggestion) => {
-    onAction?.(suggestion.action)
+    onAction?.({ type: suggestion.action })
     const promptMap: { [key: string]: string } = {
       generate: "Help me generate code for ",
       debug: "I need help debugging ",

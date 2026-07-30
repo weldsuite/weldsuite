@@ -114,7 +114,7 @@ const CONDITION_NODE_HEIGHT = NODE_HEIGHT; // Condition card is the same size as
 const SEND_EMAIL_NODE_WIDTH = NODE_WIDTH; // No special-size email node anymore
 const SEND_EMAIL_NODE_HEIGHT = NODE_HEIGHT;
 const NODE_GAP_Y = 100;
-const BRANCH_OFFSET_DEFAULT = 250; // Default horizontal offset for condition branches
+
 const BRANCH_GAP = 50; // Minimum gap between adjacent branch subtrees
 const COLLISION_PADDING = 20; // Extra padding per side to account for borders, rings, shadows
 const START_X = 600;

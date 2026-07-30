@@ -124,11 +124,22 @@ export function AchievementNotification({
   );
 }
 
+/** The reward a notification announces. Mirrors AchievementNotificationProps. */
+export interface NotificationMilestone {
+  name: string;
+  description: string;
+  badgeIcon?: string;
+  badgeColor?: string;
+  points: number;
+  isPhysical?: boolean;
+  physicalReward?: string | null;
+}
+
 interface NotificationContainerProps {
   notifications: Array<{
     id: string;
-    achievement: any;
-    milestone: any;
+    achievement: NotificationMilestone;
+    milestone: NotificationMilestone;
   }>;
   onClose: (id: string) => void;
   onViewDetails?: (id: string) => void;
