@@ -179,6 +179,30 @@ queue = "workflow-events-dev"
 binding = "ANALYTICS_EVENTS"
 queue = "analytics-events-dev"
 
+# Semantic search indexing. Unlike the three queues above, app-api is BOTH the
+# producer and the consumer — the indexer needs a tenant DB handle plus the AI
+# gateway, which this worker already has. Create the queue before deploying:
+#   wrangler queues create search-index-dev
+[[queues.producers]]
+binding = "SEARCH_EVENTS"
+queue = "search-index-dev"
+
+# max_batch_size is deliberately modest: each message can cost an embedding
+# call, and the consumer coalesces per record, so a large batch mostly buys
+# a longer worst-case invocation rather than more throughput.
+#
+# dead_letter_queue matters here: without one, Cloudflare DELETES a message once
+# max_retries is exhausted. A record that persistently fails to embed would fall
+# out of the index silently, with only a console log to notice it.
+#   wrangler queues create search-index-dlq-dev
+[[queues.consumers]]
+queue = "search-index-dev"
+max_batch_size = 25
+max_batch_timeout = 10
+max_retries = 3
+max_concurrency = 2
+dead_letter_queue = "search-index-dlq-dev"
+
 # Service binding to realtime-worker (Durable Objects event system) — used by
 # publishEntityEvent for live WorkspaceHub fan-out AND WeldChat message fan-out
 # to the ChatRoom DO (services/chat/post-message.ts).
@@ -330,6 +354,21 @@ queue = "workflow-events"
 [[env.production.queues.producers]]
 binding = "ANALYTICS_EVENTS"
 queue = "analytics-events"
+
+# Semantic search indexing — produced and consumed by this worker.
+#   wrangler queues create search-index
+[[env.production.queues.producers]]
+binding = "SEARCH_EVENTS"
+queue = "search-index"
+
+#   wrangler queues create search-index-dlq
+[[env.production.queues.consumers]]
+queue = "search-index"
+max_batch_size = 25
+max_batch_timeout = 10
+max_retries = 3
+max_concurrency = 4
+dead_letter_queue = "search-index-dlq"
 
 [[env.production.services]]
 binding = "REALTIME"

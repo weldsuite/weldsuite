@@ -741,9 +741,24 @@ export { ImportTasksWorkflow } from './workflows/import-tasks';
 // [triggers]): hourly task digests + daily calendar replan.
 import { runDigestSweep } from './cron/digest-sweep';
 import { runCalendarReplanSweep } from './cron/calendar-replan';
+import { handleSearchIndexBatch } from './queue/search-index-consumer';
+import type { EntityEventMessage } from '@weldsuite/entity-events';
 
 export default {
   fetch: app.fetch,
+  /**
+   * SEARCH_EVENTS consumer — keeps the semantic search index in step with
+   * tenant mutations. This worker both produces and consumes the queue: the
+   * indexer needs a tenant DB handle and the AI gateway, which app-api already
+   * has, so a separate worker would only duplicate that wiring.
+   */
+  queue: async (batch: MessageBatch<EntityEventMessage>, env: Env) => {
+    if (batch.queue.startsWith('search-index')) {
+      await handleSearchIndexBatch(batch, env);
+      return;
+    }
+    console.warn(`[app-api] no consumer registered for queue "${batch.queue}"`);
+  },
   scheduled: async (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
     // Hourly: send task digests
     if (event.cron === '0 * * * *') {

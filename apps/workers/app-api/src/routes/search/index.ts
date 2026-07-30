@@ -14,12 +14,20 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { ensurePermissionsResolved } from '@weldsuite/permissions/server';
+import { ensurePermissionsResolved, requirePermission } from '@weldsuite/permissions/server';
 import { hasAnyPermission } from '@weldsuite/permissions';
-import { searchInputSchema } from '@weldsuite/app-api-client/schemas/search';
+import { searchInputSchema, reindexInputSchema } from '@weldsuite/app-api-client/schemas/search';
+import {
+  createEmbedder,
+  backfillBatch,
+  initialBackfillCursor,
+  acquireReindexLease,
+} from '../../services/search/indexer';
 import type { Env, Variables } from '../../types';
 import { error } from '../../lib/response';
-import { runSearch, type PermissionLike } from '../../services/search';
+import { runSearch, getPermittedTypes, type PermissionLike } from '../../services/search';
+import { understandQuery, applyPermittedTypes } from '../../services/search/query-understanding';
+import { resolveAiMetering } from '../../services/ai/billing';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -44,22 +52,111 @@ app.post('/', zValidator('json', searchInputSchema), async (c) => {
   const input = c.req.valid('json');
 
   try {
+    // Structure the query before searching: "Invoice from Acme Corp" becomes
+    // {types: ['invoice'], term: 'Acme Corp'}, which the per-entity ILIKE
+    // queries can actually match. Never throws — an unparseable query, an
+    // unconfigured gateway or an empty credit wallet all fall back to the raw
+    // string, i.e. exactly the behaviour before this layer existed.
+    //
+    // Metering is passed as a thunk, not a value: resolving it hits the master
+    // DB, and only the model tier bills. Resolving eagerly would put that round
+    // trip on every keystroke — including the short prefixes and identifiers
+    // the tiering exists to keep fast.
+    const parsed = await understandQuery(c.env, input.q, {
+      workspaceId,
+      resolveMetering: () =>
+        resolveAiMetering(c.env, c.get('workspaceId') ?? '', c.get('userId') ?? ''),
+    });
+
+    // An explicit `types` filter from the UI always wins over the parse — the
+    // user narrowing to a tab is a stronger signal than the model's guess.
+    const scopedTypes =
+      input.types && input.types.length > 0
+        ? input.types
+        : applyPermittedTypes(parsed, getPermittedTypes(perms));
+
     const { groups, permittedTypes } = await runSearch(db, workspaceId, {
       q: input.q,
-      types: input.types,
+      types: scopedTypes,
       limit: input.limit,
       perms,
+      lexicalTerm: parsed.lexicalTerm,
     });
 
     return c.json({
       data: groups,
       query: input.q,
       permittedTypes,
+      understanding: {
+        source: parsed.source,
+        entityTypes: parsed.entityTypes,
+        lexicalTerm: parsed.lexicalTerm,
+      },
     });
   } catch (err) {
     console.error('[app-api/search] Failed to run search:', err);
     return error.internal(c, 'Failed to run search');
   }
 });
+
+/**
+ * POST /api/search/reindex — drive one batch of the semantic backfill.
+ *
+ * Batch-at-a-time by design. A Worker has a wall-clock and CPU budget that a
+ * tenant with a large corpus would blow through in a single sweep, so the
+ * caller loops until `done`, passing back the cursor it was handed. That also
+ * makes the backfill resumable after any failure: the cursor is the whole of
+ * the state.
+ *
+ * Gated on `settings:general:update` — reindexing is a workspace-wide
+ * administrative action, not a search operation.
+ */
+app.post(
+  '/reindex',
+  requirePermission('settings:general:update'),
+  zValidator('json', reindexInputSchema),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const { cursor } = c.req.valid('json');
+
+    let embedder: ReturnType<typeof createEmbedder>;
+    try {
+      embedder = createEmbedder(c.env);
+    } catch (err) {
+      console.error('[app-api/search] reindex: AI gateway unavailable:', err);
+      // No `error.serviceUnavailable` helper exists; match the envelope shape
+      // used by lib/response.ts so clients parse it the same way.
+      return c.json(
+        { error: { code: 'AI_NOT_CONFIGURED', message: 'AI gateway is not configured' } },
+        503,
+      );
+    }
+
+    // Advisory lease: two admins walking the same corpus stay correct thanks to
+    // the content hash, but each pays for the first pass of embeddings.
+    const lease = await acquireReindexLease(c.env, c.get('workspaceId') ?? '');
+    if (!lease.acquired) {
+      return c.json(
+        {
+          error: {
+            code: 'REINDEX_IN_PROGRESS',
+            message: 'A reindex is already running for this workspace',
+          },
+        },
+        409,
+      );
+    }
+
+    try {
+      const progress = await backfillBatch(db, embedder, cursor ?? initialBackfillCursor());
+      return c.json({ data: progress });
+    } catch (err) {
+      console.error('[app-api/search] reindex batch failed:', err);
+      return error.internal(c, 'Failed to run reindex batch');
+    } finally {
+      await lease.release();
+    }
+  },
+);
 
 export const searchRoutes = app;
