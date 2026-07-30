@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { ApiKeySession } from './api-types';
-import { hasScope } from './scope-check';
+import type { McpSession } from './api-types';
+import type { Env } from '../types/env';
+import { canUseScope } from './permissions';
 import { executeTool } from './proxy';
 import { allTools, toolError } from '../tools/registry';
 import {
@@ -13,22 +14,20 @@ import {
 const USER_APPS_SCOPE = 'user-apps:manage';
 
 /**
- * Create an MCP server instance with tools filtered by the API key's scopes.
+ * Create an MCP server instance for one authenticated session.
  * A new instance is created per request (stateless).
  *
- * Tool calls are proxied to the External API over the `externalApi` service
- * binding, forwarding the caller's API key. `baseUrl` is used only to build the
- * request URL's path/query (see {@link executeTool}).
+ * Tool calls are dispatched in-process into this worker's own v1 API
+ * (`src/api/`) — see {@link executeTool}.
  *
  * After the static (house) tools, agent tools declared by user-created
- * WeldApps are registered dynamically — only when the key holds the
- * `user-apps:manage` scope. Loading failures are isolated: static tools always
- * register regardless of the dynamic loader's outcome.
+ * WeldApps are registered dynamically. Loading failures are isolated: static
+ * tools always register regardless of the dynamic loader's outcome.
  */
 export async function createMcpServer(
-  session: ApiKeySession,
-  baseUrl: string,
-  externalApi: Fetcher,
+  session: McpSession,
+  env: Env,
+  executionCtx: ExecutionContext,
 ): Promise<McpServer> {
   const server = new McpServer(
     {
@@ -43,15 +42,16 @@ export async function createMcpServer(
     },
   );
 
-  // Register tools filtered by the API key's scopes
+  // Only offer tools the user's role could actually use. The binding gate is
+  // still `requireScope` inside the API, so a listed tool can still be refused.
   const registeredNames = new Set<string>();
   for (const tool of allTools) {
-    if (!hasScope(session, tool.scope)) continue;
+    if (!canUseScope(session.permissions, tool.scope)) continue;
     registeredNames.add(tool.name);
 
     server.tool(tool.name, tool.description, tool.inputSchema, async (args) => {
       try {
-        return await executeTool(tool, args as Record<string, unknown>, session, baseUrl, externalApi);
+        return await executeTool(tool, args as Record<string, unknown>, session, env, executionCtx);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'An unexpected error occurred';
         console.error(`[MCP Tool] ${tool.name} error:`, error);
@@ -61,10 +61,10 @@ export async function createMcpServer(
   }
 
   // Register user-created WeldApp agent tools (dynamic, scope-gated).
-  // `loadUserAppTools` swallows fetch failures and returns [] so a broken
-  // external-api endpoint can never take the static tools down with it.
-  if (hasScope(session, USER_APPS_SCOPE)) {
-    const userAppTools = await loadUserAppTools(session.apiKey, baseUrl, externalApi);
+  // `loadUserAppTools` swallows failures and returns [] so a broken app can
+  // never take the static tools down with it.
+  if (canUseScope(session.permissions, USER_APPS_SCOPE)) {
+    const userAppTools = await loadUserAppTools(session, env, executionCtx);
 
     for (const appTool of userAppTools) {
       // `${appCode}_${name}`, deduped by numeric suffix on collision (with
@@ -86,8 +86,8 @@ export async function createMcpServer(
               appTool,
               args as Record<string, unknown>,
               session,
-              baseUrl,
-              externalApi,
+              env,
+              executionCtx,
             );
           } catch (error) {
             const message = error instanceof Error ? error.message : 'An unexpected error occurred';
@@ -103,8 +103,10 @@ export async function createMcpServer(
   server.resource('workspace-info', 'weldsuite://workspace/info', { description: 'Workspace name, plan tier, and configuration' }, async () => {
     const info = {
       workspaceId: session.workspaceId,
+      workspaceName: session.workspaceName,
       tier: session.tier,
-      keyType: session.keyType,
+      userId: session.userId,
+      role: session.role,
     };
 
     return {
