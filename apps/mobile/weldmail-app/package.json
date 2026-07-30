@@ -14,7 +14,7 @@
     "fallow": "fallow dead-code --root . && fallow dupes --root . && fallow health --root ."
   },
   "dependencies": {
-    "@clerk/expo": "^3.1.6",
+    "@clerk/expo": "^3.2.2",
     "@clerk/shared": "^4.4.0",
     "@expo-google-fonts/inter": "^0.4.2",
     "@expo/metro-runtime": "^6.1.2",
