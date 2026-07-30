@@ -3,8 +3,8 @@
 #
 # Authentication is Clerk OAuth (see src/middleware/auth.ts). There are no API
 # keys. The worker is self-contained: it serves tool calls from its own copy of
-# the v1 resource routes (src/api/) against the tenant DB, so it holds no
-# service bindings to other workers.
+# the v1 resource routes (src/api/) against the tenant DB, so no request path
+# depends on another worker and no service bindings are configured here.
 name = "weldsuite-mcp-server"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"

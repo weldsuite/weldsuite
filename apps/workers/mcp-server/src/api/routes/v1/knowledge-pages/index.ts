@@ -141,17 +141,21 @@ async function nextPosition(db: Db, spaceId: string, parentId: string | null): P
 }
 
 async function collectSubtreeIds(db: Db, rootId: string): Promise<string[]> {
-  const all: string[] = [rootId];
+  // Tracks visited ids so cyclic `parentId` data can't spin forever. Only new
+  // moves are cycle-checked (`wouldCreateCycle`), so a row already pointing at
+  // one of its own descendants would otherwise regrow the frontier on every
+  // pass and hang DELETE / cross-space move.
+  const seen = new Set<string>([rootId]);
   let frontier = [rootId];
   while (frontier.length > 0) {
     const children = await db
       .select({ id: pages.id })
       .from(pages)
       .where(and(inArray(pages.parentId, frontier), isNull(pages.deletedAt)));
-    frontier = children.map((r) => r.id);
-    all.push(...frontier);
+    frontier = children.map((r) => r.id).filter((id) => !seen.has(id));
+    for (const id of frontier) seen.add(id);
   }
-  return all;
+  return [...seen];
 }
 
 async function wouldCreateCycle(db: Db, pageId: string, newParentId: string): Promise<boolean> {

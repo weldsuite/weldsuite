@@ -6,8 +6,10 @@ import type { RateLimiter } from '../durable-objects/rate-limiter';
  *
  * The MCP server is self-contained: it owns its copy of the v1 resource routes
  * (`src/api/`) and talks to the tenant database directly, so it needs the same
- * data-plane bindings a resource API does. It holds no service bindings to
- * other workers.
+ * data-plane bindings a resource API does. No request path depends on another
+ * worker. The one cross-worker binding this type permits is the optional
+ * `REALTIME` fan-out below; it is not bound in wrangler.toml today, and
+ * `publishEntityEvent` no-ops without it.
  */
 export interface Env {
   // Neon connection string for master DB (set via wrangler secret).

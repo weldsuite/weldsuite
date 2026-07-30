@@ -42,12 +42,26 @@ app.options(AUTHORIZATION_SERVER_PATH, (c) => c.body(null, 204, metadataCorsHead
 
 // Served on both the bare path and `/mcp` suffix: clients differ on whether
 // they append the resource path when looking the document up.
-const protectedResource = (c: Context<HonoEnv>) =>
-  c.json(
-    protectedResourceMetadata(c.env.MCP_SERVER_URL, c.env.CLERK_PUBLISHABLE_KEY),
-    200,
-    metadataCorsHeaders,
-  );
+// `protectedResourceMetadata` decodes the publishable key to derive the Clerk
+// issuer, so a malformed key throws. Catch it: this is the first step of the
+// OAuth bootstrap, and an unstructured 500 here leaves clients with no way to
+// discover the authorization server.
+const protectedResource = (c: Context<HonoEnv>) => {
+  try {
+    return c.json(
+      protectedResourceMetadata(c.env.MCP_SERVER_URL, c.env.CLERK_PUBLISHABLE_KEY),
+      200,
+      metadataCorsHeaders,
+    );
+  } catch (error) {
+    console.error('[MCP Server] Protected resource metadata unavailable:', error);
+    return c.json(
+      { error: 'server_error', error_description: 'Protected resource metadata unavailable' },
+      502,
+      metadataCorsHeaders,
+    );
+  }
+};
 
 app.get(PROTECTED_RESOURCE_PATH, protectedResource);
 app.get(`${PROTECTED_RESOURCE_PATH}/mcp`, protectedResource);
