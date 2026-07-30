@@ -1,7 +1,7 @@
 // ../../../node_modules/@jitsi/rnnoise-wasm/dist/rnnoise.js
 var createRNNWasmModule = (() => {
   var _scriptDir = typeof document !== "undefined" && document.currentScript ? document.currentScript.src : void 0;
-  return function(createRNNWasmModule2) {
+  return (function(createRNNWasmModule2) {
     createRNNWasmModule2 = createRNNWasmModule2 || {};
     null;
     var Module = typeof createRNNWasmModule2 != "undefined" ? createRNNWasmModule2 : {};
@@ -404,13 +404,13 @@ var createRNNWasmModule = (() => {
     }
     run();
     return createRNNWasmModule2.ready;
-  };
+  });
 })();
 
 // ../../../node_modules/@jitsi/rnnoise-wasm/dist/rnnoise-sync.js
 var createRNNWasmModuleSync = (() => {
   var _scriptDir = import.meta.url;
-  return function(createRNNWasmModuleSync2) {
+  return (function(createRNNWasmModuleSync2) {
     createRNNWasmModuleSync2 = createRNNWasmModuleSync2 || {};
     var Module = typeof createRNNWasmModuleSync2 != "undefined" ? createRNNWasmModuleSync2 : {};
     var readyPromiseResolve, readyPromiseReject;
@@ -857,7 +857,7 @@ var createRNNWasmModuleSync = (() => {
     }
     run();
     return createRNNWasmModuleSync2;
-  };
+  });
 })();
 var rnnoise_sync_default = createRNNWasmModuleSync;
 
