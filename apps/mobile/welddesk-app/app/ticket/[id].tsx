@@ -67,7 +67,6 @@ export default function TicketDetailScreen() {
 
   // Real-time
   const {
-    isConnected,
     sendTypingIndicator,
   } = useHelpdeskRealtime({
     conversationId: id || '',

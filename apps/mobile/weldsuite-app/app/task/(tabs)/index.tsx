@@ -35,8 +35,6 @@ export default function TaskDashboard() {
   const {
     dashboardData,
     taskStats,
-    loading,
-    errors,
     loadDashboard,
     refreshDashboard,
     loadWorkflowStats,

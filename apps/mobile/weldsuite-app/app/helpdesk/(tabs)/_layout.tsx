@@ -5,7 +5,6 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TouchableOpacity, Text, View, Modal, StyleSheet, TextInput, ScrollView, KeyboardAvoidingView, Platform, Animated, Easing, SafeAreaView, StatusBar, FlatList } from 'react-native';
 
-import WeldAgentLogo from '@/components/WeldAgentLogo';
 import { useShouldShowMiniSidebar } from '@/components/layout/MiniSidebar';
 import { CollapsibleHeaderProvider, useCollapsibleHeader } from '@/contexts/CollapsibleHeaderContext';
 

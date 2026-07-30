@@ -65,8 +65,6 @@ export default function EmailDetailPanel({
   const toast = useToast();
 
   const {
-    currentMessage,
-    loading: mailLoading,
     isConnected,
     loadMessage,
     markAsRead,

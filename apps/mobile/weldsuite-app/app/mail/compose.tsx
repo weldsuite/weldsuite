@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -10,8 +10,6 @@ import {
   StatusBar,
   ActivityIndicator,
   Modal,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
   ActionSheetIOS,
   Alert,
 } from 'react-native';
@@ -22,7 +20,6 @@ import {
 } from 'lucide-react-native';
 import ComposeEmailForm from '@/components/mail/ComposeEmailForm';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg from 'react-native-svg';
 import { useMail } from '@/contexts/MailContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useEditorBridge } from '@10play/tentap-editor';

@@ -1,10 +1,9 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   StyleSheet,
   View,
   Text,
   TouchableOpacity,
-  ScrollView,
   ActivityIndicator,
   Modal,
   TextInput,

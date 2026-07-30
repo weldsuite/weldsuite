@@ -206,7 +206,6 @@ export default function MailScreen() {
     loadMoreMessages,
     refreshMessages,
     markAsRead,
-    toggleStar,
     deleteMessage,
     archiveMessage,
   } = useMail();

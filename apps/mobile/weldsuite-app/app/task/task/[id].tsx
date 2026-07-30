@@ -23,7 +23,7 @@ import {
   Clock,
   Trash2,
 } from 'lucide-react-native';
-import type { TaskItem, TaskPriority, TaskComment, TaskActivity } from '@/types/task.types';
+import type { TaskItem, TaskPriority, TaskComment } from '@/types/task.types';
 
 export default function TaskDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();

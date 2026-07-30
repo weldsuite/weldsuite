@@ -43,11 +43,6 @@ interface AppItem {
   displayOrder: number;
 }
 
-interface AppSection {
-  title: string;
-  data: AppItem[];
-}
-
 export default function AppsScreen() {
   const { colors } = useTheme();
   const { installedApps, isLoading, error, refreshApps } = useInstalledApps();

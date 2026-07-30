@@ -467,9 +467,7 @@ export default function EmailDetailScreen() {
 
   // Use MailContext
   const {
-    currentMessage,
     threadMessages,
-    loading: mailLoading,
     isConnected,
     accounts,
     loadMessage,
@@ -479,7 +477,6 @@ export default function EmailDetailScreen() {
     deleteMessage,
     archiveMessage,
     sendEmail,
-    saveDraft: saveDraftToContext,
   } = useMail();
 
   const [email, setEmail] = useState<EmailDetail | null>(null);
@@ -496,7 +493,7 @@ export default function EmailDetailScreen() {
   const [replySubject, setReplySubject] = useState('');
   const [replyBody, setReplyBody] = useState('');
   const [sending, setSending] = useState(false);
-  const [_savingDraft, setSavingDraft] = useState(false);
+  const [_savingDraft, _setSavingDraft] = useState(false);
 
   useEffect(() => {
     if (id) {
