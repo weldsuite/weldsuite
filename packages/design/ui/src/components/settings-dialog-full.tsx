@@ -698,7 +698,7 @@ export function SettingsDialogFull({
                       <Card>
                         <CardHeader>
                           <CardTitle>Current Plan</CardTitle>
-                          <CardDescription>You're currently on the Pro plan</CardDescription>
+                          <CardDescription>You&apos;re currently on the Pro plan</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
                           <div className="flex items-center justify-between p-4 border rounded-lg">

@@ -2,18 +2,24 @@
 
 import { useState, useCallback, useRef } from "react"
 
+/** A tool/UI action the assistant asks the host app to perform. */
+export type StreamAction = Record<string, unknown>;
+
+/** Free-form conversation context sent alongside a message. */
+export type StreamContext = Record<string, unknown>;
+
 interface StreamChunk {
   type: "chunk" | "action" | "done" | "error"
   content?: string
-  action?: any
+  action?: StreamAction
   fullResponse?: string
 }
 
 interface UseAiChatStreamOptions {
-  onAction?: (action: any) => void
+  onAction?: (action: StreamAction) => void
   onComplete?: (fullResponse: string) => void
   onError?: (error: string) => void
-  startStream: (message: string, context?: any) => Promise<{ streamId: string }>
+  startStream: (message: string, context?: StreamContext) => Promise<{ streamId: string }>
   getChunks: (streamId: string, lastIndex: number) => Promise<{
     chunks: StreamChunk[]
     done: boolean
@@ -45,7 +51,7 @@ export function useAiChatStream({
     }
   }, [])
   
-  const streamMessage = useCallback(async (message: string, context?: any) => {
+  const streamMessage = useCallback(async (message: string, context?: StreamContext) => {
     setIsStreaming(true)
     setStreamingContent("")
     contentRef.current = ""
@@ -75,7 +81,7 @@ export function useAiChatStream({
               contentRef.current += chunk.content
               setStreamingContent(prev => prev + chunk.content)
             } else if (chunk.type === "action" && onAction) {
-              onAction(chunk.action)
+              onAction(chunk.action ?? {})
             } else if (chunk.type === "done") {
               if (onComplete) onComplete(chunk.fullResponse || contentRef.current)
             } else if (chunk.type === "error") {

@@ -66,6 +66,17 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 /** Paths reachable without a session. */
 const PUBLIC_PATHS = ['/login', '/signup', '/reset-password', '/verify-email', '/'];
 
+/**
+ * Non-standard / legacy fields probed for fingerprinting entropy. None are in
+ * lib.dom, and all are absent in most browsers — hence every one optional.
+ */
+interface FingerprintProbes {
+  deviceMemory?: number;
+  cpuClass?: string;
+  addBehavior?: unknown;
+  openDatabase?: unknown;
+}
+
 // Generate browser fingerprint
 function generateBrowserFingerprint(): string {
   if (typeof window === 'undefined') return '';
@@ -82,7 +93,7 @@ function generateBrowserFingerprint(): string {
     userAgent: navigator.userAgent,
     language: navigator.language,
     colorDepth: screen.colorDepth,
-    deviceMemory: (navigator as any).deviceMemory || 0,
+    deviceMemory: (navigator as Navigator & FingerprintProbes).deviceMemory || 0,
     hardwareConcurrency: navigator.hardwareConcurrency || 0,
     screenResolution: `${screen.width}x${screen.height}`,
     availableScreenResolution: `${screen.availWidth}x${screen.availHeight}`,
@@ -91,9 +102,9 @@ function generateBrowserFingerprint(): string {
     sessionStorage: !!window.sessionStorage,
     localStorage: !!window.localStorage,
     indexedDb: !!window.indexedDB,
-    addBehavior: !!(document.body as any).addBehavior,
-    openDatabase: !!(window as any).openDatabase,
-    cpuClass: (navigator as any).cpuClass || '',
+    addBehavior: !!(document.body as HTMLElement & FingerprintProbes).addBehavior,
+    openDatabase: !!(window as Window & FingerprintProbes).openDatabase,
+    cpuClass: (navigator as Navigator & FingerprintProbes).cpuClass || '',
     platform: navigator.platform,
     plugins: Array.from(navigator.plugins || []).map(p => p.name).join(','),
     canvas: canvas.toDataURL(),
@@ -104,7 +115,9 @@ function generateBrowserFingerprint(): string {
         if (gl && 'getParameter' in gl) {
           return (gl as WebGLRenderingContext).getParameter((gl as WebGLRenderingContext).VERSION);
         }
-      } catch (e) {}
+      } catch {
+        /* WebGL not available in this environment */
+      }
       return null;
     })(),
   };

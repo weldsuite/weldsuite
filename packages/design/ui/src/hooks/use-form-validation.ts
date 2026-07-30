@@ -20,11 +20,11 @@ export function useFormValidation<T>({
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
   const validateField = useCallback(
-    (name: string, value: any) => {
+    (name: string, value: unknown) => {
       try {
         // Check if schema has shape property (ZodObject)
         if ('shape' in schema && schema.shape) {
-          const fieldSchema = (schema.shape as any)[name];
+          const fieldSchema = (schema.shape as Record<string, z.ZodTypeAny>)[name];
           if (fieldSchema) {
             fieldSchema.parse(value);
             setErrors((prev) => {
@@ -129,7 +129,7 @@ export function useFormValidation<T>({
     setIsSubmitting(false);
   }, [initialValues]);
 
-  const setFieldValue = useCallback((name: string, value: any) => {
+  const setFieldValue = useCallback((name: string, value: unknown) => {
     setValues((prev) => ({ ...prev, [name]: value }));
     if (touched[name]) {
       validateField(name, value);

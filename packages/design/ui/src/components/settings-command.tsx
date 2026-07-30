@@ -713,7 +713,7 @@ export function SettingsCommand({
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
                       <Label htmlFor="activity">Activity Status</Label>
-                      <p className="text-sm text-muted-foreground">Show when you're online</p>
+                      <p className="text-sm text-muted-foreground">Show when you&apos;re online</p>
                     </div>
                     <Switch
                       id="activity"

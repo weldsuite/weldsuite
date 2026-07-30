@@ -321,8 +321,8 @@ export function ApiKeysContent({
           <AlertTitle>API Token Created Successfully</AlertTitle>
           <AlertDescription className="mt-2 space-y-2">
             <p>
-              Your API token "{newTokenData.name}" has been created. Make sure to copy it now as you
-              won't be able to see it again.
+              Your API token &ldquo;{newTokenData.name}&rdquo; has been created. Make sure to copy it now as you
+              won&apos;t be able to see it again.
             </p>
             <div className="flex items-center gap-2 mt-3">
               <code className="relative rounded bg-white px-2 py-1 font-mono text-sm border flex-1">

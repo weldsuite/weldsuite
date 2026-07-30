@@ -2,15 +2,21 @@
 
 import { useState, useCallback } from "react"
 
+/** A tool/UI action the assistant asks the host app to perform. */
+export type StreamAction = Record<string, unknown>;
+
+/** Free-form conversation context sent alongside a message. */
+export type StreamContext = Record<string, unknown>;
+
 interface StreamChunk {
   type: "chunk" | "action" | "done" | "error"
   content?: string
-  action?: any
+  action?: StreamAction
   fullResponse?: string
 }
 
 interface UseAiStreamOptions {
-  onAction?: (action: any) => void
+  onAction?: (action: StreamAction) => void
   onError?: (error: string) => void
   onComplete?: (fullResponse: string) => void
 }
@@ -20,9 +26,9 @@ export function useAiStream(options?: UseAiStreamOptions) {
   const [currentMessage, setCurrentMessage] = useState("")
   
   const streamMessage = useCallback(async (
-    sendMessage: (message: string, context?: any) => AsyncGenerator<StreamChunk>,
+    sendMessage: (message: string, context?: StreamContext) => AsyncGenerator<StreamChunk>,
     message: string,
-    context?: any
+    context?: StreamContext
   ) => {
     setIsStreaming(true)
     setCurrentMessage("")
@@ -38,7 +44,7 @@ export function useAiStream(options?: UseAiStreamOptions) {
             
           case "action":
             if (options?.onAction) {
-              options.onAction(chunk.action)
+              options.onAction(chunk.action ?? {})
             }
             break
             
