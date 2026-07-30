@@ -13,6 +13,12 @@ compatibility_flags = ["nodejs_compat"]
 # Default (used by `wrangler dev`).
 [vars]
 MCP_SERVER_URL = "http://localhost:8789"
+# Clerk publishable keys are public by design — they ship in browser bundles and
+# are already committed in the mobile apps' eas.json. The OAuth discovery
+# documents base64-decode this to derive the Clerk issuer, so a missing value
+# makes /.well-known/* fail. Not a secret; deliberately not in the Doppler
+# manifest. The overlay repo overrides this per environment.
+CLERK_PUBLISHABLE_KEY = "pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk"
 
 # Shims to prevent bundling Node.js-only packages from @weldsuite/db
 [alias]
@@ -34,7 +40,7 @@ new_sqlite_classes = ["RateLimiter"]
 [env.production]
 name = "weldsuite-mcp-server"
 routes = [{ pattern = "mcp.weldsuite.org/*", zone_name = "weldsuite.org" }]
-vars = { ENVIRONMENT = "production", MCP_SERVER_URL = "https://mcp.weldsuite.org" }
+vars = { ENVIRONMENT = "production", MCP_SERVER_URL = "https://mcp.weldsuite.org", CLERK_PUBLISHABLE_KEY = "pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ" }
 
 [[env.production.durable_objects.bindings]]
 name = "RATE_LIMITER"
