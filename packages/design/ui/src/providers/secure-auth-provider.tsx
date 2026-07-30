@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { errorMessage } from '../lib/utils';
 import { 
   onAuthStateChanged, 
   signInWithEmailAndPassword,
@@ -257,9 +258,9 @@ export function SecureAuthProvider({ children }: { children: React.ReactNode }) 
       }
       
       router.push(redirectTo);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Sign in error:', error);
-      setError(error.message || 'Failed to sign in');
+      setError(errorMessage(error, 'Failed to sign in'));
       throw error;
     } finally {
       setLoading(false);
@@ -318,9 +319,9 @@ export function SecureAuthProvider({ children }: { children: React.ReactNode }) 
 
       // Redirect to email verification or dashboard
       router.push(data.user.emailVerified ? '/dashboard' : '/verify-email');
-    } catch (error: any) {
+    } catch (error) {
       console.error('Sign up error:', error);
-      setError(error.message || 'Failed to create account');
+      setError(errorMessage(error, 'Failed to create account'));
       throw error;
     } finally {
       setLoading(false);
@@ -395,9 +396,9 @@ export function SecureAuthProvider({ children }: { children: React.ReactNode }) 
       });
 
       router.push('/dashboard');
-    } catch (error: any) {
+    } catch (error) {
       console.error('Social sign in error:', error);
-      setError(error.message || 'Social authentication failed');
+      setError(errorMessage(error, 'Social authentication failed'));
       throw error;
     } finally {
       setLoading(false);
@@ -429,9 +430,9 @@ export function SecureAuthProvider({ children }: { children: React.ReactNode }) 
 
       // Redirect to login
       router.push('/login');
-    } catch (error: any) {
+    } catch (error) {
       console.error('Sign out error:', error);
-      setError(error.message || 'Failed to sign out');
+      setError(errorMessage(error, 'Failed to sign out'));
     } finally {
       setLoading(false);
     }
@@ -462,9 +463,9 @@ export function SecureAuthProvider({ children }: { children: React.ReactNode }) 
 
       // Redirect to login
       router.push('/login');
-    } catch (error: any) {
+    } catch (error) {
       console.error('Sign out all error:', error);
-      setError(error.message || 'Failed to sign out from all devices');
+      setError(errorMessage(error, 'Failed to sign out from all devices'));
     } finally {
       setLoading(false);
     }
@@ -475,9 +476,9 @@ export function SecureAuthProvider({ children }: { children: React.ReactNode }) 
     try {
       setError(null);
       await sendPasswordResetEmail(clientAuth, email);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Reset password error:', error);
-      setError(error.message || 'Failed to send reset email');
+      setError(errorMessage(error, 'Failed to send reset email'));
       throw error;
     }
   }, []);

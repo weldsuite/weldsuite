@@ -4,6 +4,9 @@
 // is not a dependency of this package and doesn't resolve. Left in place
 // as documented dead code rather than deleted outright.
 
+/** Query-string values; each is `toString()`-ed onto the URL. */
+export type QueryParams = Record<string, string | number | boolean | Date | null | undefined>;
+
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;
@@ -51,7 +54,7 @@ class ApiClient {
     return headers;
   }
 
-  async get<T>(path: string, params?: Record<string, any>): Promise<ApiResponse<T>> {
+  async get<T>(path: string, params?: QueryParams): Promise<ApiResponse<T>> {
     try {
       const url = new URL(`${this.baseUrl}${path}`);
       if (params) {
@@ -77,7 +80,7 @@ class ApiClient {
     }
   }
 
-  async post<T>(path: string, data?: any): Promise<ApiResponse<T>> {
+  async post<T>(path: string, data?: unknown): Promise<ApiResponse<T>> {
     try {
       const response = await fetch(`${this.baseUrl}${path}`, {
         method: 'POST',
@@ -95,7 +98,7 @@ class ApiClient {
     }
   }
 
-  async put<T>(path: string, data?: any): Promise<ApiResponse<T>> {
+  async put<T>(path: string, data?: unknown): Promise<ApiResponse<T>> {
     try {
       const response = await fetch(`${this.baseUrl}${path}`, {
         method: 'PUT',
@@ -157,9 +160,9 @@ export const commerceApi = {
       apiClient.get('/api/commerce/products', { page, pageSize, categoryId, search }),
     getById: (id: string) =>
       apiClient.get(`/api/commerce/products/${id}`),
-    create: (data: any) =>
+    create: (data: unknown) =>
       apiClient.post('/api/commerce/products', data),
-    update: (id: string, data: any) =>
+    update: (id: string, data: unknown) =>
       apiClient.put(`/api/commerce/products/${id}`, data),
     delete: (id: string) =>
       apiClient.delete(`/api/commerce/products/${id}`),
@@ -171,7 +174,7 @@ export const commerceApi = {
       apiClient.get('/api/commerce/orders', { page, pageSize, status, customerId }),
     getById: (id: string) =>
       apiClient.get(`/api/commerce/orders/${id}`),
-    create: (data: any) =>
+    create: (data: unknown) =>
       apiClient.post('/api/commerce/orders', data),
     updateStatus: (id: string, status: string, comment?: string) =>
       apiClient.put(`/api/commerce/orders/${id}/status`, { status, comment }),
@@ -183,9 +186,9 @@ export const commerceApi = {
       apiClient.get('/api/commerce/categories'),
     getById: (id: string) =>
       apiClient.get(`/api/commerce/categories/${id}`),
-    create: (data: any) =>
+    create: (data: unknown) =>
       apiClient.post('/api/commerce/categories', data),
-    update: (id: string, data: any) =>
+    update: (id: string, data: unknown) =>
       apiClient.put(`/api/commerce/categories/${id}`, data),
     delete: (id: string) =>
       apiClient.delete(`/api/commerce/categories/${id}`),
@@ -198,7 +201,7 @@ export const accountingApi = {
       apiClient.get('/api/accounting/invoices', { page, pageSize, status, customerId }),
     getById: (id: string) =>
       apiClient.get(`/api/accounting/invoices/${id}`),
-    create: (data: any) =>
+    create: (data: unknown) =>
       apiClient.post('/api/accounting/invoices', data),
     updateStatus: (id: string, status: string) =>
       apiClient.put(`/api/accounting/invoices/${id}/status`, { status }),
@@ -231,9 +234,9 @@ export const adminApi = {
       apiClient.get('/api/admin/roles'),
     getById: (id: string) =>
       apiClient.get(`/api/admin/roles/${id}`),
-    create: (data: any) =>
+    create: (data: unknown) =>
       apiClient.post('/api/admin/roles', data),
-    update: (id: string, data: any) =>
+    update: (id: string, data: unknown) =>
       apiClient.put(`/api/admin/roles/${id}`, data),
     delete: (id: string) =>
       apiClient.delete(`/api/admin/roles/${id}`),
@@ -263,11 +266,11 @@ export const crmApi = {
       apiClient.get('/api/crm/customers', { page, pageSize, search, segment, isActive }),
     getById: (id: string) =>
       apiClient.get(`/api/crm/customers/${id}`),
-    create: (data: any) =>
+    create: (data: unknown) =>
       apiClient.post('/api/crm/customers', data),
-    update: (id: string, data: any) =>
+    update: (id: string, data: unknown) =>
       apiClient.put(`/api/crm/customers/${id}`, data),
-    addActivity: (id: string, data: any) =>
+    addActivity: (id: string, data: unknown) =>
       apiClient.post(`/api/crm/customers/${id}/activities`, data),
     addNote: (id: string, title: string, content: string) =>
       apiClient.post(`/api/crm/customers/${id}/notes`, { title, content }),

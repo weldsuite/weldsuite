@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { errorMessage } from '../lib/utils';
 
 interface User {
   id: string;
@@ -94,8 +95,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setUser(data.user);
       router.push('/dashboard');
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(errorMessage(err));
       throw err;
     } finally {
       setLoading(false);
@@ -128,8 +129,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setUser(data.user);
       router.push('/dashboard');
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(errorMessage(err));
       throw err;
     } finally {
       setLoading(false);
@@ -158,8 +159,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setUser(data.user);
       router.push('/dashboard');
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(errorMessage(err));
       throw err;
     } finally {
       setLoading(false);
@@ -183,8 +184,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setUser(null);
       router.push('/login');
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(errorMessage(err));
       throw err;
     } finally {
       setLoading(false);
@@ -230,8 +231,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!response.ok) {
         throw new Error(data.error || 'Password reset failed');
       }
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(errorMessage(err));
       throw err;
     } finally {
       setLoading(false);
