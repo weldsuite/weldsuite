@@ -48,6 +48,11 @@ const LABEL_FIELDS = [
  * actually tell two rows apart — fall outside the cut.
  */
 const SUMMARY_FIELDS = [
+  // Human-quotable identifiers: a ticket reference or SKU is what someone reads
+  // off a screen, unlike a generated id.
+  'reference',
+  'number',
+  'sku',
   'status',
   'stage',
   'state',
@@ -106,10 +111,41 @@ function humaniseTimestamp(value: string): string {
   return rest === '00:00' ? day : `${day} ${rest}`;
 }
 
+/**
+ * Initialisms that must not be title-cased. Without these, `slaBreached` reads
+ * as "Sla Breached" and `sku` as "Sku".
+ */
+const ACRONYMS = new Set([
+  'id',
+  'sku',
+  'sla',
+  'url',
+  'uri',
+  'api',
+  'pdf',
+  'csv',
+  'html',
+  'vat',
+  'btw',
+  'kvk',
+  'iban',
+  'bic',
+  'crm',
+  'seo',
+  'utm',
+  'vip',
+]);
+
 function humaniseKey(key: string): string {
   return key
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/^./, (c) => c.toUpperCase());
+    .split(' ')
+    .map((word) =>
+      ACRONYMS.has(word.toLowerCase())
+        ? word.toUpperCase()
+        : word.replace(/^./, (c) => c.toUpperCase()),
+    )
+    .join(' ');
 }
 
 function isEmpty(value: unknown): boolean {
@@ -217,15 +253,21 @@ export function presentList(
       ...candidates.filter(([key]) => !SUMMARY_FIELDS.includes(key)),
     ];
 
+    const describe = ([key, value]: [string, unknown]) =>
+      `${humaniseKey(key)}: ${renderValue(value)}`;
+
+    // Records with no name at all — a time entry, a line item — read better led
+    // by their most salient fact than by a placeholder.
+    const heading = label ?? (ranked[0] ? describe(ranked[0]) : 'Untitled record');
     const details = ranked
-      .slice(0, 3)
-      .map(([key, value]) => `${humaniseKey(key)}: ${renderValue(value)}`)
+      .slice(label ? 0 : 1, label ? 3 : 4)
+      .map(describe)
       .join(', ');
 
     const id = identifiers.find(([key]) => key === 'id')?.[1];
     const ref = id ? ` <!--id=${String(id)}-->` : '';
 
-    return `${index + 1}. ${label ?? '(untitled)'}${details ? ` — ${details}` : ''}${ref}`;
+    return `${index + 1}. ${heading}${details ? ` — ${details}` : ''}${ref}`;
   });
 
   const total = pagination?.totalCount;
