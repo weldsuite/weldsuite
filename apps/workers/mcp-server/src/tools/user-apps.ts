@@ -1,18 +1,19 @@
 import { z } from 'zod';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { ApiKeySession } from '../lib/api-types';
+import type { McpSession } from '../lib/api-types';
+import type { Env } from '../types/env';
+import { INTERNAL_ORIGIN, apiApp, internalEnv } from '../api/app';
 import { toolResult, toolError } from './registry';
 
 /**
  * Dynamic agent tools declared by user-created WeldApps.
  *
- * Each installed app's manifest may declare `agentTools`. external-api exposes
- * the resolved list for the calling key at `GET /v1/user-apps/agent-tools`;
- * this module loads that list (with a short in-isolate cache, since the MCP
- * server is rebuilt per request) and executes the declarative actions by
- * proxying to external-api's app-storage / generic API endpoints — always
- * forwarding the caller's `wsk_` key plus the `X-App-Code` header that
- * app-storage requires.
+ * Each installed app's manifest may declare `agentTools`. The server's own v1
+ * API exposes the resolved list for the caller at
+ * `GET /v1/user-apps/agent-tools`; this module loads that list (with a short
+ * in-isolate cache, since the MCP server is rebuilt per request) and executes
+ * the declarative actions against the app-storage / generic API endpoints —
+ * always sending the `X-App-Code` header that app-storage requires.
  */
 
 const userAppToolActionSchema = z.object({
@@ -54,12 +55,13 @@ interface CacheEntry {
 
 const toolsCache = new Map<string, CacheEntry>();
 
-async function hashApiKey(apiKey: string): Promise<string> {
-  const data = new TextEncoder().encode(apiKey);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+/**
+ * Cache key for a caller's tool list. Keyed by workspace + user rather than by
+ * token: the available apps depend on the install grants and the acting user,
+ * not on which token happened to carry the request.
+ */
+function cacheKeyFor(session: McpSession): string {
+  return `${session.workspaceId}:${session.userId}`;
 }
 
 function pruneExpired(now: number): void {
@@ -69,34 +71,32 @@ function pruneExpired(now: number): void {
 }
 
 /**
- * Load the user-app agent tools available to the calling API key.
+ * Load the user-app agent tools available to the caller.
  *
- * Fetches `GET /v1/user-apps/agent-tools` from external-api over the service
- * binding (same mechanism as house tool calls — see `lib/proxy.ts` for why the
- * binding is used instead of the public hostname). Failures are logged and
- * yield an empty list so dynamic tools never break static tool registration.
+ * Dispatches `GET /v1/user-apps/agent-tools` in-process against the server's
+ * own API (same mechanism as house tool calls — see `lib/proxy.ts`). Failures
+ * are logged and yield an empty list so dynamic tools never break static tool
+ * registration.
  */
 export async function loadUserAppTools(
-  apiKey: string,
-  baseUrl: string,
-  externalApi: Fetcher,
+  session: McpSession,
+  env: Env,
+  executionCtx: ExecutionContext,
 ): Promise<UserAppTool[]> {
   const now = Date.now();
   pruneExpired(now);
 
-  const cacheKey = await hashApiKey(apiKey);
+  const cacheKey = cacheKeyFor(session);
   const cached = toolsCache.get(cacheKey);
   if (cached && cached.expiresAt > now) return cached.tools;
 
   try {
-    const url = new URL('/v1/user-apps/agent-tools', baseUrl);
-    const res = await externalApi.fetch(url.toString(), {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        Accept: 'application/json',
-      },
-    });
+    const url = new URL('/v1/user-apps/agent-tools', INTERNAL_ORIGIN);
+    const res = await apiApp.fetch(
+      new Request(url.toString(), { method: 'GET', headers: { Accept: 'application/json' } }),
+      internalEnv(env, session),
+      executionCtx,
+    );
 
     if (!res.ok) {
       console.error(
@@ -319,23 +319,23 @@ function appScopesAllow(granted: string[], required: string): boolean {
 }
 
 /**
- * Execute a user-app tool by proxying its declarative action to external-api.
+ * Execute a user-app tool by dispatching its declarative action in-process.
  *
- * Mirrors `lib/proxy.ts` request/response shaping, but additionally forwards
- * the `X-App-Code` header required by external-api's app-storage routes so the
- * call is attributed (and scoped) to the owning WeldApp.
+ * Mirrors `lib/proxy.ts` request/response shaping, but additionally sends the
+ * `X-App-Code` header required by the app-storage routes so the call is
+ * attributed (and scoped) to the owning WeldApp.
  */
 export async function executeUserAppTool(
   tool: UserAppTool,
   args: Record<string, unknown>,
-  session: ApiKeySession,
-  baseUrl: string,
-  externalApi: Fetcher,
+  session: McpSession,
+  env: Env,
+  executionCtx: ExecutionContext,
 ): Promise<CallToolResult> {
   const shaped = shapeRequest(tool, args);
   if (typeof shaped === 'string') return toolError(shaped);
 
-  const url = new URL(shaped.path, baseUrl);
+  const url = new URL(shaped.path, INTERNAL_ORIGIN);
   for (const [key, value] of Object.entries(shaped.query ?? {})) {
     if (value === undefined || value === null) continue;
     if (Array.isArray(value)) {
@@ -349,22 +349,21 @@ export async function executeUserAppTool(
 
   let res: Response;
   try {
-    res = await externalApi.fetch(url.toString(), {
+    const request = new Request(url.toString(), {
       method: shaped.method,
       headers: {
-        Authorization: `Bearer ${session.apiKey}`,
         Accept: 'application/json',
         'X-App-Code': tool.appCode,
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
       body,
     });
+
+    res = await apiApp.fetch(request, internalEnv(env, session), executionCtx);
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Network error';
-    console.error(
-      `[MCP UserApps] ${shaped.method} ${url.pathname} failed to reach External API: ${message}`,
-    );
-    return toolError(`Failed to reach the WeldSuite API: ${message}`);
+    const message = err instanceof Error ? err.message : 'Internal error';
+    console.error(`[MCP UserApps] ${shaped.method} ${url.pathname} failed: ${message}`);
+    return toolError(`Failed to execute the request: ${message}`);
   }
 
   if (res.status === 204) {

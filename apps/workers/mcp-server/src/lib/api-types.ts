@@ -2,35 +2,48 @@ import type { TenantTier } from '@weldsuite/db/schema/master';
 import type { Env } from '../types/env';
 
 /**
- * API Key session information
- * Contains validated key details and workspace context
+ * An authenticated MCP session, derived from a Clerk OAuth access token.
+ *
+ * The MCP server no longer issues or accepts `wsk_` API keys — every caller
+ * authenticates through Clerk's OAuth authorization server, so a session always
+ * represents a *real user acting inside a specific organization*.
+ *
+ * Tool calls are served by the server's own copy of the v1 resource routes
+ * (`src/api/`), which run against the tenant database resolved here.
  */
-export interface ApiKeySession {
-  /** Unique identifier for the API key */
-  keyId: string;
-  /** Type of key: 'personal' belongs to a user, 'workspace' is shared */
-  keyType: 'personal' | 'workspace';
-  /** The workspace this key grants access to */
+export interface McpSession {
+  /** Clerk OAuth token id — the stable caller identifier. */
+  tokenId: string;
+  /** Clerk user ID — the OAuth token's `sub`. */
+  userId: string;
+  /** Clerk organization ID — the tenant selector (`workspaces.clerk_org_id`). */
+  clerkOrgId: string;
+  /** Internal workspace ID (`workspaces.id`), used for rate-limit keying. */
   workspaceId: string;
-  /** User ID for personal keys, null for workspace keys */
-  userId: string | null;
-  /** Permission scopes granted to this key */
-  scopes: string[];
-  /** Workspace tier (free, starter, professional, enterprise) */
+  /** Workspace display name, surfaced on the workspace-info resource. */
+  workspaceName: string;
+  /** Workspace plan tier, used to pick a rate-limit bucket. */
   tier: TenantTier;
-  /** Whether the workspace plan has API access */
-  hasApiAccess: boolean;
-  /** Workspace-specific database URL from master database */
-  databaseUrl: string | null;
-  /** The raw `wsk_` API key, forwarded to external-api when proxying tool calls */
-  apiKey: string;
+  /** Connection string for this workspace's tenant database. */
+  databaseUrl: string;
+  /**
+   * The user's effective WeldSuite permissions, resolved from their workspace
+   * role, teams and per-member grants. `['*']` for workspace owners. This is
+   * the authority for every tool call — an MCP client can never exceed what
+   * its user can do in the UI.
+   */
+  permissions: string[];
+  /** The user's workspace role (OWNER, ADMIN, MEMBER, VIEWER or a custom role). */
+  role: string;
+  /** The OAuth client that obtained the token, for logging/diagnostics. */
+  clientId: string | null;
 }
 
 /**
  * Variables available in Hono context after auth middleware
  */
 export interface ApiVariables {
-  apiSession: ApiKeySession;
+  session: McpSession;
 }
 
 declare module 'hono' {

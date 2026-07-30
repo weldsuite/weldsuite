@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from 'hono';
-import type { ApiKeySession, HonoEnv } from '../lib/api-types';
+import type { McpSession, HonoEnv } from '../lib/api-types';
 import type { RateLimitResult, RateLimitConfig } from '../durable-objects/rate-limiter';
 
 /**
@@ -21,7 +21,7 @@ function getRateLimitConfig(tier: string): RateLimitConfig {
  * Must run after auth middleware
  */
 export const rateLimitMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
-  const session = c.get('apiSession') as ApiKeySession | undefined;
+  const session = c.get('session') as McpSession | undefined;
 
   if (!session) {
     return c.json(

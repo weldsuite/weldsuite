@@ -12,11 +12,18 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
+    "@clerk/backend": "^2.29.0",
+    "@hono/zod-validator": "^0.4.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@neondatabase/serverless": "^1.0.1",
+    "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/permissions": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.27",
+    "postgres": "^3.4.7",
     "zod": "^3.24.2"
   },
   "devDependencies": {
