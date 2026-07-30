@@ -271,8 +271,6 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
     );
   }
 
-  console.log(`[MCP Auth] org ${clerkOrgId} resolved from ${orgSource} for user ${userId}`);
-
   const masterSql = neon(c.env.DATABASE_URL_MASTER);
   const masterDb = drizzleNeonHttp({ client: masterSql, schema: masterSchema });
 
