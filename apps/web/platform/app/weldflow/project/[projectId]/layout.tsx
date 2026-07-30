@@ -499,18 +499,18 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
        *   5. `shouldAnimateChat` is flipped on the first user toggle so the
        *      initial paint never animates.
        */}
-      <div className="relative flex-1 min-h-0 -mx-3 md:-mx-4 overflow-hidden">
+      <div className="relative flex-1 min-h-0 min-w-0 -mx-3 md:-mx-4 overflow-hidden">
         <div
           data-module-content
           className={cn(
-            'h-full overflow-hidden',
+            'h-full min-w-0 overflow-hidden',
             shouldAnimateChat && 'transition-[width] duration-[197ms]',
           )}
           style={{ width: chatVisible ? `calc(100% - ${chatWidth}px)` : '100%' }}
         >
           <div
             className={cn(
-              'h-full overflow-auto flex flex-col min-h-0',
+              'h-full overflow-auto flex flex-col min-h-0 min-w-0',
               activeTab === 'whiteboard' ? '' :
                 activeTab === 'documents' || activeTab === 'goals' || activeTab === 'table' || activeTab === 'gantt' || activeTab === 'workload' || activeTab === 'members' || activeTab === 'pipeline' || activeTab === 'timesheet' || activeTab === 'tasks' || activeTab === 'settings' ? '' : 'pt-4'
             )}

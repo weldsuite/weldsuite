@@ -163,6 +163,12 @@ export interface EntityListProps<T extends { id: string }> {
   itemsClassName?: string;
   columnGap?: string;
   stickyOffset?: number;
+  /**
+   * Optional min-width class for the table header + rows track (e.g. `min-w-[920px]`).
+   * Lets wide tables overflow and scroll via the nearest overflow-auto ancestor
+   * without creating a nested scrollport that would break sticky headers.
+   */
+  contentMinWidthClassName?: string;
 }
 
 // Props for the FilterPills component

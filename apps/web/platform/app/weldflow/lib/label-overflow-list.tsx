@@ -59,7 +59,7 @@ export function LabelOverflowList({ labels, className }: LabelOverflowListProps)
   const overflow = labels.length - visibleCount;
 
   return (
-    <div ref={containerRef} className={cn('relative flex items-center gap-1 flex-1 min-w-0 overflow-hidden', className)}>
+    <div ref={containerRef} className={cn('relative flex items-center gap-1 shrink min-w-0 max-w-[40%] overflow-hidden', className)}>
       <div
         ref={measureRef}
         className="absolute -top-[9999px] left-0 flex items-center gap-1 pointer-events-none"

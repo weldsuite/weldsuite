@@ -26,7 +26,7 @@ export function ProjectsLayoutClient({ children }: ProjectsLayoutClientProps) {
     <BreadcrumbProvider>
       <div className="flex-1 flex flex-col w-full min-h-0 h-full overflow-hidden">
         {!isEmbedded && <ProjectsHeader />}
-        <ModuleContent className="overflow-y-auto overflow-x-hidden px-3 md:px-4 pt-3 md:pt-4 subtle-scrollbar">
+        <ModuleContent className="overflow-auto px-3 md:px-4 pt-3 md:pt-4 subtle-scrollbar">
           {children}
         </ModuleContent>
       </div>

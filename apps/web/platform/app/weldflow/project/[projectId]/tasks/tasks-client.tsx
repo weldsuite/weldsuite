@@ -1390,14 +1390,17 @@ export function TasksClient({
     });
   }, [sortState, topLevelTasks, getTaskStage, projectStages]);
 
-  // Header columns
+  // Header columns — Task label sits on the flex title column; attachments
+  // spacer matches the w-[60px] cell in each row so Status/Priority/Due/Assignee
+  // stay aligned. Meta columns are flex-shrink-0 so the title keeps space.
   const headerColumns: HeaderColumn[] = useMemo(() => [
-    { id: 'checkbox', header: t.projects.tasks.headerTask, width: 'w-4 flex-shrink-0' },
-    { id: 'task', header: '', width: 'min-w-[200px] flex-1' },
-    { id: 'status', header: t.projects.tasks.headerStatus, width: 'w-[120px]', sortable: true },
-    { id: 'priority', header: t.projects.tasks.headerPriority, width: 'w-[100px]', sortable: true },
-    { id: 'dueDate', header: t.projects.tasks.headerDue, width: 'w-[100px]', sortable: true },
-    { id: 'assignee', header: t.projects.tasks.headerAssignee, width: 'w-[120px]', sortable: true },
+    { id: 'checkbox', header: '', width: 'w-4 flex-shrink-0' },
+    { id: 'task', header: t.projects.tasks.headerTask, width: 'min-w-[220px] flex-1' },
+    { id: 'attachments', header: '', width: 'w-[60px] flex-shrink-0' },
+    { id: 'status', header: t.projects.tasks.headerStatus, width: 'w-[120px] flex-shrink-0', sortable: true },
+    { id: 'priority', header: t.projects.tasks.headerPriority, width: 'w-[100px] flex-shrink-0', sortable: true },
+    { id: 'dueDate', header: t.projects.tasks.headerDue, width: 'w-[100px] flex-shrink-0', sortable: true },
+    { id: 'assignee', header: t.projects.tasks.headerAssignee, width: 'w-[120px] flex-shrink-0', sortable: true },
   ], [t]);
 
   // Render a single task row (reused for top-level and subtask rows). `depth`
@@ -1438,13 +1441,14 @@ export function TasksClient({
           />
         </div>
 
-        {/* Task Title */}
-        <div className="min-w-[200px] flex-1 flex items-center gap-2">
+        {/* Task Title — title takes remaining space; labels are capped so they
+            cannot crush the name down to an ellipsis when the pane is narrow. */}
+        <div className="min-w-[220px] flex-1 flex items-center gap-2">
           {task.number != null && (
             <TaskNumberBadge number={task.number} className="flex-shrink-0" />
           )}
           <span className={cn(
-            "text-sm font-medium truncate min-w-0",
+            "text-sm font-medium truncate min-w-0 flex-1",
             isVisuallyDone ? "line-through text-gray-400" : "text-gray-900 dark:text-foreground"
           )}>
             {task.title}
@@ -1492,7 +1496,7 @@ export function TasksClient({
         </div>
 
         {/* Attachments & Subtask count */}
-        <div className="w-[60px] flex justify-end gap-1">
+        <div className="w-[60px] flex-shrink-0 flex justify-end gap-1">
           {(task.attachmentCount ?? 0) > 0 && (
             <span className="-translate-y-[1.5px] inline-flex items-center justify-center gap-1.5 h-[22px] px-1.5 text-[11px] leading-none font-mono tabular-nums text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border rounded-[5px] flex-shrink-0">
               <Paperclip className="h-3 w-3 shrink-0" />
@@ -1508,7 +1512,7 @@ export function TasksClient({
         </div>
 
         {/* Status */}
-        <div className="w-[120px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[120px] flex-shrink-0" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", statusFallback.color, statusFallback.bg)}>
@@ -1549,7 +1553,7 @@ export function TasksClient({
         </div>
 
         {/* Priority */}
-        <div className="w-[100px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[100px] flex-shrink-0" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", priority.color, priority.bg)}>
@@ -1573,7 +1577,7 @@ export function TasksClient({
         </div>
 
         {/* Due Date */}
-        <div className="w-[100px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[100px] flex-shrink-0" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -1608,7 +1612,7 @@ export function TasksClient({
         </div>
 
         {/* Assignee(s) */}
-        <div className="w-[120px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[120px] flex-shrink-0" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -1932,6 +1936,7 @@ export function TasksClient({
             onLoadMore={onLoadMore}
             topBarClassName="pt-2 pb-2"
             emptyStateClassName="min-h-[calc(100dvh-350px)]"
+            contentMinWidthClassName="min-w-[960px]"
         createButton={canWrite ? {
           label: t.projects.tasks.addTaskBtn,
           // Both modes open the task dialog. In entity mode the dialog shows a

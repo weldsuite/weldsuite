@@ -1211,7 +1211,7 @@ export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Sprea
         />
       )}
 
-      <div className="flex-1 overflow-hidden" style={{ zoom: zoom / 100 }}>
+      <div className="flex-1 min-h-0 min-w-0 overflow-hidden" style={{ zoom: zoom / 100 }}>
         {activeSheetId && !isLoadingColumns ? (
           <SpreadsheetGrid
             columns={columns}

@@ -98,6 +98,7 @@ export function EntityList<T extends { id: string }>({
   itemsClassName,
   columnGap,
   stickyOffset = 0,
+  contentMinWidthClassName,
 }: EntityListProps<T>) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [internalSearchQuery, setInternalSearchQuery] = useState('');
@@ -300,7 +301,7 @@ export function EntityList<T extends { id: string }>({
   }
 
   return (
-    <div className="bg-background min-w-0 w-full overflow-x-hidden">
+    <div className="bg-background min-w-0 w-full">
       {/* Top Bar */}
       {!hideTopBar && (
       <div className={cn("flex items-center justify-between px-3 md:px-4 h-[53px] border-b border-border", topBarClassName)}>
@@ -385,125 +386,132 @@ export function EntityList<T extends { id: string }>({
       </div>
       )}
 
-      {/* Table Header - hidden on mobile */}
-      {(headerColumns || columns) && (
-        <div className={cn("hidden md:flex items-center px-4 h-[35px] border-b border-border/70 sticky bg-background z-10", columnGap ?? 'gap-4')} style={{ top: stickyOffset }}>
-          {(headerColumns || columns || []).map((column) => {
-            const isSortable = 'sortable' in column && column.sortable && onSort;
-            const isActive = sortState?.columnId === column.id;
-            return (
-              <div key={column.id} className={cn(column.width, 'className' in column ? column.className : ('headerClassName' in column ? column.headerClassName : undefined))}>
-                {isSortable ? (
-                  <button
-                    type="button"
-                    onClick={() => onSort(column.id)}
-                    className={cn(
-                      "flex items-center gap-1 text-xs font-medium cursor-pointer select-none hover:text-foreground transition-colors",
-                      isActive ? "text-foreground" : "text-muted-foreground"
-                    )}
-                  >
-                    {column.header}
-                    {isActive ? (
-                      sortState.direction === 'asc'
-                        ? <ArrowUp className="h-3 w-3" />
-                        : <ArrowDown className="h-3 w-3" />
-                    ) : (
-                      <ArrowUpDown className="h-3 w-3 opacity-0 group-hover/header:opacity-100" />
-                    )}
-                  </button>
-                ) : (
-                  <span className="text-xs font-medium text-muted-foreground">
-                    {column.header}
-                  </span>
-                )}
-              </div>
-            );
-          })}
-          <div className="w-[40px]"></div>
-        </div>
-      )}
-
-      {/* Grouped Items */}
-      <div>
-        {groupedItems.map((group) => (
-          <div key={group.id}>
-            {group.label && renderGroupHeader(group.label, group.items.length, group.rightContent, group.leadingContent)}
-            {itemsClassName ? (
-              <div className={itemsClassName}>
-                {group.items.map((item) => renderRow ? renderRow(item, rowHandlers) : defaultRenderRow(item))}
-              </div>
-            ) : (
-              group.items.map((item) => renderRow ? renderRow(item, rowHandlers) : defaultRenderRow(item))
-            )}
-          </div>
-        ))}
-
-        {/* Infinite-scroll sentinel — only present when controlled pagination is wired up.
-            Padding is applied only while loading so the (otherwise empty) sentinel
-            doesn't leave dead space below the last row once everything is loaded. */}
-        {onLoadMore && items.length > 0 && (
-          <div ref={loadMoreSentinelRef} className={cn("flex items-center justify-center", isLoadingMore && "py-4")}>
-            {isLoadingMore && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+      {/*
+        Optional min-width track so wide tables can overflow and scroll via the
+        nearest overflow-auto ancestor. Do not set overflow-x here — that would
+        create a scrollport and break sticky headers.
+      */}
+      <div className={cn(contentMinWidthClassName)}>
+        {/* Table Header - hidden on mobile */}
+        {(headerColumns || columns) && (
+          <div className={cn("hidden md:flex items-center px-4 h-[35px] border-b border-border/70 sticky bg-background z-10", columnGap ?? 'gap-4')} style={{ top: stickyOffset }}>
+            {(headerColumns || columns || []).map((column) => {
+              const isSortable = 'sortable' in column && column.sortable && onSort;
+              const isActive = sortState?.columnId === column.id;
+              return (
+                <div key={column.id} className={cn(column.width, 'className' in column ? column.className : ('headerClassName' in column ? column.headerClassName : undefined))}>
+                  {isSortable ? (
+                    <button
+                      type="button"
+                      onClick={() => onSort(column.id)}
+                      className={cn(
+                        "flex items-center gap-1 text-xs font-medium cursor-pointer select-none hover:text-foreground transition-colors",
+                        isActive ? "text-foreground" : "text-muted-foreground"
+                      )}
+                    >
+                      {column.header}
+                      {isActive ? (
+                        sortState.direction === 'asc'
+                          ? <ArrowUp className="h-3 w-3" />
+                          : <ArrowDown className="h-3 w-3" />
+                      ) : (
+                        <ArrowUpDown className="h-3 w-3 opacity-0 group-hover/header:opacity-100" />
+                      )}
+                    </button>
+                  ) : (
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {column.header}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+            <div className="w-[40px] flex-shrink-0"></div>
           </div>
         )}
 
-        {/* No search results state */}
-        {hasNoResults && noResultsState && (
-          <div className="flex flex-col items-center justify-center text-center min-h-[calc(100dvh-260px)]">
-            <div className="relative mb-5">
-              <div className="relative py-3">
-                <div className="flex gap-2 mb-2">
-                  <div className="w-10 h-7 border border-dashed border-border rounded-md" />
-                  <div className="w-16 h-7 border border-dashed border-border rounded-md" />
+        {/* Grouped Items */}
+        <div>
+          {groupedItems.map((group) => (
+            <div key={group.id}>
+              {group.label && renderGroupHeader(group.label, group.items.length, group.rightContent, group.leadingContent)}
+              {itemsClassName ? (
+                <div className={itemsClassName}>
+                  {group.items.map((item) => renderRow ? renderRow(item, rowHandlers) : defaultRenderRow(item))}
                 </div>
-                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 rounded-full border border-border bg-background flex items-center justify-center z-10">
-                  {noResultsState.icon || <XCircle className="w-4 h-4 text-gray-400" />}
-                </div>
-                <div className="flex gap-2">
-                  <div className="w-14 h-7 border border-dashed border-border rounded-md" />
-                  <div className="w-11 h-7 border border-dashed border-border rounded-md" />
-                </div>
-              </div>
+              ) : (
+                group.items.map((item) => renderRow ? renderRow(item, rowHandlers) : defaultRenderRow(item))
+              )}
             </div>
-            <h3 className="text-sm font-medium text-foreground mb-1">{noResultsState.title}</h3>
-            <p className="text-sm text-muted-foreground mb-4">{noResultsState.description}</p>
-            <Button variant="outline" size="sm" onClick={clearFilters}>
-              Clear filter
-            </Button>
-          </div>
-        )}
+          ))}
 
-        {/* Empty state */}
-        {items.length === 0 && emptyState && (
-          <div className={cn("flex flex-col items-center justify-center text-center px-6 min-h-[calc(100dvh-260px)]", emptyStateClassName)}>
-            {emptyState.icon}
-            <h3 className="text-[15px] font-semibold text-foreground mb-1.5">{emptyState.title}</h3>
-            <p className="text-sm text-muted-foreground mb-5 max-w-[320px] leading-relaxed whitespace-pre-line">{emptyState.description}</p>
-            {(emptyState.action || emptyState.secondaryAction) && (
-              <div className="flex items-center gap-2">
-                {emptyState.action && (
-                  <Button
-                    size="sm"
-                    className="bg-primary text-primary-foreground hover:bg-primary/90"
-                    onClick={emptyState.action.onClick}
-                  >
-                    <Plus className="h-4 w-4 mr-0.5" />
-                    <span>{emptyState.action.label}</span>
-                  </Button>
-                )}
-                {emptyState.secondaryAction && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={emptyState.secondaryAction.onClick}
-                  >
-                    <span>{emptyState.secondaryAction.label}</span>
-                  </Button>
-                )}
+          {/* Infinite-scroll sentinel — only present when controlled pagination is wired up.
+              Padding is applied only while loading so the (otherwise empty) sentinel
+              doesn't leave dead space below the last row once everything is loaded. */}
+          {onLoadMore && items.length > 0 && (
+            <div ref={loadMoreSentinelRef} className={cn("flex items-center justify-center", isLoadingMore && "py-4")}>
+              {isLoadingMore && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+            </div>
+          )}
+
+          {/* No search results state */}
+          {hasNoResults && noResultsState && (
+            <div className="flex flex-col items-center justify-center text-center min-h-[calc(100dvh-260px)]">
+              <div className="relative mb-5">
+                <div className="relative py-3">
+                  <div className="flex gap-2 mb-2">
+                    <div className="w-10 h-7 border border-dashed border-border rounded-md" />
+                    <div className="w-16 h-7 border border-dashed border-border rounded-md" />
+                  </div>
+                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 rounded-full border border-border bg-background flex items-center justify-center z-10">
+                    {noResultsState.icon || <XCircle className="w-4 h-4 text-gray-400" />}
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="w-14 h-7 border border-dashed border-border rounded-md" />
+                    <div className="w-11 h-7 border border-dashed border-border rounded-md" />
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
-        )}
+              <h3 className="text-sm font-medium text-foreground mb-1">{noResultsState.title}</h3>
+              <p className="text-sm text-muted-foreground mb-4">{noResultsState.description}</p>
+              <Button variant="outline" size="sm" onClick={clearFilters}>
+                Clear filter
+              </Button>
+            </div>
+          )}
+
+          {/* Empty state */}
+          {items.length === 0 && emptyState && (
+            <div className={cn("flex flex-col items-center justify-center text-center px-6 min-h-[calc(100dvh-260px)]", emptyStateClassName)}>
+              {emptyState.icon}
+              <h3 className="text-[15px] font-semibold text-foreground mb-1.5">{emptyState.title}</h3>
+              <p className="text-sm text-muted-foreground mb-5 max-w-[320px] leading-relaxed whitespace-pre-line">{emptyState.description}</p>
+              {(emptyState.action || emptyState.secondaryAction) && (
+                <div className="flex items-center gap-2">
+                  {emptyState.action && (
+                    <Button
+                      size="sm"
+                      className="bg-primary text-primary-foreground hover:bg-primary/90"
+                      onClick={emptyState.action.onClick}
+                    >
+                      <Plus className="h-4 w-4 mr-0.5" />
+                      <span>{emptyState.action.label}</span>
+                    </Button>
+                  )}
+                  {emptyState.secondaryAction && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={emptyState.secondaryAction.onClick}
+                    >
+                      <span>{emptyState.secondaryAction.label}</span>
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Dialog */}

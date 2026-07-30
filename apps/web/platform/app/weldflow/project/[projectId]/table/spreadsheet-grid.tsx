@@ -1273,7 +1273,7 @@ export function SpreadsheetGrid({
   return (
     <div
       ref={containerRef}
-      className="h-full w-full overflow-auto bg-background outline-none select-none"
+      className="h-full w-full min-w-0 min-h-0 overflow-auto bg-background outline-none select-none"
       tabIndex={0}
       onKeyDown={handleKeyDown}
       onScroll={handleScroll}

@@ -1041,15 +1041,15 @@ export function MyTasksClient({
     });
   }, [setSortState]);
 
-  // Header columns
+  // Header columns — Task label on the flex title column; meta columns do not shrink
   const headerColumns: HeaderColumn[] = useMemo(() => [
-    { id: 'checkbox', header: t.projects.tasks.task, width: 'w-4 flex-shrink-0' },
-    { id: 'task', header: '', width: 'min-w-[200px] flex-1' },
-    { id: 'project', header: t.projects.myTasks.columns.project, width: 'w-[140px]', sortable: true },
-    { id: 'status', header: t.projects.myTasks.columns.status, width: 'w-[120px]', sortable: true },
-    { id: 'priority', header: t.projects.myTasks.columns.priority, width: 'w-[100px]', sortable: true },
-    { id: 'dueDate', header: t.projects.myTasks.columns.due, width: 'w-[100px]', sortable: true },
-    { id: 'assignee', header: t.projects.myTasks.columns.assignee, width: 'w-[120px]', sortable: true },
+    { id: 'checkbox', header: '', width: 'w-4 flex-shrink-0' },
+    { id: 'task', header: t.projects.tasks.task, width: 'min-w-[220px] flex-1' },
+    { id: 'project', header: t.projects.myTasks.columns.project, width: 'w-[140px] flex-shrink-0', sortable: true },
+    { id: 'status', header: t.projects.myTasks.columns.status, width: 'w-[120px] flex-shrink-0', sortable: true },
+    { id: 'priority', header: t.projects.myTasks.columns.priority, width: 'w-[100px] flex-shrink-0', sortable: true },
+    { id: 'dueDate', header: t.projects.myTasks.columns.due, width: 'w-[100px] flex-shrink-0', sortable: true },
+    { id: 'assignee', header: t.projects.myTasks.columns.assignee, width: 'w-[120px] flex-shrink-0', sortable: true },
   ], [t]);
 
   // Render row content (reused for list rows and drag overlay)
@@ -1076,13 +1076,13 @@ export function MyTasksClient({
           />
         </div>
 
-        {/* Task Title */}
-        <div className="min-w-[200px] flex-1 flex items-center gap-2">
+        {/* Task Title — title keeps flex-1; labels are capped so they cannot crush the name */}
+        <div className="min-w-[220px] flex-1 flex items-center gap-2">
           {task.number != null && (
             <TaskNumberBadge number={task.number} className="flex-shrink-0" />
           )}
           <span className={cn(
-            "text-sm font-medium truncate min-w-0",
+            "text-sm font-medium truncate min-w-0 flex-1",
             task.status === 'done' ? "line-through text-gray-400" : "text-gray-900 dark:text-foreground"
           )}>
             {task.title}
@@ -1116,7 +1116,7 @@ export function MyTasksClient({
         </div>
 
         {/* Project */}
-        <div className="w-[140px]">
+        <div className="w-[140px] flex-shrink-0">
           {task.project ? (
             <span className="text-sm text-gray-600 dark:text-muted-foreground truncate block">{task.project}</span>
           ) : (
@@ -1125,7 +1125,7 @@ export function MyTasksClient({
         </div>
 
         {/* Status */}
-        <div className="w-[120px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[120px] flex-shrink-0" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("px-2 py-0.5 rounded text-[12px] font-medium cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", status.color, status.bg)}>
@@ -1149,7 +1149,7 @@ export function MyTasksClient({
         </div>
 
         {/* Priority */}
-        <div className="w-[100px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[100px] flex-shrink-0" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("px-2 py-0.5 rounded text-[12px] font-medium cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", priority.color, priority.bg)}>
@@ -1173,7 +1173,7 @@ export function MyTasksClient({
         </div>
 
         {/* Due Date */}
-        <div className="w-[100px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[100px] flex-shrink-0" onClick={(e) => e.stopPropagation()}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -1208,7 +1208,7 @@ export function MyTasksClient({
         </div>
 
         {/* Assignee(s) */}
-        <div className="w-[120px]" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[120px] flex-shrink-0" onClick={(e) => e.stopPropagation()}>
           {(() => {
             // Derive full assignee list from assigneeIds + availableAssignees directory.
             // Falls back to enriched `assignees` or the single assignee when needed.
@@ -1496,6 +1496,7 @@ export function MyTasksClient({
               onLoadMore={onLoadMore}
               topBarClassName="pt-2 pb-2"
           stickyOffset={-16}
+          contentMinWidthClassName="min-w-[1020px]"
           leftActionButtons={<>{groupByMenu}{viewToggle}</>}
           createButton={{
             label: t.projects.myTasks.newTask,
