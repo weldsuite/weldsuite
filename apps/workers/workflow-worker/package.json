@@ -21,7 +21,7 @@
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/workflow-integrations": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
-    "drizzle-orm": "^0.45.1",
+    "drizzle-orm": "^0.45.2",
     "nanoid": "^5.1.5"
   },
   "devDependencies": {
