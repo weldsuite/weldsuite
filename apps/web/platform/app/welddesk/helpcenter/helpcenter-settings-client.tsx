@@ -27,7 +27,7 @@ import {
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 
-interface HelpcenterSettingsData {
+export interface HelpcenterSettingsData {
   id?: string;
   isEnabled?: number;
   siteName?: string | null;
@@ -51,7 +51,7 @@ interface HelpcenterSettingsData {
   customDomain?: string | null;
 }
 
-interface HelpcenterDomain {
+export interface HelpcenterDomain {
   id: string;
   domain: string;
   isVerified: boolean;

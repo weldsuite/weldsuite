@@ -6,8 +6,43 @@ import {
   useEditorWorkspaceMembers,
   useWorkflowVariables,
 } from '@/hooks/use-workflow-editor-data';
+import type { EditorWorkflow, WorkflowStepBag, WorkflowTriggerBag } from '@/components/workflow-editor/workflow-editor-client';
 import { HelpdeskWorkflowEditorClient } from './helpdesk-workflow-editor';
+import type { HelpdeskWorkflow, WorkflowStep, WorkflowTrigger } from './types';
 import { useI18n } from '@/lib/i18n/provider';
+
+function toHelpdeskTrigger(t: WorkflowTriggerBag): WorkflowTrigger {
+  return {
+    id: typeof t.id === 'string' ? t.id : undefined,
+    type: t.type,
+    entityType: typeof t.entityType === 'string' ? t.entityType : undefined,
+    eventType: typeof t.eventType === 'string' ? t.eventType : undefined,
+    config: t.config as Record<string, unknown> | undefined,
+    filters: t.filters as unknown[] | undefined,
+  };
+}
+
+function toHelpdeskStep(s: WorkflowStepBag): WorkflowStep {
+  return {
+    id: s.id ?? '',
+    type: s.type ?? '',
+    name: s.name ?? '',
+    description: s.description,
+    config: s.config,
+    parentBranchId: s.parentBranchId,
+  };
+}
+
+function toHelpdeskWorkflow(workflow: EditorWorkflow): HelpdeskWorkflow {
+  return {
+    id: workflow.id,
+    name: workflow.name,
+    description: workflow.description ?? undefined,
+    status: workflow.status ?? undefined,
+    triggers: (workflow.triggers ?? []).map(toHelpdeskTrigger),
+    steps: (workflow.steps ?? []).map(toHelpdeskStep),
+  };
+}
 
 export default function HelpdeskWorkflowEditPage() {
   const { t } = useI18n();
@@ -33,7 +68,7 @@ export default function HelpdeskWorkflowEditPage() {
 
   return (
     <HelpdeskWorkflowEditorClient
-      workflow={workflow}
+      workflow={toHelpdeskWorkflow(workflow)}
       workspaceMembers={workspaceMembers}
       workflowVariables={workflowVariables}
     />

@@ -54,12 +54,10 @@ export function DealCard({
   owner,
   probability,
   expectedCloseDate,
-  lastActivity,
-  tags = [],
   isDragging = false,
   onClick,
   onCompanyClick,
-  onContactClick
+  onContactClick,
 }: DealCardProps) {
   const t = useTranslations();
   const {

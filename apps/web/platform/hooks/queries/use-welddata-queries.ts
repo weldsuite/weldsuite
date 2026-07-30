@@ -13,10 +13,8 @@ import type {
   CreateColumnInput,
   CreateWelddataListInput,
   LemlistFilter,
-  LemlistFilterCatalog,
   LemlistSearchResult,
   RunColumnInput,
-  SearchLeadsInput,
   UpdateColumnInput,
   UpdateWelddataListInput,
   WelddataCell,
@@ -55,38 +53,7 @@ const welddataKeys = {
   columns: (listId: string) => [...welddataKeys.all, 'columns', listId] as const,
   cells: (listId: string) => [...welddataKeys.all, 'cells', listId] as const,
   models: () => [...welddataKeys.all, 'models'] as const,
-};
-
-// ---------------------------------------------------------------------------
-// Database search (Lemlist, proxied)
-// ---------------------------------------------------------------------------
-
-function useLemlistFilters() {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: welddataKeys.filters(),
-    queryFn: async () => {
-      const client = await getClient();
-      const res = await client.get<DetailResponse<LemlistFilterCatalog>>('/welddata/filters');
-      return res.data;
-    },
-    staleTime: 1000 * 60 * 60, // filters rarely change
-  });
-}
-
-function useSearchLeads() {
-  const { getClient } = useAppApiClient();
-  return useMutation({
-    mutationFn: async ({ kind, input }: { kind: 'person' | 'company'; input: SearchLeadsInput }) => {
-      const client = await getClient();
-      const path = kind === 'person' ? '/welddata/search/people' : '/welddata/search/companies';
-      const res = await client.post<DetailResponse<LemlistSearchResult>>(path, input);
-      return res.data;
-    },
-  });
-}
-
-/** The submitted search criteria. `null` keeps the query idle until the user
+};/** The submitted search criteria. `null` keeps the query idle until the user
  * runs a search. */
 export interface InfiniteSearchParams {
   kind: 'person' | 'company';

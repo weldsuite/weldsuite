@@ -62,7 +62,7 @@ export function BankAccountFormDialog({
   // Bank ledger accounts from the CoA — filtered to asset/bank subtype
   const { data: accountsData } = useAccountingAccounts();
   const ledgerOptions = (accountsData?.data ?? []).filter(
-    (a: any) => a.type === 'asset' && (a.subtype === 'bank' || a.subtype === 'cash'),
+    (a) => a.type === 'asset' && (a.subtype === 'bank' || a.subtype === 'cash'),
   );
 
   // Reset/prefill whenever the dialog opens or the account changes
@@ -209,7 +209,7 @@ export function BankAccountFormDialog({
                   {ledgerOptions.length === 0 ? (
                     <SelectItem value="_none" disabled>{t('sweep.weldbooks.bankAccountForm.noLedgerAccounts')}</SelectItem>
                   ) : (
-                    ledgerOptions.map((a: any) => (
+                    ledgerOptions.map((a) => (
                       <SelectItem key={a.id} value={a.id}>
                         {a.code} — {a.name}
                       </SelectItem>

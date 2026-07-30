@@ -35,7 +35,7 @@ interface UseSidebarBadgesReturn {
 
 export function useSidebarBadges(): UseSidebarBadgesReturn {
   useUser();
-  const { currentWorkspace } = useWorkspace();
+  useWorkspace();
   const { getClient } = useAppApiClient();
   const queryClient = useQueryClient();
 

@@ -1,4 +1,3 @@
-import React from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   Home,
@@ -49,7 +48,6 @@ import {
   Wand2,
   Truck,
   Sparkles,
-  MessageSquarePlus,
   Database,
   Search,
   Megaphone,

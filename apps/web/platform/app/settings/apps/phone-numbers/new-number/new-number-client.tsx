@@ -46,7 +46,7 @@ import {
   useCreateAddress,
 } from '@/hooks/use-phone-numbers';
 
-interface ProviderAddress {
+export interface ProviderAddress {
   id: string;
   sid?: string; // legacy
   business_name: string;
@@ -66,7 +66,7 @@ interface ProviderAddress {
   validated: boolean;
 }
 
-interface PricingEntry {
+export interface PricingEntry {
   countryCode: string;
   numberType: string;
   monthlyPrice: number;
@@ -74,7 +74,7 @@ interface PricingEntry {
   stripePriceId?: string;
 }
 
-interface ProviderBundle {
+export interface ProviderBundle {
   id: string;
   country_code?: string;
   iso_country?: string;
@@ -89,7 +89,7 @@ interface NewNumberClientProps {
   pricingData: PricingEntry[];
 }
 
-interface AvailableNumber {
+export interface AvailableNumber {
   phone_number: string;
   friendly_name?: string;
   iso_country?: string;

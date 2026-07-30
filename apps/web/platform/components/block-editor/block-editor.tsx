@@ -85,13 +85,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSeparator,
-} from '@weldsuite/ui/components/dropdown-menu';
 
 // ============================================================================
 // BlockNote-based Notion-like document editor
@@ -194,15 +187,18 @@ const schema = BlockNoteSchema.create({
   },
 });
 
+/** Blocks bound to this editor's custom schema (docx-safe blocks + font style specs). */
+type EditorBlock = PartialBlock<typeof schema.blockSchema, typeof schema.inlineContentSchema, typeof schema.styleSchema>;
+
 /** Imperative handle exposed via ref */
 export interface BlockEditorHandle {
   /** Replace the entire editor content with new blocks */
-  replaceContent: (blocks: PartialBlock[]) => void;
+  replaceContent: (blocks: EditorBlock[]) => void;
 }
 
 export interface BlockEditorProps {
   /** Initial content as BlockNote JSON blocks */
-  initialContent?: PartialBlock[];
+  initialContent?: EditorBlock[];
   /** Initial HTML content (will be converted to blocks) */
   initialHtml?: string;
   /** Whether the editor is editable */
@@ -283,7 +279,7 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
       schema,
       // In collaborative mode the Yjs fragment is the source of truth, so we
       // must NOT also pass initialContent (it would conflict with sync).
-      initialContent: collaboration ? undefined : (resolvedInitialContent as any),
+      initialContent: collaboration ? undefined : resolvedInitialContent,
       uploadFile: handleUploadFile,
       ...(collaboration
         ? {
@@ -318,10 +314,10 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
 
   // Expose imperative handle for remote content updates
   useImperativeHandle(ref, () => ({
-    replaceContent: (blocks: PartialBlock[]) => {
+    replaceContent: (blocks: EditorBlock[]) => {
       isRemoteUpdateRef.current = true;
       try {
-        editor.replaceBlocks(editor.document, blocks as any);
+        editor.replaceBlocks(editor.document, blocks);
       } finally {
         // Reset after a tick so the onChange from replaceBlocks is suppressed
         setTimeout(() => { isRemoteUpdateRef.current = false; }, 0);
@@ -860,10 +856,16 @@ export function StaticFormattingToolbar({ editor }: { editor: BlockNoteEditorIns
       }
       editor.addStyles({ [markName]: value } as never);
 
+      interface TiptapChain {
+        focus: () => TiptapChain;
+        setMark: (name: string, attrs: Record<string, unknown>) => TiptapChain;
+        insertContent: (content: string) => TiptapChain;
+        run: () => void;
+      }
+
       const tt = (editor as unknown as { _tiptapEditor?: {
         state: { selection: { empty: boolean } };
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        chain: () => any;
+        chain: () => TiptapChain;
       } })._tiptapEditor;
 
       try {

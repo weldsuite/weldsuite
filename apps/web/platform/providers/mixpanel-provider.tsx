@@ -13,7 +13,7 @@ export function MixpanelIdentifier() {
   useEffect(() => {
     // `import.meta.env.DEV` is Vite's build-time boolean, not a turbo-tracked
     // process.env var — eslint-plugin-turbo doesn't distinguish the two.
-    // eslint-disable-next-line turbo/no-undeclared-env-vars
+     
     initMixpanel(MIXPANEL_TOKEN, import.meta.env.DEV)
   }, [])
 

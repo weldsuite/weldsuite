@@ -1,8 +1,7 @@
 
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@weldsuite/ui/components/button';
-import { CommentInput } from '@weldsuite/ui/components/comment-input';
 import { type Comment } from '@weldsuite/ui/components/entity-detail-panel';
 import { toast } from 'sonner';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
@@ -16,13 +15,6 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -34,39 +26,14 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@weldsuite/ui/components/command';
-import { Tabs, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
-import { Textarea } from '@weldsuite/ui/components/textarea';
-import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import {
   Search,
-  ChevronDown,
   Plus,
-  Target,
-  Users,
-  Building2,
-  User,
   MoreHorizontal,
-  CheckCircle2,
-  AlertCircle,
-  XCircle,
-  Clock,
-  TrendingUp,
-  MessageSquare,
-  Paperclip,
-  Flag,
   Trash2,
-  MousePointer2,
-  Hand,
-  X,
-  Share2,
   Link2,
   Maximize,
   Check,
-  Send,
-  AtSign,
-  Image,
-  Settings,
-  ArrowUp,
   Minus,
   ChevronsUpDown,
 } from 'lucide-react';
@@ -76,6 +43,9 @@ import { TagLabel } from '@/components/weldflow/tag-label';
 import { TaskDetailPanel } from '@/components/task-detail';
 import { useObjectPanel } from '@/components/object-panel';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
+
+// Fixed zoom stops. Module scope so the array identity is stable across renders.
+const zoomLevels = [0.025, 0.05, 0.1, 0.15, 0.25, 0.33, 0.5, 0.75, 1, 1.5, 2, 3, 4, 5];
 
 // Types for goals data
 interface MissionCardType {
@@ -234,7 +204,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     subGoals: []
   });
   const [goals, setGoals] = useState<GoalCard[]>(initialGoals);
-  const [isSaving, setIsSaving] = useState(false);
+  const [_isSaving, setIsSaving] = useState(false);
   const [selectedGoal, setSelectedGoal] = useState<string | null>(null);
   const [showDetailsPanel, setShowDetailsPanel] = useState(false);
   const [collapsedGoals, setCollapsedGoals] = useState<Set<string>>(new Set());
@@ -246,11 +216,11 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
   const [parentGoalForNewChild, setParentGoalForNewChild] = useState<string | null>(null);
   const [newGoalTitle, setNewGoalTitle] = useState('');
   const [newGoalTarget, setNewGoalTarget] = useState('');
-  const [activeCommentsTab, setActiveCommentsTab] = useState<'comments' | 'activity'>('comments');
+  const [_activeCommentsTab, _setActiveCommentsTab] = useState<'comments' | 'activity'>('comments');
   const [goalCreationType, setGoalCreationType] = useState<'new' | 'existing'>('existing');
   const [selectedExistingTask, setSelectedExistingTask] = useState<string | null>(null);
   const [taskPickerOpen, setTaskPickerOpen] = useState(false);
-  const [completedGoals, setCompletedGoals] = useState<Set<string>>(new Set());
+  const [_completedGoals, _setCompletedGoals] = useState<Set<string>>(new Set());
   // Seeded with a placeholder so the goal-mode TaskDetailPanel stays mounted
   // from first render in a closed state (translate-x-full). On first open,
   // isOpen goes false → true, which triggers the slide-in transition.
@@ -260,25 +230,24 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     status: 'todo',
     createdAt: new Date(),
   });
-  const [commentInput, setCommentInput] = useState('');
-  const [comments, setComments] = useState<GoalComment[]>([]);
-  const [commentsHeight, setCommentsHeight] = useState(250);
+  const [_commentInput, _setCommentInput] = useState('');
+  const [_comments, _setComments] = useState<GoalComment[]>([]);
+  const [commentsHeight, _setCommentsHeight] = useState(250);
   const [tool, setTool] = useState<'select' | 'pan'>('select');
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const lastTouchRef = useRef<{ x: number; y: number } | null>(null);
   const panPositionRef = useRef({ x: 0, y: 0 });
-  const touchRafRef = useRef<number | null>(null);
+  const _touchRafRef = useRef<number | null>(null);
 
   // Start with { x: 0, y: 0 } to avoid hydration mismatch - will center in useEffect
   const [panPosition, setPanPosition] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [zoomIndex, setZoomIndex] = useState(8);
-  const zoomLevels = [0.025, 0.05, 0.1, 0.15, 0.25, 0.33, 0.5, 0.75, 1, 1.5, 2, 3, 4, 5];
   const [isDragging, setIsDragging] = useState(false);
   const [draggedGoal, setDraggedGoal] = useState<string | null>(null);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [dragRenderTrigger, setDragRenderTrigger] = useState(0);
+  const [_dragOffset, _setDragOffset] = useState({ x: 0, y: 0 });
+  const [_dragRenderTrigger, setDragRenderTrigger] = useState(0);
   const dragStartMouse = useRef({ x: 0, y: 0 });
   const dragStartGoal = useRef({ x: 0, y: 0 });
   const dragCurrentPosition = useRef({ x: 0, y: 0 });
@@ -286,9 +255,9 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
   const rafRef = useRef<number | null>(null);
   const hasDraggedRef = useRef(false);
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([]);
-  const [selectedTimePeriod, setSelectedTimePeriod] = useState('all');
+  const [selectedTimePeriod, _setSelectedTimePeriod] = useState('all');
   const [highlightStatus, setHighlightStatus] = useState<string>('none');
-  const [showConnections, setShowConnections] = useState(true);
+  const [showConnections, _setShowConnections] = useState(true);
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -437,10 +406,10 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
 
       setIsInitialLoad(false);
     }
-  }, [isInitialLoad, goals.length]);
+  }, [isInitialLoad, goals, mission]);
 
   // Save function
-  const saveGoals = async () => {
+  const saveGoals = useCallback(async () => {
     setIsSaving(true);
     try {
       // Convert goals back to GoalCardType for saving (dates as strings)
@@ -468,7 +437,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [mission, goals, getClient, projectId, st]);
 
   // Auto-save when goals or mission change (debounced)
   useEffect(() => {
@@ -480,10 +449,10 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     }, 1500); // Save 1.5 seconds after last change
 
     return () => clearTimeout(timeoutId);
-  }, [goals, mission, isInitialLoad]);
+  }, [goals, mission, isInitialLoad, saveGoals]);
 
   // Handle comments section resize
-  const isResizingRef = useRef(false);
+  const _isResizingRef = useRef(false);
   const commentsHeightRef = useRef(commentsHeight);
 
   // Keep ref in sync with state
@@ -491,41 +460,9 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     commentsHeightRef.current = commentsHeight;
   }, [commentsHeight]);
 
-  const handleCommentsResizeStart = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const startY = e.clientY;
-    const startHeight = commentsHeightRef.current;
-    isResizingRef.current = true;
-
-    document.body.style.cursor = 'ns-resize';
-    document.body.style.userSelect = 'none';
-
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      moveEvent.preventDefault();
-      moveEvent.stopPropagation();
-      const deltaY = startY - moveEvent.clientY;
-      const newHeight = Math.min(Math.max(startHeight + deltaY, 100), 800);
-      setCommentsHeight(newHeight);
-    };
-
-    const handleMouseUp = (upEvent: MouseEvent) => {
-      upEvent.preventDefault();
-      upEvent.stopPropagation();
-      isResizingRef.current = false;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      document.removeEventListener('mousemove', handleMouseMove, true);
-      document.removeEventListener('mouseup', handleMouseUp, true);
-    };
-
-    document.addEventListener('mousemove', handleMouseMove, true);
-    document.addEventListener('mouseup', handleMouseUp, true);
-  };
-
+  
   // Center the canvas view on the content
-  const centerCanvasView = () => {
+  const centerCanvasView = useCallback(() => {
     if (!canvasRef.current) return;
 
     const rect = canvasRef.current.getBoundingClientRect();
@@ -579,7 +516,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     if (isFinite(newX) && isFinite(newY)) {
       setPanPosition({ x: newX, y: newY });
     }
-  };
+  }, [mission, goals]);
 
   // Center view on initial load and when goals data changes
   useEffect(() => {
@@ -591,18 +528,9 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [isInitialLoad, mission, goals.length]);
+  }, [isInitialLoad, mission, goals.length, centerCanvasView]);
 
-  // Convert screen coordinates to canvas coordinates
-  const screenToCanvas = (screenX: number, screenY: number) => {
-    if (!canvasRef.current) return { x: 0, y: 0 };
-    const rect = canvasRef.current.getBoundingClientRect();
-    return {
-      x: (screenX - rect.left - panPosition.x) / zoom,
-      y: (screenY - rect.top - panPosition.y) / zoom
-    };
-  };
-
+  
   // Get status color
   const getStatusColor = (status: GoalCard['status']) => {
     switch (status) {
@@ -615,29 +543,8 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     }
   };
 
-  // Get status icon
-  const getStatusIcon = (status: GoalCard['status']) => {
-    switch (status) {
-      case 'on-track': return <CheckCircle2 className="h-3.5 w-3.5" />;
-      case 'at-risk': return <AlertCircle className="h-3.5 w-3.5" />;
-      case 'off-track': return <XCircle className="h-3.5 w-3.5" />;
-      case 'completed': return <CheckCircle2 className="h-3.5 w-3.5" />;
-      case 'not-started': return <Clock className="h-3.5 w-3.5" />;
-      default: return <Target className="h-3.5 w-3.5" />;
-    }
-  };
-
-  // Get priority color
-  const getPriorityColor = (priority?: GoalCard['priority']) => {
-    switch (priority) {
-      case 'critical': return '#dc2626';
-      case 'high': return '#ea580c';
-      case 'medium': return '#ca8a04';
-      case 'low': return '#16a34a';
-      default: return '#6b7280';
-    }
-  };
-
+  
+  
   // Toggle collapse/expand for a goal's children
   const toggleGoalCollapse = (goalId: string) => {
     setCollapsedGoals(prev => {
@@ -651,30 +558,8 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     });
   };
 
-  // Handle sending a comment
-  const handleSendComment = () => {
-    if (!commentInput.trim() || !selectedGoal) return;
-
-    const newComment: GoalComment = {
-      id: `comment-${Date.now()}`,
-      author: {
-        name: 'Weld',
-        initials: 'W',
-      },
-      content: commentInput,
-      createdAt: new Date(),
-      goalId: selectedGoal,
-    };
-
-    setComments(prev => [...prev, newComment]);
-    setCommentInput('');
-  };
-
-  // Get comments for the selected goal
-  const getGoalComments = (goalId: string) => {
-    return comments.filter(comment => comment.goalId === goalId);
-  };
-
+  
+  
   // Delete a goal and all its children
   const deleteGoal = (goalId: string) => {
     // Find all descendant goals (children, grandchildren, etc.)
@@ -903,7 +788,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     const oldWidth = existingChildren.length > 0
       ? (existingChildren.length * childWidth) + ((existingChildren.length - 1) * horizontalSpacing)
       : 0;
-    const oldStartX = parentX - (oldWidth / 2);
+    const _oldStartX = parentX - (oldWidth / 2);
 
     // Get all sibling parents (goals with the same parent - could be mission's children or same level)
     const siblingParents = goals.filter(g =>
@@ -941,7 +826,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     };
 
     // Calculate the rightmost edge of this parent's children
-    const parentLeftEdge = startX;
+    const _parentLeftEdge = startX;
     const parentRightEdge = startX + totalWidth;
 
     // Update parent's subGoals array and reposition all existing children
@@ -1433,7 +1318,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [zoom, zoomIndex, zoomLevels, canvasRef]);
+  }, [zoom, zoomIndex, canvasRef]);
 
   // Render mission card
   const renderMissionCard = (missionData: MissionCard) => {
@@ -1487,7 +1372,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
   // Render goal card - simplified version matching screenshot
   const renderGoalCard = (goal: GoalCard) => {
     const isHighlighted = highlightStatus !== 'none' && goal.status === highlightStatus;
-    const statusColor = getStatusColor(goal.status);
+    const _statusColor = getStatusColor(goal.status);
     const isDraggingThis = isDragging && draggedGoal === goal.id;
 
     return (

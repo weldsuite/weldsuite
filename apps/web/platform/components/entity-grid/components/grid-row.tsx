@@ -17,7 +17,7 @@ export function GridRow<TEntity>({ entity, rowIndex }: GridRowProps<TEntity>) {
   // doesn't drag the row through a re-render every time the selection moves.
   const { startSelection, extendSelection } = useCellSelectionActions();
 
-  const { columnWidths, selectedRows, openPopover } = state;
+  const { selectedRows, openPopover } = state;
   const visibleColumns = getVisibleColumns();
   const entityId = config.getEntityId(entity);
   const optimisticEntity = getEntityWithOptimisticUpdates(entity);

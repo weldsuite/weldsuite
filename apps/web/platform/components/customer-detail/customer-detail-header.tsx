@@ -1243,7 +1243,19 @@ function ShareDialog({
     }
   }, [open]);
 
-  const members = useMemo<Member[]>(() => membersData?.data ?? [], [membersData]);
+  const members = useMemo<Member[]>(
+    () =>
+      (membersData?.data ?? []).map((m) => ({
+        id: m.id ?? m.userId,
+        userId: m.userId,
+        name: m.name ?? null,
+        picture: m.picture ?? null,
+        role: m.role ?? '',
+        status: m.status ?? '',
+        memberType: 'INTERNAL' as const,
+      })),
+    [membersData],
+  );
   const channels = useMemo<ChatChannel[]>(() => channelsData?.data ?? [], [channelsData]);
   const dms = useMemo<ChatDmRow[]>(() => (dmsData?.data ?? []) as ChatDmRow[], [dmsData]);
 

@@ -21,9 +21,9 @@ export const Link = forwardRef<HTMLAnchorElement, LinkProps>(
       children,
       // Destructured only to keep them out of `...rest` (they're not valid
       // DOM anchor attributes) — TanStack Router doesn't need them either.
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+       
       prefetch,
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+       
       scroll,
       ...rest
     },

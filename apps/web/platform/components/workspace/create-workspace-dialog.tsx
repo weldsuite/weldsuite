@@ -203,8 +203,9 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
       ]);
       // Provisioning was already triggered server-side by /api/onboard; the
       // effect below polls database-status and finalizes once it's ready.
-    } catch (error: any) {
-      const errorMessage = error?.errors?.[0]?.longMessage || error?.errors?.[0]?.message || error?.message || t('sweep.shared.failedToCreateWorkspace');
+    } catch (error: unknown) {
+      const clerkError = error as { errors?: Array<{ longMessage?: string; message?: string }>; message?: string };
+      const errorMessage = clerkError?.errors?.[0]?.longMessage || clerkError?.errors?.[0]?.message || clerkError?.message || t('sweep.shared.failedToCreateWorkspace');
       console.error('Failed to create workspace:', error);
       toast.error(errorMessage);
       setIsCreating(false);

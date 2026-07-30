@@ -26,13 +26,6 @@ interface NoteActivity {
   assignedTo?: string;
 }
 
-interface WorkspaceMemberInfo {
-  id?: string;
-  userId?: string;
-  name?: string;
-  picture?: string;
-}
-
 function resolveRecord(activity: NoteActivity): {
   kind?: RecordKind;
   id?: string;
@@ -70,8 +63,8 @@ export default function NotesPage() {
   // the few legacy activities that were written with the row id instead.
   const memberById = useMemo(() => {
     const map = new Map<string, { name?: string; picture?: string }>();
-    (membersData?.data || []).forEach((m: WorkspaceMemberInfo) => {
-      const info = { name: m.name, picture: m.picture };
+    (membersData?.data || []).forEach((m) => {
+      const info = { name: m.name ?? undefined, picture: m.picture ?? undefined };
       if (m.userId) map.set(m.userId, info);
       if (m.id) map.set(m.id, info);
     });
@@ -90,7 +83,7 @@ export default function NotesPage() {
       undefined;
     const currentUserAvatar = user?.imageUrl || undefined;
 
-    return (data.data as NoteActivity[]).map((activity) => {
+    return (data.data as unknown as NoteActivity[]).map((activity) => {
       const authorId = activity.assignedToId || activity.createdBy;
       const isCurrentUser = !!user?.id && authorId === user.id;
       const member = authorId ? memberById.get(authorId) : undefined;

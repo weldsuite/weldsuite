@@ -25,9 +25,9 @@ interface Widget {
 }
 
 interface RawWidget {
-  widgetId: string;
+  widgetId?: string;
   widgetName?: string;
-  createdAt: string;
+  createdAt?: string | Date;
 }
 
 export default function ChatWidgetPage() {
@@ -44,10 +44,10 @@ export default function ChatWidgetPage() {
 
   const widgets: Widget[] = useMemo(() =>
     (data?.data ?? []).map((w: RawWidget) => ({
-      id: w.widgetId,
-      widgetId: w.widgetId,
+      id: w.widgetId || '',
+      widgetId: w.widgetId || '',
       widgetName: w.widgetName || tw.unnamedWidget,
-      createdAt: w.createdAt,
+      createdAt: w.createdAt ? String(w.createdAt) : '',
     })),
     [data, tw.unnamedWidget],
   );

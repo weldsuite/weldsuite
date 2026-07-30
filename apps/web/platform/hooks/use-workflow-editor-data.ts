@@ -1,6 +1,8 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import type { EditorWorkflow } from '@/components/workflow-editor/workflow-editor-client';
+import type { ActionType, TriggerType, EntityEvent, WorkflowVariable } from '@/hooks/queries/use-automation-queries';
 
 export const workflowEditorKeys = {
   all: ['workflow-editor'] as const,
@@ -25,7 +27,7 @@ export function useWorkflowDetail(id: string, options?: { enabled?: boolean; mod
     queryKey: [...workflowEditorKeys.workflow(id), options?.module ?? 'task'],
     queryFn: async () => {
       const client = await getClient();
-      const result = await client.get<{ data: any }>(`${basePath}/${id}`);
+      const result = await client.get<{ data: EditorWorkflow }>(`${basePath}/${id}`);
       return result.data || null;
     },
     enabled: !!id && enabled,
@@ -38,7 +40,7 @@ export function useActionTypes() {
     queryKey: workflowEditorKeys.actionTypes(),
     queryFn: async () => {
       const client = await getClient();
-      const result = await client.get<{ data: any[] }>('/workflow-dashboard/action-types');
+      const result = await client.get<{ data: ActionType[] }>('/workflow-dashboard/action-types');
       return result.data || [];
     },
   });
@@ -50,7 +52,7 @@ export function useTriggerTypes() {
     queryKey: workflowEditorKeys.triggerTypes(),
     queryFn: async () => {
       const client = await getClient();
-      const result = await client.get<{ data: any[] }>('/workflow-dashboard/trigger-types');
+      const result = await client.get<{ data: TriggerType[] }>('/workflow-dashboard/trigger-types');
       return result.data || [];
     },
   });
@@ -62,7 +64,7 @@ export function useEntityEvents() {
     queryKey: workflowEditorKeys.entityEvents(),
     queryFn: async () => {
       const client = await getClient();
-      const result = await client.get<{ data: any[] }>('/workflow-dashboard/entity-events');
+      const result = await client.get<{ data: EntityEvent[] }>('/workflow-dashboard/entity-events');
       return result.data || [];
     },
   });
@@ -74,9 +76,11 @@ export function useEmailAccounts() {
     queryKey: workflowEditorKeys.emailAccounts(),
     queryFn: async () => {
       const client = await getClient();
-      const result = await client.get<{ data: any[] }>('/mail-accounts?status=active');
+      const result = await client.get<{
+        data: Array<{ id: string; email: string; displayName?: string; name?: string }>;
+      }>('/mail-accounts?status=active');
       const accounts = result.data || [];
-      return accounts.map((account: any) => ({
+      return accounts.map((account) => ({
         id: account.id,
         email: account.email,
         displayName: account.displayName || account.name || undefined,
@@ -91,14 +95,16 @@ export function useEditorWorkspaceMembers() {
     queryKey: workflowEditorKeys.workspaceMembers(),
     queryFn: async () => {
       const client = await getClient();
-      const result = await client.get<{ data: any[] }>('/team-members?limit=100');
+      const result = await client.get<{
+        data: Array<{ id: string; userId?: string; name?: string; email?: string; picture?: string; status?: string }>;
+      }>('/team-members?limit=100');
       const members = result.data || [];
       return members
-        .filter((member: any) => {
+        .filter((member) => {
           const status = (member.status || '').toUpperCase();
           return status !== 'PENDING';
         })
-        .map((member: any) => ({
+        .map((member) => ({
           id: member.userId || member.id,
           name: member.name || member.email?.split('@')[0] || 'Unknown',
           email: member.email || '',
@@ -114,7 +120,7 @@ export function useWorkflowVariables(workflowId: string, enabled = true) {
     queryKey: workflowEditorKeys.workflowVariables(workflowId),
     queryFn: async () => {
       const client = await getClient();
-      const result = await client.get<{ data: any[] }>(`/workflow-variables/workflow/${workflowId}`);
+      const result = await client.get<{ data: WorkflowVariable[] }>(`/workflow-variables/workflow/${workflowId}`);
       return result.data || [];
     },
     enabled: !!workflowId && enabled,
@@ -140,7 +146,9 @@ function useWorkflowWebhook(workflowId: string, enabled = true) {
     queryKey: workflowEditorKeys.workflowWebhook(workflowId),
     queryFn: async () => {
       const client = await getClient();
-      const result = await client.get<{ data: any }>(`/workflow-webhooks/workflow/${workflowId}`);
+      const result = await client.get<{
+        data: { id: string; url: string; externalUrl: string | null; secret: string | null; isEnabled: boolean } | null;
+      }>(`/workflow-webhooks/workflow/${workflowId}`);
       return result.data || null;
     },
     enabled: !!workflowId && enabled,

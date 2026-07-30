@@ -4000,7 +4000,16 @@ function EventAttendeesField({
   const { data: peopleData } = usePeople({ limit: 50 });
   const { data: membersData } = useWorkspaceMembers(1, 50);
   const contacts = useMemo(() => (peopleData?.data || []) as Person[], [peopleData]);
-  const members = useMemo<WorkspaceMemberLite[]>(() => membersData?.data || [], [membersData]);
+  const members = useMemo<WorkspaceMemberLite[]>(
+    () =>
+      (membersData?.data || []).map((m) => ({
+        id: m.id ?? m.userId,
+        name: m.name ?? undefined,
+        email: m.email ?? undefined,
+        picture: m.picture ?? undefined,
+      })),
+    [membersData],
+  );
 
   // Unified list of pickable people: workspace members first, then contacts.
   // Dedupe by lower-cased email — when the same person is both a member and a
@@ -4195,7 +4204,16 @@ function GuestSearchInput({
   const { data: membersData } = useWorkspaceMembers(1, 50);
 
   const contacts = useMemo(() => (peopleData?.data || []) as Person[], [peopleData]);
-  const members = useMemo<WorkspaceMemberLite[]>(() => membersData?.data || [], [membersData]);
+  const members = useMemo<WorkspaceMemberLite[]>(
+    () =>
+      (membersData?.data || []).map((m) => ({
+        id: m.id ?? m.userId,
+        name: m.name ?? undefined,
+        email: m.email ?? undefined,
+        picture: m.picture ?? undefined,
+      })),
+    [membersData],
+  );
 
   // Build unified results
   const results = useMemo(() => {

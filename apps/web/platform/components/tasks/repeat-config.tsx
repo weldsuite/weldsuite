@@ -10,7 +10,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
-import { cn } from '@/lib/utils';
 
 export type RepeatFrequency = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly' | 'custom';
 export type RepeatUnit = 'days' | 'weeks' | 'months' | 'years';
@@ -174,35 +173,4 @@ export function buildRepeatPayload(
     return { frequency: 'custom', interval: repeatInterval, unit: repeatUnit };
   }
   return { frequency: repeat };
-}
-
-/** Inline select row for simple (non-custom) repeat, used in quick-create cards */
-function SimpleRepeatSelect({
-  value,
-  onChange,
-  className,
-}: {
-  value: string | null;
-  onChange: (v: string | null) => void;
-  className?: string;
-}) {
-  const t = useTranslations();
-  return (
-    <Select
-      value={value ?? 'none'}
-      onValueChange={(v) => onChange(v === 'none' ? null : v)}
-    >
-      <SelectTrigger className={cn('h-8 text-sm', className)}>
-        <SelectValue placeholder={t('sweep.shared.noRepeat')} />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="none">{t('sweep.shared.noRepeat')}</SelectItem>
-        <SelectItem value="daily">{t('sweep.shared.taskRepeat.daily')}</SelectItem>
-        <SelectItem value="weekly">{t('sweep.shared.taskRepeat.weekly')}</SelectItem>
-        <SelectItem value="biweekly">{t('sweep.shared.taskRepeat.biweekly')}</SelectItem>
-        <SelectItem value="monthly">{t('sweep.shared.taskRepeat.monthly')}</SelectItem>
-        <SelectItem value="custom">{t('sweep.shared.customEditDetails')}</SelectItem>
-      </SelectContent>
-    </Select>
-  );
 }

@@ -15,7 +15,6 @@ import {
   CommandItem,
   CommandList,
 } from '@weldsuite/ui/components/command';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
 import { SelectEditorProps } from '../types';

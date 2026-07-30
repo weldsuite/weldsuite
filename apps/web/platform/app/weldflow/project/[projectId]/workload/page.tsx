@@ -12,5 +12,5 @@ export default function ProjectWorkloadPage() {
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
-  return <ProjectWorkloadClient initialData={data?.data} error={error ? String(error) : null} projectId={projectId} />;
+  return <ProjectWorkloadClient initialData={data?.data ?? null} error={error ? String(error) : null} projectId={projectId} />;
 }

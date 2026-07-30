@@ -31,10 +31,26 @@ interface UseHelpdeskWebSocketOptions {
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
+/** WorkspaceHub / ConversationRoom event payload — wire shape, fields vary by `event.event`. */
+interface HelpdeskEventData {
+  id?: string;
+  conversationId?: string;
+  subject?: string;
+  priority?: string;
+  channel?: string;
+  createdAt?: string;
+  preview?: string;
+  lastMessagePreview?: string;
+  customerName?: string;
+  customerEmail?: string;
+  status?: string;
+  assigneeId?: string;
+  assigneeName?: string;
+  [key: string]: unknown;
+}
+
 export function useHelpdeskWebSocket({
-  conversationId,
   onMessageReceived,
-  onTypingIndicator,
   onConversationClosed,
   onAgentAssigned,
   onNewConversation,
@@ -59,20 +75,20 @@ export function useHelpdeskWebSocket({
   });
 
   // Subscribe to workspace-level helpdesk events
-  const handleHelpdeskEvent = useCallback((event: { event: string; data: any }) => {
+  const handleHelpdeskEvent = useCallback((event: { event: string; data: unknown }) => {
     switch (event.event) {
       case 'conversation_new': {
-        const d = event.data;
+        const d = event.data as HelpdeskEventData;
         onNewConversationRef.current?.({
           id: d.conversationId || d.id,
           subject: d.subject || 'New conversation',
           status: 'active',
-          priority: d.priority || 'normal',
-          channel: d.channel || 'chat',
-          createdAt: d.createdAt,
+          priority: (d.priority as Helpdesk.TicketPriority | undefined) || 'medium',
+          channel: (d.channel as Helpdesk.TicketChannel | undefined) || 'chat',
+          createdAt: d.createdAt ? new Date(d.createdAt) : undefined,
           isRead: false,
           preview: d.preview || d.lastMessagePreview,
-          lastMessageAt: d.createdAt,
+          lastMessageAt: d.createdAt ? new Date(d.createdAt) : undefined,
           customerName: d.customerName,
           customerEmail: d.customerEmail,
         });
@@ -97,16 +113,16 @@ export function useHelpdeskWebSocket({
   useTopic('helpdesk', handleHelpdeskEvent);
 
   // Subscribe to agent-specific inbox events
-  const handleInboxEvent = useCallback((event: { event: string; data: any }) => {
+  const handleInboxEvent = useCallback((event: { event: string; data: unknown }) => {
     switch (event.event) {
       case 'conversation_new': {
-        const d = event.data;
+        const d = event.data as HelpdeskEventData;
         onNewConversationRef.current?.({
           id: d.id,
           subject: d.subject,
-          status: d.status || 'active',
-          channel: d.channel || 'chat',
-          createdAt: d.createdAt,
+          status: (d.status as Helpdesk.ConversationStatus | undefined) || 'active',
+          channel: (d.channel as Helpdesk.TicketChannel | undefined) || 'chat',
+          createdAt: d.createdAt ? new Date(d.createdAt) : undefined,
           customerName: d.customerName,
           customerEmail: d.customerEmail,
           preview: d.preview,
@@ -118,15 +134,15 @@ export function useHelpdeskWebSocket({
         break;
       }
       case 'conversation_updated': {
-        const d = event.data;
+        const d = event.data as HelpdeskEventData;
         if (d.assigneeId) {
           onAgentAssignedRef.current?.({
-            conversationId: d.id,
+            conversationId: d.id || '',
             agentId: d.assigneeId,
             agentName: d.assigneeName || '',
           });
         }
-        onConversationUpdatedRef.current?.(d);
+        onConversationUpdatedRef.current?.({ conversationId: d.id || '', fields: d });
         break;
       }
       case 'conversation_closed': {

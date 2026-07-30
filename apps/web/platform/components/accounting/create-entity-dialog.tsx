@@ -85,7 +85,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: CreateEn
       });
     },
     onSuccess: (res) => {
-      const created = (res as any).data ?? res;
+      const created = 'data' in res ? res.data : res;
       if (created?.id) setEntityId(created.id);
       queryClient.invalidateQueries({ queryKey: ['accounting'] });
       setName('');

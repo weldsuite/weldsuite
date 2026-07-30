@@ -42,18 +42,13 @@ export interface NoteFilters {
 }
 
 interface ListNotesResponse {
-  data: Array<Record<string, any>>;
+  data: Array<Record<string, unknown>>;
   pagination: { totalCount: number; hasMore: boolean; cursor: string | null };
 }
 
 interface CreateNoteResponse {
   data: { id: string };
 }
-
-interface NoteDetailResponse {
-  data: Record<string, any>;
-}
-
 const notesKeys = {
   all: ['notes'] as const,
   lists: () => [...notesKeys.all, 'list'] as const,
@@ -139,20 +134,6 @@ export function useNotes(filters?: NoteFilters) {
     },
   });
 }
-
-function useNote(id: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  useNoteLiveSync();
-  return useQuery({
-    queryKey: notesKeys.detail(id),
-    enabled: !!id && enabled,
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<NoteDetailResponse>(`/activities/${id}`);
-    },
-  });
-}
-
 export function useCreateNote() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();

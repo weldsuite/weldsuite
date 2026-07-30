@@ -4,18 +4,10 @@ import {
   Star,
   PhoneIncoming,
   PhoneOutgoing,
-  Mail,
-  ListChecks,
-  LifeBuoy,
-  Briefcase,
-  ListTodo,
   Video,
-  MessageSquare,
-  FolderOpen,
   Phone,
   Calendar,
   FolderKanban,
-  Users,
   AtSign,
   Reply,
   MessageCircle,
@@ -26,7 +18,6 @@ import {
   Clock,
   Ban,
   Building2,
-  Workflow,
   Pause,
   Webhook,
   Activity,
@@ -34,7 +25,6 @@ import {
   Slack,
   Bot,
   MessagesSquare,
-  BarChart3,
 } from 'lucide-react';
 import * as React from 'react';
 import { Bar, BarChart, CartesianGrid, XAxis } from 'recharts';
@@ -60,18 +50,6 @@ import {
   groupByDate,
   type ConversationItem,
 } from '@/components/shared/conversation-list';
-
-function AppSection({
-  children,
-}: {
-  name: string;
-  icon: React.ComponentType<{ className?: string }>;
-  href: string;
-  children: React.ReactNode;
-}) {
-  return <div>{children}</div>;
-}
-
 // ---------- Analytics — activity across the whole WeldSuite ----------
 const chartData = [
   { date: "2024-04-01", desktop: 222, mobile: 150 },
@@ -2961,43 +2939,5 @@ export function CalendarDayCard({ isDemo = false, title = 'WeldCalendar — Day'
         </div>
       ))}
     </CardShell>
-  );
-}
-
-// ---------- Grid ----------
-function AppCardsGrid() {
-  return (
-    <div className="grid grid-cols-1 gap-5">
-      <AppSection name="Analytics — Activity across WeldSuite" icon={BarChart3} href="/analytics"><AnalyticsCard /></AppSection>
-      <AppSection name="WeldMail" icon={Mail} href="/weldmail"><MailCard /></AppSection>
-      <AppSection name="WeldFlow — My tasks" icon={ListChecks} href="/weldflow/my-tasks"><FlowCard /></AppSection>
-      <AppSection name="WeldFlow — Projects" icon={FolderKanban} href="/weldflow/projects"><ProjectsCard /></AppSection>
-      <AppSection name="WeldFlow — Workload" icon={Users} href="/weldflow/workload"><WorkloadCard /></AppSection>
-      <AppSection name="WeldDesk — Tickets" icon={LifeBuoy} href="/welddesk/tickets"><DeskCard /></AppSection>
-      <AppSection name="WeldDesk — Emails" icon={Mail} href="/welddesk/inbox/email"><DeskEmailsCard /></AppSection>
-      <AppSection name="WeldDesk — Live chat" icon={MessageSquare} href="/welddesk/inbox/chat"><DeskLiveChatCard /></AppSection>
-      <AppSection name="WeldDesk — Slack" icon={Slack} href="/welddesk/inbox/slack"><DeskSlackCard /></AppSection>
-      <AppSection name="WeldDesk — Discord" icon={MessagesSquare} href="/welddesk/inbox/discord"><DeskDiscordCard /></AppSection>
-      <AppSection name="WeldDesk — AI agent active" icon={Bot} href="/welddesk/ai-active"><DeskAiActiveCard /></AppSection>
-      <AppSection name="WeldDesk — AI agent resolved" icon={Bot} href="/welddesk/ai-resolved"><DeskAiResolvedCard /></AppSection>
-      <AppSection name="WeldDesk — Reviews" icon={Star} href="/welddesk/reviews"><DeskReviewsCard /></AppSection>
-      <AppSection name="WeldCRM — My tasks" icon={Briefcase} href="/weldcrm"><CrmCard /></AppSection>
-      <AppSection name="WeldCRM — Pipeline" icon={Briefcase} href="/weldcrm"><PipelineCard /></AppSection>
-      <AppSection name="WeldCRM — Sequences" icon={Workflow} href="/weldcrm/sequences"><SequencesCard /></AppSection>
-      <AppSection name="WeldConnect — Recent executions" icon={ListTodo} href="/weldconnect/executions"><ConnectCard /></AppSection>
-      <AppSection name="WeldConnect — Workflows" icon={Workflow} href="/weldconnect/workflows"><WorkflowsCard /></AppSection>
-      <AppSection name="WeldMeet" icon={Video} href="/weldmeet"><MeetCard /></AppSection>
-      <AppSection name="WeldMeet — History" icon={Video} href="/weldmeet/history"><MeetHistoryCard /></AppSection>
-      <AppSection name="WeldChat — Activity" icon={MessageSquare} href="/weldchat/activity"><ChatCard /></AppSection>
-      <AppSection name="WeldChat — Direct messages" icon={MessageCircle} href="/weldchat/dm"><ChatDMsCard /></AppSection>
-      <AppSection name="WeldChat — Channels" icon={Hash} href="/weldchat"><ChatChannelsCard /></AppSection>
-      <AppSection name="WeldCalendar" icon={Calendar} href="/weldcalendar"><CalendarCard /></AppSection>
-      <AppSection name="WeldCalendar — Schedule" icon={Calendar} href="/weldcalendar"><CalendarScheduleCard /></AppSection>
-      <AppSection name="WeldCalendar — 4-Day" icon={Calendar} href="/weldcalendar"><CalendarFourDayCard /></AppSection>
-      <AppSection name="WeldCalendar — Day" icon={Calendar} href="/weldcalendar"><CalendarDayCard /></AppSection>
-      <AppSection name="WeldCall — History" icon={Phone} href="/weldcall/history"><CallCard /></AppSection>
-      <AppSection name="WeldDrive" icon={FolderOpen} href="/welddrive"><DriveCard /></AppSection>
-      <AppSection name="WeldHost" icon={Globe} href="/weldhost"><HostCard /></AppSection>
-    </div>
   );
 }

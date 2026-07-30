@@ -209,7 +209,7 @@ function getChartColor(index: number): string {
 // ============ TICKET METRICS ============
 
 export async function getTicketMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[]> {
-  const { workspaceId, metric, timeRange, groupBy, sortOrder, limit } = config;
+  const { metric, timeRange, groupBy, sortOrder, limit } = config;
   const { start, end } = getDateRangeFromTimeRange(timeRange);
   const truncUnit = getDateTruncUnit(groupBy);
   const { db } = await getScopedDb();
@@ -651,7 +651,7 @@ export async function getTicketMetrics(config: ChartQueryConfig): Promise<ChartD
 // ============ CONVERSATION METRICS ============
 
 export async function getConversationMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[]> {
-  const { workspaceId, metric, timeRange, groupBy, sortOrder, limit } = config;
+  const { metric, timeRange, groupBy, sortOrder, limit } = config;
   const { start, end } = getDateRangeFromTimeRange(timeRange);
   const truncUnit = getDateTruncUnit(groupBy);
   const { db } = await getScopedDb();
@@ -997,7 +997,7 @@ export async function getConversationMetrics(config: ChartQueryConfig): Promise<
 // ============ AGENT METRICS ============
 
 export async function getAgentMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[]> {
-  const { workspaceId, metric, sortOrder, limit } = config;
+  const { metric, sortOrder, limit } = config;
   const { db } = await getScopedDb();
 
   // Use materialized views for better performance
@@ -1163,7 +1163,7 @@ export async function getAgentMetrics(config: ChartQueryConfig): Promise<ChartDa
 // ============ RESPONSE TIME METRICS ============
 
 export async function getResponseTimeMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[]> {
-  const { workspaceId, metric, timeRange, groupBy, sortOrder, limit } = config;
+  const { metric, timeRange, groupBy, sortOrder, limit } = config;
   const { start, end } = getDateRangeFromTimeRange(timeRange);
   const truncUnit = getDateTruncUnit(groupBy);
   const { db } = await getScopedDb();
@@ -1371,7 +1371,7 @@ export async function getResponseTimeMetrics(config: ChartQueryConfig): Promise<
 // ============ SATISFACTION METRICS ============
 
 export async function getSatisfactionMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[]> {
-  const { workspaceId, metric, timeRange, groupBy, sortOrder, limit } = config;
+  const { metric, timeRange, groupBy, sortOrder, limit } = config;
   const { start, end } = getDateRangeFromTimeRange(timeRange);
   const truncUnit = getDateTruncUnit(groupBy);
   const { db } = await getScopedDb();
@@ -1705,7 +1705,7 @@ export async function getSatisfactionMetrics(config: ChartQueryConfig): Promise<
 // ============ CUSTOMER METRICS ============
 
 export async function getCustomerMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[]> {
-  const { workspaceId, metric, timeRange, groupBy, sortOrder, limit } = config;
+  const { metric, timeRange, groupBy, sortOrder, limit } = config;
   const { start, end } = getDateRangeFromTimeRange(timeRange);
   const truncUnit = getDateTruncUnit(groupBy);
   const { db } = await getScopedDb();

@@ -16,7 +16,6 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Button } from '@weldsuite/ui/components/button';
-import { cn } from '@/lib/utils';
 import { formatTimestamp } from './utils';
 import type { FlatTimelineSegment, TranscriptionSegment } from './types';
 import { useTranslations } from '@weldsuite/i18n/client';

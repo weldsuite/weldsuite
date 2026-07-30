@@ -74,7 +74,7 @@ export interface CalendarEvent {
   notes?: string;
   attachments?: string[];
   tags?: string[];
-  customFields?: Record<string, any>;
+  customFields?: Record<string, unknown>;
   sourceType?: string;
   sourceId?: string;
   autoScheduled?: boolean;
@@ -159,10 +159,10 @@ export const userCalendarKeys = {
 
 export const calendarKeys = {
   all: ['calendar'] as const,
-  events: (filters?: Record<string, any>) => [...calendarKeys.all, 'events', filters] as const,
+  events: (filters?: Record<string, unknown>) => [...calendarKeys.all, 'events', filters] as const,
   eventsRange: (startDate?: string, endDate?: string, calendarIds?: string) => [...calendarKeys.all, 'events-range', startDate, endDate, calendarIds] as const,
   event: (id: string) => [...calendarKeys.all, 'event', id] as const,
-  upcoming: (params?: Record<string, any>) => [...calendarKeys.all, 'upcoming', params] as const,
+  upcoming: (params?: Record<string, unknown>) => [...calendarKeys.all, 'upcoming', params] as const,
 };
 
 const bookingPageKeys = {
@@ -174,7 +174,7 @@ const bookingPageKeys = {
 
 // ── Helper ──────────────────────────────────────────────────────────────
 
-function buildQueryString(params: Record<string, any>): string {
+function buildQueryString(params: Record<string, unknown>): string {
   const queryParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
@@ -188,30 +188,6 @@ function buildQueryString(params: Record<string, any>): string {
   const query = queryParams.toString();
   return query ? `?${query}` : '';
 }
-
-// ── Calendar Event Hooks (app-api /api/calendar-events) ─────────────────
-
-function useCalendarEvents(filters?: {
-  startDate?: string | Date;
-  endDate?: string | Date;
-  type?: string;
-  status?: string;
-  limit?: number;
-  cursor?: string;
-  search?: string;
-  calendarIds?: string;
-}) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: calendarKeys.events(filters),
-    queryFn: async () => {
-      const client = await getClient();
-      const query = buildQueryString(filters || {});
-      return client.get<{ data: CalendarEvent[]; pagination?: any }>(`/calendar-events${query}`);
-    },
-  });
-}
-
 export function useCalendarEventsRange(startDate?: string, endDate?: string, calendarIds?: string) {
   const { getClient } = useAppApiClient();
   return useQuery({
@@ -225,19 +201,6 @@ export function useCalendarEventsRange(startDate?: string, endDate?: string, cal
     enabled: !!startDate && !!endDate,
   });
 }
-
-function useCalendarEvent(id: string) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: calendarKeys.event(id),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: CalendarEvent }>(`/calendar-events/${id}`);
-    },
-    enabled: !!id,
-  });
-}
-
 export function useUpcomingCalendarEvents(params?: { days?: number; limit?: number }) {
   const { getClient } = useAppApiClient();
   return useQuery({
@@ -306,7 +269,7 @@ export function useUpdateCalendarEvent() {
       // it is the "notify attendees?" dialog's answer.
       const qs = sendNotification ? '?sendNotification=true' : '';
       // app-api patches events; the legacy worker used PUT.
-      return client.patch<{ data: any }>(`/calendar-events/${id}${qs}`, data);
+      return client.patch<{ data: unknown }>(`/calendar-events/${id}${qs}`, data);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: calendarKeys.all });
@@ -346,7 +309,7 @@ export function useRescheduleCalendarEvent() {
       manual?: boolean;
     }) => {
       const client = await getClient();
-      return client.patch<{ data: any }>(`/calendar-events/${id}/reschedule`, {
+      return client.patch<{ data: unknown }>(`/calendar-events/${id}/reschedule`, {
         startTime,
         endTime,
         ...(manual ? { manual: true } : {}),
@@ -413,21 +376,6 @@ export function useUnpinCalendarEvent() {
     },
   });
 }
-
-function useCancelCalendarEvent() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const client = await getClient();
-      return client.patch<{ data: { id: string; status: string } }>(`/calendar-events/${id}/cancel`, {});
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: calendarKeys.all });
-    },
-  });
-}
-
 // ── Booking Page Hooks (app-api /api/booking-pages) ─────────────────────
 
 export function useBookingPages() {
@@ -496,24 +444,6 @@ export function useDeleteBookingPage() {
     },
   });
 }
-
-/** Publish/unpublish. Expressed as a partial update — /toggle also exists. */
-function useToggleBookingPage(currentIsActive?: boolean) {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const client = await getClient();
-      return client.patch<{ data: { id: string } }>(`/booking-pages/${id}`, {
-        isActive: !currentIsActive,
-      });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: bookingPageKeys.all });
-    },
-  });
-}
-
 export function useAvailableSlots(bookingPageId: string, date: string) {
   const { getClient } = useAppApiClient();
   return useQuery({

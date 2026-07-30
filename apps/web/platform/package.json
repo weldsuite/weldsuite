@@ -108,6 +108,7 @@
     "deploy:preview": "vercel pull --yes --environment=preview && vercel build && vercel deploy --prebuilt",
     "deploy:production": "vercel pull --yes --environment=production && vercel build --prod && vercel deploy --prebuilt --prod",
     "dev": "vite",
+    "lint": "eslint .",
     "postinstall": "df3-install-worklet public/df3-worklet-processor.js",
     "preview": "vite preview",
     "test": "vitest run",

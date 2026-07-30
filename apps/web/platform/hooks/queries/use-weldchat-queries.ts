@@ -495,7 +495,7 @@ export function useSendMessage() {
   const { userId } = useAuth();
   const { user } = useUser();
   return useMutation({
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured only to exclude it from the POST body
+     
     mutationFn: async ({ channelId, _optimisticId, ...data }: SendMessageRequest & { channelId: string; _optimisticId?: string }) => {
       const client = await getClient();
       return client.post<{ data: ChatMessage }>(`/channels/${channelId}/messages`, data);

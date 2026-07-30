@@ -8,6 +8,12 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import type { VoipPhoneNumber } from '@/lib/api/domains/call-intelligence';
+import type {
+  ProviderAddress,
+  ProviderBundle,
+  AvailableNumber,
+} from '@/app/settings/apps/phone-numbers/new-number/new-number-client';
 
 /** app-api single envelope. */
 interface Envelope<T> {
@@ -37,7 +43,7 @@ export function usePhoneNumbers() {
     queryKey: phoneNumberKeys.list(),
     queryFn: async () => {
       const client = await getClient();
-      const result = await client.get<Envelope<any[]>>('/call-intelligence/phone-numbers');
+      const result = await client.get<Envelope<VoipPhoneNumber[]>>('/call-intelligence/phone-numbers');
       return result.data || [];
     },
   });
@@ -61,7 +67,7 @@ export function useAddresses() {
     queryKey: phoneNumberKeys.addresses(),
     queryFn: async () => {
       const client = await getClient();
-      const result = await client.get<Envelope<{ addresses: any[] }>>('/telephony/addresses');
+      const result = await client.get<Envelope<{ addresses: ProviderAddress[] }>>('/telephony/addresses');
       return result.data?.addresses || [];
     },
   });
@@ -74,7 +80,7 @@ export function useBundles(isoCountry?: string) {
     queryFn: async () => {
       const client = await getClient();
       const params = isoCountry ? `?isoCountry=${isoCountry}` : '';
-      const result = await client.get<Envelope<{ bundles: any[] }>>(`/telephony/bundles${params}`);
+      const result = await client.get<Envelope<{ bundles: ProviderBundle[] }>>(`/telephony/bundles${params}`);
       return result.data?.bundles || [];
     },
   });
@@ -174,7 +180,7 @@ export function useSearchAvailableNumbers() {
       limit?: number;
     }) => {
       const client = await getClient();
-      const result = await client.post<Envelope<{ numbers: any[] }>>('/telephony/phone-numbers/search', options);
+      const result = await client.post<Envelope<{ numbers: AvailableNumber[] }>>('/telephony/phone-numbers/search', options);
       // Callers read `.data.numbers` — preserve the legacy `{ success, data }`
       // envelope so `new-number-client.tsx` needs no change.
       return { success: true, data: result.data };
@@ -249,7 +255,7 @@ export function useCreateAddress() {
     }) => {
       const client = await getClient();
       // Map legacy field names to Telnyx address format
-      const result = await client.post<Envelope<{ address: any }>>('/telephony/addresses', {
+      const result = await client.post<Envelope<{ address: ProviderAddress }>>('/telephony/addresses', {
         businessName: data.customerName,
         firstName: data.customerName.split(' ')[0] || data.customerName,
         lastName: data.customerName.split(' ').slice(1).join(' ') || '-',
@@ -264,23 +270,6 @@ export function useCreateAddress() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: phoneNumberKeys.addresses() });
-    },
-  });
-}
-
-/**
- * Sync phone numbers from Telnyx to the database
- */
-function useSyncPhoneNumbers() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async () => {
-      const client = await getClient();
-      return client.post<Envelope<{ count: number }>>('/telephony/phone-numbers/sync', {});
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: phoneNumberKeys.all });
     },
   });
 }

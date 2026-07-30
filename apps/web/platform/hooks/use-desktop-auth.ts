@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useSignIn } from '@clerk/clerk-react';
-import { getDesktop, isDesktop } from '@/lib/desktop';
-import { onDesktopAuthCallback, startExternalSignIn } from '@/lib/desktop-auth';
+import { isDesktop } from '@/lib/desktop';
+import { onDesktopAuthCallback } from '@/lib/desktop-auth';
 
 /**
  * Listens for `weldsuite://auth?ticket=...` deep links after a browser
@@ -45,21 +45,4 @@ export function useDesktopAuthHandler(options?: {
 
     return unsub;
   }, [isLoaded, signIn, setActive, options]);
-}
-
-/**
- * On desktop, immediately opens the sign-in flow in the user's default
- * browser and keeps the Electron window idle. On web, no-op.
- */
-function useRedirectSignInToBrowser(path?: string) {
-  useEffect(() => {
-    if (isDesktop()) {
-      void startExternalSignIn({ path });
-    }
-  }, [path]);
-}
-
-function useReopenInBrowser() {
-  const desktop = getDesktop();
-  return async (path: string = '/sign-in') => desktop?.signInExternally({ path });
 }

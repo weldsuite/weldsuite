@@ -16,7 +16,6 @@ export function EntityGrid<TEntity>({
   entities,
   pagination,
   searchParams,
-  listId,
   listName,
   availableLists = [],
   onLoadMore,
@@ -75,21 +74,8 @@ export function EntityGrid<TEntity>({
     router.push(`?${params.toString()}`);
   };
 
-  // Handle add to list
-  const handleAddToList = async (listId: string) => {
-    // This will be implemented by the parent component via actions
-    if (actions.onAddToList) {
-      // Get selected rows from context - will be handled by selection bar
-    }
-  };
-
-  // Handle send email
-  const handleSendEmail = () => {
-    if (actions.onSendEmail) {
-      // Get selected rows from context - will be handled by selection bar
-    }
-  };
-
+  
+  
   return (
     <GridProvider
       config={config}

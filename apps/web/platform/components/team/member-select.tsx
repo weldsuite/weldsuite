@@ -18,7 +18,6 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { cn } from '@/lib/utils';
 
-const NONE_VALUE = '__none__';
 
 interface MemberSelectProps {
   value: string | undefined | null;
@@ -34,17 +33,6 @@ interface MemberSelectProps {
    */
   variant?: 'default' | 'assignee';
 }
-
-function getInitials(name: string | null | undefined, fallback: string) {
-  const source = name?.trim() || fallback;
-  return source
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('') || '?';
-}
-
 const ASSIGNEE_AVATAR_PALETTE = [
   '#0d9488',
   '#16a34a',
@@ -111,6 +99,9 @@ export function MemberSelect({
     },
   });
   const members = data?.data ?? [];
+  // Declared above the `assignee` early return below so the hook order stays
+  // stable if `variant` changes on an already-mounted instance.
+  const [open, setOpen] = React.useState(false);
 
   const selected = members.find((m) => m.userId === value);
   const selectedEmail = selected && 'email' in selected ? selected.email : null;
@@ -227,7 +218,6 @@ export function MemberSelect({
     );
   }
 
-  const [open, setOpen] = React.useState(false);
   const isDisabled = disabled || isError;
 
   return (

@@ -26,17 +26,15 @@ interface MeetingChatMessage {
   createdAt: string;
 }
 
-interface MeetingMessagesPage {
-  data?: { messages?: MeetingChatMessage[] };
-}
-
 export function MeetingChatHistory({ meetingId, hideHeader }: MeetingChatHistoryProps) {
   const t = getTranslations('weldmeet');
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useMeetingMessages(meetingId);
 
   const messages = useMemo(() => {
-    const raw = data?.pages?.flatMap((page: MeetingMessagesPage) => page.data?.messages || []) || [];
+    // The hook's wire type is a loose bag; narrow to this view's render shape here.
+    const raw = (data?.pages?.flatMap((page) => page.data?.messages || []) ||
+      []) as unknown as MeetingChatMessage[];
     return [...raw].reverse();
   }, [data]);
 

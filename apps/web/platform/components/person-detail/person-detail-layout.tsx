@@ -1,5 +1,4 @@
 
-import { ReactNode } from 'react';
 import { PersonDetailHeader, PersonDetailHeaderProps } from './person-detail-header';
 import { PersonDetailSidebar, PersonDetailSidebarProps } from './person-detail-sidebar';
 import { PersonDetailContent, PersonDetailContentProps } from './person-detail-content';

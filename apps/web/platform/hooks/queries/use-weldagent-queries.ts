@@ -1,6 +1,6 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAppApi, useAppApiClient } from '@/lib/api/use-app-api';
+import { useAppApi } from '@/lib/api/use-app-api';
 
 // =============================================================================
 // Query Keys
@@ -36,7 +36,7 @@ interface WeldAgentMessage {
   conversationId: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
-  toolInvocations?: any[];
+  toolInvocations?: unknown[];
   formState?: {
     formId?: string;
     formType?: string;
@@ -58,15 +58,6 @@ export interface WeldAgentUserSettings {
   saveConversationHistory: boolean;
   appPermissions: Record<string, boolean>;
 }
-
-interface MentionSearchResult {
-  id: string;
-  type: string;
-  label: string;
-  description?: string;
-  icon: string;
-}
-
 // =============================================================================
 // Conversations  (app-api: /api/weldagent/*)
 // =============================================================================
@@ -119,8 +110,8 @@ export function useSaveMessage() {
       conversationId: string;
       role: 'user' | 'assistant' | 'system';
       content: string;
-      toolInvocations?: any[];
-      formState?: any;
+      toolInvocations?: unknown[];
+      formState?: unknown;
     }) => {
       const { conversationId, ...body } = params;
       const result = await weldAgent.saveMessage(conversationId, body);
@@ -157,67 +148,6 @@ export function useDeleteConversation() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: weldagentKeys.conversationList() });
-    },
-  });
-}
-
-// =============================================================================
-// Settings  (app-api: /api/weldagent/settings)
-// =============================================================================
-
-function useWeldAgentSettings() {
-  const { weldAgent } = useAppApi();
-  return useQuery({
-    queryKey: weldagentKeys.settings(),
-    queryFn: async () => {
-      const result = await weldAgent.getSettings();
-      return result.data as unknown as WeldAgentUserSettings;
-    },
-  });
-}
-
-function useSaveWeldAgentSettings() {
-  const { weldAgent } = useAppApi();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: Partial<Omit<WeldAgentUserSettings, 'id' | 'userId'>>) => {
-      const result = await weldAgent.saveSettings(data);
-      return result.data as unknown as WeldAgentUserSettings;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: weldagentKeys.settings() });
-    },
-  });
-}
-
-// =============================================================================
-// Mentions  (app-api: /api/weldagent/mentions/search)
-// =============================================================================
-
-function useWeldAgentMentionSearch(query: string, type?: string, limit = 5) {
-  const { weldAgent } = useAppApi();
-  return useQuery({
-    queryKey: weldagentKeys.mentions(query, type),
-    queryFn: async () => {
-      const result = await weldAgent.searchMentions({ query, type, limit });
-      return (result.data || []) as MentionSearchResult[];
-    },
-    enabled: query.length >= 1,
-  });
-}
-
-// =============================================================================
-// Credits (convenience wrapper around the canonical /credits/balance surface)
-// =============================================================================
-
-function useWeldAgentCredits() {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: weldagentKeys.credits(),
-    queryFn: async () => {
-      const client = await getClient();
-      const result = await client.get<{ data: any }>('/credits/balance');
-      return result.data;
     },
   });
 }

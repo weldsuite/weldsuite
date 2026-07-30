@@ -14,7 +14,7 @@ interface RawArticle {
   tags?: string[];
   authorName?: string;
   viewCount?: number;
-  updatedAt?: string;
+  updatedAt?: Date;
   status?: KnowledgeArticle['status'];
   visibility?: KnowledgeArticle['visibility'];
   helpfulCount?: number;
@@ -50,7 +50,7 @@ export default function KnowledgePage() {
     tags: article.tags || [],
     author: article.authorName || '',
     views: article.viewCount || 0,
-    lastUpdated: new Date(article.updatedAt || Date.now()),
+    lastUpdated: article.updatedAt ?? new Date(),
     status: article.status || 'draft',
     visibility: article.visibility || 'public',
     helpful: article.helpfulCount || 0,

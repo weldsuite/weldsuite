@@ -20,11 +20,6 @@ function subscribe(listener: () => void) {
     listeners.delete(listener);
   };
 }
-
-function getSnapshot(): EditingCell | null {
-  return currentEditing;
-}
-
 export function getEditingCellValue(): EditingCell | null {
   return currentEditing;
 }
@@ -39,11 +34,6 @@ export function setEditingCellValue(next: EditingCell | null): void {
   currentEditing = next;
   listeners.forEach((l) => l());
 }
-
-function useEditingCell(): EditingCell | null {
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-}
-
 /**
  * Subscribe to whether a specific cell (rowId + fieldId) is the editing cell.
  * Only re-renders the consumer when the boolean flips, so other cells stay idle.

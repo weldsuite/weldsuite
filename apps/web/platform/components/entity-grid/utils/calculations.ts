@@ -10,7 +10,7 @@ import {
   Square,
   Copy,
 } from 'lucide-react';
-import { FieldType, CalculationType, CalculationOption } from '../types';
+import { FieldType, CalculationOption } from '../types';
 
 // Get default width for a field type
 export function getDefaultWidthForFieldType(type: FieldType): number {
@@ -49,7 +49,7 @@ export function getDefaultWidthForFieldType(type: FieldType): number {
 }
 
 // Get default value for a field type
-export function getDefaultValueForFieldType(type: FieldType): any {
+export function getDefaultValueForFieldType(type: FieldType): unknown {
   switch (type) {
     case 'checkbox':
       return false;

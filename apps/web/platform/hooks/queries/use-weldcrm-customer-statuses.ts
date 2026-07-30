@@ -1,6 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { CUSTOMER_STATUS_OPTIONS } from '@/app/settings/weldcrm/customer-statuses/constants';
 import type { CustomerStatus } from '@weldsuite/core-api-client/schemas/customer-statuses';
 import type {
   CreateCustomerStatusInput,
@@ -75,28 +74,6 @@ export function useReorderCustomerStatusesMutation() {
   });
 }
 
-// Color token → Tailwind badge class mapping used across badge renders.
-const COLOR_CLASS_MAP: Record<string, string> = {
-  blue: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
-  green: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
-  gray: 'bg-gray-100 text-gray-800 dark:bg-background/30 dark:text-muted-foreground',
-  red: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
-  zinc: 'bg-zinc-100 text-zinc-800 dark:bg-zinc-900/30 dark:text-zinc-400',
-  orange: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
-  amber: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
-  yellow: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400',
-  lime: 'bg-lime-100 text-lime-800 dark:bg-lime-900/30 dark:text-lime-400',
-  emerald: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400',
-  teal: 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400',
-  cyan: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400',
-  sky: 'bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-400',
-  indigo: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400',
-  violet: 'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-400',
-  purple: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
-  fuchsia: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/30 dark:text-fuchsia-400',
-  pink: 'bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-400',
-  rose: 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400',
-};
 
 // Swatch class used in the settings page color palette (bg only).
 export const COLOR_SWATCH_MAP: Record<string, string> = {
@@ -146,48 +123,3 @@ export const STATUS_STYLE_MAP: Record<string, { color: string; bg: string }> = {
   pink: { color: 'text-pink-700 dark:text-pink-400', bg: 'bg-pink-50 dark:bg-pink-950' },
   rose: { color: 'text-rose-700 dark:text-rose-400', bg: 'bg-rose-50 dark:bg-rose-950' },
 };
-
-interface MergedStatusOption {
-  value: string;
-  label: string;
-  color: string;
-  badgeClass: string;
-  isBuiltIn: boolean;
-}
-
-/** Returns built-ins (fixed order) + custom statuses (by sortOrder) as one array. */
-function useMergedCustomerStatusOptions(): MergedStatusOption[] {
-  const { data } = useCustomerStatusesQuery();
-  const customStatuses = data?.data ?? [];
-
-  const builtIns: MergedStatusOption[] = CUSTOMER_STATUS_OPTIONS.map((opt) => ({
-    value: opt.value,
-    label: opt.label,
-    color: opt.color,
-    badgeClass: COLOR_CLASS_MAP[opt.color] ?? COLOR_CLASS_MAP.gray,
-    isBuiltIn: true,
-  }));
-
-  const customs: MergedStatusOption[] = [...customStatuses]
-    .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((s) => ({
-      value: s.slug,
-      label: s.name,
-      color: s.color,
-      badgeClass: COLOR_CLASS_MAP[s.color] ?? COLOR_CLASS_MAP.gray,
-      isBuiltIn: false,
-    }));
-
-  return [...builtIns, ...customs];
-}
-
-/**
- * Returns label + badgeClass for a status value.
- * Falls back gracefully for unknown / soft-deleted custom statuses.
- */
-function useCustomerStatusDisplay(value: string): { label: string; badgeClass: string } {
-  const options = useMergedCustomerStatusOptions();
-  const match = options.find((o) => o.value === value);
-  if (match) return { label: match.label, badgeClass: match.badgeClass };
-  return { label: value, badgeClass: COLOR_CLASS_MAP.gray };
-}

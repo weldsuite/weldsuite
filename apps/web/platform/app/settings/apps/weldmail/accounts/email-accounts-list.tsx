@@ -47,7 +47,7 @@ import { AiSettingsDialog } from './ai-settings-dialog';
 import { ManageAccessDialog } from './manage-access-dialog';
 import { EditAccountDialog } from './edit-account-dialog';
 
-interface EmailAccount {
+export interface EmailAccount {
   id: string;
   email: string;
   displayName?: string;

@@ -60,12 +60,16 @@ export function GlobalPinnedNote() {
   const lastSavedContentRef = useRef<string>('');
   const [isMinimized, setIsMinimized] = useState(false);
 
-  // Sync minimized state from context when pinned note opens
+  // Sync minimized state from context when pinned note opens. Intentionally
+  // excludes startMinimized/setStartMinimized — this must fire once per
+  // open transition, not again when setStartMinimized(false) itself changes
+  // the value being read.
   useEffect(() => {
     if (pinnedNote && isOpen) {
       setIsMinimized(startMinimized);
       setStartMinimized(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pinnedNote, isOpen]);
   const [activeFormats, setActiveFormats] = useState({
     bold: false,

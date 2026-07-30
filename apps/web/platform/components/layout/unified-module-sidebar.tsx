@@ -142,7 +142,7 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
   // Build final menu items
   const staticItems = config.getMenuItems(t);
   let menuItems: MenuGroupProps[];
-  let extraProps: Record<string, any> = {};
+  let extraProps: Record<string, unknown> = {};
 
   switch (moduleKey) {
     case 'weldcrm':

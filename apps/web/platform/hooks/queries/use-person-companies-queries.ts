@@ -13,7 +13,6 @@ import { companyKeys } from '@/hooks/queries/use-companies-queries';
 import { personKeys } from '@/hooks/queries/use-people-queries';
 import type {
   CreatePersonCompanyInput,
-  UpdatePersonCompanyInput,
 } from '@weldsuite/core-api-client/schemas/person-companies';
 
 function invalidateBothSides(
@@ -40,28 +39,6 @@ export function useLinkPersonToCompany() {
     },
   });
 }
-
-function useUpdatePersonCompany() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      id,
-      data,
-    }: {
-      id: string;
-      data: UpdatePersonCompanyInput;
-      /** Optional invalidation hints — the API row doesn't include them. */
-      personId?: string;
-      companyId?: string;
-    }) => {
-      const client = await getClient();
-      return client.patch(`/person-companies/${id}`, data);
-    },
-    onSuccess: (_, vars) => invalidateBothSides(qc, vars.personId, vars.companyId),
-  });
-}
-
 export function useUnlinkPersonFromCompany() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();

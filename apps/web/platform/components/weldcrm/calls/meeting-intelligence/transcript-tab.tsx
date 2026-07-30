@@ -1,11 +1,9 @@
 
-import { useState, useRef, useCallback, memo } from 'react';
+import { useCallback, memo } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { EmptyStateIllustration } from '@/components/entity-list';
 import {
-  Captions,
   Loader2,
-  Search,
   User,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -60,116 +58,11 @@ interface TranscriptTabProps {
   onTranscribe?: () => void;
   segmentRefs: React.MutableRefObject<Map<string, HTMLDivElement>>;
 }
-
-function TranscriptTab({
-  segments,
-  isLoading,
-  isTranscribing,
-  transcriptionProgress,
-  hasTranscription,
-  activeSegmentId,
-  autoScroll,
-  onAutoScrollChange,
-  onSeekToSegment,
-  onTranscribe,
-  segmentRefs,
-}: TranscriptTabProps) {
-  const t = useTranslations();
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const searchRef = useRef<HTMLInputElement>(null);
-
-  const highlightText = useCallback((text: string) => {
-    if (!searchQuery) return text;
-    const regex = new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-    const parts = text.split(regex);
-    if (parts.length === 1) return text;
-    return parts.map((part, i) =>
-      regex.test(part) ? <mark key={i} className="bg-yellow-200 dark:bg-yellow-800/60 text-inherit rounded-sm px-0.5">{part}</mark> : part
-    );
-  }, [searchQuery]);
-
-  const filteredSegments = segments?.filter((segment) => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    const text = (segment.text || '').toLowerCase();
-    const speaker = (segment.speakerName || segment.speaker || '').toLowerCase();
-    return text.includes(q) || speaker.includes(q);
-  });
-
-  return (
-    <>
-      {/* Tab toolbar - rendered via the tab header area */}
-      {segments && segments.length > 0 && (
-        <div className="ml-auto flex items-center gap-1.5">
-          {/* Search */}
-          <div className="relative flex items-center">
-            <div className={cn(
-              "flex items-center transition-all duration-200 ease-out",
-              searchOpen ? "w-48" : "w-8"
-            )}>
-              <Button
-                variant="outline"
-                size="sm"
-                className={cn(
-                  "h-8 w-8 p-0 flex-shrink-0 transition-opacity duration-200",
-                  searchOpen && "opacity-0 pointer-events-none absolute"
-                )}
-                onClick={() => {
-                  setSearchOpen(true);
-                  setTimeout(() => searchRef.current?.focus(), 50);
-                }}
-              >
-                <Search className="h-4 w-4" />
-              </Button>
-              <div className={cn(
-                "relative transition-all duration-200 ease-out",
-                searchOpen ? "opacity-100 w-48" : "opacity-0 w-0 pointer-events-none"
-              )}>
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  ref={searchRef}
-                  type="text"
-                  placeholder={t('sweep.weldcrm.meetingIntelligence.searchTranscript')}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onBlur={() => !searchQuery && setSearchOpen(false)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      setSearchQuery('');
-                      setSearchOpen(false);
-                    }
-                  }}
-                  className="h-8 w-full pl-8 pr-3 text-sm border border-gray-200 dark:border-border rounded-md bg-white dark:bg-background focus:outline-none"
-                />
-              </div>
-            </div>
-          </div>
-          {/* Auto-scroll toggle */}
-          <Button
-            variant="ghost"
-            onClick={() => onAutoScrollChange(!autoScroll)}
-            className={cn(
-              "rounded-lg px-3 py-1.5 text-sm font-medium border transition-colors whitespace-nowrap",
-              autoScroll
-                ? "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800"
-                : "text-gray-600 dark:text-muted-foreground border-gray-200 dark:border-border"
-            )}
-          >
-            {autoScroll ? t('sweep.weldcrm.transcriptTab.autoScrollOn') : t('sweep.weldcrm.transcriptTab.autoScrollOff')}
-          </Button>
-        </div>
-      )}
-    </>
-  );
-}
-
 export function TranscriptTabContent({
   segments,
   isLoading,
   isTranscribing,
   transcriptionProgress,
-  hasTranscription,
   activeSegmentId,
   activeWordIndex = -1,
   searchQuery,

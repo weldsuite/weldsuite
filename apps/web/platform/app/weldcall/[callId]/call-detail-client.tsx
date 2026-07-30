@@ -9,7 +9,7 @@ import type { VoipCall } from '@/lib/api/domains/call-intelligence';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { getTranslations } from '@/lib/i18n';
 
-interface Transcription {
+export interface Transcription {
   id: string;
   status: string;
   fullText?: string;

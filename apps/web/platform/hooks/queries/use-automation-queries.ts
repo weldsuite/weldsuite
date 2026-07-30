@@ -5,10 +5,10 @@ import type {
   Workflow,
   WorkflowExecution,
   WorkflowTemplate,
-  WorkflowSchedule,
   WorkflowVariable,
-  DashboardStats,
+  ExecutionStep,
 } from '@weldsuite/core-api-client/schemas/weldconnect';
+import type { ExecutionLogEntry } from '@/app/weldconnect/executions/[id]/execution-detail-client';
 
 // Re-export types
 export type {
@@ -18,53 +18,26 @@ export type {
   
   WorkflowVariable,
   
-} from '@weldsuite/core-api-client/schemas/weldconnect';
-
-// Legacy types still used in some components
-type WorkflowIntegration = Record<string, unknown>;
-type WorkflowTrigger = Record<string, unknown>;
-export type WorkflowWebhook = Record<string, unknown>;
+} from '@weldsuite/core-api-client/schemas/weldconnect';export type WorkflowWebhook = Record<string, unknown>;
 export type WorkflowErrorLog = Record<string, unknown>;
 export type ActionType = { id: string; name: string; description: string; category: string; icon?: string };
 export type TriggerType = { id: string; name: string; description: string; category: string; icon?: string };
-export type EntityEvent = { entityType: string; events: string[] };
-type SearchResult = { id: string; title: string; description?: string; href: string; type: string };
-export type PaginationMeta = { page: number; pageSize: number; totalCount: number; totalPages: number; hasMore: boolean };
+export type EntityEvent = {
+  entityType: string;
+  // Bare type strings (e.g. "created") — see the comment in
+  // app/weldconnect/triggers/page.tsx for how these get a display name.
+  events: string[];
+  category?: string;
+  label?: string;
+};export type PaginationMeta = { page: number; pageSize: number; totalCount: number; totalPages: number; hasMore: boolean };
 /** app-api list envelope pagination — opaque cursor, no page/totalPages. */
-export type CursorPaginationMeta = { totalCount: number; hasMore: boolean; cursor: string | null };
-
-// =============================================================================
-// DTO Types
-// =============================================================================
-
-interface TaskDashboardDto {
-  stats: {
-    totalWorkflows: number;
-    activeWorkflows: number;
-    totalExecutions: number;
-    successfulExecutions: number;
-    failedExecutions: number;
-    pendingExecutions: number;
-    workflowsToReview: number;
-  };
-  recentExecutions: WorkflowExecution[];
-  activeWorkflows: Workflow[];
-  upcomingSchedules: WorkflowSchedule[];
-}
-
-interface ChartDataPoint {
-  date: string;
-  executed: number;
-  succeeded: number;
-}
-
-// =============================================================================
+export type CursorPaginationMeta = { totalCount: number; hasMore: boolean; cursor: string | null };// =============================================================================
 // Query Keys
 // =============================================================================
 
 const helpdeskAutomationKeys = {
   all: ['helpdesk-automation'] as const,
-  workflows: (filters?: any) => [...helpdeskAutomationKeys.all, 'workflows', filters] as const,
+  workflows: (filters?: unknown) => [...helpdeskAutomationKeys.all, 'workflows', filters] as const,
   workflow: (id: string) => [...helpdeskAutomationKeys.all, 'workflow', id] as const,
   workflowStats: () => [...helpdeskAutomationKeys.all, 'workflow-stats'] as const,
 };
@@ -74,36 +47,36 @@ export const automationKeys = {
   dashboard: () => [...automationKeys.all, 'dashboard'] as const,
   dashboardChart: (months?: number) => [...automationKeys.all, 'dashboard-chart', months] as const,
   search: (query?: string) => [...automationKeys.all, 'search', query] as const,
-  workflows: (filters?: any) => [...automationKeys.all, 'workflows', filters] as const,
+  workflows: (filters?: unknown) => [...automationKeys.all, 'workflows', filters] as const,
   workflow: (id: string) => [...automationKeys.all, 'workflow', id] as const,
   workflowStats: () => [...automationKeys.all, 'workflow-stats'] as const,
   workflowMetrics: (id: string) => [...automationKeys.all, 'workflow-metrics', id] as const,
   workflowsForChaining: (excludeId?: string) => [...automationKeys.all, 'workflows-chaining', excludeId] as const,
-  executions: (filters?: any) => [...automationKeys.all, 'executions', filters] as const,
+  executions: (filters?: unknown) => [...automationKeys.all, 'executions', filters] as const,
   execution: (id: string) => [...automationKeys.all, 'execution', id] as const,
   executionSteps: (id: string) => [...automationKeys.all, 'execution-steps', id] as const,
   executionLogs: (id: string) => [...automationKeys.all, 'execution-logs', id] as const,
   executionTrends: (period?: string) => [...automationKeys.all, 'execution-trends', period] as const,
   recentExecutions: (limit?: number) => [...automationKeys.all, 'recent-executions', limit] as const,
   slowExecutions: (limit?: number) => [...automationKeys.all, 'slow-executions', limit] as const,
-  templates: (filters?: any) => [...automationKeys.all, 'templates', filters] as const,
+  templates: (filters?: unknown) => [...automationKeys.all, 'templates', filters] as const,
   template: (id: string) => [...automationKeys.all, 'template', id] as const,
   templateCategories: () => [...automationKeys.all, 'template-categories'] as const,
-  schedules: (filters?: any) => [...automationKeys.all, 'schedules', filters] as const,
+  schedules: (filters?: unknown) => [...automationKeys.all, 'schedules', filters] as const,
   schedule: (id: string) => [...automationKeys.all, 'schedule', id] as const,
-  integrations: (filters?: any) => [...automationKeys.all, 'integrations', filters] as const,
+  integrations: (filters?: unknown) => [...automationKeys.all, 'integrations', filters] as const,
   integration: (id: string) => [...automationKeys.all, 'integration', id] as const,
-  variables: (filters?: any) => [...automationKeys.all, 'variables', filters] as const,
+  variables: (filters?: unknown) => [...automationKeys.all, 'variables', filters] as const,
   variable: (id: string) => [...automationKeys.all, 'variable', id] as const,
-  triggers: (filters?: any) => [...automationKeys.all, 'triggers', filters] as const,
+  triggers: (filters?: unknown) => [...automationKeys.all, 'triggers', filters] as const,
   trigger: (id: string) => [...automationKeys.all, 'trigger', id] as const,
-  webhooks: (filters?: any) => [...automationKeys.all, 'webhooks', filters] as const,
+  webhooks: (filters?: unknown) => [...automationKeys.all, 'webhooks', filters] as const,
   webhook: (id: string) => [...automationKeys.all, 'webhook', id] as const,
   webhookEvents: (id: string) => [...automationKeys.all, 'webhook-events', id] as const,
-  actionTypes: (params?: any) => [...automationKeys.all, 'action-types', params] as const,
-  triggerTypes: (params?: any) => [...automationKeys.all, 'trigger-types', params] as const,
+  actionTypes: (params?: unknown) => [...automationKeys.all, 'action-types', params] as const,
+  triggerTypes: (params?: unknown) => [...automationKeys.all, 'trigger-types', params] as const,
   entityEvents: () => [...automationKeys.all, 'entity-events'] as const,
-  errorStats: (params?: any) => [...automationKeys.all, 'error-stats', params] as const,
+  errorStats: (params?: unknown) => [...automationKeys.all, 'error-stats', params] as const,
   performanceMetrics: (workflowId?: string) => [...automationKeys.all, 'performance-metrics', workflowId] as const,
   resourceUsage: () => [...automationKeys.all, 'resource-usage'] as const,
 };
@@ -112,7 +85,7 @@ export const automationKeys = {
 // Helper to build query string
 // =============================================================================
 
-function buildQueryString(params: Record<string, any>): string {
+function buildQueryString(params: Record<string, unknown>): string {
   const searchParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
@@ -121,52 +94,8 @@ function buildQueryString(params: Record<string, any>): string {
   }
   const qs = searchParams.toString();
   return qs ? `?${qs}` : '';
-}
-
-// =============================================================================
-// Query Hooks
-// =============================================================================
-
-// 1. Dashboard Stats
-function useDashboardStats() {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: automationKeys.dashboard(),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: any }>('/workflow-dashboard/stats');
-    },
-  });
-}
-
-// 2. Dashboard Chart
-function useDashboardChart(months?: number) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: automationKeys.dashboardChart(months),
-    queryFn: async () => {
-      const client = await getClient();
-      const query = buildQueryString({ period: 'month', ...(months ? { months } : {}) });
-      return client.get<{ data: { trends: ChartDataPoint[] } }>(`/workflow-executions/trends${query}`);
-    },
-  });
-}
-
-// 3. Automation Search
-function useAutomationSearch(query?: string) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: automationKeys.search(query),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ success: boolean; data: SearchResult[] }>(`/workflow-dashboard/search?q=${encodeURIComponent(query || '')}`);
-    },
-    enabled: !!query,
-  });
-}
-
-// 4. Workflows (list)
-export function useWorkflows(filters?: Record<string, any>) {
+}// 4. Workflows (list)
+export function useWorkflows(filters?: Record<string, unknown>) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: automationKeys.workflows(filters),
@@ -177,20 +106,6 @@ export function useWorkflows(filters?: Record<string, any>) {
     },
   });
 }
-
-// 5. Workflow (single)
-function useWorkflow(id: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: automationKeys.workflow(id),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: Workflow }>(`/workflows/${id}`);
-    },
-    enabled: !!id && enabled,
-  });
-}
-
 // 6. Workflow Stats
 export function useWorkflowStats() {
   const { getClient } = useAppApiClient();
@@ -213,7 +128,7 @@ export function useWorkflowStats() {
 }
 
 // Helpdesk Workflows (list) — app-api `/helpdesk-workflows` (cursor paginated).
-export function useHelpdeskWorkflows(filters?: Record<string, any>) {
+export function useHelpdeskWorkflows(filters?: Record<string, unknown>) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: helpdeskAutomationKeys.workflows(filters),
@@ -244,42 +159,8 @@ export function useHelpdeskWorkflowStats() {
       } }>('/helpdesk-workflows/stats');
     },
   });
-}
-
-// 7. Workflow Metrics
-function useWorkflowMetrics(workflowId: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: automationKeys.workflowMetrics(workflowId),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: {
-        totalExecutions: number;
-        successCount: number;
-        failureCount: number;
-        averageExecutionTime: number;
-        recentExecutions: WorkflowExecution[];
-      } }>(`/workflows/${workflowId}/metrics`);
-    },
-    enabled: !!workflowId && enabled,
-  });
-}
-
-// 8. Workflows For Chaining
-function useWorkflowsForChaining(excludeId?: string) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: automationKeys.workflowsForChaining(excludeId),
-    queryFn: async () => {
-      const client = await getClient();
-      const query = excludeId ? `?exclude=${excludeId}` : '';
-      return client.get<{ data: Array<{ id: string; name: string; status: string }> }>(`/workflows/for-chaining${query}`);
-    },
-  });
-}
-
-// 9. Executions (list)
-export function useExecutions(filters?: Record<string, any>) {
+}// 9. Executions (list)
+export function useExecutions(filters?: Record<string, unknown>) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: automationKeys.executions(filters),
@@ -323,7 +204,7 @@ export function useExecutionSteps(executionId: string, enabled = true) {
     queryKey: automationKeys.executionSteps(executionId),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: any[] }>(`/workflow-executions/${executionId}/steps`);
+      return client.get<{ data: ExecutionStep[] }>(`/workflow-executions/${executionId}/steps`);
     },
     enabled: !!executionId && enabled,
   });
@@ -336,7 +217,7 @@ export function useExecutionLogs(executionId: string, enabled = true) {
     queryKey: automationKeys.executionLogs(executionId),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: any[] }>(`/workflow-executions/${executionId}/logs`);
+      return client.get<{ data: ExecutionLogEntry[] }>(`/workflow-executions/${executionId}/logs`);
     },
     enabled: !!executionId && enabled,
   });
@@ -444,38 +325,7 @@ export function useErrorStats(params?: { workflowId?: string; page?: number; lim
       } }>(`/workflow-dashboard/errors${query}`);
     },
   });
-}
-
-// 21. Resource Usage
-function useResourceUsage() {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: automationKeys.resourceUsage(),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ success: boolean; data: {
-        workflows: { total: number; active: number };
-        executions: { total: number; running: number; completed: number; failed: number };
-        triggers: { schedules: number; webhooks: number };
-      } }>('/workflow-dashboard/resource-usage');
-    },
-  });
-}
-
-// 22. Templates (list)
-function useTemplates(filters?: Record<string, any>) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: automationKeys.templates(filters),
-    queryFn: async () => {
-      const client = await getClient();
-      const query = buildQueryString(filters || {});
-      return client.get<{ data: WorkflowTemplate[]; pagination: PaginationMeta }>(`/workflow-templates${query}`);
-    },
-  });
-}
-
-// 23. Template (single)
+}// 23. Template (single)
 export function useTemplate(id: string, enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
@@ -486,74 +336,8 @@ export function useTemplate(id: string, enabled = true) {
     },
     enabled: !!id && enabled,
   });
-}
-
-// 24. Template Categories
-function useTemplateCategories() {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: automationKeys.templateCategories(),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: Array<{ id: string; name: string; count: number }> }>('/workflow-templates/categories');
-    },
-  });
-}
-
-// 25. Schedules (list)
-function useSchedules(filters?: Record<string, any>) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: automationKeys.schedules(filters),
-    queryFn: async () => {
-      const client = await getClient();
-      const query = buildQueryString(filters || {});
-      return client.get<{ data: WorkflowSchedule[]; pagination: PaginationMeta }>(`/workflow-schedules${query}`);
-    },
-  });
-}
-
-// 26. Schedule (single)
-function useSchedule(id: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: automationKeys.schedule(id),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: WorkflowSchedule }>(`/workflow-schedules/${id}`);
-    },
-    enabled: !!id && enabled,
-  });
-}
-
-// 27. Integrations (list)
-function useIntegrations(filters?: Record<string, any>) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: automationKeys.integrations(filters),
-    queryFn: async () => {
-      const client = await getClient();
-      const query = buildQueryString(filters || {});
-      return client.get<{ success: boolean; data: WorkflowIntegration[]; pagination: PaginationMeta }>(`/workflow-integrations${query}`);
-    },
-  });
-}
-
-// 28. Integration (single)
-function useIntegration(id: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: automationKeys.integration(id),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ success: boolean; data: WorkflowIntegration }>(`/workflow-integrations/${id}`);
-    },
-    enabled: !!id && enabled,
-  });
-}
-
-// 29. Variables (list)
-export function useVariables(filters?: Record<string, any>) {
+}// 29. Variables (list)
+export function useVariables(filters?: Record<string, unknown>) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: automationKeys.variables(filters),
@@ -563,49 +347,8 @@ export function useVariables(filters?: Record<string, any>) {
       return client.get<{ data: WorkflowVariable[]; pagination: PaginationMeta }>(`/workflow-variables${query}`);
     },
   });
-}
-
-// 30. Variable (single)
-function useVariable(id: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: automationKeys.variable(id),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: WorkflowVariable }>(`/workflow-variables/${id}`);
-    },
-    enabled: !!id && enabled,
-  });
-}
-
-// 31. Triggers (list)
-function useTriggers(filters?: Record<string, any>) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: automationKeys.triggers(filters),
-    queryFn: async () => {
-      const client = await getClient();
-      const query = buildQueryString(filters || {});
-      return client.get<{ data: WorkflowTrigger[]; pagination: PaginationMeta }>(`/workflow-triggers${query}`);
-    },
-  });
-}
-
-// 32. Trigger (single)
-function useTrigger(id: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: automationKeys.trigger(id),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: WorkflowTrigger }>(`/workflow-triggers/${id}`);
-    },
-    enabled: !!id && enabled,
-  });
-}
-
-// 33. Webhooks (list)
-export function useWebhooks(filters?: Record<string, any>) {
+}// 33. Webhooks (list)
+export function useWebhooks(filters?: Record<string, unknown>) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: automationKeys.webhooks(filters),
@@ -647,26 +390,6 @@ export function useWebhookEvents(webhookId: string, enabled = true) {
     enabled: !!webhookId && enabled,
   });
 }
-
-// 36. Workflow Webhook
-function useWorkflowWebhook(workflowId: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: automationKeys.webhook(workflowId),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ success: boolean; data: {
-        id: string;
-        url: string;
-        externalUrl: string | null;
-        secret: string | null;
-        isEnabled: boolean;
-      } | null }>(`/workflow-webhooks/workflow/${workflowId}`);
-    },
-    enabled: !!workflowId && enabled,
-  });
-}
-
 // =============================================================================
 // Mutation Hooks
 // =============================================================================
@@ -688,8 +411,8 @@ export function useCreateWorkflow(apiBasePath = '/workflows') {
       name: string;
       description?: string;
       status?: string;
-      triggers?: any[];
-      steps?: any[];
+      triggers?: unknown[];
+      steps?: unknown[];
       settings?: Record<string, unknown>;
       tags?: string[];
       folderId?: string;
@@ -713,8 +436,8 @@ export function useUpdateWorkflow(apiBasePath = '/workflows') {
       name?: string;
       description?: string;
       status?: string;
-      triggers?: any[];
-      steps?: any[];
+      triggers?: unknown[];
+      steps?: unknown[];
       settings?: Record<string, unknown>;
       tags?: string[];
       folderId?: string;
@@ -828,43 +551,7 @@ export function useDuplicateWorkflow(apiBasePath = '/workflows') {
       qc.invalidateQueries({ queryKey: isHelpdesk ? helpdeskAutomationKeys.workflows() : automationKeys.workflows() });
     },
   });
-}
-
-// -- Seed / Reset Default Workflows --
-
-function useSeedDefaultWorkflows(apiBasePath = '/helpdesk-workflows') {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  const isHelpdesk = apiBasePath.startsWith('/helpdesk');
-  return useMutation({
-    mutationFn: async () => {
-      const client = await getClient();
-      return client.post<{ data: { seeded: number; templateIds: string[] } }>(`${apiBasePath}/seed-defaults`, {});
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: isHelpdesk ? helpdeskAutomationKeys.workflows() : automationKeys.workflows() });
-      if (isHelpdesk) qc.invalidateQueries({ queryKey: helpdeskAutomationKeys.workflowStats() });
-    },
-  });
-}
-
-function useResetDefaultWorkflows(apiBasePath = '/helpdesk-workflows') {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  const isHelpdesk = apiBasePath.startsWith('/helpdesk');
-  return useMutation({
-    mutationFn: async () => {
-      const client = await getClient();
-      return client.post<{ data: { deleted: number; created: number; templateIds: string[] } }>(`${apiBasePath}/reset-defaults`, {});
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: isHelpdesk ? helpdeskAutomationKeys.workflows() : automationKeys.workflows() });
-      if (isHelpdesk) qc.invalidateQueries({ queryKey: helpdeskAutomationKeys.workflowStats() });
-    },
-  });
-}
-
-// 6. Test Workflow (Cloudflare Workflow)
+}// 6. Test Workflow (Cloudflare Workflow)
 export function useTestWorkflow() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
@@ -878,22 +565,6 @@ export function useTestWorkflow() {
     },
   });
 }
-
-// 7. Trigger Workflow (Cloudflare Workflow)
-function useTriggerWorkflow() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, data }: { id: string; data?: Record<string, unknown> }) => {
-      const client = await getClient();
-      return client.post<{ data: { executionId: string; instanceId: string } }>(`/workflows/${id}/trigger`, { data });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.executions() });
-    },
-  });
-}
-
 // ---- Executions ----
 
 // 8. Cancel Execution
@@ -924,56 +595,7 @@ export function useRetryExecution() {
       qc.invalidateQueries({ queryKey: automationKeys.executions() });
     },
   });
-}
-
-// 10. Create Execution
-function useCreateExecution() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: {
-      workflowId: string;
-      triggerType?: string;
-      triggerData?: Record<string, unknown>;
-    }) => {
-      const client = await getClient();
-      return client.post<{ data: WorkflowExecution }>('/workflow-executions', data);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.executions() });
-    },
-  });
-}
-
-// ---- Templates ----
-
-// 11. Create Template
-function useCreateTemplate() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: {
-      name: string;
-      description?: string;
-      category?: string;
-      difficulty?: 'beginner' | 'intermediate' | 'advanced';
-      triggers?: any[];
-      steps?: any[];
-      settings?: Record<string, unknown>;
-      tags?: string[];
-      icon?: string;
-      isPremium?: boolean;
-    }) => {
-      const client = await getClient();
-      return client.post<{ data: WorkflowTemplate }>('/workflow-templates', data);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.templates() });
-    },
-  });
-}
-
-// 12. Update Template
+}// 12. Update Template
 export function useUpdateTemplate() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
@@ -983,8 +605,8 @@ export function useUpdateTemplate() {
       description?: string;
       category?: string;
       difficulty?: 'beginner' | 'intermediate' | 'advanced';
-      triggers?: any[];
-      steps?: any[];
+      triggers?: unknown[];
+      steps?: unknown[];
       settings?: Record<string, unknown>;
       tags?: string[];
       icon?: string;
@@ -997,248 +619,7 @@ export function useUpdateTemplate() {
       qc.invalidateQueries({ queryKey: automationKeys.templates() });
     },
   });
-}
-
-// 13. Delete Template
-function useDeleteTemplate() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const client = await getClient();
-      return client.delete<{ success: boolean }>(`/workflow-templates/${id}`);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.templates() });
-    },
-  });
-}
-
-// 14. Create From Template (use template)
-function useCreateFromTemplate() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ templateId, params }: { templateId: string; params?: {
-      name?: string;
-      description?: string;
-      activate?: boolean;
-    } }) => {
-      const client = await getClient();
-      return client.post<{ data: Workflow }>(`/workflow-templates/${templateId}/use`, params || {});
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.workflows() });
-    },
-  });
-}
-
-// 15. Create Template From Workflow
-function useCreateTemplateFromWorkflow() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ workflowId, params }: { workflowId: string; params?: {
-      name?: string;
-      description?: string;
-      category?: string;
-    } }) => {
-      const client = await getClient();
-      return client.post<{ data: WorkflowTemplate }>(`/workflow-templates/from-workflow/${workflowId}`, params || {});
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.templates() });
-    },
-  });
-}
-
-// ---- Schedules ----
-
-// 16. Create Schedule
-function useCreateSchedule() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: {
-      workflowId: string;
-      triggerId?: string;
-      name: string;
-      cronExpression: string;
-      timezone?: string;
-      startDate?: string;
-      endDate?: string;
-      isEnabled?: boolean;
-    }) => {
-      const client = await getClient();
-      return client.post<{ data: WorkflowSchedule }>('/workflow-schedules', data);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.schedules() });
-    },
-  });
-}
-
-// 17. Update Schedule
-function useUpdateSchedule() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: {
-      name?: string;
-      cronExpression?: string;
-      timezone?: string;
-      startDate?: string | null;
-      endDate?: string | null;
-      isEnabled?: boolean;
-    } }) => {
-      const client = await getClient();
-      return client.put<{ data: WorkflowSchedule }>(`/workflow-schedules/${id}`, data);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.schedules() });
-    },
-  });
-}
-
-// 18. Delete Schedule
-function useDeleteSchedule() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const client = await getClient();
-      return client.delete<{ success: boolean }>(`/workflow-schedules/${id}`);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.schedules() });
-    },
-  });
-}
-
-// 19. Toggle Schedule — body required (was previously broken: sent `{}`).
-function useToggleSchedule() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
-      const client = await getClient();
-      return client.patch<{ data: WorkflowSchedule }>(`/workflow-schedules/${id}/toggle`, { enabled });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.schedules() });
-    },
-  });
-}
-
-// ---- Integrations ----
-
-// 20. Create Integration
-function useCreateIntegration() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: {
-      name: string;
-      description?: string;
-      category?: string;
-      icon?: string;
-      config?: Record<string, unknown>;
-      credentials?: Record<string, unknown>;
-      authType?: string;
-    }) => {
-      const client = await getClient();
-      return client.post<{ success: boolean; data: WorkflowIntegration }>('/workflow-integrations', data);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.integrations() });
-    },
-  });
-}
-
-// 21. Update Integration
-function useUpdateIntegration() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: {
-      name?: string;
-      description?: string;
-      category?: string;
-      icon?: string;
-      config?: Record<string, unknown>;
-      credentials?: Record<string, unknown>;
-      authType?: string;
-    } }) => {
-      const client = await getClient();
-      return client.put<{ success: boolean; data: WorkflowIntegration }>(`/workflow-integrations/${id}`, data);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.integrations() });
-    },
-  });
-}
-
-// 22. Delete Integration
-function useDeleteIntegration() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const client = await getClient();
-      return client.delete<{ success: boolean }>(`/workflow-integrations/${id}`);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.integrations() });
-    },
-  });
-}
-
-// 23. Connect Integration
-function useConnectIntegration() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, credentials }: { id: string; credentials?: Record<string, unknown> }) => {
-      const client = await getClient();
-      return client.patch<{ success: boolean; data: { id: string; status: string } }>(`/workflow-integrations/${id}/connect`, { credentials });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.integrations() });
-    },
-  });
-}
-
-// 24. Disconnect Integration
-function useDisconnectIntegration() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const client = await getClient();
-      return client.patch<{ success: boolean; data: { id: string; status: string } }>(`/workflow-integrations/${id}/disconnect`, {});
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.integrations() });
-    },
-  });
-}
-
-// 25. Test Integration
-function useTestIntegration() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const client = await getClient();
-      return client.post<{ success: boolean; data: { success: boolean; message?: string } }>(`/workflow-integrations/${id}/test`, {});
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.integrations() });
-    },
-  });
-}
-
-// ---- Variables ----
+}// ---- Variables ----
 
 // 26. Create Variable
 export function useCreateVariable() {
@@ -1296,140 +677,7 @@ export function useDeleteVariable() {
       qc.invalidateQueries({ queryKey: automationKeys.variables() });
     },
   });
-}
-
-// ---- Triggers ----
-
-// 29. Create Trigger
-function useCreateTrigger() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: {
-      workflowId: string;
-      name: string;
-      category: string;
-      config?: Record<string, unknown>;
-      isEnabled?: boolean;
-    }) => {
-      const client = await getClient();
-      return client.post<{ success: boolean; data: WorkflowTrigger }>('/workflow-triggers', data);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.triggers() });
-    },
-  });
-}
-
-// 30. Update Trigger
-function useUpdateTrigger() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: {
-      name?: string;
-      category?: string;
-      config?: Record<string, unknown>;
-      isEnabled?: boolean;
-    } }) => {
-      const client = await getClient();
-      return client.put<{ success: boolean; data: WorkflowTrigger }>(`/workflow-triggers/${id}`, data);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.triggers() });
-    },
-  });
-}
-
-// 31. Delete Trigger
-function useDeleteTrigger() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const client = await getClient();
-      return client.delete<{ success: boolean; workflowId?: string }>(`/workflow-triggers/${id}`);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.triggers() });
-    },
-  });
-}
-
-// 32. Enable Trigger
-function useEnableTrigger() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const client = await getClient();
-      return client.patch<{ success: boolean; data: WorkflowTrigger }>(`/workflow-triggers/${id}/enable`, {});
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.triggers() });
-    },
-  });
-}
-
-// 33. Disable Trigger
-function useDisableTrigger() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const client = await getClient();
-      return client.patch<{ success: boolean; data: WorkflowTrigger }>(`/workflow-triggers/${id}/disable`, {});
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.triggers() });
-    },
-  });
-}
-
-// 34. Create Entity Trigger
-function useCreateEntityTrigger() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: {
-      workflowId: string;
-      name?: string;
-      entityType: string;
-      eventType: string;
-      filters?: Record<string, unknown>;
-    }) => {
-      const client = await getClient();
-      return client.post<{ success: boolean; data: WorkflowTrigger }>('/workflow-triggers/entity', data);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.triggers() });
-    },
-  });
-}
-
-// 35. Create Schedule Trigger
-function useCreateScheduleTrigger() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: {
-      workflowId: string;
-      name?: string;
-      cronExpression: string;
-      timezone?: string;
-      startDate?: string;
-      endDate?: string;
-    }) => {
-      const client = await getClient();
-      return client.post<{ success: boolean; data: WorkflowTrigger }>('/workflow-triggers/schedule', data);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.triggers() });
-    },
-  });
-}
-
-// ---- Webhooks ----
+}// ---- Webhooks ----
 
 // 36. Create Webhook
 export function useCreateWebhook() {
@@ -1454,30 +702,6 @@ export function useCreateWebhook() {
     },
   });
 }
-
-// 37. Update Webhook
-function useUpdateWebhook() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: {
-      name?: string;
-      description?: string;
-      validateSignature?: boolean;
-      signatureHeader?: string;
-      allowedMethods?: string[];
-      ipWhitelist?: string[];
-      isEnabled?: boolean;
-    } }) => {
-      const client = await getClient();
-      return client.put<{ success: boolean; data: WorkflowWebhook }>(`/workflow-webhooks/${id}`, data);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.webhooks() });
-    },
-  });
-}
-
 // 38. Delete Webhook
 export function useDeleteWebhook() {
   const { getClient } = useAppApiClient();
@@ -1504,42 +728,6 @@ export function useRotateWebhookSecret() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: automationKeys.webhooks() });
-    },
-  });
-}
-
-// 40. Create Webhook Trigger
-function useCreateWebhookTrigger() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (workflowId: string) => {
-      const client = await getClient();
-      return client.post<{ success: boolean; data: WorkflowTrigger & {
-        webhookId: string;
-        webhookUrl: string;
-        secret: string;
-      } }>('/workflow-webhooks/create-trigger', { workflowId });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.webhooks() });
-    },
-  });
-}
-
-// ---- Errors ----
-
-// 41. Acknowledge Error
-function useAcknowledgeError() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (errorId: string) => {
-      const client = await getClient();
-      return client.patch<{ success: boolean; data: WorkflowErrorLog }>(`/workflow-dashboard/errors/${errorId}/acknowledge`, {});
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: automationKeys.errorStats() });
     },
   });
 }
