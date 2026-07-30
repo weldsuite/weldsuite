@@ -2,14 +2,15 @@
 
 import { Button } from "@weldsuite/ui/components/button";
 import { Input } from "@weldsuite/ui/components/input";
+import type { StoreData, BlockSettings } from '../types';
 
 interface NewsletterSectionProps {
   title?: string;
   description?: string;
   buttonText?: string;
   placeholder?: string;
-  store?: any;
-  settings?: any;
+  store?: StoreData;
+  settings?: BlockSettings;
 }
 
 export default function NewsletterSection({

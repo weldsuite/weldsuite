@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
+import type { BlockSettings } from '../types';
 
 export interface SlideshowContainerBlockProps {
   autoplay?: boolean;
@@ -13,7 +14,7 @@ export interface SlideshowContainerBlockProps {
   transitionStyle?: 'fade' | 'slide' | 'zoom';
   mode?: 'live' | 'edit' | 'preview';
   children?: React.ReactNode;
-  settings?: any;
+  settings?: BlockSettings;
 }
 
 export function SlideshowContainerBlock({

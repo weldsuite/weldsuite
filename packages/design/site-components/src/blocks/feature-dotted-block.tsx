@@ -3,6 +3,7 @@
 import { ArrowUpRight, ChevronRight, ChevronUp } from "lucide-react";
 import React from "react";
 import { cn } from "@weldsuite/ui/lib/utils";
+import type { StoreData } from '../types';
 
 interface FeatureDottedBlockProps {
   badgeText?: string;
@@ -21,7 +22,7 @@ interface FeatureDottedBlockProps {
   textColor?: string;
   className?: string;
   mode?: 'live' | 'edit' | 'preview';
-  store?: any;
+  store?: StoreData;
 }
 
 const DottedDiv = ({

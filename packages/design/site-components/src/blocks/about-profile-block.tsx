@@ -2,6 +2,7 @@
 
 import React from "react";
 import { cn } from "@weldsuite/ui/lib/utils";
+import type { StoreData } from '../types';
 
 interface AboutProfileBlockProps {
   name?: string;
@@ -17,7 +18,7 @@ interface AboutProfileBlockProps {
   cardTextColor?: string;
   className?: string;
   mode?: 'live' | 'edit';
-  store?: any;
+  store?: StoreData;
 }
 
 export function AboutProfileBlock({

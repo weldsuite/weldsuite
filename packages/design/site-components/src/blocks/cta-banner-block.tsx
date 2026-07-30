@@ -2,6 +2,7 @@
 
 import React from "react";
 import { cn } from "@weldsuite/ui/lib/utils";
+import type { StoreData } from '../types';
 
 interface CtaBannerBlockProps {
   heading?: string;
@@ -16,7 +17,7 @@ interface CtaBannerBlockProps {
   borderRadius?: number;
   className?: string;
   mode?: 'live' | 'edit' | 'preview';
-  store?: any;
+  store?: StoreData;
 }
 
 export function CtaBannerBlock({

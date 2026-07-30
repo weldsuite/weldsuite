@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Heart } from 'lucide-react';
+import type { StoreCollection, StoreData } from '../types';
 
 export interface CollectionListBlockProps {
   // Layout Settings
@@ -25,7 +26,7 @@ export interface CollectionListBlockProps {
   }>;
 
   // Store context
-  store?: any;
+  store?: StoreData;
 }
 
 // Mock collections for demo/preview (Shopify style)
@@ -61,7 +62,7 @@ const mockCollections = [
 ];
 
 // Collection Card Component
-function CollectionCard({ collection, imageRatioClass }: { collection: any; imageRatioClass: string }) {
+function CollectionCard({ collection, imageRatioClass }: { collection: StoreCollection; imageRatioClass: string }) {
   const [isFavorited, setIsFavorited] = React.useState(false);
 
   return (
@@ -117,7 +118,11 @@ function CollectionCard({ collection, imageRatioClass }: { collection: any; imag
         {/* Price */}
         <div className="flex items-center gap-2 mt-1">
           <span className="text-sm font-medium text-gray-900">
-            {collection.price}
+            {/* Preserve an already-formatted string price as-is; only a Money
+                object needs unwrapping before it can be rendered. */}
+            {typeof collection.price === 'object' && collection.price !== null
+              ? collection.price.amount
+              : collection.price}
           </span>
         </div>
       </div>
@@ -248,7 +253,7 @@ export function CollectionListBlock({
             rowGap: '24px' // More vertical spacing matching Product Grid
           }}
         >
-          {displayCollections.map((collection: any) => (
+          {displayCollections.map((collection: StoreCollection) => (
             <CollectionCard
               key={collection.id}
               collection={collection}

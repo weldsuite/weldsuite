@@ -1,6 +1,7 @@
 "use client";
 
 import React from 'react';
+import type { StoreData } from '../types';
 
 export interface CategoryBannerBlockProps {
   title?: string;
@@ -13,11 +14,7 @@ export interface CategoryBannerBlockProps {
   borderRadius?: number;
   textColor?: string;
   mode?: 'live' | 'preview' | 'edit';
-  store?: {
-    products?: any[];
-    collections?: any[];
-    [key: string]: any;
-  };
+  store?: StoreData;
 }
 
 export function CategoryBannerBlock({

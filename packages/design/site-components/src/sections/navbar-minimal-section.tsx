@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Search, ShoppingBag, User, X } from 'lucide-react';
+import type { StoreData } from '../types';
 
 interface NavbarMinimalSectionProps {
   logo?: string;
@@ -26,7 +27,7 @@ interface NavbarMinimalSectionProps {
   showBorder?: boolean;
   borderColor?: string;
   minimalStyle?: boolean;
-  store?: any;
+  store?: StoreData;
   mode?: string;
 }
 
@@ -53,7 +54,6 @@ export function NavbarMinimalSection({
   borderColor = '#333333',
   store,
 }: NavbarMinimalSectionProps) {
-  const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const [searchOpen, setSearchOpen] = React.useState(false);
 
   const displayLogo = logo || store?.logo;

@@ -2,16 +2,14 @@
 
 import React, { useState } from 'react';
 import { cn } from '@weldsuite/ui/lib/utils';
+import type { StoreData } from '../types';
 
 export interface ProductColorSelectorBlockProps {
   availableColors?: Array<{ name: string; color: string }>;
   textColor?: string;
   borderRadius?: number;
   mode?: 'live' | 'edit' | 'preview';
-  store?: {
-    selectedProduct?: any;
-    [key: string]: any;
-  };
+  store?: StoreData;
 }
 
 export function ProductColorSelectorBlock({

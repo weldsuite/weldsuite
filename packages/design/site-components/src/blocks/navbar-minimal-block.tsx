@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { NavbarMinimalSection } from '../sections/navbar-minimal-section';
+import type { StoreData } from '../types';
 
 export interface NavbarMinimalBlockProps {
   logo?: string;
@@ -26,7 +27,7 @@ export interface NavbarMinimalBlockProps {
   showBorder?: boolean;
   borderColor?: string;
   minimalStyle?: boolean;
-  store?: any;
+  store?: StoreData;
   mode?: string;
 }
 

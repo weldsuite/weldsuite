@@ -2,6 +2,8 @@
 
 import React, { useState, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Minus, Plus } from 'lucide-react';
+import type { StoreProduct, StorePrice } from '../types';
+import { productImageSrc, productImageAlt, priceAmount } from '../types';
 
 // ============================================
 // Product Gallery Block
@@ -22,8 +24,8 @@ export interface ProductDetailGalleryBlockProps {
   textColor?: string;
   mode?: 'live' | 'preview' | 'edit';
   store?: {
-    products?: any[];
-    selectedProduct?: any;
+    products?: StoreProduct[];
+    selectedProduct?: StoreProduct;
   };
 }
 
@@ -45,9 +47,13 @@ export function ProductDetailGalleryBlock({
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const thumbnailRef = useRef<HTMLUListElement>(null);
 
-  // Use product images from store if available
+  // Use product images from store if available. Store images arrive either as
+  // bare URLs or as objects, so normalize to this block's ProductImage shape.
   const productImages = store?.selectedProduct?.images;
-  const displayImages = productImages && productImages.length > 0 ? productImages : (images || DEFAULT_IMAGES);
+  const displayImages: ProductImage[] =
+    productImages && productImages.length > 0
+      ? productImages.map((img) => ({ src: productImageSrc(img), alt: productImageAlt(img) }))
+      : (images || DEFAULT_IMAGES);
 
   const handlePrevImage = () => {
     setCurrentImageIndex(currentImageIndex === 0 ? displayImages.length - 1 : currentImageIndex - 1);
@@ -271,8 +277,8 @@ export interface ProductDetailTitleBlockProps {
   fontWeight?: 'normal' | 'medium' | 'semibold' | 'bold';
   mode?: 'live' | 'preview' | 'edit';
   store?: {
-    products?: any[];
-    selectedProduct?: any;
+    products?: StoreProduct[];
+    selectedProduct?: StoreProduct;
   };
 }
 
@@ -317,8 +323,8 @@ export interface ProductDetailPriceBlockProps {
   textColor?: string;
   mode?: 'live' | 'preview' | 'edit';
   store?: {
-    products?: any[];
-    selectedProduct?: any;
+    products?: StoreProduct[];
+    selectedProduct?: StoreProduct;
   };
 }
 
@@ -333,11 +339,11 @@ export function ProductDetailPriceBlock({
   const displaySalePrice = store?.selectedProduct?.salePrice || salePrice;
   const displayCurrency = store?.selectedProduct?.currency || currency;
 
-  const formatPrice = (amount: number) => {
+  const formatPrice = (value: StorePrice | undefined) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: displayCurrency,
-    }).format(amount);
+    }).format(priceAmount(value));
   };
 
   return (
@@ -377,8 +383,8 @@ export interface ProductDetailVariantSelectorBlockProps {
   textColor?: string;
   mode?: 'live' | 'preview' | 'edit';
   store?: {
-    products?: any[];
-    selectedProduct?: any;
+    products?: StoreProduct[];
+    selectedProduct?: StoreProduct;
   };
 }
 
@@ -429,8 +435,8 @@ export interface ProductDetailQuantityBlockProps {
   textColor?: string;
   mode?: 'live' | 'preview' | 'edit';
   store?: {
-    products?: any[];
-    selectedProduct?: any;
+    products?: StoreProduct[];
+    selectedProduct?: StoreProduct;
   };
 }
 
@@ -482,8 +488,8 @@ export interface ProductDetailButtonsBlockProps {
   textColor?: string;
   mode?: 'live' | 'preview' | 'edit';
   store?: {
-    products?: any[];
-    selectedProduct?: any;
+    products?: StoreProduct[];
+    selectedProduct?: StoreProduct;
   };
 }
 
@@ -527,8 +533,8 @@ export interface ProductDetailDescriptionBlockProps {
   textColor?: string;
   mode?: 'live' | 'preview' | 'edit';
   store?: {
-    products?: any[];
-    selectedProduct?: any;
+    products?: StoreProduct[];
+    selectedProduct?: StoreProduct;
   };
 }
 
@@ -562,8 +568,8 @@ export interface ProductDetailAccordionBlockProps {
   borderColor?: string;
   mode?: 'live' | 'preview' | 'edit';
   store?: {
-    products?: any[];
-    selectedProduct?: any;
+    products?: StoreProduct[];
+    selectedProduct?: StoreProduct;
   };
 }
 
@@ -617,7 +623,7 @@ export interface ProductDetailBlockProps {
   showAccordion?: boolean;
   mode?: 'live' | 'preview' | 'edit';
   store?: {
-    products?: any[];
+    products?: StoreProduct[];
   };
   children?: React.ReactNode;
 }

@@ -2,19 +2,12 @@
 
 import React from 'react';
 import { ArrowRight } from 'lucide-react';
-
-interface Collection {
-  id: number;
-  name: string;
-  description: string;
-  image: string;
-  productCount: number;
-}
+import type { StoreCollection, StoreData } from '../types';
 
 interface CollectionListSectionProps {
   heading?: string;
   subheading?: string;
-  collections?: Collection[];
+  collections?: StoreCollection[];
   columns?: number;
   showProductCount?: boolean;
   imageAspectRatio?: 'square' | 'portrait' | 'landscape';
@@ -22,48 +15,48 @@ interface CollectionListSectionProps {
   textColor?: string;
   paddingTop?: number;
   paddingBottom?: number;
-  store?: any;
+  store?: StoreData;
 }
 
 // Mock collection data
-const mockCollections: Collection[] = [
+const mockCollections: StoreCollection[] = [
   {
-    id: 1,
+    id: '1',
     name: 'Summer Collection',
     description: 'Bright and breezy styles for warm weather',
     image: 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=800&h=800&fit=crop&fm=png',
     productCount: 24
   },
   {
-    id: 2,
+    id: '2',
     name: 'Winter Essentials',
     description: 'Cozy pieces to keep you warm',
     image: 'https://images.unsplash.com/photo-1483985988355-763728e1935b?w=800&h=800&fit=crop&fm=png',
     productCount: 18
   },
   {
-    id: 3,
+    id: '3',
     name: 'Accessories',
     description: 'Complete your look with the perfect accessories',
     image: 'https://images.unsplash.com/photo-1492707892479-7bc8d5a4ee93?w=800&h=800&fit=crop&fm=png',
     productCount: 42
   },
   {
-    id: 4,
+    id: '4',
     name: 'New Arrivals',
     description: 'Fresh styles just landed',
     image: 'https://images.unsplash.com/photo-1560769629-975ec94e6a86?w=800&h=800&fit=crop&fm=png',
     productCount: 15
   },
   {
-    id: 5,
+    id: '5',
     name: 'Sale',
     description: 'Limited time offers on selected items',
     image: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=800&h=800&fit=crop&fm=png',
     productCount: 36
   },
   {
-    id: 6,
+    id: '6',
     name: 'Best Sellers',
     description: 'Our most popular products',
     image: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&h=800&fit=crop&fm=png',
@@ -130,7 +123,7 @@ export function CollectionListSection({
             gridTemplateColumns: `repeat(${Math.min(columns, 4)}, minmax(0, 1fr))`
           }}
         >
-          {displayCollections.map((collection: any) => (
+          {displayCollections.map((collection) => (
             <a
               key={collection.id}
               href={`/collections/${collection.id}`}

@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import { cn } from "@weldsuite/ui/lib/utils";
 import { VideoText } from "../components/video-text";
+import type { StoreData, BlockSettings } from '../types';
 
 // Child Block: Video Text Heading
 export interface HeroVideoTextHeadingBlockProps {
@@ -14,7 +15,7 @@ export interface HeroVideoTextHeadingBlockProps {
   fontSize?: string;
   className?: string;
   mode?: 'live' | 'edit' | 'preview';
-  store?: any;
+  store?: StoreData;
 }
 
 export function HeroVideoTextHeadingBlock({
@@ -27,7 +28,7 @@ export function HeroVideoTextHeadingBlock({
   // Also accept from settings prop spread
   settings,
   ...rest
-}: HeroVideoTextHeadingBlockProps & { settings?: any }) {
+}: HeroVideoTextHeadingBlockProps & { settings?: BlockSettings }) {
   // Handle both direct props and nested settings
   const actualText = text || settings?.text || "Blocks";
   const actualVideoUrl = videoUrl || settings?.videoUrl || "https://deifkwefumgah.cloudfront.net/shadcnblocks/block/ocean1080.mov";
@@ -61,7 +62,7 @@ export interface HeroVideoTextDescriptionBlockProps {
   maxWidth?: string;
   className?: string;
   mode?: 'live' | 'edit' | 'preview';
-  store?: any;
+  store?: StoreData;
 }
 
 export function HeroVideoTextDescriptionBlock({
@@ -113,7 +114,7 @@ export interface HeroVideoTextButtonBlockProps {
   showIcon?: boolean;
   className?: string;
   mode?: 'live' | 'edit' | 'preview';
-  store?: any;
+  store?: StoreData;
 }
 
 export function HeroVideoTextButtonBlock({
@@ -160,7 +161,7 @@ export interface HeroVideoTextBlockProps {
   gap?: number;
   className?: string;
   mode?: 'live' | 'edit' | 'preview';
-  store?: any;
+  store?: StoreData;
   children?: React.ReactNode;
   // Legacy props for backward compatibility (when no children)
   videoUrl?: string;

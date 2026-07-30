@@ -121,16 +121,6 @@ export function ImageBannerBlock({
     }
   };
 
-  // Get color scheme classes
-  const getColorScheme = () => {
-    switch (colorScheme) {
-      case 'scheme-1': return 'text-gray-900';
-      case 'scheme-2': return 'text-white';
-      case 'scheme-3': return 'text-gray-800';
-      case 'inverse': return 'text-white';
-      default: return 'text-gray-900';
-    }
-  };
 
   // Get text color for content
   const getTextColor = () => {
@@ -141,7 +131,6 @@ export function ImageBannerBlock({
   };
 
   // Stack images on mobile class
-  const hasSecondImage = image2 && stackImagesOnMobile;
 
   return (
     <div className={`banner relative w-full overflow-hidden ${getHeightClass()} ${showTextBelow ? 'banner--mobile-bottom' : ''}`}>

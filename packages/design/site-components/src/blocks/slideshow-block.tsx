@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
+import type { StoreData } from '../types';
 
 interface Slide {
   id?: string;
@@ -25,7 +26,7 @@ export interface SlideshowBlockProps {
   contentAlignment?: 'left' | 'center' | 'right';
   transitionStyle?: 'fade' | 'slide' | 'zoom';
   mode?: 'live' | 'edit' | 'preview';
-  store?: any;
+  store?: StoreData;
 }
 
 export function SlideshowBlock({
@@ -71,7 +72,7 @@ export function SlideshowBlock({
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [_progress, setProgress] = useState(0);
 
   const goToNext = useCallback(() => {
     if (isTransitioning) return;

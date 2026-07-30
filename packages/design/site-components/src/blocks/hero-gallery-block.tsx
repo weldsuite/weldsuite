@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { motion } from 'framer-motion';
+import type { StoreData } from '../types';
 
 const DEFAULT_GALLERY_IMAGES = [
   [
@@ -33,11 +34,7 @@ export interface HeroGalleryBlockProps {
   textColor?: string;
   animationSpeed?: number;
   mode?: 'live' | 'preview' | 'edit';
-  store?: {
-    products?: any[];
-    collections?: any[];
-    [key: string]: any;
-  };
+  store?: StoreData;
 }
 
 export function HeroGalleryBlock({

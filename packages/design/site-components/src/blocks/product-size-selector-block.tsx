@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { cn } from '@weldsuite/ui/lib/utils';
+import type { StoreData } from '../types';
 
 export interface ProductSizeSelectorBlockProps {
   availableSizes?: string[];
@@ -9,10 +10,7 @@ export interface ProductSizeSelectorBlockProps {
   showSizeFit?: boolean;
   borderRadius?: number;
   mode?: 'live' | 'edit' | 'preview';
-  store?: {
-    selectedProduct?: any;
-    [key: string]: any;
-  };
+  store?: StoreData;
 }
 
 export function ProductSizeSelectorBlock({

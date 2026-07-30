@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Button } from '@weldsuite/ui/components/button';
+import type { StoreData } from '../types';
 
 export interface ProductActionButtonsBlockProps {
   addToCartText?: string;
@@ -12,10 +13,7 @@ export interface ProductActionButtonsBlockProps {
   showOrderNow?: boolean;
   borderRadius?: number;
   mode?: 'live' | 'edit' | 'preview';
-  store?: {
-    selectedProduct?: any;
-    [key: string]: any;
-  };
+  store?: StoreData;
 }
 
 export function ProductActionButtonsBlock({

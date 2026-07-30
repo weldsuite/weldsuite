@@ -1,16 +1,17 @@
 "use client";
 
-import type { Product, Category } from "@weldsuite/db/schema";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@weldsuite/ui/components/card";
 import { Button } from "@weldsuite/ui/components/button";
 import { Badge } from "@weldsuite/ui/components/badge";
 import Image from "next/image";
+import type { StoreData, BlockSettings } from '../types';
+import { priceAmount } from '../types';
 
 interface ProductGridSectionProps {
   title?: string;
   limit?: number;
-  store?: any;
-  settings?: any;
+  store?: StoreData;
+  settings?: BlockSettings;
 }
 
 export default function ProductGridSection({ 
@@ -37,13 +38,13 @@ export default function ProductGridSection({
       <div className="container mx-auto" style={{ maxWidth: '1280px' }}>
         <h2 className="text-3xl font-bold text-center mb-12">{title}</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {displayProducts.map((product: Product & { category: Category | null }) => (
+          {displayProducts.map((product) => (
             <Card key={product.id} className="overflow-hidden">
               {product.featuredImageUrl && (
                 <div className="aspect-square relative">
                   <Image
                     src={product.featuredImageUrl}
-                    alt={product.name}
+                    alt={product.name ?? ''}
                     fill
                     className="object-cover"
                   />
@@ -54,7 +55,7 @@ export default function ProductGridSection({
                   <span className="truncate">{product.name}</span>
                   {product.category && (
                     <Badge variant="secondary" className="ml-2">
-                      {product.category.name}
+                      {typeof product.category === 'string' ? product.category : product.category.name}
                     </Badge>
                   )}
                 </CardTitle>
@@ -67,7 +68,7 @@ export default function ProductGridSection({
                 )}
                 <div className="flex items-center justify-between">
                   <span className="text-2xl font-bold">
-                    ${product.price.toString()}
+                    ${priceAmount(product.price)}
                   </span>
                   {(product.inventoryQuantity ?? 0) > 0 && (
                     <span className="text-sm text-muted-foreground">

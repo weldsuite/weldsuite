@@ -10,6 +10,8 @@ import { ProductQuantitySelectorElement } from '../elements/product-quantity-sel
 import { ProductActionButtonsElement } from '../elements/product-action-buttons-element';
 import { ProductDescriptionElement } from '../elements/product-description-element';
 import { ProductPolicyButtonsElement } from '../elements/product-policy-buttons-element';
+import type { StoreData, StoreProduct } from '../types';
+import { priceAmount, productImageSrc } from '../types';
 
 interface Block {
   id: string;
@@ -34,8 +36,8 @@ interface FeaturedProductSectionProps {
   buttonColor?: string;
   paddingTop?: number;
   paddingBottom?: number;
-  store?: any;
-  product?: any;
+  store?: StoreData;
+  product?: StoreProduct;
   productId?: string;
   storeName?: string;
   images?: string[];
@@ -74,12 +76,12 @@ export function FeaturedProductSection({
   const [selectedSize, setSelectedSize] = useState('big (4.2 oz)');
 
   // Use product data if available
-  const selectedProduct = product || (productId && store?.products?.find((p: any) => p.id === productId));
+  const selectedProduct = product ?? (productId ? store?.products?.find((p) => p.id === productId) : undefined);
 
   const productName = selectedProduct?.name || propProductName || 'glazing milk';
   const productDescription = selectedProduct?.description || propProductDescription || 'The essential prep step for your skincare routine. Glazing Milk is a potent, nutrient-rich complex with a milky texture that leaves skin feeling hydrated and glowy while boosting the skin barrier over time.';
-  const price = selectedProduct?.price || propPrice || 32.00;
-  const compareAtPrice = selectedProduct?.compareAtPrice || propCompareAtPrice;
+  const price = selectedProduct?.price ? priceAmount(selectedProduct.price) : (propPrice ?? 32.00);
+  const compareAtPrice = selectedProduct?.compareAtPrice ? priceAmount(selectedProduct.compareAtPrice) : propCompareAtPrice;
   const storeName = selectedProduct?.storeName || propStoreName || 'rhode';
   const rating = selectedProduct?.rating || propRating || 4.8;
   const reviewCount = selectedProduct?.reviews || propReviews || 14600;
@@ -91,7 +93,7 @@ export function FeaturedProductSection({
     'https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=800&h=800&fit=crop',
   ];
 
-  const finalImages = selectedProduct?.images || propImages || defaultImages;
+  const finalImages: string[] = selectedProduct?.images ? selectedProduct.images.map(productImageSrc) : (propImages || defaultImages);
 
   // Helper to render block with selection UI
   const renderBlock = (blockId: string, blockType: string, children: React.ReactNode) => {

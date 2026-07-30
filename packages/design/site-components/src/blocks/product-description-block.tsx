@@ -1,16 +1,14 @@
 "use client";
 
 import React from 'react';
+import type { StoreData } from '../types';
 
 export interface ProductDescriptionBlockProps {
   description?: string;
   heading?: string;
   textColor?: string;
   mode?: 'live' | 'edit' | 'preview';
-  store?: {
-    selectedProduct?: any;
-    [key: string]: any;
-  };
+  store?: StoreData;
 }
 
 export function ProductDescriptionBlock({

@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Menu, X, ShoppingCart, Search, User, ChevronDown, ChevronRight } from 'lucide-react';
+import type { StoreData } from '../types';
 
 interface MegamenuItem {
   label: string;
@@ -49,7 +50,7 @@ interface NavbarShopifySectionProps {
   megamenuShowDescriptions?: boolean;
   mobileBreakpoint?: 'sm' | 'md' | 'lg';
   mobileMenuStyle?: 'drawer' | 'dropdown';
-  store?: any;
+  store?: StoreData;
   mode?: string;
 }
 

@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { NavbarShopifySection } from '../sections/navbar-shopify-section';
+import type { StoreData } from '../types';
 
 interface MegamenuItem {
   label: string;
@@ -49,7 +50,7 @@ export interface NavbarShopifyBlockProps {
   megamenuShowDescriptions?: boolean;
   mobileBreakpoint?: 'sm' | 'md' | 'lg';
   mobileMenuStyle?: 'drawer' | 'dropdown';
-  store?: any;
+  store?: StoreData;
   mode?: string;
 }
 

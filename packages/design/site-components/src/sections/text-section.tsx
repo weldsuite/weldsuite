@@ -1,11 +1,12 @@
+import type { StoreData, BlockSettings } from '../types';
 "use client";
 
 interface TextSectionProps {
   title?: string;
   content?: string;
   align?: 'left' | 'center' | 'right';
-  store?: any;
-  settings?: any;
+  store?: StoreData;
+  settings?: BlockSettings;
 }
 
 export default function TextSection({

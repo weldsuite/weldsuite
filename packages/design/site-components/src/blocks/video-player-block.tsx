@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef } from 'react';
+import type { StoreData } from '../types';
 
 interface VideoPlayerBlockProps {
   // Video source
@@ -36,7 +37,7 @@ interface VideoPlayerBlockProps {
   // Legacy props
   controls?: boolean;
   mode?: string;
-  store?: any;
+  store?: StoreData;
 }
 
 export function VideoPlayerBlock({
@@ -89,7 +90,6 @@ export function VideoPlayerBlock({
   // Check if it's a YouTube or Vimeo URL
   const isYouTube = videoType === 'youtube' || url.includes('youtube.com') || url.includes('youtu.be');
   const isVimeo = videoType === 'vimeo' || url.includes('vimeo.com');
-  const isHosted = videoType === 'hosted' || (!isYouTube && !isVimeo);
 
   const getEmbedUrl = () => {
     if (isYouTube) {

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Facebook, Twitter, Instagram, Youtube, Linkedin, Mail, Globe, ChevronDown } from 'lucide-react';
+import type { BlockSettings } from '../types';
 
 export interface FooterBlockProps {
   background?: string;
@@ -11,7 +12,7 @@ export interface FooterBlockProps {
   blocks?: Array<{
     id: string;
     type: string;
-    settings: any;
+    settings: BlockSettings;
   }>;
   // Legacy props for backwards compatibility
   columns?: Array<{

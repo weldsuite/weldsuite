@@ -11,6 +11,7 @@ import {
   CarouselContent,
   CarouselItem,
 } from "@weldsuite/ui/components/carousel";
+import type { StoreData } from '../types';
 
 interface SlideItem {
   image: string;
@@ -37,7 +38,7 @@ interface HeroCarouselBlockProps {
   paddingBottom?: number;
   className?: string;
   mode?: 'live' | 'edit';
-  store?: any;
+  store?: StoreData;
 }
 
 const DEFAULT_SLIDES: SlideItem[] = [

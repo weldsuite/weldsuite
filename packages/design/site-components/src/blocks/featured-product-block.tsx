@@ -4,6 +4,8 @@ import React, { useState } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Star, ChevronLeft, ChevronRight, Minus, Plus, Truck, Store, Undo2 } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
+import type { StoreData, StoreProduct, BlockSettings } from '../types';
+import { productImageSrc } from '../types';
 
 // Shop app style with 60/40 split
 
@@ -25,12 +27,12 @@ export interface FeaturedProductBlockProps {
   backgroundColor?: string;
   textColor?: string;
   mode?: 'live' | 'edit' | 'preview';
-  store?: any;
+  store?: StoreData;
   storeName?: string;
   rating?: number;
   reviewCount?: number;
   images?: string[];
-  settings?: any;
+  settings?: BlockSettings;
   showSizeSelector?: boolean;
   showColorSelector?: boolean;
   showReviews?: boolean;
@@ -67,21 +69,21 @@ export function FeaturedProductBlock({
   showShippingPolicy = true,
   showRefundPolicy = true,
 }: FeaturedProductBlockProps) {
-  const isEditing = mode === 'edit' || mode === 'preview';
   const [quantity, setQuantity] = React.useState(1);
   const [activeImage, setActiveImage] = useState(0);
   const [selectedSize, setSelectedSize] = useState('XS');
   const [selectedColor, setSelectedColor] = useState('Black');
-  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
+
 
   // Get product from store if handle is provided
-  const product = store?.products?.find((p: any) => p.handle === productHandle);
+  const product = store?.products?.find((p: StoreProduct) => p.handle === productHandle);
 
   // Use product data if available, otherwise use settings
   const finalHeading = product?.name || heading;
   const finalDescription = product?.description || description;
-  const finalPrice = product?.price || price;
-  const finalImages = product?.images || images;
+  const finalPrice = String(product?.price ?? price);
+  // This block renders bare URLs; store images may arrive as objects.
+  const finalImages: string[] = product?.images ? product.images.map(productImageSrc) : images;
 
   // Use settings for available sizes, colors, and FAQ items
   const availableSizes = settings.availableSizes || ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
@@ -92,20 +94,6 @@ export function FeaturedProductBlock({
     { name: 'Blue', color: '#3B82F6' },
     { name: 'Red', color: '#EF4444' },
     { name: 'Green', color: '#10B981' },
-  ];
-  const faqItems = settings.faqItems || [
-    {
-      question: 'What is your return policy?',
-      answer: 'We offer a 30-day return policy for all unused items in their original packaging. Simply contact our customer service team to initiate a return.'
-    },
-    {
-      question: 'How long does shipping take?',
-      answer: 'Standard shipping typically takes 5-7 business days. Express shipping options are available at checkout for faster delivery.'
-    },
-    {
-      question: 'Is this product covered by warranty?',
-      answer: 'Yes, all our products come with a 1-year manufacturer warranty covering defects in materials and workmanship.'
-    }
   ];
 
   const hasCompareAtPrice = compareAtPrice && parseFloat(compareAtPrice) > parseFloat(finalPrice);

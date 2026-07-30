@@ -2,6 +2,7 @@
 
 import { Card, CardContent } from "@weldsuite/ui/components/card";
 import { Star } from "lucide-react";
+import type { StoreData, BlockSettings } from '../types';
 
 interface TestimonialsSectionProps {
   title?: string;
@@ -11,8 +12,8 @@ interface TestimonialsSectionProps {
     content: string;
     rating?: number;
   }>;
-  store?: any;
-  settings?: any;
+  store?: StoreData;
+  settings?: BlockSettings;
 }
 
 const defaultTestimonials = [

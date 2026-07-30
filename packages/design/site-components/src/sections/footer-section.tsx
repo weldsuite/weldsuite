@@ -1,6 +1,7 @@
 "use client";
 
 import { Facebook, Twitter, Instagram, Mail } from "lucide-react";
+import type { StoreData, BlockSettings } from '../types';
 
 interface FooterSectionProps {
   companyName?: string;
@@ -8,8 +9,8 @@ interface FooterSectionProps {
     title: string;
     items: string[];
   }>;
-  store?: any;
-  settings?: any;
+  store?: StoreData;
+  settings?: BlockSettings;
 }
 
 const defaultLinks = [

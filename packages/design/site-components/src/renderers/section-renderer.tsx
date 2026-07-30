@@ -6,11 +6,12 @@ import { BlockRenderer } from './block-renderer';
 import { SectionWrapper, SectionSettings } from '../components/section-wrapper';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { ChevronUp, ChevronDown, Copy, Trash2 } from 'lucide-react';
+import type { StoreData } from '../types';
 
 interface SectionRendererProps {
   section: Section;
   mode?: RenderMode;
-  store?: any;
+  store?: StoreData;
   settings?: Record<string, any>;
   onSelectElement?: (elementId: string) => void;
   onUpdateElement?: (sectionId: string, elementId: string, updates: any) => void;
@@ -219,7 +220,7 @@ export function SectionRenderer({
               isBlockSelected && isEditing && !isSingleBlockSection && "ring-2 ring-blue-500 ring-inset"
             )}
             style={{}}
-            onMouseEnter={(e) => {
+            onMouseEnter={() => {
               if (isEditing && !isSingleBlockSection) {
                 setHoveredBlockId(block.id);
               }

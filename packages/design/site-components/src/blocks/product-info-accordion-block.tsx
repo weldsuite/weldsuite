@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { ChevronRight } from 'lucide-react';
+import type { StoreData } from '../types';
 
 interface AccordionItem {
   id: string;
@@ -14,10 +15,7 @@ export interface ProductInfoAccordionBlockProps {
   textColor?: string;
   borderColor?: string;
   mode?: 'live' | 'edit' | 'preview';
-  store?: {
-    selectedProduct?: any;
-    [key: string]: any;
-  };
+  store?: StoreData;
 }
 
 const DEFAULT_ITEMS: AccordionItem[] = [

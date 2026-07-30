@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Calendar, User } from 'lucide-react';
+import type { StoreData } from '../types';
 
 interface BlogPost {
   id: number;
@@ -27,7 +28,7 @@ interface BlogPostsSectionProps {
   paddingTop?: number;
   paddingBottom?: number;
   sectionId?: string;
-  store?: any;
+  store?: StoreData;
   posts?: BlogPost[];
 }
 
@@ -114,7 +115,7 @@ export function BlogPostsSection({
             gridTemplateColumns: `repeat(${Math.min(columns, 3)}, minmax(0, 1fr))`
           }}
         >
-          {displayPosts.map((post: any, index: number) => {
+          {displayPosts.map((post) => {
             return (
               <article
                 key={post.id}

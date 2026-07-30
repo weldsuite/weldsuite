@@ -4,6 +4,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import { cn } from "@weldsuite/ui/lib/utils";
 import { VideoText } from "../components/video-text";
+import type { StoreData } from '../types';
 
 interface HeroVideoTextOverlayBlockProps {
   heading?: string;
@@ -16,7 +17,7 @@ interface HeroVideoTextOverlayBlockProps {
   paddingBottom?: number;
   className?: string;
   mode?: 'live' | 'edit';
-  store?: any;
+  store?: StoreData;
 }
 
 export function HeroVideoTextOverlayBlock({

@@ -2,6 +2,7 @@
 
 import React from 'react';
 import VideoSection from '../sections/video-section';
+import type { StoreData } from '../types';
 
 interface VideoBlockProps {
   // Video source
@@ -43,7 +44,7 @@ interface VideoBlockProps {
   aspectRatio?: '16/9' | '4/3' | '1/1' | '21/9';
   borderRadius?: number;
   mode?: string;
-  store?: any;
+  store?: StoreData;
 }
 
 export function VideoBlock({

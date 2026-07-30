@@ -6,6 +6,7 @@ import { ArrowRight } from "lucide-react";
 import { cn } from "@weldsuite/ui/lib/utils";
 import { useMousePosition } from "../hooks/use-mouse-position";
 import { VariableFontAndCursor } from "../components/variable-font-and-cursor";
+import type { StoreData } from '../types';
 
 export type HeroLayout = 'contained' | 'fullWidth';
 
@@ -23,7 +24,7 @@ interface HeroInteractiveBlockProps {
   headingFont?: string;
   className?: string;
   mode?: 'live' | 'edit';
-  store?: any;
+  store?: StoreData;
 }
 
 export function HeroInteractiveBlock({

@@ -1,14 +1,15 @@
 "use client";
 
 import { Button } from "@weldsuite/ui/components/button";
+import type { StoreData, BlockSettings } from '../types';
 
 interface HeroSectionProps {
   title?: string;
   subtitle?: string;
   buttonText?: string;
   backgroundImage?: string;
-  store?: any;
-  settings?: any;
+  store?: StoreData;
+  settings?: BlockSettings;
 }
 
 export default function HeroSection({ 

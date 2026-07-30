@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { NavbarLuxurySection } from '../sections/navbar-luxury-section';
+import type { StoreData } from '../types';
 
 export interface NavbarLuxuryBlockProps {
   // Announcement Bar
@@ -50,7 +51,7 @@ export interface NavbarLuxuryBlockProps {
   showNavBorder?: boolean;
   navBorderColor?: string;
 
-  store?: any;
+  store?: StoreData;
   mode?: string;
 }
 

@@ -1,5 +1,7 @@
 // Element and Section Types for Website Builder & Live Sites
 
+export * from './storefront';
+
 export type ElementType =
   | 'text'
   | 'heading'

@@ -130,6 +130,8 @@ import { GridBlock } from '../blocks/grid-block';
 import { FlexBlock } from '../blocks/flex-block';
 import { ProductGridBlock } from '../blocks/product-grid-block';
 import { FAQBlock } from '../blocks/faq-block';
+import type { StoreData, StorePrice } from '../types';
+import { priceAmount } from '../types';
 
 interface Block {
   id: string;
@@ -142,7 +144,7 @@ interface Block {
 interface BlockRendererProps {
   block: Block;
   mode?: 'live' | 'edit';
-  store?: any;
+  store?: StoreData;
   previewMode?: 'desktop' | 'tablet' | 'mobile';
   selectedBlockId?: string;
   onSelectBlock?: (blockId: string) => void;
@@ -156,7 +158,7 @@ interface BlockRendererProps {
 }
 
 // Helper function to replace dynamic content placeholders
-function replaceDynamicContent(content: any, store: any): any {
+function replaceDynamicContent(content: unknown, store: StoreData | undefined): unknown {
   if (typeof content !== 'string') return content;
 
   // Replace {{product.field}} with actual product data
@@ -165,12 +167,14 @@ function replaceDynamicContent(content: any, store: any): any {
     const product = products[0]; // Use first product for preview
 
     if (product) {
-      return content.replace(/\{\{product\.(\w+)\}\}/g, (match, field) => {
+      const fields = product as Record<string, unknown>;
+      return content.replace(/\{\{product\.(\w+)\}\}/g, (match, field: string) => {
+        const value = fields[field];
         // Handle special formatting for price
-        if (field === 'price' && product[field]) {
-          return `$${parseFloat(product[field]).toFixed(2)}`;
+        if (field === 'price' && value != null) {
+          return `$${priceAmount(value as StorePrice).toFixed(2)}`;
         }
-        return product[field] || match;
+        return value != null && value !== '' ? String(value) : match;
       });
     }
   }
@@ -199,7 +203,7 @@ function NestedBlockWrapper({
   childIndex: number;
   totalChildren: number;
   mode?: 'live' | 'edit';
-  store?: any;
+  store?: StoreData;
   previewMode?: 'desktop' | 'tablet' | 'mobile';
   selectedBlockId?: string;
   onSelectBlock: (blockId: string) => void;
@@ -496,8 +500,9 @@ export function BlockRenderer({
 
   // Always check for dynamic content in string fields
   Object.keys(processedSettings).forEach(key => {
-    if (typeof processedSettings[key] === 'string' && processedSettings[key].includes('{{product.')) {
-      processedSettings[key] = replaceDynamicContent(processedSettings[key], store);
+    const value = processedSettings[key];
+    if (typeof value === 'string' && value.includes('{{product.')) {
+      processedSettings[key] = replaceDynamicContent(value, store);
     }
   });
 

@@ -3,12 +3,13 @@
 import { Button } from "@weldsuite/ui/components/button";
 import { ShoppingCart, Menu } from "lucide-react";
 import Image from "next/image";
+import type { StoreData, BlockSettings } from '../types';
 
 interface HeaderSectionProps {
   title?: string;
   links?: string[];
-  store?: any;
-  settings?: any;
+  store?: StoreData;
+  settings?: BlockSettings;
 }
 
 export default function HeaderSection({ 

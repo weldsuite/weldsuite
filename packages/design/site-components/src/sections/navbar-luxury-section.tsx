@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Search, ShoppingBag, User, ChevronDown, X, Menu } from 'lucide-react';
+import type { StoreData } from '../types';
 
 interface NavMenuItem {
   label: string;
@@ -53,7 +54,7 @@ interface NavbarLuxurySectionProps {
   showNavBorder?: boolean;
   navBorderColor?: string;
 
-  store?: any;
+  store?: StoreData;
   mode?: string;
 }
 

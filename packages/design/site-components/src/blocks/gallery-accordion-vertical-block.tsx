@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, ShoppingCart } from "lucide-react";
 import React, { useState } from "react";
 import { cn } from "@weldsuite/ui/lib/utils";
+import type { StoreData } from '../types';
 
 interface GalleryImage {
   id: number;
@@ -23,7 +24,7 @@ interface GalleryAccordionVerticalBlockProps {
   textColor?: string;
   className?: string;
   mode?: 'live' | 'edit' | 'preview';
-  store?: any;
+  store?: StoreData;
 }
 
 const defaultImages: GalleryImage[] = [

@@ -10,6 +10,7 @@ import {
   CarouselNext,
   CarouselPrevious,
 } from "@weldsuite/ui/components/carousel";
+import type { StoreData } from '../types';
 
 interface VideoSectionProps {
   videoSrc: string;
@@ -141,7 +142,7 @@ interface VideoCarouselBlockProps {
   textColor?: string;
   className?: string;
   mode?: 'live' | 'edit';
-  store?: any;
+  store?: StoreData;
 }
 
 export function VideoCarouselBlock({
