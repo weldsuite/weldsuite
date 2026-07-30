@@ -46,9 +46,9 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'get_project_document',
     scope: 'project_documents:read',
-    description: 'Get full details of a project document by ID.',
+    description: 'Get full details of a project document.',
     inputSchema: {
-      id: z.string().describe('The project document ID'),
+      id: z.string().describe('The project document — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/project-documents/:id',
@@ -67,9 +67,9 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'update_project_document',
     scope: 'project_documents:write',
-    description: 'Update an existing project document by ID.',
+    description: 'Update an existing project document.',
     inputSchema: {
-      id: z.string().describe('The project document ID'),
+      id: z.string().describe('The project document — its name, or the id from an earlier search'),
       ...updateProjectDocumentSchema.shape,
     },
     method: 'PATCH',
@@ -80,9 +80,9 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'delete_project_document',
     scope: 'project_documents:write',
-    description: 'Soft-delete a project document by ID.',
+    description: 'Delete a project document.',
     inputSchema: {
-      id: z.string().describe('The project document ID'),
+      id: z.string().describe('The project document — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/project-documents/:id',
@@ -109,9 +109,9 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'get_project_file',
     scope: 'project_files:read',
-    description: 'Get full details of a project file by ID.',
+    description: 'Get full details of a project file.',
     inputSchema: {
-      id: z.string().describe('The project file ID'),
+      id: z.string().describe('The project file — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/project-files/:id',
@@ -130,9 +130,9 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'update_project_file',
     scope: 'project_files:write',
-    description: 'Update an existing project file by ID.',
+    description: 'Update an existing project file.',
     inputSchema: {
-      id: z.string().describe('The project file ID'),
+      id: z.string().describe('The project file — its name, or the id from an earlier search'),
       ...updateProjectFileSchema.shape,
     },
     method: 'PATCH',
@@ -143,9 +143,9 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'delete_project_file',
     scope: 'project_files:write',
-    description: 'Soft-delete a project file by ID.',
+    description: 'Delete a project file.',
     inputSchema: {
-      id: z.string().describe('The project file ID'),
+      id: z.string().describe('The project file — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/project-files/:id',
@@ -171,9 +171,9 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'get_project_label',
     scope: 'project_labels:read',
-    description: 'Get full details of a project label by ID.',
+    description: 'Get full details of a project label.',
     inputSchema: {
-      id: z.string().describe('The project label ID'),
+      id: z.string().describe('The project label — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/project-labels/:id',
@@ -192,9 +192,9 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'update_project_label',
     scope: 'project_labels:write',
-    description: 'Update an existing project label by ID.',
+    description: 'Update an existing project label.',
     inputSchema: {
-      id: z.string().describe('The project label ID'),
+      id: z.string().describe('The project label — its name, or the id from an earlier search'),
       ...updateProjectLabelSchema.shape,
     },
     method: 'PATCH',
@@ -205,9 +205,9 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'delete_project_label',
     scope: 'project_labels:write',
-    description: 'Soft-delete a project label by ID.',
+    description: 'Delete a project label.',
     inputSchema: {
-      id: z.string().describe('The project label ID'),
+      id: z.string().describe('The project label — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/project-labels/:id',
@@ -234,9 +234,9 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'get_project_member',
     scope: 'project_members:read',
-    description: 'Get full details of a project member by ID.',
+    description: 'Get full details of a project member.',
     inputSchema: {
-      id: z.string().describe('The project member ID'),
+      id: z.string().describe('The project member — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/project-members/:id',
@@ -255,9 +255,9 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'update_project_member',
     scope: 'project_members:write',
-    description: 'Update an existing project member by ID.',
+    description: 'Update an existing project member.',
     inputSchema: {
-      id: z.string().describe('The project member ID'),
+      id: z.string().describe('The project member — its name, or the id from an earlier search'),
       ...updateProjectMemberSchema.shape,
     },
     method: 'PATCH',
@@ -268,9 +268,9 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'delete_project_member',
     scope: 'project_members:write',
-    description: 'Soft-delete (remove) a project member by ID.',
+    description: 'Delete (remove) a project member.',
     inputSchema: {
-      id: z.string().describe('The project member ID'),
+      id: z.string().describe('The project member — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/project-members/:id',
@@ -296,9 +296,9 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'get_project_message',
     scope: 'project_messages:read',
-    description: 'Get full details of a project message by ID.',
+    description: 'Get full details of a project message.',
     inputSchema: {
-      id: z.string().describe('The project message ID'),
+      id: z.string().describe('The project message — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/project-messages/:id',
@@ -317,9 +317,9 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'update_project_message',
     scope: 'project_messages:write',
-    description: 'Update an existing project message by ID.',
+    description: 'Update an existing project message.',
     inputSchema: {
-      id: z.string().describe('The project message ID'),
+      id: z.string().describe('The project message — its name, or the id from an earlier search'),
       ...updateProjectMessageSchema.shape,
     },
     method: 'PATCH',
@@ -330,9 +330,9 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'delete_project_message',
     scope: 'project_messages:write',
-    description: 'Soft-delete a project message by ID.',
+    description: 'Delete a project message.',
     inputSchema: {
-      id: z.string().describe('The project message ID'),
+      id: z.string().describe('The project message — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/project-messages/:id',
@@ -373,9 +373,9 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'get_whiteboard',
     scope: 'whiteboards:read',
-    description: 'Get full details of a project whiteboard by ID.',
+    description: 'Get full details of a project whiteboard.',
     inputSchema: {
-      id: z.string().describe('The whiteboard ID'),
+      id: z.string().describe('The whiteboard — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/whiteboards/:id',
@@ -394,9 +394,9 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'update_whiteboard',
     scope: 'whiteboards:write',
-    description: 'Update an existing project whiteboard by ID.',
+    description: 'Update an existing project whiteboard.',
     inputSchema: {
-      id: z.string().describe('The whiteboard ID'),
+      id: z.string().describe('The whiteboard — its name, or the id from an earlier search'),
       ...updateWhiteboardSchema.shape,
     },
     method: 'PATCH',
@@ -407,9 +407,9 @@ export const weldflowTools: ToolDefinition[] = [
   {
     name: 'delete_whiteboard',
     scope: 'whiteboards:write',
-    description: 'Soft-delete a project whiteboard by ID.',
+    description: 'Delete a project whiteboard.',
     inputSchema: {
-      id: z.string().describe('The whiteboard ID'),
+      id: z.string().describe('The whiteboard — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/whiteboards/:id',

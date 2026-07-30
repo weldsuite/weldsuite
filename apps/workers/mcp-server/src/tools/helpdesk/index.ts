@@ -29,9 +29,9 @@ export const helpdeskTools: ToolDefinition[] = [
   {
     name: 'get_ticket',
     scope: 'tickets:read',
-    description: 'Get full details of a specific helpdesk ticket by ID, including metadata and SLA information.',
+    description: 'Get full details of a specific helpdesk ticket, including metadata and SLA information.',
     inputSchema: {
-      ticketId: z.string().describe('The ticket ID'),
+      ticketId: z.string().describe('The ticket — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/tickets/:id',
@@ -52,7 +52,7 @@ export const helpdeskTools: ToolDefinition[] = [
     scope: 'tickets:write',
     description: 'Update the status, priority, or assignment of a helpdesk ticket.',
     inputSchema: {
-      ticketId: z.string().describe('The ticket ID to update'),
+      ticketId: z.string().describe('The ticket to update — its name, or the id from an earlier search'),
       ...updateTicketSchema.shape,
     },
     method: 'PATCH',
@@ -65,7 +65,7 @@ export const helpdeskTools: ToolDefinition[] = [
     scope: 'tickets:write',
     description: 'Add a reply or internal note to a helpdesk ticket conversation.',
     inputSchema: {
-      ticketId: z.string().describe('The ticket ID to reply to'),
+      ticketId: z.string().describe('The ticket to reply to — its name, or the id from an earlier search'),
       body: z.string().describe('The message body (plain text or HTML)'),
       type: z.enum(['reply', 'note']).default('reply').optional().describe('Message type: reply (visible to customer) or note (internal only)'),
       authorName: z.string().describe('Name of the message author'),
@@ -80,9 +80,9 @@ export const helpdeskTools: ToolDefinition[] = [
   {
     name: 'update_ticket',
     scope: 'tickets:write',
-    description: 'Update an existing helpdesk ticket by ID (general PATCH — any field).',
+    description: 'Update any field on an existing helpdesk ticket.',
     inputSchema: {
-      ticketId: z.string().describe('The ticket ID'),
+      ticketId: z.string().describe('The ticket — its name, or the id from an earlier search'),
       ...updateTicketSchema.shape,
     },
     method: 'PATCH',
@@ -93,9 +93,9 @@ export const helpdeskTools: ToolDefinition[] = [
   {
     name: 'delete_ticket',
     scope: 'tickets:write',
-    description: 'Soft-delete a helpdesk ticket by ID.',
+    description: 'Delete a helpdesk ticket.',
     inputSchema: {
-      ticketId: z.string().describe('The ticket ID'),
+      ticketId: z.string().describe('The ticket — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/tickets/:id',
@@ -122,9 +122,9 @@ export const helpdeskTools: ToolDefinition[] = [
   {
     name: 'get_article',
     scope: 'articles:read',
-    description: 'Get full details of a knowledge-base article by ID.',
+    description: 'Get full details of a knowledge-base article.',
     inputSchema: {
-      id: z.string().describe('The article ID'),
+      id: z.string().describe('The article — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/articles/:id',
@@ -143,9 +143,9 @@ export const helpdeskTools: ToolDefinition[] = [
   {
     name: 'update_article',
     scope: 'articles:write',
-    description: 'Update an existing knowledge-base article by ID.',
+    description: 'Update an existing knowledge-base article.',
     inputSchema: {
-      id: z.string().describe('The article ID'),
+      id: z.string().describe('The article — its name, or the id from an earlier search'),
       ...updateArticleSchema.shape,
     },
     method: 'PATCH',
@@ -156,9 +156,9 @@ export const helpdeskTools: ToolDefinition[] = [
   {
     name: 'delete_article',
     scope: 'articles:write',
-    description: 'Soft-delete a knowledge-base article by ID.',
+    description: 'Delete a knowledge-base article.',
     inputSchema: {
-      id: z.string().describe('The article ID'),
+      id: z.string().describe('The article — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/articles/:id',
@@ -186,9 +186,9 @@ export const helpdeskTools: ToolDefinition[] = [
   {
     name: 'get_conversation',
     scope: 'conversations:read',
-    description: 'Get full details of a helpdesk conversation by ID.',
+    description: 'Get full details of a helpdesk conversation.',
     inputSchema: {
-      id: z.string().describe('The conversation ID'),
+      id: z.string().describe('The conversation — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/conversations/:id',
@@ -207,9 +207,9 @@ export const helpdeskTools: ToolDefinition[] = [
   {
     name: 'update_conversation',
     scope: 'conversations:write',
-    description: 'Update an existing helpdesk conversation by ID.',
+    description: 'Update an existing helpdesk conversation.',
     inputSchema: {
-      id: z.string().describe('The conversation ID'),
+      id: z.string().describe('The conversation — its name, or the id from an earlier search'),
       ...updateConversationSchema.shape,
     },
     method: 'PATCH',
@@ -220,9 +220,9 @@ export const helpdeskTools: ToolDefinition[] = [
   {
     name: 'delete_conversation',
     scope: 'conversations:write',
-    description: 'Soft-delete a helpdesk conversation by ID.',
+    description: 'Delete a helpdesk conversation.',
     inputSchema: {
-      id: z.string().describe('The conversation ID'),
+      id: z.string().describe('The conversation — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/conversations/:id',

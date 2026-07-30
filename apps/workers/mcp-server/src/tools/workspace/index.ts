@@ -42,9 +42,9 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'get_calendar',
     scope: 'calendars:read',
-    description: 'Get full details of a calendar by ID.',
+    description: 'Get full details of a calendar.',
     inputSchema: {
-      id: z.string().describe('The calendar ID'),
+      id: z.string().describe('The calendar — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/calendars/:id',
@@ -61,9 +61,9 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'update_calendar',
     scope: 'calendars:write',
-    description: 'Update an existing calendar by ID.',
+    description: 'Update an existing calendar.',
     inputSchema: {
-      id: z.string().describe('The calendar ID'),
+      id: z.string().describe('The calendar — its name, or the id from an earlier search'),
       ...updateCalendarSchema.shape,
     },
     method: 'PATCH',
@@ -73,9 +73,9 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'delete_calendar',
     scope: 'calendars:write',
-    description: 'Soft-delete a calendar by ID.',
+    description: 'Delete a calendar.',
     inputSchema: {
-      id: z.string().describe('The calendar ID'),
+      id: z.string().describe('The calendar — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/calendars/:id',
@@ -101,9 +101,9 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'get_calendar_event',
     scope: 'calendar_events:read',
-    description: 'Get full details of a calendar event by ID.',
+    description: 'Get full details of a calendar event.',
     inputSchema: {
-      id: z.string().describe('The calendar event ID'),
+      id: z.string().describe('The calendar event — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/calendar-events/:id',
@@ -120,9 +120,9 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'update_calendar_event',
     scope: 'calendar_events:write',
-    description: 'Update an existing calendar event by ID.',
+    description: 'Update an existing calendar event.',
     inputSchema: {
-      id: z.string().describe('The calendar event ID'),
+      id: z.string().describe('The calendar event — its name, or the id from an earlier search'),
       ...updateCalendarEventSchema.shape,
     },
     method: 'PATCH',
@@ -132,9 +132,9 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'delete_calendar_event',
     scope: 'calendar_events:write',
-    description: 'Soft-delete a calendar event by ID.',
+    description: 'Delete a calendar event.',
     inputSchema: {
-      id: z.string().describe('The calendar event ID'),
+      id: z.string().describe('The calendar event — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/calendar-events/:id',
@@ -161,9 +161,9 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'get_file',
     scope: 'files:read',
-    description: 'Get full metadata of a file by ID.',
+    description: 'Get full metadata of a file.',
     inputSchema: {
-      id: z.string().describe('The file ID'),
+      id: z.string().describe('The file — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/files/:id',
@@ -180,9 +180,9 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'update_file',
     scope: 'files:write',
-    description: 'Update an existing file record by ID.',
+    description: 'Update an existing file record.',
     inputSchema: {
-      id: z.string().describe('The file ID'),
+      id: z.string().describe('The file — its name, or the id from an earlier search'),
       ...updateFileSchema.shape,
     },
     method: 'PATCH',
@@ -192,9 +192,9 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'delete_file',
     scope: 'files:write',
-    description: 'Soft-delete a file by ID.',
+    description: 'Delete a file.',
     inputSchema: {
-      id: z.string().describe('The file ID'),
+      id: z.string().describe('The file — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/files/:id',
@@ -219,9 +219,9 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'get_folder',
     scope: 'folders:read',
-    description: 'Get full details of a folder by ID.',
+    description: 'Get full details of a folder.',
     inputSchema: {
-      id: z.string().describe('The folder ID'),
+      id: z.string().describe('The folder — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/folders/:id',
@@ -238,9 +238,9 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'update_folder',
     scope: 'folders:write',
-    description: 'Update an existing folder by ID.',
+    description: 'Update an existing folder.',
     inputSchema: {
-      id: z.string().describe('The folder ID'),
+      id: z.string().describe('The folder — its name, or the id from an earlier search'),
       ...updateFolderSchema.shape,
     },
     method: 'PATCH',
@@ -250,9 +250,9 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'delete_folder',
     scope: 'folders:write',
-    description: 'Soft-delete a folder by ID.',
+    description: 'Delete a folder.',
     inputSchema: {
-      id: z.string().describe('The folder ID'),
+      id: z.string().describe('The folder — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/folders/:id',
@@ -310,9 +310,9 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'get_settings_member',
     scope: 'settings:read',
-    description: 'Get a single workspace member by ID.',
+    description: 'Get a single workspace member.',
     inputSchema: {
-      id: z.string().describe('The workspace member ID'),
+      id: z.string().describe('The workspace member — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/settings/members/:id',
@@ -338,9 +338,9 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'get_webhook',
     scope: 'webhooks:read',
-    description: 'Get full details of a workflow webhook by ID.',
+    description: 'Get full details of a workflow webhook.',
     inputSchema: {
-      id: z.string().describe('The webhook ID'),
+      id: z.string().describe('The webhook — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/webhooks/:id',
@@ -367,9 +367,9 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'update_webhook',
     scope: 'webhooks:write',
-    description: 'Update an existing workflow webhook by ID.',
+    description: 'Update an existing workflow webhook.',
     inputSchema: {
-      id: z.string().describe('The webhook ID'),
+      id: z.string().describe('The webhook — its name, or the id from an earlier search'),
       name: z.string().min(1).max(255).optional(),
       description: z.string().optional(),
       workflowId: z.string().optional(),
@@ -385,9 +385,9 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'delete_webhook',
     scope: 'webhooks:write',
-    description: 'Soft-delete a workflow webhook by ID.',
+    description: 'Delete a workflow webhook.',
     inputSchema: {
-      id: z.string().describe('The webhook ID'),
+      id: z.string().describe('The webhook — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/webhooks/:id',
@@ -416,9 +416,9 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'get_workflow',
     scope: 'workflows:read',
-    description: 'Get full details of a workflow by ID.',
+    description: 'Get full details of a workflow.',
     inputSchema: {
-      id: z.string().describe('The workflow ID'),
+      id: z.string().describe('The workflow — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/workflows/:id',
@@ -435,9 +435,9 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'update_workflow',
     scope: 'workflows:write',
-    description: 'Update an existing workflow by ID.',
+    description: 'Update an existing workflow.',
     inputSchema: {
-      id: z.string().describe('The workflow ID'),
+      id: z.string().describe('The workflow — its name, or the id from an earlier search'),
       ...updateWorkflowSchema.shape,
     },
     method: 'PATCH',
@@ -447,9 +447,9 @@ export const workspaceTools: ToolDefinition[] = [
   {
     name: 'delete_workflow',
     scope: 'workflows:write',
-    description: 'Soft-delete a workflow by ID.',
+    description: 'Delete a workflow.',
     inputSchema: {
-      id: z.string().describe('The workflow ID'),
+      id: z.string().describe('The workflow — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/workflows/:id',

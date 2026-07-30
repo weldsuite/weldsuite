@@ -44,9 +44,9 @@ export const commerceTools: ToolDefinition[] = [
   {
     name: 'get_order',
     scope: 'orders:read',
-    description: 'Get full details of a commerce order by ID.',
+    description: 'Get full details of a commerce order.',
     inputSchema: {
-      id: z.string().describe('The order ID'),
+      id: z.string().describe('The order — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/orders/:id',
@@ -63,9 +63,9 @@ export const commerceTools: ToolDefinition[] = [
   {
     name: 'update_order',
     scope: 'orders:write',
-    description: 'Update an existing commerce order by ID.',
+    description: 'Update an existing commerce order.',
     inputSchema: {
-      id: z.string().describe('The order ID'),
+      id: z.string().describe('The order — its name, or the id from an earlier search'),
       ...updateOrderSchema.shape,
     },
     method: 'PATCH',
@@ -75,9 +75,9 @@ export const commerceTools: ToolDefinition[] = [
   {
     name: 'delete_order',
     scope: 'orders:write',
-    description: 'Soft-delete a commerce order by ID.',
+    description: 'Delete a commerce order.',
     inputSchema: {
-      id: z.string().describe('The order ID'),
+      id: z.string().describe('The order — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/orders/:id',
@@ -101,9 +101,9 @@ export const commerceTools: ToolDefinition[] = [
   {
     name: 'get_product',
     scope: 'products:read',
-    description: 'Get full details of a commerce product by ID.',
+    description: 'Get full details of a commerce product.',
     inputSchema: {
-      id: z.string().describe('The product ID'),
+      id: z.string().describe('The product — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/products/:id',
@@ -120,9 +120,9 @@ export const commerceTools: ToolDefinition[] = [
   {
     name: 'update_product',
     scope: 'products:write',
-    description: 'Update an existing commerce product by ID.',
+    description: 'Update an existing commerce product.',
     inputSchema: {
-      id: z.string().describe('The product ID'),
+      id: z.string().describe('The product — its name, or the id from an earlier search'),
       ...updateProductSchema.shape,
     },
     method: 'PATCH',
@@ -132,9 +132,9 @@ export const commerceTools: ToolDefinition[] = [
   {
     name: 'delete_product',
     scope: 'products:write',
-    description: 'Soft-delete a commerce product by ID.',
+    description: 'Delete a commerce product.',
     inputSchema: {
-      id: z.string().describe('The product ID'),
+      id: z.string().describe('The product — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/products/:id',
@@ -153,9 +153,9 @@ export const commerceTools: ToolDefinition[] = [
   {
     name: 'get_domain',
     scope: 'domains:read',
-    description: 'Get full details of a WeldHost domain by ID.',
+    description: 'Get full details of a WeldHost domain.',
     inputSchema: {
-      id: z.string().describe('The domain ID'),
+      id: z.string().describe('The domain — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/domains/:id',
@@ -172,9 +172,9 @@ export const commerceTools: ToolDefinition[] = [
   {
     name: 'update_domain',
     scope: 'domains:write',
-    description: 'Update an existing WeldHost domain by ID.',
+    description: 'Update an existing WeldHost domain.',
     inputSchema: {
-      id: z.string().describe('The domain ID'),
+      id: z.string().describe('The domain — its name, or the id from an earlier search'),
       ...updateDomainSchema.shape,
     },
     method: 'PATCH',
@@ -184,9 +184,9 @@ export const commerceTools: ToolDefinition[] = [
   {
     name: 'delete_domain',
     scope: 'domains:write',
-    description: 'Soft-delete a WeldHost domain by ID.',
+    description: 'Delete a WeldHost domain.',
     inputSchema: {
-      id: z.string().describe('The domain ID'),
+      id: z.string().describe('The domain — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/domains/:id',
@@ -215,9 +215,9 @@ export const commerceTools: ToolDefinition[] = [
   {
     name: 'get_time_entry',
     scope: 'time_entries:read',
-    description: 'Get full details of a time entry by ID.',
+    description: 'Get full details of a time entry.',
     inputSchema: {
-      id: z.string().describe('The time entry ID'),
+      id: z.string().describe('The time entry — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/time-entries/:id',
@@ -234,9 +234,9 @@ export const commerceTools: ToolDefinition[] = [
   {
     name: 'update_time_entry',
     scope: 'time_entries:write',
-    description: 'Update an existing time entry by ID.',
+    description: 'Update an existing time entry.',
     inputSchema: {
-      id: z.string().describe('The time entry ID'),
+      id: z.string().describe('The time entry — its name, or the id from an earlier search'),
       ...updateTimeEntrySchema.shape,
     },
     method: 'PATCH',
@@ -246,9 +246,9 @@ export const commerceTools: ToolDefinition[] = [
   {
     name: 'delete_time_entry',
     scope: 'time_entries:write',
-    description: 'Soft-delete a time entry by ID.',
+    description: 'Delete a time entry.',
     inputSchema: {
-      id: z.string().describe('The time entry ID'),
+      id: z.string().describe('The time entry — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/time-entries/:id',

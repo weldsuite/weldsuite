@@ -33,9 +33,9 @@ export const chatTools: ToolDefinition[] = [
   {
     name: 'get_channel',
     scope: 'channels:read',
-    description: 'Get full details of a WeldChat channel by ID.',
+    description: 'Get full details of a WeldChat channel.',
     inputSchema: {
-      id: z.string().describe('The channel ID'),
+      id: z.string().describe('The channel — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/channels/:id',
@@ -52,9 +52,9 @@ export const chatTools: ToolDefinition[] = [
   {
     name: 'update_channel',
     scope: 'channels:write',
-    description: 'Update an existing WeldChat channel by ID.',
+    description: 'Update an existing WeldChat channel.',
     inputSchema: {
-      id: z.string().describe('The channel ID'),
+      id: z.string().describe('The channel — its name, or the id from an earlier search'),
       ...updateChannelSchema.shape,
     },
     method: 'PATCH',
@@ -64,9 +64,9 @@ export const chatTools: ToolDefinition[] = [
   {
     name: 'delete_channel',
     scope: 'channels:write',
-    description: 'Soft-delete a WeldChat channel by ID.',
+    description: 'Delete a WeldChat channel.',
     inputSchema: {
-      id: z.string().describe('The channel ID'),
+      id: z.string().describe('The channel — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/channels/:id',
@@ -90,9 +90,9 @@ export const chatTools: ToolDefinition[] = [
   {
     name: 'get_channel_member',
     scope: 'channel_members:read',
-    description: 'Get full details of a WeldChat channel member by ID.',
+    description: 'Get full details of a WeldChat channel member.',
     inputSchema: {
-      id: z.string().describe('The channel member ID'),
+      id: z.string().describe('The channel member — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/channel-members/:id',
@@ -109,9 +109,9 @@ export const chatTools: ToolDefinition[] = [
   {
     name: 'update_channel_member',
     scope: 'channel_members:write',
-    description: 'Update an existing WeldChat channel member by ID.',
+    description: 'Update an existing WeldChat channel member.',
     inputSchema: {
-      id: z.string().describe('The channel member ID'),
+      id: z.string().describe('The channel member — its name, or the id from an earlier search'),
       ...updateChannelMemberSchema.shape,
     },
     method: 'PATCH',
@@ -121,9 +121,9 @@ export const chatTools: ToolDefinition[] = [
   {
     name: 'delete_channel_member',
     scope: 'channel_members:write',
-    description: 'Hard-delete a WeldChat channel member by ID.',
+    description: 'Hard-delete a WeldChat channel member.',
     inputSchema: {
-      id: z.string().describe('The channel member ID'),
+      id: z.string().describe('The channel member — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/channel-members/:id',
@@ -147,9 +147,9 @@ export const chatTools: ToolDefinition[] = [
   {
     name: 'get_chat_bookmark',
     scope: 'chat_bookmarks:read',
-    description: 'Get full details of a WeldChat bookmark by ID.',
+    description: 'Get full details of a WeldChat bookmark.',
     inputSchema: {
-      id: z.string().describe('The chat bookmark ID'),
+      id: z.string().describe('The chat bookmark — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/chat-bookmarks/:id',
@@ -166,9 +166,9 @@ export const chatTools: ToolDefinition[] = [
   {
     name: 'update_chat_bookmark',
     scope: 'chat_bookmarks:write',
-    description: 'Update an existing WeldChat bookmark by ID.',
+    description: 'Update an existing WeldChat bookmark.',
     inputSchema: {
-      id: z.string().describe('The chat bookmark ID'),
+      id: z.string().describe('The chat bookmark — its name, or the id from an earlier search'),
       ...updateChatBookmarkSchema.shape,
     },
     method: 'PATCH',
@@ -178,9 +178,9 @@ export const chatTools: ToolDefinition[] = [
   {
     name: 'delete_chat_bookmark',
     scope: 'chat_bookmarks:write',
-    description: 'Hard-delete a WeldChat bookmark by ID.',
+    description: 'Hard-delete a WeldChat bookmark.',
     inputSchema: {
-      id: z.string().describe('The chat bookmark ID'),
+      id: z.string().describe('The chat bookmark — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/chat-bookmarks/:id',
@@ -204,9 +204,9 @@ export const chatTools: ToolDefinition[] = [
   {
     name: 'get_chat_draft',
     scope: 'chat_drafts:read',
-    description: 'Get full details of a WeldChat draft by ID.',
+    description: 'Get full details of a WeldChat draft.',
     inputSchema: {
-      id: z.string().describe('The chat draft ID'),
+      id: z.string().describe('The chat draft — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/chat-drafts/:id',
@@ -226,9 +226,9 @@ export const chatTools: ToolDefinition[] = [
   {
     name: 'update_chat_draft',
     scope: 'chat_drafts:write',
-    description: 'Update an existing WeldChat draft by ID.',
+    description: 'Update an existing WeldChat draft.',
     inputSchema: {
-      id: z.string().describe('The chat draft ID'),
+      id: z.string().describe('The chat draft — its name, or the id from an earlier search'),
       ...updateChatDraftSchema.shape,
     },
     method: 'PATCH',
@@ -238,9 +238,9 @@ export const chatTools: ToolDefinition[] = [
   {
     name: 'delete_chat_draft',
     scope: 'chat_drafts:write',
-    description: 'Hard-delete a WeldChat draft by ID.',
+    description: 'Hard-delete a WeldChat draft.',
     inputSchema: {
-      id: z.string().describe('The chat draft ID'),
+      id: z.string().describe('The chat draft — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/chat-drafts/:id',
@@ -265,9 +265,9 @@ export const chatTools: ToolDefinition[] = [
   {
     name: 'get_chat_message',
     scope: 'chat_messages:read',
-    description: 'Get full details of a WeldChat message by ID.',
+    description: 'Get full details of a WeldChat message.',
     inputSchema: {
-      id: z.string().describe('The chat message ID'),
+      id: z.string().describe('The chat message — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/chat-messages/:id',
@@ -284,9 +284,9 @@ export const chatTools: ToolDefinition[] = [
   {
     name: 'update_chat_message',
     scope: 'chat_messages:write',
-    description: 'Update an existing WeldChat message by ID.',
+    description: 'Update an existing WeldChat message.',
     inputSchema: {
-      id: z.string().describe('The chat message ID'),
+      id: z.string().describe('The chat message — its name, or the id from an earlier search'),
       ...updateChatMessageSchema.shape,
     },
     method: 'PATCH',
@@ -296,9 +296,9 @@ export const chatTools: ToolDefinition[] = [
   {
     name: 'delete_chat_message',
     scope: 'chat_messages:write',
-    description: 'Soft-delete a WeldChat message by ID.',
+    description: 'Delete a WeldChat message.',
     inputSchema: {
-      id: z.string().describe('The chat message ID'),
+      id: z.string().describe('The chat message — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/chat-messages/:id',
@@ -321,9 +321,9 @@ export const chatTools: ToolDefinition[] = [
   {
     name: 'get_chat_section',
     scope: 'chat_sections:read',
-    description: 'Get full details of a WeldChat section by ID.',
+    description: 'Get full details of a WeldChat section.',
     inputSchema: {
-      id: z.string().describe('The chat section ID'),
+      id: z.string().describe('The chat section — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/chat-sections/:id',
@@ -340,9 +340,9 @@ export const chatTools: ToolDefinition[] = [
   {
     name: 'update_chat_section',
     scope: 'chat_sections:write',
-    description: 'Update an existing WeldChat section by ID.',
+    description: 'Update an existing WeldChat section.',
     inputSchema: {
-      id: z.string().describe('The chat section ID'),
+      id: z.string().describe('The chat section — its name, or the id from an earlier search'),
       ...updateChatSectionSchema.shape,
     },
     method: 'PATCH',
@@ -352,9 +352,9 @@ export const chatTools: ToolDefinition[] = [
   {
     name: 'delete_chat_section',
     scope: 'chat_sections:write',
-    description: 'Hard-delete a WeldChat section by ID.',
+    description: 'Hard-delete a WeldChat section.',
     inputSchema: {
-      id: z.string().describe('The chat section ID'),
+      id: z.string().describe('The chat section — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/chat-sections/:id',
