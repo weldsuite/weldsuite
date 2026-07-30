@@ -9,7 +9,7 @@
  */
 
 import { eq, and, isNull } from 'drizzle-orm';
-import { workspaces, plans } from '@weldsuite/db/schema/master';
+import { workspaces, plans, users } from '@weldsuite/db/schema/master';
 import {
   createProvisioningService,
   type InitialMember,
@@ -138,6 +138,32 @@ const TRIAL_PERIOD_DAYS = 14;
 const DEFAULT_PLAN_SLUG = 'business';
 
 /**
+ * Resolve the email to put on the workspace's Stripe customer.
+ *
+ * Prefers the email carried in the provisioning payload — every normal signup
+ * path (`/api/onboard` and the platform onboarding routes) sets it. The Clerk
+ * `organization.created` webhook can build an initial member from just a
+ * `userId` when the creator's master row isn't found yet, so fall back to
+ * looking the user up. Returns undefined when neither yields an address; the
+ * caller then creates the customer without one rather than failing signup.
+ */
+export async function resolveOwnerEmail(
+  masterDb: any,
+  initialMember?: { userId?: string; email?: string },
+): Promise<string | undefined> {
+  if (initialMember?.email) return initialMember.email;
+  if (!initialMember?.userId) return undefined;
+
+  const [owner] = await masterDb
+    .select({ email: users.email })
+    .from(users)
+    .where(eq(users.id, initialMember.userId))
+    .limit(1);
+
+  return owner?.email || undefined;
+}
+
+/**
  * Set up Stripe billing for a new workspace.
  * Creates a Stripe customer and a 14-day trialing subscription on the default
  * plan (Business).
@@ -152,6 +178,10 @@ const DEFAULT_PLAN_SLUG = 'business';
  * requirement. Until that onboarding change lands, the trial is created cardless
  * and cancels at trial end if no card is added (trial_settings below).
  * Returns a result object with IDs and any warnings.
+ *
+ * `ownerEmail` is the signing-up user's email. Stripe needs it to reach the
+ * customer at all — trial-ending and failed-payment emails go nowhere without
+ * it, and the Stripe dashboard shows the customer as nameless-by-email.
  */
 export async function setupWorkspaceBilling(
   env: Env,
@@ -159,6 +189,7 @@ export async function setupWorkspaceBilling(
   workspaceId: string,
   workspaceName: string,
   clerkOrgId: string,
+  ownerEmail?: string,
 ): Promise<BillingResult> {
   const stripeKey = env.STRIPE_SECRET_KEY;
   if (!stripeKey) return { warning: 'STRIPE_SECRET_KEY not configured' };
@@ -182,17 +213,20 @@ export async function setupWorkspaceBilling(
   // Step 1: Create Stripe customer if needed
   let customerId = workspace?.stripeCustomerId;
   if (!customerId) {
+    const customerParams = new URLSearchParams({
+      name: workspaceName,
+      'metadata[workspaceId]': workspaceId,
+      'metadata[clerkOrgId]': clerkOrgId,
+    });
+    if (ownerEmail) customerParams.set('email', ownerEmail);
+
     const customerRes = await fetch('https://api.stripe.com/v1/customers', {
       method: 'POST',
       headers: {
         'Authorization': stripeAuth,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: new URLSearchParams({
-        name: workspaceName,
-        'metadata[workspaceId]': workspaceId,
-        'metadata[clerkOrgId]': clerkOrgId,
-      }),
+      body: customerParams,
     });
 
     if (!customerRes.ok) {

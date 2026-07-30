@@ -27,7 +27,7 @@ import { encryptField, keyringFromEnv } from '@weldsuite/db/lib/crypto';
 import type { Env } from '../index';
 import { getMasterDb } from '../db';
 import { generateId } from '../lib/id';
-import { setupWorkspaceBilling } from '../services/provisioning';
+import { setupWorkspaceBilling, resolveOwnerEmail } from '../services/provisioning';
 import { provisionMailDomain } from '../services/mail-provisioning';
 import { applyTenantMigrations } from '../lib/tenant-migrations';
 import { getDefaultHelpdeskWorkflows, DEFAULT_WORKFLOW_TEMPLATE_IDS } from './default-helpdesk-workflows';
@@ -556,12 +556,17 @@ export class ProvisionWorkspaceWorkflow extends WorkflowEntrypoint<Env, Provisio
         .where(eq(workspaces.id, workspaceId))
         .limit(1);
 
+      // The Stripe customer needs the signing-up user's email so Stripe can
+      // actually reach them (trial-ending, failed-payment, receipts).
+      const ownerEmail = await resolveOwnerEmail(masterDb, initialMember);
+
       const result = await setupWorkspaceBilling(
         this.env,
         masterDb,
         workspaceId,
         workspaceName || workspaceId,
         workspaceRow?.clerkOrgId || '',
+        ownerEmail,
       );
 
       if (result.warning) {
