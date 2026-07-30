@@ -35,26 +35,27 @@ function getTierFromPlan(planSlug: string | null | undefined): TenantTier {
 }
 
 /**
- * Read the `org_id` claim out of a *already-verified* OAuth access token.
+ * Decode the payload of an *already-verified* OAuth access token.
  *
  * Clerk's SDK deliberately models an OAuth token as an `IdPOAuthAccessToken`
  * (`id`, `clientId`, `subject`, `scopes`, …) which carries **no organization**,
  * even though the token itself does when the client was granted the
  * `user:org:read` scope. Since WeldSuite's entire tenancy model keys off
- * `workspaces.clerk_org_id`, we decode the claim ourselves.
+ * `workspaces.clerk_org_id`, we read the claim ourselves.
+ *
+ * Returns `null` for opaque (`oat_`) tokens, which have no readable payload.
  *
  * Safe only because the caller has already had Clerk verify the signature and
  * expiry — this function performs no validation of its own.
  */
-function readOrgIdFromVerifiedJwt(token: string): string | null {
+function decodeVerifiedJwtPayload(token: string): Record<string, unknown> | null {
   const parts = token.split('.');
   if (parts.length !== 3 || !parts[1]) return null;
 
   try {
     const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
     const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
-    const payload = JSON.parse(atob(padded)) as { org_id?: string; o?: { id?: string } };
-    return payload.org_id ?? payload.o?.id ?? null;
+    return JSON.parse(atob(padded)) as Record<string, unknown>;
   } catch {
     return null;
   }
@@ -127,18 +128,26 @@ async function getWorkspaceForOrg(
  * server, registers itself, and retries with a token.
  */
 export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
-  const unauthorized = (message: string) =>
-    c.json(
+  // Every 401 logs a diagnostic. Two of these branches used to return silently,
+  // which made "connected but nothing works" impossible to tell apart from
+  // "request never arrived" in the Workers logs.
+  const unauthorized = (message: string, diagnostic: string) => {
+    console.error(`[MCP Auth] 401 — ${diagnostic}`);
+    return c.json(
       { jsonrpc: '2.0', error: { code: -32001, message }, id: null },
       401,
       {
         'WWW-Authenticate': `Bearer resource_metadata="${protectedResourceMetadataUrl(c.env.MCP_SERVER_URL)}"`,
       },
     );
+  };
 
   const authHeader = c.req.header('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
-    return unauthorized('Missing bearer token. Authenticate with OAuth to use this MCP server.');
+    return unauthorized(
+      'Missing bearer token. Authenticate with OAuth to use this MCP server.',
+      `no bearer token (Authorization header ${authHeader ? 'present but not Bearer' : 'absent'})`,
+    );
   }
   const token = authHeader.slice(7).trim();
 
@@ -159,22 +168,36 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
 
     const auth = requestState.toAuth();
     if (!auth || !auth.isAuthenticated) {
-      return unauthorized('Invalid or expired access token.');
+      return unauthorized(
+        'Invalid or expired access token.',
+        `token rejected by Clerk (tokenType=${auth?.tokenType ?? 'none'}, reason=${requestState.reason ?? 'unknown'})`,
+      );
     }
 
     tokenId = auth.id;
     userId = auth.userId;
     clientId = auth.clientId;
   } catch (error) {
-    console.error('[MCP Auth] Token verification failed:', error);
-    return unauthorized('Access token could not be verified.');
+    console.error('[MCP Auth] Token verification threw:', error);
+    return unauthorized(
+      'Access token could not be verified.',
+      `verification threw: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 
   // Clerk drops the org from the typed auth object, so read it off the token.
-  const clerkOrgId = readOrgIdFromVerifiedJwt(token);
+  // Claim names only in the log — never values, which carry user identifiers.
+  const payload = decodeVerifiedJwtPayload(token);
+  const clerkOrgId =
+    (payload?.org_id as string | undefined) ??
+    ((payload?.o as { id?: string } | undefined)?.id ?? null);
+
   if (!clerkOrgId) {
     return unauthorized(
       'Token is not scoped to an organization. Re-authorize requesting the "user:org:read" scope and select a workspace.',
+      `no org_id for user ${userId} via client ${clientId}: ` +
+        `format=${payload ? 'jwt' : 'opaque/undecodable'}, ` +
+        `claims=[${payload ? Object.keys(payload).sort().join(',') : ''}]`,
     );
   }
 
