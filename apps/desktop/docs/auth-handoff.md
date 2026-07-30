@@ -15,7 +15,7 @@ session back via a custom-protocol deep link.
                                                     ▼
                                          ┌──────────────────────┐
                                          │   system browser     │
-                                         │   app.weldsuite.com  │
+                                         │   app.weldsuite.org  │
                                          │   /sign-in?desktop=1 │
                                          │   &return_to=        │
                                          │   weldsuite://auth   │

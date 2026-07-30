@@ -4,8 +4,9 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "types": ["node", "electron"],
-    "outDir": "dist",
-    "rootDir": "src",
+    // No rootDir/outDir: this project is type-check only (electron-vite owns
+    // emit). Setting rootDir here would reject `electron.vite.config.ts`,
+    // which lives outside src/ but must still be checked.
     "noEmit": true,
     "allowSyntheticDefaultImports": true
   },

@@ -30,7 +30,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const APP_URL = process.env.DESKTOP_APP_URL
   ?? (process.env.NODE_ENV === 'development'
     ? 'http://localhost:3000'
-    : 'https://app.weldsuite.com');
+    : 'https://app.weldsuite.org');
 
 const DEEP_LINK_SCHEME = 'weldsuite';
 const TITLEBAR_HEIGHT = 32;
@@ -171,8 +171,13 @@ function createMainWindow() {
     mainWindow.webContents.on('did-finish-load', () => {
       console.log(`[titlebar] loaded ${mainWindow?.webContents.getURL()}`);
     });
-    mainWindow.webContents.on('console-message', (_e, level, message) => {
-      if (level >= 2) console.log(`[titlebar-renderer] ${message}`);
+    // Electron 35+ carries the details on the event object, with `level` as a
+    // string union. The legacy positional form — `(event, level: number, …)`,
+    // where level is 0-3 — still fires as of 39 but is deprecated.
+    mainWindow.webContents.on('console-message', ({ level, message }) => {
+      if (level === 'warning' || level === 'error') {
+        console.log(`[titlebar-renderer] ${level}: ${message}`);
+      }
     });
   }
 
@@ -226,12 +231,7 @@ function createMainWindow() {
 
   const pushNavState = () => {
     if (!appView || !mainWindow) return;
-    const wc = appView.webContents;
-    const history = wc.navigationHistory;
-    mainWindow.webContents.send('weldsuite:nav-state', {
-      canGoBack: history ? history.canGoBack() : wc.canGoBack(),
-      canGoForward: history ? history.canGoForward() : wc.canGoForward(),
-    });
+    mainWindow.webContents.send('weldsuite:nav-state', readNavState());
   };
 
   appView.webContents.on('did-navigate', pushNavState);
@@ -260,6 +260,20 @@ function createMainWindow() {
   });
 
   loadAppUrl();
+}
+
+/**
+ * Back/forward availability for the app view.
+ *
+ * Uses `webContents.navigationHistory` exclusively. The older
+ * `webContents.canGoBack()` / `goBack()` / `canGoForward()` / `goForward()`
+ * methods still exist as of Electron 39 but are deprecated and log a warning
+ * on every call, so we don't fall back to them.
+ */
+function readNavState(): { canGoBack: boolean; canGoForward: boolean } {
+  const history = appView?.webContents.navigationHistory;
+  if (!history) return { canGoBack: false, canGoForward: false };
+  return { canGoBack: history.canGoBack(), canGoForward: history.canGoForward() };
 }
 
 function resizeAppView() {
@@ -373,21 +387,17 @@ function registerIpc() {
   });
 
   ipcMain.handle('weldsuite:nav-back', () => {
-    if (!appView) return false;
-    const wc = appView.webContents;
-    const history = wc.navigationHistory;
-    if (history?.canGoBack()) { history.goBack(); return true; }
-    if (wc.canGoBack()) { wc.goBack(); return true; }
-    return false;
+    const history = appView?.webContents.navigationHistory;
+    if (!history?.canGoBack()) return false;
+    history.goBack();
+    return true;
   });
 
   ipcMain.handle('weldsuite:nav-forward', () => {
-    if (!appView) return false;
-    const wc = appView.webContents;
-    const history = wc.navigationHistory;
-    if (history?.canGoForward()) { history.goForward(); return true; }
-    if (wc.canGoForward()) { wc.goForward(); return true; }
-    return false;
+    const history = appView?.webContents.navigationHistory;
+    if (!history?.canGoForward()) return false;
+    history.goForward();
+    return true;
   });
 
   ipcMain.handle('weldsuite:nav-reload', () => {
@@ -416,15 +426,7 @@ function registerIpc() {
     return true;
   });
 
-  ipcMain.handle('weldsuite:nav-state', () => {
-    if (!appView) return { canGoBack: false, canGoForward: false };
-    const wc = appView.webContents;
-    const history = wc.navigationHistory;
-    return {
-      canGoBack: history ? history.canGoBack() : wc.canGoBack(),
-      canGoForward: history ? history.canGoForward() : wc.canGoForward(),
-    };
-  });
+  ipcMain.handle('weldsuite:nav-state', () => readNavState());
 }
 
 function registerDisplayMediaHandler() {
