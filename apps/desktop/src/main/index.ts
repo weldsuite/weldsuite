@@ -35,6 +35,11 @@ const APP_URL = process.env.DESKTOP_APP_URL
 const DEEP_LINK_SCHEME = 'weldsuite';
 const TITLEBAR_HEIGHT = 32;
 
+// How long the app gets to answer a screen-share source request before we
+// deny it. Generous — the user is reading a grid of window thumbnails — but
+// bounded, so a wedged renderer can't leave the capture request hanging.
+const SOURCE_PICKER_TIMEOUT_MS = 120_000;
+
 // OAuth providers + identity hosts that MUST be driven through the system
 // browser (they detect Electron webviews and refuse, or we want them isolated).
 const EXTERNAL_AUTH_HOSTS = [
@@ -68,6 +73,13 @@ let mainWindow: BrowserWindow | null = null;
 let appView: WebContentsView | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
+
+// Screen-share source picker state. `rendererPickerReady` tracks whether the
+// loaded app has a picker mounted; without one we deny capture rather than
+// choose a screen on the user's behalf.
+let rendererPickerReady = false;
+let pickerRequestSeq = 0;
+const pendingSourcePicks = new Map<number, (sourceId: string | null) => void>();
 
 function appWebContents(): Electron.WebContents | null {
   return appView?.webContents ?? null;
@@ -234,6 +246,11 @@ function createMainWindow() {
     mainWindow.webContents.send('weldsuite:nav-state', readNavState());
   };
 
+  // A main-frame navigation replaces the document, taking the mounted picker
+  // with it. Fires before the new document's scripts run, so the fresh app
+  // re-registers after this.
+  appView.webContents.on('did-navigate', resetSourcePicker);
+
   appView.webContents.on('did-navigate', pushNavState);
   appView.webContents.on('did-navigate-in-page', pushNavState);
   appView.webContents.on('did-finish-load', pushNavState);
@@ -255,6 +272,7 @@ function createMainWindow() {
   });
 
   mainWindow.on('closed', () => {
+    resetSourcePicker();
     mainWindow = null;
     appView = null;
   });
@@ -321,13 +339,27 @@ function registerIpc() {
       thumbnailSize: opts.thumbnailSize ?? { width: 320, height: 180 },
       fetchWindowIcons: true,
     });
-    return sources.map((s) => ({
-      id: s.id,
-      name: s.name,
-      displayId: s.display_id,
-      thumbnailDataUrl: s.thumbnail.toDataURL(),
-      appIconDataUrl: s.appIcon?.toDataURL() ?? null,
-    }));
+    return sources.map(serializeSource);
+  });
+
+  // Screen-share picker handshake. Both are `on` (fire-and-forget) rather than
+  // `handle` because they flow renderer→main only. The sender check keeps any
+  // other webContents — the titlebar, a stray popup — from answering a pick or
+  // claiming a picker exists.
+  ipcMain.on('weldsuite:source-picker-ready', (event, ready: unknown) => {
+    if (event.sender !== appWebContents()) return;
+    rendererPickerReady = ready === true;
+  });
+
+  ipcMain.on('weldsuite:source-picker-result', (event, payload: { requestId?: unknown; sourceId?: unknown }) => {
+    if (event.sender !== appWebContents()) return;
+    const requestId = payload?.requestId;
+    if (typeof requestId !== 'number') return;
+    const resolve = pendingSourcePicks.get(requestId);
+    // Already resolved by the timeout, or a duplicate reply — ignore.
+    if (!resolve) return;
+    pendingSourcePicks.delete(requestId);
+    resolve(typeof payload.sourceId === 'string' ? payload.sourceId : null);
   });
 
   ipcMain.handle('weldsuite:set-badge-count', (_event, count: number) => {
@@ -429,16 +461,119 @@ function registerIpc() {
   ipcMain.handle('weldsuite:nav-state', () => readNavState());
 }
 
+/**
+ * Screen-share capture, i.e. what happens when the page calls
+ * `navigator.mediaDevices.getDisplayMedia()` (RealtimeKit does this itself
+ * inside `enableScreenShare()`, so the call sites in WeldMeet/WeldChat never
+ * see the request).
+ *
+ * `useSystemPicker: true` routes the request to the OS picker wherever one
+ * exists — macOS 15+ and Wayland — and this handler is never invoked there.
+ * Everywhere else (Windows, older macOS, X11) Electron calls the handler and
+ * expects us to produce a source. There is no built-in UI for that, so the
+ * choice is delegated to the app, which renders the picker over the meeting.
+ *
+ * Anything other than an explicit choice denies the request. `callback({})`
+ * makes `getDisplayMedia` reject exactly as a cancelled browser picker does,
+ * which the call contexts already handle (they check `screenShareEnabled`
+ * after the SDK swallows the rejection).
+ */
 function registerDisplayMediaHandler() {
   session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
-    const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
-    const first = sources[0];
-    if (!first) {
+    let sources: Electron.DesktopCapturerSource[];
+    try {
+      sources = await desktopCapturer.getSources({
+        types: ['screen', 'window'],
+        thumbnailSize: { width: 320, height: 180 },
+        fetchWindowIcons: true,
+      });
+    } catch (err) {
+      console.error('[weldsuite-desktop] desktopCapturer.getSources failed:', err);
       callback({});
       return;
     }
-    callback({ video: first });
+
+    if (sources.length === 0) {
+      console.warn('[weldsuite-desktop] no capturable sources — denying screen share');
+      callback({});
+      return;
+    }
+
+    const chosenId = await requestSourceFromRenderer(sources.map(serializeSource));
+    if (!chosenId) {
+      callback({});
+      return;
+    }
+
+    // Match back to the live source object — `callback` needs the real
+    // DesktopCapturerSource, not the serialized copy the app picked from.
+    const chosen = sources.find((s) => s.id === chosenId);
+    if (!chosen) {
+      console.warn(`[weldsuite-desktop] picker chose unknown source id "${chosenId}"`);
+      callback({});
+      return;
+    }
+
+    callback({ video: chosen });
   }, { useSystemPicker: true });
+}
+
+function serializeSource(s: Electron.DesktopCapturerSource): SerializedDesktopSource {
+  return {
+    id: s.id,
+    name: s.name,
+    displayId: s.display_id,
+    thumbnailDataUrl: s.thumbnail.toDataURL(),
+    appIconDataUrl: s.appIcon?.toDataURL() ?? null,
+  };
+}
+
+interface SerializedDesktopSource {
+  id: string;
+  name: string;
+  displayId: string;
+  thumbnailDataUrl: string;
+  appIconDataUrl: string | null;
+}
+
+/**
+ * Ask the app to show its source picker. Resolves to the chosen source id, or
+ * null if the user cancelled, the request timed out, or no picker is mounted.
+ */
+function requestSourceFromRenderer(sources: SerializedDesktopSource[]): Promise<string | null> {
+  const wc = appWebContents();
+  if (!wc || !rendererPickerReady) {
+    console.warn('[weldsuite-desktop] app has no screen-share picker mounted — denying screen share');
+    return Promise.resolve(null);
+  }
+
+  const requestId = ++pickerRequestSeq;
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pendingSourcePicks.delete(requestId);
+      console.warn(`[weldsuite-desktop] source pick #${requestId} timed out — denying screen share`);
+      resolve(null);
+    }, SOURCE_PICKER_TIMEOUT_MS);
+
+    pendingSourcePicks.set(requestId, (sourceId) => {
+      clearTimeout(timer);
+      resolve(sourceId);
+    });
+
+    wc.send('weldsuite:select-desktop-source', { requestId, sources });
+  });
+}
+
+/**
+ * Drop picker state. Called when the app document is replaced or the window
+ * goes away — the picker that would have answered no longer exists, so every
+ * in-flight request has to fail closed instead of waiting out its timeout.
+ */
+function resetSourcePicker() {
+  rendererPickerReady = false;
+  const pending = [...pendingSourcePicks.values()];
+  pendingSourcePicks.clear();
+  for (const resolve of pending) resolve(null);
 }
 
 app.whenReady().then(async () => {

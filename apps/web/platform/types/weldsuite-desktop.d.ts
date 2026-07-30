@@ -43,6 +43,19 @@ export interface WeldsuiteDesktopApi {
   settings: SettingsApi;
   onDeepLink(listener: (url: string) => void): () => void;
   onAuthCallback(listener: (payload: AuthCallback) => void): () => void;
+  /**
+   * Register the screen-share source picker.
+   *
+   * The shell calls `handler` when the page requests display media on a
+   * platform with no OS picker (Windows, older macOS, X11), and waits for it
+   * to resolve with the id of the chosen source — or `null` to cancel, which
+   * makes `getDisplayMedia` reject.
+   *
+   * While no handler is registered the shell denies screen-share requests
+   * outright, so this must stay mounted for the life of the session.
+   * `<DesktopSourcePicker />` in the root route does that.
+   */
+  onSelectSource(handler: (sources: DesktopSource[]) => Promise<string | null> | string | null): () => void;
 }
 
 declare global {

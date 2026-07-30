@@ -540,6 +540,18 @@ export const common = {
         settingUpAccount: 'Setting up your account...',
       },
     },
+    desktop: {
+      sourcePicker: {
+        title: 'Choose what to share',
+        description: 'Pick a screen or an app window. Only the selection is shared with the people in this call.',
+        screens: 'Screens',
+        windows: 'Windows',
+        noScreens: 'No screens available to share.',
+        noWindows: 'No open app windows to share.',
+        share: 'Share',
+        cancel: 'Cancel',
+      },
+    },
     ai: {
       unavailable: {
         title: 'AI is currently unavailable',

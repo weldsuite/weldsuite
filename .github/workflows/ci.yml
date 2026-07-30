@@ -80,6 +80,33 @@ jobs:
         run: pnpm type-check
 
   # ────────────────────────────────────────────
+  # Desktop shell. Type-check + bundle only — NOT packaging: electron-builder
+  # needs signing certs and platform-native runners, and desktop releases ship
+  # from the overlay's release-desktop.yml, not from a merge.
+  #
+  # Blocking, unlike the platform's type-check: apps/desktop is small and
+  # clean, and its main/preload code is the one place where a type error means
+  # a shell that boots and then misbehaves at runtime rather than a build that
+  # fails loudly.
+  # ────────────────────────────────────────────
+  desktop:
+    name: Type Check + Build · desktop
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Type-check desktop
+        working-directory: apps/desktop
+        run: pnpm type-check
+      # electron-vite build: proves main/preload/renderer all bundle. Runs on
+      # Linux even though we ship mac/win — the bundle step is platform-neutral
+      # (esbuild + rollup); only electron-builder's packaging is not.
+      - name: Build desktop bundles
+        working-directory: apps/desktop
+        run: pnpm build
+
+  # ────────────────────────────────────────────
   # Unit + service tests — these DO block PRs.
   # ────────────────────────────────────────────
   unit-api:
