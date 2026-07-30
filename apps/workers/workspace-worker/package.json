@@ -9,7 +9,9 @@
     "deploy": "pnpm bundle-migrations && wrangler deploy",
     "deploy:production": "pnpm bundle-migrations && wrangler deploy --env production",
     "bundle-migrations": "tsx scripts/bundle-migrations.ts",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@clerk/backend": "^2.33.3",
@@ -30,6 +32,7 @@
     "@types/node": "^20",
     "tsx": "^4.0.0",
     "typescript": "^5.7",
+    "vitest": "^3.2.6",
     "wrangler": "^4.0.0"
   }
 }

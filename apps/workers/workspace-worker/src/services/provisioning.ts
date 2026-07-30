@@ -9,7 +9,7 @@
  */
 
 import { eq, and, isNull } from 'drizzle-orm';
-import { workspaces, plans } from '@weldsuite/db/schema/master';
+import { workspaces, plans, users } from '@weldsuite/db/schema/master';
 import {
   createProvisioningService,
   type InitialMember,
@@ -136,6 +136,32 @@ const TRIAL_PERIOD_DAYS = 14;
 
 /** Default plan every new workspace starts a trial on. */
 const DEFAULT_PLAN_SLUG = 'business';
+
+/**
+ * Resolve the email to put on the workspace's Stripe customer.
+ *
+ * Prefers the email carried in the provisioning payload — every normal signup
+ * path (`/api/onboard` and the platform onboarding routes) sets it. The Clerk
+ * `organization.created` webhook can build an initial member from just a
+ * `userId` when the creator's master row isn't found yet, so fall back to
+ * looking the user up. Returns undefined when neither yields an address; the
+ * caller then creates the customer without one rather than failing signup.
+ */
+export async function resolveOwnerEmail(
+  masterDb: any,
+  initialMember?: { userId?: string; email?: string },
+): Promise<string | undefined> {
+  if (initialMember?.email) return initialMember.email;
+  if (!initialMember?.userId) return undefined;
+
+  const [owner] = await masterDb
+    .select({ email: users.email })
+    .from(users)
+    .where(eq(users.id, initialMember.userId))
+    .limit(1);
+
+  return owner?.email || undefined;
+}
 
 /**
  * Set up Stripe billing for a new workspace.
