@@ -7,6 +7,7 @@ import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
 import { generateId } from '../../../lib/id';
+import { allocateTaskNumber } from '../../../lib/task-numbering';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
 import {
@@ -39,6 +40,16 @@ function coerceDates(data: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
+/**
+ * Drop server-owned columns a client must not set. The task schemas are
+ * `.passthrough()`, so without this a PATCH carrying `number` would renumber a
+ * task — or collide with the unique index and surface as a 500.
+ */
+function stripServerOwned(data: Record<string, unknown>): Record<string, unknown> {
+  const { number: _number, ...rest } = data;
+  return rest;
+}
+
 const table = schema.tasks;
 const app = new Hono<HonoEnv>();
 
@@ -48,7 +59,11 @@ app.get('/', requireScope('tasks:read'), zValidator('query', listTasksQuery), as
   const where: (SQL | undefined)[] = [];
   if (q.search) {
     const term = `%${q.search}%`;
-    where.push(or(like(table.title, term), like(table.description, term)));
+    const clauses = [like(table.title, term), like(table.description, term)];
+    // Let callers find a task by its number: "TASK-1042", "#1042", or "1042".
+    const numberMatch = q.search.trim().replace(/^#/, '').replace(/^task-/i, '');
+    if (/^\d+$/.test(numberMatch)) clauses.push(eq(table.number, Number(numberMatch)));
+    where.push(or(...clauses));
   }
   if (q.projectId) where.push(eq(table.projectId, q.projectId));
   if (q.status) where.push(eq(table.status, q.status));
@@ -85,7 +100,9 @@ app.post('/', requireScope('tasks:write'), zValidator('json', createTaskSchema),
   const body = c.req.valid('json');
   const now = new Date();
   const id = generateId('task');
-  const values = { ...coerceDates(body as Record<string, unknown>), id, createdAt: now, updatedAt: now };
+  // Server-assigned; a client-supplied `number` must never win.
+  const number = await allocateTaskNumber(db);
+  const values = { ...coerceDates(body as Record<string, unknown>), id, number, createdAt: now, updatedAt: now };
   const [row] = await db.insert(table).values(values as typeof table.$inferInsert).returning();
   if (!row) return error.internal(c, 'Failed to create task');
   publishEntityEvent({
@@ -104,7 +121,7 @@ app.patch('/:id', requireScope('tasks:write'), zValidator('json', updateTaskSche
   const body = c.req.valid('json');
   const [row] = await db
     .update(table)
-    .set({ ...coerceDates(body as Record<string, unknown>), updatedAt: new Date() })
+    .set({ ...stripServerOwned(coerceDates(body as Record<string, unknown>)), updatedAt: new Date() })
     .where(and(eq(table.id, id), isNull(table.deletedAt)))
     .returning();
   if (!row) return error.notFound(c, 'Task', id);

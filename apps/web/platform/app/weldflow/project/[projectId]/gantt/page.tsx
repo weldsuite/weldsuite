@@ -50,6 +50,7 @@ import {
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
 import { cn } from '@/lib/utils';
+import { formatTaskNumber } from '@/lib/task-number';
 import { ganttApi, tasksApi, membersApi, labelsApi } from '@/app/weldflow/lib/api-client';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
@@ -133,6 +134,8 @@ interface GanttFeature {
   owner?: { id: string; name: string; image?: string };
   group: { id: string; name: string };
   priority?: string;
+  /** Workspace-wide sequential number, rendered as TASK-<n>. */
+  number?: number | null;
   taskKey?: string;
   originalTask?: RawGanttTask;
   parentTaskId?: string;
@@ -194,6 +197,7 @@ function mapTaskToFeature(task: RawGanttTask, isSubtask: boolean = false): Gantt
 
   return {
     id: task.id,
+    number: task.number ?? null,
     name: task.title || 'Untitled Task',
     startAt: startDate,
     endAt: endDate,
@@ -941,7 +945,11 @@ const GanttPage = () => {
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      result = result.filter(feature => feature.name.toLowerCase().includes(q));
+      result = result.filter(feature =>
+        feature.name.toLowerCase().includes(q) ||
+        // Lets "TASK-1042" / "1042" find the bar by its number.
+        !!formatTaskNumber(feature.number)?.toLowerCase().includes(q),
+      );
     }
 
     if (activeFilters.length > 0) {
@@ -1158,6 +1166,11 @@ const GanttPage = () => {
                           {...feature}
                         >
                           <p className="flex-1 truncate text-xs">
+                            {feature.number != null && (
+                              <span className="font-mono opacity-70 mr-1">
+                                {formatTaskNumber(feature.number)}
+                              </span>
+                            )}
                             {feature.name}
                           </p>
                           {feature.owner && (

@@ -66,6 +66,8 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { cn } from '@/lib/utils';
 import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
+import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
+import { formatTaskNumber } from '@/lib/task-number';
 import { useObjectPanel } from '@/components/object-panel';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
@@ -100,6 +102,8 @@ interface TaskFeature {
   owner?: { id: string; name: string; image?: string };
   owners?: { id: string; name: string; image?: string }[];
   priority?: string;
+  /** Workspace-wide sequential number, rendered as TASK-<n>. */
+  number?: number | null;
   taskKey?: string;
   commentsCount?: number;
   attachmentsCount?: number;
@@ -206,6 +210,7 @@ function mapTaskToFeature(task: RawPipelineTask, statusToStageId?: Map<string, s
       ? task.assignees.map((a) => ({ id: a.id, name: a.name, image: a.avatar || a.image }))
       : undefined,
     priority: task.priority,
+    number: task.number ?? null,
     taskKey: task.key,
     commentsCount: task.commentsCount || task._count?.comments || 0,
     attachmentsCount: task.attachmentsCount || task._count?.attachments || 0,
@@ -330,6 +335,11 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [] }: { feat
 
   const cardContent = (
     <>
+      {/* Task number */}
+      {feature.number != null && (
+        <TaskNumberBadge number={feature.number} className="mb-1" />
+      )}
+
       {/* Title */}
       <span className="font-medium text-gray-900 dark:text-foreground truncate block" style={{ fontSize: '15px' }}>
         {feature.name}
@@ -758,6 +768,8 @@ const PipelinePage = () => {
       result = result.filter(f =>
         f.name.toLowerCase().includes(query) ||
         f.taskKey?.toLowerCase().includes(query) ||
+        // Lets "TASK-1042" / "1042" find the card by its number.
+        formatTaskNumber(f.number)?.toLowerCase().includes(query) ||
         f.owner?.name.toLowerCase().includes(query) ||
         f.tags?.some(t => t.name.toLowerCase().includes(query))
       );

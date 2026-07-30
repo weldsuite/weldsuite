@@ -25,6 +25,7 @@ import { Calendar } from '@weldsuite/ui/components/calendar';
 import { useObjectPanel } from '@/components/object-panel';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
+import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { useAuth } from '@clerk/clerk-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { taskKeys } from '@/hooks/queries/use-task-queries';
@@ -66,6 +67,8 @@ import { MyTasksPipeline } from './my-tasks-pipeline';
 
 interface Task {
   id: string;
+  /** Workspace-wide sequential number, rendered as TASK-<n>. */
+  number?: number | null;
   title: string;
   description?: string;
   status: 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'testing' | 'done' | 'cancelled';
@@ -147,6 +150,7 @@ type ApiTaskWithSchedule = Projects.ProjectTask & {
 function transformApiTask(apiTask: ApiTaskWithSchedule): Task {
   return {
     id: apiTask.id,
+    number: apiTask.number ?? null,
     title: apiTask.title,
     description: apiTask.description || undefined,
     status: (apiTask.status as Task['status']) || 'todo',
@@ -208,6 +212,7 @@ function toCrmTask(task: Task): CrmTask {
   const primary = assigneesList[0];
   return {
     id: task.id,
+    number: task.number,
     title: task.title,
     description: task.description,
     status: statusToCrm[task.status] || 'todo',
@@ -1072,6 +1077,9 @@ export function MyTasksClient({
 
         {/* Task Title */}
         <div className="min-w-[200px] flex-1 flex items-center gap-2">
+          {task.number != null && (
+            <TaskNumberBadge number={task.number} className="flex-shrink-0" />
+          )}
           <span className={cn(
             "text-sm font-medium truncate min-w-0",
             task.status === 'done' ? "line-through text-gray-400" : "text-gray-900 dark:text-foreground"
