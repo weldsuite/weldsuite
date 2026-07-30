@@ -111,7 +111,7 @@ export function TicketsSettingsClient() {
       if (editingType) {
         await updateTicketType.mutateAsync(type);
       } else {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+         
         const { id: _id, createdAt: _c, updatedAt: _u, ...data } = type;
         await createTicketType.mutateAsync(data);
       }

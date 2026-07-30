@@ -25,9 +25,9 @@ const dryRun = process.argv.includes('--dry-run');
 async function main() {
   // Standalone script invoked directly via `pnpm tsx` (not a turbo task), so
   // these env vars aren't part of the turbo.json build pipeline declarations.
-  // eslint-disable-next-line turbo/no-undeclared-env-vars
+   
   const dbUrl = process.env.MASTER_DATABASE_URL;
-  // eslint-disable-next-line turbo/no-undeclared-env-vars
+   
   const stripeKey = process.env.STRIPE_SECRET_KEY;
 
   if (!dbUrl) {

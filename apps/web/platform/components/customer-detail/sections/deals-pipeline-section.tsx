@@ -198,8 +198,11 @@ export function DealsPipelineSection({ customer, opportunities }: DealsPipelineS
     await updateOpportunityStageMutation.mutateAsync({ id: dealId, stage: toStage, stageId: toStage });
   }, [currentWorkspace, updateOpportunityStageMutation]);
 
-  const handleDealCreate = useCallback(async (data: DealCreateData) => {
+  const handleDealCreate = useCallback(async (raw: Record<string, unknown>) => {
     if (!currentWorkspace) return;
+    // `PipelineKanban`'s create form hands back an untyped bag; narrow it to
+    // the shape this section actually builds the form around.
+    const data = raw as unknown as DealCreateData;
     // `amount` arrives as a number from the deal form; `Opportunity.amount` is
     // a string on the wire (decimal-as-string). Cast at the boundary rather
     // than reshaping the payload — this mirrors the pre-existing (untyped)
@@ -270,7 +273,7 @@ function MultiPipelineList({
   workspaceId: string;
   lockedCustomer: { id: string; name: string };
   onDealMove: (dealId: string, fromStage: string, toStage: string) => Promise<void>;
-  onDealCreate: (data: DealCreateData) => Promise<void>;
+  onDealCreate: (data: Record<string, unknown>) => Promise<void>;
 }) {
   const t = useTranslations();
   const [expandedPipelines, setExpandedPipelines] = useState<Set<string>>(new Set());

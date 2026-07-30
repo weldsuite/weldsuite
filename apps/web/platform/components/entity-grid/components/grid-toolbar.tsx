@@ -75,15 +75,14 @@ export function GridToolbar({
   const resolvedCreateButtonLabel = createButtonLabel ?? t('sweep.entities.newLabel');
   const resolvedSearchPlaceholder = searchPlaceholder ?? t('sweep.entities.searchEllipsisPlaceholder');
   const {
-    config,
-    state,
-    setFilters,
-    setSortConfig,
-    setColumns,
-    getVisibleColumns,
-    handleSort,
-    setIsExporting,
-  } = useGridContext();
+  state,
+  setFilters,
+  setSortConfig,
+  setColumns,
+  getVisibleColumns,
+  handleSort,
+  setIsExporting,
+} = useGridContext();
 
   const { sortConfig, filters, columns } = state;
   const visibleColumns = getVisibleColumns();
@@ -481,13 +480,13 @@ function GridFilterPills<TEntity>({
                 open={editingValueIndex === index}
                 onOpenChange={(open) => {
                   setEditingValueIndex(open ? index : null);
-                  if (open) setTextInputValue(filter.value || '');
+                  if (open) setTextInputValue(filter.value != null ? String(filter.value) : '');
                 }}
               >
                 <PopoverTrigger asChild>
                   <Button variant="ghost" className="flex items-center px-2 h-full hover:bg-muted transition-colors">
                     {filter.value ? (
-                      <span className="text-foreground">{filter.value}</span>
+                      <span className="text-foreground">{String(filter.value)}</span>
                     ) : (
                       <span className="text-muted-foreground/60">{t('sweep.entities.enterValue')}</span>
                     )}

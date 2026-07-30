@@ -5,7 +5,6 @@ import {
   Activity,
   Coins,
   MessageSquare,
-  TrendingUp,
   Zap,
   Calendar,
   AlertCircle,
@@ -13,7 +12,6 @@ import {
   Loader2,
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
-import { Button } from '@weldsuite/ui/components/button';
 import { Progress } from '@weldsuite/ui/components/progress';
 import { Badge } from '@weldsuite/ui/components/badge';
 import {
@@ -25,6 +23,16 @@ import {
 } from '@weldsuite/ui/components/select';
 import { AVAILABLE_MODELS } from '@/lib/weldagent/tools/types';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+
+/** `GET /credits/balance` wire shape. */
+interface CreditsBalanceResponse {
+  monthlyAllocation?: number;
+  currentBalance?: number;
+  usagePercentage?: number;
+  isExhausted?: boolean;
+  isLow?: boolean;
+  periodEnd?: string;
+}
 
 interface CreditsInfo {
   quota: number;
@@ -73,7 +81,7 @@ export function UsageDashboard({ workspaceId, userId }: UsageDashboardProps) {
     async function loadCredits() {
       try {
         const client = await getClient();
-        const result = await client.get<{ data: any }>('/credits/balance');
+        const result = await client.get<{ data: CreditsBalanceResponse }>('/credits/balance');
         if (result.data) {
           setCreditsInfo({
             quota: result.data.monthlyAllocation || 0,

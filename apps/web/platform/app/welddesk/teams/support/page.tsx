@@ -26,7 +26,7 @@ interface RawTeamFeedback {
   status: string;
   priority: string;
   assigneeName?: string;
-  createdAt: string;
+  createdAt: string | Date;
 }
 
 export default function SupportTeamPage() {

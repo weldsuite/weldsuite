@@ -19,7 +19,6 @@ export function ConversationListItem({
   isSelected,
   isPinned,
   onClick,
-  onToggleStar,
   contextMenuContent,
   onLabelDrop,
   compact,

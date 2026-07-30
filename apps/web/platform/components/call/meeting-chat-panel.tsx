@@ -152,12 +152,15 @@ function MeetingChatDataProvider({
   // ── Derived data ──────────────────────────────────────────────────────────
   // API returns newest-first; reverse to chronological for the shared component.
   const messages = useMemo((): ChatMessage[] => {
-    const raw = data?.pages?.flatMap((page) => page.data?.messages || []) ?? [];
+    // The query hook's wire type is a loose bag; narrow to the shared panel's
+    // render shape here, at the one place that actually consumes the fields.
+    const raw = (data?.pages?.flatMap((page) => page.data?.messages || []) ??
+      []) as unknown as ChatMessage[];
     return [...raw].reverse();
   }, [data]);
 
   const pinnedMessages = useMemo(() => {
-    const pins = (pinnedData?.data?.messages ?? []) as ChatMessage[];
+    const pins = (pinnedData?.data?.messages ?? []) as unknown as ChatMessage[];
     return pins.map((p) => ({ id: p.id, content: p.content }));
   }, [pinnedData]);
 

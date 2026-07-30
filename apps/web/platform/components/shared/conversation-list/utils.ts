@@ -1,5 +1,4 @@
 import { isToday, isYesterday, format } from 'date-fns';
-import type { ConversationItem } from './types';
 
 const AVATAR_COLORS = [
   '#4F46E5', '#7C3AED', '#EC4899', '#EF4444', '#F97316',
@@ -51,7 +50,7 @@ export function groupByDate<T extends { date: Date }>(items: T[]): Record<string
   return groups;
 }
 
-export function formatParticipants(name: string, messageCount?: number): string {
+export function formatParticipants(name: string, _messageCount?: number): string {
   return name || 'Unknown';
 }
 

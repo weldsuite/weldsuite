@@ -139,8 +139,8 @@ export function useFileUpload(options: UseFileUploadOptions = {}): UseFileUpload
         onSuccess?.(uploadedFile);
 
         return uploadedFile;
-      } catch (err: any) {
-        const errorMsg = err?.message || 'Upload failed';
+      } catch (err: unknown) {
+        const errorMsg = (err as Error)?.message || 'Upload failed';
         setError(errorMsg);
         onError?.(errorMsg, file.name);
         return null;

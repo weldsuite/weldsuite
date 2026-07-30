@@ -13,7 +13,7 @@ export const billingKeys = {
   all: ['billing'] as const,
   subscription: () => [...billingKeys.all, 'subscription'] as const,
   invoices: (limit?: number) => [...billingKeys.all, 'invoices', limit] as const,
-  payments: (filters?: Record<string, any>) => [...billingKeys.all, 'payments', filters] as const,
+  payments: (filters?: Record<string, unknown>) => [...billingKeys.all, 'payments', filters] as const,
   limits: () => [...billingKeys.all, 'limits'] as const,
   phoneSubscription: () => [...billingKeys.all, 'phone-subscription'] as const,
 };
@@ -21,7 +21,7 @@ export const billingKeys = {
 const creditsKeys = {
   all: ['credits'] as const,
   balance: () => [...creditsKeys.all, 'balance'] as const,
-  transactions: (filters?: Record<string, any>) => [...creditsKeys.all, 'transactions', filters] as const,
+  transactions: (filters?: Record<string, unknown>) => [...creditsKeys.all, 'transactions', filters] as const,
   availability: (amount: number) => [...creditsKeys.all, 'availability', amount] as const,
   packages: () => [...creditsKeys.all, 'packages'] as const,
   rates: () => [...creditsKeys.all, 'rates'] as const,
@@ -33,7 +33,7 @@ const creditsKeys = {
 // Helper to build query string
 // =============================================================================
 
-function buildQueryString(params: Record<string, any>): string {
+function buildQueryString(params: Record<string, unknown>): string {
   const queryParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
@@ -92,31 +92,19 @@ export function useInvoices(limit?: number) {
     queryFn: async () => {
       const client = await getClient();
       const query = buildQueryString({ limit });
-      return client.get<{ data: any[] }>(`/billing/invoices${query}`);
+      return client.get<{ data: unknown[] }>(`/billing/invoices${query}`);
     },
   });
 }
-
-function usePayments(limit?: number, page?: number) {
-  const filters = { limit, page };
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: billingKeys.payments(filters),
-    queryFn: async () => {
-      const client = await getClient();
-      const query = buildQueryString(filters);
-      return client.get<{ data: any[] }>(`/billing/payments${query}`);
-    },
-  });
-}
-
 export function usePlanLimits() {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: billingKeys.limits(),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: any }>('/billing/limits');
+      // The endpoint bundles current-plan feature flags (e.g. removeBranding)
+      // alongside the usage limits — Billing.PlanLimits only models the latter.
+      return client.get<{ data: (Billing.PlanLimits & { removeBranding?: boolean }) | null }>('/billing/limits');
     },
   });
 }
@@ -159,83 +147,19 @@ export function useCreditsBalance() {
     queryKey: creditsKeys.balance(),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: any }>('/credits/balance');
+      return client.get<{ data: unknown }>('/credits/balance');
     },
   });
-}
-
-function useCreditsTransactions(filters?: Record<string, any>) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: creditsKeys.transactions(filters),
-    queryFn: async () => {
-      const client = await getClient();
-      const query = buildQueryString(filters || {});
-      return client.get<{ data: any[] }>(`/credits/transactions${query}`);
-    },
-  });
-}
-
-// `GET /credits/availability?amount=` never existed on either worker — the real
-// route is `POST /credits/check { amount }` (identical on api-worker and app-api).
-// Repointed; the hook's argument and query key are unchanged.
-function useCreditsAvailability(amount: number, enabled = true) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: creditsKeys.availability(amount),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.post<{ data: any }>('/credits/check', { amount });
-    },
-    enabled: amount > 0 && enabled,
-  });
-}
-
-export function useCreditPackages() {
+}export function useCreditPackages() {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: creditsKeys.packages(),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: any[] }>('/credits/packages');
+      return client.get<{ data: unknown[] }>('/credits/packages');
     },
   });
-}
-
-function useCreditRates() {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: creditsKeys.rates(),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: any }>('/credits/rates');
-    },
-  });
-}
-
-function useCreditsUsage() {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: creditsKeys.usage(),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: any }>('/credits/usage');
-    },
-  });
-}
-
-function useSubscriptionCredits() {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: creditsKeys.subscription(),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: any }>('/credits/subscription');
-    },
-  });
-}
-
-// =============================================================================
+}// =============================================================================
 // Billing Mutations
 // =============================================================================
 
@@ -248,7 +172,7 @@ export function useChangePlan() {
     // (pricing-dialog sends seatCount/billingCycle, billing-settings-section sends
     // seats/cycle), so normalize here rather than churn call sites, and unwrap the
     // envelope so `result.url` keeps working exactly as it did on the legacy worker.
-    mutationFn: async (data: Record<string, any>) => {
+    mutationFn: async (data: Record<string, unknown>) => {
       const client = await getClient();
       const body = {
         planId: data.planId,
@@ -324,42 +248,7 @@ export function useReactivateSubscription() {
       qc.invalidateQueries({ queryKey: billingKeys.subscription() });
     },
   });
-}
-
-// =============================================================================
-// Credits Mutations
-// =============================================================================
-
-function useUpdateSubscriptionCredits() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: Record<string, any>) => {
-      const client = await getClient();
-      // POST, not PUT — `/credits/subscription` only registers POST (both workers).
-      return client.post<{ data: any }>('/credits/subscription', data);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: creditsKeys.all });
-    },
-  });
-}
-
-function useAdjustCredits() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: Record<string, any>) => {
-      const client = await getClient();
-      return client.post<{ data: any }>('/credits/adjust', data);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: creditsKeys.all });
-    },
-  });
-}
-
-/**
+}/**
  * Start a prepaid credit topup — redirects the browser to Stripe Checkout.
  * On success the caller receives `{ url }` and should navigate to it.
  */
@@ -371,20 +260,6 @@ export function useBuyCredits() {
         successUrl: `${window.location.origin}/settings/billing?credits=success`,
         cancelUrl: `${window.location.origin}/settings/billing?credits=cancelled`,
       });
-    },
-  });
-}
-
-function useTriggerMonthlyAllocation() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async () => {
-      const client = await getClient();
-      return client.post<{ data: any }>('/credits/allocate-monthly', {});
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: creditsKeys.all });
     },
   });
 }

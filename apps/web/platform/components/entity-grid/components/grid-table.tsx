@@ -59,7 +59,7 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore }: GridTableProp
     const observer = new ResizeObserver(updateFillerCount);
     observer.observe(tableScrollRef.current);
     return () => observer.disconnect();
-  }, [config.fillViewport, filteredEntities.length]);
+  }, [config.fillViewport, filteredEntities.length, HEADER_HEIGHT, ROW_HEIGHT]);
 
   const visibleColumns = getVisibleColumns();
   const showRowNumbers = config.showRowNumbers;

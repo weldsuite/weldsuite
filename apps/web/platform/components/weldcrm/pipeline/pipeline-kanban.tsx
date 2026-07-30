@@ -1,5 +1,6 @@
 ﻿
-import { useState, useEffect, useMemo, useTransition, startTransition, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
+import type { Person } from '@weldsuite/core-api-client/schemas/people';
 import {
   DndContext,
   DragEndEvent,
@@ -10,7 +11,6 @@ import {
   useSensors,
   pointerWithin,
   rectIntersection,
-  getFirstCollision,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -29,7 +29,7 @@ const CustomerDetailPanel = lazy(() =>
 );
 import { AddStagePopover } from './add-stage-modal';
 import { DroppableStage } from './droppable-stage';
-import { SortableStage, useSortableStage } from './sortable-stage';
+import { SortableStage } from './sortable-stage';
 import { StageHeader } from './stage-header';
 import { FilterPills } from '@/components/entity-list';
 import type { FilterConfig, ActiveFilter } from '@/components/entity-list';
@@ -37,31 +37,19 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useCreatePipelineStage } from '@/hooks/queries/use-pipelines-queries';
-import { useUpdateOpportunity, useDeleteOpportunity } from '@/hooks/queries/use-opportunities-queries';
+import { useUpdateOpportunity, useDeleteOpportunity, type Opportunity } from '@/hooks/queries/use-opportunities-queries';
 import { type PipelineViewSettings, DEFAULT_PIPELINE_SETTINGS } from '@/app/weldcrm/pipeline/pipeline-settings-types';
 // import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import {
-  Calendar,
   Check,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronsUpDown,
-  Clock,
-  FileText,
-  Filter,
-  GripVertical,
-  LayoutGrid,
-  LayoutList,
   Pencil,
   Plus,
   Search,
   Settings,
-  Sparkles,
-  Target,
   Trash2,
-  Users,
-  X
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@weldsuite/ui/components/input';
@@ -69,14 +57,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -85,9 +71,7 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import {
   Command,
-  CommandEmpty,
   CommandGroup,
-  CommandInput,
   CommandItem,
   CommandList,
 } from '@weldsuite/ui/components/command';
@@ -145,14 +129,36 @@ interface Stage {
   probability?: number;
 }
 
+/**
+ * Minimal customer/contact shape the kanban itself reads — callers pass either
+ * the full `Company`/`Person` domain objects or a lighter local projection
+ * (e.g. `deals-pipeline-section.tsx`'s `PipelineCustomer`), so this only
+ * requires the fields actually used, all as fallbacks (`||` chains).
+ */
+export interface PipelineCustomerLike {
+  id: string;
+  name?: string;
+  displayName?: string;
+  email?: string | null;
+  phone?: string | null;
+}
+
+/** Stage seed data from the API — before `deals`/`value`/`count` are computed client-side. */
+interface RawStage {
+  id?: string;
+  name: string;
+  color?: string;
+  probability?: number;
+}
+
 interface PipelineKanbanProps {
   initialDeals?: Deal[];
-  initialStages?: any[];
+  initialStages?: RawStage[];
   workspaceId: string;
-  customers?: any[];
-  contacts?: any[];
+  customers?: PipelineCustomerLike[];
+  contacts?: Person[];
   onDealMove?: (dealId: string, fromStage: string, toStage: string) => void;
-  onDealCreate?: (data: any) => Promise<void>;
+  onDealCreate?: (data: Record<string, unknown>) => Promise<void>;
   pipelineId?: string;
   pipelineName?: string;
   initialSettings?: PipelineViewSettings;
@@ -169,16 +175,70 @@ const DEFAULT_STAGES: Omit<Stage, 'deals' | 'value' | 'count'>[] = [
   { id: 'closed_lost', name: 'Closed Lost', color: 'bg-red-500', probability: 0 },
 ];
 
+// Helper function to get deal field value for filtering
+function getDealFieldValue(deal: Deal, field: string): string {
+  switch (field) {
+    case 'stage':
+      return deal.stage?.toLowerCase() || '';
+    case 'value':
+      return String(deal.value || 0);
+    case 'probability':
+      return String(deal.probability || 0);
+    case 'company':
+      return deal.company?.name?.toLowerCase() || '';
+    default:
+      return '';
+  }
+}
+
+// Helper function to check if a deal matches a single filter
+function matchesFilter(deal: Deal, filter: ActiveFilter): boolean {
+  const fieldValue = getDealFieldValue(deal, filter.field);
+  const filterValue = filter.value.toLowerCase();
+
+  // For numeric comparisons, parse the values
+  const isNumericField = filter.field === 'value' || filter.field === 'probability';
+  const numericFieldValue = isNumericField ? parseFloat(fieldValue) || 0 : 0;
+  const numericFilterValue = isNumericField ? parseFloat(filter.value) || 0 : 0;
+
+  switch (filter.operator) {
+    case 'contains':
+      return fieldValue.includes(filterValue);
+    case 'not contains':
+      return !fieldValue.includes(filterValue);
+    case 'starts with':
+      return fieldValue.startsWith(filterValue);
+    case 'ends with':
+      return fieldValue.endsWith(filterValue);
+    case 'is':
+      return fieldValue === filterValue;
+    case 'is not':
+      return fieldValue !== filterValue;
+    case 'greater than':
+      return numericFieldValue > numericFilterValue;
+    case 'less than':
+      return numericFieldValue < numericFilterValue;
+    case 'greater or equal':
+      return numericFieldValue >= numericFilterValue;
+    case 'less or equal':
+      return numericFieldValue <= numericFilterValue;
+    case 'empty':
+      return fieldValue === '' || fieldValue === '0';
+    case 'not empty':
+      return fieldValue !== '' && fieldValue !== '0';
+    default:
+      return true;
+  }
+}
+
 export function PipelineKanban({
   initialDeals = [],
   initialStages = [],
-  workspaceId,
   customers = [],
   contacts = [],
   onDealMove,
   onDealCreate,
   pipelineId,
-  pipelineName,
   initialSettings = DEFAULT_PIPELINE_SETTINGS,
   lockedCustomer,
   hideHeader,
@@ -190,12 +250,12 @@ export function PipelineKanban({
   const deleteOpportunityMutation = useDeleteOpportunity();
   const [stages, setStages] = useState<Stage[]>([]);
   const [activeDealId, setActiveDealId] = useState<string | null>(null);
-  const [activeStageId, setActiveStageId] = useState<string | null>(null);
+  const [_activeStageId, setActiveStageId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
+  const [_viewMode, _setViewMode] = useState<'kanban' | 'list'>('kanban');
   const [showDealDetails, setShowDealDetails] = useState(false);
   const [showEditDeal, setShowEditDeal] = useState(false);
-  const [selectedDealForEdit, setSelectedDealForEdit] = useState<Deal | null>(null);
+  const [selectedDealForEdit, _setSelectedDealForEdit] = useState<Deal | null>(null);
   const { open: openObjectPanel } = useObjectPanel();
   const [showAddStage, setShowAddStage] = useState(false);
   const [selectedStageForNewDeal, setSelectedStageForNewDeal] = useState<string | null>(null);
@@ -256,7 +316,7 @@ export function PipelineKanban({
     { field: 'stage', label: t('sweep.weldcrm.pipelineKanban.filterStage'), options: stages.map(s => ({ value: s.id, label: s.name })) },
     { field: 'value', label: t('sweep.weldcrm.pipelineKanban.filterValue'), options: [{ value: '0-1000', label: '< $1K' }, { value: '1000-10000', label: '$1K - $10K' }, { value: '10000-100000', label: '$10K - $100K' }, { value: '100000+', label: '$100K+' }] },
     { field: 'probability', label: t('sweep.weldcrm.pipelineKanban.filterProbability'), options: [{ value: '0-25', label: '0-25%' }, { value: '25-50', label: '25-50%' }, { value: '50-75', label: '50-75%' }, { value: '75-100', label: '75-100%' }] },
-    { field: 'company', label: t('sweep.weldcrm.pipelineKanban.filterCompany'), options: customers.slice(0, 20).map((c: any) => ({ value: c.id, label: c.companyName || c.name || c.email })) },
+    { field: 'company', label: t('sweep.weldcrm.pipelineKanban.filterCompany'), options: customers.slice(0, 20).map((c) => ({ value: c.id, label: c.displayName || c.name || c.email || '' })) },
   ], [stages, customers, t]);
 
   useEffect(() => {
@@ -301,19 +361,10 @@ export function PipelineKanban({
     }
   };
 
-  // Helper to toggle a visible attribute
-  const toggleVisibleAttribute = async (attribute: keyof PipelineViewSettings['visibleAttributes']) => {
-    const newVisibleAttributes = {
-      ...viewSettings.visibleAttributes,
-      [attribute]: !viewSettings.visibleAttributes[attribute],
-    };
-    await updateViewSettings({ visibleAttributes: newVisibleAttributes });
-  };
-
+  
   // Backward compatibility alias
-  const showAttributeLabels = viewSettings.showAttributeLabels;
-  const setShowAttributeLabels = (value: boolean) => updateViewSettings({ showAttributeLabels: value });
-
+  const _showAttributeLabels = viewSettings.showAttributeLabels;
+  
   const containerRef = useRef<HTMLDivElement>(null);
   const stagesScrollRef = useRef<HTMLDivElement>(null);
   const calculationScrollRef = useRef<HTMLDivElement>(null);
@@ -343,10 +394,10 @@ export function PipelineKanban({
   );
 
   // Custom collision detection that prioritizes droppable stages
-  const customCollisionDetection = (args: any) => {
+  const customCollisionDetection = (args: Parameters<typeof pointerWithin>[0]) => {
     // First try to find collisions with stage containers
     const pointerCollisions = pointerWithin(args);
-    const stageCollisions = pointerCollisions.filter((collision: any) =>
+    const stageCollisions = pointerCollisions.filter((collision) =>
       collision.id?.toString().startsWith('stage-')
     );
 
@@ -357,7 +408,7 @@ export function PipelineKanban({
 
     // Otherwise use rectangle intersection for broader detection
     const rectCollisions = rectIntersection(args);
-    const rectStageCollisions = rectCollisions.filter((collision: any) =>
+    const rectStageCollisions = rectCollisions.filter((collision) =>
       collision.id?.toString().startsWith('stage-')
     );
 
@@ -620,22 +671,28 @@ export function PipelineKanban({
         calculatedValue = formatCurrency(stage.value);
         break;
       case 'average':
-        const avgValue = stage.count > 0 ? stage.value / stage.count : 0;
+        {
+const avgValue = stage.count > 0 ? stage.value / stage.count : 0;
         calculatedValue = formatCurrency(avgValue);
         break;
+        }
       case 'winRate':
         // Calculate win rate based on stage probability
         calculatedValue = `${stage.probability || 0}%`;
         break;
       case 'weighted':
-        const weightedVal = stage.value * (stage.probability || 0) / 100;
+        {
+const weightedVal = stage.value * (stage.probability || 0) / 100;
         calculatedValue = formatCurrency(weightedVal);
         break;
+        }
       case 'distribution':
-        const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
+        {
+const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
         const percentage = totalPipelineValue > 0 ? (stage.value / totalPipelineValue) * 100 : 0;
         calculatedValue = `${percentage.toFixed(1)}%`;
         break;
+        }
       case 'custom':
         // Open custom formula modal instead of setting a value
         setSelectedStageForFormula(stageId);
@@ -673,63 +730,7 @@ export function PipelineKanban({
     setSelectedStageForFormula(null);
   };
 
-  const totalValue = stages.reduce((sum, stage) => sum + stage.value, 0);
-
-  // Helper function to get deal field value for filtering
-  const getDealFieldValue = (deal: Deal, field: string): string => {
-    switch (field) {
-      case 'stage':
-        return deal.stage?.toLowerCase() || '';
-      case 'value':
-        return String(deal.value || 0);
-      case 'probability':
-        return String(deal.probability || 0);
-      case 'company':
-        return deal.company?.name?.toLowerCase() || '';
-      default:
-        return '';
-    }
-  };
-
-  // Helper function to check if a deal matches a single filter
-  const matchesFilter = (deal: Deal, filter: ActiveFilter): boolean => {
-    const fieldValue = getDealFieldValue(deal, filter.field);
-    const filterValue = filter.value.toLowerCase();
-
-    // For numeric comparisons, parse the values
-    const isNumericField = filter.field === 'value' || filter.field === 'probability';
-    const numericFieldValue = isNumericField ? parseFloat(fieldValue) || 0 : 0;
-    const numericFilterValue = isNumericField ? parseFloat(filter.value) || 0 : 0;
-
-    switch (filter.operator) {
-      case 'contains':
-        return fieldValue.includes(filterValue);
-      case 'not contains':
-        return !fieldValue.includes(filterValue);
-      case 'starts with':
-        return fieldValue.startsWith(filterValue);
-      case 'ends with':
-        return fieldValue.endsWith(filterValue);
-      case 'is':
-        return fieldValue === filterValue;
-      case 'is not':
-        return fieldValue !== filterValue;
-      case 'greater than':
-        return numericFieldValue > numericFilterValue;
-      case 'less than':
-        return numericFieldValue < numericFilterValue;
-      case 'greater or equal':
-        return numericFieldValue >= numericFilterValue;
-      case 'less or equal':
-        return numericFieldValue <= numericFilterValue;
-      case 'empty':
-        return fieldValue === '' || fieldValue === '0';
-      case 'not empty':
-        return fieldValue !== '' && fieldValue !== '0';
-      default:
-        return true;
-    }
-  };
+  const _totalValue = stages.reduce((sum, stage) => sum + stage.value, 0);
 
   // Filter stages based on search query and active filters
   const filteredStages = useMemo(() => {
@@ -780,19 +781,19 @@ export function PipelineKanban({
     });
   }, [stages, searchQuery, activeFilters]);
 
-  const totalDeals = stages.reduce((sum, stage) => sum + stage.count, 0);
-  const weightedValue = stages.reduce((sum, stage) => {
+  const _totalDeals = stages.reduce((sum, stage) => sum + stage.count, 0);
+  const _weightedValue = stages.reduce((sum, stage) => {
     if (stage.id === 'CLOSED_LOST') return sum;
     const probability = stage.probability || 0;
     return sum + (stage.value * probability / 100);
   }, 0);
 
-  const handleOpenAddDeal = (stageId: string, stageName: string) => {
+  const handleOpenAddDeal = (stageId: string, _stageName: string) => {
     setSelectedStageForNewDeal(stageId);
     setShowDealDetails(true);
   };
 
-  const handleCreateDeal = async (data: any) => {
+  const handleCreateDeal = async (data: Record<string, unknown>) => {
     if (onDealCreate) {
       await onDealCreate(data);
     }
@@ -800,16 +801,12 @@ export function PipelineKanban({
     setSelectedStageForNewDeal(null);
   };
 
-  const handleEditDeal = (deal: Deal) => {
-    setSelectedDealForEdit(deal);
-    setShowEditDeal(true);
-  };
-
+  
   const handleOpenDealPanel = (deal: Deal) => {
     openObjectPanel({ type: 'opportunity', id: deal.id });
   };
 
-  const handleUpdateDeal = async (dealId: string, data: any) => {
+  const handleUpdateDeal = async (dealId: string, data: Partial<Opportunity>) => {
     try {
       const result = await updateOpportunityMutation.mutateAsync({ id: dealId, data });
       if (result?.id) {
@@ -818,7 +815,7 @@ export function PipelineKanban({
             ...stage,
             deals: stage.deals.map(deal =>
               deal.id === dealId
-                ? { ...deal, ...data }
+                ? ({ ...deal, ...data } as Deal)
                 : deal
             ),
           }))
@@ -1002,25 +999,25 @@ export function PipelineKanban({
                                 tags={deal.tags}
                                 onClick={() => handleOpenDealPanel(deal)}
                                 onCompanyClick={(companyId) => {
-                                  const customer = customers.find((c: any) => c.id === companyId);
+                                  const customer = customers.find((c) => c.id === companyId);
                                   if (customer) {
                                     setSelectedCustomer({
                                       id: customer.id,
                                       email: customer.email || '',
                                       name: customer.name,
                                       company: customer.name,
-                                      phone: customer.phone
+                                      phone: customer.phone || undefined
                                     });
                                   }
                                 }}
                                 onContactClick={(contactId) => {
-                                  const contact = contacts.find((c: any) => c.id === contactId);
+                                  const contact = contacts.find((c) => c.id === contactId);
                                   if (contact) {
                                     setSelectedCustomer({
                                       id: contact.id,
                                       email: contact.email || '',
-                                      name: contact.name,
-                                      phone: contact.phone
+                                      name: contact.fullName || contact.displayName,
+                                      phone: contact.mobilePhone || contact.directPhone || undefined
                                     });
                                   }
                                 }}
@@ -1305,6 +1302,14 @@ function CustomFormulaModal({
   );
 }
 
+interface CustomFieldDef {
+  id: string;
+  name: string;
+  type: 'text' | 'number' | 'date' | 'select' | 'textarea';
+  required: boolean;
+  options?: string[];
+}
+
 function PipelineSettingsModal({
   open,
   onOpenChange,
@@ -1315,8 +1320,8 @@ function PipelineSettingsModal({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  customFields: any[];
-  onCustomFieldsChange: (fields: any[]) => void;
+  customFields: CustomFieldDef[];
+  onCustomFieldsChange: (fields: CustomFieldDef[]) => void;
   viewSettings: PipelineViewSettings;
   onSettingsChange: (updates: Partial<PipelineViewSettings>) => Promise<void>;
 }) {
@@ -1432,9 +1437,9 @@ function PipelineSettingsModal({
     if (fieldToEdit) {
       setNewField({
         name: fieldToEdit.name,
-        type: fieldToEdit.type as any,
+        type: fieldToEdit.type,
         required: fieldToEdit.required,
-        options: (fieldToEdit as any).options || [],
+        options: fieldToEdit.options || [],
       });
       setEditingFieldId(id);
       setShowAddFieldForm(true);
@@ -1841,7 +1846,7 @@ function PipelineSettingsModal({
                               key={type.value}
                               value={type.value}
                               onSelect={(currentValue) => {
-                                setNewField({ ...newField, type: currentValue as any });
+                                setNewField({ ...newField, type: currentValue as 'text' | 'number' | 'date' | 'select' | 'textarea' });
                                 setFieldTypeOpen(false);
                               }}
                             >

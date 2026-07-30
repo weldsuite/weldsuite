@@ -165,29 +165,6 @@ export function useWorkflowProviderCallback() {
     },
   });
 }
-
-function useConnectWorkflowApiKey() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      provider,
-      credentials,
-    }: {
-      provider: string;
-      credentials: Record<string, string>;
-    }) => {
-      const client = await getClient();
-      return client.post<{
-        data: { id: string; status: string; provider: string };
-      }>(`/workflow-integrations/${provider}/apikey`, { credentials });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: workflowIntegrationKeys.list() });
-    },
-  });
-}
-
 export function useDisconnectWorkflowIntegration() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();

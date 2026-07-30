@@ -4,7 +4,7 @@
  * TanStack Query hooks for meetings and sessions.
  */
 
-import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type {
   HostControls,
@@ -110,7 +110,7 @@ export function useMeetings(params?: ListMeetingsParams) {
       if (params?.counterpartyId) qs.set('counterpartyId', params.counterpartyId);
       if (params?.personId) qs.set('personId', params.personId);
       const query = qs.toString();
-      const res = await client.get<any>(`/meetings${query ? '?' + query : ''}`);
+      const res = await client.get<{ data: Meeting[]; pagination: unknown } | null>(`/meetings${query ? '?' + query : ''}`);
       return res ?? { data: [], pagination: null };
     },
   });
@@ -144,21 +144,6 @@ export function useUpcomingMeetings(params?: { days?: number; limit?: number }) 
     },
   });
 }
-
-function useActiveSession(meetingId: string) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: weldmeetKeys.session(meetingId),
-    queryFn: async () => {
-      const client = await getClient();
-      const res = await client.get<{ data: MeetingSession | null }>(`/meeting-sessions/active?meetingId=${encodeURIComponent(meetingId)}`);
-      return (res.data ?? null) as MeetingSession | null;
-    },
-    enabled: !!meetingId,
-    refetchInterval: 10_000,
-  });
-}
-
 export function useLatestSession(meetingId: string) {
   const { getClient } = useAppApiClient();
   return useQuery({
@@ -197,7 +182,7 @@ export function useUpdateMeeting() {
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: UpdateMeetingRequest }) => {
       const client = await getClient();
-      const res = await client.patch<{ data: any }>(`/meetings/${id}`, data);
+      const res = await client.patch<{ data: unknown }>(`/meetings/${id}`, data);
       return res.data;
     },
     onSuccess: (_, variables) => {
@@ -260,70 +245,7 @@ export function useUpdateHostControls() {
       });
     },
   });
-}
-
-// ============================================================================
-// Session Mutations
-// ============================================================================
-
-function useStartSession() {
-  const { getClient } = useAppApiClient();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (meetingId: string) => {
-      const client = await getClient();
-      const res = await client.post<{ data: { sessionId: string; status: string; rtkMeetingId: string } }>('/meeting-sessions/start', { meetingId });
-      return res.data;
-    },
-    onSuccess: (_, meetingId) => {
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(meetingId) });
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(meetingId) });
-    },
-  });
-}
-
-function useJoinSession() {
-  const { getClient } = useAppApiClient();
-  return useMutation({
-    mutationFn: async ({ sessionId }: { meetingId: string; sessionId: string }) => {
-      const client = await getClient();
-      const res = await client.post<{ data: { sessionId: string; authToken: string; participants: MeetingSessionParticipant[] } }>(`/meeting-sessions/${sessionId}/join`);
-      return res.data;
-    },
-  });
-}
-
-function useLeaveSession() {
-  const { getClient } = useAppApiClient();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ meetingId, sessionId }: { meetingId: string; sessionId: string }) => {
-      const client = await getClient();
-      await client.post(`/meeting-sessions/${sessionId}/leave`);
-    },
-    onSuccess: (_, { meetingId }) => {
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(meetingId) });
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(meetingId) });
-    },
-  });
-}
-
-function useEndSession() {
-  const { getClient } = useAppApiClient();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ meetingId, sessionId }: { meetingId: string; sessionId: string }) => {
-      const client = await getClient();
-      await client.post(`/meeting-sessions/${sessionId}/end`);
-    },
-    onSuccess: (_, { meetingId }) => {
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(meetingId) });
-      queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(meetingId) });
-    },
-  });
-}
-
-export function useJoinByCode() {
+}export function useJoinByCode() {
   const { getClient } = useAppApiClient();
   return useMutation({
     mutationFn: async (joinCode: string) => {
@@ -361,48 +283,7 @@ export function useRecordingsList() {
       return (res.data ?? []) as MeetingRecordingEntry[];
     },
   });
-}
-
-// ============================================================================
-// Recording Mutations
-// ============================================================================
-
-function useStartRecording() {
-  const { getClient } = useAppApiClient();
-  return useMutation({
-    mutationFn: async ({ sessionId }: { meetingId: string; sessionId: string }) => {
-      const client = await getClient();
-      await client.post(`/meeting-sessions/${sessionId}/recording/start`);
-    },
-  });
-}
-
-function useStopRecording() {
-  const { getClient } = useAppApiClient();
-  return useMutation({
-    mutationFn: async ({ sessionId }: { meetingId: string; sessionId: string }) => {
-      const client = await getClient();
-      const res = await client.post<{ data: { ok: boolean; recordingUrl?: string } }>(`/meeting-sessions/${sessionId}/recording/stop`);
-      return res.data;
-    },
-  });
-}
-
-function useSessionRecordings(meetingId: string, sessionId: string) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: [...weldmeetKeys.all, 'recordings', meetingId, sessionId] as const,
-    queryFn: async () => {
-      const client = await getClient();
-      // app-api returns { data: { recordings: any[]; savedUrl: string | null } }
-      const res = await client.get<{ data: { recordings: any[]; savedUrl: string | null } }>(`/meeting-sessions/${sessionId}/recordings`);
-      return res.data;
-    },
-    enabled: !!meetingId && !!sessionId,
-  });
-}
-
-// ============================================================================
+}// ============================================================================
 // Meeting Recording + Transcription
 // ============================================================================
 
@@ -414,9 +295,9 @@ export function useMeetingRecordingUrl(meetingId: string) {
       const client = await getClient();
       // app-api returns { data: { url, sessionId, duration } } (200) or
       // { data: null, processing: true } (202) when still processing.
-      const res = await client.get<any>(`/meetings/${meetingId}/recording`);
+      const res = await client.get<{ data: { url: string; sessionId: string; duration: number | null } | null }>(`/meetings/${meetingId}/recording`);
       if (!res.data?.url) return null;
-      return res.data as { url: string; sessionId: string; duration: number | null };
+      return res.data;
     },
     enabled: !!meetingId,
     // Retry every 5s while recording is still processing (returns null)

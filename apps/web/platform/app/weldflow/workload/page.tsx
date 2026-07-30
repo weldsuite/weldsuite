@@ -8,5 +8,5 @@ export default function WorkloadPage() {
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
-  return <WorkloadClient initialData={data?.data} error={error ? String(error) : null} />;
+  return <WorkloadClient initialData={data?.data ?? null} error={error ? String(error) : null} />;
 }

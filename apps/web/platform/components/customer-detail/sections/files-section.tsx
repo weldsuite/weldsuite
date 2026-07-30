@@ -72,7 +72,7 @@ const formatDate = (date: Date): string => {
 
 // `customer` isn't read here, but the parameter must stay to match the
 // shared `SectionProps` contract every `<XSection customer={...} />` caller uses.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+ 
 export function FilesSection(_props: FilesSectionProps) {
   const t = useTranslations();
   const [files, setFiles] = useState<FileItem[]>([]);

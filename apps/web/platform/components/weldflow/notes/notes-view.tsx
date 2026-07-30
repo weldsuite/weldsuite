@@ -5,7 +5,6 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { NoteEditorModal } from './note-editor-modal';
-import { usePinnedNotes } from '@/contexts/pinned-notes-context';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,24 +13,19 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { 
-  Plus, 
+import {
+  Plus,
   MoreVertical,
-  Grid3x3,
-  List,
   Star,
   Archive,
   Trash2,
   Edit,
   Copy,
-  ChevronDown,
   Columns,
-  Settings,
   User,
   Search,
   Filter,
   Building2,
-  StickyNote
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -203,8 +197,8 @@ const sampleNotes: Note[] = [
 export function NotesView() {
   const st = useTranslations();
   const [notes, setNotes] = useState<Note[]>(sampleNotes);
-  const [sortBy, setSortBy] = useState<'creation' | 'updated'>('creation');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [_sortBy, _setSortBy] = useState<'creation' | 'updated'>('creation');
+  const [_viewMode, _setViewMode] = useState<'grid' | 'list'>('grid');
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
@@ -274,22 +268,8 @@ export function NotesView() {
     return noteMonth === currentMonth;
   }).length;
 
-  const getInitials = (name: string) => {
-    if (!name) return '?';
-    return name.charAt(0).toUpperCase();
-  };
-
-  const getCompanyColor = (company?: LinkedCompany) => {
-    if (!company) return 'bg-gray-500';
-    if (company.color) {
-      if (company.color === 'black') return 'bg-gray-900';
-      if (company.color.startsWith('#')) {
-        return '';
-      }
-    }
-    return 'bg-gray-500';
-  };
-
+  
+  
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto p-8 max-w-[1600px] space-y-8">
@@ -387,7 +367,7 @@ export function NotesView() {
                 </span>
               </h2>
               <div className="grid grid-cols-4 gap-4">
-                {Object.entries(groupedNotes).map(([date, dateNotes]) => (
+                {Object.entries(groupedNotes).map(([_date, dateNotes]) => (
                   dateNotes.map(note => (
                     <NoteCard 
                       key={note.id} 

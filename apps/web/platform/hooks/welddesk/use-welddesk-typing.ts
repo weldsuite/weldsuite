@@ -17,9 +17,7 @@ interface UseWeldDeskTypingOptions {
 }
 
 export function useWeldDeskTyping({
-  conversationId,
   client,
-  agentName,
   enabled,
 }: UseWeldDeskTypingOptions): {
   typing: WeldDeskTypingState;

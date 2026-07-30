@@ -1,6 +1,18 @@
 
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import type {
+  ApiProject,
+  ApiProjectMember,
+  ApiAvailableProjectUser,
+  ApiTimeEntry,
+  ApiProjectFile,
+  ApiProjectMessage,
+} from '@/app/weldflow/lib/api-client';
+import type { AnalyticsReport as AnalyticsReportSummary } from '@/app/weldflow/analytics/_components/analytics-list-client';
+import type { AnalyticsReport, AnalyticsChart } from '@/app/weldflow/analytics/[id]/_components/report-view-client';
+import type { Projects } from '@/lib/api/types/apps/projects.types';
+import type { ProjectGoals } from '@/lib/api/domains/weldflow';
 
 // =============================================================================
 // Query Keys
@@ -9,11 +21,11 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 export const projectKeys = {
   all: ['projects'] as const,
   lists: () => [...projectKeys.all, 'list'] as const,
-  list: (filters?: Record<string, any>) => [...projectKeys.lists(), filters] as const,
+  list: (filters?: Record<string, unknown>) => [...projectKeys.lists(), filters] as const,
   details: () => [...projectKeys.all, 'detail'] as const,
   detail: (id: string) => [...projectKeys.details(), id] as const,
   stats: () => [...projectKeys.all, 'stats'] as const,
-  tasks: (projectId: string, params?: Record<string, any>) => [...projectKeys.all, projectId, 'tasks', params] as const,
+  tasks: (projectId: string, params?: Record<string, unknown>) => [...projectKeys.all, projectId, 'tasks', params] as const,
   milestones: (projectId: string) => [...projectKeys.all, projectId, 'milestones'] as const,
   sprints: (projectId: string) => [...projectKeys.all, projectId, 'sprints'] as const,
   members: (projectId: string) => [...projectKeys.all, projectId, 'members'] as const,
@@ -39,7 +51,7 @@ export const projectKeys = {
 // Helper to build query string
 // =============================================================================
 
-function buildQueryString(params: Record<string, any>): string {
+function buildQueryString(params: Record<string, unknown>): string {
   const queryParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
@@ -66,7 +78,7 @@ export function useProjects(params?: {
     queryKey: projectKeys.list(params),
     queryFn: async () => {
       const client = await getClient();
-      const qs: Record<string, any> = { ...(params ?? {}) };
+      const qs: Record<string, unknown> = { ...(params ?? {}) };
       if (qs.pageSize !== undefined) {
         qs.limit = qs.pageSize;
         delete qs.pageSize;
@@ -74,7 +86,7 @@ export function useProjects(params?: {
       delete qs.page;
       const query = buildQueryString(qs);
       return client.get<{
-        data: any[];
+        data: ApiProject[];
         pagination: { totalCount: number; hasMore: boolean; cursor: string | null };
       }>(`/projects${query}`);
     },
@@ -98,11 +110,11 @@ export function useInfiniteProjects(filters: ProjectListFilters = {}, pageSize =
     queryKey: [...projectKeys.lists(), 'infinite', pageSize, filters],
     queryFn: async ({ pageParam }: { pageParam?: string | null }) => {
       const client = await getClient();
-      const qs: Record<string, any> = { limit: pageSize, ...filters };
+      const qs: Record<string, unknown> = { limit: pageSize, ...filters };
       if (pageParam) qs.cursor = pageParam;
       const query = buildQueryString(qs);
       return client.get<{
-        data: any[];
+        data: ApiProject[];
         pagination: { totalCount: number; hasMore: boolean; cursor: string | null };
       }>(`/projects${query}`);
     },
@@ -121,7 +133,7 @@ export function useProject(id: string, enabled = true) {
     queryKey: projectKeys.detail(id),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: any }>(`/projects/${id}`);
+      return client.get<{ data: ApiProject }>(`/projects/${id}`);
     },
     enabled: !!id && enabled,
   });
@@ -134,7 +146,7 @@ export function useProjectTasks(projectId: string, params?: { page?: number; pag
     queryKey: projectKeys.tasks(projectId, params),
     queryFn: async () => {
       const client = await getClient();
-      const qs: Record<string, any> = { projectId, ...(params ?? {}) };
+      const qs: Record<string, unknown> = { projectId, ...(params ?? {}) };
       if (qs.pageSize !== undefined) {
         qs.limit = qs.pageSize;
         delete qs.pageSize;
@@ -142,7 +154,7 @@ export function useProjectTasks(projectId: string, params?: { page?: number; pag
       delete qs.page;
       const query = buildQueryString(qs);
       return client.get<{
-        data: any[];
+        data: Projects.ProjectTask[];
         pagination: { totalCount: number; hasMore: boolean; cursor: string | null };
       }>(`/tasks${query}`);
     },
@@ -177,7 +189,7 @@ export function useInfiniteProjectTasks(
     queryKey: [...projectKeys.tasks(projectId), 'infinite', pageSize, filters],
     queryFn: async ({ pageParam }: { pageParam?: string | null }) => {
       const client = await getClient();
-      const qs: Record<string, any> = {
+      const qs: Record<string, unknown> = {
         projectId,
         limit: pageSize,
         ...filters,
@@ -186,7 +198,7 @@ export function useInfiniteProjectTasks(
       if (pageParam) qs.cursor = pageParam;
       const query = buildQueryString(qs);
       return client.get<{
-        data: any[];
+        data: Projects.ProjectTask[];
         pagination: { totalCount: number; hasMore: boolean; cursor: string | null };
       }>(`/tasks${query}`);
     },
@@ -198,43 +210,13 @@ export function useInfiniteProjectTasks(
     },
     enabled: !!projectId && enabled,
   });
-}
-
-function useProjectMilestones(projectId: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: projectKeys.milestones(projectId),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: any[]; pagination: { totalCount: number; hasMore: boolean; cursor: string | null } }>(
-        `/milestones?projectId=${encodeURIComponent(projectId)}&limit=100`,
-      );
-    },
-    enabled: !!projectId && enabled,
-  });
-}
-
-function useProjectSprints(projectId: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: projectKeys.sprints(projectId),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: any[]; pagination: { totalCount: number; hasMore: boolean; cursor: string | null } }>(
-        `/sprints?projectId=${encodeURIComponent(projectId)}&limit=100`,
-      );
-    },
-    enabled: !!projectId && enabled,
-  });
-}
-
-export function useProjectMembers(projectId: string, enabled = true) {
+}export function useProjectMembers(projectId: string, enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: projectKeys.members(projectId),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: any[]; pagination: { totalCount: number; hasMore: boolean; cursor: string | null } }>(
+      return client.get<{ data: ApiProjectMember[]; pagination: { totalCount: number; hasMore: boolean; cursor: string | null } }>(
         `/project-members?projectId=${encodeURIComponent(projectId)}&limit=100`,
       );
     },
@@ -248,7 +230,7 @@ export function useProjectAvailableUsers(projectId: string, enabled = true) {
     queryKey: [...projectKeys.members(projectId), 'available'] as const,
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: any[] }>(
+      return client.get<{ data: ApiAvailableProjectUser[] }>(
         `/project-members/available?projectId=${encodeURIComponent(projectId)}`,
       );
     },
@@ -262,7 +244,7 @@ export function useProjectTimeEntries(projectId: string, enabled = true) {
     queryKey: projectKeys.timeEntries(projectId),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: any[]; pagination: { totalCount: number; hasMore: boolean; cursor: string | null } }>(
+      return client.get<{ data: ApiTimeEntry[]; pagination: { totalCount: number; hasMore: boolean; cursor: string | null } }>(
         `/time-entries?projectId=${encodeURIComponent(projectId)}&limit=100`,
       );
     },
@@ -276,7 +258,7 @@ export function useProjectFiles(projectId: string, enabled = true) {
     queryKey: projectKeys.files(projectId),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: any[]; pagination: { totalCount: number; hasMore: boolean; cursor: string | null } }>(
+      return client.get<{ data: ApiProjectFile[]; pagination: { totalCount: number; hasMore: boolean; cursor: string | null } }>(
         `/project-files?projectId=${encodeURIComponent(projectId)}&limit=100`,
       );
     },
@@ -292,69 +274,13 @@ export function useProjectMessages(projectId: string, limit?: number, enabled = 
       const client = await getClient();
       const params = new URLSearchParams({ projectId });
       if (limit) params.set('limit', String(limit));
-      return client.get<{ data: any[]; pagination: { totalCount: number; hasMore: boolean; cursor: string | null } }>(
+      return client.get<{ data: ApiProjectMessage[]; pagination: { totalCount: number; hasMore: boolean; cursor: string | null } }>(
         `/project-messages?${params}`,
       );
     },
     enabled: !!projectId && enabled,
   });
-}
-
-function useProjectWhiteboard(projectId: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: projectKeys.whiteboard(projectId),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: any }>(
-        `/whiteboards?projectId=${encodeURIComponent(projectId)}&limit=1`,
-      );
-    },
-    enabled: !!projectId && enabled,
-  });
-}
-
-function useProjectWhiteboards(projectId: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: projectKeys.whiteboards(projectId),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: any[]; pagination: { totalCount: number; hasMore: boolean; cursor: string | null } }>(
-        `/whiteboards?projectId=${encodeURIComponent(projectId)}&limit=100`,
-      );
-    },
-    enabled: !!projectId && enabled,
-  });
-}
-
-function useProjectWhiteboardDetail(projectId: string, whiteboardId: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: projectKeys.whiteboardDetail(whiteboardId),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: any }>(`/whiteboards/${whiteboardId}`);
-    },
-    enabled: !!projectId && !!whiteboardId && enabled,
-  });
-}
-
-function useProjectDocument(projectId: string, enabled = true) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: projectKeys.document(projectId),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: any[] }>(
-        `/project-documents?projectId=${encodeURIComponent(projectId)}&limit=100`,
-      );
-    },
-    enabled: !!projectId && enabled,
-  });
-}
-
-export function useProjectWorkload(projectId?: string) {
+}export function useProjectWorkload(projectId?: string) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: projectKeys.workload(projectId),
@@ -363,7 +289,7 @@ export function useProjectWorkload(projectId?: string) {
       const path = projectId
         ? `/projects/${projectId}/workload`
         : '/projects/workload/overview';
-      return client.get<{ data: any }>(path);
+      return client.get<{ data: Projects.WorkloadOverview }>(path);
     },
   });
 }
@@ -374,473 +300,11 @@ export function useProjectGoals(projectId: string, enabled = true) {
     queryKey: projectKeys.goals(projectId),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: any }>(`/goals/by-project/${projectId}`);
+      return client.get<{ data: ProjectGoals }>(`/goals/by-project/${projectId}`);
     },
     enabled: !!projectId && enabled,
   });
-}
-
-// =============================================================================
-// Mutations
-// =============================================================================
-
-function useCreateProject() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: {
-      name: string;
-      description?: string;
-      status?: string;
-      customerId?: string;
-      startDate?: string;
-      endDate?: string;
-      budgetedAmount?: string;
-      hourlyRate?: string;
-      color?: string;
-    }) => {
-      const client = await getClient();
-      return client.post<{ data: any }>('/projects', data);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: projectKeys.all });
-    },
-  });
-}
-
-function useUpdateProject() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, data }: {
-      id: string;
-      data: {
-        name?: string;
-        description?: string;
-        status?: string;
-        customerId?: string;
-        startDate?: string;
-        endDate?: string;
-        budgetedAmount?: string;
-        hourlyRate?: string;
-        color?: string;
-      };
-    }) => {
-      const client = await getClient();
-      return client.patch<{ data: any }>(`/projects/${id}`, data);
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.all });
-      qc.invalidateQueries({ queryKey: projectKeys.detail(variables.id) });
-    },
-  });
-}
-
-function useDeleteProject() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const client = await getClient();
-      return client.delete<{ data: { deleted: boolean } }>(`/projects/${id}`);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: projectKeys.all });
-    },
-  });
-}
-
-function useUpdateProjectStatus() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const client = await getClient();
-      return client.patch<{ data: any }>(`/projects/${id}`, { status });
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.all });
-      qc.invalidateQueries({ queryKey: projectKeys.detail(variables.id) });
-    },
-  });
-}
-
-function useCreateProjectTask() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ projectId, data }: {
-      projectId: string;
-      data: {
-        title: string;
-        description?: string;
-        assigneeId?: string;
-        dueDate?: string;
-        priority?: string;
-        status?: string;
-        duration?: number;
-      };
-    }) => {
-      const client = await getClient();
-      return client.post<{ data: any }>(`/tasks/projects/${projectId}`, data);
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.tasks(variables.projectId) });
-      qc.invalidateQueries({ queryKey: projectKeys.detail(variables.projectId) });
-    },
-  });
-}
-
-function useUpdateProjectTask() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ taskId, data }: {
-      taskId: string;
-      data: {
-        projectId: string;
-        title?: string;
-        description?: string;
-        status?: string;
-        priority?: string;
-        assigneeId?: string;
-        dueDate?: string;
-        startDate?: string;
-        estimatedHours?: number;
-        duration?: number;
-      };
-    }) => {
-      const client = await getClient();
-      return client.patch<{ data: any }>(`/tasks/${taskId}`, data);
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.tasks(variables.data.projectId) });
-      qc.invalidateQueries({ queryKey: projectKeys.all });
-    },
-  });
-}
-
-function useDeleteProjectTask() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ taskId, projectId }: { taskId: string; projectId: string }) => {
-      const client = await getClient();
-      return client.delete<void>(`/tasks/${taskId}`);
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.tasks(variables.projectId) });
-      qc.invalidateQueries({ queryKey: projectKeys.all });
-    },
-  });
-}
-
-function useCreateProjectMilestone() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ projectId, data }: {
-      projectId: string;
-      data: {
-        name: string;
-        description?: string;
-        dueDate?: string;
-        status?: string;
-      };
-    }) => {
-      const client = await getClient();
-      return client.post<{ data: any }>('/milestones', { projectId, ...data });
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.milestones(variables.projectId) });
-      qc.invalidateQueries({ queryKey: projectKeys.detail(variables.projectId) });
-    },
-  });
-}
-
-function useUpdateProjectMilestone() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, data }: {
-      id: string;
-      data: {
-        projectId: string;
-        name?: string;
-        description?: string;
-        dueDate?: string;
-        status?: string;
-      };
-    }) => {
-      const client = await getClient();
-      return client.patch<{ data: any }>(`/milestones/${id}`, data);
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.milestones(variables.data.projectId) });
-      qc.invalidateQueries({ queryKey: projectKeys.all });
-    },
-  });
-}
-
-function useDeleteProjectMilestone() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, projectId }: { id: string; projectId: string }) => {
-      const client = await getClient();
-      return client.delete<{ data: { deleted: boolean } }>(`/milestones/${id}`);
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.milestones(variables.projectId) });
-      qc.invalidateQueries({ queryKey: projectKeys.all });
-    },
-  });
-}
-
-function useStartSprint() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ projectId, sprintId }: { projectId: string; sprintId: string }) => {
-      const client = await getClient();
-      return client.patch<{ data: any }>(`/sprints/${sprintId}`, { status: 'active' });
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.sprints(variables.projectId) });
-      qc.invalidateQueries({ queryKey: projectKeys.detail(variables.projectId) });
-    },
-  });
-}
-
-function useCompleteSprint() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ projectId, sprintId }: { projectId: string; sprintId: string }) => {
-      const client = await getClient();
-      return client.patch<{ data: any }>(`/sprints/${sprintId}`, { status: 'completed' });
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.sprints(variables.projectId) });
-      qc.invalidateQueries({ queryKey: projectKeys.detail(variables.projectId) });
-    },
-  });
-}
-
-function useCreateProjectSprint() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ projectId, data }: {
-      projectId: string;
-      data: {
-        name: string;
-        startDate: string;
-        endDate: string;
-        goal?: string;
-      };
-    }) => {
-      const client = await getClient();
-      return client.post<{ data: any }>('/sprints', { projectId, ...data });
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.sprints(variables.projectId) });
-      qc.invalidateQueries({ queryKey: projectKeys.detail(variables.projectId) });
-    },
-  });
-}
-
-function useAddProjectMember() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ projectId, userId, role }: { projectId: string; userId: string; role?: string }) => {
-      const client = await getClient();
-      return client.post<{ data: any }>('/project-members', { projectId, userId, role: role || 'member' });
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.members(variables.projectId) });
-      qc.invalidateQueries({ queryKey: projectKeys.detail(variables.projectId) });
-    },
-  });
-}
-
-function useRemoveProjectMember() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ projectId, userId }: { projectId: string; userId: string }) => {
-      const client = await getClient();
-      return client.delete<{ data: { deleted: boolean } }>(
-        `/project-members/by-user/${projectId}/${userId}`,
-      );
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.members(variables.projectId) });
-      qc.invalidateQueries({ queryKey: projectKeys.detail(variables.projectId) });
-    },
-  });
-}
-
-function useCreateTimeEntry() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: {
-      projectId?: string;
-      taskId?: string;
-      date: string;
-      duration: string;
-      description?: string;
-      billable?: boolean;
-    }) => {
-      const client = await getClient();
-      return client.post<{ data: any }>('/time-entries', {
-        projectId: data.projectId,
-        taskId: data.taskId,
-        description: data.description,
-        date: data.date,
-        duration: data.duration,
-        billable: data.billable ?? true,
-      });
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.all });
-      if (variables.projectId) {
-        qc.invalidateQueries({ queryKey: projectKeys.timeEntries(variables.projectId) });
-      }
-    },
-  });
-}
-
-function useUpdateTimeEntry() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, data }: {
-      id: string;
-      data: {
-        projectId?: string;
-        description?: string;
-        duration?: string;
-        date?: string;
-        billable?: boolean;
-      };
-    }) => {
-      const client = await getClient();
-      return client.patch<{ data: any }>(`/time-entries/${id}`, {
-        description: data.description,
-        date: data.date,
-        duration: data.duration,
-        billable: data.billable,
-      });
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.all });
-      if (variables.data.projectId) {
-        qc.invalidateQueries({ queryKey: projectKeys.timeEntries(variables.data.projectId) });
-      }
-    },
-  });
-}
-
-function useDeleteTimeEntry() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, projectId }: { id: string; projectId?: string }) => {
-      const client = await getClient();
-      return client.delete<{ data: { deleted: boolean } }>(`/time-entries/${id}`);
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.all });
-      if (variables.projectId) {
-        qc.invalidateQueries({ queryKey: projectKeys.timeEntries(variables.projectId) });
-      }
-    },
-  });
-}
-
-function useApproveTimeEntry() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, projectId }: { id: string; projectId?: string }) => {
-      const client = await getClient();
-      return client.patch<{ data: any }>(`/time-entries/${id}/approve`, {});
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.all });
-      if (variables.projectId) {
-        qc.invalidateQueries({ queryKey: projectKeys.timeEntries(variables.projectId) });
-      }
-    },
-  });
-}
-
-function useSaveProjectWhiteboard() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ projectId, data }: {
-      projectId: string;
-      data: {
-        elements: any[];
-        appState?: Record<string, unknown>;
-      };
-    }) => {
-      const client = await getClient();
-      return client.post<{ data: any }>('/whiteboards', { projectId, name: 'Whiteboard', ...data });
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.whiteboard(variables.projectId) });
-    },
-  });
-}
-
-function useSaveProjectDocument() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ projectId, data }: {
-      projectId: string;
-      data: {
-        title: string;
-        content: string;
-        coverImage?: string;
-      };
-    }) => {
-      const client = await getClient();
-      return client.post<{ data: any }>('/project-documents', { projectId, ...data });
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.document(variables.projectId) });
-    },
-  });
-}
-
-function useCreateProjectMessage() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ projectId, data }: {
-      projectId: string;
-      data: {
-        message: string;
-        messageType?: string;
-        replyToId?: string;
-      };
-    }) => {
-      const client = await getClient();
-      return client.post<{ data: any }>('/project-messages', { projectId, ...data });
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.messages(variables.projectId) });
-    },
-  });
-}
-
-// =============================================================================
+}// =============================================================================
 // Analytics Queries
 // =============================================================================
 
@@ -872,7 +336,7 @@ export function useProjectAnalyticsReports() {
     queryKey: projectKeys.analyticsReports(),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: any[] }>('/project-analytics/reports');
+      return client.get<{ data: AnalyticsReportSummary[] }>('/project-analytics/reports');
     },
   });
 }
@@ -883,7 +347,7 @@ export function useProjectAnalyticsReport(reportId: string, enabled = true) {
     queryKey: projectKeys.analyticsReport(reportId),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: { report: any; charts: any[] } }>(`/project-analytics/reports/${reportId}`);
+      return client.get<{ data: { report: AnalyticsReport; charts: AnalyticsChart[] } }>(`/project-analytics/reports/${reportId}`);
     },
     enabled: !!reportId && enabled,
   });
@@ -895,7 +359,7 @@ export function useProjectAnalyticsCharts(reportId: string, enabled = true) {
     queryKey: projectKeys.analyticsCharts(reportId),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: any[] }>(`/project-analytics/reports/${reportId}/charts`);
+      return client.get<{ data: AnalyticsChart[] }>(`/project-analytics/reports/${reportId}/charts`);
     },
     enabled: !!reportId && enabled,
   });
@@ -947,21 +411,6 @@ export function useDeleteProjectAnalyticsReport() {
     },
   });
 }
-
-function useDuplicateAnalyticsReport() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (reportId: string) => {
-      const client = await getClient();
-      return client.post<{ data: { id: string } }>(`/project-analytics/reports/${reportId}/duplicate`, {});
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
-    },
-  });
-}
-
 export function useCreateProjectAnalyticsChart() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
@@ -995,63 +444,6 @@ export function useCreateProjectAnalyticsChart() {
       qc.invalidateQueries({ queryKey: projectKeys.analyticsCharts(variables.reportId) });
       qc.invalidateQueries({ queryKey: projectKeys.analyticsReport(variables.reportId) });
       qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
-    },
-  });
-}
-
-function useDeleteAnalyticsChart() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ reportId, chartId }: { reportId: string; chartId: string }) => {
-      const client = await getClient();
-      return client.delete<{ data: { deleted: boolean } }>(
-        `/project-analytics/reports/${reportId}/charts/${chartId}`,
-      );
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsCharts(variables.reportId) });
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsReport(variables.reportId) });
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
-    },
-  });
-}
-
-function useDuplicateAnalyticsChart() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ reportId, chartId }: { reportId: string; chartId: string }) => {
-      const client = await getClient();
-      return client.post<{ data: { id: string } }>(
-        `/project-analytics/reports/${reportId}/charts/${chartId}/duplicate`,
-        {},
-      );
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsCharts(variables.reportId) });
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsReport(variables.reportId) });
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
-    },
-  });
-}
-
-function useUpdateAnalyticsChartLayouts() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ reportId, layouts }: {
-      reportId: string;
-      layouts: Array<{ chartId: string; layout: { x: number; y: number; w: number; h: number; minW?: number; minH?: number } }>;
-    }) => {
-      const client = await getClient();
-      return client.patch<{ data: any }>(
-        `/project-analytics/reports/${reportId}/charts/layouts`,
-        { layouts },
-      );
-    },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsCharts(variables.reportId) });
     },
   });
 }

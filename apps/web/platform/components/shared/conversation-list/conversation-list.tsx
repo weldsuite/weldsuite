@@ -5,7 +5,7 @@ import { Link } from '@/lib/router';
 import { Search, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@/lib/utils';
-import type { ConversationListProps, ConversationItem } from './types';
+import type { ConversationListProps } from './types';
 import { groupByDate } from './utils';
 import { ConversationListItem } from './conversation-list-item';
 
@@ -18,7 +18,6 @@ export function ConversationList({
   actionLabel,
   onAction,
   isPinned,
-  onTogglePin,
   onToggleStar,
   contextMenuItems,
   onLabelDrop,

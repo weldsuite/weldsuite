@@ -32,7 +32,7 @@ import {
   isSameDay,
 } from 'date-fns';
 import type { Projects } from "@/lib/api/types/apps/projects.types";
-import { ganttApi } from '@/app/weldflow/lib/api-client';
+import { ganttApi, type GanttMilestone } from '@/app/weldflow/lib/api-client';
 import { toast } from 'sonner';
 import { Separator } from '@weldsuite/ui/components/separator';
 import { Calendar as CalendarPicker } from '@weldsuite/ui/components/calendar';
@@ -601,7 +601,7 @@ interface GanttMarkerType {
   date: Date;
   label: string;
   className: string;
-  originalMilestone?: any;
+  originalMilestone?: unknown;
 }
 
 const milestoneStatusColors: Record<string, string> = {
@@ -624,9 +624,9 @@ const markerColors = [
   { name: 'Pink', className: 'bg-pink-100 text-pink-900', color: '#fce7f3' },
 ];
 
-function mapMilestoneToMarker(milestone: any): GanttMarkerType {
+function mapMilestoneToMarker(milestone: GanttMilestone): GanttMarkerType {
   const dueDate = milestone.dueDate ? new Date(milestone.dueDate) : new Date();
-  const statusClass = milestoneStatusColors[milestone.status] || milestoneStatusColors.planned;
+  const statusClass = (milestone.status && milestoneStatusColors[milestone.status]) || milestoneStatusColors.planned;
   return {
     id: milestone.id,
     date: dueDate,
@@ -660,7 +660,7 @@ const TaskDetailPanel = memo(({
 }) => {
   if (!task || !member) return null;
 
-  const tempEndAt =
+  const _tempEndAt =
     task.endAt && isSameDay(task.startAt, task.endAt)
       ? addDays(task.endAt, 1)
       : task.endAt;
@@ -819,7 +819,8 @@ export function WorkloadView({ initialData, error, projectId }: WorkloadViewProp
       dueDate: date.toISOString(),
     });
     if (result.success && result.data) {
-      setMarkers((prev) => prev.map((m) => (m.id === tempId ? mapMilestoneToMarker(result.data) : m)));
+      const created = result.data;
+      setMarkers((prev) => prev.map((m) => (m.id === tempId ? mapMilestoneToMarker(created) : m)));
       toast.success(st('sweep.weldflow.workloadView.milestoneCreated'));
     } else {
       setMarkers((prev) => prev.filter((m) => m.id !== tempId));

@@ -14,7 +14,3 @@ export function registerObjectPanel(definition: ObjectPanelDefinition): void {
 export function resolveObjectPanel(type: ObjectType): ObjectPanelDefinition | undefined {
   return registry.get(type);
 }
-
-function listRegisteredPanels(): ObjectPanelDefinition[] {
-  return [...registry.values()];
-}

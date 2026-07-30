@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { accountingApi, type Invoice, type Bill, type Customer, type Account } from '@/lib/api/domains/weldbooks';
+import { accountingApi, type ReconciliationRule } from '@/lib/api/domains/weldbooks';
 
 // ============================================================================
 // Query Keys
@@ -126,15 +126,6 @@ export function useAccountingSettings() {
     queryFn: () => accountingApi.getSettings(),
   });
 }
-
-function useUpdateAccountingSettings() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: Record<string, unknown>) => accountingApi.updateSettings(data as any),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: accountingKeys.settings() }); },
-  });
-}
-
 // ============================================================================
 // Accounts
 // ============================================================================
@@ -169,15 +160,6 @@ export function useUpdateAccount() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: accountingKeys.accounts.all }); },
   });
 }
-
-function useDeleteAccount() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => accountingApi.deleteAccount(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: accountingKeys.accounts.all }); },
-  });
-}
-
 // ============================================================================
 // Tax Rates
 // ============================================================================
@@ -231,15 +213,6 @@ export function useUpdateAccountingCustomer() {
     },
   });
 }
-
-function useImportCrmCustomers() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => accountingApi.importFromCrm(),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: accountingKeys.customers.all }); },
-  });
-}
-
 // ============================================================================
 // Invoices
 // ============================================================================
@@ -463,14 +436,6 @@ export function useAccountingBankTransactions(filters?: { bankAccountId?: string
     queryFn: () => accountingApi.listBankTransactions(filters),
   });
 }
-
-function useUnreconciledTransactions() {
-  return useQuery({
-    queryKey: accountingKeys.bankTransactions.unreconciled(),
-    queryFn: () => accountingApi.getUnreconciledTransactions(),
-  });
-}
-
 export function useAutoReconcile() {
   const qc = useQueryClient();
   return useMutation({
@@ -497,7 +462,7 @@ export function useCreateReconciliationRule() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: Record<string, unknown>) =>
-      accountingApi.createReconciliationRule(data as any),
+      accountingApi.createReconciliationRule(data as unknown as Partial<ReconciliationRule>),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: accountingKeys.reconciliationRules.all });
     },
@@ -508,7 +473,7 @@ export function useUpdateReconciliationRule() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
-      accountingApi.updateReconciliationRule(id, data as any),
+      accountingApi.updateReconciliationRule(id, data as unknown as Partial<ReconciliationRule>),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: accountingKeys.reconciliationRules.all });
     },
@@ -542,27 +507,7 @@ export function useCalculateVatReturn() {
     mutationFn: (data: Record<string, unknown>) => accountingApi.calculateVatReturn(data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: accountingKeys.vatReturns.all }); },
   });
-}
-
-// ============================================================================
-// Documents
-// ============================================================================
-
-function useAccountingDocuments(filters?: { status?: string; type?: string }) {
-  return useQuery({
-    queryKey: accountingKeys.documents.list(filters),
-    queryFn: () => accountingApi.listDocuments(filters),
-  });
-}
-
-function useDocumentStats() {
-  return useQuery({
-    queryKey: accountingKeys.documents.stats(),
-    queryFn: () => accountingApi.getDocumentStats(),
-  });
-}
-
-// ============================================================================
+}// ============================================================================
 // Recurring Invoices
 // ============================================================================
 
@@ -572,18 +517,6 @@ export function useAccountingRecurringInvoices() {
     queryFn: () => accountingApi.listRecurringInvoices(),
   });
 }
-
-// ============================================================================
-// Payments
-// ============================================================================
-
-function useAccountingPayments(filters?: { type?: string; page?: number; pageSize?: number }) {
-  return useQuery({
-    queryKey: accountingKeys.payments.list(filters),
-    queryFn: () => accountingApi.listPayments(filters),
-  });
-}
-
 // ============================================================================
 // Reports
 // ============================================================================
@@ -623,21 +556,5 @@ export function useAgedPayablesReport() {
   return useQuery({
     queryKey: accountingKeys.reports.agedPayables(),
     queryFn: () => accountingApi.getAgedPayables(),
-  });
-}
-
-function useCashFlowReport(params?: { from?: string; to?: string }) {
-  return useQuery({
-    queryKey: accountingKeys.reports.cashFlow(params),
-    queryFn: () => accountingApi.getCashFlow(params),
-    enabled: false,
-  });
-}
-
-function useGeneralLedgerReport(params?: { accountId?: string; from?: string; to?: string; page?: number; pageSize?: number }) {
-  return useQuery({
-    queryKey: accountingKeys.reports.generalLedger(params),
-    queryFn: () => accountingApi.getGeneralLedger(params as { accountId: string; from?: string; to?: string; page?: number; pageSize?: number }),
-    enabled: false,
   });
 }

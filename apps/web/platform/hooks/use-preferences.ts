@@ -30,42 +30,23 @@ function setCookie(name: string, value: string) {
 // =============================================================================
 
 let _localeSnapshot: Locale = 'en';
-let _currencySnapshot: Currency = 'USD';
+const _currencySnapshot: Currency = 'USD';
 const localeListeners = new Set<() => void>();
-const currencyListeners = new Set<() => void>();
+const _currencyListeners = new Set<() => void>();
 
 function subscribeLocale(cb: () => void) {
   localeListeners.add(cb);
   return () => { localeListeners.delete(cb); };
 }
-
-function subscribeCurrency(cb: () => void) {
-  currencyListeners.add(cb);
-  return () => { currencyListeners.delete(cb); };
-}
-
 function getLocaleSnapshot(): Locale {
   if (typeof document !== 'undefined') {
     _localeSnapshot = (getCookie('locale') as Locale) || 'en';
   }
   return _localeSnapshot;
 }
-
-function getCurrencySnapshot(): Currency {
-  if (typeof document !== 'undefined') {
-    _currencySnapshot = (getCookie('currency') as Currency) || 'USD';
-  }
-  return _currencySnapshot;
-}
-
 function getLocaleServerSnapshot(): Locale {
   return 'en';
 }
-
-function getCurrencyServerSnapshot(): Currency {
-  return 'USD';
-}
-
 // =============================================================================
 // Hooks
 // =============================================================================
@@ -86,22 +67,4 @@ export function useLocale() {
   }, []);
 
   return { locale, setLocale };
-}
-
-/**
- * Client-side currency preference backed by a cookie.
- * Replaces the server action `setCurrency` / `getCurrency`.
- */
-function useCurrency() {
-  const currency = useSyncExternalStore(subscribeCurrency, getCurrencySnapshot, getCurrencyServerSnapshot);
-
-  const setCurrencyValue = useCallback((newCurrency: Currency) => {
-    setCookie('currency', newCurrency);
-    _currencySnapshot = newCurrency;
-    currencyListeners.forEach((cb) => cb());
-    // Reload so server components pick up the new cookie
-    window.location.reload();
-  }, []);
-
-  return { currency, setCurrency: setCurrencyValue };
 }

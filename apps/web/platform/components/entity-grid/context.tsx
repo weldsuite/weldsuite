@@ -17,12 +17,12 @@ import {
   CalculationType,
 } from './types';
 import { LucideIcon } from 'lucide-react';
-import { getDefaultWidthForFieldType, getDefaultValueForFieldType, getCalculationOptions } from './utils/calculations';
-import { setEditingCellValue, getEditingCellValue } from './editing-store';
+import { getDefaultWidthForFieldType, getDefaultValueForFieldType } from './utils/calculations';
+import { setEditingCellValue } from './editing-store';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 
 // Create the context with a generic type
-const GridContext = createContext<GridContextValue<any> | null>(null);
+const GridContext = createContext<GridContextValue<unknown> | null>(null);
 
 // Provider props
 interface GridProviderProps<TEntity> {
@@ -79,12 +79,12 @@ export function GridProvider<TEntity>({
     (cell: EditingCell | null) => setEditingCellValue(cell),
     [],
   );
-  const [editValue, setEditValue] = useState<any>('');
+  const [editValue, setEditValue] = useState<unknown>('');
   const [openPopover, setOpenPopover] = useState<OpenPopover | null>(null);
   const [sortConfig, setSortConfig] = useState<GridSortConfig>({ field: null, direction: null });
   const [filters, setFilters] = useState<GridFilter[]>([]);
   const [fieldCalculations, setFieldCalculations] = useState<Record<string, CalculationType>>({});
-  const [customFieldData, setCustomFieldData] = useState<Record<string, Record<string, any>>>({});
+  const [customFieldData, setCustomFieldData] = useState<Record<string, Record<string, unknown>>>({});
   const [optimisticUpdates, setOptimisticUpdates] = useState<Record<string, Partial<TEntity>>>({});
   const [isExporting, setIsExporting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -117,7 +117,7 @@ export function GridProvider<TEntity>({
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [columns, columnWidths, gridName]);
+  }, [columns, columnWidths, gridName, getClient]);
 
   // Sync columns when config.columns changes (e.g. new custom field defs fetched)
   // Preserves user visibility overrides for existing columns, adds new ones
@@ -157,7 +157,7 @@ export function GridProvider<TEntity>({
       });
       return next;
     });
-  }, [config.columns]);
+  }, [config.columns, config.initialColumnWidths, config.initialVisibility]);
 
   // Get visible columns
   const getVisibleColumns = useCallback(() => {
@@ -176,7 +176,7 @@ export function GridProvider<TEntity>({
         if (!column) return true;
 
         const value = column.getValue(entity);
-        const filterValue = filter.value?.toLowerCase() || '';
+        const filterValue = String(filter.value ?? '').toLowerCase();
         const entityValue = String(value || '').toLowerCase();
 
         switch (filter.operator) {
@@ -218,7 +218,7 @@ export function GridProvider<TEntity>({
 
   // Update entity field
   const updateEntityField = useCallback(
-    async (entityId: string, fieldId: string, value: any) => {
+    async (entityId: string, fieldId: string, value: unknown) => {
       const column = columns.find((c) => c.id === fieldId);
       if (!column || !column.setValue) {
         console.warn(`Cannot update field ${fieldId}: no setValue defined`);
@@ -251,7 +251,7 @@ export function GridProvider<TEntity>({
 
   // Update custom field value
   const updateCustomFieldValue = useCallback(
-    (entityId: string, fieldId: string, value: any) => {
+    (entityId: string, fieldId: string, value: unknown) => {
       setCustomFieldData((prev) => ({
         ...prev,
         [entityId]: {
@@ -265,7 +265,7 @@ export function GridProvider<TEntity>({
 
   // Get custom field value
   const getCustomFieldValue = useCallback(
-    (entityId: string, fieldId: string): any => {
+    (entityId: string, fieldId: string): unknown => {
       return customFieldData[entityId]?.[fieldId];
     },
     [customFieldData]
@@ -293,14 +293,14 @@ export function GridProvider<TEntity>({
               ]
             : undefined,
         getValue: (entity: TEntity) => customFieldData[config.getEntityId(entity)]?.[newFieldId],
-        setValue: (entity: TEntity, value: any) => ({ [newFieldId]: value }),
+        setValue: (entity: TEntity, value: unknown) => ({ [newFieldId]: value }),
       };
 
       setColumns((prev) => [...prev, newColumn]);
       setColumnWidths((prev) => ({ ...prev, [newFieldId]: newColumn.width }));
 
       // Initialize default values for all entities
-      const newCustomData: Record<string, Record<string, any>> = { ...customFieldData };
+      const newCustomData: Record<string, Record<string, unknown>> = { ...customFieldData };
       entities.forEach((entity) => {
         const id = config.getEntityId(entity);
         if (!newCustomData[id]) {
@@ -549,7 +549,11 @@ export function GridProvider<TEntity>({
     getCalculationResult,
   };
 
-  return <GridContext.Provider value={contextValue}>{children}</GridContext.Provider>;
+  return (
+    <GridContext.Provider value={contextValue as unknown as GridContextValue<unknown>}>
+      {children}
+    </GridContext.Provider>
+  );
 }
 
 // Hook to use the grid context

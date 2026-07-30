@@ -43,11 +43,11 @@ export interface GridColumnDef<TEntity> {
   selectConfig?: Record<string, StatusStyle>; // For styled select fields
   favoriteField?: string; // Entity field name for star toggle (used in company columns)
   // Get the value from the entity for this column
-  getValue: (entity: TEntity) => any;
+  getValue: (entity: TEntity) => unknown;
   // Set the value - returns the partial update to apply
-  setValue?: (entity: TEntity, value: any) => Record<string, any>;
+  setValue?: (entity: TEntity, value: unknown) => Record<string, unknown>;
   // Custom render function (optional)
-  render?: (entity: TEntity, value: any) => React.ReactNode;
+  render?: (entity: TEntity, value: unknown) => React.ReactNode;
   // Callback to enrich all visible entities for this column
   onEnrichAll?: (entities: TEntity[]) => void;
   // Extra actions appended to this column's header menu (e.g. edit/delete an
@@ -101,7 +101,7 @@ export interface EntityGridConfig<TEntity> {
 
 // Actions that the grid can perform
 export interface EntityGridActions<TEntity> {
-  onUpdateEntity: (id: string, updates: Record<string, any>) => Promise<{ success: boolean; error?: string }>;
+  onUpdateEntity: (id: string, updates: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>;
   onDeleteEntity: (id: string) => Promise<{ success: boolean; error?: string }>;
   onBulkDelete?: (ids: string[]) => Promise<void>;
   onBulkStatusUpdate?: (ids: string[], status: string) => Promise<void>;
@@ -145,7 +145,7 @@ export interface GridFilter {
   id: string;
   field: string;
   operator: 'contains' | 'equals' | 'starts_with' | 'is_empty' | 'is_not_empty' | 'gt' | 'lt' | 'gte' | 'lte';
-  value: any;
+  value: unknown;
 }
 
 // Calculation types
@@ -202,7 +202,7 @@ export interface GridState<TEntity> {
 
   // Editing state
   editingCell: EditingCell | null;
-  editValue: any;
+  editValue: unknown;
   openPopover: OpenPopover | null;
 
   // Sort and filter state
@@ -213,7 +213,7 @@ export interface GridState<TEntity> {
   fieldCalculations: Record<string, CalculationType>;
 
   // Custom field data (for custom columns)
-  customFieldData: Record<string, Record<string, any>>;
+  customFieldData: Record<string, Record<string, unknown>>;
 
   // Optimistic updates
   optimisticUpdates: Record<string, Partial<TEntity>>;
@@ -242,12 +242,12 @@ export interface GridContextValue<TEntity> {
   setColumnWidths: (widths: Record<string, number>) => void;
   setSelectedRows: (selected: Set<string>) => void;
   setEditingCell: (cell: EditingCell | null) => void;
-  setEditValue: (value: any) => void;
+  setEditValue: (value: unknown) => void;
   setOpenPopover: (popover: OpenPopover | null) => void;
   setSortConfig: (config: GridSortConfig) => void;
   setFilters: (filters: GridFilter[]) => void;
   setFieldCalculations: (calculations: Record<string, CalculationType>) => void;
-  setCustomFieldData: (data: Record<string, Record<string, any>>) => void;
+  setCustomFieldData: (data: Record<string, Record<string, unknown>>) => void;
   setOptimisticUpdates: (updates: Record<string, Partial<TEntity>>) => void;
   setIsExporting: (exporting: boolean) => void;
   setIsDeleting: (deleting: boolean) => void;
@@ -255,9 +255,9 @@ export interface GridContextValue<TEntity> {
   // Helper functions
   getVisibleColumns: () => GridColumnDef<TEntity>[];
   getEntityWithOptimisticUpdates: (entity: TEntity) => TEntity;
-  updateEntityField: (entityId: string, fieldId: string, value: any) => Promise<void>;
-  updateCustomFieldValue: (entityId: string, fieldId: string, value: any) => void;
-  getCustomFieldValue: (entityId: string, fieldId: string) => any;
+  updateEntityField: (entityId: string, fieldId: string, value: unknown) => Promise<void>;
+  updateCustomFieldValue: (entityId: string, fieldId: string, value: unknown) => void;
+  getCustomFieldValue: (entityId: string, fieldId: string) => unknown;
   addColumn: (type: FieldType, name: string, icon: LucideIcon) => void;
   showColumn: (fieldId: string) => void;
   deleteColumn: (fieldId: string) => void;
@@ -295,7 +295,7 @@ export interface EntityGridProps<TEntity> {
 }
 
 // Props for editor components
-export interface EditorProps<TValue = any> {
+export interface EditorProps<TValue = unknown> {
   value: TValue;
   /** Controlled-mode change handler. Uncontrolled editors may ignore this. */
   onChange?: (value: TValue) => void;
@@ -328,22 +328,7 @@ type LocationValue =
   | { city?: string; state?: string; country?: string }
   | null
   | undefined;
-export interface LocationEditorProps extends EditorProps<LocationValue> {}
+export type LocationEditorProps = EditorProps<LocationValue>;
 
 // Props for date editor
-export interface DateEditorProps extends EditorProps<Date | null | undefined> {
-
-}
-
-// Field type options for adding new columns
-interface FieldTypeOption {
-  value: FieldType;
-  label: string;
-  icon: LucideIcon;
-}
-
-// New row data structure
-interface NewRow {
-  id: string;
-  data: Record<string, any>;
-}
+export type DateEditorProps = EditorProps<Date | null | undefined>;

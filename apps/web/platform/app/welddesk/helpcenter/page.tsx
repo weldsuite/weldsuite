@@ -7,5 +7,5 @@ export default function HelpcenterPage() {
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
-  return <HelpcenterSettingsClient initialSettings={data} />;
+  return <HelpcenterSettingsClient initialSettings={data ?? null} />;
 }

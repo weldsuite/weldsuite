@@ -18,6 +18,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useGridContext } from '../context';
 import { getCalculationOptions } from '../utils/calculations';
+import type { CalculationType } from '../types';
 
 export function GridFooter() {
   const t = useTranslations();
@@ -37,7 +38,7 @@ export function GridFooter() {
   const applyCalculation = (fieldId: string, calculationType: string) => {
     setFieldCalculations({
       ...fieldCalculations,
-      [fieldId]: calculationType as any,
+      [fieldId]: calculationType as CalculationType,
     });
   };
 

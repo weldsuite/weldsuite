@@ -26,4 +26,4 @@ export function useCurrentAccountingEntity() {
 }
 
 /** Read-only atom for components that only need to react to changes. */
-const accountingEntityIdReadonlyAtom = atom((get) => get(currentAccountingEntityIdAtom));
+const _accountingEntityIdReadonlyAtom = atom((get) => get(currentAccountingEntityIdAtom));

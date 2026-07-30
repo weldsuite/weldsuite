@@ -49,15 +49,11 @@ export function ServerPipelineKanban({ pipelineId, pipelineName }: ServerPipelin
   const contacts = peopleResult?.data || [];
 
   // Create lookup maps for customer and contact names
-  const customerMap = new Map<string, { id: string; name?: string; email?: string }>(
-    customers.map((c: any) => [c.id, c])
-  );
-  const contactMap = new Map<string, { id: string; name?: string; email?: string }>(
-    contacts.map((c: any) => [c.id, c])
-  );
+  const customerMap = new Map(customers.map((c) => [c.id, c] as const));
+  const contactMap = new Map(contacts.map((c) => [c.id, c] as const));
 
   // Map opportunities to the format expected by the kanban
-  const deals = (Array.isArray(opportunities) ? opportunities : []).map((opp: any) => {
+  const deals = (Array.isArray(opportunities) ? opportunities : []).map((opp) => {
     // Look up customer data if customerId exists
     const customer = opp.customerId ? customerMap.get(opp.customerId) : null;
     const customerName = opp.customerName || customer?.name;
@@ -68,7 +64,7 @@ export function ServerPipelineKanban({ pipelineId, pipelineName }: ServerPipelin
     return {
       id: opp.id,
       title: opp.name,
-      value: opp.amount?.amount || opp.value || 0,
+      value: (opp.amount ? Number(opp.amount) : undefined) || opp.value || 0,
       stage: opp.stageId || opp.stage,
       company: (opp.customerId || customerName) ? {
         id: opp.customerId,
@@ -76,12 +72,12 @@ export function ServerPipelineKanban({ pipelineId, pipelineName }: ServerPipelin
       } : undefined,
       contact: opp.primaryContactId ? {
         id: opp.primaryContactId,
-        name: contactData?.name || '',
+        name: contactData?.fullName || contactData?.displayName || '',
         email: contactData?.email || ''
       } : undefined,
       probability: opp.probability || 0,
       expectedCloseDate: opp.closeDate,
-      lastActivity: opp.lastActivityDate,
+      lastActivity: undefined,
       tags: opp.tags || [],
       status: opp.status,
       notes: opp.description,
@@ -97,7 +93,7 @@ export function ServerPipelineKanban({ pipelineId, pipelineName }: ServerPipelin
     }
   }
 
-  async function handleDealCreate(data: any) {
+  async function handleDealCreate(data: Record<string, unknown>) {
     try {
       await createOpportunityMutation.mutateAsync({
         ...data,

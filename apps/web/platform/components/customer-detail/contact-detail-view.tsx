@@ -119,7 +119,7 @@ function ContactDetailProvider({
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('details');
 
   const contact: HelpdeskContactRow | null = raw?.contactResult?.success
-    ? (raw.contactResult.data as HelpdeskContactRow)
+    ? (raw.contactResult.data as unknown as HelpdeskContactRow)
     : null;
   const conversations: Helpdesk.Conversation[] = raw?.conversationsResult?.success
     ? (Array.isArray(raw.conversationsResult.data) ? (raw.conversationsResult.data as Helpdesk.Conversation[]) : [])

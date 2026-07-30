@@ -80,8 +80,8 @@ export function EnterpriseContactForm({ trigger, onSuccess }: EnterpriseContactF
           useCase: '',
         });
       }, 3000);
-    } catch (err: any) {
-      setError(err.message || t('sweep.settings.enterpriseContact.submitFailed'));
+    } catch (err: unknown) {
+      setError((err as Error)?.message || t('sweep.settings.enterpriseContact.submitFailed'));
     } finally {
       setSubmitting(false);
     }

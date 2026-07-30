@@ -50,9 +50,9 @@ interface SavedReplyEditorProps {
     id: string;
     name: string;
     content: string;
-    category: string | null;
+    category?: string | null;
     scope: string;
-    shortcut: string | null;
+    shortcut?: string | null;
   } | null;
 }
 
@@ -64,7 +64,7 @@ export function SavedReplyEditor({ open, onOpenChange, editingItem }: SavedReply
   const updateMutation = useUpdateCannedResponse();
   const isEditing = !!editingItem;
 
-  const form = useForm<SavedReplyFormInput, any, SavedReplyFormData>({
+  const form = useForm<SavedReplyFormInput, unknown, SavedReplyFormData>({
     resolver: zodResolver(savedReplySchema),
     defaultValues: {
       name: '',

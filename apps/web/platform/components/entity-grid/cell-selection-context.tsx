@@ -189,7 +189,7 @@ export function CellSelectionProvider<TEntity>({ entities, children }: CellSelec
           }
           let value: unknown;
           if (column.isCustom) {
-            const id = (merged as any)?.id ?? null;
+            const id = (merged as Record<string, unknown> | undefined)?.id as string | null ?? null;
             value = id ? customFieldData[id]?.[column.id] : undefined;
           } else {
             value = column.getValue(merged);
@@ -265,26 +265,7 @@ export function useCellSelectionState(row: number, col: number): number {
     return ctx.store.getCellState(row, col);
   }, [ctx, row, col]);
   return useSyncExternalStore(subscribe, getSnapshot, () => 0);
-}
-
-/** Convenience for the few callers that only need the boolean. */
-function useIsCellSelected(row: number, col: number): boolean {
-  return useCellSelectionState(row, col) !== 0;
-}
-
-/**
- * Subscribes to whether a cell drag is currently in progress. Used to
- * suppress hover-revealed UI (favorite stars, Plus icons, etc.) during a
- * drag so they don't pop in/out as the cursor crosses cells.
- */
-function useIsSelectingCells(): boolean {
-  const ctx = useContext(CellSelectionContext);
-  const subscribe = ctx ? ctx.store.subscribe : NOOP_SUBSCRIBE;
-  const getSnapshot = useCallback(() => ctx?.store.isSelecting ?? false, [ctx]);
-  return useSyncExternalStore(subscribe, getSnapshot, () => false);
-}
-
-/**
+}/**
  * Returns the action handlers (start/extend) that GridRow uses on the cell
  * <td>. These are stable references and never trigger a re-render on
  * selection change.
@@ -308,7 +289,7 @@ function formatCopyValue(value: unknown): string {
   if (Array.isArray(value)) return value.map((v) => formatCopyValue(v)).join(', ');
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   if (typeof value === 'object') {
-    const v = value as any;
+    const v = value as Record<string, unknown>;
     if (typeof v.label === 'string') return v.label;
     if (typeof v.name === 'string') return v.name;
     if (typeof v.title === 'string') return v.title;

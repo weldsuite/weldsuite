@@ -120,7 +120,7 @@ const GROUP_LOGOS: Record<string, string> = {
   Settings: '/assets/images/weldsuite/icon.svg',
 };
 
-interface WorkspaceApiKey {
+export interface WorkspaceApiKey {
   id: string;
   name: string;
   description?: string;

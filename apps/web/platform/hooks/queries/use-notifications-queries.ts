@@ -43,106 +43,16 @@ export interface ModuleChannelPreferences {
   push: boolean;
   desktop: boolean;
 }
-
-interface Notification {
-  id: string;
-  workspaceId: string;
-  userId: string;
-  title: string;
-  body?: string;
-  category: string;
-  notificationType: string;
-  entityType?: string;
-  entityId?: string;
-  actionUrl?: string;
-  icon?: string;
-  severity: 'info' | 'warning' | 'error' | 'success';
-  data?: Record<string, unknown>;
-  isRead: boolean;
-  readAt?: string;
-  deliveredInApp: boolean;
-  deliveredEmail: boolean;
-  deliveredPush: boolean;
-  createdAt: string;
-  expiresAt?: string;
-}
-
 // =============================================================================
 // Query Keys
 // =============================================================================
 
 export const notificationKeys = {
   all: ['notifications'] as const,
-  list: (filters?: Record<string, any>) => [...notificationKeys.all, 'list', filters] as const,
+  list: (filters?: Record<string, unknown>) => [...notificationKeys.all, 'list', filters] as const,
   unreadCount: () => [...notificationKeys.all, 'unread-count'] as const,
   preferences: () => [...notificationKeys.all, 'preferences'] as const,
-};
-
-// =============================================================================
-// Helper
-// =============================================================================
-
-function buildQueryString(params: Record<string, any>): string {
-  const queryParams = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null && value !== '') {
-      queryParams.set(key, String(value));
-    }
-  }
-  const query = queryParams.toString();
-  return query ? `?${query}` : '';
-}
-
-// =============================================================================
-// Notification Queries
-// =============================================================================
-
-/**
- * Notification list.
- *
- * app-api paginates with an opaque cursor, so the legacy `page`/`pageSize`
- * params map to `limit` + `cursor`. Note that app-api has no `category` filter —
- * it is accepted here and ignored, exactly as before (the legacy caller never
- * passed one, and this hook is currently unreferenced).
- */
-function useNotifications(params?: {
-  page?: number;
-  pageSize?: number;
-  category?: string;
-  isRead?: boolean;
-  cursor?: string;
-}) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: notificationKeys.list(params),
-    queryFn: async () => {
-      const client = await getClient();
-      const queryParams: Record<string, any> = {
-        limit: Math.min(params?.pageSize ?? 25, 100),
-      };
-      if (params?.cursor) queryParams.cursor = params.cursor;
-      if (params?.isRead !== undefined) {
-        queryParams.isRead = params.isRead ? 'true' : 'false';
-      }
-      const query = buildQueryString(queryParams);
-      return client.get<ListEnvelope<Notification>>(`/notifications${query}`);
-    },
-  });
-}
-
-function useUnreadNotificationCount() {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: notificationKeys.unreadCount(),
-    queryFn: async () => {
-      const client = await getClient();
-      const result = await client.get<{ data: { count: number } }>('/notifications/unread-count');
-      return result.data?.count ?? 0;
-    },
-  });
-}
-
-/**
+};/**
  * The user's notification preferences.
  *
  * app-api exposes this as a self-scoped list rather than a singleton, so we take
@@ -234,48 +144,6 @@ export function useUpdateGlobalNotificationSettings() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: notificationKeys.preferences() });
-    },
-  });
-}
-
-function useMarkNotificationAsRead() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (notificationId: string) => {
-      const client = await getClient();
-      return client.post<{ data: Notification }>(`/notifications/${notificationId}/read`);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: notificationKeys.all });
-    },
-  });
-}
-
-function useMarkAllNotificationsAsRead() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async () => {
-      const client = await getClient();
-      return client.post<{ data: { updated: number } }>('/notifications/read-all');
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: notificationKeys.all });
-    },
-  });
-}
-
-function useDeleteNotification() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (notificationId: string) => {
-      const client = await getClient();
-      return client.delete<void>(`/notifications/${notificationId}`);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: notificationKeys.all });
     },
   });
 }

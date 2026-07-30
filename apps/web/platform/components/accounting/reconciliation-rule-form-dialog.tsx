@@ -94,11 +94,11 @@ export function ReconciliationRuleFormDialog({
   const { data: taxRatesRes } = useAccountingTaxRates();
   const { data: contactsRes } = useAccountingCustomers({ pageSize: 100 });
 
-  const accountOptions = ((accountsRes?.data ?? []) as any[]).filter(
+  const accountOptions = (accountsRes?.data ?? []).filter(
     (a) => a.type === 'expense' || a.type === 'revenue',
   );
-  const taxRateOptions = (taxRatesRes?.data ?? []) as any[];
-  const contactOptions = (contactsRes?.data ?? []) as any[];
+  const taxRateOptions = taxRatesRes?.data ?? [];
+  const contactOptions = contactsRes?.data ?? [];
 
   useEffect(() => {
     if (!open) return;
@@ -252,7 +252,7 @@ export function ReconciliationRuleFormDialog({
                         newDef.type === 'number' ? NUMBER_OPERATORS : TEXT_OPERATORS;
                       updateCondition(idx, {
                         field: newField,
-                        operator: validOps.includes(c.operator as any)
+                        operator: (validOps as readonly string[]).includes(c.operator)
                           ? c.operator
                           : validOps[0],
                         value: '',
@@ -373,7 +373,7 @@ export function ReconciliationRuleFormDialog({
                   <SelectContent>
                     {contactOptions.map((c) => (
                       <SelectItem key={c.id} value={c.id}>
-                        {c.companyName || c.fullName || c.email || c.id}
+                        {c.companyName || c.name || c.email || c.id}
                       </SelectItem>
                     ))}
                   </SelectContent>

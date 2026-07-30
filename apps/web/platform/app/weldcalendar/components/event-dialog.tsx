@@ -77,7 +77,7 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
   // Calendars the user can create events in (own + edit/manage shared)
   const writableCalendars = (calendars || []).filter((c) => c.isOwn || c.permission === 'edit' || c.permission === 'manage');
 
-  const form = useForm<EventFormInput, any, EventFormValues>({
+  const form = useForm<EventFormInput, unknown, EventFormValues>({
     resolver: zodResolver(eventFormSchema),
     defaultValues: {
       calendarId: defaultCalendarId || '',

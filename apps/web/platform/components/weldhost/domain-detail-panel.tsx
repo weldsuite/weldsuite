@@ -29,12 +29,9 @@ import {
   ListCollapse,
   Clock,
   AlertTriangle,
-  User,
   Settings as SettingsIcon,
   History,
   KeyRound,
-  ChevronDown,
-  ChevronRight as ChevronRightIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -46,7 +43,7 @@ import {
 } from '@weldsuite/ui/components/dropdown-menu';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { useRouter } from '@/lib/router';
-import type { HostDomain, DomainContact } from '@/lib/api/domains/weldhost';
+import type { HostDomain } from '@/lib/api/domains/weldhost';
 
 interface DomainDetailPanelProps {
   domain: HostDomain | null;
@@ -121,32 +118,6 @@ function YesNoPill({ enabled }: { enabled: boolean }) {
     </span>
   );
 }
-
-function ContactCard({ title, contact }: { title: string; contact: DomainContact | undefined }) {
-  if (!contact?.email) return null;
-  const name = [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim() || '—';
-  return (
-    <div className="rounded-md border border-border/60 bg-background p-3 space-y-1">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</div>
-      <div className="text-sm font-medium text-foreground">{name}</div>
-      {contact.organization && (
-        <div className="text-xs text-muted-foreground">{contact.organization}</div>
-      )}
-      {contact.email && (
-        <div className="text-xs text-muted-foreground break-all">{contact.email}</div>
-      )}
-      {contact.phone && <div className="text-xs text-muted-foreground">{contact.phone}</div>}
-      {(contact.address1 || contact.city || contact.country) && (
-        <div className="text-xs text-muted-foreground pt-1">
-          {[contact.address1, contact.address2, contact.city, contact.state, contact.postalCode, contact.country]
-            .filter(Boolean)
-            .join(', ')}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function DomainDetailPanel({
   domain,
   isOpen,
@@ -745,129 +716,6 @@ export function DomainDetailPanel({
           </div>
         </>
       )}
-    </div>
-  );
-}
-
-function DomainRecordDetails({ domain }: { domain: HostDomain }) {
-  const t = useTranslations();
-  const [open, setOpen] = useState(true);
-  const fullDomain = domain.fullDomain || `${domain.name}.${domain.tld}`;
-  const status = statusPill[domain.status] ?? statusPill.active;
-  const days = daysUntil(domain.expiresAt);
-
-  return (
-    <div>
-      <Button
-        type="button"
-        variant="ghost"
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 w-full text-left text-sm font-medium text-foreground hover:text-foreground/80 transition-colors"
-      >
-        {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRightIcon className="h-4 w-4" />}
-        {t('sweep.shared.recordDetails')}
-      </Button>
-      {open && (
-        <div className="mt-2 space-y-1">
-          <SidebarRow icon={Globe} label={t('sweep.shared.domain')}>
-            <span className="font-mono text-sm">{fullDomain}</span>
-          </SidebarRow>
-          <SidebarRow icon={CircleDot} label={t('sweep.shared.status')}>
-            <span className={cn(PILL, status.color)}>{t(status.labelKey)}</span>
-          </SidebarRow>
-          <SidebarRow icon={Tag} label={t('sweep.shared.tld')}>
-            <span className={cn(PILL, 'font-mono text-gray-600 dark:text-muted-foreground bg-gray-100 dark:bg-secondary')}>
-              .{domain.tld}
-            </span>
-          </SidebarRow>
-          <SidebarRow icon={Building2} label={t('sweep.shared.registrar')}>
-            <span className="text-sm">{domain.registrar || 'WeldHost'}</span>
-          </SidebarRow>
-          <SidebarRow icon={CalendarIcon} label={t('sweep.shared.registered')}>
-            <span className="text-sm text-muted-foreground">{formatDate(domain.registeredAt) || '—'}</span>
-          </SidebarRow>
-          <SidebarRow icon={CalendarIcon} label={t('sweep.shared.expires')}>
-            <span className="text-sm text-muted-foreground">{formatDate(domain.expiresAt) || '—'}</span>
-          </SidebarRow>
-          {days !== null && (
-            <SidebarRow icon={Clock} label={t('sweep.shared.remaining')}>
-              <span
-                className={cn(
-                  PILL,
-                  days < 0
-                    ? 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950'
-                    : days < 30
-                      ? 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950'
-                      : 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950',
-                )}
-              >
-                {days < 0 ? t('sweep.shared.expiredDaysAgo', { count: -days }) : t('sweep.shared.daysShort', { count: days })}
-              </span>
-            </SidebarRow>
-          )}
-          <SidebarRow icon={RefreshCcw} label={t('sweep.shared.autoRenew')}>
-            <YesNoPill enabled={domain.autoRenew} />
-          </SidebarRow>
-          <SidebarRow icon={ShieldCheck} label={t('sweep.shared.ssl')}>
-            <YesNoPill enabled={domain.sslEnabled} />
-          </SidebarRow>
-          <SidebarRow icon={Mail} label={t('sweep.shared.emailForwarding')}>
-            <YesNoPill enabled={domain.emailForwardingEnabled} />
-          </SidebarRow>
-          <SidebarRow icon={Shield} label={t('sweep.shared.privacy')}>
-            <YesNoPill enabled={domain.privacyProtection} />
-          </SidebarRow>
-          <SidebarRow icon={Lock} label={t('sweep.shared.transferLock')}>
-            <YesNoPill enabled={domain.locked} />
-          </SidebarRow>
-          {domain.registrantContact?.email && (
-            <SidebarRow icon={User} label={t('sweep.shared.registrant')}>
-              <span className="text-sm truncate">{domain.registrantContact.email}</span>
-            </SidebarRow>
-          )}
-          {domain.adminContact?.email && (
-            <SidebarRow icon={User} label={t('sweep.shared.admin')}>
-              <span className="text-sm truncate">{domain.adminContact.email}</span>
-            </SidebarRow>
-          )}
-          {domain.techContact?.email && (
-            <SidebarRow icon={User} label={t('sweep.shared.technical')}>
-              <span className="text-sm truncate">{domain.techContact.email}</span>
-            </SidebarRow>
-          )}
-          {domain.billingContact?.email && (
-            <SidebarRow icon={User} label={t('sweep.shared.billing')}>
-              <span className="text-sm truncate">{domain.billingContact.email}</span>
-            </SidebarRow>
-          )}
-          <SidebarRow icon={Clock} label={t('sweep.shared.created')}>
-            <span className="text-sm text-muted-foreground">{formatDate(domain.createdAt)}</span>
-          </SidebarRow>
-          <SidebarRow icon={Clock} label={t('sweep.shared.lastUpdated')}>
-            <span className="text-sm text-muted-foreground">{formatDate(domain.updatedAt)}</span>
-          </SidebarRow>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SidebarRow({
-  icon: Icon,
-  label,
-  children,
-}: {
-  icon: typeof CircleDot;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center gap-3 min-h-[28px]">
-      <div className="flex items-center gap-2 w-32 flex-shrink-0">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-xs text-muted-foreground">{label}</span>
-      </div>
-      <div className="flex-1 min-w-0 text-foreground">{children}</div>
     </div>
   );
 }

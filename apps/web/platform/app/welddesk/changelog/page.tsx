@@ -2,10 +2,26 @@
 import { useSearchParams } from '@/lib/router';
 import { FileText, PlusCircle, Download, Eye } from 'lucide-react';
 import { EntityPageHeader, type StatItem, type ActionButton } from '@/components/entity-overview/entity-page-header';
-import { useChangelog } from '@/hooks/queries/use-helpdesk-queries';
+import { useChangelog, type ChangelogEntry } from '@/hooks/queries/use-helpdesk-queries';
 import { ChangelogClient } from './changelog-client';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
+import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
+
+/** Map the app-api wire row onto the view shape `ChangelogClient` renders. */
+function toViewEntry(item: Helpdesk.Api.ChangelogEntry): ChangelogEntry {
+  return {
+    id: item.id,
+    version: item.version,
+    title: item.title,
+    description: item.description,
+    type: item.type === 'security' ? 'bugfix' : item.type,
+    date: item.releaseDate,
+    published: item.status === 'published',
+    author: item.authorName || '',
+    tags: item.changes?.map((c) => c.type) ?? [],
+  };
+}
 
 export default function ChangelogPage() {
   const { t } = useI18n();
@@ -94,7 +110,7 @@ export default function ChangelogPage() {
       actions={actions}
     >
       <ChangelogClient
-        items={items}
+        items={items.map(toViewEntry)}
         pagination={pagination}
         params={currentParams}
         statusFilters={statusFilters}

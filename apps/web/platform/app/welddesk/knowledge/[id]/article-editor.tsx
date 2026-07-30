@@ -43,7 +43,7 @@ interface Article {
   tags: string[];
   author: string;
   status: 'published' | 'draft' | 'archived' | 'review' | 'outdated';
-  visibility: 'public' | 'internal';
+  visibility: 'public' | 'internal' | 'restricted';
   lastUpdated: Date;
 }
 

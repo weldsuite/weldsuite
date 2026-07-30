@@ -1,6 +1,9 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
+import type { AuditLogEntry } from '@/components/audit-timeline';
+import type { HelpcenterSettingsData, HelpcenterDomain } from '@/app/welddesk/helpcenter/helpcenter-settings-client';
 
 // =============================================================================
 // app-api envelopes + legacy compatibility adapters
@@ -62,8 +65,8 @@ const DEFAULT_PAGE_SIZE = 25;
  * by opaque `cursor`, so offset jumps are not expressible. Callers that need
  * page 2+ must switch to cursor traversal (`pagination.cursor`).
  */
-function toAppApiQuery(filters?: Record<string, any>): Record<string, any> {
-  const qs: Record<string, any> = { ...(filters ?? {}) };
+function toAppApiQuery(filters?: Record<string, unknown>): Record<string, unknown> {
+  const qs: Record<string, unknown> = { ...(filters ?? {}) };
   const pageSize = qs.pageSize ?? qs.limit;
   delete qs.pageSize;
   delete qs.page;
@@ -106,22 +109,22 @@ const helpdeskKeys = {
   // Tickets
   tickets: () => [...helpdeskKeys.all, 'tickets'] as const,
   ticketLists: () => [...helpdeskKeys.tickets(), 'list'] as const,
-  ticketList: (filters?: Record<string, any>) => [...helpdeskKeys.ticketLists(), filters] as const,
+  ticketList: (filters?: Record<string, unknown>) => [...helpdeskKeys.ticketLists(), filters] as const,
   ticketDetails: () => [...helpdeskKeys.tickets(), 'detail'] as const,
   ticketDetail: (id: string) => [...helpdeskKeys.ticketDetails(), id] as const,
-  ticketStats: (params?: Record<string, any>) => [...helpdeskKeys.tickets(), 'stats', params] as const,
+  ticketStats: (params?: Record<string, unknown>) => [...helpdeskKeys.tickets(), 'stats', params] as const,
 
   // Articles
   articles: () => [...helpdeskKeys.all, 'articles'] as const,
   articleLists: () => [...helpdeskKeys.articles(), 'list'] as const,
-  articleList: (filters?: Record<string, any>) => [...helpdeskKeys.articleLists(), filters] as const,
+  articleList: (filters?: Record<string, unknown>) => [...helpdeskKeys.articleLists(), filters] as const,
   articleDetails: () => [...helpdeskKeys.articles(), 'detail'] as const,
   articleDetail: (id: string) => [...helpdeskKeys.articleDetails(), id] as const,
 
   // Agents
   agents: () => [...helpdeskKeys.all, 'agents'] as const,
   agentLists: () => [...helpdeskKeys.agents(), 'list'] as const,
-  agentList: (filters?: Record<string, any>) => [...helpdeskKeys.agentLists(), filters] as const,
+  agentList: (filters?: Record<string, unknown>) => [...helpdeskKeys.agentLists(), filters] as const,
   agentDetails: () => [...helpdeskKeys.agents(), 'detail'] as const,
   agentDetail: (id: string) => [...helpdeskKeys.agentDetails(), id] as const,
 
@@ -131,19 +134,19 @@ const helpdeskKeys = {
   // Departments
   departments: () => [...helpdeskKeys.all, 'departments'] as const,
   departmentLists: () => [...helpdeskKeys.departments(), 'list'] as const,
-  departmentList: (filters?: Record<string, any>) => [...helpdeskKeys.departmentLists(), filters] as const,
+  departmentList: (filters?: Record<string, unknown>) => [...helpdeskKeys.departmentLists(), filters] as const,
   departmentDetails: () => [...helpdeskKeys.departments(), 'detail'] as const,
   departmentDetail: (id: string) => [...helpdeskKeys.departmentDetails(), id] as const,
 
   // FAQs
   faqs: () => [...helpdeskKeys.all, 'faqs'] as const,
   faqLists: () => [...helpdeskKeys.faqs(), 'list'] as const,
-  faqList: (filters?: Record<string, any>) => [...helpdeskKeys.faqLists(), filters] as const,
+  faqList: (filters?: Record<string, unknown>) => [...helpdeskKeys.faqLists(), filters] as const,
 
   // Canned Responses
   cannedResponses: () => [...helpdeskKeys.all, 'canned-responses'] as const,
   cannedResponseLists: () => [...helpdeskKeys.cannedResponses(), 'list'] as const,
-  cannedResponseList: (filters?: Record<string, any>) => [...helpdeskKeys.cannedResponseLists(), filters] as const,
+  cannedResponseList: (filters?: Record<string, unknown>) => [...helpdeskKeys.cannedResponseLists(), filters] as const,
   cannedResponseDetails: () => [...helpdeskKeys.cannedResponses(), 'detail'] as const,
   cannedResponseDetail: (id: string) => [...helpdeskKeys.cannedResponseDetails(), id] as const,
   cannedResponseCategories: () => [...helpdeskKeys.cannedResponses(), 'categories'] as const,
@@ -152,32 +155,32 @@ const helpdeskKeys = {
   // Contacts
   contacts: () => [...helpdeskKeys.all, 'contacts'] as const,
   contactLists: () => [...helpdeskKeys.contacts(), 'list'] as const,
-  contactList: (filters?: Record<string, any>) => [...helpdeskKeys.contactLists(), filters] as const,
+  contactList: (filters?: Record<string, unknown>) => [...helpdeskKeys.contactLists(), filters] as const,
 
   // Announcements
   announcements: () => [...helpdeskKeys.all, 'announcements'] as const,
   announcementLists: () => [...helpdeskKeys.announcements(), 'list'] as const,
-  announcementList: (filters?: Record<string, any>) => [...helpdeskKeys.announcementLists(), filters] as const,
+  announcementList: (filters?: Record<string, unknown>) => [...helpdeskKeys.announcementLists(), filters] as const,
 
   // Changelog
   changelog: () => [...helpdeskKeys.all, 'changelog'] as const,
   changelogLists: () => [...helpdeskKeys.changelog(), 'list'] as const,
-  changelogList: (filters?: Record<string, any>) => [...helpdeskKeys.changelogLists(), filters] as const,
+  changelogList: (filters?: Record<string, unknown>) => [...helpdeskKeys.changelogLists(), filters] as const,
 
   // News
   news: () => [...helpdeskKeys.all, 'news'] as const,
   newsLists: () => [...helpdeskKeys.news(), 'list'] as const,
-  newsList: (filters?: Record<string, any>) => [...helpdeskKeys.newsLists(), filters] as const,
+  newsList: (filters?: Record<string, unknown>) => [...helpdeskKeys.newsLists(), filters] as const,
 
   // Feedback
   feedback: () => [...helpdeskKeys.all, 'feedback'] as const,
   feedbackLists: () => [...helpdeskKeys.feedback(), 'list'] as const,
-  feedbackList: (filters?: Record<string, any>) => [...helpdeskKeys.feedbackLists(), filters] as const,
+  feedbackList: (filters?: Record<string, unknown>) => [...helpdeskKeys.feedbackLists(), filters] as const,
 
   // Reviews
   reviews: () => [...helpdeskKeys.all, 'reviews'] as const,
   reviewLists: () => [...helpdeskKeys.reviews(), 'list'] as const,
-  reviewList: (filters?: Record<string, any>) => [...helpdeskKeys.reviewLists(), filters] as const,
+  reviewList: (filters?: Record<string, unknown>) => [...helpdeskKeys.reviewLists(), filters] as const,
 
   // Ticket Types
   ticketTypes: () => [...helpdeskKeys.all, 'ticket-types'] as const,
@@ -194,7 +197,7 @@ const helpdeskKeys = {
 // Helper to build query string
 // =============================================================================
 
-function buildQueryString(params: Record<string, any>): string {
+function buildQueryString(params: Record<string, unknown>): string {
   const queryParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
@@ -273,7 +276,7 @@ export function useArticles(filters?: {
       const client = await getClient();
       const query = buildQueryString(filters || {});
       return client.get<{
-        data: any[];
+        data: Helpdesk.Article[];
         pagination: { totalCount: number; hasMore: boolean; cursor: string | null };
       }>(`/articles${query}`);
     },
@@ -286,7 +289,7 @@ export function useArticle(id: string, enabled = true) {
     queryKey: helpdeskKeys.articleDetail(id),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: any }>(`/articles/${id}`);
+      return client.get<{ data: Helpdesk.Article }>(`/articles/${id}`);
     },
     enabled: !!id && enabled,
   });
@@ -310,7 +313,7 @@ export function useHelpdeskAgents(filters?: {
     queryFn: async () => {
       const client = await getClient();
       const query = buildQueryString(toAppApiQuery(filters));
-      const res = await client.get<AppApiList<any>>(`/helpdesk-agents${query}`);
+      const res = await client.get<AppApiList<Helpdesk.Agent>>(`/helpdesk-agents${query}`);
       return toLegacyList(res, filters);
     },
   });
@@ -322,7 +325,7 @@ export function useHelpdeskAgent(id: string, enabled = true) {
     queryKey: helpdeskKeys.agentDetail(id),
     queryFn: async () => {
       const client = await getClient();
-      return toLegacy(await client.get<AppApiSingle<any>>(`/helpdesk-agents/${id}`));
+      return toLegacy(await client.get<AppApiSingle<Helpdesk.Agent>>(`/helpdesk-agents/${id}`));
     },
     enabled: !!id && enabled,
   });
@@ -344,7 +347,7 @@ export function useDepartments(filters?: {
     queryFn: async () => {
       const client = await getClient();
       const query = buildQueryString(toAppApiQuery(filters));
-      const res = await client.get<AppApiList<any>>(`/helpdesk-departments${query}`);
+      const res = await client.get<AppApiList<Helpdesk.Department>>(`/helpdesk-departments${query}`);
       return toLegacyList(res, filters);
     },
   });
@@ -356,7 +359,7 @@ export function useDepartment(id: string, enabled = true) {
     queryKey: helpdeskKeys.departmentDetail(id),
     queryFn: async () => {
       const client = await getClient();
-      return toLegacy(await client.get<AppApiSingle<any>>(`/helpdesk-departments/${id}`));
+      return toLegacy(await client.get<AppApiSingle<Helpdesk.Department>>(`/helpdesk-departments/${id}`));
     },
     enabled: !!id && enabled,
   });
@@ -378,7 +381,7 @@ export function useCannedResponses(filters?: {
     queryFn: async () => {
       const client = await getClient();
       const query = buildQueryString(toAppApiQuery(filters));
-      const res = await client.get<AppApiList<any>>(`/canned-responses${query}`);
+      const res = await client.get<AppApiList<Helpdesk.CannedResponse>>(`/canned-responses${query}`);
       return toLegacyList(res, filters);
     },
   });
@@ -396,7 +399,7 @@ export function useSearchCannedResponses(q: string) {
     queryFn: async () => {
       const client = await getClient();
       const query = buildQueryString({ q, limit: 20 });
-      return toLegacy(await client.get<AppApiSingle<any[]>>(`/canned-responses/search${query}`));
+      return toLegacy(await client.get<AppApiSingle<Helpdesk.CannedResponse[]>>(`/canned-responses/search${query}`));
     },
     enabled: q.length >= 1,
   });
@@ -417,7 +420,7 @@ export function useHelpdeskContacts(filters?: {
     queryFn: async () => {
       const client = await getClient();
       const query = buildQueryString(toAppApiQuery(filters));
-      const res = await client.get<AppApiList<any>>(`/helpdesk-contacts${query}`);
+      const res = await client.get<AppApiList<Helpdesk.Api.Contact>>(`/helpdesk-contacts${query}`);
       return toLegacyList(res, filters);
     },
   });
@@ -442,7 +445,7 @@ export function useAnnouncements(filters?: {
     queryFn: async () => {
       const client = await getClient();
       const query = buildQueryString(toAppApiQuery(filters));
-      const res = await client.get<AppApiList<any>>(`/helpdesk-announcements${query}`);
+      const res = await client.get<AppApiList<Helpdesk.Api.Announcement>>(`/helpdesk-announcements${query}`);
       return toLegacyList(res, filters);
     },
   });
@@ -478,7 +481,7 @@ export function useChangelog(filters?: {
       // Default to 1 rather than omitting: an absent `page` would fall back to
       // cursor mode, whose meta carries no `totalPages` for the pager.
       const query = buildQueryString({ ...toAppApiQuery(filters), page: filters?.page ?? 1 });
-      const res = await client.get<AppApiList<any>>(`/helpdesk-changelog${query}`);
+      const res = await client.get<AppApiList<Helpdesk.Api.ChangelogEntry>>(`/helpdesk-changelog${query}`);
       return toLegacyList(res, filters);
     },
   });
@@ -500,7 +503,7 @@ export function useHelpdeskNews(filters?: {
     queryFn: async () => {
       const client = await getClient();
       const query = buildQueryString(toAppApiQuery(filters));
-      const res = await client.get<AppApiList<any>>(`/helpdesk-news${query}`);
+      const res = await client.get<AppApiList<ApiNewsItem>>(`/helpdesk-news${query}`);
       return toLegacyList(res, filters);
     },
   });
@@ -525,7 +528,7 @@ export function useHelpdeskFeedback(filters?: {
     queryFn: async () => {
       const client = await getClient();
       const query = buildQueryString(toAppApiQuery(filters));
-      const res = await client.get<AppApiList<any>>(`/helpdesk-feedback${query}`);
+      const res = await client.get<AppApiList<Helpdesk.Api.FeedbackItem>>(`/helpdesk-feedback${query}`);
       return toLegacyList(res, filters);
     },
   });
@@ -555,7 +558,7 @@ export function useHelpdeskReviews(filters?: {
       delete qs.page;
       const query = buildQueryString(qs);
       return client.get<{
-        data: any[];
+        data: ApiReviewItem[];
         pagination: { totalCount: number; hasMore: boolean; cursor: string | null };
       }>(`/helpdesk-reviews${query}`);
     },
@@ -603,7 +606,7 @@ export function useCreateTicket() {
       const client = await getClient();
       const { descriptionHtml: _unsupported, ...payload } = data;
       return toLegacy(
-        await client.post<AppApiSingle<any>>('/tickets', { ...payload, status: 'open' }),
+        await client.post<AppApiSingle<ApiTicket>>('/tickets', { ...payload, status: 'open' }),
       );
     },
     onSuccess: () => {
@@ -645,7 +648,7 @@ export function useUpdateArticle() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: Record<string, any> }) => {
+    mutationFn: async ({ id, data }: { id: string; data: Record<string, unknown> }) => {
       const client = await getClient();
       return client.patch<{ data: { id: string } }>(`/articles/${id}`, data);
     },
@@ -704,7 +707,7 @@ export function useUpdateDepartment() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: Record<string, any> }) => {
+    mutationFn: async ({ id, data }: { id: string; data: Record<string, unknown> }) => {
       const client = await getClient();
       return toLegacy(await client.patch<AppApiSingle<{ id: string }>>(`/helpdesk-departments/${id}`, data));
     },
@@ -828,9 +831,9 @@ export function useHelpdeskContactDetailData(contactId: string, enabled = true) 
     queryFn: async () => {
       const client = await getClient();
       const [contactResult, conversationsResult] = await Promise.all([
-        client.get<AppApiSingle<any>>(`/helpdesk-contacts/${contactId}`).then(toLegacy),
+        client.get<AppApiSingle<Helpdesk.Api.Contact>>(`/helpdesk-contacts/${contactId}`).then(toLegacy),
         client
-          .get<AppApiList<any>>(`/conversations?contactId=${contactId}&limit=50`)
+          .get<AppApiList<Helpdesk.Conversation>>(`/conversations?contactId=${contactId}&limit=50`)
           .then((res) => toLegacyList(res, { pageSize: 50 })),
       ]);
       return { contactResult, conversationsResult };
@@ -922,27 +925,6 @@ export function useCreateNewsItem() {
     },
   });
 }
-
-// =============================================================================
-// Types — Shared types previously in action files
-// =============================================================================
-
-interface DashboardStats {
-  totalTickets: number;
-  openTickets: number;
-  closedTickets: number;
-  avgResponseTime: number;
-  satisfactionRate: number;
-  ticketsByStatus: Record<string, number>;
-  ticketsByPriority: Record<string, number>;
-  recentActivity: Array<{
-    id: string;
-    type: string;
-    title: string;
-    timestamp: Date;
-  }>;
-}
-
 export interface AnalyticsReport {
   id: string;
   title: string;
@@ -974,13 +956,6 @@ export interface AnalyticsChart {
   layout: { x: number; y: number; w: number; h: number; minW?: number; minH?: number };
   sortIndex: number;
 }
-
-interface AnalyticsChartDataPoint {
-  label: string;
-  value: number;
-  date?: string;
-}
-
 export interface Announcement {
   id: string;
   title: string;
@@ -1023,6 +998,22 @@ export interface NewsArticle {
   tags: string[];
 }
 
+/** `GET /helpdesk-news` row, as consumers of `useHelpdeskNews`/`useNewsArticle` read it. */
+export interface ApiNewsItem {
+  id?: string;
+  title?: string;
+  excerpt?: string;
+  content?: string;
+  authorName?: string;
+  category?: 'company' | 'product' | 'industry' | 'announcement';
+  status?: 'draft' | 'published' | 'scheduled';
+  publishedAt?: string | Date;
+  createdAt?: string | Date;
+  viewCount?: number;
+  featuredImage?: string;
+  tags?: string[];
+}
+
 export interface Review {
   id: string;
   customerName: string;
@@ -1038,6 +1029,25 @@ export interface Review {
   conversationId?: string;
   helpful?: number;
   notHelpful?: number;
+}
+
+/** `GET /helpdesk-reviews` row, as `useHelpdeskReviews` consumers read it. */
+export interface ApiReviewItem {
+  id: string;
+  customerName?: string;
+  customerEmail?: string;
+  rating?: number;
+  source?: string;
+  comment?: string;
+  body?: string;
+  status?: string;
+  sentiment?: string;
+  agentName?: string;
+  ticketId?: string;
+  conversationId?: string;
+  helpful?: number;
+  notHelpful?: number;
+  createdAt?: string;
 }
 
 export interface TicketMessage {
@@ -1086,18 +1096,6 @@ export interface ApiTicket {
   createdAt: string;
   updatedAt: string;
 }
-
-interface TicketFilters {
-  page?: number;
-  pageSize?: number;
-  search?: string;
-  status?: string;
-  priority?: string;
-  assigneeId?: string;
-  ticketTypeId?: string;
-  category?: string;
-}
-
 export interface Customer {
   id: string;
   name: string;
@@ -1160,7 +1158,7 @@ export interface AutomationSettingsData {
 export interface HelpdeskSettingsData {
   notifications: NotificationSettings;
   appearance: AppearanceSettings;
-  widgetSettings?: any;
+  widgetSettings?: Record<string, unknown>;
   tickets?: TicketSettingsData;
   satisfaction?: SatisfactionSettingsData;
   automation?: AutomationSettingsData;
@@ -1177,7 +1175,7 @@ export interface KnowledgeArticle {
   views: number;
   lastUpdated: Date;
   status: 'published' | 'draft' | 'archived' | 'review' | 'outdated';
-  visibility: 'public' | 'internal';
+  visibility: 'public' | 'internal' | 'restricted';
   helpful: number;
   notHelpful: number;
 }
@@ -1200,13 +1198,13 @@ export const helpdeskExtraKeys = {
   recentTickets: (limit?: number) => [...helpdeskKeys.all, 'dashboard', 'recent-tickets', limit] as const,
   chartData: (months?: number) => [...helpdeskKeys.all, 'dashboard', 'chart-data', months] as const,
   search: (query?: string) => [...helpdeskKeys.all, 'search', query] as const,
-  agentTickets: (agentId: string, filters?: Record<string, any>) => [...helpdeskKeys.agents(), 'tickets', agentId, filters] as const,
+  agentTickets: (agentId: string, filters?: Record<string, unknown>) => [...helpdeskKeys.agents(), 'tickets', agentId, filters] as const,
 
   // Analytics
   analyticsReports: () => [...helpdeskKeys.all, 'analytics', 'reports'] as const,
   analyticsReport: (id: string) => [...helpdeskKeys.all, 'analytics', 'report', id] as const,
   analyticsCharts: (reportId: string) => [...helpdeskKeys.all, 'analytics', 'charts', reportId] as const,
-  analyticsChartData: (config?: Record<string, any>) => [...helpdeskKeys.all, 'analytics', 'chart-data', config] as const,
+  analyticsChartData: (config?: Record<string, unknown>) => [...helpdeskKeys.all, 'analytics', 'chart-data', config] as const,
 
   // Department Inbox Counts
   departmentInboxCounts: () => [...helpdeskKeys.all, 'department-inbox-counts'] as const,
@@ -1231,8 +1229,8 @@ export const helpdeskExtraKeys = {
 
   // WeldAgent (AI removed platform-wide; keys kept only for the
   // now-neutralized ai-active/ai-resolved list queries below)
-  weldagentAiActive: (filters?: Record<string, any>) => [...helpdeskKeys.all, 'weldagent', 'ai-active', filters] as const,
-  weldagentAiResolved: (filters?: Record<string, any>) => [...helpdeskKeys.all, 'weldagent', 'ai-resolved', filters] as const,
+  weldagentAiActive: (filters?: Record<string, unknown>) => [...helpdeskKeys.all, 'weldagent', 'ai-active', filters] as const,
+  weldagentAiResolved: (filters?: Record<string, unknown>) => [...helpdeskKeys.all, 'weldagent', 'ai-resolved', filters] as const,
 
   // Settings
   settings: () => [...helpdeskKeys.all, 'settings'] as const,
@@ -1245,7 +1243,7 @@ export const helpdeskExtraKeys = {
 
   // Customers (CRM)
   customers: () => [...helpdeskKeys.all, 'customers'] as const,
-  customerList: (filters?: Record<string, any>) => [...helpdeskKeys.all, 'customers', 'list', filters] as const,
+  customerList: (filters?: Record<string, unknown>) => [...helpdeskKeys.all, 'customers', 'list', filters] as const,
   customerDetail: (id: string) => [...helpdeskKeys.all, 'customers', 'detail', id] as const,
   customerConversations: (id: string) => [...helpdeskKeys.all, 'customers', 'conversations', id] as const,
   companies: () => [...helpdeskKeys.all, 'companies'] as const,
@@ -1255,7 +1253,7 @@ export const helpdeskExtraKeys = {
 
   // Help articles (unified API)
   helpArticles: () => [...helpdeskKeys.all, 'help-articles'] as const,
-  helpArticleList: (filters?: Record<string, any>) => [...helpdeskKeys.all, 'help-articles', 'list', filters] as const,
+  helpArticleList: (filters?: Record<string, unknown>) => [...helpdeskKeys.all, 'help-articles', 'list', filters] as const,
   helpArticleDetail: (id: string) => [...helpdeskKeys.all, 'help-articles', 'detail', id] as const,
   helpArticleStats: () => [...helpdeskKeys.all, 'help-articles', 'stats'] as const,
   helpFolders: () => [...helpdeskKeys.all, 'help-folders'] as const,
@@ -1282,7 +1280,7 @@ export function useAnalyticsReports() {
     queryKey: helpdeskExtraKeys.analyticsReports(),
     queryFn: async () => {
       const client = await getClient();
-      return toLegacy(await client.get<AppApiSingle<any[]>>('/helpdesk-analytics'));
+      return toLegacy(await client.get<AppApiSingle<AnalyticsReport[]>>('/helpdesk-analytics'));
     },
   });
 }
@@ -1293,7 +1291,7 @@ export function useAnalyticsReport(reportId: string) {
     queryKey: helpdeskExtraKeys.analyticsReport(reportId),
     queryFn: async () => {
       const client = await getClient();
-      return toLegacy(await client.get<AppApiSingle<any>>(`/helpdesk-analytics/reports/${reportId}`));
+      return toLegacy(await client.get<AppApiSingle<AnalyticsReport>>(`/helpdesk-analytics/reports/${reportId}`));
     },
     enabled: !!reportId,
   });
@@ -1305,7 +1303,7 @@ export function useAnalyticsCharts(reportId: string) {
     queryKey: helpdeskExtraKeys.analyticsCharts(reportId),
     queryFn: async () => {
       const client = await getClient();
-      return toLegacy(await client.get<AppApiSingle<any[]>>(`/helpdesk-analytics/reports/${reportId}/charts`));
+      return toLegacy(await client.get<AppApiSingle<AnalyticsChart[]>>(`/helpdesk-analytics/reports/${reportId}/charts`));
     },
     enabled: !!reportId,
   });
@@ -1378,7 +1376,7 @@ export function useCreateAnalyticsChart() {
       sortOrder?: string;
       limit?: number;
       compareWith?: string;
-      layout?: any;
+      layout?: unknown;
     }) => {
       const client = await getClient();
       return toLegacy(await client.post<AppApiSingle<{ id: string }>>('/helpdesk-analytics/charts', data));
@@ -1402,14 +1400,14 @@ export function useCreateAnalyticsChart() {
  * Supported filters server-side: status, assigneeId, departmentId, search.
  * Anything else in `filters` is ignored by app-api rather than rejected.
  */
-export function useConversations(filters?: Record<string, any>) {
+export function useConversations(filters?: Record<string, unknown>) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: [...helpdeskExtraKeys.conversations(), filters],
     queryFn: async () => {
       const client = await getClient();
       const query = buildQueryString(toAppApiQuery(filters));
-      const res = await client.get<AppApiList<any>>(`/conversations${query}`);
+      const res = await client.get<AppApiList<Helpdesk.Conversation>>(`/conversations${query}`);
       return toLegacyList(res, filters);
     },
   });
@@ -1421,7 +1419,7 @@ export function useConversation(id: string, enabled = true) {
     queryKey: helpdeskExtraKeys.conversationDetail(id),
     queryFn: async () => {
       const client = await getClient();
-      return toLegacy(await client.get<AppApiSingle<any>>(`/conversations/${id}`));
+      return toLegacy(await client.get<AppApiSingle<Helpdesk.Conversation>>(`/conversations/${id}`));
     },
     enabled: !!id && enabled,
   });
@@ -1438,10 +1436,20 @@ export function useConversationMessages(id: string, enabled = true) {
     queryKey: helpdeskExtraKeys.conversationMessages(id),
     queryFn: async () => {
       const client = await getClient();
-      return toLegacy(await client.get<AppApiSingle<any[]>>(`/conversations/${id}/messages`));
+      return toLegacy(await client.get<AppApiSingle<Helpdesk.ConversationMessage[]>>(`/conversations/${id}/messages`));
     },
     enabled: !!id && enabled,
   });
+}
+
+/** CSAT rating left on a conversation, `data` is null when none was left. */
+interface ApiConversationReview {
+  id: string;
+  rating: number;
+  content: string;
+  reviewerName: string;
+  reviewerEmail: string;
+  createdAt: string;
 }
 
 export function useConversationReview(conversationId: string) {
@@ -1451,7 +1459,7 @@ export function useConversationReview(conversationId: string) {
     queryFn: async () => {
       const client = await getClient();
       // `data` is null when the customer never left a CSAT rating.
-      return toLegacy(await client.get<AppApiSingle<any>>(`/conversations/${conversationId}/review`));
+      return toLegacy(await client.get<AppApiSingle<ApiConversationReview | null>>(`/conversations/${conversationId}/review`));
     },
     enabled: !!conversationId,
   });
@@ -1463,7 +1471,7 @@ export function useConversationAuditLogs(conversationId: string) {
     queryKey: helpdeskExtraKeys.conversationAuditLogs(conversationId),
     queryFn: async () => {
       const client = await getClient();
-      return toLegacy(await client.get<AppApiSingle<any[]>>(`/conversations/${conversationId}/audit-logs`));
+      return toLegacy(await client.get<AppApiSingle<AuditLogEntry[]>>(`/conversations/${conversationId}/audit-logs`));
     },
     enabled: !!conversationId,
   });
@@ -1477,9 +1485,9 @@ export function useUpdateWidgetSettings() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: Record<string, any>) => {
+    mutationFn: async (data: Record<string, unknown>) => {
       const client = await getClient();
-      return toLegacy(await client.put<AppApiSingle<any>>('/helpdesk-settings/widget', data));
+      return toLegacy(await client.put<AppApiSingle<unknown>>('/helpdesk-settings/widget', data));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: helpdeskExtraKeys.widgetSettings() });
@@ -1497,7 +1505,7 @@ export function useWidgetsList() {
     queryKey: helpdeskExtraKeys.widgets(),
     queryFn: async () => {
       const client = await getClient();
-      return toLegacy(await client.get<AppApiSingle<any[]>>('/helpdesk-settings/widgets'));
+      return toLegacy(await client.get<AppApiSingle<Helpdesk.Api.WidgetSettings[]>>('/helpdesk-settings/widgets'));
     },
   });
 }
@@ -1508,7 +1516,7 @@ export function useWidgetById(widgetId: string) {
     queryKey: helpdeskExtraKeys.widgetDetail(widgetId),
     queryFn: async () => {
       const client = await getClient();
-      return toLegacy(await client.get<AppApiSingle<any>>(`/helpdesk-settings/widgets/${widgetId}`));
+      return toLegacy(await client.get<AppApiSingle<Helpdesk.Api.WidgetSettings>>(`/helpdesk-settings/widgets/${widgetId}`));
     },
     enabled: !!widgetId,
   });
@@ -1537,7 +1545,7 @@ export function useUpdateWidgetById() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ widgetId, data }: { widgetId: string; data: Record<string, any> }) => {
+    mutationFn: async ({ widgetId, data }: { widgetId: string; data: Record<string, unknown> }) => {
       const client = await getClient();
       return toLegacy(
         await client.put<AppApiSingle<{ id: string; widgetId: string }>>(`/helpdesk-settings/widgets/${widgetId}`, data),
@@ -1574,23 +1582,23 @@ export function useDeleteWidget() {
 // network. They resolve to an empty list immediately, which keeps those
 // pages mounted (no 404) showing a normal empty state instead of erroring.
 
-export function useAiActiveConversations(_filters?: Record<string, any>) {
+export function useAiActiveConversations(_filters?: Record<string, unknown>) {
   return useQuery({
     queryKey: helpdeskExtraKeys.weldagentAiActive(_filters),
     queryFn: async () => ({
       success: true,
-      data: { conversations: [] as any[], pagination: null },
+      data: { conversations: [] as Helpdesk.Conversation[], pagination: null },
     }),
     staleTime: Infinity,
   });
 }
 
-export function useAiResolvedConversations(_filters?: Record<string, any>) {
+export function useAiResolvedConversations(_filters?: Record<string, unknown>) {
   return useQuery({
     queryKey: helpdeskExtraKeys.weldagentAiResolved(_filters),
     queryFn: async () => ({
       success: true,
-      data: { conversations: [] as any[], pagination: null },
+      data: { conversations: [] as Helpdesk.Conversation[], pagination: null },
     }),
     staleTime: Infinity,
   });
@@ -1706,7 +1714,7 @@ export function useUpdateAgent() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: Record<string, any> }) => {
+    mutationFn: async ({ id, data }: { id: string; data: Record<string, unknown> }) => {
       const client = await getClient();
       return toLegacy(await client.patch<AppApiSingle<{ id: string }>>(`/helpdesk-agents/${id}`, data));
     },
@@ -1728,11 +1736,20 @@ export function useAgentTickets(agentId: string, options?: { page?: number; limi
     queryFn: async () => {
       const client = await getClient();
       const query = buildQueryString({ assigneeId: agentId, limit: Math.min(options?.limit || 10, APP_API_MAX_LIMIT) });
-      const res = await client.get<AppApiList<any>>(`/tickets${query}`);
+      const res = await client.get<AppApiList<ApiTicket>>(`/tickets${query}`);
       return toLegacyList(res, { page: options?.page, pageSize: options?.limit });
     },
     enabled: !!agentId,
   });
+}
+
+/** `GET /team-members` row, as `useHelpdeskUsers` consumers read it. */
+export interface ApiTeamMember {
+  id: string;
+  email: string;
+  fullName?: string;
+  firstName?: string;
+  lastName?: string;
 }
 
 export function useHelpdeskUsers() {
@@ -1742,7 +1759,7 @@ export function useHelpdeskUsers() {
     queryFn: async () => {
       const client = await getClient();
       // `/helpdesk/users` was a thin projection of the workspace roster.
-      const res = await client.get<AppApiList<any>>(`/team-members?limit=${APP_API_MAX_LIMIT}`);
+      const res = await client.get<AppApiList<ApiTeamMember>>(`/team-members?limit=${APP_API_MAX_LIMIT}`);
       return { success: true as const, data: res.data };
     },
   });
@@ -1759,7 +1776,7 @@ export function useHelpdeskFolders() {
     queryFn: async () => {
       const client = await getClient();
       // app-api returns a cursor list ({ data, pagination }); the UI only reads `.data`.
-      return client.get<{ data: any[]; pagination?: unknown }>('/article-folders?limit=100');
+      return client.get<{ data: Helpdesk.ArticleFolder[]; pagination?: unknown }>('/article-folders?limit=100');
     },
   });
 }
@@ -1843,7 +1860,7 @@ export function useHelpdeskCustomer(id: string, enabled = true) {
     queryKey: helpdeskExtraKeys.customerDetail(id),
     queryFn: async () => {
       const client = await getClient();
-      return toLegacy(await client.get<AppApiSingle<any>>(`/helpdesk-contacts/${id}`));
+      return toLegacy(await client.get<AppApiSingle<Helpdesk.Api.HelpdeskCustomer>>(`/helpdesk-contacts/${id}`));
     },
     enabled: !!id && enabled,
   });
@@ -1860,7 +1877,7 @@ export function useCreateHelpdeskCustomer() {
       // `company` is dropped rather than guessed at — linking a person to a
       // company is `/person-companies`, a separate relation.
       return toLegacy(
-        await client.post<AppApiSingle<any>>('/helpdesk-contacts', {
+        await client.post<AppApiSingle<Helpdesk.Api.HelpdeskCustomer>>('/helpdesk-contacts', {
           name: `${data.firstName} ${data.lastName}`.trim() || data.email,
           firstName: data.firstName,
           lastName: data.lastName,
@@ -1881,9 +1898,9 @@ export function useUpdateHelpdeskCustomer() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: Record<string, any> }) => {
+    mutationFn: async ({ id, data }: { id: string; data: Record<string, unknown> }) => {
       const client = await getClient();
-      return toLegacy(await client.patch<AppApiSingle<any>>(`/helpdesk-contacts/${id}`, data));
+      return toLegacy(await client.patch<AppApiSingle<Helpdesk.Api.HelpdeskCustomer>>(`/helpdesk-contacts/${id}`, data));
     },
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: helpdeskExtraKeys.customers() });
@@ -1916,7 +1933,7 @@ export function useHelpdeskCompanies() {
     queryKey: helpdeskExtraKeys.companies(),
     queryFn: async () => {
       const client = await getClient();
-      const res = await client.get<AppApiList<any>>(`/companies${buildQueryString({ limit: 100 })}`);
+      const res = await client.get<AppApiList<{ id: string; name: string }>>(`/companies${buildQueryString({ limit: 100 })}`);
       return toLegacyList(res, { pageSize: 100 });
     },
   });
@@ -1932,7 +1949,7 @@ export function useHelpdeskCustomerConversations(customerId: string, page = 1, p
       // `customerId` either — it lists the workspace's conversations and the
       // page renders them under the customer.
       const query = buildQueryString({ limit: Math.min(pageSize, APP_API_MAX_LIMIT) });
-      const res = await client.get<AppApiList<any>>(`/conversations${query}`);
+      const res = await client.get<AppApiList<Helpdesk.Conversation>>(`/conversations${query}`);
       return toLegacyList(res, { page, pageSize });
     },
     enabled: !!customerId,
@@ -1949,7 +1966,7 @@ export function useNewsArticle(id: string, enabled = true) {
     queryKey: helpdeskExtraKeys.newsDetail(id),
     queryFn: async () => {
       const client = await getClient();
-      return toLegacy(await client.get<AppApiSingle<any>>(`/helpdesk-news/${id}`));
+      return toLegacy(await client.get<AppApiSingle<ApiNewsItem>>(`/helpdesk-news/${id}`));
     },
     enabled: !!id && enabled,
   });
@@ -1979,10 +1996,14 @@ export function useHelpArticle(id: string, enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: helpdeskExtraKeys.helpArticleDetail(id),
-    queryFn: async () => {
+    queryFn: async (): Promise<{ success: true; article: Helpdesk.Article } | { success: false }> => {
       const client = await getClient();
-      const res = await client.get<AppApiSingle<any>>(`/articles/${id}`);
-      return res.data;
+      try {
+        const res = await client.get<AppApiSingle<Helpdesk.Article>>(`/articles/${id}`);
+        return { success: true, article: res.data };
+      } catch {
+        return { success: false };
+      }
     },
     enabled: !!id && enabled,
   });
@@ -1996,12 +2017,12 @@ export function useHelpArticleStats() {
       const client = await getClient();
       // The unified client asked for 1000; app-api hard-caps `limit` at 100.
       const query = buildQueryString({ limit: APP_API_MAX_LIMIT });
-      return client.get<AppApiList<any>>(`/articles${query}`);
+      return client.get<AppApiList<Helpdesk.Article>>(`/articles${query}`);
     },
   });
 }
 
-export function useHelpFolders(tree = true) {
+export function useHelpFolders(_tree = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: helpdeskExtraKeys.helpFolders(),
@@ -2010,7 +2031,7 @@ export function useHelpFolders(tree = true) {
       // `/article-folders` has no `tree` mode — it always returns a flat list
       // (rows carry `parentId`, so callers can nest client-side).
       const query = buildQueryString({ limit: APP_API_MAX_LIMIT });
-      const res = await client.get<AppApiList<any>>(`/article-folders${query}`);
+      const res = await client.get<AppApiList<Helpdesk.ArticleFolder>>(`/article-folders${query}`);
       return res.data;
     },
   });
@@ -2020,20 +2041,26 @@ export function useCreateHelpArticle() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: { title: string; content: string; excerpt?: string; category?: string; tags?: string[]; status: string; coverImage?: string }) => {
+    mutationFn: async (
+      data: { title: string; content: string; excerpt?: string; category?: string; tags?: string[]; status: string; coverImage?: string },
+    ): Promise<{ success: true; article: Helpdesk.Article } | { success: false; error: string }> => {
       const client = await getClient();
-      const res = await client.post<AppApiSingle<any>>('/articles', {
-        title: data.title,
-        content: data.content,
-        excerpt: data.excerpt,
-        // `category` carries a folder id in this UI; `categoryName` and
-        // `coverImage` have no column on `/articles` and are dropped rather
-        // than sent to be silently stripped.
-        folderId: data.category || undefined,
-        tags: data.tags,
-        status: data.status,
-      });
-      return res.data;
+      try {
+        const res = await client.post<AppApiSingle<Helpdesk.Article>>('/articles', {
+          title: data.title,
+          content: data.content,
+          excerpt: data.excerpt,
+          // `category` carries a folder id in this UI; `categoryName` and
+          // `coverImage` have no column on `/articles` and are dropped rather
+          // than sent to be silently stripped.
+          folderId: data.category || undefined,
+          tags: data.tags,
+          status: data.status,
+        });
+        return { success: true, article: res.data };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : 'Failed to save article' };
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: helpdeskExtraKeys.helpArticles() });
@@ -2048,7 +2075,7 @@ export function useCreateHelpFolder() {
   return useMutation({
     mutationFn: async (data: { name: string; parentId?: string; description?: string; icon?: string; color?: string }) => {
       const client = await getClient();
-      const res = await client.post<AppApiSingle<any>>('/article-folders', data);
+      const res = await client.post<AppApiSingle<Helpdesk.ArticleFolder>>('/article-folders', data);
       return res.data;
     },
     onSuccess: () => {
@@ -2263,7 +2290,7 @@ export function useHelpcenterSettings() {
     queryKey: helpdeskKeys.helpcenterSettings(),
     queryFn: async () => {
       const client = await getClient();
-      const result = await client.get<{ data: any }>('/helpcenter-settings');
+      const result = await client.get<{ data: HelpcenterSettingsData }>('/helpcenter-settings');
       return result.data;
     },
   });
@@ -2273,9 +2300,9 @@ export function useUpdateHelpcenterSettings() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: Record<string, any>) => {
+    mutationFn: async (data: Record<string, unknown>) => {
       const client = await getClient();
-      return client.put<{ data: any }>('/helpcenter-settings', data);
+      return client.put<{ data: HelpcenterSettingsData }>('/helpcenter-settings', data);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: helpdeskKeys.helpcenterSettings() });
@@ -2307,7 +2334,7 @@ export function useHelpcenterDomains() {
     queryKey: helpdeskKeys.helpcenterDomains(),
     queryFn: async () => {
       const client = await getClient();
-      const result = await client.get<{ data: any[] }>('/helpcenter-settings/domains');
+      const result = await client.get<{ data: HelpcenterDomain[] }>('/helpcenter-settings/domains');
       return result.data || [];
     },
   });
@@ -2332,7 +2359,7 @@ export function useAddHelpcenterDomain() {
   return useMutation({
     mutationFn: async (data: { hostDomainId?: string; subdomain?: string; domain?: string }) => {
       const client = await getClient();
-      return client.post<{ data: any }>('/helpcenter-settings/domains', data);
+      return client.post<{ data: HelpcenterDomain }>('/helpcenter-settings/domains', data);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: helpdeskKeys.helpcenterDomains() });

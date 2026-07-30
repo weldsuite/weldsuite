@@ -16,7 +16,6 @@ import type {
   SequenceDetail,
   SequenceEnrollment,
   SequenceEnrollmentFilters,
-  CustomerSequenceEntry,
   PaginatedResponse,
   SingleResponse,
 } from '@/lib/api/domains/weldcrm';
@@ -88,22 +87,6 @@ export function useSequenceEnrollments(sequenceId: string, filters?: SequenceEnr
     enabled: !!sequenceId,
   });
 }
-
-function useCustomerSequences(customerId: string, filters?: { page?: number; pageSize?: number }) {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: sequenceKeys.customerSequences(customerId),
-    queryFn: async () => {
-      const client = await getClient();
-      const query = buildQueryString((filters ?? {}) as Record<string, unknown>);
-      return client.get<PaginatedResponse<CustomerSequenceEntry>>(
-        `/customer-sequences/${customerId}${query}`,
-      );
-    },
-    enabled: !!customerId,
-  });
-}
-
 export function useEnrollCustomers() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();

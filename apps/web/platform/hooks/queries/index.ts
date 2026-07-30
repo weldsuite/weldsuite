@@ -9,12 +9,9 @@ export * from './use-customer-deals-queries';
 export * from './use-customer-notes-queries';
 export * from './use-customer-documents-queries';
 export * from './use-customer-lists-queries';
-export * from './use-crm-search-queries';
-export * from './use-suppliers-queries';
 export * from './use-call-intelligence-queries';
 
 // Dashboard
-export * from './use-dashboard-queries';
 
 // Helpdesk
 export * from './use-helpdesk-queries';
@@ -44,7 +41,6 @@ export * from './use-host-queries';
 export * from './use-calendar-queries';
 
 // Profile & Preferences
-export * from './use-profile-queries';
 
 // Running timer (WeldFlow time tracking)
 export * from './use-timer-queries';

@@ -1,22 +1,24 @@
 # MCP Server - Customer-facing MCP protocol endpoint
-# Allows WeldSuite customers to access their data through AI assistants
+# Allows WeldSuite customers to access their data through AI assistants.
+#
+# Authentication is Clerk OAuth (see src/middleware/auth.ts). There are no API
+# keys. The worker is self-contained: it serves tool calls from its own copy of
+# the v1 resource routes (src/api/) against the tenant DB, so no request path
+# depends on another worker and no service bindings are configured here.
 name = "weldsuite-mcp-server"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
-# Default (used by `wrangler dev`) — tools proxy to the external API.
+# Default (used by `wrangler dev`).
 [vars]
-EXTERNAL_API_BASE_URL = "https://api-test.weldsuite.org"
-
-# Service binding to the External API worker. Tool calls are proxied over this
-# binding instead of the public hostname so the subrequest bypasses the
-# Cloudflare edge — same-zone Worker→Worker calls over a public hostname fail
-# with HTTP 530. Service bindings are NOT inherited by named environments, so
-# this is repeated in each [env.*] block below.
-[[services]]
-binding = "EXTERNAL_API"
-service = "weldsuite-external-api-test"
+MCP_SERVER_URL = "http://localhost:8789"
+# Clerk publishable keys are public by design — they ship in browser bundles and
+# are already committed in the mobile apps' eas.json. The OAuth discovery
+# documents base64-decode this to derive the Clerk issuer, so a missing value
+# makes /.well-known/* fail. Not a secret; deliberately not in the Doppler
+# manifest. The overlay repo overrides this per environment.
+CLERK_PUBLISHABLE_KEY = "pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk"
 
 # Shims to prevent bundling Node.js-only packages from @weldsuite/db
 [alias]
@@ -38,11 +40,7 @@ new_sqlite_classes = ["RateLimiter"]
 [env.production]
 name = "weldsuite-mcp-server"
 routes = [{ pattern = "mcp.weldsuite.org/*", zone_name = "weldsuite.org" }]
-vars = { ENVIRONMENT = "production", EXTERNAL_API_BASE_URL = "https://api.weldsuite.org" }
-
-[[env.production.services]]
-binding = "EXTERNAL_API"
-service = "weldsuite-external-api"
+vars = { ENVIRONMENT = "production", MCP_SERVER_URL = "https://mcp.weldsuite.org", CLERK_PUBLISHABLE_KEY = "pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ" }
 
 [[env.production.durable_objects.bindings]]
 name = "RATE_LIMITER"
@@ -52,10 +50,36 @@ class_name = "RateLimiter"
 tag = "v1"
 new_sqlite_classes = ["RateLimiter"]
 
-# Share KV namespace with external-api for cache coherence
+# Share KV namespace with external-api/app-api for cache coherence
 [[env.production.kv_namespaces]]
 binding = "API_CACHE"
 id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# Master Postgres over Hyperdrive — same binding external-api uses. Read by the
+# ported WeldApps routes (user-apps, app-storage) for the cross-workspace tables.
+[[env.production.hyperdrive]]
+binding = "HYPERDRIVE_MASTER"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# Entity-event sinks. Mutations made through MCP publish to the same queues as
+# every other surface so audit/workflow/analytics stay complete. Each binding is
+# optional at runtime — a missing one logs a warning and the others still fire.
+[[env.production.queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events"
+
+[[env.production.queues.producers]]
+binding = "WORKFLOW_EVENTS"
+queue = "workflow-events"
+
+[[env.production.queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events"
+
+# R2 bucket for user-app bundles (shared with app-api's STORAGE binding).
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
 
 # Inheritable key — applies to all named environments unless overridden.
 [observability]

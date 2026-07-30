@@ -210,7 +210,7 @@ function ForwardedMessage({
 /** Message row as this component reads it — the shared `ChatMessage` cache
  * shape, extended with the fields the index signature would otherwise widen
  * to `unknown` (agent authorship, edit/pin state, forwarding, channel name). */
-interface MessageItemMessage extends ChatMessage {
+export interface MessageItemMessage extends ChatMessage {
   authorType?: string;
   isEdited?: boolean;
   isPinned?: boolean;

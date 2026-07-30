@@ -86,7 +86,7 @@ function formatDuration(seconds?: number) {
 
 // `customer` isn't read here, but the parameter must stay to match the
 // shared `SectionProps` contract every `<XSection customer={...} />` caller uses.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+ 
 export function MeetingsSection(_props: SectionProps) {
   const t = useTranslations();
   const router = useRouter();

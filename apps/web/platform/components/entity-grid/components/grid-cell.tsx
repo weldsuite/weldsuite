@@ -1,21 +1,9 @@
 
 import React from 'react';
-import { Check, Building, User, Star } from 'lucide-react';
+import { Star } from 'lucide-react';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
-import { Badge } from '@weldsuite/ui/components/badge';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@weldsuite/ui/components/popover';
-import {
-  Command,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from '@weldsuite/ui/components/command';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -38,7 +26,7 @@ import {
   LocationEditor,
   UrlEditor,
 } from '../editors';
-import { formatCurrency, formatDate, formatPercent } from '../utils/calculations';
+import { formatCurrency, formatPercent } from '../utils/calculations';
 
 interface GridCellProps<TEntity> {
   entity: TEntity;
@@ -96,17 +84,15 @@ export function GridCell<TEntity>({
   isFirstColumn,
 }: GridCellProps<TEntity>) {
   const {
-    config,
-    state,
-    setSelectedRows,
-    setEditValue,
-    setOpenPopover,
-    setOptimisticUpdates,
-    updateEntityField,
-    updateCustomFieldValue,
-    getCustomFieldValue,
-    actions,
-  } = useGridContext<TEntity>();
+  config,
+  state,
+  setSelectedRows,
+  setOpenPopover,
+  setOptimisticUpdates,
+  updateEntityField,
+  updateCustomFieldValue,
+  actions,
+} = useGridContext<TEntity>();
 
   const { selectedRows, editValue, openPopover } = state;
   const compact = !!config.fillViewport;
@@ -115,14 +101,14 @@ export function GridCell<TEntity>({
   // Subscribe only to this cell's editing flag — other cells don't re-render when
   // another cell enters edit mode.
   const isEditing = useIsCellEditing(entityId, column.id);
-  const isPopoverOpen =
+  const _isPopoverOpen =
     openPopover?.rowId === entityId && openPopover?.fieldId === column.id;
 
   // Local-only custom columns (created via addColumn) store in customFieldData.
   // Server-backed custom fields (from customFieldDefs, id starts with cf_) persist via updateEntityField.
   const isLocalOnly = column.isCustom && column.id.startsWith('custom_');
 
-  const persistValue = (newValue: any) => {
+  const persistValue = (newValue: unknown) => {
     if (isLocalOnly) {
       updateCustomFieldValue(entityId, column.id, newValue);
     } else {
@@ -132,7 +118,7 @@ export function GridCell<TEntity>({
 
   // Handle commit for editors. Editors may pass the final value directly
   // (uncontrolled pattern) to avoid re-rendering the entire grid on each keystroke.
-  const handleCommit = (finalValue?: any) => {
+  const handleCommit = (finalValue?: unknown) => {
     const committedValue = finalValue !== undefined ? finalValue : editValue;
     if (isLocalOnly || committedValue !== value) {
       persistValue(committedValue);
@@ -213,7 +199,7 @@ export function GridCell<TEntity>({
             onClick={async (e) => {
               e.stopPropagation();
               const field = column.favoriteField!;
-              const newVal = !(entity as any)[field];
+              const newVal = !(entity as Record<string, unknown>)[field];
               const prev = state.optimisticUpdates;
               setOptimisticUpdates({
                 ...prev,
@@ -232,12 +218,12 @@ export function GridCell<TEntity>({
             // so the global cell-drag CSS rule can suppress it while a drag
             // selection is in flight (it would otherwise blink in/out as
             // the cursor crosses rows).
-            data-grid-hover-only={(entity as any)[column.favoriteField!] ? undefined : 'true'}
+            data-grid-hover-only={(entity as Record<string, unknown>)[column.favoriteField!] ? undefined : 'true'}
             data-testid="entity-grid-favorite"
-            aria-pressed={!!(entity as any)[column.favoriteField!]}
+            aria-pressed={!!(entity as Record<string, unknown>)[column.favoriteField!]}
             className={cn(
               "p-0.5 rounded-[5px] transition-colors hover:bg-muted flex-shrink-0",
-              (entity as any)[column.favoriteField!]
+              (entity as Record<string, unknown>)[column.favoriteField!]
                 ? "inline-flex"
                 : "hidden group-hover:inline-flex"
             )}
@@ -245,7 +231,7 @@ export function GridCell<TEntity>({
             <Star
               className={cn(
                 "h-4 w-4",
-                (entity as any)[column.favoriteField!]
+                (entity as Record<string, unknown>)[column.favoriteField!]
                   ? "fill-yellow-400 text-yellow-400"
                   : "text-muted-foreground/30 hover:text-muted-foreground/60"
               )}
@@ -274,7 +260,7 @@ export function GridCell<TEntity>({
       return (
         <CellWrapper isFirstColumn={isFirstColumn} compact={compact}>
           <CheckboxEditor
-            value={value || false}
+            value={(value as boolean | undefined) || false}
             onChange={(newValue) => persistValue(newValue)}
             onCommit={() => {}}
             onCancel={() => {}}
@@ -311,7 +297,7 @@ export function GridCell<TEntity>({
         return (
           <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing>
             <EmailEditor
-              value={value || ''}
+              value={(value as string | undefined) || ''}
               onCommit={handleCommit}
               onCancel={handleCancel}
             />
@@ -329,7 +315,7 @@ export function GridCell<TEntity>({
           }}
         >
           <span className="text-[14px] text-foreground/80 truncate">
-            {value || null}
+            {(value as string | undefined) || null}
           </span>
         </CellWrapper>
       );
@@ -339,7 +325,7 @@ export function GridCell<TEntity>({
         return (
           <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing>
             <PhoneEditor
-              value={value || ''}
+              value={(value as string | undefined) || ''}
               onCommit={handleCommit}
               onCancel={handleCancel}
             />
@@ -357,7 +343,7 @@ export function GridCell<TEntity>({
           }}
         >
           <span className="text-[14px] text-foreground/80 truncate">
-            {value || null}
+            {(value as string | undefined) || null}
           </span>
         </CellWrapper>
       );
@@ -367,7 +353,7 @@ export function GridCell<TEntity>({
         return (
           <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing>
             <TextEditor
-              value={value || ''}
+              value={(value as string | undefined) || ''}
               onCommit={handleCommit}
               onCancel={handleCancel}
             />
@@ -385,7 +371,7 @@ export function GridCell<TEntity>({
           }}
         >
           <span className="text-[14px] text-foreground/80 truncate">
-            {value || null}
+            {(value as string | undefined) || null}
           </span>
         </CellWrapper>
       );
@@ -395,7 +381,7 @@ export function GridCell<TEntity>({
         return (
           <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing>
             <UrlEditor
-              value={value || ''}
+              value={(value as string | undefined) || ''}
               onCommit={handleCommit}
               onCancel={handleCancel}
             />
@@ -413,7 +399,7 @@ export function GridCell<TEntity>({
           }}
         >
           <span className="text-[14px] text-foreground/80 truncate">
-            {value || null}
+            {(value as string | undefined) || null}
           </span>
         </CellWrapper>
       );
@@ -423,7 +409,7 @@ export function GridCell<TEntity>({
         return (
           <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing>
             <NumberEditor
-              value={value > 0 ? value : ''}
+              value={typeof value === 'number' && value > 0 ? value : ''}
               onCommit={(finalValue) => {
                 const newValue = parseFloat(String(finalValue ?? '')) || 0;
                 if (newValue !== value) persistValue(newValue);
@@ -445,7 +431,7 @@ export function GridCell<TEntity>({
           }}
         >
           <span className="text-[14px] text-foreground/80">
-            {value != null && value !== '' ? value.toLocaleString() : null}
+            {typeof value === 'number' ? value.toLocaleString() : null}
           </span>
         </CellWrapper>
       );
@@ -455,7 +441,7 @@ export function GridCell<TEntity>({
         return (
           <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing>
             <CurrencyEditor
-              value={value > 0 ? value : ''}
+              value={typeof value === 'number' && value > 0 ? value : ''}
               onCommit={(finalValue) => {
                 const newValue = parseFloat(String(finalValue ?? '')) || 0;
                 if (newValue !== value) persistValue(newValue);
@@ -477,7 +463,7 @@ export function GridCell<TEntity>({
           }}
         >
           <span className="text-[14px] font-medium text-foreground">
-            {value > 0 ? formatCurrency(value, { compact: true }) : null}
+            {typeof value === 'number' && value > 0 ? formatCurrency(value, { compact: true }) : null}
           </span>
         </CellWrapper>
       );
@@ -487,7 +473,7 @@ export function GridCell<TEntity>({
         return (
           <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing>
             <NumberEditor
-              value={value > 0 ? value : ''}
+              value={typeof value === 'number' && value > 0 ? value : ''}
               onCommit={(finalValue) => {
                 const newValue = parseFloat(String(finalValue ?? '')) || 0;
                 if (newValue !== value) persistValue(newValue);
@@ -509,7 +495,7 @@ export function GridCell<TEntity>({
           }}
         >
           <span className="text-[14px] text-foreground/80">
-            {value != null && value !== '' ? formatPercent(value) : null}
+            {typeof value === 'number' ? formatPercent(value) : null}
           </span>
         </CellWrapper>
       );
@@ -518,7 +504,7 @@ export function GridCell<TEntity>({
       return (
         <CellWrapper isFirstColumn={isFirstColumn} compact={compact}>
           <DateEditor
-            value={value}
+            value={value as Date | null | undefined}
             onChange={(newValue) => {
               if (isLocalOnly) {
                 updateCustomFieldValue(entityId, column.id, newValue);
@@ -538,7 +524,7 @@ export function GridCell<TEntity>({
       return (
         <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing={isPopoverOpen}>
           <SelectEditor
-            value={value}
+            value={value as string | null}
             onChange={(newValue) => persistValue(newValue)}
             onCommit={() => {}}
             onCancel={() => {}}
@@ -558,7 +544,7 @@ export function GridCell<TEntity>({
       return (
         <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing={isPopoverOpen}>
           <MultiSelectEditor
-            value={value || []}
+            value={(value as string[] | undefined) || []}
             onChange={(newValue) => persistValue(newValue)}
             onCommit={() => {}}
             onCancel={() => {}}
@@ -586,7 +572,7 @@ export function GridCell<TEntity>({
         return (
           <CellWrapper isFirstColumn={isFirstColumn} compact={compact} isEditing>
             <LocationEditor
-              value={value}
+              value={value as string | { city?: string; state?: string; country?: string } | null | undefined}
               onChange={(newValue) => persistValue(newValue)}
               onCommit={() => setEditingCellValue(null)}
               onCancel={() => setEditingCellValue(null)}

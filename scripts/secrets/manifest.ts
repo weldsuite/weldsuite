@@ -67,6 +67,22 @@ export const manifest: Record<string, SecretEntry[]> = {
     "API_SIGNING_SECRET",
   ],
 
+  // Authenticates every caller with Clerk OAuth (no API keys), then serves tool
+  // calls from its own copy of the v1 resource routes against the tenant DB.
+  // CLERK_SECRET_KEY verifies the access token; without it every request 401s.
+  // NEON_API_KEY + DATABASE_URL_MASTER + DATABASE_ENCRYPTION_KEY resolve the
+  // Clerk org to its workspace and tenant connection string.
+  // CLERK_PUBLISHABLE_KEY is deliberately NOT here — it is public by design and
+  // lives in wrangler.toml [vars], because the OAuth discovery documents decode
+  // it to derive the Clerk issuer.
+  "mcp-server": [
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    "NEON_API_KEY",
+    "DATABASE_URL_MASTER",
+    "DATABASE_ENCRYPTION_KEY",
+  ],
+
   "discord-bot-worker": [
     "DISCORD_BOT_TOKEN",
     "DISCORD_PUBLIC_KEY",

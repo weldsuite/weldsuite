@@ -8,7 +8,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
 import type {
-  CreateRepoLinkInput,
   UpdateRepoLinkInput,
   RecoverInstallationInput,
   CreateProjectLinkInput,
@@ -111,22 +110,6 @@ export function useDisconnectGithub() {
     },
   });
 }
-
-/**
- * Link a GitHub repository to a WeldFlow project.
- */
-function useLinkRepo() {
-  const queryClient = useQueryClient();
-  const { github } = useAppApi();
-
-  return useMutation({
-    mutationFn: (input: CreateRepoLinkInput) => github.linkRepo(input),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: githubKeys.repos() });
-    },
-  });
-}
-
 /**
  * Update sync settings for a linked repository.
  */
@@ -196,7 +179,7 @@ export function useGithubSync() {
 
   return useMutation({
     mutationFn: (linkId: string) => github.triggerFullSync(linkId),
-    onSuccess: (_data, linkId) => {
+    onSuccess: (_data, _linkId) => {
       queryClient.invalidateQueries({ queryKey: githubKeys.linkedRepos() });
     },
   });

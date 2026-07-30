@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { getDesktop, isDesktop } from '@/lib/desktop';
+import { getDesktop } from '@/lib/desktop';
 import type { DesktopSettings } from '../types/weldsuite-desktop';
 
 interface UseDesktopSettings {

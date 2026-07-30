@@ -100,8 +100,8 @@ interface RawFolder {
   parentId?: string | null;
   level?: number;
   articleCount?: number;
-  icon?: string;
-  color?: string;
+  icon?: string | null;
+  color?: string | null;
 }
 
 interface TreeNode {
@@ -223,8 +223,8 @@ export function KnowledgeClient({
       parentId: f.parentId || null,
       level: f.level || 0,
       articleCount: f.articleCount || 0,
-      icon: f.icon,
-      color: f.color,
+      icon: f.icon ?? undefined,
+      color: f.color ?? undefined,
     }));
   }, [foldersResult]);
 

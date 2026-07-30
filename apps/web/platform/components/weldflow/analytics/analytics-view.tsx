@@ -1,5 +1,5 @@
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import {
@@ -30,18 +30,13 @@ import {
   MoreVertical,
   Trash2,
   Edit,
-  Move,
   TrendingUp,
   Users,
-  DollarSign,
   Activity,
   BarChart3,
   PieChart,
   LineChart,
   Target,
-  Calendar,
-  ShoppingCart,
-  Settings,
   GripVertical,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -50,12 +45,26 @@ import { useTranslations } from '@weldsuite/i18n/client';
 type WidgetType = 'line' | 'bar' | 'pie' | 'number' | 'list' | 'progress';
 type WidgetSize = 'small' | 'medium' | 'large' | 'full';
 
+/** Shape varies by `Widget.type` — this covers every field any renderer (or `generateSampleData`) sets. */
+interface WidgetData {
+  value?: number;
+  change?: number;
+  trend?: 'up' | 'down' | string;
+  values?: number[];
+  labels?: string[];
+  colors?: string[];
+  items?: Array<{ name: string; value: number | string; status?: string }>;
+  current?: number;
+  target?: number;
+  label?: string;
+}
+
 interface Widget {
   id: string;
   type: WidgetType;
   title: string;
   size: WidgetSize;
-  data?: any;
+  data?: WidgetData | null;
   config?: {
     color?: string;
     metric?: string;
@@ -66,7 +75,7 @@ interface Widget {
 }
 
 // Sample data for widgets
-const generateSampleData = (type: WidgetType) => {
+const generateSampleData = (type: WidgetType): WidgetData | null => {
   switch (type) {
     case 'line':
       return {
@@ -153,7 +162,7 @@ export function AnalyticsView() {
 
   const [isAddWidgetOpen, setIsAddWidgetOpen] = useState(false);
   const [editingWidget, setEditingWidget] = useState<Widget | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
+  const [_isDragging, setIsDragging] = useState(false);
   const [draggedWidget, setDraggedWidget] = useState<string | null>(null);
   
   // New widget form state
@@ -223,7 +232,7 @@ export function AnalyticsView() {
                   className="bg-blue-500 rounded-t"
                   style={{
                     width: '12%',
-                    height: `${(value / Math.max(...widget.data.values)) * 100}%`,
+                    height: `${(value / Math.max(...(widget.data?.values || [1]))) * 100}%`,
                   }}
                 />
               ))}
@@ -242,11 +251,11 @@ export function AnalyticsView() {
                     <div
                       className="bg-yellow-500 h-4 rounded-full"
                       style={{
-                        width: `${(widget.data.values[i] / Math.max(...widget.data.values)) * 100}%`,
+                        width: `${((widget.data?.values?.[i] || 0) / Math.max(...(widget.data?.values || [1]))) * 100}%`,
                       }}
                     />
                   </div>
-                  <span className="text-xs w-12 text-right">{widget.data.values[i]}</span>
+                  <span className="text-xs w-12 text-right">{widget.data?.values?.[i]}</span>
                 </div>
               ))}
             </div>
@@ -269,7 +278,7 @@ export function AnalyticsView() {
       case 'list':
         return (
           <div className="space-y-2">
-            {widget.data?.items?.slice(0, 4).map((item: any, i: number) => (
+            {widget.data?.items?.slice(0, 4).map((item, i) => (
               <div key={i} className="flex items-center justify-between py-1">
                 <span className="text-sm">{item.name}</span>
                 <span className="text-sm font-medium">{item.value}</span>

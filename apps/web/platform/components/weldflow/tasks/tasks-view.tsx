@@ -24,7 +24,7 @@ import {
   Columns,
   CheckCircle2
 } from 'lucide-react';
-import { format, isToday, isTomorrow, isPast, addDays, isThisWeek, isThisMonth } from 'date-fns';
+import { format, isToday, isTomorrow, isPast, isThisWeek } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { TagLabel } from '@/components/weldflow/tag-label';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
@@ -62,9 +62,24 @@ interface Task {
   labels?: string[];
 }
 
+/** `GET /tasks` row, as `transformApiTasks` reads it. */
+interface RawApiTask {
+  id: string;
+  number?: number | null;
+  title: string;
+  description?: string;
+  status?: string;
+  assignee?: { id?: string; name?: string; avatarUrl?: string };
+  assigneeId?: string;
+  company?: { id: string; name: string; logoUrl?: string; color?: string };
+  dueDate?: string;
+  createdAt: string;
+  labels?: string[];
+}
+
 interface TasksViewProps {
   projectId?: string;
-  initialTasks?: any[];
+  initialTasks?: RawApiTask[];
 }
 
 export function TasksView({ projectId, initialTasks = [] }: TasksViewProps) {
@@ -88,19 +103,10 @@ export function TasksView({ projectId, initialTasks = [] }: TasksViewProps) {
     loadLabels();
   }, [projectId]);
 
-  const handleCreateLabel = async (data: { name: string; color: string }): Promise<ProjectLabel | null> => {
-    const result = await labelsApi.create({ ...data, projectId });
-    if (result.success && result.data) {
-      const newLabel: ProjectLabel = { id: result.data.id, name: data.name, color: data.color };
-      setAvailableLabels(prev => [newLabel, ...prev]);
-      return newLabel;
-    }
-    return null;
-  };
-
+  
   // Transform API tasks to component format
-  const transformApiTasks = (apiTasks: any[]): Task[] => {
-    return apiTasks.map((task: any) => ({
+  const transformApiTasks = (apiTasks: RawApiTask[]): Task[] => {
+    return apiTasks.map((task) => ({
       id: task.id,
       number: task.number ?? null,
       title: task.title,
@@ -108,7 +114,7 @@ export function TasksView({ projectId, initialTasks = [] }: TasksViewProps) {
       completed: task.status === 'done' || task.status === 'completed',
       status: task.status?.toLowerCase() as 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'testing' | 'done' | 'cancelled' || 'todo',
       assignee: task.assignee ? {
-        id: task.assignee.id || task.assigneeId,
+        id: task.assignee.id || task.assigneeId || '',
         name: task.assignee.name || 'Unknown',
         avatarUrl: task.assignee.avatarUrl,
       } : undefined,
@@ -140,7 +146,7 @@ export function TasksView({ projectId, initialTasks = [] }: TasksViewProps) {
       const client = await getClient();
       const path = projectId ? `/tasks?projectId=${projectId}` : '/tasks';
       const result = await client.get<{
-        data: any[];
+        data: RawApiTask[];
         pagination: { totalCount: number; hasMore: boolean; cursor: string | null };
       }>(path);
 
@@ -215,10 +221,10 @@ export function TasksView({ projectId, initialTasks = [] }: TasksViewProps) {
     }
   };
 
-  const addTask = async (newTask: Task) => {
+  const addTask = async (newTask: { title: string; description?: string; status?: string; dueDate?: Date }) => {
     try {
       const client = await getClient();
-      await client.post<{ data: any }>('/tasks', {
+      await client.post<{ data: RawApiTask }>('/tasks', {
         projectId: projectId,
         title: newTask.title,
         description: newTask.description,
@@ -234,26 +240,7 @@ export function TasksView({ projectId, initialTasks = [] }: TasksViewProps) {
     }
   };
 
-  const updateTask = async (updatedTask: Task) => {
-    try {
-      const client = await getClient();
-      await client.patch<{ data: any }>(
-        `/tasks/${updatedTask.id}`,
-        {
-          title: updatedTask.title,
-          description: updatedTask.description,
-          status: updatedTask.status,
-          dueDate: updatedTask.dueDate ? updatedTask.dueDate.toISOString() : undefined,
-        }
-      );
-      await refetchTasks();
-      toast.success(st('sweep.weldflow.tasksView.updatedSuccessfully'));
-    } catch (error) {
-      console.error('Failed to update task:', error);
-      toast.error(st('sweep.weldflow.tasksView.updateFailed'));
-    }
-  };
-
+  
   const handleTaskClick = (task: Task) => {
     openObjectPanel({ type: 'task', id: task.id });
   };
@@ -296,7 +283,7 @@ export function TasksView({ projectId, initialTasks = [] }: TasksViewProps) {
       >
         <Checkbox
           checked={task.completed}
-          onCheckedChange={(checked) => {
+          onCheckedChange={(_checked) => {
             toggleTask(task.id);
           }}
           onClick={(e) => e.stopPropagation()}
