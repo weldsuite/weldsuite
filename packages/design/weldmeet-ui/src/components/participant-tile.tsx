@@ -4,6 +4,7 @@ import { Hand, Pin, EllipsisVertical, Monitor, Volume2, VolumeX, ZoomIn, RotateC
 import { ParticipantNameTag } from './participant-name-tag';
 import { ParticipantAvatar } from './participant-avatar';
 import { ParticipantContextMenu } from './participant-context-menu';
+import type { MeetingClient, MeetingParticipant } from '../meeting-client';
 
 // ─── Camera-off tile palette ─────────────────────────────────────────────────
 // Deterministic colored background per participant, à la Google Meet. The
@@ -88,20 +89,20 @@ export function useIsSpeaking(audioTrack: MediaStreamTrack | null | undefined): 
 // ─── Participant Tile ────────────────────────────────────────────────────────
 
 export interface ParticipantTileProps {
-  participant: any;
+  participant: MeetingParticipant;
   isSelf?: boolean;
   isHandRaised?: boolean;
-  meeting?: any;
+  meeting?: MeetingClient | null;
   pinned?: boolean;
   onTogglePin?: (id: string) => void;
   /** When provided, "Send message" item navigates to this URL (used in platform). */
-  onSendMessage?: (participant: any) => void;
+  onSendMessage?: (participant: MeetingParticipant) => void;
   /**
    * When provided, clicking the tile (or "View profile" in the context menu)
    * invokes this callback. Used by the platform to open a side sheet showing
    * the linked CRM contact / team-member details.
    */
-  onClickDetails?: (participant: any) => void;
+  onClickDetails?: (participant: MeetingParticipant) => void;
   /**
    * Optional stable identifier used to derive the camera-off tile color theme.
    * When omitted, the theme is hashed from participant.id / userId / name.
@@ -304,11 +305,11 @@ export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pi
 
 export interface ScreenShareTileProps {
   /** The RTK participant object (self or remote) whose screen share to display. */
-  participant: any;
+  participant: MeetingParticipant;
   /** True when the participant is the local user. */
   isSelf?: boolean;
   /** RTK meeting handle. */
-  meeting?: any;
+  meeting?: MeetingClient | null;
   /** When provided, clicking the tile fires this — used to focus the screen
    *  onto the main stage (and to toggle focus back off). */
   onClick?: () => void;
@@ -350,7 +351,7 @@ export function ScreenShareTile({ participant, isSelf, onClick, focused }: Scree
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
-    const track: MediaStreamTrack | undefined = participant?.screenShareTracks?.video;
+    const track = participant?.screenShareTracks?.video;
     if (track) {
       el.srcObject = new MediaStream([track]);
     } else {
@@ -366,7 +367,7 @@ export function ScreenShareTile({ participant, isSelf, onClick, focused }: Scree
   // audio" in the browser picker. It was never played, so viewers heard nothing.
   // Play the REMOTE presenter's share audio here (never the local one — that
   // would echo). The presenter mutes/unmutes it with the button below.
-  const shareAudioTrack: MediaStreamTrack | undefined = participant?.screenShareTracks?.audio;
+  const shareAudioTrack = participant?.screenShareTracks?.audio;
   useEffect(() => {
     const el = shareAudioRef.current;
     if (!el || isSelf) return;

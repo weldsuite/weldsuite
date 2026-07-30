@@ -24,7 +24,6 @@ export interface MeetingHeaderProps {
   showInfoButton?: boolean;
   showPeopleButton?: boolean;
   showChatButton?: boolean;
-  showHostControlsButton?: boolean;
   showToolsButton?: boolean;
 }
 
@@ -49,7 +48,6 @@ export function MeetingHeader({
   showInfoButton = true,
   showPeopleButton = true,
   showChatButton = true,
-  showHostControlsButton = true,
   showToolsButton = true,
 }: MeetingHeaderProps) {
   const [editingTitle, setEditingTitle] = useState(false);

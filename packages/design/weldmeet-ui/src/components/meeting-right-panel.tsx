@@ -7,6 +7,7 @@ import { PeoplePanel } from './people-panel';
 import { MeetingToolsPanel } from './meeting-tools-panel';
 import { useIsMobile } from '../hooks/use-is-mobile';
 import type { RecordingState } from '../types';
+import type { MeetingClient, MeetingParticipant } from '../meeting-client';
 
 function formatMeetingDate(iso: string): string {
   const date = new Date(iso);
@@ -40,16 +41,17 @@ export interface MeetingRightPanelProps {
   shareUrl?: string;
   description?: string;
   scheduledStart?: string | null;
-  participants: any[];
-  meeting: any;
-  skipTransition?: boolean;
+  participants: MeetingParticipant[];
+  meeting: MeetingClient | null;
 
   /** Optional slot — replaces built-in PeoplePanel. */
   peoplePanelSlot?: ReactNode;
+  /** Forwarded to the built-in PeoplePanel — host app's "+" invite popover trigger. */
+  invitePopoverSlot?: ReactNode;
   /** Optional slot — replaces built-in HostControlsPanel. */
   hostControlsSlot?: ReactNode;
   /** Forwarded to the built-in PeoplePanel — opens host app's details sheet. */
-  onClickParticipantDetails?: (participant: any) => void;
+  onClickParticipantDetails?: (participant: MeetingParticipant) => void;
 
   /** Forwarded to MeetingToolsPanel. */
   isRecording?: boolean;
@@ -69,8 +71,8 @@ export function MeetingRightPanel({
   scheduledStart,
   participants,
   meeting,
-  skipTransition,
   peoplePanelSlot,
+  invitePopoverSlot,
   hostControlsSlot,
   onClickParticipantDetails,
   isRecording,
@@ -127,7 +129,7 @@ export function MeetingRightPanel({
           )}
 
           {panel === 'people' && (
-            peoplePanelSlot ?? <PeoplePanel meeting={meeting} participants={participants} onClickDetails={onClickParticipantDetails} />
+            peoplePanelSlot ?? <PeoplePanel meeting={meeting} participants={participants} onClickDetails={onClickParticipantDetails} invitePopoverSlot={invitePopoverSlot} />
           )}
 
           {panel === 'settings' && (

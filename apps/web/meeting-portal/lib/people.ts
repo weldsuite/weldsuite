@@ -2,8 +2,12 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import * as schema from '@weldsuite/db/schema';
 import { generateInitialsAvatarSvg } from '@weldsuite/db/lib';
 import { uploadToR2, isR2Configured } from './storage/r2';
+import type { getTenantDb } from './db';
 
 const { people } = schema;
+
+/** The resolved per-workspace Drizzle client this module operates on. */
+type TenantDb = Awaited<ReturnType<typeof getTenantDb>>['db'];
 
 function generatePersonId(): string {
   const timestamp = Date.now().toString(36);
@@ -64,7 +68,7 @@ async function generateAndUploadPersonAvatar(
  * so the standard `person:created` entity event is NOT published here.
  */
 export async function findOrCreatePersonByEmail(
-  db: any,
+  db: TenantDb,
   params: { email: string; name: string; workspaceId: string },
 ): Promise<{ id: string; avatarUrl: string | null; created: boolean }> {
   const email = params.email.trim().toLowerCase();

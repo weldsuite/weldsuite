@@ -1,5 +1,15 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type RealtimeKitClient from '@cloudflare/realtimekit';
+import type RealtimeKitVideoBackgroundTransformer from '@cloudflare/realtimekit-virtual-background';
+
+/** The transformer instance returned by `RealtimeKitVideoBackgroundTransformer.init()`. */
+type BackgroundTransformer = Awaited<
+  ReturnType<typeof RealtimeKitVideoBackgroundTransformer.init>
+>;
+/** The opaque video middleware the transformer hands us; only passed back to RTK. */
+type BackgroundMiddleware = Awaited<
+  ReturnType<BackgroundTransformer['createBackgroundBlurVideoMiddleware']>
+>;
 
 export type VirtualBackgroundType = 'none' | 'blur' | 'image';
 
@@ -66,9 +76,9 @@ export function useVirtualBackground(meeting: RealtimeKitClient | null) {
   const [backgroundValue, setBackgroundValue] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const transformerRef = useRef<any>(null);
-  const middlewareRef = useRef<any>(null);
-  const initPromiseRef = useRef<Promise<any> | null>(null);
+  const transformerRef = useRef<BackgroundTransformer | null>(null);
+  const middlewareRef = useRef<BackgroundMiddleware | null>(null);
+  const initPromiseRef = useRef<Promise<BackgroundTransformer> | null>(null);
   const appliedRef = useRef(false);
 
   const getTransformer = useCallback(async () => {

@@ -337,7 +337,7 @@ function WorkflowCanvasInner({
     );
 
     let finalNodes = needsLayout ? autoLayoutNodes(positionedNodes, newEdges) : positionedNodes;
-    let finalEdges = [...newEdges];
+    const finalEdges = [...newEdges];
 
     if (showAddPlaceholder) {
       let sourceNode: Node | undefined;
@@ -484,7 +484,7 @@ function WorkflowCanvasInner({
       const draggedNodeWidth = getNodeWidth(node);
       const currentNodes = getNodes();
 
-      let finalPosition = { ...node.position };
+      const finalPosition = { ...node.position };
       let didSnap = false;
 
       const draggedLeftX = getNodeLeftX(node);

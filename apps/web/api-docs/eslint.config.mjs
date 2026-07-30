@@ -4,7 +4,9 @@ import { nextJsConfig } from '@weldsuite/eslint-config/next-js'
 const eslintConfig = [
   ...nextJsConfig,
   {
-    ignores: ['.next/**', 'node_modules/**'],
+    // CommonJS Node config files — linting them under the app's browser/ESM
+    // globals just reports `module` as undefined. Same exclusion as `admin`.
+    ignores: ['.next/**', 'node_modules/**', 'postcss.config.js', 'prettier.config.js'],
   },
 ]
 

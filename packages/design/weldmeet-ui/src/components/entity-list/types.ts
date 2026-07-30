@@ -87,7 +87,7 @@ export interface EntityListProps<T extends { id: string }> {
   applyFilters?: (items: T[], activeFilters: ActiveFilter[]) => T[];
 
   // Handlers
-  onCreateItem?: (data: any) => void;
+  onCreateItem?: (data: Partial<T>) => void;
   onUpdateItem?: (id: string, data: Partial<T>) => void;
   onDeleteItem?: (id: string) => void;
   onDuplicateItem?: (item: T) => void;

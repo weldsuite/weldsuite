@@ -18,6 +18,7 @@ import {
   ParticipantAvatar,
   ParticipantNameTag,
   type ViewMode,
+  type MeetingParticipant,
 } from '@weldsuite/weldmeet-ui';
 import {
   Check,
@@ -235,7 +236,9 @@ export function WaitlistedScreen({
         backgroundValue={backgroundValue}
         isLoading={isBackgroundLoading}
         isOpen={effectsOpen}
-        localParticipant={rtkClient?.self}
+        /* RTK's own `Self` type is structurally compatible but nominally
+           distinct from weldmeet-ui's MeetingParticipant. */
+        localParticipant={rtkClient?.self as unknown as MeetingParticipant | undefined}
         onApplyBlur={applyBlur}
         onApplyImage={applyImage}
         onRemove={removeBackground}

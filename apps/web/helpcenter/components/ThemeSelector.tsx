@@ -42,8 +42,8 @@ function SystemIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
 }
 
 export function ThemeSelector(props: React.ComponentPropsWithoutRef<typeof Listbox<'div'>>) {
-  let { theme, setTheme } = useTheme()
-  let [mounted, setMounted] = useState(false)
+  const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
     setMounted(true)

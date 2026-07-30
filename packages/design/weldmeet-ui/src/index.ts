@@ -1,5 +1,18 @@
 // Shared types
 export type { ViewMode, RecordingState, MeetingRoomViewProps } from './types';
+export type {
+  MeetingClient,
+  MeetingSelf,
+  MeetingParticipant,
+  MeetingParticipants,
+  ParticipantCollection,
+  ScreenShareTracks,
+  CurrentDevices,
+  VideoMiddleware,
+  MeetingAi,
+  BroadcastMessage,
+  TranscriptEvent,
+} from './meeting-client';
 
 // Chat
 export {

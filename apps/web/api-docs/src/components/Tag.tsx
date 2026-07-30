@@ -45,7 +45,9 @@ export function Tag({
   variant = 'medium',
   color = valueColorMap[children] ?? 'emerald',
 }: {
-  children: keyof typeof valueColorMap & (string | {})
+  // `valueColorMap` is asserted to `Record<string, …>`, so its key type is
+  // already just `string` — there are no literal keys left to autocomplete.
+  children: string
   variant?: keyof typeof variantStyles
   color?: keyof typeof colorStyles
 }) {

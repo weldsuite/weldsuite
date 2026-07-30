@@ -10,6 +10,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
 import { ParticipantContextMenu } from './participant-context-menu';
+import type { MeetingClient, MeetingParticipant } from '../meeting-client';
 import {
   Dialog,
   DialogContent,
@@ -36,12 +37,12 @@ interface PersonRow {
   videoEnabled: boolean;
   status: 'in-call' | 'waiting';
   isSelf: boolean;
-  raw: any;
+  raw: MeetingParticipant;
 }
 
 export interface PeopleEntityListPanelProps {
-  meeting: any;
-  participants: any[];
+  meeting: MeetingClient | null;
+  participants: MeetingParticipant[];
   selfIsHost?: boolean;
   /** Workspace member-search content rendered inside the "+ Add people" dialog. */
   addPeopleDialogContent?: ReactNode;
@@ -50,7 +51,7 @@ export interface PeopleEntityListPanelProps {
    * participant object. Platform-only — omit in the portal where guests have no
    * detail panel. Self + waiting rows are never clickable.
    */
-  onClickPerson?: (participant: any) => void;
+  onClickPerson?: (participant: MeetingParticipant) => void;
 }
 
 export function PeopleEntityListPanel({
@@ -60,7 +61,7 @@ export function PeopleEntityListPanel({
   addPeopleDialogContent,
   onClickPerson,
 }: PeopleEntityListPanelProps) {
-  const [waitlisted, setWaitlisted] = useState<any[]>([]);
+  const [waitlisted, setWaitlisted] = useState<MeetingParticipant[]>([]);
   const [groupBy, setGroupBy] = useState<'status' | 'audio' | 'video' | 'none'>('status');
   const [showAddDialog, setShowAddDialog] = useState(false);
   // Right-click context menu (platform only — gated on onClickPerson).
@@ -68,31 +69,32 @@ export function PeopleEntityListPanel({
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
-    if (!meeting?.participants?.waitlisted) return;
+    const waiting = meeting?.participants?.waitlisted;
+    if (!waiting) return;
     const update = () => {
-      const list = meeting.participants.waitlisted.toArray?.() ?? [];
+      const list = waiting.toArray?.() ?? [];
       setWaitlisted([...list]);
     };
     update();
-    meeting.participants.waitlisted.on?.('participantJoined', update);
-    meeting.participants.waitlisted.on?.('participantLeft', update);
+    waiting.on?.('participantJoined', update);
+    waiting.on?.('participantLeft', update);
     return () => {
-      meeting.participants.waitlisted.off?.('participantJoined', update);
-      meeting.participants.waitlisted.off?.('participantLeft', update);
+      waiting.off?.('participantJoined', update);
+      waiting.off?.('participantLeft', update);
     };
   }, [meeting]);
 
   const handleAdmit = useCallback(async (id: string) => {
-    try { await meeting?.participants?.acceptWaitingRoomRequest(id); } catch { /* ignore */ }
+    try { await meeting?.participants?.acceptWaitingRoomRequest?.(id); } catch { /* ignore */ }
   }, [meeting]);
 
   const handleReject = useCallback(async (id: string) => {
-    try { await meeting?.participants?.rejectWaitingRoomRequest(id); } catch { /* ignore */ }
+    try { await meeting?.participants?.rejectWaitingRoomRequest?.(id); } catch { /* ignore */ }
   }, [meeting]);
 
   const handleAdmitAll = useCallback(async () => {
-    const ids = waitlisted.map((p: any) => p.id);
-    try { await meeting?.participants?.acceptAllWaitingRoomRequest(ids); } catch { /* ignore */ }
+    const ids = waitlisted.map((p) => p.id);
+    try { await meeting?.participants?.acceptAllWaitingRoomRequest?.(ids); } catch { /* ignore */ }
   }, [meeting, waitlisted]);
 
   const items = useMemo<PersonRow[]>(() => {
@@ -110,7 +112,7 @@ export function PeopleEntityListPanel({
         raw: p,
       };
     });
-    const waiting: PersonRow[] = waitlisted.map((p: any) => ({
+    const waiting: PersonRow[] = waitlisted.map((p) => ({
       id: p.id,
       name: p.name ?? 'Guest',
       picture: p.picture ?? null,

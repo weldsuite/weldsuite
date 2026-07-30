@@ -24,6 +24,36 @@ import {
 // Types
 // ============================================================================
 
+/** A message row as returned by `GET /api/meeting/:id/messages`. */
+interface WireChatMessage {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorAvatar?: string | null;
+  content: string;
+  htmlContent?: string | null;
+  type?: ChatMessage['type'];
+  createdAt: string;
+  attachments?: ChatMessageAttachment[];
+  pinnedAt?: string | null;
+}
+
+/**
+ * Attachment shape carried on realtime payloads. Publishers on both the host
+ * and portal side agree on `{id,name,size,type,url}`; the older
+ * `fileName`/`fileSize`/`mimeType` spelling is still accepted defensively.
+ */
+interface WireRealtimeAttachment {
+  id: string;
+  name?: string;
+  fileName?: string;
+  size?: number;
+  fileSize?: number;
+  type?: string;
+  mimeType?: string;
+  url: string;
+}
+
 interface GuestChatPanelProps {
   meetingId: string;
   orgId: string;
@@ -74,10 +104,10 @@ export function GuestChatPanel({
         const json = await res.json();
         if (cancelled) return;
         // API returns newest-first; reverse to chronological
-        const list: ChatMessage[] = (json.data?.messages ?? [])
+        const list: ChatMessage[] = ((json.data?.messages ?? []) as WireChatMessage[])
           .slice()
           .reverse()
-          .map((m: any) => ({
+          .map((m) => ({
             id: m.id,
             authorId: m.authorId,
             authorName: m.authorName,
@@ -164,9 +194,9 @@ export function GuestChatPanel({
               // shape (host + portal publishers agree on this); map to the
               // shared ChatMessageAttachment shape the panel renders.
               attachments: Array.isArray(msg.attachments)
-                ? msg.attachments.map((a: any) => ({
+                ? (msg.attachments as WireRealtimeAttachment[]).map((a) => ({
                     id: a.id,
-                    fileName: a.name ?? a.fileName,
+                    fileName: a.name ?? a.fileName ?? 'attachment',
                     fileSize: a.size ?? a.fileSize,
                     mimeType: a.type ?? a.mimeType,
                     url: a.url,

@@ -7,6 +7,7 @@ import { MeetingRightPanel, type RightPanelKind } from './meeting-right-panel';
 import { ShareLinkCard } from './share-link-card';
 import { AdmitGuestsPill } from './admit-guests-pill';
 import type { MeetingRoomViewProps } from '../types';
+import type { MeetingParticipant } from '../meeting-client';
 
 /**
  * Audio-only playback for a single remote participant.
@@ -17,7 +18,7 @@ import type { MeetingRoomViewProps } from '../types';
  * Rendering this hidden sink in such layouts keeps each remote participant
  * audible regardless of what's on screen.
  */
-function RemoteParticipantAudio({ participant }: { participant: any }) {
+function RemoteParticipantAudio({ participant }: { participant: MeetingParticipant }) {
   const ref = useRef<HTMLAudioElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -192,7 +193,9 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     const sync = () => setActiveSpeakerId(parts.lastActiveSpeaker ?? null);
     sync();
     parts.on?.('activeSpeaker', sync);
-    return () => parts.off?.('activeSpeaker', sync);
+    return () => {
+      parts.off?.('activeSpeaker', sync);
+    };
   }, [meeting]);
 
   const toggleRightPanel = useCallback((panel: 'info' | 'people' | 'settings' | 'tools') => {
@@ -261,10 +264,11 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
       const active = activeSpeakerId
         ? allParticipants.find(({ p }) => p.id === activeSpeakerId)
         : null;
-      return active ?? { p: participants[1], isSelf: false };
+      // `participants.length <= 1` returned above, so index 1 is present.
+      return active ?? { p: participants[1]!, isSelf: false };
     }
     if (viewMode === 'spotlight' || viewMode === 'sidebar') {
-      return { p: participants[1], isSelf: false };
+      return { p: participants[1]!, isSelf: false };
     }
     return null;
   })();
@@ -279,7 +283,7 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
   // Shared renderer for the camera-focus layout — one big tile plus a strip of
   // everyone else. Used both for an explicit pin and the spotlight/sidebar
   // viewMode auto-focus, so the markup lives in one place.
-  const renderCameraFocus = (focused: { p: any; isSelf: boolean }) => {
+  const renderCameraFocus = (focused: { p: MeetingParticipant; isSelf: boolean }) => {
     const others = allParticipants.filter(({ p }) => p.id !== focused.p.id);
     const isPinned = pinnedParticipant?.p.id === focused.p.id;
     const mainTile = (
@@ -402,7 +406,6 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
           showInfoButton={showInfoButton}
           showPeopleButton={showPeopleButton}
           showChatButton={showChatButton}
-          showHostControlsButton={showHostControlsButton}
           showToolsButton={showToolsButton}
         />
 
@@ -456,7 +459,8 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
                   matches the inset of every other layout). */}
               <div className="relative h-full w-full rounded-xl overflow-hidden bg-[#1a1a1a]">
                 <ScreenShareTile
-                  participant={participants[0]}
+                  /* This branch is gated on `participants.length === 1`. */
+                  participant={participants[0]!}
                   isSelf
                   meeting={meeting}
                 />
@@ -465,7 +469,7 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
                 {!isVideoOff && (
                   <div className="absolute bottom-4 right-4 z-10 w-[300px] h-[195px] rounded-lg shadow-lg overflow-hidden ring-1 ring-white/20">
                     <ParticipantTile
-                      participant={participants[0]}
+                      participant={participants[0]!}
                       isSelf
                       isHandRaised={handRaised}
                       meeting={meeting}
@@ -655,8 +659,8 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
         scheduledStart={scheduledStart}
         participants={participants}
         meeting={meeting}
-        skipTransition={skipTransition}
         peoplePanelSlot={peoplePanelSlot}
+        invitePopoverSlot={invitePopoverSlot}
         hostControlsSlot={hostControlsSlot}
         onClickParticipantDetails={onClickParticipantDetails}
         isRecording={isRecording}

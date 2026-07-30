@@ -2,7 +2,10 @@ import {
   Shield, Mic, VideoIcon, Hand, MessageSquare, ImageIcon, MonitorOff,
   Circle, DoorOpen, Users,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { Switch } from '@weldsuite/ui/components/switch';
+
+import type { MeetingClient } from '../meeting-client';
 
 /**
  * Host-control policy values for an in-progress or scheduled meeting. Mirrors
@@ -42,7 +45,7 @@ export interface HostControlsPanelProps {
   /** RTK meeting handle. Used for immediate enforcement on toggle-off
    *  (disableAllAudio/disableAllVideo). Optional — when null the inline
    *  enforcement is skipped and only the policy is persisted. */
-  meeting?: any;
+  meeting?: MeetingClient | null;
   /** Current host-control values. Always passed (no internal state). */
   controls: HostControlsValue;
   /** Called when the host flips a toggle. Caller is responsible for
@@ -64,7 +67,7 @@ const SETTING_SWITCH_CLASS = [
 
 export function HostControlsPanel({ meeting, controls, onChange, readOnly }: HostControlsPanelProps) {
   const SettingRow = ({ icon: Icon, label, description, checked, onCheckedChange, disabled }: {
-    icon: any; label: string; description?: string; checked: boolean; onCheckedChange: (v: boolean) => void; disabled?: boolean;
+    icon: LucideIcon; label: string; description?: string; checked: boolean; onCheckedChange: (v: boolean) => void; disabled?: boolean;
   }) => (
     <div className="flex items-center gap-3 py-2.5">
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted border">

@@ -12,6 +12,9 @@ import {
   MeetingRoomView,
   PeopleEntityListPanel,
   type ViewMode,
+  type MeetingClient,
+  type MeetingParticipant,
+  type TranscriptEvent,
 } from '@weldsuite/weldmeet-ui';
 
 import type { GuestHostControls } from '@/lib/schemas';
@@ -57,7 +60,12 @@ export function GuestMeetingRoom({
   hostControls,
   onHostControlsBroadcast,
 }: GuestMeetingRoomProps) {
-  const [participants, setParticipants] = useState<unknown[]>([]);
+  // RTK's published types don't model the defensive, version-tolerant surface
+  // this component calls (`on?.`, `toArray?.`), so narrow the client once here
+  // rather than casting at every call site.
+  const client = rtkClient as unknown as MeetingClient | null;
+
+  const [participants, setParticipants] = useState<MeetingParticipant[]>([]);
   const [handRaised, setHandRaised] = useState(false);
   const [captions, setCaptions] = useState<Array<{
     id: string; peerId: string; speakerName: string; text: string; isPartial: boolean; at: number;
@@ -68,8 +76,7 @@ export function GuestMeetingRoom({
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
-    if (!rtkClient) return;
-    const client = rtkClient as unknown as any;
+    if (!client) return;
 
     const updateParticipants = () => {
       const joined = client.participants?.joined?.toArray?.() ?? [];
@@ -107,7 +114,7 @@ export function GuestMeetingRoom({
     client.participants?.joined?.on?.('participantLeft', handleParticipantChange);
 
     const ai = client.ai;
-    const onTranscript = (t: any) => {
+    const onTranscript = (t: TranscriptEvent) => {
       if (!t?.transcript || !t.peerId) return;
       setCaptions((prev) => {
         const next = [...prev];
@@ -180,25 +187,25 @@ export function GuestMeetingRoom({
       try { client.participants?.off?.('broadcastedMessage', onBroadcast); } catch { /* ignore */ }
       try { ai?.off?.('transcript', onTranscript); } catch { /* ignore */ }
     };
-  }, [rtkClient, onHostControlsBroadcast]);
+  }, [client, onHostControlsBroadcast]);
 
   const startScreenShare = useCallback(async (constraints?: DisplayMediaStreamOptions) => {
-    if (!rtkClient) return;
-    const client = rtkClient as unknown as any;
+    if (!client) return;
     try {
       // RTK's enableScreenShare() takes no arguments — it calls getDisplayMedia
       // internally. We apply the picked resolution/framerate via
       // updateScreenshareConstraints (the SDK's supported way) after the track
       // is live, then set contentHint='detail' for spatial sharpness.
-      await client.self.enableScreenShare();
+      await client.self.enableScreenShare?.();
 
       const videoConstraints = (constraints?.video && typeof constraints.video === 'object')
         ? (constraints.video as MediaTrackConstraints)
         : undefined;
       const pickIdeal = (v: unknown): number | undefined => {
         if (typeof v === 'number') return v;
-        if (v && typeof v === 'object' && 'ideal' in (v as any) && typeof (v as any).ideal === 'number') {
-          return (v as any).ideal as number;
+        if (v && typeof v === 'object' && 'ideal' in v) {
+          const { ideal } = v as { ideal: unknown };
+          if (typeof ideal === 'number') return ideal;
         }
         return undefined;
       };
@@ -208,7 +215,7 @@ export function GuestMeetingRoom({
 
       if (width && height) {
         try {
-          await client.self.updateScreenshareConstraints({
+          await client.self.updateScreenshareConstraints?.({
             width: { ideal: width },
             height: { ideal: height },
             ...(frameRate ? { frameRate: { ideal: frameRate } } : {}),
@@ -236,24 +243,22 @@ export function GuestMeetingRoom({
       try { client.self.on?.('screenShareUpdate', onScreenShareUpdate); } catch { /* ignore */ }
 
       setIsScreenSharing(true);
-    } catch (err: any) {
-      const name = err?.name as string | undefined;
+    } catch (err) {
+      const name = err instanceof Error ? err.name : undefined;
       if (name !== 'NotAllowedError' && name !== 'AbortError') {
         console.error('[GuestMeetingRoom] startScreenShare failed:', err);
       }
     }
-  }, [rtkClient]);
+  }, [client]);
 
   const stopScreenShare = useCallback(() => {
-    if (!rtkClient) return;
-    const client = rtkClient as unknown as any;
+    if (!client) return;
     try { client.self.disableScreenShare?.(); } catch { /* ignore */ }
     setIsScreenSharing(false);
-  }, [rtkClient]);
+  }, [client]);
 
   const toggleHandRaise = useCallback(() => {
-    if (!rtkClient) return;
-    const client = rtkClient as unknown as any;
+    if (!client) return;
     const selfPeerId: string | undefined = client.self?.id;
     if (!selfPeerId) return;
     setHandRaised((prev) => {
@@ -274,7 +279,7 @@ export function GuestMeetingRoom({
       }
       return newState;
     });
-  }, [rtkClient]);
+  }, [client]);
 
   // Keep `isFullscreen` in sync with the browser's actual state so exiting via
   // the Escape key (or any other native exit) flips the three-dots menu back to
@@ -297,12 +302,12 @@ export function GuestMeetingRoom({
   }, []);
 
   // Participants (minus self) offered in the chat composer's @-mention picker.
-  const selfId = (rtkClient as unknown as { self?: { id?: string } } | null)?.self?.id;
+  const selfId = client?.self?.id;
   const mentionParticipants = useMemo(
     () =>
-      (participants as Array<{ id?: string; name?: string; picture?: string }>)
+      participants
         .filter((p) => p?.id && p.id !== selfId)
-        .map((p) => ({ id: p.id as string, name: p.name || 'Guest', avatar: p.picture ?? null })),
+        .map((p) => ({ id: p.id, name: p.name || 'Guest', avatar: p.picture ?? null })),
     [participants, selfId],
   );
 
@@ -342,8 +347,8 @@ export function GuestMeetingRoom({
       <MeetingRoomView
         meetingId={joinCode}
         meetingTitle={meetingTitle}
-        meeting={rtkClient as any}
-        participants={participants as any}
+        meeting={client}
+        participants={participants}
         isMuted={isMuted}
         isVideoOff={isVideoOff}
         isScreenSharing={isScreenSharing}
@@ -369,8 +374,8 @@ export function GuestMeetingRoom({
         selfColorSeed={colorSeed}
         peoplePanelSlot={
           <PeopleEntityListPanel
-            meeting={rtkClient as any}
-            participants={participants as any}
+            meeting={client}
+            participants={participants}
             selfIsHost={false}
           />
         }

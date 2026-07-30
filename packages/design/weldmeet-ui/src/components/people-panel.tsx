@@ -5,6 +5,8 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { cn } from '@weldsuite/ui/lib/utils';
 
+import type { MeetingClient, MeetingParticipant } from '../meeting-client';
+
 // Same palette as ParticipantTile + AdmitGuestsPill so a guest's avatar color
 // is identical in the side panel, the admission pill, and the in-call tile.
 const PERSON_THEMES = [
@@ -33,15 +35,15 @@ function getAvatarColor(seed: string): string {
 }
 
 export interface PeoplePanelProps {
-  meeting: any;
-  participants: any[];
+  meeting: MeetingClient | null;
+  participants: MeetingParticipant[];
   /** When true, the leftmost participant tile shows "(Host)" suffix. */
   selfIsHost?: boolean;
   /**
    * When provided, clicking a participant row opens the host app's
    * details sheet (CRM contact / team member). Hover state surfaces.
    */
-  onClickDetails?: (participant: any) => void;
+  onClickDetails?: (participant: MeetingParticipant) => void;
   /** Meeting join code — when set, shows the code chip + copy button at the top. */
   joinCode?: string;
   /** Public share URL copied when the chip's copy button is clicked. */
@@ -59,7 +61,7 @@ export function PeoplePanel({
   shareUrl,
   invitePopoverSlot,
 }: PeoplePanelProps) {
-  const [waitlisted, setWaitlisted] = useState<any[]>([]);
+  const [waitlisted, setWaitlisted] = useState<MeetingParticipant[]>([]);
   const [codeCopied, setCodeCopied] = useState(false);
 
   const handleCopyCode = async () => {
@@ -72,31 +74,32 @@ export function PeoplePanel({
   };
 
   useEffect(() => {
-    if (!meeting?.participants?.waitlisted) return;
+    const waiting = meeting?.participants?.waitlisted;
+    if (!waiting) return;
     const update = () => {
-      const list = meeting.participants.waitlisted.toArray?.() ?? [];
+      const list = waiting.toArray?.() ?? [];
       setWaitlisted([...list]);
     };
     update();
-    meeting.participants.waitlisted.on?.('participantJoined', update);
-    meeting.participants.waitlisted.on?.('participantLeft', update);
+    waiting.on?.('participantJoined', update);
+    waiting.on?.('participantLeft', update);
     return () => {
-      meeting.participants.waitlisted.off?.('participantJoined', update);
-      meeting.participants.waitlisted.off?.('participantLeft', update);
+      waiting.off?.('participantJoined', update);
+      waiting.off?.('participantLeft', update);
     };
   }, [meeting]);
 
   const handleAdmit = useCallback(async (id: string) => {
-    try { await meeting?.participants?.acceptWaitingRoomRequest(id); } catch { /* ignore */ }
+    try { await meeting?.participants?.acceptWaitingRoomRequest?.(id); } catch { /* ignore */ }
   }, [meeting]);
 
   const handleReject = useCallback(async (id: string) => {
-    try { await meeting?.participants?.rejectWaitingRoomRequest(id); } catch { /* ignore */ }
+    try { await meeting?.participants?.rejectWaitingRoomRequest?.(id); } catch { /* ignore */ }
   }, [meeting]);
 
   const handleAdmitAll = useCallback(async () => {
-    const ids = waitlisted.map((p: any) => p.id);
-    try { await meeting?.participants?.acceptAllWaitingRoomRequest(ids); } catch { /* ignore */ }
+    const ids = waitlisted.map((p) => p.id);
+    try { await meeting?.participants?.acceptAllWaitingRoomRequest?.(ids); } catch { /* ignore */ }
   }, [meeting, waitlisted]);
 
   return (
@@ -133,7 +136,7 @@ export function PeoplePanel({
             </p>
           </div>
           <div className="px-4">
-            {waitlisted.map((p: any) => {
+            {waitlisted.map((p) => {
               const seed = String(p.customParticipantId ?? p.userId ?? p.id ?? p.name ?? '');
               return (
               <div key={p.id} className="flex items-center gap-3 py-2">

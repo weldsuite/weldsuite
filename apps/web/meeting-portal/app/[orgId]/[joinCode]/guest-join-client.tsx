@@ -20,7 +20,7 @@ import {
   installGetUserMediaPatch,
   type NoiseSuppressor,
 } from '@weldsuite/df3-noise-suppression';
-import { useVirtualBackground, type ViewMode } from '@weldsuite/weldmeet-ui';
+import { useVirtualBackground, type ViewMode, type MeetingSelf } from '@weldsuite/weldmeet-ui';
 
 /**
  * RNNoise gate for the guest portal. meeting-portal has no FeatureFlagProvider
@@ -157,10 +157,10 @@ export default function GuestJoinClient() {
     applyBlur,
     applyImage,
     removeBackground,
-    // Cast to any — packages/design/weldmeet-ui has its own pinned copy of
-    // @cloudflare/realtimekit, so the structural-but-nominally-different
-    // RealtimeKitClient types don't line up across the workspace boundary.
-  } = useVirtualBackground(rtkClient as any);
+    // `weldmeet-ui` resolves its own pinned copy of @cloudflare/realtimekit, so
+    // the two `RealtimeKitClient` declarations are structurally identical but
+    // nominally distinct across the workspace boundary.
+  } = useVirtualBackground(rtkClient as unknown as Parameters<typeof useVirtualBackground>[0]);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -286,7 +286,8 @@ export default function GuestJoinClient() {
     // Query permission state (Chromium/Firefox; Safari support varies).
     const queriedPermissions: PermissionStatus[] = [];
     (async () => {
-      const q = (navigator as any).permissions?.query?.bind(navigator.permissions);
+      // `navigator.permissions` is absent on older Safari.
+      const q = navigator.permissions?.query?.bind(navigator.permissions);
       if (!q) return;
       for (const [name, setter] of [
         ['microphone', setAudioPermission],
@@ -313,9 +314,10 @@ export default function GuestJoinClient() {
       ): Promise<MediaStream | null> => {
         try {
           return await navigator.mediaDevices.getUserMedia(constraints);
-        } catch (err: any) {
-          console.warn(`[GuestJoin] getUserMedia(${kind}) failed:`, err?.name, err?.message);
-          if (err?.name === 'NotAllowedError') {
+        } catch (err) {
+          const { name, message } = err instanceof Error ? err : { name: undefined, message: undefined };
+          console.warn(`[GuestJoin] getUserMedia(${kind}) failed:`, name, message);
+          if (name === 'NotAllowedError') {
             const setter = kind === 'audio' ? setAudioPermission : setVideoPermission;
             setter(prev => prev === 'granted' ? prev : 'denied');
           } else {
@@ -468,10 +470,11 @@ export default function GuestJoinClient() {
     ): Promise<MediaStream | null> => {
       try {
         return await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (err: any) {
-        console.warn(`[GuestJoin] requestPermissions(${kind}) failed:`, err?.name, err?.message);
+      } catch (err) {
+        const { name, message } = err instanceof Error ? err : { name: undefined, message: undefined };
+        console.warn(`[GuestJoin] requestPermissions(${kind}) failed:`, name, message);
         const setter = kind === 'audio' ? setAudioPermission : setVideoPermission;
-        if (err?.name === 'NotAllowedError') setter('denied');
+        if (name === 'NotAllowedError') setter('denied');
         return null;
       }
     };
@@ -737,9 +740,9 @@ export default function GuestJoinClient() {
     }
 
     try {
-      const self = rtkClient.self as unknown as any;
+      const self = rtkClient.self as unknown as MeetingSelf;
       const all = await self.getAllDevices?.();
-      const videos = ((all ?? []) as any[]).filter((d) => d.kind === 'videoinput') as MediaDeviceInfo[];
+      const videos = (all ?? []).filter((d) => d.kind === 'videoinput');
       const current = self.getCurrentDevices?.();
       const currentId = current?.video?.deviceId;
       const target = (currentId && videos.find((v) => v.deviceId === currentId)) || videos[0];

@@ -95,7 +95,11 @@ export function LandingScreen({
   return (
     <div className="relative flex-1 flex items-center justify-center min-h-screen bg-background">
       <div className="absolute top-6 left-6 z-10">
+        {/* Local SVGs — next/image can't optimize vector assets, and routing
+            them through the loader would only add a request. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/weldmeet-logo-light.svg" alt="WeldMeet" className="h-5 w-auto block dark:hidden" />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/weldmeet-logo-dark.svg" alt="WeldMeet" className="h-5 w-auto hidden dark:block" />
       </div>
       <Button asChild variant="outline" className="absolute top-4 right-4 z-10 rounded-[calc(var(--radius)-1px)]">
@@ -266,6 +270,10 @@ function AttendeesRow({ meetingInfo }: { meetingInfo: MeetingInfo | null }) {
             className="w-[22px] h-[22px] rounded-md bg-gray-200 dark:bg-accent flex items-center justify-center ring-2 ring-white dark:ring-background text-[10px] font-medium text-gray-600 dark:text-muted-foreground overflow-hidden"
           >
             {'avatar' in a && a.avatar ? (
+              // Avatar URLs come from arbitrary identity providers, so they
+              // can't be enumerated in next.config `remotePatterns`. At 22px
+              // there is nothing for the optimizer to save anyway.
+              // eslint-disable-next-line @next/next/no-img-element
               <img src={a.avatar} alt="" className="w-full h-full object-cover" />
             ) : (
               a.name?.charAt(0)?.toUpperCase() ?? '?'

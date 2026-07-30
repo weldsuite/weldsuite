@@ -1,5 +1,8 @@
 import type { ReactNode } from 'react';
 
+import type { MeetingClient, MeetingParticipant } from './meeting-client';
+import type { VirtualBackgroundType } from './hooks/use-virtual-background';
+
 export type ViewMode = 'grid' | 'spotlight' | 'speaker' | 'sidebar';
 export type RecordingState = 'IDLE' | 'STARTING' | 'RECORDING' | 'PAUSED' | 'STOPPING';
 
@@ -21,8 +24,9 @@ export interface MeetingRoomViewProps {
   scheduledStart?: string | null;
 
   // ── RTK / live meeting client ──────────────────────────────────────────────
-  meeting: any;
-  participants: any[];
+  /** Null while the host app is still connecting — every consumer guards on it. */
+  meeting: MeetingClient | null;
+  participants: MeetingParticipant[];
   waitlistedCount?: number;
 
   // ── Self state ────────────────────────────────────────────────────────────
@@ -68,7 +72,7 @@ export interface MeetingRoomViewProps {
   // ── Background effects (omit to hide) ─────────────────────────────────────
   onToggleEffects?: () => void;
   effectsOpen?: boolean;
-  backgroundType?: any;
+  backgroundType?: VirtualBackgroundType;
   /** Slot — host app renders its BackgroundEffectsPanel here (always portaled). */
   backgroundEffectsSlot?: ReactNode;
 
@@ -151,7 +155,7 @@ export interface MeetingRoomViewProps {
    * context menu) invokes this callback. The platform uses it to open a
    * side sheet showing the linked CRM contact / team-member details.
    */
-  onClickParticipantDetails?: (participant: any) => void;
+  onClickParticipantDetails?: (participant: MeetingParticipant) => void;
 
   // ── Host-app right-edge reservation (fullscreen only) ─────────────────────
   /**
