@@ -49,9 +49,9 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'get_project',
     scope: 'projects:read',
-    description: 'Get a WeldFlow project by ID, including budget, counters, and customization fields.',
+    description: 'Get a WeldFlow project, including budget, counters, and customization fields.',
     inputSchema: {
-      projectId: z.string().describe('The project ID'),
+      projectId: z.string().describe('The project — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/projects/:id',
@@ -70,7 +70,7 @@ export const projectsTools: ToolDefinition[] = [
     scope: 'projects:write',
     description: 'Update an existing WeldFlow project.',
     inputSchema: {
-      projectId: z.string().describe('The project ID to update'),
+      projectId: z.string().describe('The project to update — its name, or the id from an earlier search'),
       ...updateProjectSchema.shape,
     },
     method: 'PATCH',
@@ -80,9 +80,9 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'delete_project',
     scope: 'projects:write',
-    description: 'Soft-delete a WeldFlow project by ID.',
+    description: 'Delete a WeldFlow project.',
     inputSchema: {
-      projectId: z.string().describe('The project ID'),
+      projectId: z.string().describe('The project — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/projects/:id',
@@ -115,9 +115,9 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'get_task',
     scope: 'tasks:read',
-    description: 'Get a WeldFlow task by ID, including all fields (description, tags, dependencies, custom fields).',
+    description: 'Get a WeldFlow task, including all fields (description, tags, dependencies, custom fields).',
     inputSchema: {
-      taskId: z.string().describe('The task ID'),
+      taskId: z.string().describe('The task — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/tasks/:id',
@@ -136,7 +136,7 @@ export const projectsTools: ToolDefinition[] = [
     scope: 'tasks:write',
     description: 'Update an existing WeldFlow task. Any subset of fields can be updated; unspecified fields are left unchanged.',
     inputSchema: {
-      taskId: z.string().describe('The task ID to update'),
+      taskId: z.string().describe('The task to update — its name, or the id from an earlier search'),
       ...updateTaskSchema.shape,
     },
     method: 'PATCH',
@@ -146,9 +146,9 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'delete_task',
     scope: 'tasks:write',
-    description: 'Soft-delete a WeldFlow task by ID.',
+    description: 'Delete a WeldFlow task.',
     inputSchema: {
-      taskId: z.string().describe('The task ID'),
+      taskId: z.string().describe('The task — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/tasks/:id',
@@ -172,9 +172,9 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'get_task_comment',
     scope: 'task_comments:read',
-    description: 'Get full details of a task comment by ID.',
+    description: 'Get full details of a task comment.',
     inputSchema: {
-      id: z.string().describe('The task comment ID'),
+      id: z.string().describe('The task comment — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/task-comments/:id',
@@ -191,9 +191,9 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'update_task_comment',
     scope: 'task_comments:write',
-    description: 'Update an existing task comment by ID.',
+    description: 'Update an existing task comment.',
     inputSchema: {
-      id: z.string().describe('The task comment ID'),
+      id: z.string().describe('The task comment — its name, or the id from an earlier search'),
       ...updateTaskCommentSchema.shape,
     },
     method: 'PATCH',
@@ -203,9 +203,9 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'delete_task_comment',
     scope: 'task_comments:write',
-    description: 'Soft-delete a task comment by ID.',
+    description: 'Delete a task comment.',
     inputSchema: {
-      id: z.string().describe('The task comment ID'),
+      id: z.string().describe('The task comment — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/task-comments/:id',
@@ -229,9 +229,9 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'get_task_tag',
     scope: 'task_tags:read',
-    description: 'Get full details of a task tag by ID.',
+    description: 'Get full details of a task tag.',
     inputSchema: {
-      id: z.string().describe('The task tag ID'),
+      id: z.string().describe('The task tag — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/task-tags/:id',
@@ -248,9 +248,9 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'update_task_tag',
     scope: 'task_tags:write',
-    description: 'Update an existing task tag by ID.',
+    description: 'Update an existing task tag.',
     inputSchema: {
-      id: z.string().describe('The task tag ID'),
+      id: z.string().describe('The task tag — its name, or the id from an earlier search'),
       ...updateTaskTagSchema.shape,
     },
     method: 'PATCH',
@@ -260,9 +260,9 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'delete_task_tag',
     scope: 'task_tags:write',
-    description: 'Soft-delete a task tag by ID.',
+    description: 'Delete a task tag.',
     inputSchema: {
-      id: z.string().describe('The task tag ID'),
+      id: z.string().describe('The task tag — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/task-tags/:id',
@@ -287,9 +287,9 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'get_sprint',
     scope: 'sprints:read',
-    description: 'Get full details of a sprint by ID.',
+    description: 'Get full details of a sprint.',
     inputSchema: {
-      id: z.string().describe('The sprint ID'),
+      id: z.string().describe('The sprint — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/sprints/:id',
@@ -306,9 +306,9 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'update_sprint',
     scope: 'sprints:write',
-    description: 'Update an existing sprint by ID.',
+    description: 'Update an existing sprint.',
     inputSchema: {
-      id: z.string().describe('The sprint ID'),
+      id: z.string().describe('The sprint — its name, or the id from an earlier search'),
       ...updateSprintSchema.shape,
     },
     method: 'PATCH',
@@ -318,9 +318,9 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'delete_sprint',
     scope: 'sprints:write',
-    description: 'Soft-delete a sprint by ID.',
+    description: 'Delete a sprint.',
     inputSchema: {
-      id: z.string().describe('The sprint ID'),
+      id: z.string().describe('The sprint — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/sprints/:id',
@@ -345,9 +345,9 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'get_milestone',
     scope: 'milestones:read',
-    description: 'Get full details of a milestone by ID.',
+    description: 'Get full details of a milestone.',
     inputSchema: {
-      id: z.string().describe('The milestone ID'),
+      id: z.string().describe('The milestone — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/milestones/:id',
@@ -364,9 +364,9 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'update_milestone',
     scope: 'milestones:write',
-    description: 'Update an existing milestone by ID.',
+    description: 'Update an existing milestone.',
     inputSchema: {
-      id: z.string().describe('The milestone ID'),
+      id: z.string().describe('The milestone — its name, or the id from an earlier search'),
       ...updateMilestoneSchema.shape,
     },
     method: 'PATCH',
@@ -376,9 +376,9 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'delete_milestone',
     scope: 'milestones:write',
-    description: 'Soft-delete a milestone by ID.',
+    description: 'Delete a milestone.',
     inputSchema: {
-      id: z.string().describe('The milestone ID'),
+      id: z.string().describe('The milestone — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/milestones/:id',
@@ -401,9 +401,9 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'get_goal',
     scope: 'goals:read',
-    description: 'Get full details of a project goal by ID.',
+    description: 'Get full details of a project goal.',
     inputSchema: {
-      id: z.string().describe('The goal ID'),
+      id: z.string().describe('The goal — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/goals/:id',
@@ -420,9 +420,9 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'update_goal',
     scope: 'goals:write',
-    description: 'Update an existing project goal by ID.',
+    description: 'Update an existing project goal.',
     inputSchema: {
-      id: z.string().describe('The goal ID'),
+      id: z.string().describe('The goal — its name, or the id from an earlier search'),
       ...updateGoalSchema.shape,
     },
     method: 'PATCH',
@@ -432,9 +432,9 @@ export const projectsTools: ToolDefinition[] = [
   {
     name: 'delete_goal',
     scope: 'goals:write',
-    description: 'Soft-delete a project goal by ID.',
+    description: 'Delete a project goal.',
     inputSchema: {
-      id: z.string().describe('The goal ID'),
+      id: z.string().describe('The goal — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/goals/:id',

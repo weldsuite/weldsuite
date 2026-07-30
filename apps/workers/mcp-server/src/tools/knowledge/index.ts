@@ -35,7 +35,7 @@ export const knowledgeTools: ToolDefinition[] = [
     scope: 'knowledge:write',
     description: 'Update a knowledge-base space (name, description, icon, visibility, sort order).',
     inputSchema: {
-      id: z.string().describe('The space ID'),
+      id: z.string().describe('The space — its name, or the id from an earlier search'),
       ...updateKnowledgeSpaceSchema.shape,
     },
     method: 'PATCH',
@@ -46,9 +46,9 @@ export const knowledgeTools: ToolDefinition[] = [
   {
     name: 'delete_knowledge_space',
     scope: 'knowledge:write',
-    description: 'Soft-delete a knowledge-base space and all pages inside it (recoverable from trash).',
+    description: 'Delete a knowledge-base space and all pages inside it (recoverable from trash).',
     inputSchema: {
-      id: z.string().describe('The space ID'),
+      id: z.string().describe('The space — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/knowledge-spaces/:id',
@@ -88,9 +88,9 @@ export const knowledgeTools: ToolDefinition[] = [
     name: 'get_knowledge_page',
     scope: 'knowledge:read',
     description:
-      'Get a knowledge-base page by ID, including its full content (BlockNote block JSON in contentJson, plain text in contentText).',
+      'Get a knowledge-base page, including its full content (BlockNote block JSON in contentJson, plain text in contentText).',
     inputSchema: {
-      id: z.string().describe('The page ID'),
+      id: z.string().describe('The page — its name, or the id from an earlier search'),
     },
     method: 'GET',
     path: '/v1/knowledge-pages/:id',
@@ -113,7 +113,7 @@ export const knowledgeTools: ToolDefinition[] = [
     description:
       'Update a knowledge-base page. Setting `content` REPLACES the whole page body (plain text / light markdown). Can also rename, set icon/cover, or lock/unlock.',
     inputSchema: {
-      id: z.string().describe('The page ID'),
+      id: z.string().describe('The page — its name, or the id from an earlier search'),
       ...updateKnowledgePageSchema.shape,
     },
     method: 'PATCH',
@@ -127,7 +127,7 @@ export const knowledgeTools: ToolDefinition[] = [
     description:
       'Move a knowledge-base page to a new parent, position, or space. The whole subtree moves along; moving a page under its own descendant is rejected.',
     inputSchema: {
-      id: z.string().describe('The page ID to move'),
+      id: z.string().describe('The page to move — its name, or the id from an earlier search'),
       ...moveKnowledgePageSchema.shape,
     },
     method: 'POST',
@@ -138,9 +138,9 @@ export const knowledgeTools: ToolDefinition[] = [
   {
     name: 'delete_knowledge_page',
     scope: 'knowledge:write',
-    description: 'Soft-delete a knowledge-base page and all its sub-pages (recoverable from trash in the platform).',
+    description: 'Delete a knowledge-base page and all its sub-pages (recoverable from trash in the platform).',
     inputSchema: {
-      id: z.string().describe('The page ID'),
+      id: z.string().describe('The page — its name, or the id from an earlier search'),
     },
     method: 'DELETE',
     path: '/v1/knowledge-pages/:id',

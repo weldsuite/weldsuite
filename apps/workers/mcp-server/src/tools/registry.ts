@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { present } from '../lib/present';
 
 /**
  * Declarative tool definition for the MCP server.
@@ -35,6 +36,16 @@ export interface ToolDefinition {
  * Helper to create a successful tool result
  */
 export function toolResult(data: unknown): CallToolResult {
+  return {
+    content: [{ type: 'text', text: present(data) }],
+  };
+}
+
+/**
+ * Escape hatch for the rare caller that genuinely needs the raw payload —
+ * anything schema-shaped where losing a field would change behaviour.
+ */
+export function rawToolResult(data: unknown): CallToolResult {
   return {
     content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
   };
