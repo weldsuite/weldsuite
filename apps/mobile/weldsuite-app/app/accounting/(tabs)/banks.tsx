@@ -8,7 +8,6 @@ import {
   View,
   Text,
   Modal,
-  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -35,38 +34,6 @@ interface BankAccount {
   };
 }
 
-const ACCOUNT_TYPE_CONFIG = {
-  checking: {
-    label: 'Checking',
-    icon: 'wallet-outline' as const,
-    color: '#3B82F6',
-  },
-  savings: {
-    label: 'Savings',
-    icon: 'shield-checkmark-outline' as const,
-    color: '#10B981',
-  },
-  credit: {
-    label: 'Credit Card',
-    icon: 'card-outline' as const,
-    color: '#8B5CF6',
-  },
-  investment: {
-    label: 'Investment',
-    icon: 'trending-up-outline' as const,
-    color: '#F59E0B',
-  },
-  loan: {
-    label: 'Loan',
-    icon: 'home-outline' as const,
-    color: '#EF4444',
-  },
-  other: {
-    label: 'Other',
-    icon: 'ellipsis-horizontal-outline' as const,
-    color: '#6B7280',
-  },
-};
 
 const SYNC_STATUS_CONFIG = {
   connected: {
@@ -190,7 +157,6 @@ export default function BanksScreen() {
   };
 
   const renderAccount = ({ item }: { item: BankAccount }) => {
-    const typeConfig = ACCOUNT_TYPE_CONFIG[item.type];
     const statusConfig = SYNC_STATUS_CONFIG[item.status];
 
     return (

@@ -19,7 +19,6 @@ import { useLocalSearchParams } from 'expo-router';
 import {
   Plus,
   Mail,
-  MoreHorizontal,
   Search,
   X,
   Trash2,

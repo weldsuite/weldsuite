@@ -5,7 +5,6 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  RefreshControl,
   ActivityIndicator,
   Modal,
   TextInput,
@@ -120,10 +119,6 @@ export default function ProjectPipelineScreen() {
     }
   };
 
-  const handleRefresh = () => {
-    setRefreshing(true);
-    loadPipeline();
-  };
 
   const handleAddTask = (status: string) => {
     setSelectedStatus(status);

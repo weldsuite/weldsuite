@@ -20,8 +20,6 @@ import {
   Flag,
   FolderKanban,
   Star,
-  Tag,
-  User,
 } from 'lucide-react-native';
 import type { TaskPriority } from '@/types/task.types';
 

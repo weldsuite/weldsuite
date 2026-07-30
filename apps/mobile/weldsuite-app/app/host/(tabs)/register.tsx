@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Search, ShoppingCart, Settings2, ChevronLeft } from 'lucide-react-native';
-import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useShouldShowMiniSidebar } from '@/components/layout/MiniSidebar';
 import { useCollapsibleHeader } from '@/contexts/CollapsibleHeaderContext';

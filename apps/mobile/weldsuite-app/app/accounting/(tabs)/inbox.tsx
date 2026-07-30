@@ -16,7 +16,6 @@ import {
   Receipt,
   ChevronRight,
   Inbox,
-  Filter,
 } from 'lucide-react-native';
 import { api, AccountingInboxItem } from '@/services/api';
 

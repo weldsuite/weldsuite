@@ -21,7 +21,6 @@ import {
   Shield,
   Info,
   Bell,
-  Trash2,
 } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -237,15 +236,6 @@ export default function NotificationsScreen() {
     }
   };
 
-  const handleDelete = async (notificationId: string) => {
-    haptics.medium();
-    try {
-      await api.deleteNotification(notificationId);
-      setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
-    } catch (error) {
-      console.error('Failed to delete notification:', error);
-    }
-  };
 
   const groups = groupNotifications(notifications);
   const hasNotifications =

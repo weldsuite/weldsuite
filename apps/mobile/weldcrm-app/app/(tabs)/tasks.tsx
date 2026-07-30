@@ -8,7 +8,6 @@ import {
   TextInput,
   Modal,
   StatusBar,
-  FlatList,
   RefreshControl,
   ActivityIndicator,
 } from 'react-native';
@@ -16,17 +15,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import {
   Check,
-  Clock,
   Calendar,
-  User,
-  Search,
   Plus,
-  Filter,
-  CheckCircle2,
-  Circle,
-  Building2,
   X,
-  ChevronDown,
 } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
@@ -427,8 +418,6 @@ export default function TasksScreen() {
   };
 
   // Stats
-  const totalTasks = tasks.filter(t => !t.completed).length;
-  const completedCount = tasks.filter(t => t.completed).length;
 
   if (loading && !refreshing) {
     return (

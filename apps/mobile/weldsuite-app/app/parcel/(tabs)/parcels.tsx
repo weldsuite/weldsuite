@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   FlatList,
@@ -190,10 +190,6 @@ export default function ParcelsScreen() {
     router.push(`/parcel/${parcel.id}` as any);
   };
 
-  const handleUpdateParcelStatus = (parcel: Parcel) => {
-    setSelectedParcel(parcel);
-    setStatusUpdateModalVisible(true);
-  };
 
   const updateParcelStatus = (newStatus: Parcel['status']) => {
     if (!selectedParcel) return;

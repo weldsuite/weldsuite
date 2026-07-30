@@ -5,13 +5,11 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  RefreshControl,
   ActivityIndicator,
   TextInput,
   Modal,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   Pressable,
   Animated,
 } from 'react-native';
@@ -21,7 +19,6 @@ import {
   Plus,
   Check,
   X,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   User,
@@ -47,11 +44,8 @@ import {
   EyeOff,
   ArrowLeft,
   ArrowRight,
-  ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Filter,
-  Settings2,
   Eye,
   Columns3,
 } from 'lucide-react-native';
@@ -545,10 +539,6 @@ export default function ProjectTableScreen() {
     }
   }, [showDatePicker]);
 
-  const handleRefresh = () => {
-    setRefreshing(true);
-    loadData();
-  };
 
   const handleAddTask = async () => {
     if (!newTaskTitle.trim()) return;
@@ -570,34 +560,8 @@ export default function ProjectTableScreen() {
     }
   };
 
-  const toggleTaskSelection = (taskId: string) => {
-    const newSelected = new Set(selectedTasks);
-    if (newSelected.has(taskId)) {
-      newSelected.delete(taskId);
-    } else {
-      newSelected.add(taskId);
-    }
-    setSelectedTasks(newSelected);
-  };
 
   // Open task picker to select an existing task
-  const openTaskPicker = async (rowId: string) => {
-    setTaskPickerRowId(rowId);
-    // Load all project tasks if not already loaded
-    if (allProjectTasks.length === 0) {
-      try {
-        const response = await api.getProjectTasksList(projectId as string);
-        if (response.success && response.data) {
-          // Handle paginated response structure
-          const taskItems = Array.isArray(response.data) ? response.data : response.data.items || [];
-          setAllProjectTasks(taskItems);
-        }
-      } catch (error) {
-        console.error('Failed to load tasks:', error);
-      }
-    }
-    setShowTaskPicker(true);
-  };
 
   // Select a task from the picker
   const selectTask = (task: ProjectTask) => {
@@ -790,13 +754,6 @@ export default function ProjectTableScreen() {
     }
   };
 
-  const saveCustomDate = () => {
-    if (editingCell?.columnId) {
-      setCustomFieldValue(editingCell.taskId, editingCell.columnId, selectedDate.toISOString());
-    }
-    setShowDatePicker(false);
-    setEditingCell(null);
-  };
 
   // Save cell edit
   const saveEdit = async () => {

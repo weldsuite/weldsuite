@@ -7,12 +7,10 @@ import {
   StyleSheet,
   Image,
   Clipboard,
-  Keyboard,
   Modal,
   Pressable,
   Alert,
   ActivityIndicator,
-  Platform,
   ScrollView,
 } from 'react-native';
 import { useOrganization , useAuth } from '@clerk/expo';
@@ -21,7 +19,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming, run
 import { Gesture, GestureDetector, FlatList } from 'react-native-gesture-handler';
 import { useRouter } from 'expo-router';
 
-import { Archive, ArrowUp, AtSign, AudioLines, Bell, BellOff, ChevronDown, ChevronLeft, Clock, FileText, Hash, Infinity as InfinityIcon, Lock, MessageSquare, MoreVertical, Paperclip, Pencil, Phone, PhoneMissed, Pin, Plus, Reply, X } from 'lucide-react-native';
+import { Archive, ArrowUp, AtSign, AudioLines, Bell, BellOff, ChevronDown, ChevronLeft, Clock, FileText, Hash, Infinity as InfinityIcon, Lock, MessageSquare, Paperclip, Pencil, Phone, PhoneMissed, Plus, Reply, X } from 'lucide-react-native';
 import { VideoCameraIcon } from '@/components/icons/VideoCameraIcon';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';

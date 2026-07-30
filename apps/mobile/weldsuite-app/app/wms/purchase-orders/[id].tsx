@@ -23,12 +23,9 @@ import {
 import {
   ChevronLeft,
   FileText,
-  User,
   Package,
-  Calendar,
   CheckCircle2,
   AlertTriangle,
-  MapPin,
   ScanBarcode,
 } from 'lucide-react-native';
 import { Camera, CameraView, BarcodeScanningResult } from 'expo-camera';

@@ -12,9 +12,21 @@ import {
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
-  Package, Users, ClipboardList, CheckSquare,
-  Headphones, Mail, Warehouse, Calculator,
-  Send, Globe, Grid3X3, LucideIcon, ChevronLeft, Menu, Search, X,
+  Package,
+  Users,
+  ClipboardList,
+  CheckSquare,
+  Headphones,
+  Mail,
+  Warehouse,
+  Calculator,
+  Send,
+  Globe,
+  Grid3X3,
+  LucideIcon,
+  ChevronLeft,
+  Search,
+  X,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AppDrawer from '@/components/layout/AppDrawer';
@@ -94,7 +106,6 @@ export default function AppStoreScreen() {
     return grouped;
   }, [apps]);
 
-  const categoryList = Object.keys(categories);
 
   const filteredApps = apps
     .filter(app => !selectedCategory || app.category === selectedCategory)

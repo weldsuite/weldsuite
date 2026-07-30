@@ -22,7 +22,6 @@ import {
   Circle,
   CheckCircle2,
   XCircle,
-  Pause,
 } from 'lucide-react-native';
 import { api, ProjectTaskWithProject, ProjectTaskStats } from '@/services/api';
 

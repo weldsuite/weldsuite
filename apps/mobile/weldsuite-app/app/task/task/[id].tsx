@@ -14,9 +14,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { api } from '@/services/api';
 import {
   ChevronLeft,
-  MoreVertical,
   Calendar,
-  Flag,
   FolderKanban,
   Star,
   CheckCircle2,
@@ -24,7 +22,6 @@ import {
   MessageSquare,
   Clock,
   Trash2,
-  Edit3,
 } from 'lucide-react-native';
 import type { TaskItem, TaskPriority, TaskComment, TaskActivity } from '@/types/task.types';
 

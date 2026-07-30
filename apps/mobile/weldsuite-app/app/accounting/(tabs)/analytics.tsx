@@ -93,7 +93,6 @@ export default function AnalyticsScreen() {
   }
 
   const maxRevenue = Math.max(...analytics.monthlyRevenue.map(m => m.revenue), 1);
-  const totalExpenses = analytics.expenseBreakdown.reduce((sum, e) => sum + e.amount, 0);
 
   return (
     <ScrollView

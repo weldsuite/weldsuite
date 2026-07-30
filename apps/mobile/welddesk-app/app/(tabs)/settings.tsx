@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-nati
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
-import { ChevronRight, LogOut, Moon, Sun, Bell } from 'lucide-react-native';
+import { LogOut, Moon, Sun } from 'lucide-react-native';
 
 export default function SettingsScreen() {
   const { theme, colors, toggleTheme } = useTheme();

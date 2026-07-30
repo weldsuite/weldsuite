@@ -1,6 +1,6 @@
 import { Tabs , router } from "expo-router";
 import React, { useState, useEffect, useRef } from "react";
-import { Calculator, FileText, TrendingUp, ChevronLeft, BarChart, Inbox, Menu, Home, CreditCard, Settings, HelpCircle, X } from 'lucide-react-native';
+import { Calculator, FileText, ChevronLeft, BarChart, Inbox, Menu, Home, CreditCard, Settings, HelpCircle } from 'lucide-react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -45,7 +45,6 @@ export default function AccountingTabsLayout() {
   const slideAnim = useRef(new Animated.Value(1000)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
-  const keyboardHeight = useRef(new Animated.Value(0)).current;
   const menuSlideAnim = useRef(new Animated.Value(-320)).current;
   const backdropOpacityAnim = useRef(new Animated.Value(0)).current;
   const scanSlideAnim = useRef(new Animated.Value(1000)).current;
@@ -308,10 +307,6 @@ export default function AccountingTabsLayout() {
     if (cameraRef.current) {
       try {
         setProcessing(true);
-        const photo = await cameraRef.current.takePictureAsync({
-          quality: 1,
-          base64: false,
-        });
 
         setShowCamera(false);
 

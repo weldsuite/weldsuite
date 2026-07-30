@@ -7,8 +7,6 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
-  Image,
-  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -21,7 +19,7 @@ import {
   CreditCard,
 } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { api, API_URL } from '@/services/api';
+import { api } from '@/services/api';
 import { formatCurrency } from '@/lib/currency';
 import type { Bill, BillItem } from '@/types/accounting';
 

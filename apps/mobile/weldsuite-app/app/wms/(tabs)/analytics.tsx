@@ -89,11 +89,6 @@ export default function WmsAnalyticsScreen() {
   }
 
   const maxOrders = Math.max(...analytics.dailyOrders.map(d => d.orders), 1);
-  const totalHealth =
-    analytics.inventory.health.healthy +
-    analytics.inventory.health.adequate +
-    analytics.inventory.health.low +
-    analytics.inventory.health.outOfStock;
 
   return (
     <ScrollView

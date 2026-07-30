@@ -25,7 +25,6 @@ import {
   Archive,
   Mail,
   Clock,
-  Layers,
   Plus,
   ChevronDown,
   ChevronUp,
@@ -42,7 +41,6 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 const DRAWER_WIDTH = 340;
-const MINI_WIDTH = 68;
 
 export function getLabelIcon(slug: string, color: string, size: number = 22) {
   const icons: Record<string, React.ReactNode> = {

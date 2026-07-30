@@ -19,7 +19,6 @@ import {
   Plus,
   Search,
   PenSquare,
-  Settings,
 } from 'lucide-react-native';
 import { useUser } from '@clerk/expo';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

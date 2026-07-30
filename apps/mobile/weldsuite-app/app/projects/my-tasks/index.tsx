@@ -16,8 +16,6 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   Check,
   Calendar,
-  Search,
-  Plus,
   X,
   FolderKanban,
 } from 'lucide-react-native';

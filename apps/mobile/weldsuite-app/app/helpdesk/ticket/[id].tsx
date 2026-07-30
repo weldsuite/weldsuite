@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
-import { ChevronLeft, EllipsisVertical, Image as ImageIcon, Zap, X, Clock, Forward, Archive, Trash2, Star, Ticket, ArrowUp, MessageSquare, Lock, Wifi, Plus, Mic, Camera, FileText, File, StickyNote } from 'lucide-react-native';
+import { ChevronLeft, Image as ImageIcon, Zap, X, Clock, Forward, Archive, Trash2, Star, Ticket, ArrowUp, Lock, Plus, Camera, FileText, File, StickyNote } from 'lucide-react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -26,9 +26,9 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming, Easing, runOnJS
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
-import { api, ConversationDetail, ConversationMessage as ApiConversationMessage, getApiErrorMessage } from '@/services/api';
+import { api, ConversationDetail, getApiErrorMessage } from '@/services/api';
 import { useHelpdeskRealtime } from '@/hooks/useHelpdeskRealtime';
-import { TypingIndicator, ConnectionBanner, ChatSkeleton } from '@/components/helpdesk';
+import { TypingIndicator, ConnectionBanner } from '@/components/helpdesk';
 import type { RealtimeMessage, TypingIndicator as TypingIndicatorType, PresenceMember } from '@/hooks/useHelpdeskRealtime';
 
 interface Message {
@@ -178,7 +178,6 @@ export default function ConversationChatScreen() {
   const startY = useSharedValue(0);
   const ticketOverlayOpacity = useSharedValue(0);
   const ticketSheetTranslateY = useSharedValue(1000);
-  const ticketStartY = useSharedValue(0);
   const quickActionsOverlayOpacity = useSharedValue(0);
   const quickActionsSheetTranslateY = useSharedValue(1000);
   const quickActionsStartY = useSharedValue(0);
@@ -638,39 +637,6 @@ export default function ConversationChatScreen() {
       }
     });
 
-  const ticketPanGesture = Gesture.Pan()
-    .enableTrackpadTwoFingerGesture(true)
-    .activeOffsetY(10)
-    .failOffsetY(-10)
-    .onBegin(() => {
-      ticketStartY.value = ticketSheetTranslateY.value;
-    })
-    .onUpdate((event) => {
-      const newValue = ticketStartY.value + event.translationY;
-      if (newValue >= 0) {
-        ticketSheetTranslateY.value = newValue;
-      }
-    })
-    .onEnd((event) => {
-      if (event.translationY > 100 || event.velocityY > 500) {
-        // Swipe down threshold - dismiss
-        ticketSheetTranslateY.value = withTiming(1000, {
-          duration: 250,
-          easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-        });
-        ticketOverlayOpacity.value = withTiming(0, {
-          duration: 250,
-          easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-        });
-        runOnJS(setShowTicketSheet)(false);
-      } else {
-        // Snap back to open position
-        ticketSheetTranslateY.value = withTiming(0, {
-          duration: 250,
-          easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-        });
-      }
-    });
 
   const quickActionsPanGesture = Gesture.Pan()
     .enableTrackpadTwoFingerGesture(true)

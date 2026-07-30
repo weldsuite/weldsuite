@@ -17,7 +17,6 @@ import {
 } from 'react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
-  Send,
   Paperclip,
   X,
   Clock,
@@ -459,10 +458,6 @@ export default function ComposeEmailPanel({
   };
 
   // Link insertion handler
-  const handleInsertLink = () => {
-    setLinkUrl('');
-    setShowLinkModal(true);
-  };
 
   const confirmInsertLink = () => {
     if (!linkUrl.trim()) {

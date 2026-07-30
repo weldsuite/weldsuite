@@ -6,37 +6,31 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  KeyboardAvoidingView,
   Platform,
   StatusBar,
   ActivityIndicator,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
-  Dimensions,
   ActionSheetIOS,
   Alert,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
-  X,
   Clock,
-  Paperclip,
 } from 'lucide-react-native';
 import ComposeEmailForm from '@/components/mail/ComposeEmailForm';
-import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Path } from 'react-native-svg';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Svg from 'react-native-svg';
 import { useMail } from '@/contexts/MailContext';
 import { useToast } from '@/contexts/ToastContext';
-import { useEditorBridge, RichText } from '@10play/tentap-editor';
-import { EmailEditorToolbar } from '@/components/mail/EmailEditorToolbar';
+import { useEditorBridge } from '@10play/tentap-editor';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 
 export default function ComposeScreen() {
   const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
   const toast = useToast();
   const { draftId } = useLocalSearchParams();
 
@@ -124,7 +118,6 @@ export default function ComposeScreen() {
   const hasContent = to || cc || bcc || subject || body;
 
   // Common emojis for quick access
-  const commonEmojis = ['😊', '👍', '🎉', '❤️', '🙏', '😂', '🔥', '✨', '👋', '💯', '🤝', '📧'];
 
   useEffect(() => {
     if (accounts.length === 0) {
@@ -452,10 +445,6 @@ export default function ComposeScreen() {
   };
 
   // Link insertion handler
-  const handleInsertLink = () => {
-    setLinkUrl('');
-    setShowLinkModal(true);
-  };
 
   const confirmInsertLink = () => {
     if (!linkUrl.trim()) {
@@ -586,13 +575,6 @@ export default function ComposeScreen() {
   }, []);
 
   // Restore scroll position before toolbar action
-  const handleBeforeToolbarAction = useCallback(() => {
-    const currentPosition = scrollPositionRef.current;
-    // Restore scroll position after a short delay
-    setTimeout(() => {
-      scrollViewRef.current?.scrollTo({ y: currentPosition, animated: false });
-    }, 50);
-  }, []);
 
   if (loading || (mailLoading.accounts && accounts.length === 0)) {
     return (

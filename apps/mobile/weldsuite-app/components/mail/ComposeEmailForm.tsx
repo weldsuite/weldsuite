@@ -15,7 +15,6 @@ import {
   Animated,
   Keyboard,
   Pressable,
-  KeyboardEvent,
 } from 'react-native';
 import {
   X,
@@ -30,20 +29,15 @@ import {
   Strikethrough,
   List,
   Link,
-  ChevronLeft,
-  Send,
   ThumbsUp,
   ThumbsDown,
   Copy,
-  Sparkles,
-  ArrowRight,
   ArrowUp,
   CornerDownRight,
   Plus,
-  FileText,
   SendHorizontal,
 } from 'lucide-react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path as SvgPath , LinearGradient as SvgLinearGradient, Stop, Defs, Text as SvgText } from 'react-native-svg';
 
 import { useTheme } from '@/contexts/ThemeContext';

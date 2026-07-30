@@ -13,7 +13,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useEditorBridge, RichText } from '@10play/tentap-editor';
-import { FileText, Save, Link as LinkIcon, X } from 'lucide-react-native';
+import { FileText, Save, X } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 
 import { EditorToolbar } from './EditorToolbar';

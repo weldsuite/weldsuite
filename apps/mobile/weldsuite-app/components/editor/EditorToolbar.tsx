@@ -50,7 +50,6 @@ function ToolbarDivider() {
 
 export function EditorToolbar({ editor, onLinkPress }: EditorToolbarProps) {
   const iconColor = '#374151';
-  const activeColor = '#111827';
 
   return (
     <View style={styles.container}>

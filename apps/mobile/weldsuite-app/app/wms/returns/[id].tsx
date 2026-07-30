@@ -24,7 +24,6 @@ import {
 import {
   ChevronLeft,
   RotateCcw,
-  User,
   Package,
   FileText,
   CheckCircle2,

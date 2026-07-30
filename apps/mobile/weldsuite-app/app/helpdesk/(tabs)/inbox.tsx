@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useFocusEffect , router } from 'expo-router';
 import {
   StyleSheet,
@@ -19,19 +19,17 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSession, useUser } from '@clerk/expo';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import { X, Clock, Archive, Star, Menu as MenuIcon, Search, Plus, SlidersHorizontal, Inbox as InboxIcon, Users } from 'lucide-react-native';
+import { X, Clock, Archive, Star, Menu as MenuIcon, Search, Plus, Inbox as InboxIcon, Users } from 'lucide-react-native';
 import AppDrawer from '@/components/layout/AppDrawer';
 import Svg, { Path as SvgPath } from 'react-native-svg';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api, Conversation, getApiErrorMessage } from '@/services/api';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
-import { ConnectionBanner, ConversationDetailPanel, InboxSkeleton } from '@/components/helpdesk';
+import { ConnectionBanner, ConversationDetailPanel } from '@/components/helpdesk';
 import type { InboxConversation, InboxNewMessageEvent, ConnectionState } from '@/hooks/useInboxRealtime';
 import { useTopic } from '@weldsuite/realtime/react';
 import { topics } from '@weldsuite/realtime/topics';
-import { useShouldShowMiniSidebar } from '@/components/layout/MiniSidebar';
 import { useCollapsibleHeader } from '@/contexts/CollapsibleHeaderContext';
 
 // Split view constants
@@ -114,9 +112,7 @@ export default function InboxScreen() {
   const { user } = useUser();
   const currentUserId = user?.id || session?.user?.id || '';
   const currentUserName = user?.fullName || session?.user?.fullName || 'Agent';
-  const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
-  const showMiniSidebar = useShouldShowMiniSidebar();
   const { onScroll: onCollapsibleScroll, resetHeader } = useCollapsibleHeader();
 
   // Check if we should show split view (iPad/tablet)
@@ -411,10 +407,6 @@ export default function InboxScreen() {
     }
   };
 
-  const handleUpdateConversationStatus = (conversation: Conversation) => {
-    setSelectedConversation(conversation);
-    setStatusUpdateModalVisible(true);
-  };
 
   const updateConversationStatus = async (newStatus: string) => {
     if (!selectedConversation) return;

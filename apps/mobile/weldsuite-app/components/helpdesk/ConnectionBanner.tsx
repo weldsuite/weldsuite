@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
-import { Wifi, WifiOff, RefreshCw } from 'lucide-react-native';
+import { WifiOff, RefreshCw } from 'lucide-react-native';
 import type { ConnectionState } from '@weldsuite/realtime/types';
 
 interface ConnectionBannerProps {

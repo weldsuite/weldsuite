@@ -399,7 +399,6 @@ export default function WorkflowEditorPage() {
             <View style={styles.stepsListSection}>
               <Text style={[styles.checklistTitle, { color: colors.text }]}>Steps ({workflowSteps.length})</Text>
               {workflowSteps.map((step, index) => {
-                const StepIcon = step.type.icon;
                 return (
                   <TouchableOpacity
                     key={step.id}

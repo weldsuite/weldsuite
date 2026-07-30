@@ -208,10 +208,6 @@ export default function ProductsAdminScreen() {
     router.push(`/product/edit/${productId}` as any);
   };
 
-  const handleDeleteProduct = (productId: string) => {
-    setProducts(products.filter(p => p.id !== productId));
-    toast.success('Product deleted successfully');
-  };
 
   const handleToggleProductSelection = (productId: string) => {
     setSelectedProducts(prev =>
@@ -265,7 +261,6 @@ export default function ProductsAdminScreen() {
   const renderProduct = ({ item }: { item: Product }) => {
     const isSelected = selectedProducts.includes(item.id);
     const hasImage = item.featuredImageUrl && item.featuredImageUrl !== '';
-    const stockStatus = getStockText(item.quantityAvailable);
     const stockColor = item.quantityAvailable === 0 ? '#DC2626' : item.quantityAvailable < 10 ? '#EA580C' : '#16A34A';
     const stockBgColor = item.quantityAvailable === 0 ? '#FEF2F2' : item.quantityAvailable < 10 ? '#FFF7ED' : '#F0FDF4';
 

@@ -26,7 +26,6 @@ import {
   File,
   Trash2,
   Download,
-  MoreVertical,
   FolderOpen,
 } from 'lucide-react-native';
 import * as DocumentPicker from 'expo-document-picker';

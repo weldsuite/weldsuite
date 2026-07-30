@@ -14,8 +14,6 @@ import type {
   CycleCountStatus,
   InventoryStatus,
   LocationStatus,
-  PackingStatus,
-  PutawayStatus,
 } from '../types/wms';
 
 // ============================================================================

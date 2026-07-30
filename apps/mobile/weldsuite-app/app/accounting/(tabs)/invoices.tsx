@@ -141,10 +141,6 @@ export default function InvoicesScreen() {
     router.push(`/invoice/${invoice.id}` as any);
   };
 
-  const handleUpdateInvoiceStatus = (invoice: Invoice) => {
-    setSelectedInvoice(invoice);
-    setStatusUpdateModalVisible(true);
-  };
 
   const updateInvoiceStatus = (newStatus: Invoice['status']) => {
     if (!selectedInvoice) return;
@@ -160,15 +156,7 @@ export default function InvoicesScreen() {
     toast.success(`Invoice ${selectedInvoice.invoiceNumber} status updated to ${newStatus}`);
   };
 
-  const handleCancelInvoice = (invoice: Invoice) => {
-    updateInvoiceStatus('cancelled');
-    toast.success(`Invoice ${invoice.invoiceNumber} has been cancelled`);
-  };
 
-  const handleRefundInvoice = (invoice: Invoice) => {
-    updateInvoiceStatus('refunded');
-    toast.success(`Invoice ${invoice.invoiceNumber} has been refunded`);
-  };
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);

@@ -1,4 +1,4 @@
-import { ClerkProvider, ClerkLoaded, useAuth, useOrganization, useOrganizationList } from '@clerk/expo';
+import { ClerkProvider, ClerkLoaded, useOrganizationList } from '@clerk/expo';
 import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';

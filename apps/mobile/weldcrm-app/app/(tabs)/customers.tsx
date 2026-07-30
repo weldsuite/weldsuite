@@ -31,7 +31,6 @@ import {
   MoreHorizontal,
   Edit3,
   Trash2,
-  ExternalLink,
 } from 'lucide-react-native';
 import { api, type CustomerRecord, type PipelineWithStages, type OpportunityRecord } from '@/services/api';
 

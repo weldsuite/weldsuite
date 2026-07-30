@@ -1,6 +1,6 @@
 import { Tabs , router } from "expo-router";
 import React, { useState, useEffect, useRef } from "react";
-import { Home, Package, Truck, ChevronLeft, BarChart, Search, History, Bell } from 'lucide-react-native';
+import { Home, Package, Truck, ChevronLeft, Search, Bell } from 'lucide-react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,7 +27,6 @@ export default function ParcelTabsLayout() {
   const slideAnim = useRef(new Animated.Value(1000)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
-  const keyboardHeight = useRef(new Animated.Value(0)).current;
 
   // Detect iPad - only check window width and ensure it's not being run on web
   const { width } = Dimensions.get('window');

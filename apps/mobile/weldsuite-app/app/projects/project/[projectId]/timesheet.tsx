@@ -567,7 +567,6 @@ export default function ProjectTimesheetScreen() {
           <View style={styles.monthHeaderRow}>
             {WEEKDAYS.map((day, index) => {
               const isWeekendDay = index >= 5;
-              const isTodayCol = isTodayColumn(index);
               return (
                 <View
                   key={day}
@@ -599,7 +598,6 @@ export default function ProjectTimesheetScreen() {
                   const isWeekendDay = dayIndex >= 5;
                   const isCurrentMonth = isSameMonth(date, currentDate);
                   const isTodayCol = isTodayColumn(dayIndex);
-                  const dayEntries = getEntriesForDate(date);
 
                   return (
                     <TouchableOpacity

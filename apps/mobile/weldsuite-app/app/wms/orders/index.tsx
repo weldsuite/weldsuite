@@ -18,11 +18,10 @@ import type { WmsOrderDto, OrderStatus, OrderPriority } from '@/types/wms';
 import {
   getOrderStatusColor,
   getPriorityColor,
-  formatDate,
   formatRelativeTime,
   formatMoney,
 } from '@/utils/wms-helpers';
-import { ChevronLeft, Search, Filter, ShoppingCart, AlertCircle } from 'lucide-react-native';
+import { ChevronLeft, Search, ShoppingCart, AlertCircle } from 'lucide-react-native';
 
 const ORDER_STATUS_OPTIONS: { key: OrderStatus | 'all'; label: string }[] = [
   { key: 'all', label: 'All' },

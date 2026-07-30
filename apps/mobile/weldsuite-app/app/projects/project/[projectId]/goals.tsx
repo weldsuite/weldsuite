@@ -1,11 +1,10 @@
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
   Text,
   TouchableOpacity,
   ScrollView,
-  RefreshControl,
   ActivityIndicator,
   Modal,
   TextInput,
@@ -14,7 +13,6 @@ import {
   Platform,
   KeyboardAvoidingView,
   Pressable,
-  Keyboard,
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { api } from '@/services/api';
@@ -27,28 +25,13 @@ import {
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  withSpring,
   runOnJS,
 } from 'react-native-reanimated';
 import {
-  Target,
   Plus,
-  Edit3,
-  Trash2,
   X,
-  ChevronDown,
   MessageSquare,
   Save,
-  ZoomIn,
-  ZoomOut,
-  MoreHorizontal,
-  AtSign,
-  Image,
-  Paperclip,
-  Settings,
-  Check,
-  ChevronUp,
-  ArrowUp,
 } from 'lucide-react-native';
 import { DetailPanel, DetailPanelSubItem } from '@/components/projects/DetailPanel';
 
@@ -193,32 +176,8 @@ export default function ProjectGoalsScreen() {
   }));
 
   // Button zoom controls
-  const handleZoomIn = () => {
-    const newScale = Math.min(scale.value + 0.1, 2);
-    scale.value = newScale;
-    savedScale.value = newScale;
-    lastScale.value = newScale;
-    setZoom(Math.round(newScale * 100));
-  };
 
-  const handleZoomOut = () => {
-    const newScale = Math.max(scale.value - 0.1, 0.5);
-    scale.value = newScale;
-    savedScale.value = newScale;
-    lastScale.value = newScale;
-    setZoom(Math.round(newScale * 100));
-  };
 
-  const handleResetZoom = () => {
-    scale.value = 1;
-    savedScale.value = 1;
-    lastScale.value = 1;
-    translateX.value = 0;
-    translateY.value = 0;
-    savedTranslateX.value = 0;
-    savedTranslateY.value = 0;
-    setZoom(100);
-  };
 
   // Modal state
   const [showGoalModal, setShowGoalModal] = useState(false);
@@ -264,10 +223,6 @@ export default function ProjectGoalsScreen() {
     loadGoals();
   }, [loadGoals]);
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    loadGoals();
-  }, [loadGoals]);
 
   // Get root goals (no parent)
   const rootGoals = goalsData.goals.filter(g => !g.parentId);
@@ -349,15 +304,6 @@ export default function ProjectGoalsScreen() {
     setShowGoalModal(true);
   };
 
-  const handleEditGoal = (goal: Goal) => {
-    setEditingGoal(goal);
-    setParentGoalId(goal.parentId || null);
-    setGoalTitle(goal.title);
-    setGoalDescription(goal.description || '');
-    setGoalStatus(goal.status);
-    setGoalTimeframe(goal.timeframe || 'Q4 FY25');
-    setShowGoalModal(true);
-  };
 
   const handleSaveGoal = async () => {
     if (!projectId || !goalTitle.trim()) return;

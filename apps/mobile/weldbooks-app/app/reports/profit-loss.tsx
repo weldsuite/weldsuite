@@ -7,7 +7,6 @@ import {
   ActivityIndicator,
   SafeAreaView,
   ScrollView,
-  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';

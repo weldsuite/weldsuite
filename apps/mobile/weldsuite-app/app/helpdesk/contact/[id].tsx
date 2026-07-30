@@ -34,7 +34,6 @@ import {
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { api, Contact, Conversation, getApiErrorMessage } from '@/services/api';
-import { ContactSkeleton } from '@/components/helpdesk/Skeleton';
 
 const INDUSTRY_OPTIONS = [
   'Technology', 'Healthcare', 'Finance', 'Education', 'Manufacturing',

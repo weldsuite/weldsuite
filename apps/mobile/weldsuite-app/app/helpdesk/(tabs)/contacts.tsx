@@ -13,12 +13,11 @@ import {
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Search, X, Phone, Mail, Menu as MenuIcon, Inbox as InboxIcon, Users } from 'lucide-react-native';
+import { Search, X, Phone, Menu as MenuIcon, Inbox as InboxIcon, Users } from 'lucide-react-native';
 import AppDrawer from '@/components/layout/AppDrawer';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { api, Contact, getApiErrorMessage } from '@/services/api';
-import { useShouldShowMiniSidebar } from '@/components/layout/MiniSidebar';
 import { useCollapsibleHeader } from '@/contexts/CollapsibleHeaderContext';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; backgroundColor: string }> = {
@@ -48,7 +47,6 @@ const STATUS_TABS = [
 export default function ContactsScreen() {
   const { colors } = useTheme();
   const toast = useToast();
-  const showMiniSidebar = useShouldShowMiniSidebar();
   const { resetHeader, onScroll: onCollapsibleScroll } = useCollapsibleHeader();
 
   const [contacts, setContacts] = useState<Contact[]>([]);

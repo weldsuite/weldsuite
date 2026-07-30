@@ -1,10 +1,10 @@
 import { Tabs , router } from "expo-router";
-import React, { useState, useEffect, useRef } from "react";
-import { Home, Package, ShoppingCart, ChevronLeft, BarChart, X, ArrowUp, ImageIcon as Image, Zap, MessageSquarePlus, History, Users } from 'lucide-react-native';
+import React, { useState, useRef } from "react";
+import { Home, Package, ShoppingCart, BarChart, X, ArrowUp, ImageIcon as Image, Zap, MessageSquarePlus, History, Users } from 'lucide-react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { TouchableOpacity, Text, View, Modal, StyleSheet, TextInput, ScrollView, KeyboardAvoidingView, Platform, Animated, Easing, Keyboard, LayoutAnimation, UIManager, SafeAreaView, StatusBar, FlatList, Alert } from 'react-native';
+import { TouchableOpacity, Text, View, Modal, StyleSheet, TextInput, KeyboardAvoidingView, Platform, UIManager, SafeAreaView, StatusBar, FlatList, Alert } from 'react-native';
 
 import WeldAgentLogo from '@/components/WeldAgentLogo';
 

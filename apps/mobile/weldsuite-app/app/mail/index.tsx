@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import {
   StyleSheet,
-  FlatList,
   SectionList,
   TouchableOpacity,
   RefreshControl,
@@ -9,22 +8,32 @@ import {
   View,
   Text,
   TextInput,
-  Animated,
   Dimensions,
   ScrollView,
   Modal,
   useWindowDimensions,
-  ActionSheetIOS,
-  Platform,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
-  Star, Paperclip, Edit3, Menu, Search, Mail, ChevronLeft, Inbox, Send, FileText,
-  Trash2, Archive, AlertCircle, Home, Users, Package, FolderKanban, ChevronDown,
-  Briefcase, CreditCard, X, Wifi, WifiOff, ShoppingCart, Headphones, CheckSquare,
-  Warehouse, Calculator, Truck, LayoutGrid, Clock
+  Star,
+  Paperclip,
+  Edit3,
+  Menu,
+  Search,
+  Mail,
+  Inbox,
+  Send,
+  FileText,
+  Trash2,
+  Archive,
+  AlertCircle,
+  Home,
+  ChevronDown,
+  X,
+  Wifi,
+  WifiOff,
+  Clock,
 } from 'lucide-react-native';
 import Svg, { Defs, Pattern as SvgPattern, Path as SvgPath, Rect as SvgRect } from 'react-native-svg';
 import AppDrawer from '@/components/layout/AppDrawer';
@@ -38,7 +47,6 @@ import EmailDetailPanel from '@/components/mail/EmailDetailPanel';
 import ComposeEmailPanel from '@/components/mail/ComposeEmailPanel';
 
 const { width } = Dimensions.get('window');
-const screenWidth = width;
 const DRAWER_WIDTH = width - 56;
 
 // Minimum width to show split view (iPad portrait and larger)
@@ -396,9 +404,6 @@ export default function MailScreen() {
     }
   }, [markAsRead, isSplitView]);
 
-  const handleStarToggle = useCallback(async (emailId: string) => {
-    await toggleStar(emailId);
-  }, [toggleStar]);
 
   const handleDelete = useCallback(async (emailId: string) => {
     const success = await deleteMessage(emailId);
@@ -432,30 +437,6 @@ export default function MailScreen() {
     setSelectedEmailId(null);
   }, []);
 
-  const showLabelActionSheet = () => {
-    const labelList = displayedLabels;
-    const labelNames = labelList.map(l => l.name);
-    const options = ['Cancel', ...labelNames];
-
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options,
-          cancelButtonIndex: 0,
-          title: 'Select Label',
-        },
-        (buttonIndex) => {
-          if (buttonIndex > 0) {
-            const label = labelList[buttonIndex - 1];
-            selectLabel(label);
-          }
-        }
-      );
-    } else {
-      // For Android, fall back to drawer
-      setShowDrawer(!showDrawer);
-    }
-  };
 
   const toggleDrawer = () => {
     if (showDrawer) {

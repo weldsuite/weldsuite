@@ -17,7 +17,6 @@ import { api } from '@/services/api';
 import type { ReturnDto, ReturnStatus } from '@/types/wms';
 import {
   getReturnStatusColor,
-  formatDate,
   formatRelativeTime,
   formatMoney,
 } from '@/utils/wms-helpers';

@@ -1,16 +1,14 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Animated ,
+import {
+  Animated,
   StyleSheet,
   View,
   Text,
   TouchableOpacity,
   ScrollView,
-  RefreshControl,
   ActivityIndicator,
   useWindowDimensions,
   Dimensions,
-  NativeSyntheticEvent,
-  NativeScrollEvent,
   Modal,
   Pressable,
   TextInput,
@@ -210,10 +208,6 @@ export default function ProjectGanttScreen() {
     loadTasks();
   }, [loadTasks]);
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    loadTasks();
-  }, [loadTasks]);
 
   // Find today's index in time periods
   const getTodayIndex = useCallback(() => {

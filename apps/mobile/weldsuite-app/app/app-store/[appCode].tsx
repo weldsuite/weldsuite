@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
-import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { useLocalSearchParams, Stack } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import {
@@ -52,7 +52,6 @@ export default function AppDetailScreen() {
   const { appCode } = useLocalSearchParams<{ appCode: string }>();
   const { colors } = useTheme();
   const toast = useToast();
-  const router = useRouter();
   const { refreshApps } = useInstalledApps();
 
   const [app, setApp] = useState<AppDetail | null>(null);

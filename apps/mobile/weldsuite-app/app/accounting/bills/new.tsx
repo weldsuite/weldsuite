@@ -20,7 +20,6 @@ import {
   Calendar,
   Plus,
   Trash2,
-  Camera,
   FileText,
 } from 'lucide-react-native';
 import { api } from '@/services/api';

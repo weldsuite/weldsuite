@@ -26,9 +26,6 @@ import {
   User,
   MapPin,
   Truck,
-  Calendar,
-  DollarSign,
-  AlertTriangle,
   CheckCircle2,
 } from 'lucide-react-native';
 

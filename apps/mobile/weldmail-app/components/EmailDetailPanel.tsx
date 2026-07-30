@@ -87,7 +87,6 @@ function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReply
   router: any;
 }) {
   const senderName = getSenderName(message.from);
-  const senderEmail = getSenderEmail(message.from);
   const avatarColor = getInitialColor(senderName);
 
   const toStr = typeof message.to === 'string' ? message.to : formatRecipients(message.to);

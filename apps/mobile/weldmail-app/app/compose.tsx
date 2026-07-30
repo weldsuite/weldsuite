@@ -12,7 +12,6 @@ import {
   ActionSheetIOS,
   Modal,
   Keyboard,
-  FlatList,
 } from 'react-native';
 import MaterialSpinner from '@/components/MaterialSpinner';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -26,8 +25,22 @@ import { buildQuotedSuffix, resolveRecipients, resolveOptionalRecipients, mapCon
 import { MAX_SCHEDULE_DAYS, formatClock, isWithinScheduleWindow, stepTime } from '@/utils/schedule-time';
 import SendTimePickerModal from '@/components/SendTimePickerModal';
 import {
-  X, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Send, Clock, Paperclip, SendHorizontal,
-  Bold, Italic, Underline, List, ListOrdered, Link, Plus, CalendarClock, Sparkles,
+  X,
+  ChevronDown,
+  ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Paperclip,
+  SendHorizontal,
+  Bold,
+  Italic,
+  Underline,
+  List,
+  ListOrdered,
+  Plus,
+  CalendarClock,
+  Sparkles,
 } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
@@ -241,9 +254,6 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
     Keyboard.dismiss();
   }, [activeRecipientField]);
 
-  const removeRecipient = useCallback((index: number) => {
-    setToRecipients(prev => prev.filter((_, i) => i !== index));
-  }, []);
 
   const sendFromAccount = selectedAccount || (accounts.length > 0 ? accounts[0] : null);
   const to = toRecipients.join(', ');

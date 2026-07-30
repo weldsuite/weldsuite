@@ -6,29 +6,34 @@ import {
   TouchableOpacity,
   View,
   Text,
-  TextInput,
   Animated,
   RefreshControl,
   ScrollView,
-  TouchableWithoutFeedback,
   useWindowDimensions,
-  ActionSheetIOS,
-  Platform,
   AppState,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import {
-  Star, Paperclip, Edit3, Menu, Search, Mail, Inbox, Send, FileText, File,
-  Trash2, Archive, AlertCircle, ChevronDown, X, Wifi, WifiOff, Clock, Calendar, Clock4,
-  MailOpen, Pin,
+  Star,
+  Paperclip,
+  Edit3,
+  Menu,
+  Search,
+  File,
+  Trash2,
+  Archive,
+  Clock,
+  Calendar,
+  Clock4,
+  MailOpen,
+  Pin,
   SendHorizontal,
 } from 'lucide-react-native';
-import Svg, { Defs, Pattern as SvgPattern, Path as SvgPath, Rect as SvgRect, Circle as SvgCircle, LinearGradient, RadialGradient, Stop, Mask } from 'react-native-svg';
+import Svg, { Defs, Pattern as SvgPattern, Path as SvgPath, Rect as SvgRect, RadialGradient, Stop, Mask } from 'react-native-svg';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
-import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
-import { formatEmailTime } from '@weldsuite/mobile-ui/utils/dateFormatter';
 import { appApi } from '@/services/app-api';
 import { isNetworkError } from '@weldsuite/api-client/client';
 import { useMailCache } from '@/hooks/useMailCache';
@@ -47,8 +52,6 @@ import { useIsTablet } from '@/utils/tablet';
 import MaterialSpinner from '@/components/MaterialSpinner';
 import type { EmailListItem } from '@/types/mail';
 
-const DRAWER_WIDTH = 320;
-const SPLIT_VIEW_MIN_WIDTH = 768;
 const EMAIL_LIST_WIDTH_TABLET = 400;
 
 // Matches the platform row format: `format(date, 'h:mm a')` → "3:42 PM"

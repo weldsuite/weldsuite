@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Modal,
-  TextInput,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -18,18 +17,15 @@ import {
   ReplyAll,
   Forward,
   Trash2,
-  MoreVertical,
   Paperclip,
   Archive,
-  Save,
-  WifiOff,
   ChevronUp,
   ChevronDown,
   Lock,
 } from 'lucide-react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import EmailHtmlView from '@/components/EmailHtmlView';
-import { useMail, type EmailDetail, type ThreadMessage } from '@/contexts/MailContext';
+import { useMail, type EmailDetail } from '@/contexts/MailContext';
 import ComposeEmailForm from '@/components/mail/ComposeEmailForm';
 import { useToast } from '@/contexts/ToastContext';
 

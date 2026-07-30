@@ -1,14 +1,28 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator,
-  Animated, FlatList, Modal,
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+  FlatList,
+  Modal,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useOrganizationList } from '@clerk/expo';
 import {
-  ArrowLeft, Bell, BellOff, Check, ChevronDown, Inbox,
-  Loader2, Shield, Database, Zap,
+  ArrowLeft,
+  Bell,
+  Check,
+  ChevronDown,
+  Inbox,
+  Shield,
+  Database,
+  Zap,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';

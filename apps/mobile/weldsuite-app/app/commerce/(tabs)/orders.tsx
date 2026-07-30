@@ -179,10 +179,6 @@ export default function OrdersAdminScreen() {
     router.push(`/order/${order.id}` as any);
   };
 
-  const handleUpdateOrderStatus = (order: Order) => {
-    setSelectedOrder(order);
-    setStatusUpdateModalVisible(true);
-  };
 
   const updateOrderStatus = async (newStatus: Order['status']) => {
     if (!selectedOrder) return;
@@ -210,15 +206,7 @@ export default function OrdersAdminScreen() {
     }
   };
 
-  const handleCancelOrder = (order: Order) => {
-    setSelectedOrder(order);
-    updateOrderStatus('cancelled');
-  };
 
-  const handleRefundOrder = (order: Order) => {
-    setSelectedOrder(order);
-    updateOrderStatus('refunded');
-  };
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);

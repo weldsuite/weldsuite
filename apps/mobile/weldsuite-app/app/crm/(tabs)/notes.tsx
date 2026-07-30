@@ -16,7 +16,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { api } from '@/services/api';
@@ -37,28 +36,6 @@ interface Note {
   updatedAt: string;
 }
 
-const NOTE_CATEGORY_CONFIG = {
-  general: {
-    label: 'General',
-    color: '#374151',
-    backgroundColor: '#F3F4F6',
-  },
-  meeting: {
-    label: 'Meeting',
-    color: '#1E40AF',
-    backgroundColor: '#DBEAFE',
-  },
-  'follow-up': {
-    label: 'Follow-up',
-    color: '#B45309',
-    backgroundColor: '#FEF3C7',
-  },
-  idea: {
-    label: 'Idea',
-    color: '#7C3AED',
-    backgroundColor: '#EDE9FE',
-  },
-};
 
 export default function NotesScreen() {
   const { colors } = useTheme();

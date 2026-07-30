@@ -17,7 +17,6 @@ import {
   Reply,
   ReplyAll,
   Forward,
-  Trash2,
   Archive,
   Paperclip,
   ChevronUp,
@@ -39,7 +38,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmailHtmlView from '@/components/EmailHtmlView';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { formatFullDateTime } from '@weldsuite/mobile-ui/utils/dateFormatter';
 import { appApi } from '@/services/app-api';
 import { isApiError } from '@weldsuite/api-client/client';
 import { useMailCache } from '@/hooks/useMailCache';

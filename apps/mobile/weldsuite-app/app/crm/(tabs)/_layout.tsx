@@ -3,7 +3,7 @@ import React from "react";
 import { Home, Users, GitPullRequest, SquareCheck, FileText } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { TouchableOpacity, Text, View, StyleSheet } from 'react-native';
+import { TouchableOpacity, Text, StyleSheet } from 'react-native';
 
 import { useShouldShowMiniSidebar } from '@/components/layout/MiniSidebar';
 

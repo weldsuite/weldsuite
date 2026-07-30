@@ -1,10 +1,9 @@
 import { Tabs , router } from "expo-router";
 import React, { useState, useEffect, useRef } from "react";
-import { HeadphonesIcon, Users, ChevronLeft, Inbox, Menu, Home, Settings, HelpCircle, MessageSquare, BookOpen, X, ArrowUp, ImageIcon as Image, Zap, MessageSquarePlus, History, LayoutDashboard } from 'lucide-react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Users, Inbox, Home, Settings, HelpCircle, MessageSquare, BookOpen, X, ArrowUp, ImageIcon as Image, Zap, MessageSquarePlus, History } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { TouchableOpacity, Text, View, Modal, StyleSheet, TextInput, ScrollView, KeyboardAvoidingView, Platform, Animated, Easing, Keyboard, LayoutAnimation, UIManager, SafeAreaView, StatusBar, FlatList } from 'react-native';
+import { TouchableOpacity, Text, View, Modal, StyleSheet, TextInput, ScrollView, KeyboardAvoidingView, Platform, Animated, Easing, SafeAreaView, StatusBar, FlatList } from 'react-native';
 
 import WeldAgentLogo from '@/components/WeldAgentLogo';
 import { useShouldShowMiniSidebar } from '@/components/layout/MiniSidebar';
@@ -154,7 +153,6 @@ function HelpdeskTabsContent() {
   };
 
   const { isCollapsed } = useCollapsibleHeader();
-  const HEADER_HEIGHT = 44;
 
   const renderHeader = () => {
     // On mobile, no separate header — Home button is in each tab's content

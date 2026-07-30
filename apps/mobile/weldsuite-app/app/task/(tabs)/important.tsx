@@ -19,7 +19,6 @@ import {
   CheckCircle2,
   Circle,
 } from 'lucide-react-native';
-import { useShouldShowMiniSidebar } from '@/components/layout/MiniSidebar';
 import { useCollapsibleHeader } from '@/contexts/CollapsibleHeaderContext';
 import { TaskDetailPanel } from '@/components/task';
 import type { TaskPriority } from '@/types/task.types';
@@ -33,7 +32,6 @@ export default function ImportantScreen() {
   const { colors } = useTheme();
   const { tasks, loading, loadTasks, toggleTaskComplete, toggleTaskImportant } = useTask();
   const { width: windowWidth } = useWindowDimensions();
-  const showMiniSidebar = useShouldShowMiniSidebar();
   const { onScroll: onCollapsibleScroll, resetHeader } = useCollapsibleHeader();
 
   // Check if we should show split view (iPad/tablet)

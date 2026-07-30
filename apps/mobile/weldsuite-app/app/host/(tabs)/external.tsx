@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Switch,
 } from 'react-native';
 import {
   Globe,
@@ -22,7 +21,6 @@ import {
   ExternalLink,
 } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useShouldShowMiniSidebar } from '@/components/layout/MiniSidebar';
 import { useCollapsibleHeader } from '@/contexts/CollapsibleHeaderContext';
 import { useToast } from '@/contexts/ToastContext';
 
@@ -35,7 +33,6 @@ const WELDHOST_NAMESERVERS = [
 
 export default function ExternalDomainScreen() {
   const { colors } = useTheme();
-  const showMiniSidebar = useShouldShowMiniSidebar();
   const { resetHeader } = useCollapsibleHeader();
   const toast = useToast();
 

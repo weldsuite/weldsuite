@@ -12,13 +12,11 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useWms } from '@/contexts/WmsContext';
 import { useToast } from '@/contexts/ToastContext';
 import { api } from '@/services/api';
 import type { InventoryDto, InventoryAdjustmentReason } from '@/types/wms';
-import { calculateStockStatus, formatDate, formatRelativeTime, formatMoney } from '@/utils/wms-helpers';
+import { calculateStockStatus, formatMoney } from '@/utils/wms-helpers';
 
 const STOCK_STATUS_CONFIG = {
   in_stock: {

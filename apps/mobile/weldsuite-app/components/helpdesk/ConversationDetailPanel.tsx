@@ -20,7 +20,7 @@ import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useUser } from '@clerk/expo';
-import { api, ConversationDetail, ConversationMessage as ApiConversationMessage, getApiErrorMessage } from '@/services/api';
+import { api, ConversationDetail, getApiErrorMessage } from '@/services/api';
 import { useHelpdeskRealtime } from '@/hooks/useHelpdeskRealtime';
 import { TypingIndicator } from './TypingIndicator';
 import { ChatSkeleton } from './Skeleton';
@@ -303,12 +303,8 @@ export default function ConversationDetailPanel({
 
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const isCustomer = item.sender === 'customer';
-    const prevMessage = index > 0 ? messages[index - 1] : null;
     const nextMessage = index < messages.length - 1 ? messages[index + 1] : null;
 
-    const isGroupedWithPrev = prevMessage &&
-      prevMessage.sender === item.sender &&
-      (new Date(item.timestamp).getTime() - new Date(prevMessage.timestamp).getTime()) < 5 * 60 * 1000;
 
     const isGroupedWithNext = nextMessage &&
       nextMessage.sender === item.sender &&
