@@ -25,7 +25,7 @@ import { CallProvider } from '@/contexts/CallContext';
 import { IncomingCallModal } from '@/components/call/IncomingCallModal';
 import { CallHost, CallInsetContainer } from '@/components/call/CallHost';
 import { RealtimeProvider } from '@/providers/realtime-provider';
-import appApi, { setAppApiTokenGetter } from '@/services/app-api';
+import { appApi, setAppApiTokenGetter } from '@/services/app-api';
 import { useUpdateGate } from '@/hooks/useUpdateGate';
 
 SplashScreen.preventAutoHideAsync();

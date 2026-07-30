@@ -19,7 +19,7 @@ import {
   Target,
   Trophy,
 } from 'lucide-react-native';
-import api, { ProjectReports } from '@/services/api';
+import { api, ProjectReports } from '@/services/api';
 
 export default function ReportsScreen() {
   const { colors } = useTheme();

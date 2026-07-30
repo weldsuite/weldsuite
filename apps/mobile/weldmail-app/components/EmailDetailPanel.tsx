@@ -36,7 +36,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmailHtmlView from '@/components/EmailHtmlView';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 import { isApiError } from '@weldsuite/api-client/client';
 import { useMailOutbox } from '@/hooks/useMailOutbox';
 import { useMail } from '@/contexts/MailContext';

@@ -13,10 +13,6 @@ import {
   UIManager,
   Platform,
 } from 'react-native';
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import {
@@ -40,6 +36,10 @@ import { useMail, getAvatarColor } from '@/contexts/MailContext';
 import { getLabelColor } from '@/utils/label-utils';
 import CreateLabelDialog from '@/components/CreateLabelDialog';
 import WeldMailLogo from '@/components/WeldMailLogo';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const DRAWER_WIDTH = 340;
 const MINI_WIDTH = 68;

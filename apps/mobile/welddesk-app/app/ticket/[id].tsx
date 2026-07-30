@@ -12,7 +12,7 @@ import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { formatShortTime } from '@weldsuite/mobile-ui/utils/dateFormatter';
 import { useHelpdeskRealtime } from '@/hooks/useHelpdeskRealtime';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 const STATUS_LABELS: Record<string, string> = {
   active: 'Open', pending: 'Pending', snoozed: 'Snoozed', resolved: 'Resolved', closed: 'Closed',

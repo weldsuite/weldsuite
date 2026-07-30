@@ -12,7 +12,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { TrendingUp, TrendingDown, Users, UserPlus, DollarSign, Activity, Target } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface DashboardStats {
   totalCustomers: number;

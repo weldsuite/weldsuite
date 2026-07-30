@@ -21,7 +21,7 @@ import {
   CreditCard,
 } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import api, { API_URL } from '@/services/api';
+import { api, API_URL } from '@/services/api';
 import { formatCurrency } from '@/lib/currency';
 import type { Bill, BillItem } from '@/types/accounting';
 

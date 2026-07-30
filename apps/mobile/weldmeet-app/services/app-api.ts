@@ -153,4 +153,3 @@ export function useWeldmeetApi(): { weldmeet: WeldmeetAppApi } {
  */
 export { client as appApiClient };
 
-export default appApi;

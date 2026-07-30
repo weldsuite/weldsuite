@@ -26,7 +26,7 @@ import {
 import Svg, { Path } from 'react-native-svg';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 import { createMailAccountSchema } from '@weldsuite/app-api-client/schemas/mail-accounts';
 import { useMail } from '@/contexts/MailContext';
 import { usePermissions } from '@/contexts/PermissionContext';

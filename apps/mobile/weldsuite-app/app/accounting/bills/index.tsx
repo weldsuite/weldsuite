@@ -22,7 +22,7 @@ import {
   Building2,
   Calendar,
 } from 'lucide-react-native';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import type { Bill } from '@/services/api';
 
 const STATUS_FILTERS = [

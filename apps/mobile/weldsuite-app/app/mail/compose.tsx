@@ -75,7 +75,7 @@ export default function ComposeScreen() {
   const [selectedHour, setSelectedHour] = useState(9);
   const [selectedMinute, setSelectedMinute] = useState(0);
   const [linkUrl, setLinkUrl] = useState('');
-  const [attachments, setAttachments] = useState<Array<{ name: string; uri: string; type: string }>>([]);
+  const [attachments, setAttachments] = useState<{ name: string; uri: string; type: string }[]>([]);
   const bodyContentRef = useRef<string>('');
   const scrollViewRef = useRef<ScrollView>(null);
   const scrollPositionRef = useRef<number>(0);

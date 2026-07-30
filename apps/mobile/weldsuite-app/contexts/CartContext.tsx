@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import storage from '@/utils/storage';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface CartItem {
   id: string;

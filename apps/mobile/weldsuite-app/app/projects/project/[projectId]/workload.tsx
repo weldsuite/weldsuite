@@ -23,7 +23,7 @@ import {
   TrendingUp,
   AlertTriangle,
 } from 'lucide-react-native';
-import api, { ProjectTask, ProjectMember } from '@/services/api';
+import { api, ProjectTask, ProjectMember } from '@/services/api';
 
 // Workload types from API
 interface WorkloadMemberTask {

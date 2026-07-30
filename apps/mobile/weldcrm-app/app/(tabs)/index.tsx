@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TrendingUp, TrendingDown, Users, UserPlus, DollarSign, Activity, Target } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import api, { type CrmDashboardStats, type CrmActivity } from '@/services/api';
+import { api, type CrmDashboardStats, type CrmActivity } from '@/services/api';
 
 export default function CrmDashboard() {
   const { colors } = useTheme();

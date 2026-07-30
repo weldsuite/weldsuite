@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
-import api, { Customer as ApiCustomer } from '@/services/api';
+import { api, Customer as ApiCustomer } from '@/services/api';
 import { useToast } from '@/contexts/ToastContext';
 
 // Extend API Customer type with UI-specific fields

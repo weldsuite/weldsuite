@@ -18,7 +18,7 @@ import {
   Clock,
   AlertCircle,
 } from 'lucide-react-native';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface TeamMember {
   id: string;

@@ -44,4 +44,3 @@ export const appApi = {
  */
 export { client as appApiClient };
 
-export default appApi;

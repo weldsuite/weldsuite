@@ -424,20 +424,20 @@ export interface WorkflowMetrics {
   averageExecutionTime: number;
   minExecutionTime: number;
   maxExecutionTime: number;
-  executionsByDay: Array<{ date: string; count: number; successCount: number; failureCount: number }>;
-  slowestSteps: Array<{ stepId: string; stepName: string; averageDuration: number }>;
-  commonErrors: Array<{ error: string; count: number }>;
+  executionsByDay: { date: string; count: number; successCount: number; failureCount: number }[];
+  slowestSteps: { stepId: string; stepName: string; averageDuration: number }[];
+  commonErrors: { error: string; count: number }[];
 }
 
 export interface ExecutionTrends {
   period: 'day' | 'week' | 'month';
-  data: Array<{
+  data: {
     date: string;
     totalExecutions: number;
     successfulExecutions: number;
     failedExecutions: number;
     averageDuration: number;
-  }>;
+  }[];
 }
 
 // Filter types

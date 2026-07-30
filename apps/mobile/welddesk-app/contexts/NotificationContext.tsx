@@ -17,7 +17,7 @@ let notifUtils: {
   registerDeviceToken: (token: string, accessToken: string, orgId: string, appCode: string) => Promise<void>;
   setupNotificationListeners: (onReceive: (n: any) => void, onTap: (r: any) => void) => () => void;
   setBadgeCount: (count: number) => Promise<void>;
-  createNotificationChannels: (channels: Array<{ id: string; name: string; description: string }>) => Promise<void>;
+  createNotificationChannels: (channels: { id: string; name: string; description: string }[]) => Promise<void>;
 } | null = null;
 
 if (!isExpoGo) {

@@ -27,7 +27,7 @@ import {
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useLocalSearchParams } from 'expo-router';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface Task {
   id: string;

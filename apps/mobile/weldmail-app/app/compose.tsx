@@ -32,7 +32,7 @@ import {
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { useMail, getAvatarColor } from '@/contexts/MailContext';
-import appApi, { appApiClient } from '@/services/app-api';
+import { appApi, appApiClient } from '@/services/app-api';
 import { useMailOutbox } from '@/hooks/useMailOutbox';
 
 const buildEditorHtml = (textColor: string) => `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><style>*{box-sizing:border-box;margin:0;padding:0}html,body{height:100%;background:transparent}#e{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.5;color:${textColor};padding:10px 0;min-height:180px;outline:none;-webkit-user-select:text;word-wrap:break-word}#e:empty:before{content:attr(data-placeholder);color:#9CA3AF;pointer-events:none}#e ul,#e ol{padding-left:20px;margin:4px 0}#e a{color:#3B82F6}</style></head><body><div id="e" contenteditable="true" data-placeholder="Compose email"></div><script>var e=document.getElementById('e'),p=window.ReactNativeWebView.postMessage.bind(window.ReactNativeWebView),s=function(){p(JSON.stringify({t:'c',h:e.innerHTML,x:e.innerText}))},f=function(){p(JSON.stringify({t:'f',b:document.queryCommandState('bold'),i:document.queryCommandState('italic'),u:document.queryCommandState('underline'),l:document.queryCommandState('insertUnorderedList'),ol:document.queryCommandState('insertOrderedList')}))};e.addEventListener('input',s);e.addEventListener('focus',function(){p(JSON.stringify({t:'fo'}))});e.addEventListener('blur',function(){p(JSON.stringify({t:'bl'}))});document.addEventListener('selectionchange',f);var h=function(ev){try{var m=JSON.parse(ev.data);if(m.t==='fmt'){document.execCommand(m.c,false,m.v||null);e.focus();f();s()}}catch(x){}};document.addEventListener('message',h);window.addEventListener('message',h)</script></body></html>`;
@@ -134,7 +134,7 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [bodyFocused, setBodyFocused] = useState(false);
-  const [attachments, setAttachments] = useState<Array<{ name: string; uri: string; type: string }>>([]);
+  const [attachments, setAttachments] = useState<{ name: string; uri: string; type: string }[]>([]);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [editorReady, setEditorReady] = useState(false);
   const [bodyHtml, setBodyHtml] = useState('');
@@ -147,7 +147,7 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
     activeRecipientFieldRef.current = field;
     setActiveRecipientField(field);
   }, []);
-  const [contactSuggestions, setContactSuggestions] = useState<Array<{ id: string; email: string; name: string; company?: string | null }>>([]);
+  const [contactSuggestions, setContactSuggestions] = useState<{ id: string; email: string; name: string; company?: string | null }[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const contactSearchRef = useRef<NodeJS.Timeout>();
 
@@ -188,7 +188,7 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
   useEffect(() => {
     const loadRecent = async () => {
       try {
-        const { data } = await appApiClient.get<{ data: Array<{ id: string; email: string; firstName?: string; lastName?: string; fullName?: string; company?: string | null }> }>('/people?limit=10');
+        const { data } = await appApiClient.get<{ data: { id: string; email: string; firstName?: string; lastName?: string; fullName?: string; company?: string | null }[] }>('/people?limit=10');
         setContactSuggestions(mapContactSuggestions(data));
       } catch {}
     };
@@ -222,7 +222,7 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
     contactSearchRef.current = setTimeout(async () => {
       try {
         setLoadingSuggestions(true);
-        const { data } = await appApiClient.get<{ data: Array<{ id: string; email: string; firstName?: string; lastName?: string; fullName?: string; company?: string | null }> }>(`/people?search=${encodeURIComponent(text.trim())}&limit=10`);
+        const { data } = await appApiClient.get<{ data: { id: string; email: string; firstName?: string; lastName?: string; fullName?: string; company?: string | null }[] }>(`/people?search=${encodeURIComponent(text.trim())}&limit=10`);
         setContactSuggestions(mapContactSuggestions(data));
       } catch {} finally {
         setLoadingSuggestions(false);

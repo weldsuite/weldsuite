@@ -21,7 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { ChevronLeft, Plus, Trash2, Search, X, Check } from 'lucide-react-native';
-import api, { Customer, Product } from '@/services/api';
+import { api, Customer, Product } from '@/services/api';
 
 interface OrderItem {
   id: string;

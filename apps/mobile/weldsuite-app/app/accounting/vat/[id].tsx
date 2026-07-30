@@ -23,7 +23,7 @@ import {
   Building2,
   Receipt,
 } from 'lucide-react-native';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import type { VatReturnDetail } from '@/services/api';
 
 export default function VatReturnDetailScreen() {

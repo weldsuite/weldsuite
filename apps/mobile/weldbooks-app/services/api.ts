@@ -888,9 +888,9 @@ class WeldBooksApi {
    * OfflineQueueContext reads (failed indices stay queued).
    */
   async uploadOfflineQueue(
-    items: Array<{ type: string; data: Json }>,
+    items: { type: string; data: Json }[],
   ): Promise<ApiResponse<Json>> {
-    const results: Array<{ index: number; type: string; id?: string; error?: string }> = [];
+    const results: { index: number; type: string; id?: string; error?: string }[] = [];
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
@@ -928,8 +928,7 @@ class WeldBooksApi {
   }
 }
 
-const api = new WeldBooksApi();
-export default api;
+export const api = new WeldBooksApi();
 
 /** Raw app-api client for surfaces this service doesn't wrap yet. */
 export { client as appApiClient };

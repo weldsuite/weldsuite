@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect , router } from 'expo-router';
 import {
   StyleSheet,
   FlatList,
@@ -15,7 +15,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+
 import { useSession, useUser } from '@clerk/expo';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -25,7 +25,7 @@ import Svg, { Path as SvgPath } from 'react-native-svg';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import api, { Conversation, getApiErrorMessage } from '@/services/api';
+import { api, Conversation, getApiErrorMessage } from '@/services/api';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
 import { ConnectionBanner, ConversationDetailPanel, InboxSkeleton } from '@/components/helpdesk';
 import type { InboxConversation, InboxNewMessageEvent, ConnectionState } from '@/hooks/useInboxRealtime';

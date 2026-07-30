@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 const QUEUE_STORAGE_KEY = '@weldbooks/offline-queue';
 

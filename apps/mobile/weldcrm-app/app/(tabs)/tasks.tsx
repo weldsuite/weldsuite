@@ -30,7 +30,7 @@ import {
 } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface Task {
   id: string;

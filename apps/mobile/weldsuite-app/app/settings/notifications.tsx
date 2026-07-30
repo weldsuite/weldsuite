@@ -28,13 +28,13 @@ import {
 } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api, {
+import { api,
   NotificationPreferences,
   ModuleChannelPreferences,
 } from '@/services/api';
 
 // Module definitions matching platform app
-const NOTIFICATION_MODULES: Array<{ key: string; label: string; icon: LucideIcon }> = [
+const NOTIFICATION_MODULES: { key: string; label: string; icon: LucideIcon }[] = [
   { key: 'helpdesk', label: 'Helpdesk', icon: Headphones },
   { key: 'crm', label: 'CRM', icon: Users },
   { key: 'wms', label: 'Warehouse', icon: Warehouse },

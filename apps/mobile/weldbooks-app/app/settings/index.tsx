@@ -11,7 +11,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import { ChevronLeft } from 'lucide-react-native';
 import Constants from 'expo-constants';
 

@@ -1,6 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Animated } from 'react-native';
-import {
+import { Animated ,
   StyleSheet,
   View,
   Text,
@@ -16,6 +15,7 @@ import {
   Pressable,
   TextInput,
 } from 'react-native';
+
 import { useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { api } from '@/services/api';

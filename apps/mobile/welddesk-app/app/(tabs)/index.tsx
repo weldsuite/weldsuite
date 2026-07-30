@@ -10,7 +10,7 @@ import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { formatShortTime } from '@weldsuite/mobile-ui/utils/dateFormatter';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 const STATUS_FILTERS = [
   { key: '', label: 'All' },

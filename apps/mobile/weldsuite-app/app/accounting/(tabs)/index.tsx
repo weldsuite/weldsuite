@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { router } from 'expo-router';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface AccountingStats {
   totalRevenue: number;

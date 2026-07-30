@@ -22,7 +22,7 @@ import {
   TrendingDown,
   Sparkles,
 } from 'lucide-react-native';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import type { ReconciliationStats, UnmatchedTransaction } from '@/services/api';
 
 export default function ReconciliationScreen() {

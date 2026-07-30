@@ -35,7 +35,7 @@ import {
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useVoipSafe } from '@/contexts/VoipContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface Call {
   id: string;

@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import { formatCurrency } from '@/lib/currency';
 import { ChevronLeft } from 'lucide-react-native';
 

@@ -7,7 +7,7 @@ import { useRouter } from 'expo-router';
 import { ArrowLeft, ChevronDown } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 const PRIORITIES = [
   { key: 'low', label: 'Low', color: '#6B7280' },

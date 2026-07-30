@@ -24,7 +24,7 @@ import {
   Tag,
 } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import { formatCurrency } from '@/lib/currency';
 import type { Bill, ExpenseCategory } from '@/types/accounting';
 

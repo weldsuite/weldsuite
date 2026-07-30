@@ -20,7 +20,7 @@ import {
   BarChart3,
   PieChart,
 } from 'lucide-react-native';
-import api, { AccountingAnalytics } from '@/services/api';
+import { api, AccountingAnalytics } from '@/services/api';
 
 export default function AnalyticsScreen() {
   const { colors } = useTheme();

@@ -17,7 +17,7 @@ import { Search, X, Phone, Mail, Menu as MenuIcon, Inbox as InboxIcon, Users } f
 import AppDrawer from '@/components/layout/AppDrawer';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api, { Contact, getApiErrorMessage } from '@/services/api';
+import { api, Contact, getApiErrorMessage } from '@/services/api';
 import { useShouldShowMiniSidebar } from '@/components/layout/MiniSidebar';
 import { useCollapsibleHeader } from '@/contexts/CollapsibleHeaderContext';
 

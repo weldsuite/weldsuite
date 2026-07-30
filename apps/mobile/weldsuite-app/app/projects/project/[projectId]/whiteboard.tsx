@@ -11,7 +11,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useClerkAuth } from '@/contexts/ClerkAuthContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import Svg, { Path, Rect, Line, G, Text as SvgText, TSpan } from 'react-native-svg';
 import {
   Pencil,

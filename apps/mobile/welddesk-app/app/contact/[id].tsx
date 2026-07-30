@@ -11,7 +11,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { formatShortTime } from '@weldsuite/mobile-ui/utils/dateFormatter';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 const STATUS_COLORS: Record<string, string> = {
   active: '#10B981', inactive: '#6B7280', left_company: '#EF4444',

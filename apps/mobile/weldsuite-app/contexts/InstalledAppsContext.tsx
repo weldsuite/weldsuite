@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import { useClerkAuth } from './ClerkAuthContext';
 
 export interface InstalledApp {

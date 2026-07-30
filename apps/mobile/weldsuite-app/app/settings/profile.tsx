@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useClerkAuth } from '@/contexts/ClerkAuthContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import { useI18n } from '@weldsuite/i18n/provider';
 import {
   languageNames,

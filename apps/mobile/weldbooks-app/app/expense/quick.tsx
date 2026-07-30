@@ -31,7 +31,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import type { ExpenseCategory } from '@/types/accounting';
 
 interface CategoryOption {

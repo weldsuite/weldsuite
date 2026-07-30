@@ -13,7 +13,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useWms } from '@/contexts/WmsContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import type { PickListDto, PickListStatus } from '@/types/wms';
 import {
   getPickListStatusColor,

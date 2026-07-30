@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 export default function ContactsScreen() {
   const { colors } = useTheme();

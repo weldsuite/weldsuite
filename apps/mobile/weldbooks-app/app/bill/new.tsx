@@ -22,7 +22,7 @@ import {
   FileText,
 } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface LineItem {
   key: string;

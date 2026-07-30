@@ -15,7 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
-import api, { Product as ApiProduct, ProductStats } from '@/services/api';
+import { api, Product as ApiProduct, ProductStats } from '@/services/api';
 import { useToast } from '@/contexts/ToastContext';
 
 interface Product {

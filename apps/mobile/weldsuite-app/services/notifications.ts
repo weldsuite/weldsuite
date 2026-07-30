@@ -2,7 +2,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
 import { Platform } from 'react-native';
-import api from './api';
+import { api } from './api';
 
 // Configure how notifications are displayed when app is in foreground
 // Suppress visual/sound alerts when the app is active; only update the badge

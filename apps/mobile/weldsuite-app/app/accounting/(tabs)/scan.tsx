@@ -18,7 +18,7 @@ import { router } from 'expo-router';
 import { Camera, CameraView } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 // DocumentScanner is not available in Expo Go - use conditional loading
 let DocumentScanner: any = null;

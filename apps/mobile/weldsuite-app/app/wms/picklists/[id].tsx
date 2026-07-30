@@ -14,7 +14,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useClerkAuth } from '@/contexts/ClerkAuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import type { PickListDto, PickListItemDto } from '@/types/wms';
 import {
   getPickListStatusColor,

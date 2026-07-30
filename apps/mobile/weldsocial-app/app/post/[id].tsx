@@ -12,7 +12,7 @@ import { Spinner } from '@weldsuite/mobile-ui/components/Spinner';
 import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
 import { Divider } from '@weldsuite/mobile-ui/components/Divider';
 import type { SocialAccount, SocialPost } from '@weldsuite/app-api-client/domains/social';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
 import { PLATFORM_META, POST_STATUS_META, formatDateTime } from '@/lib/social';
 

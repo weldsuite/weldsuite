@@ -1,10 +1,10 @@
-import { Tabs } from "expo-router";
+import { Tabs , router } from "expo-router";
 import React from "react";
 import { Globe, Plus, ExternalLink, Home } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TouchableOpacity, Text, View, StyleSheet, Platform, UIManager } from 'react-native';
-import { router } from 'expo-router';
+
 import { useShouldShowMiniSidebar } from '@/components/layout/MiniSidebar';
 import { CollapsibleHeaderProvider, useCollapsibleHeader } from '@/contexts/CollapsibleHeaderContext';
 

@@ -16,7 +16,7 @@ import * as Haptics from 'expo-haptics';
 import { Search, Plus, ChevronRight, FileText } from 'lucide-react-native';
 
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import { formatCurrency } from '@/lib/currency';
 import type { Invoice } from '@/types/accounting';
 

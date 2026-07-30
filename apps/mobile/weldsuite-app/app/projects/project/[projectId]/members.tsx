@@ -27,7 +27,7 @@ import {
   UserCog,
   ChevronDown,
 } from 'lucide-react-native';
-import api, { WorkspaceMember } from '@/services/api';
+import { api, WorkspaceMember } from '@/services/api';
 
 interface Member {
   id: string;

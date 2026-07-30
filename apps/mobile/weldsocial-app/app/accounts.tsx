@@ -13,7 +13,7 @@ import { Spinner } from '@weldsuite/mobile-ui/components/Spinner';
 import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 import { Sheet } from '@weldsuite/mobile-ui/components/Sheet';
 import type { SocialPlatform } from '@weldsuite/app-api-client/domains/social';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
 import { ACCOUNT_STATUS_META, PLATFORM_META, formatCompact } from '@/lib/social';
 

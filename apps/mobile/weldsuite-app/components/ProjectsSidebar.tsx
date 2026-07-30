@@ -18,7 +18,7 @@ import {
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { router, usePathname } from 'expo-router';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface SidebarItem {
   id: string;

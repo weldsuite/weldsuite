@@ -30,7 +30,7 @@ import {
   FolderOpen,
 } from 'lucide-react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface ProjectFile {
   id: string;

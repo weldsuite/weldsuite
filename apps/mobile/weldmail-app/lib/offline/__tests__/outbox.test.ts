@@ -4,15 +4,6 @@
  * in-memory AsyncStorage mock so enqueue/flush round-trip through storage.
  */
 
-const mockStore = new Map<string, string>();
-jest.mock('@react-native-async-storage/async-storage', () => ({
-  getItem: jest.fn((k: string) => Promise.resolve(mockStore.has(k) ? mockStore.get(k)! : null)),
-  setItem: jest.fn((k: string, v: string) => {
-    mockStore.set(k, v);
-    return Promise.resolve();
-  }),
-}));
-
 import {
   loadOutbox,
   saveOutbox,
@@ -24,6 +15,15 @@ import {
   MAX_ATTEMPTS,
   type OutboxOp,
 } from '../outbox';
+
+const mockStore = new Map<string, string>();
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  getItem: jest.fn((k: string) => Promise.resolve(mockStore.has(k) ? mockStore.get(k)! : null)),
+  setItem: jest.fn((k: string, v: string) => {
+    mockStore.set(k, v);
+    return Promise.resolve();
+  }),
+}));
 
 const ORG = 'org_1';
 let seq = 0;

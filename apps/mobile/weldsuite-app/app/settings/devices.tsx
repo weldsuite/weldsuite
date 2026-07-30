@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Device from 'expo-device';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface RegisteredDevice {
   id: string;

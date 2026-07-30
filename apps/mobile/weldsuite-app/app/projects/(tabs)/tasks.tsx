@@ -24,7 +24,7 @@ import {
   XCircle,
   Pause,
 } from 'lucide-react-native';
-import api, { ProjectTaskWithProject, ProjectTaskStats } from '@/services/api';
+import { api, ProjectTaskWithProject, ProjectTaskStats } from '@/services/api';
 
 const STATUS_OPTIONS = [
   { label: 'All', value: '' },

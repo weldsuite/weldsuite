@@ -26,7 +26,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming, Easing, runOnJS
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
-import api, { ConversationDetail, ConversationMessage as ApiConversationMessage, getApiErrorMessage } from '@/services/api';
+import { api, ConversationDetail, ConversationMessage as ApiConversationMessage, getApiErrorMessage } from '@/services/api';
 import { useHelpdeskRealtime } from '@/hooks/useHelpdeskRealtime';
 import { TypingIndicator, ConnectionBanner, ChatSkeleton } from '@/components/helpdesk';
 import type { RealtimeMessage, TypingIndicator as TypingIndicatorType, PresenceMember } from '@/hooks/useHelpdeskRealtime';
@@ -64,7 +64,7 @@ export default function ConversationChatScreen() {
   const [creatingTicket, setCreatingTicket] = useState(false);
   const [closing, setClosing] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
-  const [agents, setAgents] = useState<Array<{ id: string; userId: string; name: string; email: string; role: string; availability: string }>>([]);
+  const [agents, setAgents] = useState<{ id: string; userId: string; name: string; email: string; role: string; availability: string }[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [typingUsers, setTypingUsers] = useState<Map<string, TypingIndicatorType>>(new Map());
   const [customerOnline, setCustomerOnline] = useState(false);

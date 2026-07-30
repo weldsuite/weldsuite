@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { isNetworkError } from '@weldsuite/api-client/client';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 import { isSystemLabel } from '@/utils/label-utils';
 import { mailCache, scopeKey } from '@/lib/offline/cache';
 import { useCacheOrgId } from '@/hooks/useCacheOrgId';

@@ -19,7 +19,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { formatEmailTime } from '@weldsuite/mobile-ui/utils/dateFormatter';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 import { getAvatarColor } from '@/contexts/MailContext';
 import type { EmailListItem } from '@/types/mail';
 

@@ -21,7 +21,7 @@ import {
   BarChart3,
   ClipboardList,
 } from 'lucide-react-native';
-import api, { WmsAnalytics } from '@/services/api';
+import { api, WmsAnalytics } from '@/services/api';
 
 export default function WmsAnalyticsScreen() {
   const { colors } = useTheme();

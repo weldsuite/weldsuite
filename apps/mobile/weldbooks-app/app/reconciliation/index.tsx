@@ -13,7 +13,7 @@ import {
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import { formatCurrency } from '@/lib/currency';
 import { ChevronLeft, Check } from 'lucide-react-native';
 

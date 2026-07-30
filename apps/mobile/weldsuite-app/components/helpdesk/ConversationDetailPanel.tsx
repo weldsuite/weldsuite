@@ -20,7 +20,7 @@ import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useUser } from '@clerk/expo';
-import api, { ConversationDetail, ConversationMessage as ApiConversationMessage, getApiErrorMessage } from '@/services/api';
+import { api, ConversationDetail, ConversationMessage as ApiConversationMessage, getApiErrorMessage } from '@/services/api';
 import { useHelpdeskRealtime } from '@/hooks/useHelpdeskRealtime';
 import { TypingIndicator } from './TypingIndicator';
 import { ChatSkeleton } from './Skeleton';
@@ -64,7 +64,7 @@ export default function ConversationDetailPanel({
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [showActionSheet, setShowActionSheet] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
-  const [agents, setAgents] = useState<Array<{ id: string; userId: string; name: string; email: string; role: string; availability: string }>>([]);
+  const [agents, setAgents] = useState<{ id: string; userId: string; name: string; email: string; role: string; availability: string }[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [closing, setClosing] = useState(false);
   const flatListRef = useRef<FlatList>(null);

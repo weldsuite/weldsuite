@@ -14,7 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { router } from 'expo-router';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import {
   ChevronLeft,
   Calendar,

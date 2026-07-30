@@ -1,4 +1,4 @@
-import { Tabs } from "expo-router";
+import { Tabs , router } from "expo-router";
 import React, { useState, useEffect, useRef } from "react";
 import { Calculator, FileText, TrendingUp, ChevronLeft, BarChart, Inbox, Menu, Home, CreditCard, Settings, HelpCircle, X } from 'lucide-react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,7 +6,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TouchableOpacity, Text, View, Modal, StyleSheet, TextInput, ScrollView, KeyboardAvoidingView, Platform, Animated, Easing, Keyboard, LayoutAnimation, UIManager, ActivityIndicator, Switch, Dimensions } from 'react-native';
-import { router } from 'expo-router';
+
 import WeldAgentLogo from '@/components/WeldAgentLogo';
 import { Camera, CameraView } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -37,7 +37,7 @@ export default function AccountingTabsLayout() {
   const [autoCapture, setAutoCapture] = useState(true);
   const [documentDetected, setDocumentDetected] = useState(false);
   const [detectionQuality, setDetectionQuality] = useState<'good' | 'poor' | 'none'>('none');
-  const [receiptBoundaries, setReceiptBoundaries] = useState<Array<{ x: number; y: number }> | null>(null);
+  const [receiptBoundaries, setReceiptBoundaries] = useState<{ x: number; y: number }[] | null>(null);
   const [message, setMessage] = useState('');
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const cameraRef = useRef<any>(null);

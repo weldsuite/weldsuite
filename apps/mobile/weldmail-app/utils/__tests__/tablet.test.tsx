@@ -1,13 +1,13 @@
 // The tablet hooks read screen width from RN's `useWindowDimensions`. They call
 // no real React hooks themselves, so once `useWindowDimensions` is stubbed with
 // a plain function we can invoke them directly — no renderer required.
+import { useIsTablet, useTabletScale } from '../tablet';
+
 const mockUseWindowDimensions = jest.fn();
 
 jest.mock('react-native', () => ({
   useWindowDimensions: () => mockUseWindowDimensions(),
 }));
-
-import { useIsTablet, useTabletScale } from '../tablet';
 
 describe('tablet hooks', () => {
   beforeEach(() => {

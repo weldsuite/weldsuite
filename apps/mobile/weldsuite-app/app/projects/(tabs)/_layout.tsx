@@ -1,10 +1,10 @@
-import { Tabs } from "expo-router";
+import { Tabs , router } from "expo-router";
 import React, { useState, useEffect } from "react";
 import { Home, FolderKanban, ListTodo, BarChart3 } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TouchableOpacity, Text, View, StyleSheet, Dimensions, Platform } from 'react-native';
-import { router } from 'expo-router';
+
 
 // Hook for iPad detection
 function useIsTablet() {

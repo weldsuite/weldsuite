@@ -15,12 +15,12 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import { useOrganization } from '@clerk/expo';
+import { useOrganization , useAuth } from '@clerk/expo';
 import { KeyboardStickyView, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming, runOnJS, interpolate, Extrapolation } from 'react-native-reanimated';
 import { Gesture, GestureDetector, FlatList } from 'react-native-gesture-handler';
 import { useRouter } from 'expo-router';
-import { useAuth } from '@clerk/expo';
+
 import { Archive, ArrowUp, AtSign, AudioLines, Bell, BellOff, ChevronDown, ChevronLeft, Clock, FileText, Hash, Infinity as InfinityIcon, Lock, MessageSquare, MoreVertical, Paperclip, Pencil, Phone, PhoneMissed, Pin, Plus, Reply, X } from 'lucide-react-native';
 import { VideoCameraIcon } from '@/components/icons/VideoCameraIcon';
 import * as Haptics from 'expo-haptics';
@@ -463,7 +463,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
   const [messageToPin, setMessageToPin] = useState<Message | null>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentions, setMentions] = useState<string[]>([]);
-  const [pendingFiles, setPendingFiles] = useState<Array<{ name: string; uri: string; mimeType: string }>>([]);
+  const [pendingFiles, setPendingFiles] = useState<{ name: string; uri: string; mimeType: string }[]>([]);
   const [replyTo, setReplyTo] = useState<{ messageId: string; authorId: string; authorName: string; content: string } | null>(null);
   const [replyMention, setReplyMention] = useState(true);
   const [membersMap, setMembersMap] = useState<Map<string, string>>(new Map());
@@ -608,7 +608,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
     // Load draft for this channel if composer is empty. The server scopes
     // drafts to the authenticated caller (JWT) — no client-supplied userId.
     if (userId) {
-      appApiClient.get<{ data: Array<{ id: string; content: string }> }>(
+      appApiClient.get<{ data: { id: string; content: string }[] }>(
         `/chat-drafts?channelId=${encodeURIComponent(channelId)}`
       ).then((draftRes) => {
         const drafts = draftRes.data ?? [];

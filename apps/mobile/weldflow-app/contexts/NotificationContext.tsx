@@ -18,7 +18,7 @@ let notifUtils: {
     onTap: (r: unknown) => void,
   ) => () => void;
   setBadgeCount: (count: number) => Promise<void>;
-  createNotificationChannels: (channels: Array<{ id: string; name: string; description: string }>) => Promise<void>;
+  createNotificationChannels: (channels: { id: string; name: string; description: string }[]) => Promise<void>;
 } | null = null;
 
 if (!isExpoGo) {

@@ -26,7 +26,7 @@ import {
   BarChart3,
 } from 'lucide-react-native';
 import { useSidebar } from '@/contexts/SidebarContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 function useIsTablet() {
   const [isTablet, setIsTablet] = useState(false);

@@ -18,7 +18,7 @@ import {
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AppDrawer from '@/components/layout/AppDrawer';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface AvailableApp {
   code: string;

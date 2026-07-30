@@ -592,7 +592,6 @@ const api = {
 };
 
 export { api };
-export default api;
 
 /**
  * Helper function to initialize API with Clerk token

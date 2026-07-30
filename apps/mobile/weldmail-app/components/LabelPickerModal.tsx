@@ -11,7 +11,7 @@ import CenteredModalShell from './CenteredModalShell';
 import { X, Check, Tag } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useMail } from '@/contexts/MailContext';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 
 interface LabelPickerModalProps {
   visible: boolean;

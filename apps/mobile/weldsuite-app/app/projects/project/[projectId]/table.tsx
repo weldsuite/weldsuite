@@ -55,7 +55,7 @@ import {
   Eye,
   Columns3,
 } from 'lucide-react-native';
-import api, { ProjectTask, ProjectMember } from '@/services/api';
+import { api, ProjectTask, ProjectMember } from '@/services/api';
 
 type EditingCell = {
   taskId: string;

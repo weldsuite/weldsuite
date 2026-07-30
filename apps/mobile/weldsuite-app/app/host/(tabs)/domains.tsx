@@ -15,7 +15,7 @@ import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useShouldShowMiniSidebar } from '@/components/layout/MiniSidebar';
 import { useCollapsibleHeader } from '@/contexts/CollapsibleHeaderContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface Domain {
   id: string;

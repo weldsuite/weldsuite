@@ -17,7 +17,7 @@ import * as Haptics from 'expo-haptics';
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react-native';
 
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import { formatCurrency } from '@/lib/currency';
 
 interface LineItem {

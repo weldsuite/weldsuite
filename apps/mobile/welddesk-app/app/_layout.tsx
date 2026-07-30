@@ -18,7 +18,7 @@ import { WorkspaceProvider } from '@weldsuite/mobile-ui/contexts/WorkspaceContex
 import { InstalledAppsProvider } from '@weldsuite/mobile-ui/contexts/InstalledAppsContext';
 
 import storage from '@weldsuite/mobile-ui/utils/storage';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { RealtimeProvider } from '@/providers/realtime-provider';
 import { STORAGE_KEYS } from '@/types/setup';

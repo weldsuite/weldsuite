@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import storage from '@weldsuite/mobile-ui/utils/storage';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import { useNotifications } from '@/contexts/NotificationContext';
 import {
   type SetupMode, type SetupFormData, type ProfileData, type WorkspaceData,
