@@ -240,30 +240,34 @@ export function SettingsModalEnhanced({
     setLoading(true)
     try {
       switch (section) {
-        case "users":
+        case "users": {
           const usersResult = await serverActions.getUsers()
           if (usersResult.success && usersResult.data) {
             setUsers(usersResult.data)
           }
           break
-        case "workspaces":
+        }
+        case "workspaces": {
           const workspacesResult = await serverActions.getWorkspaces()
           if (workspacesResult.success && workspacesResult.data) {
             setWorkspaces(workspacesResult.data)
           }
           break
-        case "api-keys":
+        }
+        case "api-keys": {
           const keysResult = await serverActions.getApiKeys()
           if (keysResult.success && keysResult.data) {
             setApiKeys(keysResult.data)
           }
           break
-        case "audit":
+        }
+        case "audit": {
           const logsResult = await serverActions.getAuditLogs()
           if (logsResult.success && logsResult.data) {
             setAuditLogs(logsResult.data)
           }
           break
+        }
       }
     } catch (error) {
       console.error("Failed to load data:", error)

@@ -1178,7 +1178,6 @@ export const GanttSubtaskConnector: FC<GanttSubtaskConnectorProps> = ({
   parentFeature,
   isLastChild,
   isFirstChild,
-  rowsFromParent,
 }) => {
   const gantt = useContext(GanttContext);
   const timelineStartDate = useMemo(
@@ -1200,17 +1199,6 @@ export const GanttSubtaskConnector: FC<GanttSubtaskConnectorProps> = ({
   // Position the vertical line 12px after the parent task ends
   const verticalLineX = parentEndX + 12;
   const rowHeight = gantt.rowHeight;
-
-  // Calculate the vertical line height - it needs to extend from the parent row to this row
-  const verticalHeight = isFirstChild
-    ? rowHeight / 2 // First child: only from middle of parent row to middle of this row
-    : (isLastChild ? rowHeight / 2 : rowHeight); // Last child: only half, middle: full height
-
-  // Vertical offset - first child starts from top of current row (connecting from parent above)
-  const verticalTop = isFirstChild ? `-${(rowsFromParent - 0.5) * rowHeight}px` : (isLastChild ? '0' : '0');
-  const actualVerticalHeight = isFirstChild
-    ? (rowsFromParent * rowHeight) - (rowHeight / 2) + (rowHeight / 2)
-    : verticalHeight;
 
   return (
     <>

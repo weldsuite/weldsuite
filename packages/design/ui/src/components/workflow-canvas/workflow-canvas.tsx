@@ -437,7 +437,6 @@ function WorkflowCanvasInner({
       for (const node of currentNodes) {
         if (node.id === draggedNode.id) continue;
 
-        const otherNodeWidth = getNodeWidth(node);
         const nodeLeftX = getNodeLeftX(node);
         const nodeRightX = getNodeRightX(node);
         const nodeCenterX = getNodeCenterX(node);

@@ -36,7 +36,6 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
   const triggerType = nodeData.trigger?.type || 'manual';
   const Icon = triggerIcons[triggerType] || Zap;
   const triggerBadge = labels.triggerBadge ?? 'Trigger';
-  const category = labels.categories?.[triggerType] ?? triggerBadge;
   const [isHovered, setIsHovered] = useState(false);
 
   const desc = labels.descriptions;

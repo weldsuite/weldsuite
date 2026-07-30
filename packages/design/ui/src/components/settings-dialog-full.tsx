@@ -216,7 +216,6 @@ export function SettingsDialogFull({
   const [searchQuery, setSearchQuery] = React.useState("")
   const [hasChanges, setHasChanges] = React.useState(false)
   const [selectedUsers, setSelectedUsers] = React.useState<number[]>([])
-  const state = useSettingsState()
 
   const filteredTabs = tabs.filter(tab => 
     tab.label.toLowerCase().includes(searchQuery.toLowerCase()) ||

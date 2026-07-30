@@ -26,7 +26,6 @@ export function Auth0Provider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<Auth0User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const router = useRouter();
 
   const fetchUser = async () => {
     try {

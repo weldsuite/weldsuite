@@ -234,7 +234,6 @@ export function AiChatDropdown({
                 const actionHandler = onAction;
                 Promise.resolve(actionHandler(action)).then((result: any) => {
                   if (result) {
-                    const resultContent = ""
                     
                     if (result.success) {
                       // Format the result based on the action type
