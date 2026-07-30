@@ -424,7 +424,7 @@ export default function AccountingTabsLayout() {
         name="index"
         options={{
           title: "Dashboard",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Calculator size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -434,7 +434,7 @@ export default function AccountingTabsLayout() {
         name="inbox"
         options={{
           title: "My Inbox",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Inbox size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -444,7 +444,7 @@ export default function AccountingTabsLayout() {
         name="scan"
         options={{
           title: "Scan",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Ionicons name="scan" size={20} color={color} />
           ),
         }}
@@ -460,7 +460,7 @@ export default function AccountingTabsLayout() {
         name="invoices"
         options={{
           title: "Invoices",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <FileText size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -470,7 +470,7 @@ export default function AccountingTabsLayout() {
         name="banks"
         options={{
           title: "Banks",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Ionicons name="card" size={20} color={color} />
           ),
         }}

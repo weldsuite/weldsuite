@@ -427,7 +427,7 @@ export default function MailScreen() {
     }
   }, [archiveMessage, isConnected]);
 
-  const handleSnooze = useCallback(async (emailId: string) => {
+  const handleSnooze = useCallback(async (_emailId: string) => {
     // For now, just show a toast - snooze functionality can be implemented later
     toast.success('Email snoozed for 1 hour');
   }, []);

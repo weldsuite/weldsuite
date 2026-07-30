@@ -44,7 +44,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "Home",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Home size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -54,7 +54,7 @@ export default function TabLayout() {
         name="apps"
         options={{
           title: "Apps",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Grid3x3 size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -64,7 +64,7 @@ export default function TabLayout() {
         name="notifications"
         options={{
           title: "Notifications",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Bell size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -74,7 +74,7 @@ export default function TabLayout() {
         name="settings"
         options={{
           title: "Settings",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Settings size={20} color={color} strokeWidth={2} />
           ),
         }}

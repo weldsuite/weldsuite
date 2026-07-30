@@ -23,7 +23,7 @@ interface LabelPanelProps {
   onClosed?: () => void;
 }
 
-export default function LabelPanel({ visible, onLabelSelected, onClosed }: LabelPanelProps) {
+export default function LabelPanel({ visible, onClosed }: LabelPanelProps) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const {

@@ -63,7 +63,6 @@ interface UseInboxRealtimeReturn {
 }
 
 export function useInboxRealtime(options: UseInboxRealtimeOptions): UseInboxRealtimeReturn {
-  options;
   const client = useWorkspaceClientMaybe();
   const [isConnected, setIsConnected] = useState(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');

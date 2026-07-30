@@ -745,7 +745,7 @@ export default function ProjectGanttScreen() {
                 </View>
                 {/* Period labels */}
                 <View style={styles.monthLabelsContainer}>
-                  {timePeriods.map((period, index) => (
+                  {timePeriods.map((period, _index) => (
                     <View
                       key={`${period.date.getTime()}`}
                       style={[
@@ -835,7 +835,7 @@ export default function ProjectGanttScreen() {
                 )}
                 contentContainerStyle={styles.taskBarsContainer}
               >
-                {tasks.map((task, index) => {
+                {tasks.map((task, _index) => {
                   const bar = getTaskBar(task);
 
                   return (

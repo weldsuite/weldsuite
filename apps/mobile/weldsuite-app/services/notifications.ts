@@ -195,7 +195,7 @@ export async function getNotificationPreferences(accessToken: string, emailAccou
  */
 export async function updateNotificationPreferences(
   preferences: any,
-  accessToken: string
+  _accessToken: string
 ): Promise<boolean> {
   try {
     const response = await api.updateNotificationPreferences(preferences);
@@ -214,7 +214,7 @@ export async function updateNotificationPreferences(
 /**
  * Send test notification
  */
-export async function sendTestNotification(accessToken: string): Promise<boolean> {
+export async function sendTestNotification(_accessToken: string): Promise<boolean> {
   try {
     const response = await api.sendTestNotification();
 
@@ -247,7 +247,7 @@ export async function getNotificationHistory(accessToken: string, limit: number 
  */
 export async function markNotificationAsRead(
   notificationId: string,
-  accessToken: string
+  _accessToken: string
 ): Promise<boolean> {
   try {
     const response = await api.markNotificationAsRead(notificationId);

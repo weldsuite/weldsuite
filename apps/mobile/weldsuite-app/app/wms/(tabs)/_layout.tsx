@@ -147,7 +147,7 @@ export default function WmsTabsLayout() {
         name="index"
         options={{
           title: "Dashboard",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Home size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -157,7 +157,7 @@ export default function WmsTabsLayout() {
         name="inventory"
         options={{
           title: "Products",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Package size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -167,7 +167,7 @@ export default function WmsTabsLayout() {
         name="picklists"
         options={{
           title: "Picklists",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <ListChecks size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -177,7 +177,7 @@ export default function WmsTabsLayout() {
         name="analytics"
         options={{
           title: "Batches",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Layers3 size={20} color={color} strokeWidth={2} />
           ),
         }}

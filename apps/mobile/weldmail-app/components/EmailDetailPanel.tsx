@@ -76,7 +76,7 @@ function getInitialColor(name: string): string {
   return colors[Math.abs(hash) % colors.length];
 }
 
-function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReplyAll, onForward, router }: {
+function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReplyAll, onForward }: {
   message: any;
   colors: any;
   isExpanded: boolean;

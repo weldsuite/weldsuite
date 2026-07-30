@@ -37,7 +37,7 @@ const NOTIFICATION_ROUTES: Record<string, (notification: StoredNotification) => 
   'new_email': (n) => n.entityId ? `/mail/${n.entityId}` : '/mail',
   'meeting.starting_soon': (n) => n.entityId ? `/calendar/${n.entityId}` : '/calendar',
   'meeting.invitation': (n) => n.entityId ? `/calendar/${n.entityId}` : '/calendar',
-  'call.missed': (n) => '/calls',
+  'call.missed': (_n) => '/calls',
 
   // System notifications
   'system.announcement': () => '/notifications',

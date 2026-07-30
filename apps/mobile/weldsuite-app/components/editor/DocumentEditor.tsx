@@ -43,10 +43,10 @@ interface DocumentEditorProps {
 }
 
 export function DocumentEditor({
-  projectId,
-  userId,
-  userName,
-  userAvatar,
+  projectId: _projectId,
+  userId: _userId,
+  userName: _userName,
+  userAvatar: _userAvatar,
   initialTitle = '',
   initialContent = '',
   initialCoverImage,

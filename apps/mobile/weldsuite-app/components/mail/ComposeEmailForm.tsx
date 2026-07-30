@@ -133,7 +133,7 @@ export default function ComposeEmailForm({
   onRemoveAttachment,
   onSchedule,
   quotedMessage,
-  closeIcon = 'x',
+  closeIcon: _closeIcon = 'x',
   isModal = false,
   replyToMessageId,
   emailAccountId,

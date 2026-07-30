@@ -120,7 +120,7 @@ export default function TaskPagesSidebar({ onCollapse }: TaskPagesSidebarProps) 
 
       {/* Menu Items */}
       <ScrollView style={styles.menuContainer} showsVerticalScrollIndicator={false}>
-        {menuSections.map((section, sectionIndex) => (
+        {menuSections.map((section, _sectionIndex) => (
           <View key={section.title} style={styles.section}>
             <Text style={styles.sectionTitle}>{section.title}</Text>
             {section.items.map((item) => {

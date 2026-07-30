@@ -538,7 +538,7 @@ export default function ParcelTabsLayout() {
         name="index"
         options={{
           title: "Dashboard",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Home size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -548,7 +548,7 @@ export default function ParcelTabsLayout() {
         name="scan"
         options={{
           title: "Scan",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Ionicons name="scan" size={20} color={color} />
           ),
         }}
@@ -558,7 +558,7 @@ export default function ParcelTabsLayout() {
         name="parcels"
         options={{
           title: "Parcels",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Package size={20} color={color} strokeWidth={2} />
           ),
         }}

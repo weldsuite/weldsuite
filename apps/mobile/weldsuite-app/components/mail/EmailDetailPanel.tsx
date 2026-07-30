@@ -58,7 +58,7 @@ export default function EmailDetailPanel({
   emailId,
   onClose,
   showBackButton = false,
-  isEmbedded = false,
+  isEmbedded: _isEmbedded = false,
 }: EmailDetailPanelProps) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();

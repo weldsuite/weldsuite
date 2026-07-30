@@ -287,7 +287,7 @@ export function IPadLayout() {
   );
 }
 
-const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
+const makeStyles = (c: ColorScheme, topInset: number, _bottomInset: number) =>
   StyleSheet.create({
     container: {
       flex: 1,

@@ -204,7 +204,7 @@ export default function CommerceTabsLayout() {
         name="index"
         options={{
           title: "Dashboard",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Home size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -214,7 +214,7 @@ export default function CommerceTabsLayout() {
         name="products"
         options={{
           title: "Products",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Package size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -224,7 +224,7 @@ export default function CommerceTabsLayout() {
         name="orders"
         options={{
           title: "Orders",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <ShoppingCart size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -234,7 +234,7 @@ export default function CommerceTabsLayout() {
         name="customers"
         options={{
           title: "Customers",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Users size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -244,7 +244,7 @@ export default function CommerceTabsLayout() {
         name="inventory"
         options={{
           title: "Inventory",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Ionicons name="cube-outline" size={20} color={color} />
           ),
         }}
@@ -254,7 +254,7 @@ export default function CommerceTabsLayout() {
         name="analytics"
         options={{
           title: "Analytics",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <BarChart size={20} color={color} strokeWidth={2} />
           ),
         }}

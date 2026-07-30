@@ -917,7 +917,7 @@ export default function InboxScreen() {
             </TouchableOpacity>
           </View>
           <ScrollView style={styles.modalContentScroll} showsVerticalScrollIndicator={false}>
-            {SORT_OPTIONS.map((option, index) => (
+            {SORT_OPTIONS.map((option, _index) => (
               <TouchableOpacity
                 key={`${option.key}-${option.order}`}
                 style={[styles.modalOption, { borderBottomColor: colors.divider }]}

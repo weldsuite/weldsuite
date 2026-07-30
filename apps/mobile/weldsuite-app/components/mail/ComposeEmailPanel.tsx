@@ -40,7 +40,7 @@ export default function ComposeEmailPanel({
   onClose,
   onSent,
   draftId,
-  isEmbedded = false,
+  isEmbedded: _isEmbedded = false,
 }: ComposeEmailPanelProps) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
