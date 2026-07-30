@@ -19,7 +19,7 @@ import { workspaceInstalledApps } from '@weldsuite/db/schema/workspace-installed
 import { taskDigestSettings } from '@weldsuite/db/schema/task-digest-settings';
 import { workspaceSettings } from '@weldsuite/db/schema/workspace-settings';
 import { helpdeskWorkflows } from '@weldsuite/db/schema/helpdesk-workflows';
-import { workspaces, plans, workspaceCredits, creditTransactions, digestSchedules, mailAccountRegistry } from '@weldsuite/db/schema/master';
+import { workspaces, plans, workspaceCredits, creditTransactions, digestSchedules, mailAccountRegistry, users } from '@weldsuite/db/schema/master';
 import { mailDomains } from '@weldsuite/db/schema/mail-domains';
 import { mailAccounts } from '@weldsuite/db/schema/mail-accounts';
 import { mailLabels } from '@weldsuite/db/schema/mail-labels';
@@ -556,12 +556,27 @@ export class ProvisionWorkspaceWorkflow extends WorkflowEntrypoint<Env, Provisio
         .where(eq(workspaces.id, workspaceId))
         .limit(1);
 
+      // The Stripe customer needs the signing-up user's email so Stripe can
+      // actually reach them (trial-ending, failed-payment, receipts). The
+      // payload carries it on every normal path; the Clerk-webhook fallback
+      // can omit it, so fall back to the master users row.
+      let ownerEmail = initialMember?.email;
+      if (!ownerEmail && initialMember?.userId) {
+        const [owner] = await masterDb
+          .select({ email: users.email })
+          .from(users)
+          .where(eq(users.id, initialMember.userId))
+          .limit(1);
+        ownerEmail = owner?.email || undefined;
+      }
+
       const result = await setupWorkspaceBilling(
         this.env,
         masterDb,
         workspaceId,
         workspaceName || workspaceId,
         workspaceRow?.clerkOrgId || '',
+        ownerEmail,
       );
 
       if (result.warning) {
