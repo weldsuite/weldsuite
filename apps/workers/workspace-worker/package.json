@@ -12,7 +12,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@clerk/backend": "^2.29.0",
+    "@clerk/backend": "^2.33.3",
     "@hono/zod-validator": "^0.4.0",
     "@neondatabase/serverless": "^1.0.1",
     "@weldsuite/cloudflare-zones": "workspace:*",
@@ -20,7 +20,7 @@
     "@weldsuite/email": "workspace:*",
     "@weldsuite/neon-provisioning": "workspace:*",
     "@weldsuite/transactional-email": "workspace:*",
-    "drizzle-orm": "^0.45.1",
+    "drizzle-orm": "^0.45.2",
     "hono": "^4.12.27",
     "svix": "^1.44.0",
     "zod": "^3.25.76"

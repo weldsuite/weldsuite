@@ -12,7 +12,7 @@
   "dependencies": {
     "@neondatabase/serverless": "^1.0.1",
     "@weldsuite/db": "workspace:*",
-    "drizzle-orm": "^0.45.1"
+    "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
