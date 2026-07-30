@@ -136,7 +136,7 @@ export default function ParcelDashboard() {
           <View style={[styles.primaryCard, isTablet && styles.primaryCardTablet]}>
             <View style={styles.primaryCardHeader}>
               <View>
-                <Text style={[styles.primaryCardLabel, { color: colors.muted }]}>Today's Deliveries</Text>
+                <Text style={[styles.primaryCardLabel, { color: colors.muted }]}>Today&apos;s Deliveries</Text>
                 <Text style={[styles.primaryCardValue, { color: colors.text }]}>{stats?.todayDeliveries}</Text>
               </View>
               <View style={styles.primaryCardIcon}>
@@ -219,7 +219,7 @@ export default function ParcelDashboard() {
 
         {/* Quick Stats */}
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Today's Overview</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Today&apos;s Overview</Text>
           <View style={styles.quickStatsGrid}>
             <View style={styles.quickStatCard}>
               <Text style={[styles.quickStatValue, { color: colors.text }]}>

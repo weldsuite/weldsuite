@@ -63,7 +63,7 @@ function formatRowTime(input?: string): string {
 }
 
 // Swipeable Email Item Component
-const SwipeableEmailItem = memo(({ item, onPress, onDelete, onArchive, onSnooze, onToggleRead, onPin, pinned, colors, isSelected, labelColorMap, isTablet, isDark }: {
+const SwipeableEmailItem = memo(function SwipeableEmailItem({ item, onPress, onDelete, onArchive, onSnooze, onToggleRead, onPin, pinned, colors, isSelected, labelColorMap, isTablet, isDark }: {
   item: EmailListItem;
   onPress: (email: EmailListItem) => void;
   onDelete: (id: string) => void;
@@ -77,7 +77,7 @@ const SwipeableEmailItem = memo(({ item, onPress, onDelete, onArchive, onSnooze,
   labelColorMap?: Record<string, string>;
   isTablet?: boolean;
   isDark?: boolean;
-}) => {
+}) {
   const senderName = item.from?.name || item.from?.email || item.fromName || 'Unknown';
   const avatarColor = getAvatarColor(senderName);
   const swipeableRef = useRef<Swipeable>(null);

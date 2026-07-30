@@ -17,7 +17,7 @@ module.exports = defineConfig([
   },
   {
     // Jest globals for the test suite.
-    files: ['**/__tests__/**', '**/*.test.{ts,tsx,js,jsx}', 'jest.setup.js'],
+    files: ['**/__tests__/**', '**/__mocks__/**', '**/*.test.{ts,tsx,js,jsx}', 'jest.setup.js', 'jest.config.js'],
     languageOptions: {
       globals: {
         jest: 'readonly',

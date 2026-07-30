@@ -284,7 +284,7 @@ export default function WorkflowEditorPage() {
         <View style={styles.configSection}>
           <Text style={[styles.configSectionTitle, { color: colors.text }]}>Configuration</Text>
           <Text style={[styles.configSectionSubtitle, { color: colors.muted }]}>
-            Configure this step's behavior
+            Configure this step&apos;s behavior
           </Text>
 
           {/* Placeholder for step-specific config */}

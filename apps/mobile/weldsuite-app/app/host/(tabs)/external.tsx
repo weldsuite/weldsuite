@@ -231,7 +231,7 @@ export default function ExternalDomainScreen() {
                 I have updated my nameservers
               </Text>
               <Text style={[styles.confirmationText, { color: colors.muted }]}>
-                Confirm that you have updated your domain's nameservers at your registrar to point to WeldHost
+                Confirm that you have updated your domain&apos;s nameservers at your registrar to point to WeldHost
               </Text>
             </View>
           </TouchableOpacity>

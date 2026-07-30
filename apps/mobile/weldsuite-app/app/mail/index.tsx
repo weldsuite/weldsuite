@@ -53,7 +53,7 @@ const DRAWER_WIDTH = width - 56;
 const SPLIT_VIEW_MIN_WIDTH = 768;
 const EMAIL_LIST_WIDTH = 380;
 // Connection Banner component
-const ConnectionBanner = memo(({ isConnected, realtimeState }: { isConnected: boolean; realtimeState: string }) => {
+const ConnectionBanner = memo(function ConnectionBanner({ isConnected, realtimeState }: { isConnected: boolean; realtimeState: string }) {
   if (isConnected && realtimeState === 'connected') return null;
 
   const isOffline = !isConnected;
@@ -1135,20 +1135,6 @@ const styles = StyleSheet.create({
   },
   emailDetailPanel: {
     flex: 1,
-  },
-  homeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    gap: 6,
-  },
-  homeButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
   },
   splitViewBottomBar: {
     paddingHorizontal: 12,

@@ -214,7 +214,7 @@ export default function ScanScreen() {
       <View style={styles.errorContainer}>
         <Text style={[styles.errorText, { color: colors.muted }]}>
           AI is currently unavailable. Automatic data extraction from this photo
-          isn't possible right now — you can still add the expense or bill manually.
+          isn&apos;t possible right now — you can still add the expense or bill manually.
         </Text>
       </View>
 

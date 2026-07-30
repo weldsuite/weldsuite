@@ -154,7 +154,7 @@ export default function PostDetailScreen() {
 
           {post.status === 'failed' && (
             <Banner variant="error" title="Last publish failed">
-              Check the post's targets and try publishing again.
+              Check the post&apos;s targets and try publishing again.
             </Banner>
           )}
 

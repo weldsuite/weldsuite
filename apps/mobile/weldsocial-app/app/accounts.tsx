@@ -148,7 +148,7 @@ export default function AccountsScreen() {
             />
           ))}
           <Text style={[styles.connectHint, { color: colors.mutedForeground }]}>
-            You'll authorise in the browser. Afterwards, tap the sync icon to import the connected account.
+            You&apos;ll authorise in the browser. Afterwards, tap the sync icon to import the connected account.
           </Text>
         </View>
       </Sheet>

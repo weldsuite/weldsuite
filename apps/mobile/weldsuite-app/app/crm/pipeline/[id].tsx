@@ -787,11 +787,6 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     borderBottomWidth: 1,
   },
-  modalTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    marginLeft: 16,
-  },
   closeButton: {
     padding: 4,
     marginRight: 16,

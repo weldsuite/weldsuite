@@ -808,7 +808,7 @@ export default function ProjectGoalsScreen() {
         <View style={styles.confirmModal}>
           <Text style={styles.confirmTitle}>Delete Goal?</Text>
           <Text style={styles.confirmMessage}>
-            Are you sure you want to delete "{deletingGoal?.title}"? This will also delete all sub-goals.
+            Are you sure you want to delete &quot;{deletingGoal?.title}&quot;? This will also delete all sub-goals.
           </Text>
           <View style={styles.confirmActions}>
             <TouchableOpacity
