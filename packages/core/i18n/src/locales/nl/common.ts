@@ -540,6 +540,18 @@ export const common = {
         settingUpAccount: 'Uw account instellen...',
       },
     },
+    desktop: {
+      sourcePicker: {
+        title: 'Kies wat u wilt delen',
+        description: 'Kies een scherm of een app-venster. Alleen de selectie wordt gedeeld met de deelnemers aan dit gesprek.',
+        screens: 'Schermen',
+        windows: 'Vensters',
+        noScreens: 'Geen schermen beschikbaar om te delen.',
+        noWindows: 'Geen geopende app-vensters om te delen.',
+        share: 'Delen',
+        cancel: 'Annuleren',
+      },
+    },
     ai: {
       unavailable: {
         title: 'AI is momenteel niet beschikbaar',

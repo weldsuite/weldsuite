@@ -45,7 +45,44 @@ export interface WeldsuiteDesktopApi {
   settings: SettingsApi;
   onDeepLink(listener: (url: string) => void): () => void;
   onAuthCallback(listener: (payload: AuthCallback) => void): () => void;
+  /**
+   * Register the screen-share source picker.
+   *
+   * The shell calls `handler` when the page requests display media on a
+   * platform with no OS picker, and waits for it to resolve with the id of the
+   * chosen source — or `null` to cancel, which makes `getDisplayMedia` reject.
+   *
+   * While no handler is registered the shell denies screen-share requests
+   * outright, so mount this once, high in the tree. Only one handler is
+   * active at a time; registering a second replaces the first.
+   */
+  onSelectSource(handler: (sources: DesktopSource[]) => Promise<string | null> | string | null): () => void;
 }
+
+type SourceHandler = (sources: DesktopSource[]) => Promise<string | null> | string | null;
+
+// Single active picker, dispatched to by one permanent IPC listener. Holding
+// the handler in a variable (rather than adding an `ipcRenderer.on` per
+// registration) means a re-register genuinely replaces the old picker instead
+// of leaving two racing to answer the same request.
+let activeSourceHandler: SourceHandler | null = null;
+
+ipcRenderer.on('weldsuite:select-desktop-source', async (
+  _event: Electron.IpcRendererEvent,
+  payload: { requestId: number; sources: DesktopSource[] },
+) => {
+  let sourceId: string | null = null;
+  try {
+    sourceId = (await activeSourceHandler?.(payload.sources)) ?? null;
+  } catch (err) {
+    console.error('[weldsuite-desktop] source picker threw, cancelling:', err);
+    sourceId = null;
+  }
+  // Always reply. A missing reply would leave the capture request hanging in
+  // main until its timeout, with the app frozen behind a permission prompt
+  // that never resolves.
+  ipcRenderer.send('weldsuite:source-picker-result', { requestId: payload.requestId, sourceId });
+});
 
 const api: WeldsuiteDesktopApi = {
   isDesktop: true,
@@ -73,6 +110,19 @@ const api: WeldsuiteDesktopApi = {
     const handler = (_event: Electron.IpcRendererEvent, payload: AuthCallback) => listener(payload);
     ipcRenderer.on('weldsuite:auth-callback', handler);
     return () => ipcRenderer.removeListener('weldsuite:auth-callback', handler);
+  },
+  onSelectSource: (handler) => {
+    activeSourceHandler = handler;
+    ipcRenderer.send('weldsuite:source-picker-ready', true);
+    return () => {
+      // Only tear down if this handler is still the active one — under React's
+      // StrictMode double-mount the old cleanup runs *after* the replacement
+      // registers, and an unconditional clear would leave the shell believing
+      // no picker exists.
+      if (activeSourceHandler !== handler) return;
+      activeSourceHandler = null;
+      ipcRenderer.send('weldsuite:source-picker-ready', false);
+    };
   },
 };
 
