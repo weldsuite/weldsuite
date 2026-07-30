@@ -193,7 +193,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   // Refresh session
-  const refreshSession = async () => {
+  const refreshSession = useCallback(async () => {
     try {
       const response = await fetch('/api/v1/auth/refresh', {
         method: 'POST',
@@ -212,7 +212,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
       router.push('/login');
     }
-  };
+  }, [router]);
 
   // Reset password
   const resetPassword = async (email: string) => {
@@ -296,7 +296,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, refreshTime);
 
     return () => clearTimeout(timer);
-  }, [user]);
+  }, [user, refreshSession]);
 
   return (
     <AuthContext.Provider

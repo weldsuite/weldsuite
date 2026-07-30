@@ -137,20 +137,20 @@ interface SettingsModalProps {
   // Server actions
   serverActions?: {
     getUsers: () => Promise<{ success: boolean; data?: User[]; error?: string }>
-    createUser: (data: any) => Promise<{ success: boolean; data?: User; error?: string }>
-    updateUser: (userId: string, data: any) => Promise<{ success: boolean; data?: User; error?: string }>
+    createUser: (data: Partial<User>) => Promise<{ success: boolean; data?: User; error?: string }>
+    updateUser: (userId: string, data: Partial<User>) => Promise<{ success: boolean; data?: User; error?: string }>
     deleteUser: (userId: string) => Promise<{ success: boolean; error?: string }>
     getWorkspaces: () => Promise<{ success: boolean; data?: Workspace[]; error?: string }>
-    createWorkspace: (data: any) => Promise<{ success: boolean; data?: Workspace; error?: string }>
-    updateWorkspace: (id: string, data: any) => Promise<{ success: boolean; data?: Workspace; error?: string }>
+    createWorkspace: (data: Partial<Workspace>) => Promise<{ success: boolean; data?: Workspace; error?: string }>
+    updateWorkspace: (id: string, data: Partial<Workspace>) => Promise<{ success: boolean; data?: Workspace; error?: string }>
     deleteWorkspace: (id: string) => Promise<{ success: boolean; error?: string }>
     getApiKeys: () => Promise<{ success: boolean; data?: ApiKey[]; error?: string }>
-    createApiKey: (data: any) => Promise<{ success: boolean; data?: ApiKey; error?: string }>
+    createApiKey: (data: Partial<ApiKey>) => Promise<{ success: boolean; data?: ApiKey; error?: string }>
     revokeApiKey: (id: string) => Promise<{ success: boolean; error?: string }>
-    getAuditLogs: (filters?: any) => Promise<{ success: boolean; data?: AuditLog[]; error?: string }>
-    updateGeneralSettings: (settings: any) => Promise<{ success: boolean; data?: any; error?: string }>
-    updateNotificationSettings: (settings: any) => Promise<{ success: boolean; data?: any; error?: string }>
-    updateSecuritySettings: (settings: any) => Promise<{ success: boolean; data?: any; error?: string }>
+    getAuditLogs: (filters?: Record<string, unknown>) => Promise<{ success: boolean; data?: AuditLog[]; error?: string }>
+    updateGeneralSettings: (settings: Record<string, unknown>) => Promise<{ success: boolean; data?: unknown; error?: string }>
+    updateNotificationSettings: (settings: Record<string, unknown>) => Promise<{ success: boolean; data?: unknown; error?: string }>
+    updateSecuritySettings: (settings: Record<string, unknown>) => Promise<{ success: boolean; data?: unknown; error?: string }>
   }
 }
 
@@ -295,7 +295,7 @@ export function SettingsModalEnhanced({
       } else {
         toast.error(result.error || "Failed to create user")
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to create user")
     } finally {
       setLoading(false)
@@ -314,7 +314,7 @@ export function SettingsModalEnhanced({
       } else {
         toast.error(result.error || "Failed to delete user")
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to delete user")
     } finally {
       setLoading(false)
@@ -339,7 +339,7 @@ export function SettingsModalEnhanced({
       } else {
         toast.error(result.error || "Failed to create workspace")
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to create workspace")
     } finally {
       setLoading(false)
@@ -367,7 +367,7 @@ export function SettingsModalEnhanced({
       } else {
         toast.error(result.error || "Failed to create API key")
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to create API key")
     } finally {
       setLoading(false)
@@ -402,7 +402,7 @@ export function SettingsModalEnhanced({
       
       toast.success("Settings saved successfully")
       onOpenChange?.(false)
-    } catch (error) {
+    } catch {
       toast.error("Failed to save settings")
     } finally {
       setLoading(false)
@@ -445,7 +445,7 @@ export function SettingsModalEnhanced({
                 <CardDescription>Select your preferred theme for the application</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <RadioGroup value={theme} onValueChange={(v: any) => setTheme(v)}>
+                <RadioGroup value={theme} onValueChange={(v) => setTheme(v as "light" | "dark" | "system")}>
                   <div className="grid grid-cols-3 gap-4">
                     <label className={cn(
                       "flex flex-col items-center justify-center rounded-lg border-2 p-4 cursor-pointer hover:bg-accent",

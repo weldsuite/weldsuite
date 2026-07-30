@@ -38,19 +38,19 @@ export function AchievementNotification({
     return () => clearTimeout(timer);
   }, []);
 
+  const handleClose = React.useCallback(() => {
+    setIsExiting(true);
+    setTimeout(() => {
+      onClose?.(id);
+    }, 300);
+  }, [onClose, id]);
+
   React.useEffect(() => {
     const timer = setTimeout(() => {
       handleClose();
     }, 8000); // Auto-dismiss after 8 seconds
     return () => clearTimeout(timer);
-  }, []);
-
-  const handleClose = () => {
-    setIsExiting(true);
-    setTimeout(() => {
-      onClose?.(id);
-    }, 300);
-  };
+  }, [handleClose]);
 
   return (
     <div

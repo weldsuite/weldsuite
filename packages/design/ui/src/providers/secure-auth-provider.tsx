@@ -63,6 +63,9 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/** Paths reachable without a session. */
+const PUBLIC_PATHS = ['/login', '/signup', '/reset-password', '/verify-email', '/'];
+
 // Generate browser fingerprint
 function generateBrowserFingerprint(): string {
   if (typeof window === 'undefined') return '';
@@ -134,8 +137,10 @@ export function SecureAuthProvider({ children }: { children: React.ReactNode }) 
   const router = useRouter();
   const pathname = usePathname();
 
-  // Public paths that don't require authentication
-  const publicPaths = ['/login', '/signup', '/reset-password', '/verify-email', '/'];
+  // Public paths that don't require authentication. Module-scope constant so
+  // its identity is stable — as a literal it re-triggered the redirect effect
+  // on every render.
+  const publicPaths = PUBLIC_PATHS;
 
   // Clear error
   const clearError = useCallback(() => {

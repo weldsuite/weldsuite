@@ -32,6 +32,11 @@ export function useAiChatStream({
   const [streamingContent, setStreamingContent] = useState("")
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const lastIndexRef = useRef(0)
+  // Mirrors `streamingContent`. `streamMessage` is a stable callback, so the
+  // state variable it closes over is always the value from when the stream
+  // started (""), which made both `onComplete` and the return value report an
+  // empty response. The ref always holds what has actually accumulated.
+  const contentRef = useRef("")
   
   const stopPolling = useCallback(() => {
     if (pollingIntervalRef.current) {
@@ -43,6 +48,7 @@ export function useAiChatStream({
   const streamMessage = useCallback(async (message: string, context?: any) => {
     setIsStreaming(true)
     setStreamingContent("")
+    contentRef.current = ""
     lastIndexRef.current = 0
     
     try {
@@ -55,6 +61,7 @@ export function useAiChatStream({
           const { chunks, done, error } = await getChunks(streamId, lastIndexRef.current)
           
           if (error) {
+            contentRef.current = error
             setStreamingContent(error)
             if (onError) onError(error)
             stopPolling()
@@ -65,11 +72,12 @@ export function useAiChatStream({
           // Process new chunks
           for (const chunk of chunks) {
             if (chunk.type === "chunk") {
+              contentRef.current += chunk.content
               setStreamingContent(prev => prev + chunk.content)
             } else if (chunk.type === "action" && onAction) {
               onAction(chunk.action)
             } else if (chunk.type === "done") {
-              if (onComplete) onComplete(chunk.fullResponse || streamingContent)
+              if (onComplete) onComplete(chunk.fullResponse || contentRef.current)
             } else if (chunk.type === "error") {
               if (onError) onError(chunk.content || "An error occurred")
             }
@@ -93,11 +101,12 @@ export function useAiChatStream({
       console.error("Stream start error:", error)
       setIsStreaming(false)
       const errorMsg = error instanceof Error ? error.message : "Failed to start stream"
+      contentRef.current = errorMsg
       setStreamingContent(errorMsg)
       if (onError) onError(errorMsg)
     }
-    
-    return streamingContent
+
+    return contentRef.current
   }, [startStream, getChunks, onAction, onComplete, onError, stopPolling])
   
   return {

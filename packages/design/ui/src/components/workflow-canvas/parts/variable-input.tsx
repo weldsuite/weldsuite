@@ -94,7 +94,7 @@ export function VariableInput({
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
-  }, [autocomplete.open]);
+  }, [autocomplete.open, inputRef]);
 
   const handleInputChange = useCallback(
     (newValue: string) => {
@@ -119,7 +119,7 @@ export function VariableInput({
         setAutocomplete({ open: true, query: between, startPos: lastOpen });
       }, 0);
     },
-    [onChange]
+    [onChange, inputRef]
   );
 
   const handleAutocompleteSelect = useCallback(
@@ -140,7 +140,7 @@ export function VariableInput({
         }
       }, 0);
     },
-    [autocomplete, value, onChange]
+    [autocomplete, value, onChange, inputRef]
   );
 
   const handleVariableSelect = useCallback(
@@ -163,7 +163,7 @@ export function VariableInput({
         }
       }, 0);
     },
-    [value, onChange]
+    [value, onChange, inputRef]
   );
 
   const handleKeyDown = useCallback(

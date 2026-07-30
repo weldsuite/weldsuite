@@ -22,7 +22,7 @@ import { TriggerNode } from './trigger-node';
 import { ActionNode, PlaceholderNode } from './action-node';
 import { ConditionNode, ConditionBranchNode } from './condition-node';
 import { SubAgentNode } from './sub-agent-node';
-import { workflowToFlow, autoLayoutNodes, getNodeHeight, getTotalNodeHeight } from './flow-utils';
+import { workflowToFlow, autoLayoutNodes, getNodeHeight, getTotalNodeHeight, type FlowNodeDataView } from './flow-utils';
 import type { WorkflowStep, TriggerConfig, WorkflowCanvasLabels, VariableItem } from './types';
 import { DEFAULT_CANVAS_LABELS } from './types';
 import { Plus, Minus, Maximize } from 'lucide-react';
@@ -142,7 +142,7 @@ export interface WorkflowCanvasProps {
   onDeleteStep: (index: number) => void;
   onStepsChange: (steps: WorkflowStep[]) => void;
   onAddStep?: (sourceNodeId?: string) => void;
-  onUpdateConfig?: (stepId: string, config: Record<string, any>) => void;
+  onUpdateConfig?: (stepId: string, config: Record<string, unknown>) => void;
   onAddSubAgent?: (stepId: string) => void;
   onEditSubAgent?: (subAgentId: string) => void;
   onDeselect?: () => void;
@@ -185,23 +185,25 @@ function WorkflowCanvasInner({
   labels: labelsProp,
   className,
 }: WorkflowCanvasProps) {
-  // Merge caller-provided labels with English defaults
-  const labels: Required<WorkflowCanvasLabels> = {
+  // Merge caller-provided labels with English defaults. Memoized because the
+  // layout memo/effect below depend on them, and a fresh object each render
+  // would re-run the whole flow rebuild.
+  const labels: Required<WorkflowCanvasLabels> = useMemo(() => ({
     ...DEFAULT_CANVAS_LABELS,
     ...labelsProp,
     triggerLabels: { ...DEFAULT_CANVAS_LABELS.triggerLabels, ...(labelsProp?.triggerLabels || {}) },
     actionLabels: { ...DEFAULT_CANVAS_LABELS.actionLabels, ...(labelsProp?.actionLabels || {}) },
-  };
+  }), [labelsProp]);
 
-  const flowLabels = {
+  const flowLabels = useMemo(() => ({
     selectTrigger: labels.selectTrigger,
     triggerLabels: labels.triggerLabels,
     actionLabels: labels.actionLabels,
     setupRequired: labels.setupRequired,
-  };
+  }), [labels]);
 
   const { zoomIn, zoomOut, getNodes, setCenter, getViewport } = useReactFlow();
-  const containerRef = useRef<HTMLDivElement>(null);
+
   const prevStepNodeIdsRef = useRef<Set<string>>(new Set());
   const isFirstSyncRef = useRef(true);
 
@@ -243,7 +245,7 @@ function WorkflowCanvasInner({
     }
 
     return { nodes, edges };
-  }, [trigger, steps, onSelectTrigger, onSelectStep, onSelectBranch, onDeleteStep, onAddStep, onUpdateConfig, onAddSubAgent, onEditSubAgent, triggerLocked]);
+  }, [trigger, steps, onSelectTrigger, onSelectStep, onSelectBranch, onDeleteStep, onAddStep, onUpdateConfig, onAddSubAgent, onEditSubAgent, triggerLocked, flowLabels, variableItems]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialFlow.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialFlow.edges);
@@ -283,7 +285,7 @@ function WorkflowCanvasInner({
         return { ...newNode, position: existingNode.position, selected: isSelected };
       }
 
-      const newNodeData = newNode.data as any;
+      const newNodeData = newNode.data as FlowNodeDataView;
       const hasParentBranch = newNodeData?.step?.parentBranchId;
 
       if (hasParentBranch && newNode.position && newNode.position.x !== 0) {
@@ -299,7 +301,7 @@ function WorkflowCanvasInner({
           const existing = currentNodes.find((n) => n.id === candidate.id);
           if (existing) {
             prevNode = existing;
-            const pData = existing.data as any;
+            const pData = existing.data as FlowNodeDataView;
             prevStepType = pData?.actionType || pData?.step?.type || '';
             break;
           }
@@ -354,7 +356,7 @@ function WorkflowCanvasInner({
           return node;
         });
 
-        const sourceNodeData = sourceNode.data as any;
+        const sourceNodeData = sourceNode.data as FlowNodeDataView;
         const sourceStepType = sourceNodeData?.branchType ? 'condition_branch' : (sourceNodeData?.actionType || sourceNodeData?.step?.type || '');
         const sourceNodeHeight = sourceStepType === 'condition_branch' ? 80 : getTotalNodeHeight(sourceStepType);
         const sourceNodeWidth = 340;
@@ -399,7 +401,7 @@ function WorkflowCanvasInner({
       const newId = newIds[0];
       const newNode = finalNodes.find((n) => n.id === newId);
       if (newNode) {
-        const nodeData = newNode.data as any;
+        const nodeData = newNode.data as FlowNodeDataView;
         const stepType = nodeData?.actionType || nodeData?.step?.type || '';
         const width = getNodeWidth(newNode);
         const height = newNode.type === 'placeholder' ? 80 : getNodeHeight(stepType);
@@ -410,7 +412,7 @@ function WorkflowCanvasInner({
       }
     }
     isFirstSyncRef.current = false;
-  }, [trigger, steps, selectedNodeId, showAddPlaceholder, addStepSourceNodeId, getNodes, setCenter, getViewport, onSelectTrigger, onSelectStep, onSelectBranch, onDeleteStep, onAddStep, onUpdateConfig, onAddSubAgent, onEditSubAgent]);
+  }, [trigger, steps, selectedNodeId, showAddPlaceholder, addStepSourceNodeId, getNodes, setCenter, getViewport, onSelectTrigger, onSelectStep, onSelectBranch, onDeleteStep, onAddStep, onUpdateConfig, onAddSubAgent, onEditSubAgent, flowLabels, variableItems, triggerLocked, setNodes, setEdges]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -564,7 +566,7 @@ function WorkflowCanvasInner({
       );
 
       if (clickedNode.type !== 'condition_branch' && clickedNode.type !== 'sub_agent') {
-        const nodeData = clickedNode.data as any;
+        const nodeData = clickedNode.data as FlowNodeDataView;
         nodeData.onSelect?.();
       }
     },
@@ -572,7 +574,7 @@ function WorkflowCanvasInner({
   );
 
   const handleResetLayout = useCallback(() => {
-    const stepsWithoutPositions = steps.map((s: any) => ({ ...s, position: undefined }));
+    const stepsWithoutPositions = steps.map((s) => ({ ...s, position: undefined }));
 
     const { nodes: freshNodes, edges: freshEdges } = workflowToFlow(trigger, stepsWithoutPositions, {
       onSelectTrigger,
@@ -585,7 +587,7 @@ function WorkflowCanvasInner({
 
     setNodes(freshNodes);
     setEdges(freshEdges);
-  }, [trigger, steps, onSelectTrigger, onSelectStep, onSelectBranch, onDeleteStep, onAddStep, onUpdateConfig, onAddSubAgent, onEditSubAgent, triggerLocked, setNodes, setEdges]);
+  }, [trigger, steps, onSelectTrigger, onSelectStep, onSelectBranch, onDeleteStep, onAddStep, onUpdateConfig, onAddSubAgent, onEditSubAgent, triggerLocked, setNodes, setEdges, flowLabels, variableItems]);
 
   const onPaneClick = useCallback(() => {
     setNodes((nds) =>

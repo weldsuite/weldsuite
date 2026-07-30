@@ -16,6 +16,9 @@ export type FlowNodeType = 'trigger' | 'action' | 'condition' | 'sub_agent';
 export interface FlowNodeDataView {
   actionType?: string;
   step?: WorkflowStep;
+  /** Present on condition-branch nodes. */
+  branchType?: string;
+  onSelect?: () => void;
 }
 
 /** One branch entry on a condition step's `config.branches`. */
