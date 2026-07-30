@@ -3,6 +3,15 @@ productName: WeldSuite
 copyright: Copyright © 2026 Weld Corporation
 asar: true
 
+# URL-safe, versioned filenames. The electron-builder default for NSIS is
+# "WeldSuite Setup 0.1.0.exe" — the space makes for an ugly download link and
+# has to be percent-encoded everywhere. Renders e.g.
+#   WeldSuite-0.1.0-win-x64.exe
+#   WeldSuite-0.1.0-mac-universal.dmg
+# The release workflow also publishes stable `download/` aliases so the
+# marketing site can link to a URL that never changes.
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+
 directories:
   output: release
   buildResources: assets
@@ -35,8 +44,13 @@ nsis:
 
 mac:
   target:
+    # dmg = what a human downloads. zip = what electron-updater consumes:
+    # MacUpdater hard-requires a zip and throws ERR_UPDATER_ZIP_FILE_NOT_FOUND
+    # without one, so a DMG-only mac build can never auto-update.
     - target: dmg
-      arch: [x64, arm64]
+      arch: [universal]
+    - target: zip
+      arch: [universal]
   icon: assets/icon.icns
   category: public.app-category.business
   hardenedRuntime: true
@@ -64,7 +78,13 @@ protocols:
   - name: WeldSuite Deep Link
     schemes: [weldsuite]
 
+# READ-ONLY update feed. electron-builder has no `generic` *publisher* — the
+# only upload-capable providers in v25 are github/s3/spaces/bitbucket/keygen/
+# snapStore — so `--publish always` uploads nothing here by design. The release
+# workflow in weldsuite/deployment-overlay pushes artifacts to the R2 bucket
+# `weldsuite-desktop-downloads` with wrangler, and electron-updater reads
+# <url>/latest.yml and <url>/latest-mac.yml back out of it.
 publish:
   provider: generic
-  url: https://updates.weldsuite.com/desktop
+  url: https://downloads.weldsuite.org
   channel: latest
