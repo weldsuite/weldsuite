@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 
 export interface StatsBlockProps {
   number?: string;
@@ -32,30 +32,7 @@ export function StatsBlock({
   const [hasAnimated, setHasAnimated] = useState(false);
   const blockRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!animateOnScroll || hasAnimated) {
-      setDisplayNumber(number);
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          setHasAnimated(true);
-          animateNumber();
-        }
-      },
-      { threshold: 0.5 }
-    );
-
-    if (blockRef.current) {
-      observer.observe(blockRef.current);
-    }
-
-    return () => observer.disconnect();
-  }, [animateOnScroll, hasAnimated, number]);
-
-  const animateNumber = () => {
+  const animateNumber = useCallback(() => {
     const targetNumber = parseFloat(number.replace(/,/g, ''));
     const startTime = Date.now();
     const isDecimal = number.includes('.');
@@ -82,7 +59,30 @@ export function StatsBlock({
     };
 
     requestAnimationFrame(updateNumber);
-  };
+  }, [number, duration]);
+
+  useEffect(() => {
+    if (!animateOnScroll || hasAnimated) {
+      setDisplayNumber(number);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setHasAnimated(true);
+          animateNumber();
+        }
+      },
+      { threshold: 0.5 }
+    );
+
+    if (blockRef.current) {
+      observer.observe(blockRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, [animateOnScroll, hasAnimated, number, animateNumber]);
 
   return (
     <div ref={blockRef} className="text-center p-6">

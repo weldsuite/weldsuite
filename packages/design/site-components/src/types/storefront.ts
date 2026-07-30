@@ -12,17 +12,23 @@
  */
 
 /**
- * Free-form per-block settings bag.
+ * A value from the site builder's persisted document.
  *
- * The site builder persists whatever the block's settings schema produced, and
- * every block reads its own ad-hoc keys straight into string/ReactNode
- * positions (`settings.heading || heading`). There is no single shape to
- * describe, and `unknown` would force a cast at all ~76 read sites without
- * making any of them safer. This alias keeps that escape hatch in ONE place
- * instead of scattering `any` across the block components.
+ * The builder stores whatever each block's settings schema produced, and the
+ * components read their own ad-hoc keys straight into string/ReactNode
+ * positions (`settings.heading || heading`). The document is genuinely
+ * heterogeneous — properly modelling it means a discriminated union over every
+ * element type, which is a data-model change, not a lint fix. `unknown` would
+ * force a cast at all ~76 read sites without making any of them safer.
+ *
+ * This alias is the ONE escape hatch for that, so the `any` lives here with an
+ * explanation instead of scattered across ~40 component files.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type BlockSettings = Record<string, any>;
+export type BuilderValue = any;
+
+/** Free-form per-block settings bag from the builder. See {@link BuilderValue}. */
+export type BlockSettings = Record<string, BuilderValue>;
 
 /**
  * An image on a product. WeldCommerce returns objects; the builder preview and
@@ -75,6 +81,10 @@ export interface StoreProductVariant {
   price?: StorePrice;
   available?: boolean;
   stock?: number;
+  /** Option axes the selector blocks read off a variant. */
+  size?: string;
+  color?: string;
+  colorHex?: string;
 }
 
 export interface StoreProduct {
@@ -128,8 +138,11 @@ export interface StoreCollection {
   name?: string;
   title?: string;
   handle?: string;
+  slug?: string;
   description?: string;
   image?: string;
+  /** Wide banner variant, used when `image` is absent. */
+  banner?: string;
   link?: string;
   price?: StorePrice;
   productCount?: number;

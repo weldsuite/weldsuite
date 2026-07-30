@@ -10,13 +10,13 @@ import { ProductQuantitySelectorElement } from '../elements/product-quantity-sel
 import { ProductActionButtonsElement } from '../elements/product-action-buttons-element';
 import { ProductDescriptionElement } from '../elements/product-description-element';
 import { ProductPolicyButtonsElement } from '../elements/product-policy-buttons-element';
-import type { StoreData, StoreProduct } from '../types';
+import type { StoreData, StoreProduct, BlockSettings } from '../types';
 import { priceAmount, productImageSrc } from '../types';
 
 interface Block {
   id: string;
   type: string;
-  settings: Record<string, any>;
+  settings: BlockSettings;
   order: number;
   children?: Block[];
 }

@@ -44,7 +44,7 @@ export function TestimonialCardBlock({
 
       <blockquote className="mb-6">
         <p className="text-lg italic" style={{ color: textColor }}>
-          "{quote}"
+          &ldquo;{quote}&rdquo;
         </p>
       </blockquote>
 

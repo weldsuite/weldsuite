@@ -93,7 +93,7 @@ export function VideoPlayerBlock({
 
   const getEmbedUrl = () => {
     if (isYouTube) {
-      const videoId = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/)?.[1];
+      const videoId = url.match(/(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?/\s]{11})/)?.[1];
       if (!videoId) return '';
 
       const params = new URLSearchParams();

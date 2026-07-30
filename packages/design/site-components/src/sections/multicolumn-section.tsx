@@ -53,7 +53,7 @@ export function MulticolumnSection({
     4: 'md:grid-cols-4',
   };
 
-  const iconMap: Record<string, React.ComponentType<any>> = {
+  const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
     'package': Package,
     'rotate-ccw': RotateCcw,
     'shield': Shield,

@@ -1,20 +1,20 @@
 "use client";
 
 import React from 'react';
-import { Section, RenderMode } from '../types';
+import { Section, RenderMode, type Element } from '../types';
 import { BlockRenderer } from './block-renderer';
 import { SectionWrapper, SectionSettings } from '../components/section-wrapper';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { ChevronUp, ChevronDown, Copy, Trash2 } from 'lucide-react';
-import type { StoreData } from '../types';
+import type { StoreData, BlockSettings } from '../types';
 
 interface SectionRendererProps {
   section: Section;
   mode?: RenderMode;
   store?: StoreData;
-  settings?: Record<string, any>;
+  settings?: BlockSettings;
   onSelectElement?: (elementId: string) => void;
-  onUpdateElement?: (sectionId: string, elementId: string, updates: any) => void;
+  onUpdateElement?: (sectionId: string, elementId: string, updates: Partial<Element>) => void;
   onSelectBlock?: (blockId: string) => void;
   onMoveBlockUp?: (sectionId: string, blockId: string, blockIndex: number) => void;
   onMoveBlockDown?: (sectionId: string, blockId: string, blockIndex: number) => void;

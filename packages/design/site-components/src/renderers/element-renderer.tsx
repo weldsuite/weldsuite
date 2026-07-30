@@ -27,25 +27,25 @@ export function ElementRenderer({
     height: settings.height,
     padding: settings.padding,
     margin: settings.margin,
-    position: settings.position as any,
-    display: settings.display as any,
-    flexDirection: settings.flexDirection as any,
-    justifyContent: settings.justifyContent as any,
-    alignItems: settings.alignItems as any,
+    position: settings.position as React.CSSProperties['position'],
+    display: settings.display as React.CSSProperties['display'],
+    flexDirection: settings.flexDirection as React.CSSProperties['flexDirection'],
+    justifyContent: settings.justifyContent as React.CSSProperties['justifyContent'],
+    alignItems: settings.alignItems as React.CSSProperties['alignItems'],
     gap: settings.gap,
     fontSize: settings.fontSize,
     fontWeight: settings.fontWeight,
     fontFamily: settings.fontFamily,
     lineHeight: settings.lineHeight,
     letterSpacing: settings.letterSpacing,
-    textAlign: settings.textAlign as any,
+    textAlign: settings.textAlign as React.CSSProperties['textAlign'],
     textDecoration: settings.textDecoration,
-    textTransform: settings.textTransform as any,
+    textTransform: settings.textTransform as React.CSSProperties['textTransform'],
     color: settings.color,
     backgroundColor: settings.backgroundColor,
     borderColor: settings.borderColor,
     borderWidth: settings.borderWidth,
-    borderStyle: settings.borderStyle as any,
+    borderStyle: settings.borderStyle as React.CSSProperties['borderStyle'],
     borderRadius: settings.borderRadius,
     boxShadow: settings.boxShadow,
     opacity: settings.opacity,
@@ -65,7 +65,7 @@ export function ElementRenderer({
       const [key, value] = style.split(':').map(s => s.trim());
       if (key && value) {
         const camelKey = key.replace(/-([a-z])/g, g => g[1]?.toUpperCase() || '');
-        (acc as any)[camelKey] = value;
+        (acc as Record<string, string>)[camelKey] = value;
       }
       return acc;
     }, {} as React.CSSProperties);
@@ -87,7 +87,7 @@ export function ElementRenderer({
 
   const renderElement = () => {
     switch (type) {
-      case 'heading':
+      case 'heading': {
         const HeadingTag = (content?.tag || 'h2') as 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
         return (
           <HeadingTag
@@ -98,6 +98,7 @@ export function ElementRenderer({
             {content?.text || content || 'Heading'}
           </HeadingTag>
         );
+      }
 
       case 'paragraph':
         return (

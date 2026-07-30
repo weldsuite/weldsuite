@@ -45,22 +45,6 @@ export function ProductCard({
   const [isFavorited, setIsFavorited] = React.useState(false);
   const [_currentImageIndex, setCurrentImageIndex] = React.useState(0);
 
-  // Debug logging (only once per product)
-  React.useEffect(() => {
-    console.log(`ProductCard [${product.name}] customization:`, {
-      imageRatio,
-      imageShape,
-      cardStyle,
-      showRatings,
-      showVendor,
-      titleSize,
-      priceSize,
-      textAlignment,
-      imageHoverEffect,
-      cardHoverEffect
-    });
-  }, [imageRatio, imageShape, cardStyle, showRatings, showVendor, titleSize, priceSize, textAlignment, imageHoverEffect, cardHoverEffect]);
-
   const imageUrl = product.imageUrl || productImageSrc(product.images?.[0]) || undefined;
   const secondImage = productImageSrc(product.images?.[1]) || undefined;
 

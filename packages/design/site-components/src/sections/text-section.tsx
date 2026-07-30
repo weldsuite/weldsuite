@@ -1,5 +1,6 @@
-import type { StoreData, BlockSettings } from '../types';
 "use client";
+
+import type { StoreData, BlockSettings } from '../types';
 
 interface TextSectionProps {
   title?: string;

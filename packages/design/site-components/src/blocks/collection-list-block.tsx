@@ -148,7 +148,7 @@ export function CollectionListBlock({
     }
     if (store?.collections && store.collections.length > 0) {
       // Map API collections to the format expected by the component
-      return store.collections.map((cat: any) => ({
+      return store.collections.map((cat) => ({
         id: cat.id,
         title: cat.name,
         handle: cat.slug || cat.id,

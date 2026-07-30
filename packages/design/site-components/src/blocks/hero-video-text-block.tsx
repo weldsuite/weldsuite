@@ -27,7 +27,7 @@ export function HeroVideoTextHeadingBlock({
   store,
   // Also accept from settings prop spread
   settings,
-  ...rest
+  ..._rest
 }: HeroVideoTextHeadingBlockProps & { settings?: BlockSettings }) {
   // Handle both direct props and nested settings
   const actualText = text || settings?.text || "Blocks";

@@ -47,7 +47,6 @@ export function ImageBannerBlock({
   desktopContentAlignment = 'center',
   showTextBox = false,
   mobileContentAlignment = 'center',
-  stackImagesOnMobile = false,
   showTextBelow = false,
   colorScheme = 'scheme-1',
   heading = 'Image banner',

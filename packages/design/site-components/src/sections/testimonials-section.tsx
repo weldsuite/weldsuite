@@ -54,7 +54,7 @@ export default function TestimonialsSection({
                     <Star key={i} className="h-4 w-4 fill-primary text-primary" />
                   ))}
                 </div>
-                <p className="text-muted-foreground mb-4">"{testimonial.content}"</p>
+                <p className="text-muted-foreground mb-4">&ldquo;{testimonial.content}&rdquo;</p>
                 <div>
                   <p className="font-semibold">{testimonial.name}</p>
                   {testimonial.role && (

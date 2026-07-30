@@ -4,47 +4,60 @@ import React, { useState, useEffect } from 'react';
 import { Facebook, Twitter, Instagram, Youtube, Linkedin, Mail, Globe, ChevronDown } from 'lucide-react';
 import type { BlockSettings } from '../types';
 
+export interface FooterLink {
+  label: string;
+  url: string;
+}
+
+export interface FooterColumn {
+  id: string;
+  title: string;
+  links: FooterLink[];
+}
+
+export interface SocialLink {
+  platform: string;
+  url: string;
+  enabled?: boolean;
+}
+
+export interface Currency {
+  code: string;
+  symbol: string;
+  name: string;
+}
+
+export interface Language {
+  code: string;
+  name: string;
+}
+
+/** One entry in the builder's footer block list. */
+export interface FooterBlockItem {
+  id: string;
+  type: string;
+  settings: BlockSettings;
+}
+
 export interface FooterBlockProps {
   background?: string;
   textColor?: string;
   paddingTop?: number;
   paddingBottom?: number;
-  blocks?: Array<{
-    id: string;
-    type: string;
-    settings: BlockSettings;
-  }>;
+  blocks?: FooterBlockItem[];
   // Legacy props for backwards compatibility
-  columns?: Array<{
-    id: string;
-    title: string;
-    links: Array<{ label: string; url: string }>;
-  }>;
-  socialLinks?: Array<{
-    platform: string;
-    url: string;
-  }>;
+  columns?: FooterColumn[];
+  socialLinks?: SocialLink[];
   showSocialIcons?: boolean;
-  socialMediaLinks?: Array<{
-    platform: string;
-    url: string;
-    enabled: boolean;
-  }>;
+  socialMediaLinks?: SocialLink[];
   socialIconsPosition?: 'left' | 'center' | 'right';
   copyright?: string;
   copyrightPosition?: 'left' | 'center' | 'right';
   showPaymentIcons?: boolean;
   showCurrencySelector?: boolean;
   showLanguageSelector?: boolean;
-  availableCurrencies?: Array<{
-    code: string;
-    symbol: string;
-    name: string;
-  }>;
-  availableLanguages?: Array<{
-    code: string;
-    name: string;
-  }>;
+  availableCurrencies?: Currency[];
+  availableLanguages?: Language[];
   mode?: 'live' | 'edit' | 'preview';
   previewMode?: 'desktop' | 'tablet' | 'mobile';
 }
@@ -179,11 +192,11 @@ export function FooterBlock({
   };
 
   // Render individual footer blocks
-  const renderFooterBlock = (block: any) => {
+  const renderFooterBlock = (block: FooterBlockItem) => {
     const { type, settings } = block;
 
     switch (type) {
-      case 'footerColumns':
+      case 'footerColumns': {
         const columnCount = (settings.columns || []).length;
         const gridColsClass = isMobileView
           ? 'grid-cols-1'
@@ -191,13 +204,13 @@ export function FooterBlock({
 
         return (
           <div key={block.id} className={`grid gap-8 mb-12 ${gridColsClass}`}>
-            {(settings.columns || []).map((column: any) => (
+            {(settings.columns || []).map((column: FooterColumn) => (
               <div key={column.id}>
                 <h3 className="font-bold text-sm uppercase tracking-wide mb-4" style={{ color: textColor }}>
                   {column.title}
                 </h3>
                 <ul className="space-y-3">
-                  {column.links.map((link: any, index: number) => (
+                  {column.links.map((link: FooterLink, index: number) => (
                     <li key={index}>
                       <a
                         href={isEditing ? undefined : link.url}
@@ -214,8 +227,9 @@ export function FooterBlock({
             ))}
           </div>
         );
+      }
 
-      case 'footerCurrencyLanguage':
+      case 'footerCurrencyLanguage': {
         const showCurrency = settings.showCurrencySelector !== false;
         const showLanguage = settings.showLanguageSelector !== false;
         const currencies = settings.availableCurrencies || availableCurrencies;
@@ -233,7 +247,7 @@ export function FooterBlock({
                   style={{ borderColor: `${textColor}40`, color: textColor }}
                 >
                   <Globe className="w-4 h-4" />
-                  <span className="text-sm">{currencies.find((c: any) => c.code === selectedCurrency)?.code || 'USD'}</span>
+                  <span className="text-sm">{currencies.find((c: Currency) => c.code === selectedCurrency)?.code || 'USD'}</span>
                   <ChevronDown className="w-4 h-4" />
                 </button>
                 {showCurrencyDropdown && !isEditing && (
@@ -241,7 +255,7 @@ export function FooterBlock({
                     className="absolute bottom-full mb-2 left-0 min-w-[200px] rounded-md shadow-lg border overflow-hidden z-50"
                     style={{ backgroundColor: background, borderColor: `${textColor}30` }}
                   >
-                    {currencies.map((currency: any) => (
+                    {currencies.map((currency: Currency) => (
                       <button
                         key={currency.code}
                         onClick={() => handleCurrencyChange(currency.code)}
@@ -265,7 +279,7 @@ export function FooterBlock({
                   className={`flex items-center gap-2 px-4 py-2 border rounded-md transition-colors hover:opacity-70 ${isEditing ? 'pointer-events-none' : ''}`}
                   style={{ borderColor: `${textColor}40`, color: textColor }}
                 >
-                  <span className="text-sm">{languages.find((l: any) => l.code === selectedLanguage)?.name || 'English'}</span>
+                  <span className="text-sm">{languages.find((l: Language) => l.code === selectedLanguage)?.name || 'English'}</span>
                   <ChevronDown className="w-4 h-4" />
                 </button>
                 {showLanguageDropdown && !isEditing && (
@@ -273,7 +287,7 @@ export function FooterBlock({
                     className="absolute bottom-full mb-2 left-0 min-w-[200px] rounded-md shadow-lg border overflow-hidden z-50"
                     style={{ backgroundColor: background, borderColor: `${textColor}30` }}
                   >
-                    {languages.map((language: any) => (
+                    {languages.map((language: Language) => (
                       <button
                         key={language.code}
                         onClick={() => handleLanguageChange(language.code)}
@@ -292,6 +306,7 @@ export function FooterBlock({
             )}
           </div>
         );
+      }
 
       case 'footerDivider':
         return (
@@ -302,10 +317,10 @@ export function FooterBlock({
           />
         );
 
-      case 'footerSocialIcons':
+      case 'footerSocialIcons': {
         const socialLinks = (settings.socialMediaLinks || [])
-          .filter((link: any) => link.enabled && link.url)
-          .map((link: any) => ({ platform: link.platform, url: link.url }));
+          .filter((link: SocialLink) => link.enabled && link.url)
+          .map((link: SocialLink) => ({ platform: link.platform, url: link.url }));
         const position = settings.socialIconsPosition || 'left';
 
         if (socialLinks.length === 0) return null;
@@ -313,7 +328,7 @@ export function FooterBlock({
         return (
           <div key={block.id} className={`mb-8 flex ${position === 'left' ? 'justify-start' : position === 'right' ? 'justify-end' : 'justify-center'}`}>
             <div className="flex gap-4">
-              {socialLinks.map((social: any, index: number) => {
+              {socialLinks.map((social: SocialLink, index: number) => {
                 const Icon = socialIcons[social.platform];
                 if (!Icon) return null;
                 return (
@@ -333,8 +348,9 @@ export function FooterBlock({
             </div>
           </div>
         );
+      }
 
-      case 'footerCopyright':
+      case 'footerCopyright': {
         const copyrightText = settings.copyright || '© 2024 Your Store. All rights reserved.';
         const copyrightPos = settings.copyrightPosition || 'center';
 
@@ -347,6 +363,7 @@ export function FooterBlock({
             {copyrightText}
           </div>
         );
+      }
 
       case 'footerPaymentMethods':
         if (!settings.showPaymentIcons) return null;

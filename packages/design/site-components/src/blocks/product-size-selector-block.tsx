@@ -22,8 +22,8 @@ export function ProductSizeSelectorBlock({
 }: ProductSizeSelectorBlockProps) {
   // Extract sizes from product variants if available
   const productSizes = store?.selectedProduct?.variants
-    ?.filter((v: any) => v.size)
-    .map((v: any) => v.size) || [];
+    ?.filter((v) => v.size)
+    .map((v) => v.size) || [];
 
   // Remove duplicates
   const uniqueSizes = [...new Set(productSizes)];
@@ -44,7 +44,7 @@ export function ProductSizeSelectorBlock({
         )}
       </div>
       <div className="inline-flex border overflow-hidden" style={{ width: '100%', borderRadius: `${borderRadius}px` }}>
-        {displaySizes.map((size: any, index: number) => (
+        {displaySizes.map((size, index) => (
           <button
             key={String(size)}
             onClick={() => setSelectedSize(String(size))}

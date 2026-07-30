@@ -9,7 +9,6 @@ interface SpacerBlockProps {
 
 export function SpacerBlock({
   height = 40,
-  mode = 'live'
 }: SpacerBlockProps) {
 
   return (

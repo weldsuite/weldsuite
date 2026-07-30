@@ -53,7 +53,6 @@ export function FeaturedProductBlock({
   badgeColor = '#dc2626',
   backgroundColor = '#ffffff',
   textColor = '#000000',
-  mode = 'live',
   store,
   rating = 4.8,
   reviewCount = 14600,
@@ -216,7 +215,7 @@ export function FeaturedProductBlock({
                       Color: <span className="font-normal">{selectedColor}</span>
                     </p>
                     <div className="flex gap-2">
-                      {availableColors.map((colorOption: any) => (
+                      {availableColors.map((colorOption: { name: string; color: string }) => (
                         <button
                           key={colorOption.name}
                           onClick={() => setSelectedColor(colorOption.name)}
@@ -246,7 +245,7 @@ export function FeaturedProductBlock({
                       </button>
                     </div>
                     <div className="inline-flex border rounded-md overflow-hidden" style={{ width: '100%' }}>
-                      {availableSizes.map((size: any, index: number) => (
+                      {availableSizes.map((size: string, index: number) => (
                         <button
                           key={size}
                           onClick={() => setSelectedSize(size)}

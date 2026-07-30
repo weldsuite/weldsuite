@@ -1,6 +1,7 @@
 // Element and Section Types for Website Builder & Live Sites
 
 export * from './storefront';
+import type { BuilderValue, BlockSettings } from './storefront';
 
 export type ElementType =
   | 'text'
@@ -111,7 +112,7 @@ export interface AnimationSettings {
 export interface Element {
   id: string;
   type: ElementType;
-  content?: any;
+  content?: BuilderValue;
   settings: ElementSettings;
   children?: Element[];
   parent?: string;
@@ -124,9 +125,9 @@ export interface Section {
   name: string;
   type: string;
   elements?: Element[];
-  blocks?: any[];
+  blocks?: BuilderValue[];
   settings?: ElementSettings;
-  props?: Record<string, any>;
+  props?: BlockSettings;
   template?: string;
   locked?: boolean;
 }
@@ -147,22 +148,22 @@ export interface Website {
   seoDescription?: string;
   seoKeywords?: string;
   ogImage?: string;
-  pages?: any[];
-  navigation?: any[];
+  pages?: BuilderValue[];
+  navigation?: BuilderValue[];
   sections?: Section[];
-  theme?: Record<string, any>;
+  theme?: BlockSettings;
   customCss?: string;
   customJs?: string;
   customHead?: string;
   googleAnalytics?: string;
   facebookPixel?: string;
-  analytics?: Record<string, any>;
+  analytics?: BlockSettings;
   isPublished: boolean;
   publishedUrl?: string;
   status: string;
   publishedAt?: string;
-  settings?: Record<string, any>;
-  metadata?: Record<string, any>;
+  settings?: BlockSettings;
+  metadata?: BlockSettings;
   createdAt: string;
   updatedAt: string;
 }

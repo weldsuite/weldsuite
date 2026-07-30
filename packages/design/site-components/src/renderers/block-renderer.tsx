@@ -130,13 +130,13 @@ import { GridBlock } from '../blocks/grid-block';
 import { FlexBlock } from '../blocks/flex-block';
 import { ProductGridBlock } from '../blocks/product-grid-block';
 import { FAQBlock } from '../blocks/faq-block';
-import type { StoreData, StorePrice } from '../types';
+import type { StoreData, StorePrice, BlockSettings } from '../types';
 import { priceAmount } from '../types';
 
 interface Block {
   id: string;
   type: string;
-  settings: Record<string, any>;
+  settings: BlockSettings;
   order: number;
   children?: Block[];
 }
@@ -341,7 +341,9 @@ export function BlockRenderer({
   onDeleteBlock,
   sectionId,
 }: BlockRendererProps) {
-  const blockComponents: Record<string, React.ComponentType<any>> = {
+  // Each block declares its own props; the renderer dispatches on  and
+  // spreads the persisted settings, so this map is intentionally heterogeneous.
+  const blockComponents: Record<string, React.ComponentType<BlockSettings>> = {
     // Original blocks
     text: TextBlock,
     heading: HeadingBlock,
