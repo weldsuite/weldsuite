@@ -700,6 +700,7 @@ export function TasksClient({
     // Convert event data to local Task format
     const newTask: Task = {
       id: taskData.id,
+      number: taskData.number ?? null,
       title: taskData.title,
       description: taskData.description,
       status: (taskData.status as Task['status']) || 'todo',

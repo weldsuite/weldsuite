@@ -163,6 +163,8 @@ interface MilestoneEvent extends PlatformEvent<MilestoneEventData> {
 export interface TaskEventData {
   id: string;
   title: string;
+  /** Workspace-wide sequential number, displayed as TASK-<number>. */
+  number?: number | null;
   projectId?: string;
   projectName?: string;
   assigneeId?: string;

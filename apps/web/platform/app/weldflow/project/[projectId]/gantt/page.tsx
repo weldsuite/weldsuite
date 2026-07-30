@@ -156,6 +156,8 @@ interface GanttMarkerType {
 // Raw task shape as returned by the app-api gantt/tasks endpoints
 interface RawGanttTask {
   id: string;
+  /** Workspace-wide sequential number, displayed as TASK-<number>. */
+  number?: number | null;
   title?: string;
   startDate?: string | null;
   dueDate?: string | null;

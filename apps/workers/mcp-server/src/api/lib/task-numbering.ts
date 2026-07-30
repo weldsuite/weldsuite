@@ -10,7 +10,7 @@
  * get a distinct value with no select-then-update window.
  */
 import { sql } from 'drizzle-orm';
-import { schema } from '../db';
+import { schema, type Database } from '../db';
 import { generateId } from './id';
 
 const SCOPE = 'task';
@@ -27,13 +27,15 @@ const PREFIX = 'TASK-';
  * This applies to the MCP server's own resource API only; the wire format of
  * `external-api` keeps `number` as an integer.
  */
-export function presentTaskNumber<T extends Record<string, unknown>>(row: T): T {
-  if (typeof row.number !== 'number') return row;
+export function presentTaskNumber<T extends Record<string, unknown>>(
+  row: T,
+): Omit<T, 'number'> & { number?: string } {
+  if (typeof row.number !== 'number') return row as Omit<T, 'number'> & { number?: string };
   return { ...row, number: `${PREFIX}${row.number}` };
 }
 
 /** Allocate a single task number. */
-export async function allocateTaskNumber(db: any): Promise<number> {
+export async function allocateTaskNumber(db: Database): Promise<number> {
   const seq = schema.taskNumberSequences;
   const [row] = await db
     .insert(seq)
@@ -52,6 +54,10 @@ export async function allocateTaskNumber(db: any): Promise<number> {
       },
     })
     .returning();
+  // The upsert always inserts or updates exactly one row, so this is
+  // unreachable in practice — but RETURNING is typed as an array, and failing
+  // loudly beats handing back a NaN number that would violate the unique index.
+  if (!row) throw new Error('Failed to allocate task number: sequence upsert returned no row');
   // `row.nextValue` is the post-increment value; the number just allocated is
   // the one immediately below it.
   return row.nextValue - 1;

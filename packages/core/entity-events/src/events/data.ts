@@ -122,6 +122,12 @@ export interface ProjectEventData {
 export interface TaskEventData {
   id: string;
   title: string;
+  /**
+   * Workspace-wide sequential task number, displayed as TASK-<number>.
+   * Carried on the event so realtime consumers can render the reference
+   * without refetching. Null on pre-backfill rows.
+   */
+  number?: number | null;
   status?: string | null;
   priority?: string | null;
   projectId?: string | null;

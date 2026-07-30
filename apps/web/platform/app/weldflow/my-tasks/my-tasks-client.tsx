@@ -502,6 +502,7 @@ export function MyTasksClient({
     const taskData = event.data as TaskEventData;
     const newTask: Task = {
       id: taskData.id,
+      number: taskData.number ?? null,
       title: taskData.title,
       description: taskData.description,
       status: (taskData.status as Task['status']) || 'todo',

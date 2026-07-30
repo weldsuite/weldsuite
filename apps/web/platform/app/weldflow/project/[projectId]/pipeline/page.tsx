@@ -158,6 +158,8 @@ const stageColors = [
 // Raw task shape as returned by the app-api tasks endpoints
 interface RawPipelineTask {
   id: string;
+  /** Workspace-wide sequential number, displayed as TASK-<number>. */
+  number?: number | null;
   title?: string;
   description?: string;
   startDate?: string | null;

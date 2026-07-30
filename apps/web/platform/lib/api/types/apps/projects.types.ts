@@ -63,6 +63,8 @@ export namespace Projects {
    */
   export interface WorkloadTask {
     id: string;
+    /** Workspace-wide sequential number, displayed as TASK-<number>. */
+    number?: number | null;
     title: string;
     startDate?: string;
     dueDate?: string;
