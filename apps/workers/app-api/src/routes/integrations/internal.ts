@@ -147,7 +147,9 @@ app.post('/connections/:id/renew-watch', async (c, next: Next) => {
       if (result.code === 'not_found') return error.notFound(c, 'Connection', id);
       return error.internal(c, result.message);
     }
-    return success(c, { message: result.message });
+    // `expiration` is what integration-sync-scheduler writes back onto its D1
+    // index row to schedule the next renewal — see runSweep's renewWatch.
+    return success(c, { message: result.message, expiration: result.watchExpiresAt });
   } catch (err) {
     console.error('[app-api/integrations-internal] watch renewal failed:', err);
     return error.internal(c, 'Failed to renew watch channel');

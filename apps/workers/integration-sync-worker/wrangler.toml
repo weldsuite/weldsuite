@@ -1,11 +1,18 @@
 # Integration Sync Scheduler Worker
 #
-# Runs on a cron trigger, checks all workspaces for integration connections
-# that are due for a sync, and calls app-api's internal sync endpoint via
-# service binding. Works for any integration type (CRM, e-commerce, etc.).
+# Cron-triggered timing layer for both sync engines. It polls the always-on D1
+# `sync_index` (SYNC_INDEX binding below) and dispatches only what is due —
+# connector rows onto the connector-sync queue, legacy rows to app-api's internal
+# /sync route. It does NOT open a tenant Neon database: the previous version
+# opened every one of them on every tick just to ask whether anything was due,
+# which woke tenants with no integrations at all 48 times a day.
 #
-# The user configures the sync interval per connection via
-# syncSettings.syncIntervalHours (default: 6 hours, minimum: 1 hour).
+# Same approach as workflow-worker's schedule_index, which solved this first.
+#
+# The interval is per connection (default 6 hours, minimum 1) and lives on the
+# index row; app-api keeps it in sync on connection CRUD.
+# POST /internal/sync-index/rebuild backfills the index from tenant state — the
+# only all-tenant fan-out, run by hand after deploy, never on a timer.
 
 name = "integration-sync-scheduler"
 main = "src/index.ts"
@@ -18,10 +25,20 @@ crons = ["*/30 * * * *"]  # Every 30 minutes — only syncs connections that are
 [vars]
 ENVIRONMENT = "development"
 
+# Master DB. Used ONLY by /internal/sync-index/rebuild — the sweep never reads it.
 [[hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
 id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:5432/weldsuite_master?sslmode=require"
+
+# Always-on timing store. Shares the database with workflow-worker's
+# `schedule_index` — separate tables, one binding to provision. The database name
+# is therefore narrower than what it holds; there is no "sync-index" database.
+# Schema: migrations/d1/0001_sync_index.sql
+[[d1_databases]]
+binding = "SYNC_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
 
 # app-api service binding. Calls POST /api/integrations/connections/:id/sync and
 # /renew-watch on the internal router (app-api routes/integrations/internal.ts),
@@ -31,6 +48,14 @@ localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:
 [[services]]
 binding = "APP_API"
 service = "weldsuite-app-api"
+
+# WeldConnect connector syncs. The sweep enqueues one message per (connection,
+# entity type) instead of awaiting one service-binding fetch per connection —
+# with the fetch version, a workspace count high enough made the cron invocation
+# itself the bottleneck.
+[[queues.producers]]
+binding = "CONNECTOR_SYNC"
+queue = "connector-sync-dev"
 
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
@@ -43,10 +68,19 @@ ENVIRONMENT = "production"
 binding = "HYPERDRIVE_MASTER"
 id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 
+[[env.production.d1_databases]]
+binding = "SYNC_INDEX"
+database_name = "weldsuite-schedule-index-production"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
 # app-api's [env.production] name is "weldsuite-app-api" (no "-production" suffix).
 [[env.production.services]]
 binding = "APP_API"
 service = "weldsuite-app-api"
+
+[[env.production.queues.producers]]
+binding = "CONNECTOR_SYNC"
+queue = "connector-sync"
 
 [observability]
 enabled = true

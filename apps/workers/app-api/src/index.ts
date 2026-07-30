@@ -85,7 +85,7 @@ import { githubRepoLinksRoutes } from './routes/github-repo-links';
 import { githubProjectLinksRoutes } from './routes/github-project-links';
 import { githubCallbackRoutes } from './routes/public-github-callback';
 import { postpeerWebhookRoutes } from './routes/public-postpeer-webhook';
-import { nangoWebhookRoutes } from './routes/public-nango-webhook';
+import { connectorOAuthRoutes } from './routes/public-connector-oauth';
 import { glAccountsRoutes } from './routes/gl-accounts';
 import { helpdeskAgentsRoutes } from './routes/helpdesk-agents';
 import { helpdeskAnalyticsRoutes } from './routes/helpdesk-analytics';
@@ -114,7 +114,7 @@ import { filesRoutes } from './routes/files';
 import { foldersRoutes } from './routes/folders';
 import { storageRoutes, storageUploadTokenRoute } from './routes/storage';
 import { integrationsRoutes } from './routes/integrations';
-import { nangoRoutes } from './routes/nango';
+import { connectorRoutes } from './routes/connectors';
 import { invoicesRoutes } from './routes/invoices';
 import { journalEntriesRoutes } from './routes/journal-entries';
 import { leadsRoutes } from './routes/leads';
@@ -402,10 +402,11 @@ app.route('/api/weldconnect/github', githubCallbackRoutes);
 // from a KV mapping recorded at publish time. Must stay ABOVE the /api/* guard.
 app.route('/public/social/postpeer', postpeerWebhookRoutes);
 
-// Nango connector webhooks — PUBLIC (no Clerk). Auth is the X-Nango-Signature
-// HMAC; the workspace is resolved from the KV mapping written when the
-// connection was authorised. Must stay ABOVE the /api/* guard.
-app.route('/public/nango', nangoWebhookRoutes);
+// Connector OAuth callback — PUBLIC (no Clerk). The provider redirects the
+// tenant's browser here, so there is no session; authenticity is the HMAC-signed
+// `state` we issued, which also names the workspace. Must stay ABOVE the /api/*
+// guard.
+app.route('/public/connectors', connectorOAuthRoutes);
 
 // Onboarding — Clerk-authenticated but org-LESS: creating a NEW workspace must
 // work without an active org (and would resolve the wrong tenant DB if it ran
@@ -568,7 +569,7 @@ app.route('/api/domains', domainsRoutes);
 app.route('/api/email-forwards', emailForwardsRoutes);
 app.route('/api/external-webhooks', externalWebhooksRoutes);
 app.route('/api/integrations', integrationsRoutes);
-app.route('/api/nango', nangoRoutes);
+app.route('/api/connectors', connectorRoutes);
 app.route('/api/invoices', invoicesRoutes);
 app.route('/api/journal-entries', journalEntriesRoutes);
 app.route('/api/leads', leadsRoutes);
@@ -741,9 +742,28 @@ export { ImportTasksWorkflow } from './workflows/import-tasks';
 // [triggers]): hourly task digests + daily calendar replan.
 import { runDigestSweep } from './cron/digest-sweep';
 import { runCalendarReplanSweep } from './cron/calendar-replan';
+import { handleConnectorSyncBatch } from './queue/connector-sync';
 
 export default {
   fetch: app.fetch,
+
+  /**
+   * `connector-sync` — one message per (connection, entity type), enqueued by
+   * integration-sync-worker's cron. app-api consumes rather than the scheduler
+   * doing the work itself, so the drivers, the ingest and the tenant-database
+   * resolution all live in one place.
+   */
+  queue: async (batch: MessageBatch<unknown>, env: Env): Promise<void> => {
+    if (batch.queue.startsWith('connector-sync')) {
+      await handleConnectorSyncBatch(batch, env);
+      return;
+    }
+    // Acknowledge anything unrecognised: a queue bound to this consumer that no
+    // handler claims would otherwise redeliver forever.
+    console.error(`[app-api/queue] no handler for queue ${batch.queue}; acking batch`);
+    for (const message of batch.messages) message.ack();
+  },
+
   scheduled: async (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
     // Hourly: send task digests
     if (event.cron === '0 * * * *') {

@@ -133,6 +133,14 @@ export interface Env {
    * schedule sweep can poll D1 instead of fanning out to every tenant DB.
    */
   SCHEDULE_INDEX?: D1Database;
+  /**
+   * D1 `sync_index` — the always-on timing layer integration-sync-scheduler polls
+   * instead of opening every tenant DB each tick. app-api owns the write side and
+   * keeps rows current on connection CRUD. Shares a database with
+   * `SCHEDULE_INDEX`; separate tables. Unset ⇒ index writes no-op and auto-sync
+   * relies on the scheduler's rebuild backfill.
+   */
+  SYNC_INDEX?: D1Database;
   /** CF Workflow for WeldConnect entity_event triggers (hosted in workflow-worker). */
   EXECUTE_WORKFLOW?: Workflow;
   /** CF Workflow for CRM sequence step execution. Hosted in app-api itself
@@ -315,19 +323,20 @@ export interface Env {
   /** Shared secret used to verify PostPeer webhook signatures. */
   POSTPEER_WEBHOOK_SECRET?: string;
 
-  // --- Nango (WeldConnect connector framework) ---------------------------
-  /** Nango secret key. Server-side only — it never reaches a browser; the
-   *  Connect UI gets a short-lived session token instead. Unset means the
-   *  connector routes answer 503 and nothing else changes. */
-  NANGO_SECRET_KEY?: string;
-  /** Nango API base. Defaults to https://api.nango.dev (Nango Cloud); point
-   *  this at a self-hosted origin to move without touching code. */
-  NANGO_HOST?: string;
-  /** Hosted Connect UI base. Defaults to https://connect.nango.dev. */
-  NANGO_CONNECT_URL?: string;
-  /** HMAC secret for `X-Nango-Signature` on /public/nango/webhook. Without it
-   *  every webhook is rejected — the receiver has no development bypass. */
-  NANGO_WEBHOOK_SECRET?: string;
+  // --- WeldConnect connector framework -----------------------------------
+  /** HMAC key signing the OAuth `state`. The public callback trusts nothing
+   *  else, so unset means /api/connectors/oauth/start answers 503 rather than
+   *  issuing a state anyone could forge. */
+  CONNECTOR_STATE_SECRET?: string;
+  /** Origin prefix a connect request's `redirectUri` must start with. Unset
+   *  disables the check — set it in every deployed env, since an unvalidated
+   *  redirect hands the authorization code to whoever asked for it. */
+  CONNECTOR_OAUTH_REDIRECT_ORIGIN?: string;
+  /** Per-connector OAuth client credentials, resolved by convention as
+   *  `${CONNECTOR_ID}_CLIENT_ID` / `_CLIENT_SECRET` — so adding a connector is
+   *  two secrets and no change to this type. Declared for the ones we ship. */
+  MONEYBIRD_CLIENT_ID?: string;
+  MONEYBIRD_CLIENT_SECRET?: string;
 
   // --- Cloudflare Flagship (feature flags) -------------------------------
   /** Flagship Worker binding — `env.FLAGSHIP.getBooleanValue(key, default, ctx)`.

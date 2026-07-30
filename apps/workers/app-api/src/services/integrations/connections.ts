@@ -11,6 +11,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import type { Database } from '../../db';
 import { schema } from '../../db';
 import type { Env } from '../../types';
+import { parseWatchExpiry } from '@weldsuite/connectors';
 import { getOAuthAdapter } from './oauth-providers';
 
 /**
@@ -87,6 +88,14 @@ export type ConnectionActionResult =
   | { ok: false; code: 'not_found' | 'conflict' | 'no_token' | 'internal'; message: string };
 
 /**
+ * Watch renewal additionally reports the new channel expiry, so the scheduler can
+ * record it on its D1 index row and schedule the next renewal.
+ */
+export type RenewWatchResult =
+  | { ok: true; message: string; watchExpiresAt: number | null }
+  | { ok: false; code: 'not_found' | 'conflict' | 'no_token' | 'internal'; message: string };
+
+/**
  * Trigger a manual/scheduled sync for a connection: stale-lock aware status
  * guard, flips status to `syncing`, dispatches the CRM_SYNC workflow.
  */
@@ -147,7 +156,7 @@ export async function renewGoogleCalendarWatch(
   db: Database,
   env: IntegrationsEnv,
   connectionId: string,
-): Promise<ConnectionActionResult> {
+): Promise<RenewWatchResult> {
   const t = schema.integrationConnections;
 
   const [connection] = await db
@@ -210,5 +219,13 @@ export async function renewGoogleCalendarWatch(
     })
     .where(eq(t.id, connectionId));
 
-  return { ok: true, message: 'Watch channel renewed' };
+  // Returned so the scheduler can record the new expiry on its D1 index row.
+  // Without it the row's `watch_expires_at` would be cleared after the first
+  // renewal and the channel would silently lapse a week later — inbound calendar
+  // webhooks would just stop, with nothing failing loudly.
+  return {
+    ok: true,
+    message: 'Watch channel renewed',
+    watchExpiresAt: parseWatchExpiry(webhookReg.secret),
+  };
 }

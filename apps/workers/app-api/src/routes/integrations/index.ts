@@ -29,6 +29,13 @@ import { z } from 'zod';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { createIntegrationSchema, updateIntegrationSchema } from '@weldsuite/core-api-client/schemas/integrations';
+import {
+  LEGACY_SYNCABLE_PROVIDERS,
+  parseWatchExpiry,
+  syncRemoveSyncIndex,
+  syncUpsertSyncIndex,
+  type SyncIndexSync,
+} from '@weldsuite/connectors';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
@@ -44,6 +51,45 @@ import { getOAuthAdapter, hasOAuthAdapter } from '../../services/integrations/oa
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.integrationConnections;
+
+/**
+ * Register a legacy connection with the scheduler's D1 timing index.
+ *
+ * The scheduler polls that index instead of opening every tenant database each
+ * tick, so a connection missing from it simply never auto-syncs. Every call here
+ * is best-effort — a D1 hiccup must not fail the tenant's save, and the
+ * scheduler's `POST /internal/sync-index/rebuild` repairs any drift.
+ *
+ * Non-syncable providers (`mcp_server`) are skipped rather than indexed and
+ * filtered later, so the table holds only rows that can actually fire.
+ */
+async function indexLegacyConnection(
+  indexSync: SyncIndexSync,
+  connection: {
+    id: string;
+    provider: string;
+    connectedBy?: string | null;
+    syncSettings?: unknown;
+    webhookSecret?: string | null;
+  },
+): Promise<void> {
+  if (!LEGACY_SYNCABLE_PROVIDERS.has(connection.provider)) return;
+  const settings = (connection.syncSettings ?? null) as { syncIntervalHours?: number } | null;
+  await syncUpsertSyncIndex(indexSync, {
+    engine: 'legacy',
+    connectionId: connection.id,
+    provider: connection.provider,
+    ownerId: connection.connectedBy ?? null,
+    intervalHours: settings?.syncIntervalHours ?? 6,
+    watchExpiresAt: parseWatchExpiry(connection.webhookSecret),
+    isEnabled: true,
+  });
+}
+
+/** The D1 index handle plus the workspace every row is stamped with. */
+function indexSyncFor(c: { env: Env; get: (k: 'workspaceId') => string }): SyncIndexSync {
+  return { d1: c.env.SYNC_INDEX as SyncIndexSync['d1'], workspaceId: c.get('workspaceId') };
+}
 
 /** Resolve `<PROVIDER>_CLIENT_ID` / `<PROVIDER>_CLIENT_SECRET` from env. */
 function providerCredentials(env: Env, provider: string): { clientId?: string; clientSecret?: string } {
@@ -163,6 +209,8 @@ app.post('/connections', requirePermission('integrations:create'), zValidator('j
       connectedBy: userId,
     } as unknown as typeof t.$inferInsert);
 
+    await indexLegacyConnection(indexSyncFor(c), { id: connectionId, provider, connectedBy: userId });
+
     return success(c, {
       id: connectionId,
       provider,
@@ -267,6 +315,13 @@ app.post('/connections/attio/callback', requirePermission('integrations:create')
       connectedAt: new Date(),
       connectedBy: stateData.userId,
     } as unknown as typeof t.$inferInsert);
+
+    await indexLegacyConnection(indexSyncFor(c), {
+      id: connectionId,
+      provider: 'attio',
+      connectedBy: stateData.userId,
+      syncSettings: { syncIntervalHours: 6 },
+    });
 
     // 6. Store KV mapping: connectionId → workspaceId (for webhook worker).
     //    MUST be the INTERNAL workspace id, not the Clerk org id: every reader
@@ -463,6 +518,17 @@ app.post('/connections/:provider/callback', requirePermission('integrations:crea
       connectedBy: stateData.userId,
     } as unknown as typeof t.$inferInsert);
 
+    // Watch expiry comes straight from the channel we just registered, so Google
+    // Calendar renewals are scheduled from the first tick rather than waiting for
+    // a rebuild to discover them.
+    await indexLegacyConnection(indexSyncFor(c), {
+      id: connectionId,
+      provider,
+      connectedBy: stateData.userId,
+      syncSettings: { syncIntervalHours: isGoogleCalendar ? 1 : 6 },
+      webhookSecret,
+    });
+
     // Insert field mappings
     if (fieldMappingValues.length > 0) {
       await db.insert(schema.integrationFieldMappings).values(fieldMappingValues);
@@ -599,6 +665,18 @@ app.patch('/connections/:id', requirePermission('integrations:update'), zValidat
 
     await db.update(t).set(updates as Partial<typeof t.$inferInsert>).where(eq(t.id, id));
 
+    // Only re-index when the change is timing-relevant. The upsert preserves
+    // `next_run_at`, so an unrelated rename cannot reset a connection's cadence.
+    if (body.syncSettings) {
+      await indexLegacyConnection(indexSyncFor(c), {
+        id,
+        provider: connection.provider,
+        connectedBy: connection.connectedBy,
+        syncSettings: updates.syncSettings ?? connection.syncSettings,
+        webhookSecret: connection.webhookSecret,
+      });
+    }
+
     return success(c, { id, updated: true });
   } catch (err) {
     console.error('[app-api/integrations] connection update failed:', err);
@@ -643,6 +721,11 @@ app.delete('/connections/:id', requirePermission('integrations:delete'), async (
       .update(t)
       .set({ status: 'inactive', deletedAt: new Date(), updatedAt: new Date() } as Partial<typeof t.$inferInsert>)
       .where(eq(t.id, id));
+
+    // 4. Drop the timing row. Removed rather than disabled: the webhook is gone
+    // at the provider, so a row left behind would dispatch syncs that can only
+    // fail.
+    await syncRemoveSyncIndex(indexSyncFor(c), id);
 
     return noContent(c);
   } catch (err) {

@@ -116,12 +116,13 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CLOUDFLARE_API_TOKEN",
     "CLOUDFLARE_ACCOUNT_ID",
     "STRIPE_SECRET_KEY",
-    // WeldConnect connectors (Nango). The secret key never leaves the worker —
-    // browsers get a short-lived Connect session token. The webhook secret
-    // verifies X-Nango-Signature on /public/nango/webhook; without it every
-    // webhook is rejected, so both must be set in the same env.
-    "NANGO_SECRET_KEY",
-    "NANGO_WEBHOOK_SECRET",
+    // WeldConnect connectors. CONNECTOR_STATE_SECRET signs the OAuth `state`
+    // the public callback authenticates itself with — unset means the connect
+    // flow refuses to start rather than issuing a forgeable state. Per-connector
+    // client credentials follow the ${CONNECTOR_ID}_CLIENT_ID convention.
+    "CONNECTOR_STATE_SECRET",
+    "MONEYBIRD_CLIENT_ID",
+    "MONEYBIRD_CLIENT_SECRET",
   ],
 
   "audit-log-worker": [

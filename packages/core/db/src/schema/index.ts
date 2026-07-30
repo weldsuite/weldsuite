@@ -100,8 +100,8 @@ export * from './integration-entity-mappings';
 export * from './integration-field-mappings';
 export * from './integration-sync-conflicts';
 
-// Nango-backed connector framework (WeldConnect)
-export * from './nango-connections';
+// WeldConnect connector framework
+export * from './connector-connections';
 
 // Host module
 export * from './host-domains';

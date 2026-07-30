@@ -109,9 +109,10 @@ describe('connector_connection', () => {
   });
 
   it('covers the lifecycle transitions the connector routes emit', () => {
-    // Each of these is published from apps/workers/app-api — routes/nango/index.ts
-    // (created, connected, sync_started, paused, resumed, disconnected,
-    // auth_error) and routes/public-nango-webhook.ts (connected, auth_error).
+    // Each of these is published from apps/workers/app-api —
+    // routes/connectors/index.ts (created, connected, sync_started, paused,
+    // resumed, disconnected, auth_error) and routes/public-connector-oauth.ts
+    // (connected).
     for (const action of [
       'created',
       'connected',
@@ -126,9 +127,12 @@ describe('connector_connection', () => {
   });
 
   it('is named for the capability, not the vendor', () => {
-    // The connector provider is a config choice (see the ADR); baking "nango"
-    // into the catalog would make swapping it break every workflow trigger and
-    // agent subscription bound to the event name.
-    expect(Object.keys(ENTITY_EVENTS).filter((k) => k.includes('nango'))).toEqual([]);
+    // This is why replacing the third-party connector service with our own
+    // framework broke no workflow trigger or agent subscription: no event name
+    // ever carried the vendor. Keep every vendor name out of the catalog.
+    const vendors = ['nango', 'moneybird', 'hubspot', 'salesforce', 'attio'];
+    for (const vendor of vendors) {
+      expect(Object.keys(ENTITY_EVENTS).filter((k) => k.includes(vendor))).toEqual([]);
+    }
   });
 });

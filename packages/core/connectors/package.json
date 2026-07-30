@@ -1,0 +1,33 @@
+{
+  "name": "@weldsuite/connectors",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types.ts",
+    "./entities": "./src/entities.ts",
+    "./auth": "./src/auth.ts",
+    "./catalog": "./src/catalog.ts",
+    "./registry": "./src/registry.ts",
+    "./token": "./src/token.ts",
+    "./checksum": "./src/checksum.ts",
+    "./sync-index": "./src/sync-index.ts",
+    "./http": "./src/http.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@weldsuite/db": "workspace:*"
+  },
+  "devDependencies": {
+    "@weldsuite/typescript-config": "workspace:*",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.6"
+  }
+}
