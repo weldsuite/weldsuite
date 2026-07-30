@@ -217,6 +217,7 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
   // through an AI assistant either.
   let permissions: string[];
   let role: string;
+  let roleId: string | null;
   try {
     const tenantDb = createTenantDb(workspace.databaseUrl);
     const queries = createDrizzlePermissionQueries(tenantDb, tenantSchema, {
@@ -227,6 +228,7 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
     const resolved = await resolveEffectivePermissions(queries, userId);
     permissions = resolved.permissions;
     role = resolved.role;
+    roleId = resolved.roleId;
   } catch (error) {
     console.error('[MCP Auth] Permission resolution failed:', error);
     return c.json(
@@ -244,6 +246,32 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
         error: {
           code: -32003,
           message: 'You are not a member of this workspace.',
+        },
+        id: null,
+      },
+      403,
+    );
+  }
+
+  // A member whose role resolves to zero permissions would otherwise get a
+  // successful connection with an empty toolbox — indistinguishable from a
+  // broken server. Fail loudly and name the role so the cause is actionable.
+  //
+  // The usual causes are a `role` value that isn't one of the system roles
+  // (OWNER/ADMIN/MEMBER/VIEWER — the lookup is case-sensitive) or a custom
+  // `roleId` whose permission list is empty.
+  if (permissions.length === 0) {
+    console.error(
+      `[MCP Auth] Zero permissions for user ${userId} in workspace ${workspace.workspaceId} (role=${JSON.stringify(role)}, roleId=${JSON.stringify(roleId)})`,
+    );
+    return c.json(
+      {
+        jsonrpc: '2.0',
+        error: {
+          code: -32003,
+          message:
+            `Your workspace role (${role}) grants no permissions, so no tools are available. ` +
+            'Expected one of OWNER, ADMIN, MEMBER or VIEWER, or a custom role with permissions assigned.',
         },
         id: null,
       },
