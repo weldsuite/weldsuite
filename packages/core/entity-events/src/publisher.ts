@@ -5,8 +5,9 @@
  *   1. AUDIT_EVENTS queue (audit-log-worker)
  *   2. WORKFLOW_EVENTS queue (helpdesk-workflow-worker)
  *   3. ANALYTICS_EVENTS queue (analytics-worker)
- *   4. REALTIME service binding → WorkspaceHub DO (@weldsuite/realtime)
- *   5. Cloudflare Workflow dispatch via env.EXECUTE_WORKFLOW
+ *   4. SEARCH_EVENTS queue (app-api's own queue() consumer — semantic index)
+ *   5. REALTIME service binding → WorkspaceHub DO (@weldsuite/realtime)
+ *   6. Cloudflare Workflow dispatch via env.EXECUTE_WORKFLOW
  *
  * Each sink is independently optional — a missing binding logs a warning
  * and the rest still fire. Wrapped in `executionCtx.waitUntil(...)` so the
@@ -38,6 +39,7 @@ export interface EntityEventPublisherEnv extends WorkflowDispatchEnv {
   AUDIT_EVENTS?: Queue<EntityEventMessage>;
   WORKFLOW_EVENTS?: Queue<EntityEventMessage>;
   ANALYTICS_EVENTS?: Queue<EntityEventMessage>;
+  SEARCH_EVENTS?: Queue<EntityEventMessage>;
   REALTIME?: Fetcher;
 }
 
@@ -162,7 +164,18 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
     );
   }
 
-  // 4. Cloudflare DO realtime
+  // 4. Semantic search index queue. The consumer re-reads the record rather
+  // than trusting `data`, so a dropped or reordered message costs freshness,
+  // never correctness.
+  if (env.SEARCH_EVENTS) {
+    tasks.push(
+      env.SEARCH_EVENTS.send(message)
+        .then(() => console.log(`[EntityEvents] Published search event ${message.eventType} for ${entityId}`))
+        .catch((err: unknown) => console.error('[EntityEvents] Failed to publish search event:', err)),
+    );
+  }
+
+  // 5. Cloudflare DO realtime
   if (workspaceId && env.REALTIME) {
     tasks.push(
       (async () => {
@@ -179,11 +192,17 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
     );
   }
 
-  if (!env.AUDIT_EVENTS && !env.WORKFLOW_EVENTS && !env.ANALYTICS_EVENTS && !env.REALTIME) {
+  if (
+    !env.AUDIT_EVENTS &&
+    !env.WORKFLOW_EVENTS &&
+    !env.ANALYTICS_EVENTS &&
+    !env.SEARCH_EVENTS &&
+    !env.REALTIME
+  ) {
     console.warn('[EntityEvents] No queue or realtime bindings available — skipping publish');
   }
 
-  // 5. Outbound customer webhooks (external_webhooks subscriptions). No binding
+  // 6. Outbound customer webhooks (external_webhooks subscriptions). No binding
   // required — reads straight off the tenant `db`, so this always runs; it's a
   // cheap no-op when no active webhook is subscribed to this event.
   if (workspaceId) {
@@ -199,7 +218,7 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
     );
   }
 
-  // 6. Inline workflow trigger matching (CF Workflows binding)
+  // 7. Inline workflow trigger matching (CF Workflows binding)
   if (workspaceId && env.EXECUTE_WORKFLOW) {
     tasks.push(
       matchAndDispatchWorkflowTriggers({

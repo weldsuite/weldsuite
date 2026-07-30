@@ -45,6 +45,36 @@ export const searchInputSchema = z.object({
 export type SearchInput = z.infer<typeof searchInputSchema>;
 
 // ============================================================================
+// Semantic reindex (POST /api/search/reindex)
+// ============================================================================
+
+/**
+ * Cursor for the batched semantic backfill. Opaque to the caller: hand back
+ * whatever the previous batch returned until it reports `done`.
+ */
+export const backfillCursorSchema = z.object({
+  entityType: searchEntityTypeSchema,
+  afterId: z.string().nullable(),
+});
+
+export type BackfillCursor = z.infer<typeof backfillCursorSchema>;
+
+/** Omit `cursor` to start a fresh backfill from the first indexed type. */
+export const reindexInputSchema = z.object({
+  cursor: backfillCursorSchema.nullish(),
+});
+
+export type ReindexInput = z.infer<typeof reindexInputSchema>;
+
+export interface ReindexProgress {
+  cursor: BackfillCursor | null;
+  done: boolean;
+  processed: number;
+  embedded: number;
+  skipped: number;
+}
+
+// ============================================================================
 // Response Types
 // ============================================================================
 
@@ -65,8 +95,26 @@ export interface SearchResultGroup {
   hasMore: boolean;
 }
 
+/**
+ * How the server structured a natural-language query before running it.
+ *
+ * `source` records which tier resolved it:
+ *  - `lexical`      — not structured; an identifier or short prefix
+ *  - `lexicon`      — the en/nl entity-keyword strip, no model call
+ *  - `model`        — Workers AI structured parse
+ *  - `model_failed` — parse unavailable, fell back to the raw query
+ *
+ * Optional so existing clients (and any cached response) stay valid.
+ */
+export interface SearchUnderstanding {
+  source: 'lexical' | 'lexicon' | 'model' | 'model_failed';
+  entityTypes: SearchEntityType[];
+  lexicalTerm: string;
+}
+
 export interface SearchResponse {
   data: SearchResultGroup[];
   query: string;
   permittedTypes: SearchEntityType[];
+  understanding?: SearchUnderstanding;
 }

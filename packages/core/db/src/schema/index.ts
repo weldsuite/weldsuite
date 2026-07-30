@@ -178,6 +178,7 @@ export * from './desk-slas';
 export * from './desk-office-hours';
 export * from './desk-workflows';
 export * from './desk-ai';
+export * from './search-index';
 export * from './desk-news';
 export * from './desk-widget-settings';
 

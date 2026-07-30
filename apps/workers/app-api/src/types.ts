@@ -125,6 +125,8 @@ export interface Env {
   WORKFLOW_EVENTS?: Queue<EntityEventMessage>;
   /** Analytics queue consumer — fed by publishEntityEvent. */
   ANALYTICS_EVENTS?: Queue<EntityEventMessage>;
+  /** Semantic search indexing. Produced here, consumed by this worker's queue(). */
+  SEARCH_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
   /**

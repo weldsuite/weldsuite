@@ -34,6 +34,17 @@ export interface RunSearchParams {
   types?: SearchEntityType[];
   limit: number;
   perms: PermissionLike;
+  /**
+   * The string the per-entity `ILIKE` queries should actually match on, once
+   * type nouns and function words have been stripped by
+   * `services/search/query-understanding.ts`.
+   *
+   * "Invoice from Acme Corp" arrives as `q`, but matching that whole sentence
+   * against `invoices.contactName` returns nothing — the column holds "Acme
+   * Corp". Defaults to `q`, so callers that don't structure the query keep the
+   * original behaviour exactly.
+   */
+  lexicalTerm?: string;
 }
 
 interface EntityRegistration {
@@ -72,7 +83,7 @@ const CANONICAL_ORDER: SearchEntityType[] = [
  * add a case here, and add the type to SEARCH_ENTITY_TYPES in
  * packages/clients/app-api-client/src/schemas/search.ts.
  */
-function buildResultUrl(type: SearchEntityType, id: string): string {
+export function buildResultUrl(type: SearchEntityType, id: string): string {
   switch (type) {
     case 'contact':
       return `/weldcrm/contacts/${id}`;
@@ -944,8 +955,10 @@ export async function runSearch(
     ? permitted.filter((r) => params.types!.includes(r.type))
     : permitted;
 
+  const term = params.lexicalTerm?.trim() || params.q;
+
   const groups = await Promise.all(
-    filtered.map((r) => r.search(db, workspaceId, params.q, params.limit)),
+    filtered.map((r) => r.search(db, workspaceId, term, params.limit)),
   );
 
   // Sort by canonical order
