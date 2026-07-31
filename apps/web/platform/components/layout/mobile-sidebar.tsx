@@ -36,7 +36,7 @@ import { getAppLogo, getAppLucideIcon, getAppSidebarIconClass } from '@/lib/apps
 import { CalendarLogoIcon } from '@/components/calendar-logo-icon';
 import { Button } from '@weldsuite/ui/components/button';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
-import { Puzzle } from 'lucide-react';
+import { Box, Puzzle } from 'lucide-react';
 
 const iconMap: Record<string, React.ReactNode> = {
   wms: <Warehouse className="h-5 w-5" />,
@@ -46,19 +46,33 @@ interface MobileSidebarProps {
   installedApps: InstalledApp[];
 }
 
-/** Mirrors `appHref` in app-sidebar-client.tsx — WeldApps live at `/apps/{code}`. */
-function appHref(appCode: string, appType?: 'system' | 'user'): string {
-  return appType === 'user' ? `/apps/${appCode}` : `/${appCode}`;
+/**
+ * Mirrors `appHref` in app-sidebar-client.tsx — WeldApps live at `/apps/{code}`,
+ * WeldObjects at `/objects/{slug}`. Keep the two in step.
+ */
+function appHref(appCode: string, appType?: 'system' | 'user' | 'object'): string {
+  if (appType === 'user') return `/apps/${appCode}`;
+  if (appType === 'object') return `/objects/${appCode}`;
+  return `/${appCode}`;
 }
 
 interface RailIconProps {
   appCode: string;
   name: string;
   icon?: string;
-  appType?: 'system' | 'user';
+  appType?: 'system' | 'user' | 'object';
 }
 
 function RailAppIcon({ appCode, name, icon, appType }: RailIconProps) {
+  if (appType === 'object') {
+    return (
+      <LucideDynamicIcon
+        name={icon ?? 'Box'}
+        className="h-6 w-6"
+        fallback={() => <Box className="h-6 w-6" />}
+      />
+    );
+  }
   if (appType === 'user') {
     if (icon) {
       return <LucideDynamicIcon name={icon} className="h-6 w-6" fallback={() => <Puzzle className="h-6 w-6" />} />;

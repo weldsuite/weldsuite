@@ -29,6 +29,21 @@ export {
   getAllPermissionKeys,
 } from './catalog';
 
+// WeldObjects — runtime-generated per-object permission keys
+export {
+  WELDOBJECTS_PREFIX,
+  WELDOBJECTS_MODULE_PERMISSIONS,
+  CUSTOM_OBJECT_ACTIONS,
+  customObjectPermission,
+  customObjectScopeAllPermission,
+  customObjectPermissionKeys,
+  customObjectPermissionObject,
+  buildCustomObjectPermissionCatalog,
+  isCustomObjectPermission,
+  type CustomObjectPermissionAction,
+  type CustomObjectPermissionSource,
+} from './custom-objects';
+
 // Migration map (single source of truth for old → new key migration)
 export {
   OLD_MODULE_TO_NEW_OBJECT,

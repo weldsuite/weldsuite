@@ -41,6 +41,7 @@ import { welddata } from './welddata';
 import { weldknow } from './weldknow';
 import { deskInbox2 } from './desk-inbox2';
 import { weldapps } from './weldapps';
+import { weldobjects } from './weldobjects';
 import { sweep } from './sweep';
 
 export const nl = {
@@ -86,5 +87,6 @@ export const nl = {
   weldknow,
   deskInbox2,
   weldapps,
+  weldobjects,
   sweep,
 };

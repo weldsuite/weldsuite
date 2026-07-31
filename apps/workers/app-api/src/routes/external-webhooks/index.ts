@@ -13,7 +13,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
-import { listAllEvents } from '@weldsuite/entity-events';
+import { listAllEvents, listCustomObjectEvents } from '@weldsuite/entity-events';
+import { listCustomObjects } from '../../services/custom-objects';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import {
@@ -87,14 +88,35 @@ const deliveriesQuerySchema = z.object({
 
 // GET /events — the full entity-events catalog, for the create/edit event picker.
 app.get('/events', requirePermission('webhooks:read'), async (c) => {
-  const events = listAllEvents().map((event) => {
+  const toEntry = (event: string, label?: string) => {
     const dotIdx = event.indexOf('.');
     return {
       event,
       entity: event.slice(0, dotIdx),
       action: event.slice(dotIdx + 1),
+      ...(label ? { label } : {}),
     };
-  });
+  };
+
+  const events = listAllEvents().map((e) => toEntry(e));
+
+  // WeldObjects events (`co_<slug>.created` …) exist only at runtime, so they
+  // are appended from the tenant's own object rows. Only objects with events
+  // enabled are offered — subscribing to an object that never publishes would
+  // produce a webhook that silently never fires.
+  try {
+    const db = c.get('tenantDb');
+    const objects = await listCustomObjects(db);
+    for (const object of objects) {
+      if (!object.enableEvents) continue;
+      for (const event of listCustomObjectEvents(object.slug)) {
+        events.push(toEntry(event, object.labelPlural));
+      }
+    }
+  } catch (err) {
+    console.error('[app-api/external-webhooks] custom object event merge failed:', err);
+  }
+
   return success(c, events);
 });
 

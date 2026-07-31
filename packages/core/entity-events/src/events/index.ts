@@ -72,15 +72,45 @@ export type EventNameDotted = {
 
 const KNOWN_ENTITY_TYPES = new Set<string>(Object.keys(ENTITY_EVENTS));
 
-export function isKnownEntityType(value: string): value is EntityType {
-  return KNOWN_ENTITY_TYPES.has(value);
+/**
+ * Runtime entity types that are not in the compile-time catalog — today that
+ * means WeldObjects custom objects (`co_<slug>`), whose types are defined by a
+ * workspace admin at runtime.
+ *
+ * Only VALIDATION call sites pass this: the workflow-trigger editor and the
+ * agent-subscription editor, which must accept `co_machine.created` as a legal
+ * subscription. Publishing does not go through here — see
+ * `publishCustomObjectEvent` in ../custom-objects.ts.
+ *
+ * The static catalog stays the typed source of truth for first-party code, so
+ * a typo in a hand-written `publishEntityEvent` call still fails at compile
+ * time. Dynamic entries are plain strings, checked at runtime against the
+ * tenant's own `custom_objects` rows.
+ */
+export type ExtraEntityTypes = ReadonlySet<string> | undefined;
+
+export function isKnownEntityType(
+  value: string,
+  extraEntityTypes?: ExtraEntityTypes,
+): value is EntityType {
+  return KNOWN_ENTITY_TYPES.has(value) || (extraEntityTypes?.has(value) ?? false);
 }
 
 export function isKnownAction<T extends EntityType>(
   entityType: T,
   action: string,
+  extraEntityTypes?: ExtraEntityTypes,
 ): action is ActionFor<T> {
-  const actions = ENTITY_EVENTS[entityType] as readonly string[];
+  const actions = ENTITY_EVENTS[entityType] as readonly string[] | undefined;
+  // A runtime-registered entity type has no catalog entry to check against.
+  // Custom objects emit exactly the three physical CRUD actions, so accept
+  // those and nothing else rather than waving through any string.
+  if (!actions) {
+    return (
+      (extraEntityTypes?.has(entityType) ?? false) &&
+      (action === 'created' || action === 'updated' || action === 'deleted')
+    );
+  }
   return actions.includes(action);
 }
 
@@ -112,24 +142,31 @@ export function listAllWireEvents(): readonly EventName[] {
  */
 export function parseEventName(
   name: string,
+  extraEntityTypes?: ExtraEntityTypes,
 ): { entityType: EntityType; action: string } | null {
   const sep = name.includes(':') ? ':' : name.includes('.') ? '.' : null;
   if (!sep) return null;
   const idx = name.indexOf(sep);
   const entityType = name.slice(0, idx);
   const action = name.slice(idx + 1);
-  if (!isKnownEntityType(entityType)) return null;
+  if (!isKnownEntityType(entityType, extraEntityTypes)) return null;
   return { entityType, action };
 }
 
 /**
  * Validate a dotted subscription string against the catalog.
  * Used to validate `agent.eventSubscriptions` entries on insert/update.
+ *
+ * Pass `extraEntityTypes` (from `customObjectEntityTypes(slugs)`) to also
+ * accept the calling workspace's custom objects.
  */
-export function isValidSubscription(value: string): value is EventNameDotted {
-  const parsed = parseEventName(value);
+export function isValidSubscription(
+  value: string,
+  extraEntityTypes?: ExtraEntityTypes,
+): value is EventNameDotted {
+  const parsed = parseEventName(value, extraEntityTypes);
   if (!parsed) return false;
-  return isKnownAction(parsed.entityType, parsed.action);
+  return isKnownAction(parsed.entityType, parsed.action, extraEntityTypes);
 }
 
 // ---------------------------------------------------------------------------

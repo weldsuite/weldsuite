@@ -2,6 +2,7 @@ import type { Database } from './db';
 import type { ResolvedPermissions } from '@weldsuite/permissions/types';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { FlagContext, FlagshipBinding } from '@weldsuite/feature-flags/server';
+import type { CustomObjectRow } from './services/custom-objects';
 
 /**
  * App API worker — Cloudflare bindings.
@@ -395,4 +396,7 @@ export type Variables = {
   workspaceId: string;
   userPermissions?: ResolvedPermissions;
   flags?: FlagContext;
+  /** Set by `requireCustomObject()` — the resolved `custom_objects` row for
+   *  the request's `:slug` param, so handlers never re-query it. */
+  customObject?: CustomObjectRow;
 };

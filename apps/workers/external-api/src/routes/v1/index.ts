@@ -46,6 +46,7 @@ import taskTags from './task-tags';
 import tasks from './tasks';
 import tickets from './tickets';
 import timeEntries from './time-entries';
+import customObjects from './custom-objects';
 import userApps from './user-apps';
 import socialAccounts from './social-accounts';
 import socialAnalytics from './social-analytics';
@@ -75,6 +76,7 @@ v1.get('/', async (c) => {
       '/v1/chat-messages',
       '/v1/chat-sections',
       '/v1/companies',
+      '/v1/custom-objects',
       '/v1/conversations',
       '/v1/domains',
       '/v1/drive/all',
@@ -182,6 +184,7 @@ v1.route('/tasks', tasks);
 v1.route('/tickets', tickets);
 v1.route('/time-entries', timeEntries);
 v1.route('/user-apps', userApps);
+v1.route('/custom-objects', customObjects);
 v1.route('/webhooks', webhooks);
 v1.route('/whiteboards', whiteboards);
 v1.route('/workflows', workflows);

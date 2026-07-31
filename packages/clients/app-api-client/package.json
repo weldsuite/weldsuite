@@ -22,6 +22,7 @@
     "./schemas/inventory-ledger": "./src/schemas/inventory-ledger.ts",
     "./schemas/product-categories": "./src/schemas/product-categories.ts",
     "./schemas/object-templates": "./src/schemas/object-templates.ts",
+    "./schemas/custom-objects": "./src/schemas/custom-objects.ts",
     "./schemas/user-apps": "./src/schemas/user-apps.ts",
     "./schemas/mail-accounts": "./src/schemas/mail-accounts.ts",
     "./schemas/mail-messages": "./src/schemas/mail-messages.ts",

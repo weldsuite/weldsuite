@@ -37,6 +37,11 @@ import {
   INDEXED_ENTITY_TYPES,
   type IndexableDocument,
 } from './documents';
+import { isCustomObjectEntityKey } from '@weldsuite/entity-events';
+import {
+  getCustomObjectLoader,
+  listSearchableCustomObjectKeys,
+} from './custom-object-documents';
 
 /** bge-m3: multilingual, 1024 dims — must match the column width. */
 export const EMBED_MODEL = recommended.embed.free;
@@ -314,7 +319,14 @@ export async function indexEntity(
   entityType: SearchEntityType,
   entityId: string,
 ): Promise<IndexResult> {
-  const loader = getDocumentLoader(entityType);
+  // WeldObjects entity types (`co_<slug>`) resolve to a loader built on demand
+  // from the object's own field definitions — there is no static registry entry
+  // for them. `getCustomObjectLoader` returns null when the object has search
+  // switched off, which falls through to the removal branch below and clears
+  // any rows indexed while it was on.
+  const loader = isCustomObjectEntityKey(entityType)
+    ? await getCustomObjectLoader(db, entityType)
+    : getDocumentLoader(entityType);
   if (!loader) return EMPTY_RESULT(entityType, entityId);
 
   const doc = await loader.load(db, entityId);
@@ -396,10 +408,32 @@ export async function acquireReindexLease(env: Env, workspaceId: string): Promis
 }
 
 /** The cursor for the type after this one, or `null` when the walk is over. */
-function nextEntityType(current: SearchEntityType): BackfillCursor | null {
-  const at = INDEXED_ENTITY_TYPES.indexOf(current);
-  const next = INDEXED_ENTITY_TYPES[at + 1];
-  return next ? { entityType: next, afterId: null } : null;
+async function nextEntityType(
+  db: Database,
+  current: SearchEntityType,
+): Promise<BackfillCursor | null> {
+  const staticAt = INDEXED_ENTITY_TYPES.indexOf(current);
+
+  // Still walking the static loaders.
+  if (staticAt >= 0) {
+    const next = INDEXED_ENTITY_TYPES[staticAt + 1];
+    if (next) return { entityType: next, afterId: null };
+    // Static list exhausted — continue into the tenant's searchable custom
+    // objects so a reindex covers them too.
+    const custom = await listSearchableCustomObjectKeys(db);
+    return custom[0]
+      ? { entityType: custom[0] as SearchEntityType, afterId: null }
+      : null;
+  }
+
+  // Already on a custom object; advance within that list.
+  const custom = await listSearchableCustomObjectKeys(db);
+  const at = custom.indexOf(current);
+  // `at === -1` means the object was deleted or had search switched off
+  // mid-walk. Restarting at the head of the (now shorter) list is safe — the
+  // missing key is by definition not in it, so this cannot loop.
+  const next = at === -1 ? custom[0] : custom[at + 1];
+  return next ? { entityType: next as SearchEntityType, afterId: null } : null;
 }
 
 /**
@@ -415,9 +449,11 @@ export async function backfillBatch(
   embedder: Embedder,
   cursor: BackfillCursor,
 ): Promise<BackfillProgress> {
-  const loader = getDocumentLoader(cursor.entityType);
+  const loader = isCustomObjectEntityKey(cursor.entityType)
+    ? await getCustomObjectLoader(db, cursor.entityType)
+    : getDocumentLoader(cursor.entityType);
   if (!loader) {
-    const next = nextEntityType(cursor.entityType);
+    const next = await nextEntityType(db, cursor.entityType);
     return { cursor: next, done: next === null, processed: 0, embedded: 0, skipped: 0 };
   }
 
@@ -428,7 +464,7 @@ export async function backfillBatch(
   );
 
   if (rowsRead === 0) {
-    const next = nextEntityType(cursor.entityType);
+    const next = await nextEntityType(db, cursor.entityType);
     return { cursor: next, done: next === null, processed: 0, embedded: 0, skipped: 0 };
   }
 
@@ -456,7 +492,7 @@ export async function backfillBatch(
   // mappable one and abandon the rest of the entity type.
   const exhausted = rowsRead < BACKFILL_PAGE_SIZE;
   const next = exhausted
-    ? nextEntityType(cursor.entityType)
+    ? await nextEntityType(db, cursor.entityType)
     : { entityType: cursor.entityType, afterId: lastScannedId };
 
   return {

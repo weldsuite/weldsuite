@@ -1233,6 +1233,13 @@
       "when": 1785437040896,
       "tag": "0175_grey_jimmy_woo",
       "breakpoints": true
+    },
+    {
+      "idx": 176,
+      "version": "7",
+      "when": 1785528312855,
+      "tag": "0176_wild_night_thrasher",
+      "breakpoints": true
     }
   ]
 }

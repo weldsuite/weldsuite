@@ -228,6 +228,9 @@ export * from './activity-logs';
 export * from './custom-field-definitions';
 export * from './custom-field-values';
 
+// WeldObjects — user-defined custom objects (types, records, links, edges)
+export * from './custom-objects';
+
 // System settings (key-value configuration)
 export * from './system-settings';
 

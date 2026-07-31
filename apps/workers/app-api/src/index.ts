@@ -210,6 +210,13 @@ import { warehouseZonesRoutes } from './routes/warehouse-zones';
 import { wmsSuppliersRoutes } from './routes/wms-suppliers';
 import { wmsActivityRoutes } from './routes/wms-activity';
 import { customFieldsRoutes } from './routes/custom-fields';
+import { customObjectsRoutes } from './routes/custom-objects';
+import { customObjectRecordsRoutes } from './routes/custom-object-records';
+import {
+  customObjectLinkDefinitionRoutes,
+  customObjectLinkTraversalRoutes,
+  customObjectReverseRoutes,
+} from './routes/custom-object-links';
 import { enrichFieldsRoutes } from './routes/enrich-fields';
 import { digestSettingsRoutes } from './routes/digest-settings';
 import { dashboardRoutes } from './routes/dashboard';
@@ -670,6 +677,16 @@ app.route('/api/warehouse-zones', warehouseZonesRoutes);
 app.route('/api/wms-suppliers', wmsSuppliersRoutes);
 app.route('/api/wms-activity', wmsActivityRoutes);
 app.route('/api/custom-fields', customFieldsRoutes);
+// WeldObjects — definition surface (weldobjects:manage) and record data
+// surface (weldobjects:<slug>:<action>) are separate mounts on purpose.
+// Link routes mount onto the SAME two prefixes; Hono merges the route tables,
+// and the link paths (/:id/links, /:slug/records/:id/links) don't collide with
+// the base routes above.
+app.route('/api/custom-objects', customObjectsRoutes);
+app.route('/api/custom-objects', customObjectLinkDefinitionRoutes);
+app.route('/api/objects', customObjectRecordsRoutes);
+app.route('/api/objects', customObjectLinkTraversalRoutes);
+app.route('/api/related', customObjectReverseRoutes);
 app.route('/api/enrich-fields', enrichFieldsRoutes);
 app.route('/api/digest-settings', digestSettingsRoutes);
 app.route('/api/dashboard', dashboardRoutes);
