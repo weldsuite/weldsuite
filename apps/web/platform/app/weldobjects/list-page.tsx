@@ -20,6 +20,9 @@ import {
 } from '@/hooks/queries/use-custom-objects-queries';
 import { RecordFormDialog } from './record-form-dialog';
 
+/** Records fetched per page. */
+const PAGE_SIZE = 50;
+
 /**
  * WeldObjects record list — generic over every custom object.
  *
@@ -46,11 +49,34 @@ export default function CustomObjectListPage() {
   const { data: object, isLoading: objectLoading } = useCustomObjectBySlug(slug);
   const { data: fieldDefs } = useCustomFields(object?.entityKey, !!object);
 
+  // Accumulated pages. The API returns an opaque cursor; without this the grid
+  // only ever showed the first page and every record past it was unreachable.
+  const [cursor, setCursor] = React.useState<string | undefined>(undefined);
+  const [loadedPages, setLoadedPages] = React.useState<CustomObjectRecord[]>([]);
+
   const {
     data: result,
     isLoading: recordsLoading,
     isFetching,
-  } = useCustomObjectRecords(slug, { search, limit: 50 });
+  } = useCustomObjectRecords(slug, { search, limit: PAGE_SIZE, cursor });
+
+  // A new search (or a different object) invalidates everything accumulated so
+  // far — otherwise the previous query's rows stay stacked under the new ones.
+  React.useEffect(() => {
+    setCursor(undefined);
+    setLoadedPages([]);
+  }, [search, slug]);
+
+  React.useEffect(() => {
+    if (!result) return;
+    setLoadedPages((prev) => {
+      // First page replaces; subsequent pages append, de-duped by id so a
+      // refetch of an already-loaded page can't double rows.
+      const base = cursor ? prev : [];
+      const seen = new Set(base.map((r) => r.id));
+      return [...base, ...result.data.filter((r) => !seen.has(r.id))];
+    });
+  }, [result, cursor]);
 
   const createRecord = useCreateCustomObjectRecord(slug);
   const updateRecord = useUpdateCustomObjectRecord(slug);
@@ -58,7 +84,9 @@ export default function CustomObjectListPage() {
 
   const [createOpen, setCreateOpen] = React.useState(false);
 
-  const records = result?.data ?? [];
+  const records = loadedPages;
+  const totalCount = result?.pagination.totalCount ?? 0;
+  const hasMore = result?.pagination.hasMore ?? false;
 
   // The title column is built-in; everything else comes from the object's own
   // field definitions. `getCustomFields` points at `record.fields` rather than a
@@ -193,11 +221,17 @@ export default function CustomObjectListPage() {
             searchParams={{ search }}
             pagination={{
               page: 1,
-              pageSize: 50,
-              totalCount: result?.pagination.totalCount ?? 0,
-              totalPages: 1,
-              hasMore: result?.pagination.hasMore ?? false,
+              pageSize: PAGE_SIZE,
+              totalCount,
+              totalPages: Math.max(1, Math.ceil(totalCount / PAGE_SIZE)),
+              hasMore,
             }}
+            onLoadMore={() => {
+              if (hasMore && result?.pagination.cursor && !isFetching) {
+                setCursor(result.pagination.cursor);
+              }
+            }}
+            hasMore={hasMore}
             isFetchingMore={isFetching && !recordsLoading}
           />
         </div>

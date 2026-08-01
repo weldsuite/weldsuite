@@ -45,8 +45,38 @@ export const RESERVED_OBJECT_SLUGS = [
   'lead', 'leads', 'opportunity', 'opportunities', 'ticket', 'tickets',
   'conversation', 'conversations', 'project', 'projects', 'task', 'tasks',
   'product', 'products', 'order', 'orders', 'invoice', 'invoices',
+  'quote', 'quotes',
   'user', 'users', 'settings', 'new', 'edit', 'create', 'admin', 'api',
 ] as const;
+
+/**
+ * Field slugs a custom object may not use.
+ *
+ * `id` is the load-bearing one. The generated MCP tools put the record id and
+ * the field inputs in one flat argument object, so a field slugged `id` would
+ * shadow the record-id parameter: `update_machine` would then treat the field's
+ * VALUE as the record id, target the wrong record, and never write the field.
+ * Rejecting the slug at definition time is the fix — skipping the field in the
+ * tool schema would instead make it silently unpatchable.
+ *
+ * The rest are reserved for the same class of collision on the list tool and
+ * the record envelope.
+ */
+export const RESERVED_FIELD_SLUGS = [
+  'id',
+  'search',
+  'limit',
+  'cursor',
+  'fields',
+  'title',
+  'ownerid',
+  'createdat',
+  'updatedat',
+] as const;
+
+export function isReservedFieldSlug(slug: string): boolean {
+  return (RESERVED_FIELD_SLUGS as readonly string[]).includes(slug.toLowerCase());
+}
 
 export const CUSTOM_OBJECT_STATUSES = ['draft', 'active', 'disabled'] as const;
 export type CustomObjectStatus = (typeof CUSTOM_OBJECT_STATUSES)[number];

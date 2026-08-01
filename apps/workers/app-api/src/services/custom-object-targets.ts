@@ -19,7 +19,7 @@
  */
 
 import { inArray, sql } from 'drizzle-orm';
-import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import type { AnyPgColumn, PgTable } from 'drizzle-orm/pg-core';
 import { schema } from '../db';
 import type { Database } from '../db';
 
@@ -31,13 +31,27 @@ export interface ResolvedTarget {
   href: string;
 }
 
-interface TargetDefinition {
+/**
+ * The minimum a linkable table must expose. Typed rather than `any` so a
+ * renamed column — `crmQuotes.quoteNumber`, say — fails at build time instead
+ * of throwing on the first request that resolves that target.
+ *
+ * `deletedAt` is optional because the accessor below has to be able to ASK
+ * whether it exists; the registry's `softDeletes` flag is then checked against
+ * reality at runtime.
+ */
+type LinkableTable = PgTable & {
+  id: AnyPgColumn;
+  deletedAt?: AnyPgColumn;
+};
+
+interface TargetDefinition<T extends LinkableTable = LinkableTable> {
   /** The Drizzle table. */
-  table: any;
+  table: T;
   /** Column holding the human-readable label. */
-  titleColumn: (t: any) => AnyPgColumn;
+  titleColumn: (t: T) => AnyPgColumn;
   /** Secondary column tried when the primary is null. */
-  fallbackColumn?: (t: any) => AnyPgColumn;
+  fallbackColumn?: (t: T) => AnyPgColumn;
   /** Singular label used in the link editor. */
   label: string;
   /** Platform route builder. */
@@ -46,95 +60,109 @@ interface TargetDefinition {
   softDeletes: boolean;
 }
 
+/**
+ * Registry entry factory.
+ *
+ * Exists purely so each entry's accessors are checked against ITS OWN table
+ * type: `Record<string, TargetDefinition>` would collapse every entry to the
+ * base type and `(t) => t.quoteNumber` would stop being verified. One
+ * contained cast on the way out buys build-time checking at all twelve call
+ * sites — a renamed column now fails `tsc` instead of throwing on the first
+ * request that resolves that target.
+ */
+function defineTarget<T extends LinkableTable>(def: TargetDefinition<T>): TargetDefinition {
+  return def as unknown as TargetDefinition;
+}
+
 const TARGETS: Record<string, TargetDefinition> = {
-  company: {
+  company: defineTarget({
     table: schema.companies,
     titleColumn: (t) => t.name,
     fallbackColumn: (t) => t.displayName,
     label: 'Company',
     href: (id) => `/crm/companies/${id}`,
     softDeletes: true,
-  },
-  person: {
+  }),
+  person: defineTarget({
     table: schema.people,
     titleColumn: (t) => t.fullName,
     fallbackColumn: (t) => t.displayName,
     label: 'Person',
     href: (id) => `/crm/people/${id}`,
     softDeletes: true,
-  },
-  lead: {
+  }),
+  lead: defineTarget({
     table: schema.crmLeads,
     titleColumn: (t) => t.fullName,
     fallbackColumn: (t) => t.email,
     label: 'Lead',
     href: (id) => `/crm/leads/${id}`,
     softDeletes: true,
-  },
-  opportunity: {
+  }),
+  opportunity: defineTarget({
     table: schema.crmOpportunities,
     titleColumn: (t) => t.name,
     label: 'Deal',
     href: (id) => `/crm/opportunities/${id}`,
     softDeletes: true,
-  },
-  quote: {
+  }),
+  quote: defineTarget({
     table: schema.crmQuotes,
     titleColumn: (t) => t.name,
     fallbackColumn: (t) => t.quoteNumber,
     label: 'Quote',
     href: (id) => `/crm/quotes/${id}`,
     softDeletes: true,
-  },
-  ticket: {
+  }),
+  ticket: defineTarget({
     table: schema.helpdeskTickets,
     titleColumn: (t) => t.subject,
     label: 'Ticket',
     href: (id) => `/welddesk/tickets/${id}`,
     softDeletes: true,
-  },
-  conversation: {
+  }),
+  conversation: defineTarget({
     table: schema.deskConversations,
     titleColumn: (t) => t.title,
     label: 'Conversation',
     href: (id) => `/welddesk/inbox/${id}`,
     softDeletes: true,
-  },
-  project: {
+  }),
+  project: defineTarget({
     table: schema.projects,
     titleColumn: (t) => t.name,
     label: 'Project',
     href: (id) => `/weldflow/projects/${id}`,
     softDeletes: true,
-  },
-  task: {
+  }),
+  task: defineTarget({
     table: schema.tasks,
     titleColumn: (t) => t.title,
     label: 'Task',
     href: (id) => `/weldflow/tasks/${id}`,
     softDeletes: true,
-  },
-  product: {
+  }),
+  product: defineTarget({
     table: schema.products,
     titleColumn: (t) => t.name,
     label: 'Product',
     href: (id) => `/commerce/products/${id}`,
     softDeletes: true,
-  },
-  order: {
+  }),
+  order: defineTarget({
     table: schema.orders,
     titleColumn: (t) => t.orderNumber,
     label: 'Order',
     href: (id) => `/commerce/orders/${id}`,
     softDeletes: true,
-  },
-  invoice: {
+  }),
+  invoice: defineTarget({
     table: schema.invoices,
     titleColumn: (t) => t.invoiceNumber,
     label: 'Invoice',
     href: (id) => `/weldbooks/invoices/${id}`,
     softDeletes: true,
-  },
+  }),
 };
 
 export function isLinkableBuiltin(entityType: string): boolean {
@@ -177,7 +205,17 @@ export async function resolveBuiltinTargets(
   if (fallbackCol) selection.fallback = fallbackCol;
 
   const conditions = [inArray(table.id, ids)];
-  if (def.softDeletes && table.deletedAt) {
+  if (def.softDeletes) {
+    // Throw rather than skip. `def.softDeletes && table.deletedAt` would
+    // silently drop the filter if a table lacked the column, and the symptom
+    // is deleted records resurfacing as live link targets — a data-correctness
+    // bug that looks like nothing at all. A registry entry that lies about its
+    // table should fail loudly, on the first request, in dev.
+    if (!table.deletedAt) {
+      throw new Error(
+        `[custom-object-targets] '${entityType}' declares softDeletes but its table has no deletedAt column`,
+      );
+    }
     conditions.push(sql`${table.deletedAt} IS NULL`);
   }
 

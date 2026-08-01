@@ -24,6 +24,7 @@
 
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { generateId } from '../lib/id';
+import { atomically } from '../lib/atomically';
 import { schema } from '../db';
 import type { Database } from '../db';
 import {
@@ -130,12 +131,6 @@ export async function attach(
   targetId: string,
   userId: string,
 ): Promise<void> {
-  if (TO_ONE.includes(link.cardinality)) {
-    await db
-      .delete(relations)
-      .where(and(eq(relations.linkId, link.id), eq(relations.sourceId, sourceId)));
-  }
-
   // one_to_one additionally constrains the TARGET side — a target may not be
   // claimed by two different sources.
   if (link.cardinality === 'one_to_one') {
@@ -164,15 +159,39 @@ export async function attach(
     .limit(1);
   if (existing) return;
 
-  await db.insert(relations).values({
-    id: generateId('corl'),
-    linkId: link.id,
-    sourceEntityKey: link.sourceEntityKey,
-    sourceId,
-    targetEntityKey: link.targetEntityKey,
-    targetId,
-    createdBy: userId,
-    createdAt: new Date(),
+  // The to-one replace and the insert commit together. Deleting first as a
+  // separate statement would lose the previous edge outright if the insert then
+  // failed — the relationship would simply vanish, with the caller seeing a
+  // 500 and no way to tell what it had been.
+  //
+  // Residual race, deliberately not papered over: two concurrent one-to-one
+  // attaches can both pass the target check above before either inserts.
+  // Closing that needs a partial unique index on (link_id, target_id) for
+  // to-one links, which this table can't express because cardinality lives on
+  // the link row. It is a lost-update on a hand-driven admin action, not a
+  // correctness hole in the data model.
+  await atomically(db, (handle) => {
+    const statements: unknown[] = [];
+    if (TO_ONE.includes(link.cardinality)) {
+      statements.push(
+        handle
+          .delete(relations)
+          .where(and(eq(relations.linkId, link.id), eq(relations.sourceId, sourceId))),
+      );
+    }
+    statements.push(
+      handle.insert(relations).values({
+        id: generateId('corl'),
+        linkId: link.id,
+        sourceEntityKey: link.sourceEntityKey,
+        sourceId,
+        targetEntityKey: link.targetEntityKey,
+        targetId,
+        createdBy: userId,
+        createdAt: new Date(),
+      }),
+    );
+    return statements;
   });
 }
 
@@ -440,6 +459,40 @@ export async function applyTargetDeleteCascade(
   void deleted;
 
   return result;
+}
+
+/**
+ * The writes {@link applyTargetDeleteCascade} would perform, returned
+ * unexecuted so the caller can commit them together with the target's own
+ * delete. Pair with a `dryRun: true` plan from `applyTargetDeleteCascade`.
+ */
+export function buildTargetDeleteCascadeStatements(
+  handle: Database,
+  plan: CascadeResult,
+  targetEntityKey: string,
+  targetId: string,
+  now = new Date(),
+): unknown[] {
+  const statements: unknown[] = [];
+
+  if (plan.cascadedRecordIds.length > 0) {
+    statements.push(
+      handle
+        .update(records)
+        .set({ deletedAt: now, updatedAt: now })
+        .where(inArray(records.id, plan.cascadedRecordIds)),
+    );
+  }
+
+  statements.push(
+    handle
+      .delete(relations)
+      .where(
+        and(eq(relations.targetEntityKey, targetEntityKey), eq(relations.targetId, targetId)),
+      ),
+  );
+
+  return statements;
 }
 
 /** Count of edges per source record for a link — used to render panel badges. */

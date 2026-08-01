@@ -30,6 +30,7 @@ import {
   listAgentToolObjects,
   listCustomObjects,
   listRecordsSimple,
+  parseLimit,
   updateRecord,
   type CustomObjectRow,
 } from '@weldsuite/db/lib/custom-objects';
@@ -133,7 +134,7 @@ app.get('/:slug/records', requireScope('custom-objects:read'), async (c) => {
     if (!object) return error.notFound(c, 'Custom object', slug);
 
     const result = await listRecordsSimple(db, object, {
-      limit: Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100),
+      limit: parseLimit(q.limit),
       cursor: q.cursor,
       search: q.search,
       ownerId: q.ownerId,

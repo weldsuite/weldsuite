@@ -28,6 +28,7 @@ import type { IndexableDocument, DocumentPage } from './documents';
 import { getValuesForEntities } from '../custom-field-values';
 import { getCustomObjectByEntityKey, type CustomObjectRow } from '../custom-objects';
 import { getDefinitionsForEntityType } from '../custom-field-values';
+import { isMissingTable } from '../../lib/pg-errors';
 
 const records = schema.customObjectRecords;
 
@@ -166,36 +167,18 @@ export function buildCustomObjectLoader(object: CustomObjectRow): CustomObjectDo
 }
 
 /**
- * Postgres `undefined_table`. The WeldObjects tables arrive in a tenant
- * migration, and migrations are a separate rollout from worker code — a tenant
- * that hasn't been migrated yet (or a test database built from the migration
- * files as they stand today) simply has no `custom_objects` table.
+ * The WeldObjects tables arrive in a tenant migration, and migrations are a
+ * separate rollout from worker code — a tenant that hasn't been migrated yet
+ * simply has no `custom_objects` table.
  *
  * Search must degrade to "this tenant has no custom objects" in that case, NOT
  * take the whole reindex down: the backfill walks every entity type in one
  * loop, so an exception here would strand invoices, tickets and everything else
  * as collateral. Same posture as the roles permission-catalog merge.
  *
- * Deliberately narrow — only 42P01 is swallowed. A real query bug still throws.
+ * Deliberately narrow — only `undefined_table` is swallowed; a real query bug
+ * still throws.
  */
-const UNDEFINED_TABLE = '42P01';
-
-/**
- * Drizzle wraps driver errors in a `DrizzleQueryError`, so the Postgres
- * `code` lives on `cause`, not on the thrown error itself. Walk the chain
- * rather than checking only the top level — a top-level-only check silently
- * never matches, which is worse than not having the guard at all.
- */
-function isMissingTable(err: unknown): boolean {
-  let current: unknown = err;
-  for (let depth = 0; current && depth < 5; depth++) {
-    if (typeof current === 'object' && (current as { code?: string }).code === UNDEFINED_TABLE) {
-      return true;
-    }
-    current = (current as { cause?: unknown }).cause;
-  }
-  return false;
-}
 
 /**
  * Resolve a `co_<slug>` entity key to a loader, or null when the object

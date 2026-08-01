@@ -18,6 +18,8 @@ import {
   updateCustomFieldSchema,
   reorderCustomFieldsSchema,
 } from '@weldsuite/app-api-client/schemas/custom-fields';
+import { isReservedFieldSlug } from '@weldsuite/app-api-client/schemas/custom-objects';
+import { isCustomObjectEntityKey } from '@weldsuite/entity-events';
 import { z } from 'zod';
 import type { Env, Variables } from '../../types';
 import { error, success } from '../../lib/response';
@@ -122,6 +124,19 @@ app.post('/', requirePermission('settings:manage'), zValidator('json', createCus
   const data = c.req.valid('json');
 
   try {
+    // Custom OBJECT fields have a smaller usable slug space than fields on
+    // built-in entities: the generated MCP tools flatten the record id and the
+    // field inputs into one argument object, so a field named `id` would
+    // shadow the record-id parameter and make `update_<object>` target the
+    // wrong record. Only applies to `co_*` entity types — a field named `id`
+    // on a built-in entity has never had this problem.
+    if (isCustomObjectEntityKey(data.entityType) && isReservedFieldSlug(data.slug)) {
+      return error.badRequest(
+        c,
+        `'${data.slug}' is reserved and cannot be used as a field name on a custom object`,
+      );
+    }
+
     // Uniqueness is scoped by ticketTypeId, mirroring the two partial unique
     // indexes on the table: a global definition (ticketTypeId null) is unique on
     // (entityType, slug) among other globals; a ticket-type-scoped one is unique

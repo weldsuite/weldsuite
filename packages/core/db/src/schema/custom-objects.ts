@@ -1,8 +1,8 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   varchar,
   timestamp,
-  text,
   boolean,
   integer,
   jsonb,
@@ -144,8 +144,17 @@ export const customObjectRecords = pgTable(
      *  it, and carrying it here avoids a join on the hottest path. */
     entityKey: varchar('entity_key', { length: 30 }).notNull(),
 
-    /** Denormalized display name — see the docblock above. */
-    title: text('title'),
+    /**
+     * Denormalized display name — see the docblock above.
+     *
+     * Bounded rather than `text` because `cor_entity_key_title_idx` puts it in
+     * a btree, and a btree tuple that exceeds ~2704 bytes fails AT INSERT TIME.
+     * The value is copied from a user-configured field, so an unbounded column
+     * would let a long textarea value make the record unsaveable. 500 matches
+     * `tasks.title` and `helpdesk_articles.title`; `resolveRecordTitle` already
+     * truncates to the same length.
+     */
+    title: varchar('title', { length: 500 }),
 
     /** Clerk user id. Drives `weldobjects:<slug>:scope:all` owner scoping,
      *  the same way `crm_leads.ownerId` drives `leads:scope:all`. */
@@ -213,7 +222,17 @@ export const customObjectLinks = pgTable(
     sortOrder: integer('sort_order').notNull().default(0),
   },
   (table) => [
-    uniqueIndex('col_source_slug_idx').on(table.sourceEntityKey, table.slug),
+    // PARTIAL, unlike the two unique indexes on `custom_objects`. Deleting a
+    // relationship should free its name for reuse — the link editor already
+    // filters soft-deleted rows, so a full unique index would reserve the slug
+    // forever and surface as an unexplained 500 on the next create.
+    //
+    // Object slugs are the opposite case and stay fully unique on purpose: a
+    // deleted object's `custom_field_values` rows are keyed on its derived
+    // entity key, so reusing the slug would silently adopt them.
+    uniqueIndex('col_source_slug_idx')
+      .on(table.sourceEntityKey, table.slug)
+      .where(sql`${table.deletedAt} IS NULL`),
     index('col_source_idx').on(table.sourceEntityKey),
     index('col_target_idx').on(table.targetEntityKey),
   ],

@@ -30,6 +30,7 @@ import {
   listAgentToolObjects,
   listCustomObjects,
   listRecordsSimple,
+  parseLimit,
   updateRecord,
   type CustomObjectRow,
 } from '@weldsuite/db/lib/custom-objects';
@@ -84,7 +85,7 @@ app.get('/', requireScope('custom-objects:read'), async (c) => {
     const objects = await listCustomObjects(db, { status: 'active', externalApiOnly: true });
     return success(c, objects.map(toPublicObject));
   } catch (err) {
-    console.error('[external-api/custom-objects] list failed:', err);
+    console.error('[mcp-server/custom-objects] list failed:', err);
     return error.internal(c, 'Failed to list custom objects');
   }
 });
@@ -101,7 +102,7 @@ app.get('/agent-tools', requireScope('custom-objects:read'), async (c) => {
   try {
     return success(c, await listAgentToolObjects(db));
   } catch (err) {
-    console.error('[external-api/custom-objects] agent-tools failed:', err);
+    console.error('[mcp-server/custom-objects] agent-tools failed:', err);
     return error.internal(c, 'Failed to list custom object agent tools');
   }
 });
@@ -114,7 +115,7 @@ app.get('/:slug', requireScope('custom-objects:read'), async (c) => {
     if (!object) return error.notFound(c, 'Custom object', slug);
     return success(c, toPublicObject(object));
   } catch (err) {
-    console.error('[external-api/custom-objects] get failed:', err);
+    console.error('[mcp-server/custom-objects] get failed:', err);
     return error.internal(c, 'Failed to fetch custom object');
   }
 });
@@ -133,7 +134,7 @@ app.get('/:slug/records', requireScope('custom-objects:read'), async (c) => {
     if (!object) return error.notFound(c, 'Custom object', slug);
 
     const result = await listRecordsSimple(db, object, {
-      limit: Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100),
+      limit: parseLimit(q.limit),
       cursor: q.cursor,
       search: q.search,
       ownerId: q.ownerId,
@@ -145,7 +146,7 @@ app.get('/:slug/records', requireScope('custom-objects:read'), async (c) => {
       cursorPagination(result.totalCount, result.hasMore, result.cursor),
     );
   } catch (err) {
-    console.error('[external-api/custom-objects] list records failed:', err);
+    console.error('[mcp-server/custom-objects] list records failed:', err);
     return error.internal(c, 'Failed to list records');
   }
 });
@@ -163,7 +164,7 @@ app.get('/:slug/records/:id', requireScope('custom-objects:read'), async (c) => 
     if (!record) return error.notFound(c, object.labelSingular, id);
     return success(c, record);
   } catch (err) {
-    console.error('[external-api/custom-objects] get record failed:', err);
+    console.error('[mcp-server/custom-objects] get record failed:', err);
     return error.internal(c, 'Failed to fetch record');
   }
 });
@@ -197,7 +198,7 @@ app.post(
       return success(c, record, 201);
     } catch (err) {
       if (err instanceof CustomFieldValidationError) return error.badRequest(c, err.message);
-      console.error('[external-api/custom-objects] create record failed:', err);
+      console.error('[mcp-server/custom-objects] create record failed:', err);
       return error.internal(c, 'Failed to create record');
     }
   },
@@ -236,7 +237,7 @@ app.patch(
       return success(c, updated);
     } catch (err) {
       if (err instanceof CustomFieldValidationError) return error.badRequest(c, err.message);
-      console.error('[external-api/custom-objects] update record failed:', err);
+      console.error('[mcp-server/custom-objects] update record failed:', err);
       return error.internal(c, 'Failed to update record');
     }
   },
@@ -268,7 +269,7 @@ app.delete('/:slug/records/:id', requireScope('custom-objects:write'), async (c)
 
     return noContent(c);
   } catch (err) {
-    console.error('[external-api/custom-objects] delete record failed:', err);
+    console.error('[mcp-server/custom-objects] delete record failed:', err);
     return error.internal(c, 'Failed to delete record');
   }
 });

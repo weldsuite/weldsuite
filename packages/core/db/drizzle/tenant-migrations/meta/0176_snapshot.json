@@ -1,5 +1,5 @@
 {
-  "id": "50eb979a-4cce-410c-acf7-42f03222d41d",
+  "id": "fd5d0efd-7063-4cc9-9344-96e1cae64f44",
   "prevId": "3741c7c1-9eef-470b-80e9-317cebaccea0",
   "version": "7",
   "dialect": "postgresql",
@@ -38995,6 +38995,7 @@
             }
           ],
           "isUnique": true,
+          "where": "\"custom_object_links\".\"deleted_at\" IS NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -39081,7 +39082,7 @@
         },
         "title": {
           "name": "title",
-          "type": "text",
+          "type": "varchar(500)",
           "primaryKey": false,
           "notNull": false
         },

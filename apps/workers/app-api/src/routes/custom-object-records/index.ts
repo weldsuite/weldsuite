@@ -35,7 +35,12 @@ import {
   listRecords,
   updateRecord,
 } from '../../services/custom-objects';
-import { applyTargetDeleteCascade } from '../../services/custom-object-links';
+import {
+  applyTargetDeleteCascade,
+  buildTargetDeleteCascadeStatements,
+} from '../../services/custom-object-links';
+import { parseLimit, buildRecordDeleteStatements } from '@weldsuite/db/lib/custom-objects';
+import { atomically } from '../../lib/atomically';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -85,7 +90,7 @@ app.get('/:slug/records', requireCustomObject('read'), async (c) => {
 
   try {
     const result = await listRecords(db, object, {
-      limit: Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100),
+      limit: parseLimit(q.limit),
       cursor: q.cursor,
       search: q.search,
       ownerScope: scope,
@@ -211,10 +216,10 @@ app.delete('/:slug/records/:id', requireCustomObject('delete'), async (c) => {
     const existing = await getRecord(db, object, id, scope);
     if (!existing) return error.notFound(c, object.labelSingular, id);
 
-    // Honour `onDelete` on any link pointing AT this record before removing it.
-    // A `restrict` link with live edges refuses the delete outright; `cascade`
-    // takes the dependent records with it.
-    const cascade = await applyTargetDeleteCascade(db, object.entityKey, id);
+    // Plan the link cascade WITHOUT executing it. `onDelete` decides what
+    // happens to records pointing at this one: `restrict` refuses the delete,
+    // `cascade` takes the dependents with it, `set_null` just drops the edge.
+    const cascade = await applyTargetDeleteCascade(db, object.entityKey, id, { dryRun: true });
     if (cascade.blockedBy.length > 0) {
       return error.conflict(
         c,
@@ -224,7 +229,15 @@ app.delete('/:slug/records/:id', requireCustomObject('delete'), async (c) => {
       );
     }
 
-    await deleteRecord(db, object, id);
+    // Cascade and delete commit as ONE unit. Executing the cascade first and
+    // then deleting meant a failure in the second step left the dependent
+    // records soft-deleted while the record they depended on survived — an
+    // inconsistency the caller saw only as a 500, with no way to recover them.
+    const now = new Date();
+    await atomically(db, (handle) => [
+      ...buildTargetDeleteCascadeStatements(handle, cascade, object.entityKey, id, now),
+      ...buildRecordDeleteStatements(handle, object, id, now),
+    ]);
     emit(c, object, 'deleted', id, {
       id,
       title: existing.title,

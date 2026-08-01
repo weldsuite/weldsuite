@@ -124,6 +124,9 @@ export const customObjectKeys = {
     [...customObjectKeys.records(slug), id, 'links'] as const,
   reverse: (entityType: string, entityId: string) =>
     [...customObjectKeys.all, 'reverse', entityType, entityId] as const,
+  /** Prefix covering every reverse panel — a link change on one record can
+   *  affect a panel on any target, and the mutation doesn't know which. */
+  reverseAll: () => [...customObjectKeys.all, 'reverse'] as const,
 };
 
 // ---------------------------------------------------------------------------
@@ -146,6 +149,8 @@ export function useCustomObjects(options: { status?: CustomObjectStatus } = {}) 
     queryFn: async () => {
       const client = await getClient();
       const query = status ? `?status=${encodeURIComponent(status)}` : '';
+      // The endpoint returns the list envelope (`{ data, pagination }`); only
+      // `data` matters here since object definitions are never paginated.
       const res = await client.get<{ data: CustomObject[] }>(`/custom-objects${query}`);
       return res.data ?? [];
     },
@@ -423,6 +428,8 @@ export function useDeleteCustomObjectRecord(slug: string) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: customObjectKeys.records(slug) });
+      // A deleted record drops out of every reverse panel that listed it.
+      queryClient.invalidateQueries({ queryKey: customObjectKeys.reverseAll() });
     },
   });
 }
@@ -464,6 +471,10 @@ export function useAttachRelated(slug: string) {
       queryClient.invalidateQueries({
         queryKey: customObjectKeys.recordLinks(slug, variables.recordId),
       });
+      // The TARGET's reverse panel now lists a different set of records, and it
+      // lives on a different page (the Customer or Person detail view) that has
+      // no other reason to refetch — without this it shows stale links.
+      queryClient.invalidateQueries({ queryKey: customObjectKeys.reverseAll() });
     },
   });
 }
@@ -485,6 +496,10 @@ export function useDetachRelated(slug: string) {
       queryClient.invalidateQueries({
         queryKey: customObjectKeys.recordLinks(slug, variables.recordId),
       });
+      // The TARGET's reverse panel now lists a different set of records, and it
+      // lives on a different page (the Customer or Person detail view) that has
+      // no other reason to refetch — without this it shows stale links.
+      queryClient.invalidateQueries({ queryKey: customObjectKeys.reverseAll() });
     },
   });
 }

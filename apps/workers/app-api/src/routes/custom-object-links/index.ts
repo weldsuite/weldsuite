@@ -17,11 +17,14 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, eq, isNull } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
+import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   createCustomObjectLinkSchema,
   updateCustomObjectLinkSchema,
 } from '@weldsuite/app-api-client/schemas/custom-objects';
 import type { Env, Variables } from '../../types';
+import type { Database } from '../../db';
+import { atomically } from '../../lib/atomically';
 import { error, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema } from '../../db';
@@ -45,6 +48,16 @@ import {
 import { listLinkableBuiltins } from '../../services/custom-object-targets';
 
 const links = schema.customObjectLinks;
+
+/** Resolve `:id` to a live custom object row. */
+async function resolveObject(db: Database, objectId: string) {
+  const [row] = await db
+    .select()
+    .from(schema.customObjects)
+    .where(and(eq(schema.customObjects.id, objectId), isNull(schema.customObjects.deletedAt)))
+    .limit(1);
+  return row ?? null;
+}
 
 // ---------------------------------------------------------------------------
 // Definition surface — mounted under /api/custom-objects
@@ -140,6 +153,18 @@ definitionApp.post(
       });
 
       const [created] = await db.select().from(links).where(eq(links.id, linkId)).limit(1);
+
+      // A relationship definition is object metadata, so it rides the same
+      // `custom_field` event family as the object routes rather than the
+      // dynamic co_* key — this describes the schema, not a record in it.
+      publishEntityEvent({
+        c,
+        entityType: 'custom_field',
+        entityId: linkId,
+        action: 'created',
+        data: { id: linkId, kind: 'custom_object_link', objectId: object.id, ...data },
+      });
+
       return success(c, created, 201);
     } catch (err) {
       if (err instanceof LinkTargetError) return error.badRequest(c, err.message);
@@ -155,14 +180,29 @@ definitionApp.put(
   zValidator('json', updateCustomObjectLinkSchema),
   async (c) => {
     const db = c.get('tenantDb');
+    const objectId = c.req.param('id');
     const linkId = c.req.param('linkId');
     const data = c.req.valid('json');
 
     try {
+      // Resolve `:id` and scope the lookup to it. Looking the link up by
+      // `linkId` alone made the object segment decorative: a client bug could
+      // edit a relationship belonging to a different object and get a 200.
+      // `weldobjects:manage` is workspace-wide so this isn't an escalation,
+      // but the route contract should mean what it says.
+      const object = await resolveObject(db, objectId);
+      if (!object) return error.notFound(c, 'Custom object', objectId);
+
       const [existing] = await db
         .select()
         .from(links)
-        .where(and(eq(links.id, linkId), isNull(links.deletedAt)))
+        .where(
+          and(
+            eq(links.id, linkId),
+            eq(links.sourceEntityKey, object.entityKey),
+            isNull(links.deletedAt),
+          ),
+        )
         .limit(1);
       if (!existing) return error.notFound(c, 'Relationship', linkId);
 
@@ -173,6 +213,15 @@ definitionApp.put(
 
       await db.update(links).set(patch).where(eq(links.id, linkId));
       const [updated] = await db.select().from(links).where(eq(links.id, linkId)).limit(1);
+
+      publishEntityEvent({
+        c,
+        entityType: 'custom_field',
+        entityId: linkId,
+        action: 'updated',
+        data: { id: linkId, kind: 'custom_object_link', ...data },
+      });
+
       return success(c, updated);
     } catch (err) {
       console.error('[app-api/custom-objects] update link failed:', err);
@@ -185,19 +234,43 @@ definitionApp.put(
  *  is gone has no meaning and would surface as a ghost in reverse panels. */
 definitionApp.delete('/:id/links/:linkId', requirePermission('weldobjects:manage'), async (c) => {
   const db = c.get('tenantDb');
+  const objectId = c.req.param('id');
   const linkId = c.req.param('linkId');
 
   try {
+    const object = await resolveObject(db, objectId);
+    if (!object) return error.notFound(c, 'Custom object', objectId);
+
     const [existing] = await db
       .select()
       .from(links)
-      .where(and(eq(links.id, linkId), isNull(links.deletedAt)))
+      .where(
+        and(
+          eq(links.id, linkId),
+          eq(links.sourceEntityKey, object.entityKey),
+          isNull(links.deletedAt),
+        ),
+      )
       .limit(1);
     if (!existing) return error.notFound(c, 'Relationship', linkId);
 
+    // Edges and definition go together: an edge whose link is soft-deleted has
+    // no meaning and would surface as a ghost row in reverse panels.
     const now = new Date();
-    await db.delete(schema.customObjectRelations).where(eq(schema.customObjectRelations.linkId, linkId));
-    await db.update(links).set({ deletedAt: now, updatedAt: now }).where(eq(links.id, linkId));
+    await atomically(db, (handle) => [
+      handle
+        .delete(schema.customObjectRelations)
+        .where(eq(schema.customObjectRelations.linkId, linkId)),
+      handle.update(links).set({ deletedAt: now, updatedAt: now }).where(eq(links.id, linkId)),
+    ]);
+
+    publishEntityEvent({
+      c,
+      entityType: 'custom_field',
+      entityId: linkId,
+      action: 'deleted',
+      data: { id: linkId, kind: 'custom_object_link', slug: existing.slug },
+    });
 
     return success(c, { deleted: true });
   } catch (err) {

@@ -34,6 +34,24 @@ import {
 
 type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
 
+/**
+ * Commits a built list of statements as one unit.
+ *
+ * Injected rather than imported for the same reason `generateId` is: this
+ * module is runtime-agnostic, and the implementation is driver-specific
+ * (neon-http has no interactive transactions and uses `db.batch()`; pglite
+ * uses a real transaction). app-api passes its `lib/atomically` helper.
+ *
+ * Generic in the database type so a caller holding a NARROWER handle (app-api's
+ * concrete `Database`) can pass its equally narrow runner. Fixing the parameter
+ * to `AnyDb` would make that assignment fail on contravariance, and widening
+ * the runner instead would break its other, unrelated call sites.
+ */
+export type AtomicRunner<D = AnyDb> = (
+  db: D,
+  build: (handle: D) => unknown[],
+) => Promise<void>;
+
 const objects = schema.customObjects;
 const records = schema.customObjectRecords;
 const links = schema.customObjectLinks;
@@ -47,6 +65,20 @@ export type CustomObjectRecordWithFields = CustomObjectRecordRow & { fields: Cus
 /** `'machine'` → `'co_machine'`. */
 export function entityKeyForSlug(slug: string): string {
   return `co_${slug}`;
+}
+
+/**
+ * Parse a `?limit=` query value into a usable page size.
+ *
+ * `Number.parseInt('abc')` is NaN and `Math.min(NaN, 100)` is NaN, so the naive
+ * one-liner forwards NaN — and negatives and zero — straight into the SQL LIMIT
+ * clause, turning a caller's typo into a 500. Clamp, and fall back to the
+ * default for anything unparseable.
+ */
+export function parseLimit(raw: string | undefined, fallback = 25, max = 100): number {
+  const parsed = Number.parseInt(raw ?? '', 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, 1), max);
 }
 
 // ---------------------------------------------------------------------------
@@ -212,8 +244,16 @@ export async function listRecordsSimple(
   opts: SimpleListOptions,
 ): Promise<SimpleListResult> {
   const filters = [eq(records.entityKey, object.entityKey), isNull(records.deletedAt)];
-  if (opts.ownerScope) filters.push(eq(records.ownerId, opts.ownerScope));
-  if (opts.ownerId) filters.push(eq(records.ownerId, opts.ownerId));
+  // `ownerScope` (the caller lacks scope:all) wins over an explicit `ownerId`.
+  // Applying both as equality would produce two contradictory predicates and an
+  // always-empty page, which reads as "this user owns nothing" rather than
+  // "you cannot see other owners" — a misleading answer to a permission
+  // problem. Owner-scoped callers simply see their own records.
+  if (opts.ownerScope) {
+    filters.push(eq(records.ownerId, opts.ownerScope));
+  } else if (opts.ownerId) {
+    filters.push(eq(records.ownerId, opts.ownerId));
+  }
   if (opts.search) filters.push(ilike(records.title, `%${opts.search}%`));
 
   const conditions = [...filters];
@@ -221,7 +261,11 @@ export async function listRecordsSimple(
     const [cur] = await db
       .select({ createdAt: records.createdAt, id: records.id })
       .from(records)
-      .where(eq(records.id, opts.cursor))
+      // Scoped to THIS object, not just the id. An unscoped lookup would let a
+      // caller pass a record id from an object they can't read and use its
+      // createdAt as this list's page boundary — a small but real cross-object
+      // information leak, since the boundary is observable in the results.
+      .where(and(eq(records.id, opts.cursor), eq(records.entityKey, object.entityKey)))
       .limit(1);
     if (cur?.createdAt) {
       conditions.push(
@@ -373,6 +417,40 @@ export async function deleteRecord(
     );
 }
 
+/**
+ * The same three writes as {@link deleteRecord}, returned unexecuted so a
+ * caller can commit them alongside other statements (Drizzle builders are lazy).
+ *
+ * The route uses this to put a record delete and its link cascade in ONE unit:
+ * running them as two steps meant a failure in the second left the cascade's
+ * dependent records deleted while the record they hung off survived, with no
+ * way to recover them.
+ */
+export function buildRecordDeleteStatements(
+  handle: AnyDb,
+  object: CustomObjectRow,
+  id: string,
+  now = new Date(),
+): unknown[] {
+  return [
+    handle.update(records).set({ deletedAt: now, updatedAt: now }).where(eq(records.id, id)),
+    handle
+      .delete(schema.customFieldValues)
+      .where(
+        and(
+          eq(schema.customFieldValues.entityType, object.entityKey),
+          eq(schema.customFieldValues.entityId, id),
+        ),
+      ),
+    handle
+      .delete(relations)
+      .where(
+        sql`(${relations.sourceEntityKey} = ${object.entityKey} AND ${relations.sourceId} = ${id})
+         OR (${relations.targetEntityKey} = ${object.entityKey} AND ${relations.targetId} = ${id})`,
+      ),
+  ];
+}
+
 // ---------------------------------------------------------------------------
 // Object type deletion
 // ---------------------------------------------------------------------------
@@ -430,62 +508,58 @@ export async function getDeleteImpact(
  * which would otherwise be unreachable garbage — and, for edges and search
  * rows, would keep surfacing on pages that were never deleted.
  */
-export async function deleteCustomObjectCascade(
-  db: AnyDb,
+export async function deleteCustomObjectCascade<D extends AnyDb>(
+  db: D,
   object: CustomObjectRow,
+  atomically: AtomicRunner<D>,
 ): Promise<void> {
   const now = new Date();
 
-  const recordIds = await db
-    .select({ id: records.id })
-    .from(records)
-    .where(eq(records.entityKey, object.entityKey));
+  await atomically(db, (handle) => [
+    // Set-based, not "SELECT every record id then pass them to inArray". The id
+    // list was unbounded: an object with 100k records built a 100k-parameter
+    // statement and blew the request up. The subquery does the same work
+    // server-side at constant client cost.
+    handle.delete(schema.customFieldValues).where(
+      and(
+        eq(schema.customFieldValues.entityType, object.entityKey),
+        sql`${schema.customFieldValues.entityId} IN (
+          SELECT ${records.id} FROM ${records} WHERE ${records.entityKey} = ${object.entityKey}
+        )`,
+      ),
+    ),
 
-  if (recordIds.length > 0) {
-    await db
-      .delete(schema.customFieldValues)
+    handle
+      .delete(relations)
       .where(
-        and(
-          eq(schema.customFieldValues.entityType, object.entityKey),
-          inArray(
-            schema.customFieldValues.entityId,
-            recordIds.map((r) => r.id),
-          ),
-        ),
-      );
-  }
+        sql`${relations.sourceEntityKey} = ${object.entityKey} OR ${relations.targetEntityKey} = ${object.entityKey}`,
+      ),
 
-  await db
-    .delete(relations)
-    .where(
-      sql`${relations.sourceEntityKey} = ${object.entityKey} OR ${relations.targetEntityKey} = ${object.entityKey}`,
-    );
+    handle
+      .update(links)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(
+        sql`${links.sourceEntityKey} = ${object.entityKey} OR ${links.targetEntityKey} = ${object.entityKey}`,
+      ),
 
-  await db
-    .update(links)
-    .set({ deletedAt: now, updatedAt: now })
-    .where(
-      sql`${links.sourceEntityKey} = ${object.entityKey} OR ${links.targetEntityKey} = ${object.entityKey}`,
-    );
+    handle
+      .update(records)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(eq(records.entityKey, object.entityKey)),
 
-  await db
-    .update(records)
-    .set({ deletedAt: now, updatedAt: now })
-    .where(eq(records.entityKey, object.entityKey));
+    handle
+      .update(fieldDefs)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(eq(fieldDefs.entityType, object.entityKey)),
 
-  await db
-    .update(fieldDefs)
-    .set({ deletedAt: now, updatedAt: now })
-    .where(eq(fieldDefs.entityType, object.entityKey));
+    handle.delete(schema.searchIndex).where(eq(schema.searchIndex.entityType, object.entityKey)),
 
-  await db
-    .delete(schema.searchIndex)
-    .where(eq(schema.searchIndex.entityType, object.entityKey));
-
-  await db
-    .update(objects)
-    .set({ deletedAt: now, updatedAt: now })
-    .where(eq(objects.id, object.id));
+    // LAST on purpose: this is the row every other read gates on. Because the
+    // whole list commits as one unit, a failure anywhere leaves the object
+    // fully intact and the delete simply retryable — previously a mid-way
+    // failure could strip the records while the definition survived.
+    handle.update(objects).set({ deletedAt: now, updatedAt: now }).where(eq(objects.id, object.id)),
+  ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -527,6 +601,13 @@ export async function listAgentToolObjects(
     .where(
       and(
         eq(objects.enableAgentTools, true),
+        // ALSO gated on external API exposure, which is not redundant: the
+        // generated tools execute against `/v1/custom-objects/:slug/records`,
+        // and that route resolves through `resolveExposedObject` — which 404s
+        // anything without `enableExternalApi`. Listing a tool that every call
+        // would 404 is worse than not listing it, and it would leak the
+        // object's field definitions to a surface the workspace didn't expose.
+        eq(objects.enableExternalApi, true),
         eq(objects.status, 'active'),
         isNull(objects.deletedAt),
       ),

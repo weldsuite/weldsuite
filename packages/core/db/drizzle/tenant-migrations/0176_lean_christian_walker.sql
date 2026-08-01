@@ -21,7 +21,7 @@ CREATE TABLE "custom_object_records" (
 	"deleted_at" timestamp,
 	"object_id" varchar(30) NOT NULL,
 	"entity_key" varchar(30) NOT NULL,
-	"title" text,
+	"title" varchar(500),
 	"owner_id" varchar(255),
 	"created_by" varchar(255),
 	"updated_by" varchar(255)
@@ -62,7 +62,7 @@ CREATE TABLE "custom_objects" (
 	"created_by" varchar(255)
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX "col_source_slug_idx" ON "custom_object_links" USING btree ("source_entity_key","slug");--> statement-breakpoint
+CREATE UNIQUE INDEX "col_source_slug_idx" ON "custom_object_links" USING btree ("source_entity_key","slug") WHERE "custom_object_links"."deleted_at" IS NULL;--> statement-breakpoint
 CREATE INDEX "col_source_idx" ON "custom_object_links" USING btree ("source_entity_key");--> statement-breakpoint
 CREATE INDEX "col_target_idx" ON "custom_object_links" USING btree ("target_entity_key");--> statement-breakpoint
 CREATE INDEX "cor_entity_key_created_idx" ON "custom_object_records" USING btree ("entity_key","created_at");--> statement-breakpoint

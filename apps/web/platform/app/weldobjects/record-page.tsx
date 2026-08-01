@@ -43,26 +43,45 @@ function displayValue(fieldType: string, value: unknown): React.ReactNode {
       ) : (
         String(value)
       );
-    case 'url':
+    case 'url': {
+      // Render an anchor only for http(s). The stored value is arbitrary text —
+      // records are writable through the external API and MCP tools, not just
+      // the URL input — so `mailto:`, `data:` and protocol-relative `//evil`
+      // can all reach this. Anything else renders as inert text.
+      const raw = String(value);
+      let safe: string | null = null;
+      try {
+        const parsed = new URL(raw);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') safe = parsed.href;
+      } catch {
+        safe = null;
+      }
+      if (!safe) return raw;
       return (
         <a
-          href={String(value)}
+          href={safe}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-primary hover:underline"
         >
-          {String(value)}
+          {raw}
           <ExternalLink className="h-3 w-3" />
         </a>
       );
+    }
     case 'email':
       return (
         <a href={`mailto:${String(value)}`} className="text-primary hover:underline">
           {String(value)}
         </a>
       );
-    case 'rating':
-      return '★'.repeat(Number(value)) + '☆'.repeat(Math.max(0, 5 - Number(value)));
+    case 'rating': {
+      // `String.repeat` throws RangeError on a negative count, which would take
+      // down the whole detail page. The star control only emits 1–5, but the
+      // external API and MCP tools can write any number to a rating field.
+      const filled = Math.min(5, Math.max(0, Math.round(Number(value) || 0)));
+      return '★'.repeat(filled) + '☆'.repeat(5 - filled);
+    }
     default:
       return String(value);
   }

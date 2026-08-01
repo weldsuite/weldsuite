@@ -95,7 +95,8 @@ export const weldobjects = {
     integrationSearch: 'Global search',
     integrationSearchHelp: 'Include records in platform search results.',
     integrationAgent: 'AI tools',
-    integrationAgentHelp: 'Let WeldAgent and MCP clients read and create records.',
+    integrationAgentHelp:
+      'Let WeldAgent and MCP clients read and create records. Requires the public API, which the tools call through.',
     integrationApi: 'Public API',
     integrationApiHelp: 'Expose records through the third-party API at api.weldsuite.org.',
     dangerZone: 'Danger zone',

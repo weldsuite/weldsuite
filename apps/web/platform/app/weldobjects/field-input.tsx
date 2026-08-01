@@ -134,10 +134,16 @@ export function FieldInput({ field, value, onChange, disabled }: FieldInputProps
           {(field.options ?? []).map((option) => {
             const isOn = selected.includes(option.value);
             return (
-              <Badge
+              // A real <button>, not a clickable Badge: a div with onClick is
+              // not focusable and exposes no pressed state, so a keyboard user
+              // could not set or clear a multi-select field at all — making the
+              // whole record form unusable without a pointer.
+              <button
                 key={option.value}
-                variant={isOn ? 'default' : 'outline'}
-                className={cn('cursor-pointer select-none', disabled && 'pointer-events-none opacity-50')}
+                type="button"
+                disabled={disabled}
+                aria-pressed={isOn}
+                className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                 onClick={() =>
                   onChange(
                     isOn
@@ -146,8 +152,10 @@ export function FieldInput({ field, value, onChange, disabled }: FieldInputProps
                   )
                 }
               >
-                {option.label}
-              </Badge>
+                <Badge variant={isOn ? 'default' : 'outline'} className="cursor-pointer select-none">
+                  {option.label}
+                </Badge>
+              </button>
             );
           })}
         </div>

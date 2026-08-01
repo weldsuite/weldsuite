@@ -146,9 +146,8 @@ slug              varchar(50)          'service_visits'
 sourceEntityKey   varchar(30)          always a custom object
 targetEntityKey   varchar(30)          custom object OR built-in ('company','person',…)
 cardinality       varchar(20)          'one_to_one'|'one_to_many'|'many_to_one'|'many_to_many'
-sourceLabel       varchar(100)         panel title shown on the source side
-targetLabel       varchar(100)         panel title shown on the target side
-inverseLinkId     varchar(30)          pairs the two directions
+sourceLabel       varchar(100)         panel heading shown on the TARGET's page
+targetLabel       varchar(100)         panel heading shown on the SOURCE's page
 onDelete          varchar(20)          'restrict' | 'cascade' | 'set_null'
 required          boolean
 sortOrder, createdAt/updatedAt/deletedAt

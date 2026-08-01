@@ -147,8 +147,15 @@ export async function listRecords(
     eq(records.entityKey, object.entityKey),
     isNull(records.deletedAt),
   ];
-  if (opts.ownerScope) conditions.push(eq(records.ownerId, opts.ownerScope));
-  if (opts.ownerId) conditions.push(eq(records.ownerId, opts.ownerId));
+  // See listRecordsSimple in @weldsuite/db/lib/custom-objects — `ownerScope`
+  // wins, because combining both as equality yields a contradictory predicate
+  // and an always-empty page that misrepresents a permission limit as "no
+  // records".
+  if (opts.ownerScope) {
+    conditions.push(eq(records.ownerId, opts.ownerScope));
+  } else if (opts.ownerId) {
+    conditions.push(eq(records.ownerId, opts.ownerId));
+  }
   if (opts.search) conditions.push(ilike(records.title, `%${opts.search}%`));
 
   // An unresolvable filter means "no rows match", never "drop the filter".

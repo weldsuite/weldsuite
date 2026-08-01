@@ -26,7 +26,7 @@ import {
   reorderCustomObjectsSchema,
 } from '@weldsuite/app-api-client/schemas/custom-objects';
 import type { Env, Variables } from '../../types';
-import { error, success } from '../../lib/response';
+import { cursorPagination, error, list, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema } from '../../db';
 import {
@@ -37,6 +37,8 @@ import {
   listCustomObjects,
 } from '../../services/custom-objects';
 import { clearCustomObjectIndex } from '../../services/search/custom-object-documents';
+import { atomically } from '../../lib/atomically';
+import { isUniqueViolation } from '../../lib/pg-errors';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.customObjects;
@@ -57,14 +59,16 @@ app.get(
     try {
       const rows = await listCustomObjects(db, { status });
       const counts = await getCustomObjectCounts(db, rows.map((r) => r.entityKey));
-      return success(
-        c,
-        rows.map((r) => ({
-          ...r,
-          recordCount: counts[r.entityKey]?.recordCount ?? 0,
-          fieldCount: counts[r.entityKey]?.fieldCount ?? 0,
-        })),
-      );
+      const data = rows.map((r) => ({
+        ...r,
+        recordCount: counts[r.entityKey]?.recordCount ?? 0,
+        fieldCount: counts[r.entityKey]?.fieldCount ?? 0,
+      }));
+      // Uses the list envelope even though object definitions are never
+      // paginated (a workspace has tens, not thousands). A client that reads
+      // `pagination` from every list endpoint shouldn't have to special-case
+      // this one. `cursor: null` says plainly that there is no next page.
+      return list(c, data, cursorPagination(data.length, false, null));
     } catch (err) {
       console.error('[app-api/custom-objects] list failed:', err);
       return error.internal(c, 'Failed to list custom objects');
@@ -123,12 +127,18 @@ app.put(
     const { items } = c.req.valid('json');
 
     try {
-      for (const item of items) {
-        await db
-          .update(t)
-          .set({ sortOrder: item.sortOrder, updatedAt: new Date() })
-          .where(and(eq(t.id, item.id), isNull(t.deletedAt)));
-      }
+      // One unit of work. Statement-per-item would leave a partial ordering
+      // behind on a mid-loop failure, and the sidebar would then render an
+      // order the admin never asked for with no indication anything went wrong.
+      const now = new Date();
+      await atomically(db, (handle) =>
+        items.map((item) =>
+          handle
+            .update(t)
+            .set({ sortOrder: item.sortOrder, updatedAt: now })
+            .where(and(eq(t.id, item.id), isNull(t.deletedAt))),
+        ),
+      );
       return success(c, { reordered: items.length });
     } catch (err) {
       console.error('[app-api/custom-objects] reorder failed:', err);
@@ -191,6 +201,7 @@ app.post(
       });
 
       const [created] = await db.select().from(t).where(eq(t.id, id)).limit(1);
+      if (!created) return error.internal(c, 'Failed to create custom object');
 
       // The DEFINITION event uses the static `custom_field` catalog family
       // rather than the dynamic co_* key: this is metadata about an object,
@@ -205,6 +216,16 @@ app.post(
 
       return success(c, created, 201);
     } catch (err) {
+      // The pre-check above is advisory: two concurrent creates can both pass
+      // it and race to the insert, where the unique index on `slug` rejects the
+      // loser. That's a caller conflict, not a server fault, so map it onto the
+      // same 409 the pre-check returns instead of a 500.
+      if (isUniqueViolation(err)) {
+        return error.conflict(
+          c,
+          `A custom object with the name '${data.slug}' already exists`,
+        );
+      }
       console.error('[app-api/custom-objects] create failed:', err);
       return error.internal(c, 'Failed to create custom object');
     }
@@ -259,14 +280,17 @@ app.put(
         if (data[key] !== undefined) patch[key] = data[key];
       }
 
-      await db.update(t).set(patch).where(eq(t.id, id));
-
-      // Switching search OFF has to clear what was already indexed. The
-      // indexer gate only stops NEW writes; without this the stale vectors keep
-      // returning hits for an object the admin just made unsearchable.
+      // Clear the index BEFORE the row update. The indexer gate only stops new
+      // writes, so stale vectors have to be removed explicitly — and if this
+      // ran after the update and threw, `enableSearch` would already be false,
+      // making the retry a no-op (`existing.enableSearch` is now false) and
+      // stranding the vectors permanently. Clearing first is idempotent: a
+      // failure here leaves the flag on, so the caller can simply retry.
       if (existing.enableSearch && data.enableSearch === false) {
         await clearCustomObjectIndex(db, existing.entityKey);
       }
+
+      await db.update(t).set(patch).where(eq(t.id, id));
 
       const [updated] = await db.select().from(t).where(eq(t.id, id)).limit(1);
 
@@ -318,7 +342,7 @@ app.delete('/:id', requirePermission('weldobjects:manage'), async (c) => {
       );
     }
 
-    await deleteCustomObjectCascade(db, existing);
+    await deleteCustomObjectCascade(db, existing, atomically);
 
     publishEntityEvent({
       c,
