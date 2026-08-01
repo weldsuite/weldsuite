@@ -107,15 +107,23 @@ describe('toPostPeerSchedule', () => {
   // clock fails PostPeer's `format: "date-time"` check with
   // `body/scheduledFor must match format "date-time"`. This is ajv-formats'
   // own RFC 3339 regex, so it fails here exactly when PostPeer would 400.
+  // Shape alone is not enough: a parser regression could emit a perfectly
+  // valid RFC 3339 timestamp for the WRONG moment, which PostPeer would
+  // accept and then publish at the wrong time — a silent failure, and worse
+  // than the 400 this fix removes. So pin the exact instant per form too.
   it('emits a value that satisfies RFC 3339 date-time', () => {
     const RFC_3339 =
       /^\d\d\d\d-[0-1]\d-[0-3]\d[t\s](?:[0-2]\d:[0-5]\d:[0-5]\d|23:59:60)(?:\.\d+)?(?:z|[+-]\d\d(?::?\d\d)?)$/i;
-    for (const input of [
-      '2030-06-01T14:00:00Z',
-      '2030-06-01T14:00:00.000Z',
-      '2030-06-01T16:00:00+02:00',
-      '2030-06-01T16:00:00-0500',
-    ]) {
+    const cases: Array<[input: string, expected: string]> = [
+      ['2030-06-01T14:00:00Z', '2030-06-01T14:00:00.000Z'],
+      ['2030-06-01T14:00:00.000Z', '2030-06-01T14:00:00.000Z'],
+      ['2030-06-01T16:00:00+02:00', '2030-06-01T14:00:00.000Z'],
+      // Compact offset, no colon — its own parsing path, and the only form
+      // without an exact-value assertion elsewhere in this file.
+      ['2030-06-01T16:00:00-0500', '2030-06-01T21:00:00.000Z'],
+    ];
+    for (const [input, expected] of cases) {
+      expect(toPostPeerSchedule(input)).toEqual({ scheduledFor: expected, timezone: 'UTC' });
       expect(toPostPeerSchedule(input).scheduledFor).toMatch(RFC_3339);
     }
   });
