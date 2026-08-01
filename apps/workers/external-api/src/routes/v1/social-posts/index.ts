@@ -2,8 +2,14 @@ import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { and, eq, isNull, type SQL } from 'drizzle-orm';
-import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { publishEntityEvent } from '@weldsuite/entity-events';
+import {
+  publishPost,
+  PostPeerNotConfiguredError,
+  SocialPublishConflictError,
+  SocialInsufficientCreditsError,
+  type PublishPostOptions,
+} from '@weldsuite/social-publishing';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
@@ -11,7 +17,7 @@ import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
 import { stripServerFields } from '../../../lib/sanitize';
-import { callAppApiInternal } from '../../../lib/app-api-internal';
+import { socialContext, resolveClerkOrgId } from '../../../lib/social-context';
 import {
   createSocialPostSchema,
   updateSocialPostSchema,
@@ -122,11 +128,11 @@ app.delete('/:id', requireScope('social_posts:write'), async (c) => {
 // ---------------------------------------------------------------------------
 // Publish / schedule
 //
-// These delegate to app-api's internal surface rather than talking to PostPeer
-// here — see lib/app-api-internal.ts for why (the delivery webhook resolves the
-// tenant through a KV mapping only app-api can write). app-api also emits the
-// `social_post` published/scheduled entity event, so these routes deliberately
-// do not publish one of their own; doing so would double-fire it.
+// These call the shared publishing package directly — no other worker is
+// involved. The package is what keeps behaviour identical to the platform UI:
+// the same atomic claim against double-submission, the same credit metering,
+// and the same delivery index (in master, so any worker can write it and
+// app-api's PostPeer webhook can still resolve the tenant).
 //
 // Note that creating a post with `status: 'scheduled'` does NOT schedule it —
 // nothing sweeps scheduled rows. A post only reaches PostPeer through these
@@ -141,18 +147,17 @@ const schedulePostSchema = z.object({
 });
 
 /**
- * Confirm the post exists in this tenant, then hand off to app-api.
+ * Confirm the post exists in this tenant, then publish or schedule it.
  *
- * The local existence check is not redundant: it turns an unknown id into the
- * standard v1 404 (`error.notFound`) instead of the upstream's 400, which is
- * also what lets the MCP server's resolve-by-name retry engage when a caller
+ * The existence check earns its keep twice: it returns the standard v1 404 for
+ * an unknown id rather than letting the package raise a generic error, and a
+ * 404 is what lets the MCP server's resolve-by-name retry engage when a caller
  * passes a post title where an id was expected.
  */
-async function forwardToAppApi(
+async function publishOrSchedule(
   c: Context<HonoEnv>,
   id: string,
-  path: string,
-  extra: Record<string, unknown> = {},
+  options: PublishPostOptions,
 ) {
   const db = c.get('tenantDb');
 
@@ -163,35 +168,74 @@ async function forwardToAppApi(
     .limit(1);
   if (!row) return error.notFound(c, 'SocialPost', id);
 
-  const upstream = await callAppApiInternal(c.env, path, {
-    workspaceId: c.get('workspaceId'),
-    postId: id,
-    actorUserId: c.get('userId'),
-    ...extra,
-  });
-
-  if (upstream.status >= 200 && upstream.status < 300) {
-    return success(c, (upstream.body?.data ?? null) as Record<string, unknown>);
+  const orgId = await resolveClerkOrgId(c.env, c.get('workspaceId'));
+  if (!orgId) {
+    return error.internal(c, 'Workspace is not linked to an organization');
   }
 
-  // Forward the upstream code/message verbatim — it already speaks the v1
-  // error envelope, and carries statuses (402 insufficient credits, 409
-  // conflict, 503 not configured) the local helpers don't all express.
-  const upstreamError = upstream.body?.error;
-  return c.json(
-    {
-      error: {
-        code: upstreamError?.code ?? 'UPSTREAM_ERROR',
-        message: upstreamError?.message ?? 'Failed to reach the publishing service',
-        ...(upstreamError?.details !== undefined ? { details: upstreamError.details } : {}),
-      },
-    },
-    upstream.status as ContentfulStatusCode,
-  );
+  let result: Awaited<ReturnType<typeof publishPost>>;
+  try {
+    result = await publishPost(db, socialContext(c.env), orgId, id, options);
+  } catch (err) {
+    if (err instanceof PostPeerNotConfiguredError) {
+      return c.json(
+        {
+          error: {
+            code: 'SOCIAL_PUBLISHING_NOT_CONFIGURED',
+            message: 'Social publishing is not configured',
+          },
+        },
+        503,
+      );
+    }
+    if (err instanceof SocialPublishConflictError) {
+      return error.conflict(c, err.message);
+    }
+    if (err instanceof SocialInsufficientCreditsError) {
+      return c.json(
+        {
+          error: {
+            code: 'INSUFFICIENT_CREDITS',
+            message: err.message,
+            details: {
+              currentBalance: err.currentBalance,
+              required: err.required,
+              shortfall: err.required - err.currentBalance,
+            },
+          },
+        },
+        402,
+      );
+    }
+    const message = err instanceof Error ? err.message : 'Failed to publish post';
+    console.error('[external-api/social-posts] publish failed:', err);
+    // A post with no targets, or none of them connected, is a caller error.
+    const isCallerError =
+      message === 'Post has no target accounts' ||
+      message === 'No PostPeer-connected accounts among the post targets';
+    return isCallerError ? error.badRequest(c, message) : error.internal(c, message);
+  }
+
+  // Emitted outside the try, and defensively: the post is live on PostPeer by
+  // now, so a failure to announce it must not be reported to the caller as a
+  // failed publish — they would retry a post that has already gone out.
+  try {
+    publishEntityEvent({
+      c,
+      entityType: 'social_post',
+      entityId: id,
+      action: options.now ? (result.status === 'failed' ? 'failed' : 'published') : 'scheduled',
+      data: { id, status: result.status, postpeerPostId: result.postpeerPostId },
+    });
+  } catch (err) {
+    console.error('[external-api/social-posts] entity event failed after publish:', err);
+  }
+
+  return success(c, result as unknown as Record<string, unknown>);
 }
 
 app.post('/:id/publish', requireScope('social_posts:write'), async (c) =>
-  forwardToAppApi(c, c.req.param('id'), '/social-posts/publish'),
+  publishOrSchedule(c, c.req.param('id'), { now: true }),
 );
 
 app.post(
@@ -200,7 +244,7 @@ app.post(
   zValidator('json', schedulePostSchema),
   async (c) => {
     const { scheduledAt, timezone } = c.req.valid('json');
-    return forwardToAppApi(c, c.req.param('id'), '/social-posts/schedule', { scheduledAt, timezone });
+    return publishOrSchedule(c, c.req.param('id'), { now: false, scheduledAt, timezone });
   },
 );
 

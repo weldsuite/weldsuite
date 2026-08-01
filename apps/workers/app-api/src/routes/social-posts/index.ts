@@ -21,7 +21,8 @@ import {
   PostPeerNotConfiguredError,
   SocialPublishConflictError,
   SocialInsufficientCreditsError,
-} from '../../services/social-publishing';
+} from '@weldsuite/social-publishing';
+import { socialContext } from '../../lib/social-context';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.socialPosts;
@@ -120,7 +121,7 @@ app.post('/:id/publish', requirePermission('posts:update'), async (c) => {
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
   try {
-    const result = await publishPost(db, c.env, workspaceId, id, { now: true });
+    const result = await publishPost(db, socialContext(c.env), workspaceId, id, { now: true });
     publishEntityEvent({
       c,
       entityType: 'social_post',
@@ -160,7 +161,7 @@ app.post('/:id/schedule', requirePermission('posts:update'), zValidator('json', 
     // publishPost persists scheduledAt/timezone atomically as part of claiming
     // the publishing slot, so the stored time always matches what is submitted
     // to PostPeer even under concurrent requests.
-    const result = await publishPost(db, c.env, workspaceId, id, { now: false, scheduledAt, timezone });
+    const result = await publishPost(db, socialContext(c.env), workspaceId, id, { now: false, scheduledAt, timezone });
     publishEntityEvent({
       c,
       entityType: 'social_post',
@@ -201,7 +202,7 @@ app.post('/:id/reschedule', requirePermission('posts:update'), zValidator('json'
     // scheduledAt/timezone are persisted atomically inside publishPost (with the
     // publishing-slot claim), so a concurrent reschedule can't desync the stored
     // time from the time submitted to PostPeer.
-    const result = await publishPost(db, c.env, workspaceId, id, { now: false, scheduledAt, timezone });
+    const result = await publishPost(db, socialContext(c.env), workspaceId, id, { now: false, scheduledAt, timezone });
     publishEntityEvent({
       c,
       entityType: 'social_post',
@@ -239,7 +240,7 @@ app.post('/:id/cancel', requirePermission('posts:update'), async (c) => {
   try {
     // cancelPost also cancels the live PostPeer scheduled post (if any) so it
     // can't still fire after the user cancels, and refunds the charged credits.
-    const cancelled = await cancelPost(db, c.env, workspaceId, id);
+    const cancelled = await cancelPost(db, socialContext(c.env), workspaceId, id);
     if (!cancelled) return error.notFound(c, 'Social post', id);
     publishEntityEvent({
       c,

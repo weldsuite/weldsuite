@@ -24,6 +24,7 @@
     "@weldsuite/cloudflare-zones": "workspace:*",
     "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/credits": "workspace:*",
+    "@weldsuite/social-publishing": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/email": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",

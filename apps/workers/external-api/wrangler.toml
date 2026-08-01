@@ -1,12 +1,15 @@
 # External API - Cloudflare Workers Configuration
 #
 # Secrets (set via `wrangler secret put`, never hardcoded here):
-# - INTERNAL_API_SECRET (shared bearer for app-api's /api/internal/* surface.
-#   Required by POST /v1/social-posts/:id/publish and /schedule, which delegate
-#   PostPeer publishing to app-api. MUST match app-api's value. Unset leaves
-#   those two routes answering 503 and changes nothing else.)
-#   (APP_API_INTERNAL_URL defaults to https://app-api.weldsuite.org; override
-#   via [vars] to point at a different app-api origin.)
+# - POSTPEER_API_KEY (WeldSocial: single WeldSuite-level PostPeer key, sent as
+#   the `x-access-key` header. Required by POST /v1/social-posts/:id/publish and
+#   /schedule, which publish through @weldsuite/social-publishing directly —
+#   this worker does not depend on app-api. Same value as app-api's. Unset
+#   leaves those two routes answering 503 and changes nothing else.)
+# - POSTPEER_APP_IDS (WeldSocial BYOK: JSON object of platform → PostPeer app id.
+#   Only read on the connect flow, which this worker does not expose; set for
+#   parity if that changes.)
+#   (POSTPEER_BASE_URL defaults to https://api.postpeer.dev/v1; override via [vars].)
 name = "weldsuite-external-api"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"

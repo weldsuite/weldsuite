@@ -19,7 +19,8 @@ import {
   getConnectUrl,
   syncAccounts,
   PostPeerNotConfiguredError,
-} from '../../services/social-publishing';
+} from '@weldsuite/social-publishing';
+import { socialContext } from '../../lib/social-context';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.socialAccounts;
@@ -79,7 +80,7 @@ app.post('/connect', requirePermission('posts:update'), zValidator('json', conne
   const workspaceId = c.get('workspaceId');
   const { platform, redirectUri } = c.req.valid('json');
   try {
-    const result = await getConnectUrl(db, c.env, workspaceId, platform, redirectUri);
+    const result = await getConnectUrl(db, socialContext(c.env), workspaceId, platform, redirectUri);
     return success(c, result);
   } catch (err) {
     if (err instanceof PostPeerNotConfiguredError) {
@@ -99,7 +100,7 @@ app.post('/sync', requirePermission('posts:update'), async (c) => {
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
   try {
-    const result = await syncAccounts(db, c.env, workspaceId, userId);
+    const result = await syncAccounts(db, socialContext(c.env), workspaceId, userId);
     return success(c, result);
   } catch (err) {
     if (err instanceof PostPeerNotConfiguredError) {

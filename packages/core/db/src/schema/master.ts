@@ -541,6 +541,37 @@ export const telnyxPortingOrderIndex = pgTable('telnyx_porting_order_index', {
 export type TelnyxPortingOrderIndex = typeof telnyxPortingOrderIndex.$inferSelect;
 export type NewTelnyxPortingOrderIndex = typeof telnyxPortingOrderIndex.$inferInsert;
 
+// ----------------------------------------------------------------------------
+// PostPeer post index — webhook routing
+// ----------------------------------------------------------------------------
+// Exactly the same problem as the Telnyx index above: PostPeer delivery
+// webhooks (post.published / post.partial / post.failed) carry no tenant
+// reference, and PostPeer's create-post API has no passthrough metadata field
+// to smuggle one through, so the handler cannot tell which tenant DB holds the
+// post. We insert (postpeerPostId, clerkOrgId, socialPostId) when the post is
+// submitted and look it up on every webhook fire.
+//
+// This lives in master rather than a KV namespace so that ANY worker can
+// publish — external-api and mcp-server publish directly, and all three
+// workers already reach master. A KV binding would tie publishing to whichever
+// worker owned that namespace. It is also durable: the KV entry it replaces
+// carried a 60-day TTL, so a delivery webhook for a post scheduled further out
+// than that had nothing left to resolve against.
+//
+// Same convention as the Telnyx index: store clerkOrgId, not workspaces.id,
+// because getTenantDbForWorkspace is keyed by clerkOrgId.
+export const postpeerPostIndex = pgTable('postpeer_post_index', {
+  postpeerPostId: varchar('postpeer_post_id', { length: 100 }).primaryKey(),
+  clerkOrgId: varchar('clerk_org_id', { length: 255 }).notNull(),
+  socialPostId: varchar('social_post_id', { length: 30 }).notNull(), // social_posts.id in tenant DB
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (table) => [
+  index('postpeer_post_index_org_idx').on(table.clerkOrgId),
+]);
+
+export type PostpeerPostIndex = typeof postpeerPostIndex.$inferSelect;
+export type NewPostpeerPostIndex = typeof postpeerPostIndex.$inferInsert;
+
 // ============================================================================
 // BILLING INVOICES
 // ============================================================================

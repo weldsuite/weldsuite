@@ -21,6 +21,7 @@
     "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/social-publishing": "workspace:*",
     "@neondatabase/serverless": "^1.0.1",
     "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.7",

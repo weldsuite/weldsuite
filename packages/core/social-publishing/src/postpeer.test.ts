@@ -39,7 +39,7 @@ describe('PostPeerClient', () => {
     const res = await client.createPost({ content: 'hi', platforms: [{ platform: 'twitter', accountId: 'i1' }], publishNow: true });
 
     expect(res.postId).toBe('p1');
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0]!;
     expect(String(url)).toBe('https://api.postpeer.dev/v1/posts');
     expect(init.method).toBe('POST');
     expect(init.headers['x-access-key']).toBe('key_123');
@@ -54,7 +54,7 @@ describe('PostPeerClient', () => {
     const res = await client.getAnalytics({ postId: 'p1' });
 
     expect(res).toEqual([{ postId: 'p1', likes: 5 }]);
-    expect(String(fetchMock.mock.calls[0][0])).toBe('https://api.postpeer.dev/v1/analytics?postId=p1');
+    expect(String(fetchMock.mock.calls[0]![0])).toBe('https://api.postpeer.dev/v1/analytics?postId=p1');
   });
 
   it('throws PostPeerError on non-2xx', async () => {

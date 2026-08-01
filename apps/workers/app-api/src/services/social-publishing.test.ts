@@ -11,8 +11,12 @@ import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createPgliteDb, isPgliteAvailable } from '../test/pglite';
 import { schema, type Database } from '../db';
-import type { Env } from '../types';
-import { publishPost, cancelPost, SocialPublishConflictError } from './social-publishing';
+import {
+  publishPost,
+  cancelPost,
+  SocialPublishConflictError,
+  type SocialPublishingContext,
+} from '@weldsuite/social-publishing';
 
 let db: Database;
 let available = false;
@@ -24,8 +28,23 @@ beforeAll(async () => {
 
 afterEach(() => vi.restoreAllMocks());
 
-const kv = { put: vi.fn(async () => {}), get: vi.fn(async () => null) };
-const env = { POSTPEER_API_KEY: 'k', WORKSPACE_CACHE: kv } as unknown as Env;
+/**
+ * Master DB stub. The service touches master for credit metering and to index
+ * the PostPeer post id for the delivery webhook; neither is under test here, so
+ * both are allowed to fail softly the way they do in a degraded environment.
+ */
+const masterDb = {
+  select: () => {
+    throw new Error('master DB not available in this test');
+  },
+  insert: () => ({
+    values: () => ({ onConflictDoNothing: async () => undefined }),
+  }),
+};
+const ctx = {
+  POSTPEER_API_KEY: 'k',
+  masterDb: () => masterDb,
+} as unknown as SocialPublishingContext;
 
 /** Stub fetch; record (method, path) and return canned PostPeer responses. */
 function stubPostPeer(): Array<{ method: string; path: string }> {
@@ -90,7 +109,7 @@ describe('social publishing · double-post guards', () => {
     await seedPost('spo_resched', 'scheduled', 'old_pp');
     const calls = stubPostPeer();
 
-    const res = await publishPost(db, env, 'org_1', 'spo_resched', {
+    const res = await publishPost(db, ctx, 'org_1', 'spo_resched', {
       now: false,
       scheduledAt: '2030-01-01T00:00:00.000Z',
     });
@@ -117,7 +136,7 @@ describe('social publishing · double-post guards', () => {
     stubPostPeer();
 
     await expect(
-      publishPost(db, env, 'org_1', 'spo_published', { now: true }),
+      publishPost(db, ctx, 'org_1', 'spo_published', { now: true }),
     ).rejects.toBeInstanceOf(SocialPublishConflictError);
   });
 
@@ -128,7 +147,7 @@ describe('social publishing · double-post guards', () => {
     stubPostPeer();
 
     await expect(
-      publishPost(db, env, 'org_1', 'spo_publishing', { now: true }),
+      publishPost(db, ctx, 'org_1', 'spo_publishing', { now: true }),
     ).rejects.toBeInstanceOf(SocialPublishConflictError);
   });
 
@@ -139,8 +158,8 @@ describe('social publishing · double-post guards', () => {
     const calls = stubPostPeer();
 
     const [a, b] = await Promise.allSettled([
-      publishPost(db, env, 'org_1', 'spo_race', { now: true }),
-      publishPost(db, env, 'org_1', 'spo_race', { now: true }),
+      publishPost(db, ctx, 'org_1', 'spo_race', { now: true }),
+      publishPost(db, ctx, 'org_1', 'spo_race', { now: true }),
     ]);
 
     const fulfilled = [a, b].filter((r) => r.status === 'fulfilled');
@@ -160,7 +179,7 @@ describe('social publishing · double-post guards', () => {
     await seedPost('spo_cancel', 'scheduled', 'pp_cancel');
     const calls = stubPostPeer();
 
-    const ok = await cancelPost(db, env, 'org_1', 'spo_cancel');
+    const ok = await cancelPost(db, ctx, 'org_1', 'spo_cancel');
     expect(ok).toBe(true);
     expect(calls).toContainEqual({ method: 'DELETE', path: '/v1/posts/pp_cancel' });
 
@@ -177,7 +196,7 @@ describe('social publishing · double-post guards', () => {
     await seedPost('spo_pub_cancel', 'published', 'pp_pub');
     const calls = stubPostPeer();
 
-    await expect(cancelPost(db, env, 'org_1', 'spo_pub_cancel')).rejects.toBeInstanceOf(
+    await expect(cancelPost(db, ctx, 'org_1', 'spo_pub_cancel')).rejects.toBeInstanceOf(
       SocialPublishConflictError,
     );
     // PostPeer is not touched, and the row stays published.

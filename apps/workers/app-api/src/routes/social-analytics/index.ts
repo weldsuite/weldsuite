@@ -15,7 +15,8 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { error, success } from '../../lib/response';
 import { schema } from '../../db';
-import { syncAnalytics, PostPeerNotConfiguredError } from '../../services/social-publishing';
+import { syncAnalytics, PostPeerNotConfiguredError } from '@weldsuite/social-publishing';
+import { socialContext } from '../../lib/social-context';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const { socialAnalytics, socialAccounts, socialPosts, socialCampaigns } = schema;
@@ -31,7 +32,7 @@ app.post('/:postId/sync', requirePermission('posts:update'), async (c) => {
   const db = c.get('tenantDb');
   const postId = c.req.param('postId');
   try {
-    const result = await syncAnalytics(db, c.env, postId);
+    const result = await syncAnalytics(db, socialContext(c.env), postId);
     return success(c, result);
   } catch (err) {
     if (err instanceof PostPeerNotConfiguredError) {
