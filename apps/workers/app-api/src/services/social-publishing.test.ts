@@ -2,7 +2,8 @@
  * pglite integration tests for the social publishing double-post guards:
  *  - reschedule/publish cancels a pre-existing PostPeer scheduled post first
  *  - publishPost is idempotent (rejects already-published / mid-publish)
- *  - cancelPost cancels the live PostPeer post so it can't still fire
+ *  - cancelPost deletes the live PostPeer post so it can't still fire, fails
+ *    loudly if that delete doesn't land, and keeps the content as a draft
  *
  * The PostPeer API is exercised through a stubbed global `fetch`.
  */
@@ -16,6 +17,7 @@ import {
   syncAccounts,
   cancelPost,
   SocialPublishConflictError,
+  SocialCancelUpstreamError,
   type SocialPublishingContext,
 } from '@weldsuite/social-publishing';
 
@@ -47,8 +49,16 @@ const ctx = {
   masterDb: () => masterDb,
 } as unknown as SocialPublishingContext;
 
-/** Stub fetch; record (method, path, body) and return canned PostPeer responses. */
-function stubPostPeer(): Array<{ method: string; path: string; body?: unknown }> {
+/**
+ * Stub fetch; record (method, path, body) and return canned PostPeer responses.
+ * `deleteStatus` forces DELETE /posts/:id to fail with that HTTP status, which
+ * is how the cancel-must-fail-loudly paths are exercised.
+ */
+function stubPostPeer(opts: { deleteStatus?: number } = {}): Array<{
+  method: string;
+  path: string;
+  body?: unknown;
+}> {
   const calls: Array<{ method: string; path: string; body?: unknown }> = [];
   vi.stubGlobal(
     'fetch',
@@ -59,6 +69,13 @@ function stubPostPeer(): Array<{ method: string; path: string; body?: unknown }>
         path,
         ...(init.body ? { body: JSON.parse(init.body) } : {}),
       });
+      if (opts.deleteStatus && init.method === 'DELETE') {
+        return {
+          ok: false,
+          status: opts.deleteStatus,
+          text: async () => JSON.stringify({ message: 'nope' }),
+        };
+      }
       const body =
         init.method === 'POST' && path.endsWith('/posts')
           ? {
@@ -92,7 +109,12 @@ async function seedAccount() {
     .onConflictDoNothing();
 }
 
-async function seedPost(id: string, status: string, postpeerPostId: string | null) {
+async function seedPost(
+  id: string,
+  status: string,
+  postpeerPostId: string | null,
+  scheduledAt?: Date,
+) {
   await db.insert(schema.socialPosts).values({
     id,
     content: 'hello world',
@@ -100,6 +122,7 @@ async function seedPost(id: string, status: string, postpeerPostId: string | nul
     status: status as never,
     targetAccountIds: ['sac_1'],
     postpeerPostId,
+    scheduledAt,
     timezone: 'UTC',
     createdByUserId: 'u1',
     createdAt: new Date(),
@@ -190,10 +213,10 @@ describe('social publishing · double-post guards', () => {
     expect(creates).toHaveLength(1);
   });
 
-  it('cancelPost cancels the live PostPeer post and marks the row cancelled', async () => {
+  it('cancelPost deletes the live PostPeer post and returns the row to draft', async () => {
     if (!available) return;
     await seedAccount();
-    await seedPost('spo_cancel', 'scheduled', 'pp_cancel');
+    await seedPost('spo_cancel', 'scheduled', 'pp_cancel', new Date('2030-06-01T14:00:00Z'));
     const calls = stubPostPeer();
 
     const ok = await cancelPost(db, ctx, 'org_1', 'spo_cancel');
@@ -204,7 +227,70 @@ describe('social publishing · double-post guards', () => {
       .select()
       .from(schema.socialPosts)
       .where(eq(schema.socialPosts.id, 'spo_cancel'));
-    expect(row.status).toBe('cancelled');
+    // The content survives so it can be re-scheduled; the slot and the upstream
+    // handle are both gone.
+    expect(row.status).toBe('draft');
+    expect(row.content).toBe('hello world');
+    expect(row.scheduledAt).toBeNull();
+    expect(row.postpeerPostId).toBeNull();
+  });
+
+  it('cancelPost fails loudly and leaves the post scheduled when PostPeer errors', async () => {
+    if (!available) return;
+    await seedAccount();
+    const scheduledAt = new Date('2030-06-01T14:00:00Z');
+    await seedPost('spo_cancel_5xx', 'scheduled', 'pp_5xx', scheduledAt);
+    stubPostPeer({ deleteStatus: 500 });
+
+    await expect(cancelPost(db, ctx, 'org_1', 'spo_cancel_5xx')).rejects.toBeInstanceOf(
+      SocialCancelUpstreamError,
+    );
+
+    // The post is still armed upstream, so the row must still say so — anything
+    // else would tell the user it was cancelled when it is about to publish.
+    const [row] = await db
+      .select()
+      .from(schema.socialPosts)
+      .where(eq(schema.socialPosts.id, 'spo_cancel_5xx'));
+    expect(row.status).toBe('scheduled');
+    expect(row.postpeerPostId).toBe('pp_5xx');
+    expect(row.scheduledAt).toEqual(scheduledAt);
+  });
+
+  it('cancelPost treats a PostPeer 404 as already-unscheduled and proceeds', async () => {
+    if (!available) return;
+    await seedAccount();
+    await seedPost('spo_cancel_404', 'scheduled', 'pp_404', new Date('2030-06-01T14:00:00Z'));
+    stubPostPeer({ deleteStatus: 404 });
+
+    const ok = await cancelPost(db, ctx, 'org_1', 'spo_cancel_404');
+    expect(ok).toBe(true);
+
+    const [row] = await db
+      .select()
+      .from(schema.socialPosts)
+      .where(eq(schema.socialPosts.id, 'spo_cancel_404'));
+    expect(row.status).toBe('draft');
+    expect(row.postpeerPostId).toBeNull();
+  });
+
+  it('cancelPost refuses to unschedule when PostPeer is not configured', async () => {
+    if (!available) return;
+    await seedAccount();
+    await seedPost('spo_cancel_nocfg', 'scheduled', 'pp_nocfg', new Date('2030-06-01T14:00:00Z'));
+    const calls = stubPostPeer();
+    const noKeyCtx = { masterDb: () => masterDb } as unknown as SocialPublishingContext;
+
+    await expect(cancelPost(db, noKeyCtx, 'org_1', 'spo_cancel_nocfg')).rejects.toBeInstanceOf(
+      SocialCancelUpstreamError,
+    );
+    expect(calls).toHaveLength(0);
+
+    const [row] = await db
+      .select()
+      .from(schema.socialPosts)
+      .where(eq(schema.socialPosts.id, 'spo_cancel_nocfg'));
+    expect(row.status).toBe('scheduled');
   });
 
   it('cancelPost refuses to cancel an already-published post', async () => {

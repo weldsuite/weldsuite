@@ -16,6 +16,7 @@ export type {
 export {
   PostPeerNotConfiguredError,
   SocialPublishConflictError,
+  SocialCancelUpstreamError,
   SocialInsufficientCreditsError,
   ensureWorkspaceProfile,
   getConnectUrl,
