@@ -72,6 +72,20 @@ export const navigation = {
         notes: 'Notas',
         sequences: 'Secuencias',
       },
+      weldcommerce: {
+        overview: 'Resumen',
+        products: 'Productos',
+        categories: 'Categorías',
+        orders: 'Pedidos',
+        customers: 'Clientes',
+      },
+      weldstash: {
+        overview: 'Resumen',
+        products: 'Productos',
+        suppliers: 'Proveedores',
+        warehouses: 'Almacenes',
+        stock: 'Existencias',
+      },
       welddata: {
         findLeads: 'Buscar leads',
       },

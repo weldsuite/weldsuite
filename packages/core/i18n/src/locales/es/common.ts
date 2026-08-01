@@ -843,6 +843,8 @@ export const common = {
         empty: 'Aún no hay existencias. Haz clic en "Ajustar existencias" para recibir inventario.',
         toastAdjusted: 'Existencias ajustadas — nuevo en existencia: {delta}',
         toastAdjustFailed: 'No se pudieron ajustar las existencias',
+        readOnlyHint: 'Las existencias cambian mediante ajustes, no editando directamente.',
+        searchPlaceholder: 'Buscar existencias…',
       },
       suppliers: {
         searchPlaceholder: 'Buscar proveedores…',

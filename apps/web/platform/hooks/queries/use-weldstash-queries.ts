@@ -8,7 +8,7 @@
  * - Stock:      /inventory, /inventory/adjust, /inventory-movements
  */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type {
   WeldstashListQuery,
@@ -20,6 +20,7 @@ import type {
   WeldstashProduct,
   WeldstashWarehouse,
   WeldstashStockRow,
+  WeldstashStockMovement,
 } from '@weldsuite/core-api-client/schemas/weldstash';
 import type {
   CreateWmsSupplierInput,
@@ -92,6 +93,83 @@ export function useWeldstashProducts(params?: WeldstashListQuery) {
     },
   });
 }
+/**
+ * Cursor-paged variants used by the EntityGrid screens. The plain `use*`
+ * queries above are kept for the pickers and the overview counters, which
+ * only ever want one page.
+ */
+export function useInfiniteWeldstashProducts(params?: Omit<WeldstashListQuery, 'cursor'>) {
+  const { getClient } = useAppApiClient();
+  return useInfiniteQuery({
+    queryKey: [...weldstashKeys.products(), 'infinite', params ?? {}],
+    queryFn: async ({ pageParam }) => {
+      const client = await getClient();
+      const qs = buildQueryString({
+        ...(params ?? { limit: 50 }),
+        cursor: pageParam as string | undefined,
+      } as Record<string, unknown>);
+      return client.get<ListResponse<WeldstashProduct>>(`/products${qs}`);
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) =>
+      lastPage.pagination?.hasMore ? lastPage.pagination.cursor ?? undefined : undefined,
+  });
+}
+
+export function useInfiniteWeldstashSuppliers(params?: Omit<WeldstashListQuery, 'cursor'>) {
+  const { getClient } = useAppApiClient();
+  return useInfiniteQuery({
+    queryKey: [...weldstashKeys.suppliers(), 'infinite', params ?? {}],
+    queryFn: async ({ pageParam }) => {
+      const client = await getClient();
+      const qs = buildQueryString({
+        ...(params ?? { limit: 50 }),
+        cursor: pageParam as string | undefined,
+      } as Record<string, unknown>);
+      return client.get<ListResponse<WmsSupplier>>(`/wms-suppliers${qs}`);
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) =>
+      lastPage.pagination?.hasMore ? lastPage.pagination.cursor ?? undefined : undefined,
+  });
+}
+
+export function useInfiniteWeldstashWarehouses(params?: Omit<WeldstashListQuery, 'cursor'>) {
+  const { getClient } = useAppApiClient();
+  return useInfiniteQuery({
+    queryKey: [...weldstashKeys.warehouses(), 'infinite', params ?? {}],
+    queryFn: async ({ pageParam }) => {
+      const client = await getClient();
+      const qs = buildQueryString({
+        ...(params ?? { limit: 50 }),
+        cursor: pageParam as string | undefined,
+      } as Record<string, unknown>);
+      return client.get<ListResponse<WeldstashWarehouse>>(`/warehouses${qs}`);
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) =>
+      lastPage.pagination?.hasMore ? lastPage.pagination.cursor ?? undefined : undefined,
+  });
+}
+
+export function useInfiniteWeldstashStock(params?: Omit<ListStockQuery, 'cursor'>) {
+  const { getClient } = useAppApiClient();
+  return useInfiniteQuery({
+    queryKey: [...weldstashKeys.stock(), 'infinite', params ?? {}],
+    queryFn: async ({ pageParam }) => {
+      const client = await getClient();
+      const qs = buildQueryString({
+        ...(params ?? { limit: 50 }),
+        cursor: pageParam as string | undefined,
+      } as Record<string, unknown>);
+      return client.get<ListResponse<WeldstashStockRow>>(`/inventory${qs}`);
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) =>
+      lastPage.pagination?.hasMore ? lastPage.pagination.cursor ?? undefined : undefined,
+  });
+}
+
 export function useCreateWeldstashProduct() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
@@ -153,6 +231,18 @@ export function useWeldstashSuppliers(params?: WeldstashListQuery) {
     },
   });
 }
+export function useWeldstashSupplier(id: string, enabled = true) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: weldstashKeys.supplier(id),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<DataResponse<WmsSupplier>>(`/wms-suppliers/${id}`);
+    },
+    enabled: !!id && enabled,
+  });
+}
+
 export function useCreateWeldstashSupplier() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
@@ -205,6 +295,18 @@ export function useWeldstashWarehouses(params?: WeldstashListQuery) {
     },
   });
 }
+export function useWeldstashWarehouse(id: string, enabled = true) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: weldstashKeys.warehouse(id),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<DataResponse<WeldstashWarehouse>>(`/warehouses/${id}`);
+    },
+    enabled: !!id && enabled,
+  });
+}
+
 export function useCreateWeldstashWarehouse() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
@@ -256,6 +358,27 @@ export function useWeldstashStock(params?: ListStockQuery) {
       const qs = buildQueryString((params ?? { limit: 50 }) as Record<string, unknown>);
       return client.get<ListResponse<WeldstashStockRow>>(`/inventory${qs}`);
     },
+  });
+}
+
+/**
+ * Movement history for a product (or warehouse). Backs the Movements tab of
+ * the product object panel — the audit trail `/inventory/adjust` writes
+ * alongside every level change.
+ */
+export function useWeldstashMovements(
+  params?: { productId?: string; warehouseId?: string; limit?: number },
+  enabled = true,
+) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: weldstashKeys.movements(params),
+    queryFn: async () => {
+      const client = await getClient();
+      const qs = buildQueryString((params ?? { limit: 25 }) as Record<string, unknown>);
+      return client.get<ListResponse<WeldstashStockMovement>>(`/inventory-movements${qs}`);
+    },
+    enabled,
   });
 }
 

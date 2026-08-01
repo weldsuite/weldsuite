@@ -22,3 +22,8 @@ import './project';
 import './invoice';
 import './bill';
 import './domain';
+import './product';
+import './category';
+import './order';
+import './supplier';
+import './warehouse';

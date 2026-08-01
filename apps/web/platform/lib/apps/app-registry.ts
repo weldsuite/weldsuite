@@ -14,6 +14,7 @@ import {
   Video,
   Phone,
   Share2,
+  ShoppingBag,
   FolderKanban,
   Truck,
   Bot,
@@ -154,6 +155,17 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
   weldbooks: {
     lucideIcon: Calculator,
   },
+  // WeldCommerce. Icon-only logo like welddata/weldknow — wordmark variants
+  // need the brand typeface and can be added later.
+  weldcommerce: {
+    lucideIcon: ShoppingBag,
+    shortName: 'Commerce',
+    icon: '/assets/images/weldcommerce/icon.svg',
+    logo: {
+      iconLight: '/assets/images/weldcommerce/logo-light.svg',
+      iconDark: '/assets/images/weldcommerce/logo-dark.svg',
+    },
+  },
   // WeldKnow (workspace wiki / knowledge base). Icon-only logo like welddata —
   // wordmark variants need the brand typeface and can be added later.
   weldknow: {
@@ -224,6 +236,7 @@ const LEGACY_CODE_ALIASES: Record<string, string> = {
   mail: 'weldmail',
   host: 'weldhost',
   stash: 'wms',
+  commerce: 'weldcommerce',
   accounting: 'weldbooks',
   books: 'weldbooks',
   meet: 'weldmeet',

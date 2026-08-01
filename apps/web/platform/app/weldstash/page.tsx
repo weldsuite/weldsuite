@@ -1,7 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
-import { Button } from '@weldsuite/ui/components/button';
 import { Link } from '@/lib/router';
-import { Package, Truck, Warehouse, Boxes, Plus } from 'lucide-react';
+import { Package, Truck, Warehouse, Boxes } from 'lucide-react';
 import {
   useWeldstashProducts,
   useWeldstashSuppliers,
@@ -42,17 +41,12 @@ export default function WeldStashDashboard() {
         <StatCard label={t.weldstash.dashboard.statLowStock} value={stock.data?.pagination.totalCount ?? '—'} icon={Boxes} href="/weldstash/stock?lowStockOnly=true" />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t.weldstash.dashboard.quickActions}</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
-          <Link href="/weldstash/products"><Button variant="outline"><Plus className="mr-2 h-4 w-4" /> {t.weldstash.dashboard.newProduct}</Button></Link>
-          <Link href="/weldstash/suppliers"><Button variant="outline"><Plus className="mr-2 h-4 w-4" /> {t.weldstash.dashboard.newSupplier}</Button></Link>
-          <Link href="/weldstash/warehouses"><Button variant="outline"><Plus className="mr-2 h-4 w-4" /> {t.weldstash.dashboard.newWarehouse}</Button></Link>
-          <Link href="/weldstash/stock"><Button variant="outline"><Boxes className="mr-2 h-4 w-4" /> {t.weldstash.dashboard.adjustStock}</Button></Link>
-        </CardContent>
-      </Card>
+      {/*
+        The old "Quick actions" card linked to each list page just to press its
+        "New …" button. The module sidebar now does that navigation, and every
+        list has its own create button, so the card was two clicks to reach a
+        one-click action.
+      */}
     </div>
   );
 }

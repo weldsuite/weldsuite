@@ -53,6 +53,11 @@ import {
   Megaphone,
   Link2,
   CircleCheck,
+  Package,
+  FolderTree,
+  ShoppingCart,
+  Warehouse,
+  Boxes,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import type { TranslationsType } from '@/lib/i18n/types';
@@ -88,6 +93,45 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldcrm.notes, href: '/weldcrm/notes', icon: StickyNote, permission: 'contacts:read' },
           // Sequences are drip-campaign sequences targeting contacts — backend gates them on contacts:*
           { title: t.navigation.moduleSidebar.weldcrm.sequences, href: '/weldcrm/sequences', icon: Workflow, permission: 'contacts:read' },
+        ],
+      },
+    ],
+  },
+  weldcommerce: {
+    appName: 'WeldCommerce',
+    appIcon: ShoppingCart,
+    appLogo: getAppLogoConfig('weldcommerce'),
+    getMenuItems: (t) => [
+      {
+        group: t.navigation.moduleSidebar.groups.general,
+        items: [
+          // Overview reads every list's totalCount, so it needs no permission of
+          // its own — each count query is gated by its own endpoint.
+          { title: t.navigation.moduleSidebar.weldcommerce.overview, href: '/weldcommerce', icon: LayoutDashboard },
+          { title: t.navigation.moduleSidebar.weldcommerce.products, href: '/weldcommerce/products', icon: Package, permission: 'products:read' },
+          { title: t.navigation.moduleSidebar.weldcommerce.categories, href: '/weldcommerce/categories', icon: FolderTree, permission: 'categories:read' },
+          { title: t.navigation.moduleSidebar.weldcommerce.orders, href: '/weldcommerce/orders', icon: ShoppingCart, permission: 'orders:read' },
+          // Customers are companies — see app/weldcommerce/customers/page.tsx.
+          { title: t.navigation.moduleSidebar.weldcommerce.customers, href: '/weldcommerce/customers', icon: Building, permission: 'companies:read' },
+        ],
+      },
+    ],
+  },
+  weldstash: {
+    appName: 'WeldStash',
+    appIcon: Warehouse,
+    appLogo: getAppLogoConfig('weldstash'),
+    getMenuItems: (t) => [
+      {
+        group: t.navigation.moduleSidebar.groups.general,
+        items: [
+          { title: t.navigation.moduleSidebar.weldstash.overview, href: '/weldstash', icon: LayoutDashboard },
+          // `products` is the same table WeldCommerce reads — see
+          // app/weldstash/products/config/product-grid-config.ts.
+          { title: t.navigation.moduleSidebar.weldstash.products, href: '/weldstash/products', icon: Package, permission: 'products:read' },
+          { title: t.navigation.moduleSidebar.weldstash.suppliers, href: '/weldstash/suppliers', icon: Truck, permission: 'suppliers:read' },
+          { title: t.navigation.moduleSidebar.weldstash.warehouses, href: '/weldstash/warehouses', icon: Warehouse, permission: 'warehouses:read' },
+          { title: t.navigation.moduleSidebar.weldstash.stock, href: '/weldstash/stock', icon: Boxes, permission: 'inventory:read' },
         ],
       },
     ],

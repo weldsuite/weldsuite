@@ -2,6 +2,12 @@
  * Order routes — flat /api/orders/* surface backed by `orders`.
  *
  * Permissions: orders:read | orders:create | orders:update | orders:delete.
+ *
+ * `GET /:id/items` reads the existing `order_items` table (indexed on
+ * `order_id`). Read-only for now: writing line items belongs with the order
+ * state machine and stock reservation in Phase 3 of
+ * `.claude/weldcommerce-plan.md`, since adding an item to a placed order has
+ * to move inventory too.
  */
 
 import { Hono } from 'hono';
@@ -69,6 +75,34 @@ app.get('/:id', requirePermission('orders:read'), async (c) => {
   } catch (err) {
     console.error('[app-api/orders] get failed:', err);
     return error.internal(c, 'Failed to fetch order');
+  }
+});
+
+/**
+ * Line items for one order. Ordered by insertion (`id`) so the list is stable
+ * — `order_items` has no explicit position column.
+ */
+app.get('/:id/items', requirePermission('orders:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  try {
+    const [order] = await db
+      .select({ id: t.id })
+      .from(t)
+      .where(and(eq(t.id, id), isNull(t.deletedAt)))
+      .limit(1);
+    if (!order) return error.notFound(c, 'Order', id);
+
+    const rows = await db
+      .select()
+      .from(schema.orderItems)
+      .where(eq(schema.orderItems.orderId, id))
+      .orderBy(schema.orderItems.id);
+
+    return list(c, rows, cursorPagination(rows.length, false, null));
+  } catch (err) {
+    console.error('[app-api/orders] list items failed:', err);
+    return error.internal(c, 'Failed to list order items');
   }
 });
 
