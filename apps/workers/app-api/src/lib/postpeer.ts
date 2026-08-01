@@ -183,15 +183,21 @@ export class PostPeerClient {
   /**
    * Build the hosted OAuth URL a user follows to connect a platform account.
    * The connected account lands under the given profile.
+   *
+   * `appId` selects a BYOK OAuth app registered via PostPeer's /v1/apps for
+   * this same platform; omitting it uses PostPeer's own system app. Resolve it
+   * with `getPostPeerAppId`.
    */
   async getConnectUrl(
     platform: string,
     profileId: string,
     redirectUri?: string,
+    appId?: string,
   ): Promise<{ url: string }> {
     return this.request('GET', `/connect/${platform}`, undefined, {
       profileId,
       redirectUri,
+      appId,
     });
   }
 
@@ -293,4 +299,61 @@ export function getPostPeerClient(env: {
     apiKey: env.POSTPEER_API_KEY,
     baseUrl: env.POSTPEER_BASE_URL,
   });
+}
+
+/**
+ * Resolve the BYOK OAuth app id to connect a given platform under.
+ *
+ * PostPeer's connect flow uses ITS OWN shared OAuth app unless an `appId` is
+ * passed explicitly — registering an app on the PostPeer side does not change
+ * the default. Without this, users see PostPeer's "Social Platform Integration"
+ * on the consent screen instead of WeldSuite's own app.
+ *
+ * Config is `POSTPEER_APP_IDS`, a JSON object of platform → app id, e.g.
+ * `{"twitter":"app_123","linkedin":"app_456"}`. Apps are per-platform on
+ * PostPeer's side, so each platform needs its own entry. Platforms left out of
+ * the map keep using PostPeer's system app, which makes a gradual rollout
+ * possible.
+ *
+ * Malformed config is logged and treated as absent rather than thrown: a bad
+ * value should not take the connect flow down, it should just fail back to the
+ * previous behaviour. The log is deliberately explicit, because the failure
+ * mode it produces (silently connecting under the wrong app) is otherwise very
+ * hard to spot.
+ */
+export function getPostPeerAppId(
+  env: { POSTPEER_APP_IDS?: string },
+  platform: string,
+): string | undefined {
+  const raw = env.POSTPEER_APP_IDS;
+  if (!raw) return undefined;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    console.error(
+      "[PostPeer] POSTPEER_APP_IDS is not valid JSON — falling back to PostPeer's system app",
+    );
+    return undefined;
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    console.error(
+      "[PostPeer] POSTPEER_APP_IDS must be a JSON object of platform → appId — falling back to PostPeer's system app",
+    );
+    return undefined;
+  }
+
+  const value = (parsed as Record<string, unknown>)[platform];
+  if (value === undefined) return undefined;
+
+  if (typeof value !== 'string' || value === '') {
+    console.error(
+      `[PostPeer] POSTPEER_APP_IDS["${platform}"] must be a non-empty string — falling back to PostPeer's system app`,
+    );
+    return undefined;
+  }
+
+  return value;
 }

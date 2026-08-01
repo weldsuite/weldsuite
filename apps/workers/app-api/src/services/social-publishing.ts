@@ -28,6 +28,7 @@ import type { Env } from '../types';
 import { generateId } from '../lib/id';
 import {
   getPostPeerClient,
+  getPostPeerAppId,
   type PostPeerCreatePostResult,
   type PostPeerPlatformResult,
   type PostPeerIntegration,
@@ -178,19 +179,25 @@ export async function ensureWorkspaceProfile(
   return profileId;
 }
 
-/** Return a hosted OAuth URL the user follows to connect a platform account. */
+/**
+ * Return a hosted OAuth URL the user follows to connect a platform account.
+ *
+ * When `POSTPEER_APP_IDS` maps this platform to a BYOK app, the consent screen
+ * shows WeldSuite's own app; otherwise it falls back to PostPeer's system app.
+ */
 export async function getConnectUrl(
   db: Database,
   env: Env,
   workspaceId: string,
   platform: string,
   redirectUri?: string,
-): Promise<{ url: string; profileId: string }> {
+): Promise<{ url: string; profileId: string; appId?: string }> {
   const client = getPostPeerClient(env);
   if (!client) throw new PostPeerNotConfiguredError();
   const profileId = await ensureWorkspaceProfile(db, env, workspaceId);
-  const { url } = await client.getConnectUrl(platform, profileId, redirectUri);
-  return { url, profileId };
+  const appId = getPostPeerAppId(env, platform);
+  const { url } = await client.getConnectUrl(platform, profileId, redirectUri, appId);
+  return { url, profileId, appId };
 }
 
 // --- Account sync ----------------------------------------------------------

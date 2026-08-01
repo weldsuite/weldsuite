@@ -316,6 +316,14 @@ export interface Env {
   POSTPEER_BASE_URL?: string;
   /** Shared secret used to verify PostPeer webhook signatures. */
   POSTPEER_WEBHOOK_SECRET?: string;
+  /**
+   * BYOK OAuth apps, as a JSON object of platform → PostPeer app id, e.g.
+   * `{"twitter":"app_123","linkedin":"app_456"}`. Apps are per-platform and are
+   * registered on PostPeer via /v1/apps. Platforms absent from the map (and an
+   * unset value) connect under PostPeer's own system app, so the consent screen
+   * shows PostPeer's branding rather than WeldSuite's.
+   */
+  POSTPEER_APP_IDS?: string;
 
   // --- Nango (WeldConnect connector framework) ---------------------------
   /** Nango secret key. Server-side only — it never reaches a browser; the
