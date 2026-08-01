@@ -41,6 +41,7 @@ import {
   zonedWallClockToInstant,
   TIMEZONES,
 } from '@/lib/timezones';
+import { accountsBlockedByMissingMedia } from '../lib/platform-constraints';
 
 interface SocialPost {
   id: string;
@@ -60,7 +61,7 @@ interface ComposerDialogProps {
 }
 
 export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds }: ComposerDialogProps) {
-  const { t } = useI18n();
+  const { t, format } = useI18n();
   const st = useTranslations();
   const [content, setContent] = useState('');
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
@@ -165,6 +166,30 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
     [accounts, t]
   );
 
+  // Instagram rejects text-only posts at the platform level, and the failure
+  // only surfaces AFTER submission as a 500 carrying PostPeer's own message
+  // ("Instagram posts require at least one image or video"), by which point the
+  // post row exists and the publish slot has been claimed. Catch it here so the
+  // user sees which channel is the problem, and the remedy, before publishing.
+  //
+  // Only publish/schedule are gated — saving a draft stays allowed, since media
+  // can be attached later and a draft never reaches Instagram.
+  const blockedAccounts = useMemo(
+    () => accountsBlockedByMissingMedia(accounts, selectedAccountIds, selectedMediaIds),
+    [accounts, selectedAccountIds, selectedMediaIds],
+  );
+
+  const mediaRequiredWarning =
+    blockedAccounts.length > 0
+      ? format(t.social.messages.instagramNeedsMedia, {
+          accounts: blockedAccounts
+            .map((account: SocialAccount) =>
+              account.username ? `@${account.username}` : account.name,
+            )
+            .join(', '),
+        })
+      : null;
+
   const toggleMedia = (id: string) => {
     setSelectedMediaIds((prev) =>
       prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]
@@ -194,6 +219,12 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
 
   const handleSchedule = async () => {
     if (!scheduledAt) return;
+    // Belt and braces alongside the disabled button: the guard must not depend
+    // on the button's disabled state staying in sync with this condition.
+    if (mediaRequiredWarning) {
+      toast.error(mediaRequiredWarning);
+      return;
+    }
     // The input is a bare wall clock; it means what it says in the SELECTED
     // zone, not the browser's. `new Date(scheduledAt)` would silently apply the
     // viewer's own offset and publish at the wrong moment.
@@ -225,6 +256,10 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
   };
 
   const handlePublishNow = async () => {
+    if (mediaRequiredWarning) {
+      toast.error(mediaRequiredWarning);
+      return;
+    }
     try {
       let postId = editPost?.id;
       if (!postId) {
@@ -357,6 +392,14 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
             </div>
           </div>
 
+          {/* Sits directly under both remedies — the media picker and the
+              add-by-URL field — so the fix is the next thing in reach. */}
+          {mediaRequiredWarning && (
+            <p role="alert" className="text-sm text-amber-600 dark:text-amber-500">
+              {mediaRequiredWarning}
+            </p>
+          )}
+
           {/* Schedule toggle */}
           <div className="flex items-center gap-2">
             <Checkbox
@@ -411,14 +454,22 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
             <Button
               variant="secondary"
               onClick={handleSchedule}
-              disabled={isLoading || !content || !scheduledAt || selectedAccountIds.length === 0}
+              disabled={
+                isLoading ||
+                !content ||
+                !scheduledAt ||
+                selectedAccountIds.length === 0 ||
+                !!mediaRequiredWarning
+              }
             >
               {t.social.actions.schedule}
             </Button>
           )}
           <Button
             onClick={handlePublishNow}
-            disabled={isLoading || !content || selectedAccountIds.length === 0}
+            disabled={
+              isLoading || !content || selectedAccountIds.length === 0 || !!mediaRequiredWarning
+            }
           >
             {t.social.posts.publishNow}
           </Button>

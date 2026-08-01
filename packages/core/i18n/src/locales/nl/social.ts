@@ -234,5 +234,7 @@ export const social = {
       postApproved: 'Bericht goedgekeurd',
       postRejected: 'Bericht afgewezen',
       invalidScheduleTime: 'Deze planningstijd kon niet worden gelezen — controleer de datum en tijdzone',
+      instagramNeedsMedia:
+        'Instagram staat geen berichten met alleen tekst toe. Voeg een afbeelding of video toe, of verwijder {accounts}.',
     },
   };
