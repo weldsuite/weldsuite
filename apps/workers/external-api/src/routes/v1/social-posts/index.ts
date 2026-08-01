@@ -122,14 +122,20 @@ app.delete('/:id', requireScope('social_posts:write'), async (c) => {
   // Stop the upstream delivery before the row goes away. A soft delete on its
   // own leaves the scheduled post live on PostPeer, so it still fires on the
   // customer's real account — and the delivery webhook then skips the
-  // soft-deleted row, so nothing records that it went out.
+  // soft-deleted row, so nothing records that it went out. Fail closed on both
+  // ways this can go wrong: without an org id there is no way to reach
+  // PostPeer for this workspace, and cancelDeliveryBeforeDelete only swallows
+  // the "already live, can't be recalled" case — everything else it rethrows,
+  // and the row must not be deleted while the schedule might still be live.
   const deleteOrgId = await resolveClerkOrgId(c.env, c.get('workspaceId'));
-  if (deleteOrgId) {
+  if (!deleteOrgId) {
+    return error.internal(c, 'Workspace is not linked to an organization');
+  }
+  try {
     await cancelDeliveryBeforeDelete(db, socialContext(c.env), deleteOrgId, id);
-  } else {
-    console.error(
-      `${SOCIAL_LOG_PREFIX} cannot cancel delivery for ${id} — workspace is not linked to an organization`,
-    );
+  } catch (err) {
+    console.error(`${SOCIAL_LOG_PREFIX} failed to cancel delivery before deleting ${id}:`, err);
+    return error.internal(c, err instanceof Error ? err.message : 'Failed to cancel scheduled delivery');
   }
 
   const [row] = await db

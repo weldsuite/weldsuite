@@ -827,9 +827,11 @@ export async function cancelPost(
  * no local trace of a post that went out. It also stranded the credits charged
  * at schedule time. Cancelling first closes both.
  *
- * Best-effort by design. A post that is already published or mid-publish CANNOT
- * be recalled, and that must not block deleting the record — the conflict is
- * swallowed and the caller proceeds with the soft delete.
+ * Only `SocialPublishConflictError` is swallowed — a post that is already
+ * published or mid-publish CANNOT be recalled, and that must not block
+ * deleting the record. Every other failure (PostPeer unreachable, DB error,
+ * etc.) is rethrown: the caller must fail the delete closed rather than remove
+ * the row while a schedule might still be live upstream.
  */
 export async function cancelDeliveryBeforeDelete(
   db: Database,
@@ -841,10 +843,7 @@ export async function cancelDeliveryBeforeDelete(
     await cancelPost(db, ctx, orgId, postId);
   } catch (err) {
     if (err instanceof SocialPublishConflictError) return; // already live — nothing to stop
-    console.error(
-      `[social-publishing] failed to cancel delivery before deleting ${postId} — a scheduled post may still fire:`,
-      err instanceof Error ? err.message : err,
-    );
+    throw err;
   }
 }
 

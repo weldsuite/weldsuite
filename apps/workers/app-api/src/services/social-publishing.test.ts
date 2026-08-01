@@ -397,6 +397,38 @@ describe('social publishing · delete cancels the pending delivery', () => {
       .where(eq(schema.socialPosts.id, 'spo_del_pub'));
     expect(row.status).toBe('published');
   });
+
+  it('propagates a non-conflict cancellation failure so the route cannot delete the row', async () => {
+    if (!available) return;
+    await seedAccount();
+    await seedPost('spo_del_err', 'scheduled', 'pp_del_err');
+    stubPostPeer();
+
+    // Only SocialPublishConflictError ("already live, can't be recalled") may
+    // be swallowed. Everything else — PostPeer unreachable, a DB error — must
+    // surface, or a delete route that ignores it would remove the row while
+    // the schedule might still be live upstream. Force a DB-level failure in
+    // the cancel claim itself (distinct from the published/publishing check,
+    // which runs before this and would throw SocialPublishConflictError) to
+    // simulate that "unexpected error" case.
+    const originalUpdate = db.update.bind(db);
+    db.update = (() => {
+      throw new Error('boom: simulated DB failure');
+    }) as typeof db.update;
+
+    try {
+      await expect(cancelDeliveryBeforeDelete(db, ctx, 'org_1', 'spo_del_err')).rejects.toThrow('boom');
+    } finally {
+      db.update = originalUpdate;
+    }
+
+    // Nothing rewrote the row — it is exactly as it was before the failed cancel.
+    const [row] = await db
+      .select()
+      .from(schema.socialPosts)
+      .where(eq(schema.socialPosts.id, 'spo_del_err'));
+    expect(row.status).toBe('scheduled');
+  });
 });
 
 describe('social publishing · account sync', () => {
