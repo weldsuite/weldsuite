@@ -17,6 +17,22 @@ export const createProductSchema = z.object({
   status: z.enum(['active', 'inactive', 'draft']).default('active'),
   brand: z.string().max(255).optional(),
   vendor: z.string().max(255).optional(),
+
+  // Media. The `products` table has carried `images` (jsonb) and
+  // `featured_image_url` all along; they were simply absent from this form
+  // schema. The app-api product route is `.passthrough()`, so these reach the
+  // insert as-is once the form carries them.
+  featuredImageUrl: z.string().max(500).optional(),
+  images: z
+    .array(
+      z.object({
+        url: z.string().min(1).max(500),
+        altText: z.string().max(255).optional(),
+        id: z.string().max(60).optional(),
+      }),
+    )
+    .max(20)
+    .optional(),
 });
 
 export const updateProductSchema = createProductSchema.partial();
@@ -145,6 +161,8 @@ export interface WeldstashProduct {
   status: string;
   brand?: string | null;
   vendor?: string | null;
+  featuredImageUrl?: string | null;
+  images?: Array<{ url: string; altText?: string; id?: string }> | null;
   createdAt: string;
   updatedAt: string;
 }

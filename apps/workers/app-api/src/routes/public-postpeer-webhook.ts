@@ -14,12 +14,13 @@
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { verifyPostPeerSignature } from '../lib/postpeer';
+import { verifyPostPeerSignature } from '@weldsuite/social-publishing';
 import {
   resolvePostpeerPost,
   reconcileFromWebhook,
   type PostPeerWebhookPayload,
-} from '../services/social-publishing';
+} from '@weldsuite/social-publishing';
+import { socialContext } from '../lib/social-context';
 import { getTenantDbForWorkspace } from '../db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -46,7 +47,7 @@ app.post('/webhook', async (c) => {
     return c.json({ ok: true, ignored: 'no_post_id' });
   }
 
-  const mapping = await resolvePostpeerPost(c.env, postpeerPostId);
+  const mapping = await resolvePostpeerPost(socialContext(c.env), postpeerPostId, c.env.WORKSPACE_CACHE);
   if (!mapping) {
     // Unknown post (expired mapping or foreign account) — ack to stop retries.
     return c.json({ ok: true, ignored: 'unknown_post' });
@@ -54,7 +55,7 @@ app.post('/webhook', async (c) => {
 
   try {
     const db = await getTenantDbForWorkspace(c.env, mapping.orgId);
-    const reconciled = await reconcileFromWebhook(db, c.env, mapping.orgId, mapping.postId, payload);
+    const reconciled = await reconcileFromWebhook(db, socialContext(c.env), mapping.orgId, mapping.postId, payload);
     return c.json({ ok: true, reconciled });
   } catch (err) {
     console.error('[postpeer-webhook] reconcile failed:', err);

@@ -5,6 +5,18 @@
 # keys. The worker is self-contained: it serves tool calls from its own copy of
 # the v1 resource routes (src/api/) against the tenant DB, so no request path
 # depends on another worker and no service bindings are configured here.
+# Social publishing goes through the shared `@weldsuite/social-publishing`
+# package, which talks to PostPeer directly — shared code, not a shared runtime.
+#
+# Secrets (set via `wrangler secret put`, never hardcoded here):
+# - POSTPEER_API_KEY (WeldSocial: single WeldSuite-level PostPeer key, sent as
+#   the `x-access-key` header. Same value as app-api's. Unset leaves
+#   publish_social_post / schedule_social_post answering 503 and changes
+#   nothing else.)
+# - POSTPEER_APP_IDS (WeldSocial BYOK: JSON object of platform → PostPeer app id.
+#   Only read on the connect flow, which this worker does not expose; set for
+#   parity if that changes.)
+#   (POSTPEER_BASE_URL defaults to https://api.postpeer.dev/v1; override via [vars].)
 name = "weldsuite-mcp-server"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"

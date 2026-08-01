@@ -64,4 +64,15 @@ export interface Env {
   REALTIME?: Fetcher;
   /** R2 bucket for user-app bundles (shared with app-api's STORAGE binding). */
   STORAGE?: R2Bucket;
+
+  // --- WeldSocial (PostPeer publishing) ----------------------------------
+  // Read by publish_social_post / schedule_social_post via
+  // `@weldsuite/social-publishing`. Unset leaves those two tools answering 503
+  // and changes nothing else.
+  /** PostPeer API key (single WeldSuite-level key, sent as `x-access-key`). */
+  POSTPEER_API_KEY?: string;
+  /** Override the PostPeer REST base URL. Defaults to https://api.postpeer.dev/v1. */
+  POSTPEER_BASE_URL?: string;
+  /** BYOK OAuth apps as JSON: platform → PostPeer app id. */
+  POSTPEER_APP_IDS?: string;
 }

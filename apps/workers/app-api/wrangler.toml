@@ -47,6 +47,11 @@ head_sampling_rate = 1
 #   the `x-access-key` header. Set via `wrangler secret put POSTPEER_API_KEY`.)
 # - POSTPEER_WEBHOOK_SECRET (WeldSocial: HMAC secret to verify PostPeer delivery
 #   webhooks at /public/social/postpeer/webhook. `wrangler secret put`.)
+# - POSTPEER_APP_IDS (WeldSocial BYOK: JSON object of platform → PostPeer app id,
+#   e.g. {"twitter":"app_123","linkedin":"app_456"}. Apps are per-platform and are
+#   registered on PostPeer via /v1/apps. Platforms left out — and an unset value —
+#   connect under PostPeer's own system app, which puts PostPeer's branding on the
+#   OAuth consent screen instead of WeldSuite's.)
 #   (POSTPEER_BASE_URL defaults to https://api.postpeer.dev/v1; override via [vars].)
 # - NANGO_SECRET_KEY (WeldConnect connectors: Nango secret key. Server-side only —
 #   the browser only ever receives a short-lived Connect session token. Unset
@@ -137,16 +142,27 @@ DIGIPOORT_MODE = "simulated"
 # certificate_id = "<uuid from wrangler mtls-certificate upload>"
 
 # Cloudflare Flagship (feature flags). Flag config lives on Cloudflare's
-# network — there is no local simulation — so for local `wrangler dev` we use a
-# REMOTE BINDING (`remote = true`): the Worker still runs locally but this
-# binding is proxied to the DEPLOYED Flagship app. Requires `wrangler login`
-# and the real <APP_ID>. Comment this block out (or leave <APP_ID> unset) to
-# fall back to catalog defaults — button hidden — when developing offline.
+# network — there is no local simulation — so for local `wrangler dev` this has
+# to be a REMOTE BINDING (`remote = true`): the Worker still runs locally but
+# the binding is proxied to the DEPLOYED Flagship app.
+#
+# DISABLED BY DEFAULT. This is the public, secret-free repo, so there is no real
+# app id here — and a remote binding pointing at a placeholder makes `wrangler
+# dev` fail up front with:
+#   A request to the Cloudflare API (…/edge-preview) failed.
+#   Flagship app 'REPLACE_WITH_FLAGSHIP_APP_ID' not found. [code: 10364]
+# With the block commented out the FLAGSHIP binding is simply absent, and
+# `@weldsuite/feature-flags/server` resolves every flag to its catalog default
+# (see getFlags() — `if (!flagship) return fallback`). That is the intended
+# offline behaviour: the platform UI stays in its safe default state.
+#
+# To evaluate real flags locally: `wrangler login`, uncomment the three lines
+# below, and put your Flagship app id from the Cloudflare dashboard in app_id.
 # See https://developers.cloudflare.com/workers/development-testing/#remote-bindings
-[[flagship]]
-binding = "FLAGSHIP"
-app_id = "REPLACE_WITH_FLAGSHIP_APP_ID"
-remote = true
+# [[flagship]]
+# binding = "FLAGSHIP"
+# app_id = "<your Flagship app id>"
+# remote = true
 
 # KV namespace for workspace URL caching (shared with core-api + api-worker)
 [[kv_namespaces]]

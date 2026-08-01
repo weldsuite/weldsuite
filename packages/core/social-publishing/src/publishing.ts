@@ -1,9 +1,17 @@
 /**
- * Social publishing service — PostPeer integration backing /api/social-* .
+ * Social publishing service — PostPeer integration behind every social surface.
  *
- * Pure functions (no Hono context). They take the tenant `Database`, the
- * worker `Env` (for the PostPeer key + KV), and ids. All queries are tenant
- * scoped — the caller resolves the tenant DB from the authenticated workspace.
+ * Pure functions (no Hono context). They take the tenant `Database`, a
+ * `SocialPublishingContext` (PostPeer config + a master-DB factory), and ids.
+ * All queries are tenant scoped — the caller resolves the tenant DB from the
+ * authenticated workspace.
+ *
+ * Shared by app-api, external-api and mcp-server so that publishing behaves
+ * identically wherever it is triggered. The parts that most need one
+ * implementation are the atomic publish claim (which is what stops a post
+ * being submitted to PostPeer twice), credit metering, and partial-failure
+ * refunds — three drifting copies of those would mean double charges and
+ * duplicate posts on customers' real accounts.
  *
  * Responsibilities:
  *  - ensureWorkspaceProfile / getConnectUrl — connect channels via PostPeer
@@ -23,15 +31,21 @@ import {
   resolveInternalWorkspaceId,
   SERVICE_CREDIT_RATES,
 } from '@weldsuite/credits';
-import { schema, getMasterDb, type Database } from '../db';
-import type { Env } from '../types';
-import { generateId } from '../lib/id';
+import * as schema from '@weldsuite/db/schema';
+import { postpeerPostIndex } from '@weldsuite/db/schema/master';
+import type {
+  Database,
+  MasterDatabase,
+  SocialPublishingContext,
+} from './context';
+import { generateId } from './id';
 import {
   getPostPeerClient,
+  getPostPeerAppId,
   type PostPeerCreatePostResult,
   type PostPeerPlatformResult,
   type PostPeerIntegration,
-} from '../lib/postpeer';
+} from './postpeer';
 import type { SocialPlatformContent } from '@weldsuite/db/schema/social-posts';
 
 const { workspaceSettings, socialAccounts, socialPosts, socialMedia, socialAnalytics } = schema;
@@ -93,7 +107,7 @@ function normalisePlatform(
 }
 
 interface MeteringContext {
-  masterDb: ReturnType<typeof getMasterDb>;
+  masterDb: MasterDatabase;
   internalWsId: string;
 }
 
@@ -102,9 +116,9 @@ interface MeteringContext {
  * null (with a warning) when the master DB isn't configured or the workspace
  * can't be resolved — the operation proceeds unmetered (degraded mode).
  */
-async function resolveMetering(env: Env, orgId: string): Promise<MeteringContext | null> {
+async function resolveMetering(ctx: SocialPublishingContext, orgId: string): Promise<MeteringContext | null> {
   try {
-    const masterDb = getMasterDb(env);
+    const masterDb = ctx.masterDb();
     const internalWsId = await resolveInternalWorkspaceId(masterDb, orgId);
     if (!internalWsId) {
       console.warn(`[social-publishing] no master workspace for org ${orgId} — unmetered`);
@@ -128,10 +142,10 @@ async function resolveMetering(env: Env, orgId: string): Promise<MeteringContext
  */
 export async function ensureWorkspaceProfile(
   db: Database,
-  env: Env,
+  ctx: SocialPublishingContext,
   workspaceId: string,
 ): Promise<string> {
-  const client = getPostPeerClient(env);
+  const client = getPostPeerClient(ctx);
   if (!client) throw new PostPeerNotConfiguredError();
 
   const [settings] = await db
@@ -178,19 +192,25 @@ export async function ensureWorkspaceProfile(
   return profileId;
 }
 
-/** Return a hosted OAuth URL the user follows to connect a platform account. */
+/**
+ * Return a hosted OAuth URL the user follows to connect a platform account.
+ *
+ * When `POSTPEER_APP_IDS` maps this platform to a BYOK app, the consent screen
+ * shows WeldSuite's own app; otherwise it falls back to PostPeer's system app.
+ */
 export async function getConnectUrl(
   db: Database,
-  env: Env,
+  ctx: SocialPublishingContext,
   workspaceId: string,
   platform: string,
   redirectUri?: string,
-): Promise<{ url: string; profileId: string }> {
-  const client = getPostPeerClient(env);
+): Promise<{ url: string; profileId: string; appId?: string }> {
+  const client = getPostPeerClient(ctx);
   if (!client) throw new PostPeerNotConfiguredError();
-  const profileId = await ensureWorkspaceProfile(db, env, workspaceId);
-  const { url } = await client.getConnectUrl(platform, profileId, redirectUri);
-  return { url, profileId };
+  const profileId = await ensureWorkspaceProfile(db, ctx, workspaceId);
+  const appId = getPostPeerAppId(ctx, platform);
+  const { url } = await client.getConnectUrl(platform, profileId, redirectUri, appId);
+  return { url, profileId, appId };
 }
 
 // --- Account sync ----------------------------------------------------------
@@ -206,14 +226,14 @@ export interface SyncAccountsResult {
  */
 export async function syncAccounts(
   db: Database,
-  env: Env,
+  ctx: SocialPublishingContext,
   workspaceId: string,
   connectedByUserId: string,
 ): Promise<SyncAccountsResult> {
-  const client = getPostPeerClient(env);
+  const client = getPostPeerClient(ctx);
   if (!client) throw new PostPeerNotConfiguredError();
 
-  const primaryProfileId = await ensureWorkspaceProfile(db, env, workspaceId);
+  const primaryProfileId = await ensureWorkspaceProfile(db, ctx, workspaceId);
 
   // A workspace owns EVERY PostPeer profile named after its workspace id. Under
   // normal operation that's exactly one, but a concurrent-connect race can leave
@@ -339,12 +359,12 @@ function mapPlatformResults(
  */
 export async function publishPost(
   db: Database,
-  env: Env,
+  ctx: SocialPublishingContext,
   orgId: string,
   postId: string,
   options: PublishPostOptions,
 ): Promise<PublishPostResult> {
-  const client = getPostPeerClient(env);
+  const client = getPostPeerClient(ctx);
   if (!client) throw new PostPeerNotConfiguredError();
 
   const [post] = await db
@@ -433,9 +453,9 @@ export async function publishPost(
   // open with a loud warning (degraded mode), matching the other workers.
   const creditCost = platforms.length * SERVICE_CREDIT_RATES.socialPostPerPlatform;
   let creditTransactionId: string | null = null;
-  const metering = await resolveMetering(env, orgId);
+  const metering = await resolveMetering(ctx, orgId);
   if (metering) {
-    const attempt = claimed[0].publishAttempts ?? 0;
+    const attempt = claimed[0]?.publishAttempts ?? 0;
     let charge: Awaited<ReturnType<typeof consumeCredits>> | null = null;
     try {
       charge = await consumeCredits(metering.masterDb, {
@@ -566,12 +586,27 @@ export async function publishPost(
     })
     .where(eq(socialPosts.id, postId));
 
-  // Map PostPeer post id → workspace for the delivery webhook.
-  if (env.WORKSPACE_CACHE && result.postId) {
-    const entry: PostMapEntry = { orgId, postId };
-    await env.WORKSPACE_CACHE.put(postMapKey(result.postId), JSON.stringify(entry), {
-      expirationTtl: KV_POST_MAP_TTL_SECONDS,
-    });
+  // Map PostPeer post id → workspace so the delivery webhook can find the
+  // tenant. Master DB rather than KV: any worker can publish, and all three
+  // already reach master (a KV binding would tie publishing to one worker).
+  //
+  // Best-effort — the post IS live on PostPeer at this point, so a failure to
+  // write the index must not turn a successful publish into an error. The cost
+  // of losing it is that the delivery webhook can't reconcile, leaving the row
+  // on `publishing` until the next analytics sync corrects it.
+  if (result.postId) {
+    try {
+      await ctx
+        .masterDb()
+        .insert(postpeerPostIndex)
+        .values({ postpeerPostId: result.postId, clerkOrgId: orgId, socialPostId: postId })
+        .onConflictDoNothing();
+    } catch (err) {
+      console.error(
+        `[social-publishing] failed to index PostPeer post ${result.postId} — delivery webhook will not reconcile:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 
   return { postId, postpeerPostId: result.postId, status, platformContent };
@@ -587,7 +622,7 @@ export async function publishPost(
  */
 export async function cancelPost(
   db: Database,
-  env: Env,
+  ctx: SocialPublishingContext,
   orgId: string,
   postId: string,
 ): Promise<boolean> {
@@ -603,7 +638,7 @@ export async function cancelPost(
   }
 
   if (post.postpeerPostId && post.status === 'scheduled') {
-    const client = getPostPeerClient(env);
+    const client = getPostPeerClient(ctx);
     if (client) {
       try {
         await client.deletePost(post.postpeerPostId);
@@ -636,7 +671,7 @@ export async function cancelPost(
   // Refund the credits charged when the post was scheduled. Idempotent on the
   // original ledger transaction, so a repeated cancel can't double-refund.
   if (post.creditTransactionId && (post.creditsConsumed ?? 0) > 0) {
-    const metering = await resolveMetering(env, orgId);
+    const metering = await resolveMetering(ctx, orgId);
     if (metering) {
       try {
         await refundCredits(metering.masterDb, {
@@ -670,13 +705,40 @@ export interface PostPeerWebhookPayload {
   platforms?: PostPeerPlatformResult[];
 }
 
-/** Look up the workspace + internal post id for a PostPeer post id. */
+/**
+ * Look up the workspace + internal post id for a PostPeer post id.
+ *
+ * `legacyKv` is the migration shim. The index used to live in app-api's
+ * WORKSPACE_CACHE KV; posts submitted before the cutover have an entry only
+ * there, so the webhook handler passes that namespace and we fall back to it
+ * on a miss. Entries carried a 60-day TTL, so this can be dropped once the
+ * last pre-cutover scheduled post has fired.
+ */
 export async function resolvePostpeerPost(
-  env: Env,
+  ctx: SocialPublishingContext,
   postpeerPostId: string,
+  legacyKv?: KVNamespace,
 ): Promise<PostMapEntry | null> {
-  if (!env.WORKSPACE_CACHE) return null;
-  return (await env.WORKSPACE_CACHE.get(postMapKey(postpeerPostId), 'json')) as PostMapEntry | null;
+  try {
+    const [row] = await ctx
+      .masterDb()
+      .select({
+        orgId: postpeerPostIndex.clerkOrgId,
+        postId: postpeerPostIndex.socialPostId,
+      })
+      .from(postpeerPostIndex)
+      .where(eq(postpeerPostIndex.postpeerPostId, postpeerPostId))
+      .limit(1);
+    if (row) return row;
+  } catch (err) {
+    console.error(
+      '[social-publishing] postpeer post index lookup failed:',
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  if (!legacyKv) return null;
+  return (await legacyKv.get(postMapKey(postpeerPostId), 'json')) as PostMapEntry | null;
 }
 
 /**
@@ -686,7 +748,7 @@ export async function resolvePostpeerPost(
  */
 export async function reconcileFromWebhook(
   db: Database,
-  env: Env,
+  ctx: SocialPublishingContext,
   orgId: string,
   internalPostId: string,
   payload: PostPeerWebhookPayload,
@@ -731,7 +793,7 @@ export async function reconcileFromWebhook(
   // (transaction, account) — webhook replays can't double-refund.
   let creditsConsumed = post.creditsConsumed ?? 0;
   if (post.creditTransactionId && creditsConsumed > 0 && newlyFailedAccountIds.length > 0) {
-    const metering = await resolveMetering(env, orgId);
+    const metering = await resolveMetering(ctx, orgId);
     if (metering) {
       for (const accountId of newlyFailedAccountIds) {
         const refundAmount = Math.min(SERVICE_CREDIT_RATES.socialPostPerPlatform, creditsConsumed);
@@ -774,10 +836,10 @@ export async function reconcileFromWebhook(
 /** Pull metrics for a published post from PostPeer into `socialAnalytics`. */
 export async function syncAnalytics(
   db: Database,
-  env: Env,
+  ctx: SocialPublishingContext,
   postId: string,
 ): Promise<{ snapshots: number }> {
-  const client = getPostPeerClient(env);
+  const client = getPostPeerClient(ctx);
   if (!client) throw new PostPeerNotConfiguredError();
 
   const [post] = await db
@@ -800,7 +862,7 @@ export async function syncAnalytics(
   for (const acc of targets) {
     if (acc.postpeerIntegrationId) byIntegration.set(acc.postpeerIntegrationId, acc.id);
   }
-  const fallbackAccountId = targets.length === 1 ? targets[0].id : undefined;
+  const fallbackAccountId = targets.length === 1 ? targets[0]?.id : undefined;
 
   const metrics = await client.getAnalytics({ postId: post.postpeerPostId });
   const now = new Date();

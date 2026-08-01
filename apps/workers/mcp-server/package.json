@@ -20,6 +20,7 @@
     "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/social-publishing": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.27",

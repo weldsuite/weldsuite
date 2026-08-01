@@ -1,8 +1,15 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { and, eq, isNull, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
+import {
+  publishPost,
+  PostPeerNotConfiguredError,
+  SocialPublishConflictError,
+  SocialInsufficientCreditsError,
+  type PublishPostOptions,
+} from '@weldsuite/social-publishing';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
@@ -10,6 +17,7 @@ import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
 import { stripServerFields } from '../../../lib/sanitize';
+import { socialContext, resolveClerkOrgId, SOCIAL_LOG_PREFIX } from '../../../lib/social-context';
 import {
   createSocialPostSchema,
   updateSocialPostSchema,
@@ -116,5 +124,128 @@ app.delete('/:id', requireScope('social_posts:write'), async (c) => {
   });
   return noContent(c);
 });
+
+// ---------------------------------------------------------------------------
+// Publish / schedule
+//
+// These call the shared publishing package directly — no other worker is
+// involved. The package is what keeps behaviour identical to the platform UI:
+// the same atomic claim against double-submission, the same credit metering,
+// and the same delivery index (in master, so any worker can write it and
+// app-api's PostPeer webhook can still resolve the tenant).
+//
+// Note that creating a post with `status: 'scheduled'` does NOT schedule it —
+// nothing sweeps scheduled rows. A post only reaches PostPeer through these
+// endpoints.
+// ---------------------------------------------------------------------------
+
+const schedulePostSchema = z.object({
+  /** ISO-8601 with offset, e.g. 2026-08-05T09:30:00+02:00. Must be in the future. */
+  scheduledAt: z.string().datetime({ offset: true }),
+  /** IANA timezone the schedule should be interpreted in (e.g. Europe/Amsterdam). */
+  timezone: z.string().max(50).optional(),
+});
+
+/**
+ * Confirm the post exists in this tenant, then publish or schedule it.
+ *
+ * The existence check earns its keep twice: it returns the standard v1 404 for
+ * an unknown id rather than letting the package raise a generic error, and a
+ * 404 is what lets the MCP server's resolve-by-name retry engage when a caller
+ * passes a post title where an id was expected.
+ */
+async function publishOrSchedule(
+  c: Context<HonoEnv>,
+  id: string,
+  options: PublishPostOptions,
+) {
+  const db = c.get('tenantDb');
+
+  const [row] = await db
+    .select({ id: table.id })
+    .from(table)
+    .where(and(eq(table.id, id), isNull(table.deletedAt)))
+    .limit(1);
+  if (!row) return error.notFound(c, 'SocialPost', id);
+
+  const orgId = await resolveClerkOrgId(c.env, c.get('workspaceId'));
+  if (!orgId) {
+    return error.internal(c, 'Workspace is not linked to an organization');
+  }
+
+  let result: Awaited<ReturnType<typeof publishPost>>;
+  try {
+    result = await publishPost(db, socialContext(c.env), orgId, id, options);
+  } catch (err) {
+    if (err instanceof PostPeerNotConfiguredError) {
+      return c.json(
+        {
+          error: {
+            code: 'SOCIAL_PUBLISHING_NOT_CONFIGURED',
+            message: 'Social publishing is not configured',
+          },
+        },
+        503,
+      );
+    }
+    if (err instanceof SocialPublishConflictError) {
+      return error.conflict(c, err.message);
+    }
+    if (err instanceof SocialInsufficientCreditsError) {
+      return c.json(
+        {
+          error: {
+            code: 'INSUFFICIENT_CREDITS',
+            message: err.message,
+            details: {
+              currentBalance: err.currentBalance,
+              required: err.required,
+              shortfall: err.required - err.currentBalance,
+            },
+          },
+        },
+        402,
+      );
+    }
+    const message = err instanceof Error ? err.message : 'Failed to publish post';
+    console.error(`${SOCIAL_LOG_PREFIX} publish failed:`, err);
+    // A post with no targets, or none of them connected, is a caller error.
+    const isCallerError =
+      message === 'Post has no target accounts' ||
+      message === 'No PostPeer-connected accounts among the post targets';
+    return isCallerError ? error.badRequest(c, message) : error.internal(c, message);
+  }
+
+  // Emitted outside the try, and defensively: the post is live on PostPeer by
+  // now, so a failure to announce it must not be reported to the caller as a
+  // failed publish — they would retry a post that has already gone out.
+  try {
+    publishEntityEvent({
+      c,
+      entityType: 'social_post',
+      entityId: id,
+      action: options.now ? (result.status === 'failed' ? 'failed' : 'published') : 'scheduled',
+      data: { id, status: result.status, postpeerPostId: result.postpeerPostId },
+    });
+  } catch (err) {
+    console.error(`${SOCIAL_LOG_PREFIX} entity event failed after publish:`, err);
+  }
+
+  return success(c, result as unknown as Record<string, unknown>);
+}
+
+app.post('/:id/publish', requireScope('social_posts:write'), async (c) =>
+  publishOrSchedule(c, c.req.param('id'), { now: true }),
+);
+
+app.post(
+  '/:id/schedule',
+  requireScope('social_posts:write'),
+  zValidator('json', schedulePostSchema),
+  async (c) => {
+    const { scheduledAt, timezone } = c.req.valid('json');
+    return publishOrSchedule(c, c.req.param('id'), { now: false, scheduledAt, timezone });
+  },
+);
 
 export default app;

@@ -38,7 +38,10 @@ export const socialTools: ToolDefinition[] = [
   {
     name: 'create_social_post',
     scope: 'social_posts:write',
-    description: 'Create a new social post (draft, scheduled, or immediate).',
+    description:
+      'Create a new social post. This only stores the post — it does not send it. ' +
+      'Follow with publish_social_post to post it now, or schedule_social_post to have it go out later; ' +
+      'a post created with status "scheduled" is never delivered on its own.',
     inputSchema: createSocialPostSchema.shape,
     method: 'POST',
     path: '/v1/social-posts',
@@ -59,6 +62,40 @@ export const socialTools: ToolDefinition[] = [
     inputSchema: { id: z.string().describe('The social post — its name, or the id from an earlier search') },
     method: 'DELETE',
     path: '/v1/social-posts/:id',
+    pathParams: { id: 'id' },
+  },
+  {
+    name: 'publish_social_post',
+    scope: 'social_posts:write',
+    description:
+      'Publish an existing social post to its target channels now. Required to actually post — ' +
+      'create_social_post only stores a draft, it never publishes. The post must have at least one ' +
+      'connected target account.',
+    inputSchema: { id: z.string().describe('The social post — its name, or the id from an earlier search') },
+    method: 'POST',
+    path: '/v1/social-posts/:id/publish',
+    pathParams: { id: 'id' },
+  },
+  {
+    name: 'schedule_social_post',
+    scope: 'social_posts:write',
+    description:
+      'Schedule an existing social post to go out at a future time. Required for the post to actually ' +
+      'be delivered — setting a status or scheduledAt via create_social_post/update_social_post only ' +
+      'stores those fields and will never publish. Also use this to move an already-scheduled post to ' +
+      'a new time.',
+    inputSchema: {
+      id: z.string().describe('The social post — its name, or the id from an earlier search'),
+      scheduledAt: z
+        .string()
+        .describe('When to publish, ISO-8601 with UTC offset (e.g. 2026-08-05T09:30:00+02:00). Must be in the future.'),
+      timezone: z
+        .string()
+        .optional()
+        .describe('IANA timezone the schedule is interpreted in (e.g. Europe/Amsterdam)'),
+    },
+    method: 'POST',
+    path: '/v1/social-posts/:id/schedule',
     pathParams: { id: 'id' },
   },
 

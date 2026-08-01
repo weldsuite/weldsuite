@@ -855,6 +855,8 @@ export const common = {
         empty: 'Nog geen voorraad. Klik op "Voorraad aanpassen" om voorraad in te boeken.',
         toastAdjusted: 'Voorraad aangepast — nieuw aanwezig: {delta}',
         toastAdjustFailed: 'Voorraad aanpassen mislukt',
+        readOnlyHint: 'Voorraadniveaus wijzigen via aanpassingen, niet door rechtstreeks bewerken.',
+        searchPlaceholder: 'Voorraad zoeken…',
       },
       suppliers: {
         searchPlaceholder: 'Leveranciers zoeken…',

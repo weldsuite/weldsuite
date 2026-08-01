@@ -855,6 +855,8 @@ export const common = {
         empty: 'No stock yet. Click "Adjust stock" to receive inventory.',
         toastAdjusted: 'Stock adjusted — new on-hand: {delta}',
         toastAdjustFailed: 'Failed to adjust stock',
+        readOnlyHint: 'Stock levels change through adjustments, not direct edits.',
+        searchPlaceholder: 'Search stock…',
       },
       suppliers: {
         searchPlaceholder: 'Search suppliers…',

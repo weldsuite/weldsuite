@@ -2,6 +2,18 @@
  * Product routes — flat /api/products/* surface backed by `products`.
  *
  * Permissions: products:read | products:create | products:update | products:delete.
+ *
+ * `GET /:id/categories` is the reverse of `GET /categories/:id/products`. It
+ * reads the `category_products` junction, which carries a `product_id` index
+ * for exactly this direction. Membership is written from the category side
+ * (`POST|DELETE /categories/:id/products`), so there is no write here — one
+ * owner for the junction keeps the manual/automated distinction in one place.
+ *
+ * Note this only reports MANUAL membership. An automated category's members
+ * are computed from its rules at read time and never materialise as junction
+ * rows, so a product can appear in an automated category without appearing
+ * here. Surfacing that would mean evaluating every automated category's rules
+ * per product, which is not worth it for a side panel.
  */
 
 import { Hono } from 'hono';
@@ -69,6 +81,40 @@ app.get('/:id', requirePermission('products:read'), async (c) => {
   } catch (err) {
     console.error('[app-api/products] get failed:', err);
     return error.internal(c, 'Failed to fetch product');
+  }
+});
+
+/** Categories this product has been manually added to. */
+app.get('/:id/categories', requirePermission('products:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  try {
+    const [product] = await db
+      .select({ id: t.id })
+      .from(t)
+      .where(and(eq(t.id, id), isNull(t.deletedAt)))
+      .limit(1);
+    if (!product) return error.notFound(c, 'Product', id);
+
+    const rows = await db
+      .select({
+        id: schema.categories.id,
+        name: schema.categories.name,
+        slug: schema.categories.slug,
+        parentId: schema.categories.parentId,
+        depth: schema.categories.depth,
+        type: schema.categories.type,
+        isActive: schema.categories.isActive,
+      })
+      .from(schema.categoryProducts)
+      .innerJoin(schema.categories, eq(schema.categories.id, schema.categoryProducts.categoryId))
+      .where(and(eq(schema.categoryProducts.productId, id), isNull(schema.categories.deletedAt)))
+      .orderBy(schema.categories.name);
+
+    return list(c, rows, cursorPagination(rows.length, false, null));
+  } catch (err) {
+    console.error('[app-api/products] list categories failed:', err);
+    return error.internal(c, 'Failed to list product categories');
   }
 });
 

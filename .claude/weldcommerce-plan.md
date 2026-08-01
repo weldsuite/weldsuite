@@ -1,7 +1,16 @@
 # WeldCommerce — implementation plan
 
-Status: Phase 1 in progress (product categories). Everything below Phase 1 is
-unstarted.
+Status: Phase 1 in progress (product categories). Phases 2–5 unstarted.
+
+**Phase 6 was pulled forward** (2026-08-01, by request): a deliberately thin
+platform frontend now exists at `app/weldcommerce/` + `src/routes/weldcommerce/`,
+covering products / categories / orders / customers with list + create + edit +
+delete, and object panels for `product`, `category`, and `order`. It is built
+against the *current* passthrough API, so it inherits every gap Phases 2–5 are
+meant to close — no variant management, no order state machine, no stock
+reservation, no discount evaluation, no category rule editor (the UI creates
+manual categories only). Treat those phases as still owing; the UI will need
+revisiting as each lands.
 
 ## Where we actually are
 
@@ -17,10 +26,10 @@ plus the shipping/parcel side (`carriers`, `shipments`, `returns`, `boxes`,
 (list / get / create / patch / soft-delete). No business logic, no relations
 wired, no derived fields maintained.
 
-**Does not exist:** any WeldCommerce frontend in `apps/web/platform`. No
-`app/commerce/`, no `src/routes/commerce/`. No query hooks reference any
-commerce endpoint. `category_products` is migrated but referenced by zero lines
-of application code.
+**Exists (platform), as of 2026-08-01:** `app/weldcommerce/` +
+`src/routes/weldcommerce/` and `hooks/queries/use-commerce-queries.ts` — see the
+Phase 6 note below. Thin by construction; the services underneath are still the
+generated CRUD shell described above.
 
 So the work is not "build a data model" — it is "make the existing tables behave
 like a commerce system, then put a UI on them".
@@ -79,13 +88,86 @@ The `products` table is broad but the route is a passthrough.
 - Cart persistence, checkout sessions, Stripe via `billing-worker`.
 - Abandoned-cart events through `@weldsuite/entity-events`.
 
-### Phase 6 — Platform frontend
+### Phase 6 — Platform frontend ← *pulled forward, thin version shipped*
 
-`app/commerce/` + `src/routes/commerce/`, following the WeldStash layout
-(module layout with tabs, `useAppAccess('weldcommerce')` gate, query hooks in
-`hooks/queries/use-commerce-queries.ts`). Deliberately last: every phase above
-ships a stable API first, and WeldStash has already shown what a UI built
-against an unfinished API looks like.
+Landed as `app/weldcommerce/` + `src/routes/weldcommerce/` (not `app/commerce/`
+as originally sketched — the route matches the app code `weldcommerce`, which is
+what the sidebar builds its link from). `useAppAccess('weldcommerce')` gate,
+query hooks in `hooks/queries/use-commerce-queries.ts`.
+
+> Pattern note, learned the hard way: **do not model a new module on WeldStash.**
+> WeldStash was the least-developed module in the repo (in-page tab strip, hand-rolled
+> `<Table>`, no module sidebar), and copying it produced a module that looked
+> nothing like the rest of the platform. WeldCRM and WeldFlow are the reference:
+> module sidebar + `EntityGrid` + grid config + object panel. WeldStash itself was
+> refactored onto that pattern at the same time as this phase landed.
+
+What shipped:
+- Sections: overview, products, categories, orders, customers — reached from the
+  **global module sidebar**, via `MODULE_CONFIGS.weldcommerce` in
+  `components/layout/module-sidebar-configs.tsx`. The module layout is a thin
+  wrapper like WeldCRM's; it renders no navigation of its own.
+- Each list uses the **simple table** — the shared `EntityList`
+  (`@weldsuite/weldmeet-ui`, re-exported from `components/entity-list`), which
+  is what WeldBooks / WeldCall / WeldChat / WeldConnect use. *Not* `EntityGrid`:
+  that's the spreadsheet-style surface with the inline column header (A/B/C
+  letters, insert-left/right, hide, sort) used by WeldCRM, and it was
+  explicitly not wanted here.
+- Lists go through `components/panel-entity-list.tsx`, a thin wrapper over
+  `EntityList` (the same move WeldBooks makes with `weldbooks-entity-list.tsx`):
+  EntityList's built-in row renderer wraps every cell in `stopPropagation` so
+  rows can't be clicked, and appends a hard-coded, non-i18n Edit/Duplicate/
+  Delete menu. The wrapper supplies its own `renderRow` with a clickable row
+  and a translated Edit/Delete menu.
+- Columns live in `config/<entity>-columns.tsx` as `ColumnDef[]`.
+- Object panels registered for `product`, `category`, `order`; customers and
+  the order → customer drill-down reuse the existing `company` / `person` panels.
+
+**A customer is a company OR a person.** The identity layer has two objects and
+"Customer" / "Supplier" / "Lead" are status flags on the row, not object types.
+So the customers list unions `/companies` and `/people` into a `CustomerRow`
+carrying `kind` (`config/customer-row.ts`), and `kind` doubles as the
+object-panel type. Create offers both; edit is fixed to the row's own kind,
+since the two live in different tables.
+
+Consequences of the simple table, worth knowing before extending it:
+inline cell editing, per-user column show/hide + resize, row selection, bulk
+delete and CSV/XLSX export are all `EntityGrid` features and are **not**
+available here. Editing happens in the row menu's dialog or the object panel.
+- `weldcommerce` added to `POST_REFACTOR_APPS` in `lib/apps/app-permission-objects.ts`
+  as `['products', 'categories', 'orders', 'companies']` — without it the access
+  guard treats the app as owner-only.
+
+Landed alongside it (2026-08-01), each closing part of a later phase early:
+- **Product ↔ category linking.** `category_products` is finally wired — attach
+  from the category panel's Products tab, or from the product panel's
+  Categories tab. Writes always go through the category-side endpoints
+  (`POST|DELETE /categories/:id/products`) so the junction has one owner.
+  New: `GET /products/:id/categories` (reverse read, uses the existing
+  `category_products_product_idx`). Manual membership only — an automated
+  category's members are computed from rules and never materialise as rows.
+- **Nested categories in the UI.** The list is tree-ordered from
+  `/categories/tree` (flattened depth-first, indented by `depth`) when no
+  search is active, and falls back to the flat cursor-paged list while
+  searching. The parent picker excludes the category's own subtree via a
+  `path` prefix test, so the cycle the API rejects can't be selected.
+- **Product images.** `products.images` (jsonb) and `featured_image_url` were
+  already in the schema but absent from the form schema; both are now editable,
+  with real uploads through `useFileUpload` (R2, `isPublic: true`). The first
+  image is the featured one — `featuredImageUrl` is derived on save rather than
+  entered separately.
+- **`GET /orders/:id/items`** (see the Orders note above).
+
+Known thinness, inherited from the API rather than the UI:
+- Categories are creatable as `manual` only; the rule builder for `automated`
+  categories is not built, so the dialog shows a hint instead.
+- Order status is a free-form string chosen from a UI-side list — there is no
+  server-side state machine yet (Phase 3).
+- No variants, media, bulk ops, discounts, or checkout surfaces.
+
+The original reasoning for deferring this phase still holds and is worth
+re-reading before extending it: every phase above ships a stable API first, and
+WeldStash already showed what a UI built against an unfinished API looks like.
 
 ---
 
