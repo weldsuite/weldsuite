@@ -10,9 +10,11 @@ name: CI
 # are EXCLUDED from the public export (see .claude/export/public-export-exclude.txt)
 # and run only in the private repo / deployment overlay.
 #
-# Job names here match the ones pr-checks.yml used ("Unit · app-api",
-# "Unit · platform", "Type Check · app-api") so they can be reused verbatim as
-# required status checks in the public repo's branch protection.
+# Job names are reused verbatim as required status checks in the public repo's
+# branch protection: "Lint", "Type Check · app-api", "Type Check · platform",
+# "Unit · app-api", "Unit · platform". Renaming one without updating branch
+# protection in the same change leaves a required check permanently pending and
+# blocks every PR.
 
 on:
   workflow_dispatch:
@@ -42,7 +44,7 @@ jobs:
   # a renamed required check sits pending forever and blocks every PR.
   # ────────────────────────────────────────────
   lint:
-    name: Lint (informational)
+    name: Lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -69,7 +71,7 @@ jobs:
         run: pnpm type-check
 
   type-check-platform:
-    name: Type Check · platform (informational)
+    name: Type Check · platform
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Was informational while ~1300 pre-existing errors were worked down.
