@@ -1,0 +1,24 @@
+{
+  "name": "weldsuite",
+  "displayName": "WeldSuite",
+  "version": "0.1.0",
+  "description": "Connect Cursor to WeldSuite MCP and run agents that fix, claim, enrich, and close WeldFlow tasks.",
+  "author": {
+    "name": "WeldSuite",
+    "email": "support@weldsuite.org",
+    "url": "https://weldsuite.org"
+  },
+  "homepage": "https://weldsuite.org",
+  "repository": "https://github.com/weldsuite/weldsuite",
+  "license": "AGPL-3.0-only",
+  "keywords": [
+    "weldsuite",
+    "weldflow",
+    "mcp",
+    "tasks",
+    "project-management",
+    "bugs",
+    "agents"
+  ],
+  "logo": "assets/logo.svg"
+}
