@@ -32,6 +32,7 @@ import {
   useCreateSocialMedia,
 } from '@/hooks/queries/use-social-queries';
 import type { SocialAccount, SocialMedia } from '@weldsuite/app-api-client/domains/social';
+import { SocialPlatformIcon } from '@/components/social/social-platform-icon';
 
 interface SocialPost {
   id: string;
@@ -49,14 +50,6 @@ interface ComposerDialogProps {
   editPost?: SocialPost | null;
   defaultAccountIds?: string[];
 }
-
-const platformEmoji: Record<string, string> = {
-  facebook: '📘',
-  instagram: '📸',
-  twitter: '🐦',
-  linkedin: '💼',
-  tiktok: '🎵',
-};
 
 export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds }: ComposerDialogProps) {
   const { t } = useI18n();
@@ -220,8 +213,9 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
                       checked={selectedAccountIds.includes(account.id)}
                       onCheckedChange={() => toggleAccount(account.id)}
                     />
-                    <span>
-                      {platformEmoji[account.platform] || '🌐'} {account.name}
+                    <span className="flex items-center gap-2">
+                      <SocialPlatformIcon platform={account.platform} colored />
+                      {account.name}
                     </span>
                   </label>
                 ))}

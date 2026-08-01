@@ -29,14 +29,7 @@ import {
   useSyncSocialAccounts,
 } from '@/hooks/queries/use-social-queries';
 import type { SocialAccount, SocialPlatform } from '@weldsuite/app-api-client/domains/social';
-
-const platformEmoji: Record<string, string> = {
-  facebook: '📘',
-  instagram: '📸',
-  twitter: '🐦',
-  linkedin: '💼',
-  tiktok: '🎵',
-};
+import { SocialPlatformIcon } from '@/components/social/social-platform-icon';
 
 const platforms = ['facebook', 'instagram', 'twitter', 'linkedin', 'tiktok'];
 
@@ -144,7 +137,8 @@ export function AccountsClient() {
             <Card key={account.id}>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-xl">{platformEmoji[account.platform] || '🌐'}</span>
+                  {/* Decorative — the account name sits right beside it. */}
+                  <SocialPlatformIcon platform={account.platform} colored className="h-5 w-5" />
                   <div>
                     <CardTitle className="text-base">{account.name}</CardTitle>
                     {account.username && (
@@ -196,7 +190,10 @@ export function AccountsClient() {
                 <SelectContent>
                   {platforms.map((p) => (
                     <SelectItem key={p} value={p}>
-                      {platformEmoji[p]} {t.social.accounts.platforms[p as keyof typeof t.social.accounts.platforms]}
+                      <span className="flex items-center gap-2">
+                        <SocialPlatformIcon platform={p} />
+                        {t.social.accounts.platforms[p as keyof typeof t.social.accounts.platforms]}
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
