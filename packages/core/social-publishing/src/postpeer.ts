@@ -50,12 +50,59 @@ export interface PostPeerCreatePostInput {
   content: string;
   platforms: Array<{ platform: string; accountId: string }>;
   mediaItems?: PostPeerMediaItem[];
-  /** Publish immediately. Mutually exclusive with `scheduledAt`. */
+  /** Publish immediately. Mutually exclusive with `scheduledFor`. */
   publishNow?: boolean;
-  /** ISO timestamp to schedule at. Interpreted in `timezone` (defaults UTC). */
-  scheduledAt?: string;
+  /**
+   * When to publish, as a NAIVE local timestamp (`YYYY-MM-DDTHH:mm:ss`, no `Z`
+   * and no offset) that PostPeer interprets in `timezone`.
+   *
+   * The field is `scheduledFor`, not `scheduledAt` — PostPeer validates the
+   * body with `additionalProperties: false`, so any other name is rejected
+   * outright with "body must NOT have additional properties" rather than being
+   * ignored. Build the pair with `toPostPeerSchedule` instead of formatting it
+   * by hand.
+   */
+  scheduledFor?: string;
   timezone?: string;
   platformSpecificData?: Record<string, unknown>;
+}
+
+/**
+ * Convert an absolute instant (ISO 8601 with `Z` or an offset — what our own
+ * schedule/reschedule APIs take) into the `scheduledFor` + `timezone` pair
+ * PostPeer expects.
+ *
+ * PostPeer reads `scheduledFor` as wall-clock time in `timezone`, so an instant
+ * has to be normalised to UTC and paired with `timezone: 'UTC'`. Passing the
+ * caller's display timezone alongside a UTC-derived wall clock would shift
+ * delivery by that zone's offset — the post would fire at the wrong time.
+ * A post's own `timezone` column stays a display preference; it never reaches
+ * the wire.
+ *
+ * The offset is mandatory. `new Date('2030-06-01T14:00:00')` is parsed in the
+ * *runtime's* zone per the ES spec, so a timezone-less string would denote a
+ * different instant depending on where the code runs — silently, and only for
+ * non-UTC runtimes. Every HTTP route into `publishPost` validates with
+ * `z.string().datetime({ offset: true })`, so this is defence in depth for
+ * direct callers of the exported helper rather than a live hole.
+ */
+const HAS_UTC_OFFSET = /(?:Z|[+-]\d{2}:?\d{2})$/i;
+
+export function toPostPeerSchedule(isoInstant: string): {
+  scheduledFor: string;
+  timezone: string;
+} {
+  if (!HAS_UTC_OFFSET.test(isoInstant)) {
+    throw new Error(
+      `Invalid scheduled time: ${isoInstant} (needs an explicit UTC offset, e.g. a trailing Z)`,
+    );
+  }
+  const date = new Date(isoInstant);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Invalid scheduled time: ${isoInstant}`);
+  }
+  // '2030-01-01T00:00:00.000Z' -> '2030-01-01T00:00:00'
+  return { scheduledFor: date.toISOString().slice(0, 19), timezone: 'UTC' };
 }
 
 export interface PostPeerPlatformResult {

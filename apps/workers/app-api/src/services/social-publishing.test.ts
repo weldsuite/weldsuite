@@ -47,14 +47,18 @@ const ctx = {
   masterDb: () => masterDb,
 } as unknown as SocialPublishingContext;
 
-/** Stub fetch; record (method, path) and return canned PostPeer responses. */
-function stubPostPeer(): Array<{ method: string; path: string }> {
-  const calls: Array<{ method: string; path: string }> = [];
+/** Stub fetch; record (method, path, body) and return canned PostPeer responses. */
+function stubPostPeer(): Array<{ method: string; path: string; body?: unknown }> {
+  const calls: Array<{ method: string; path: string; body?: unknown }> = [];
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (url: string, init: { method: string }) => {
+    vi.fn(async (url: string, init: { method: string; body?: string }) => {
       const path = new URL(String(url)).pathname;
-      calls.push({ method: init.method, path });
+      calls.push({
+        method: init.method,
+        path,
+        ...(init.body ? { body: JSON.parse(init.body) } : {}),
+      });
       const body =
         init.method === 'POST' && path.endsWith('/posts')
           ? {
@@ -117,8 +121,19 @@ describe('social publishing · double-post guards', () => {
 
     // Old scheduled post cancelled, then a new one created.
     expect(calls).toContainEqual({ method: 'DELETE', path: '/v1/posts/old_pp' });
-    expect(calls.some((c) => c.method === 'POST' && c.path.endsWith('/posts'))).toBe(true);
+    const created = calls.find((c) => c.method === 'POST' && c.path.endsWith('/posts'));
+    expect(created).toBeDefined();
     expect(res.postpeerPostId).toBe('new_pp');
+
+    // PostPeer's body schema is closed — the schedule must go out as
+    // `scheduledFor` (naive UTC) + `timezone`, with no `scheduledAt` and no
+    // `publishNow`, or the whole request 400s.
+    expect(created!.body).toMatchObject({
+      scheduledFor: '2030-01-01T00:00:00',
+      timezone: 'UTC',
+    });
+    expect(created!.body).not.toHaveProperty('scheduledAt');
+    expect(created!.body).not.toHaveProperty('publishNow');
 
     const [row] = await db
       .select()

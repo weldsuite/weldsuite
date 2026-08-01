@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -21,10 +21,12 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { Input } from '@weldsuite/ui/components/input';
+import { MultiSelect, type MultiSelectOption } from '@weldsuite/ui/components/multi-select';
 import {
   useSocialAccounts,
   useSocialMedia,
   useSocialTimezones,
+  useSocialSettings,
   useCreateSocialPost,
   useUpdateSocialPost,
   usePublishSocialPost,
@@ -33,6 +35,12 @@ import {
 } from '@/hooks/queries/use-social-queries';
 import type { SocialAccount, SocialMedia } from '@weldsuite/app-api-client/domains/social';
 import { SocialPlatformIcon } from '@/components/social/social-platform-icon';
+import {
+  getBrowserTimezone,
+  instantToZonedWallClock,
+  zonedWallClockToInstant,
+  TIMEZONES,
+} from '@/lib/timezones';
 
 interface SocialPost {
   id: string;
@@ -66,6 +74,7 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
   const { data: accountsData } = useSocialAccounts();
   const { data: mediaData } = useSocialMedia();
   const { data: timezonesData } = useSocialTimezones();
+  const { data: settingsData } = useSocialSettings();
 
   const createPost = useCreateSocialPost();
   const updatePost = useUpdateSocialPost();
@@ -73,20 +82,59 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
   const schedulePost = useScheduleSocialPost();
   const createMedia = useCreateSocialMedia();
 
-  const accounts = accountsData?.data || [];
+  // Memoised because the option list below derives from it — a fresh `[]` every
+  // render would rebuild the dropdown options on every keystroke in the editor.
+  const accounts = useMemo(() => accountsData?.data || [], [accountsData]);
   const mediaItems = mediaData?.data || [];
-  const timezones = (timezonesData?.data as string[] | undefined) || [];
+  const timezones = useMemo(
+    () => (timezonesData?.data as string[] | undefined) || [],
+    [timezonesData],
+  );
+
+  // The zone must never be unset: the time typed below is read as wall-clock
+  // time in it, so an empty value would leave the entered time ambiguous.
+  // Workspace default → viewer's own zone.
+  const fallbackTimezone = settingsData?.data?.defaultTimezone || getBrowserTimezone();
+
+  // Empty `timezone` state means "the user hasn't picked one", so the fallback
+  // still applies — that way a settings fetch that lands after the dialog opens
+  // can refine the default instead of being locked out.
+  const effectiveTimezone = timezone || fallbackTimezone;
+
+  // Read inside the reset effect without listing it as a dependency: settings
+  // resolving mid-edit must not re-run that effect and wipe the draft.
+  const fallbackTimezoneRef = useRef(fallbackTimezone);
+  fallbackTimezoneRef.current = fallbackTimezone;
+
+  // The selected zone must always be listed, or the Select renders blank — the
+  // workspace default or the viewer's own zone can sit outside the API's list.
+  const timezoneOptions = useMemo(() => {
+    const list = timezones.length > 0 ? timezones : TIMEZONES.map((tz) => tz.id);
+    return list.includes(effectiveTimezone) ? list : [effectiveTimezone, ...list];
+  }, [timezones, effectiveTimezone]);
 
   useEffect(() => {
     if (editPost) {
       setContent(editPost.content || '');
       setSelectedAccountIds(editPost.accountIds || []);
       setSelectedMediaIds(editPost.mediaIds || []);
+      const postTimezone = editPost.timezone || fallbackTimezoneRef.current;
       if (editPost.scheduledAt) {
         setScheduleMode(true);
-        setScheduledAt(editPost.scheduledAt.slice(0, 16));
+        // Render the stored instant as the clock time someone in the post's own
+        // zone would read — slicing the raw ISO string would show UTC instead.
+        setScheduledAt(instantToZonedWallClock(editPost.scheduledAt, postTimezone));
+        // Pin the zone that clock was rendered in, so the two can't drift apart.
+        setTimezone(postTimezone);
+      } else {
+        // Clear rather than leave whatever the previous post set. Today the
+        // call sites null `editPost` on close, so this branch is reached with
+        // the state already reset — but the branch shouldn't depend on that:
+        // an unscheduled post must never inherit a schedule.
+        setScheduleMode(false);
+        setScheduledAt('');
+        setTimezone(editPost.timezone || '');
       }
-      setTimezone(editPost.timezone || '');
     } else {
       setContent('');
       setSelectedAccountIds(defaultAccountIds || []);
@@ -97,11 +145,25 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
     }
   }, [editPost, defaultAccountIds, open]);
 
-  const toggleAccount = (id: string) => {
-    setSelectedAccountIds((prev) =>
-      prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id]
-    );
-  };
+  // The label doubles as the dropdown's search text AND is the only part a
+  // screen reader announces (the icon is decorative), so it carries everything
+  // that identifies the channel: name, handle, and platform. One brand name
+  // routinely exists on several platforms, and searching "linkedin" should find
+  // them. The icon stays uncoloured — X and TikTok are pure black and vanish
+  // against a dark chip.
+  const accountOptions: MultiSelectOption[] = useMemo(
+    () =>
+      accounts.map((account: SocialAccount) => {
+        const platformName = t.social.accounts.platforms[account.platform] ?? account.platform;
+        const named = account.username ? `${account.name} (@${account.username})` : account.name;
+        return {
+          value: account.id,
+          label: `${named} · ${platformName}`,
+          icon: <SocialPlatformIcon platform={account.platform} />,
+        };
+      }),
+    [accounts, t]
+  );
 
   const toggleMedia = (id: string) => {
     setSelectedMediaIds((prev) =>
@@ -132,6 +194,14 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
 
   const handleSchedule = async () => {
     if (!scheduledAt) return;
+    // The input is a bare wall clock; it means what it says in the SELECTED
+    // zone, not the browser's. `new Date(scheduledAt)` would silently apply the
+    // viewer's own offset and publish at the wrong moment.
+    const instant = zonedWallClockToInstant(scheduledAt, effectiveTimezone);
+    if (!instant) {
+      toast.error(t.social.messages.invalidScheduleTime);
+      return;
+    }
     try {
       let postId = editPost?.id;
       if (!postId) {
@@ -141,7 +211,11 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
         await updatePost.mutateAsync({ id: postId, ...buildPostData('scheduled') });
       }
       if (postId) {
-        await schedulePost.mutateAsync({ id: postId, scheduledAt: new Date(scheduledAt).toISOString(), timezone: timezone || undefined });
+        await schedulePost.mutateAsync({
+          id: postId,
+          scheduledAt: instant.toISOString(),
+          timezone: effectiveTimezone,
+        });
       }
       toast.success(t.social.messages.postScheduled);
       onOpenChange(false);
@@ -201,25 +275,18 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
         <div className="space-y-4 py-2">
           {/* Account selection */}
           {accounts.length > 0 && (
-            <div className="space-y-2">
-              <Label>{t.social.accounts.connectedAccounts}</Label>
-              <div className="flex flex-wrap gap-2">
-                {accounts.map((account: SocialAccount) => (
-                  <label
-                    key={account.id}
-                    className="flex items-center gap-1.5 cursor-pointer text-sm"
-                  >
-                    <Checkbox
-                      checked={selectedAccountIds.includes(account.id)}
-                      onCheckedChange={() => toggleAccount(account.id)}
-                    />
-                    <span className="flex items-center gap-2">
-                      <SocialPlatformIcon platform={account.platform} colored />
-                      {account.name}
-                    </span>
-                  </label>
-                ))}
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="composer-accounts">{t.social.accounts.connectedAccounts}</Label>
+              <MultiSelect
+                id="composer-accounts"
+                options={accountOptions}
+                value={selectedAccountIds}
+                onChange={setSelectedAccountIds}
+                placeholder={t.social.accounts.selectAccounts}
+                searchPlaceholder={t.social.accounts.searchAccounts}
+                emptyText={t.social.accounts.noAccountsFound}
+                maxDisplay={4}
+              />
             </div>
           )}
 
@@ -310,23 +377,24 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
                   onChange={(e) => setScheduledAt(e.target.value)}
                 />
               </div>
-              {timezones.length > 0 && (
-                <div className="space-y-1.5">
-                  <Label>{t.social.settings.defaultTimezone}</Label>
-                  <Select value={timezone} onValueChange={setTimezone}>
-                    <SelectTrigger>
-                      <SelectValue placeholder={st('sweep.miscA.composerDialog.selectTimezone')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {timezones.map((tz) => (
-                        <SelectItem key={tz} value={tz}>
-                          {tz}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
+              {/* Always rendered: the zone decides what the time above means,
+                  so hiding it when the API list is empty would leave the entered
+                  time unexplained. Falls back to the locally derived list. */}
+              <div className="space-y-1.5">
+                <Label>{t.social.settings.defaultTimezone}</Label>
+                <Select value={effectiveTimezone} onValueChange={setTimezone}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={st('sweep.miscA.composerDialog.selectTimezone')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {timezoneOptions.map((tz) => (
+                      <SelectItem key={tz} value={tz}>
+                        {tz}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           )}
         </div>

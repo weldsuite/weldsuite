@@ -128,6 +128,9 @@ export const social = {
       reconnectAccount: 'Account Opnieuw Verbinden',
       accountSettings: 'Account Instellingen',
       selectPlatform: 'Selecteer platform om te verbinden',
+      selectAccounts: 'Selecteer accounts',
+      searchAccounts: 'Zoek accounts…',
+      noAccountsFound: 'Geen accounts gevonden',
       noAccounts: 'Geen accounts verbonden',
       connectionExpired: 'Verbinding verlopen',
       active: 'Actief',
@@ -230,5 +233,6 @@ export const social = {
       approvalSubmitted: 'Ingediend voor goedkeuring',
       postApproved: 'Bericht goedgekeurd',
       postRejected: 'Bericht afgewezen',
+      invalidScheduleTime: 'Deze planningstijd kon niet worden gelezen — controleer de datum en tijdzone',
     },
   };

@@ -128,6 +128,9 @@ export const social = {
       reconnectAccount: 'Reconnect Account',
       accountSettings: 'Account Settings',
       selectPlatform: 'Select platform to connect',
+      selectAccounts: 'Select accounts',
+      searchAccounts: 'Search accounts…',
+      noAccountsFound: 'No accounts found',
       noAccounts: 'No accounts connected',
       connectionExpired: 'Connection expired',
       active: 'Active',
@@ -230,5 +233,6 @@ export const social = {
       approvalSubmitted: 'Submitted for approval',
       postApproved: 'Post approved',
       postRejected: 'Post rejected',
+      invalidScheduleTime: 'That schedule time could not be read — check the date and timezone',
     },
   };
