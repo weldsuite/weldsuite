@@ -11,10 +11,12 @@ name: CI
 # and run only in the private repo / deployment overlay.
 #
 # Job names are reused verbatim as required status checks in the public repo's
-# branch protection: "Lint", "Type Check · app-api", "Type Check · platform",
-# "Unit · app-api", "Unit · platform". Renaming one without updating branch
-# protection in the same change leaves a required check permanently pending and
-# blocks every PR.
+# branch protection: "Build", "Lint", "Type Check · app-api",
+# "Type Check · platform", "Unit · app-api", "Unit · platform". Renaming one
+# without updating branch protection in the same change leaves a required check
+# permanently pending and blocks every PR.
+#
+# Every job in this file now blocks. There are no informational jobs left.
 
 on:
   workflow_dispatch:
@@ -139,16 +141,17 @@ jobs:
 
   # ────────────────────────────────────────────
   # Cold build — the "does it even build from a clean checkout" signal (plan
-  # Phase 4). Informational until it's verified green on a from-scratch clone;
-  # turbo build is env-independent for types (esbuild strips them) but some app
-  # builds may want VITE_*/EXPO_* values that aren't present in a secret-free
-  # run. Promote to blocking once a cold clone builds clean.
+  # Phase 4). Blocking as of #66: verified green twice from a from-scratch
+  # clone (6m51s and 7m34s), which was the bar its old comment set. The
+  # secret-free run turned out to be fine — turbo build is env-independent for
+  # types, and no app build actually needs a VITE_*/EXPO_* value to compile.
+  #
+  # 25min timeout is deliberate: a cold run has no turbo cache to hit.
   # ────────────────────────────────────────────
   build:
-    name: Build (informational)
+    name: Build
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    continue-on-error: true
     env:
       NODE_OPTIONS: --max-old-space-size=8192
     steps:
