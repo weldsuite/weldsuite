@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useInstalledUserApps } from '@/hooks/queries/use-user-apps-queries';
+import { useCustomObjects } from '@/hooks/queries/use-custom-objects-queries';
 import type { InstalledApp } from '@/lib/api/apps';
 
 // Client-side app name mapping (matches server-side APP_CATALOG)
@@ -82,6 +83,11 @@ export function useInstalledApps() {
   // sidenav, mobile sidebar, and app-access guard all see one combined list.
   const userAppsQuery = useInstalledUserApps();
 
+  // WeldObjects — user-defined custom objects surface as their OWN sidebar
+  // entries ("Machines"), not nested under a WeldObjects module. Only `active`
+  // objects appear; drafts are visible in Settings until they're ready.
+  const customObjectsQuery = useCustomObjects({ status: 'active' });
+
   const data = useMemo<InstalledApp[] | undefined>(() => {
     // Mirror the "wait for the real fetch" semantics AppAccessGuard depends
     // on: don't synthesize a combined `[]` before the system-apps query has
@@ -105,11 +111,34 @@ export function useInstalledApps() {
         appType: 'user',
       });
     }
+
+    // Custom objects are keyed by slug in the same `appCode` namespace, so a
+    // slug colliding with an installed app would render twice. The reserved-slug
+    // list in the create schema blocks the first-party codes; this guard covers
+    // a collision with a WeldApp code, which no schema can know about ahead of
+    // time. The app wins — it was there first.
+    for (const object of customObjectsQuery.data ?? []) {
+      if (seenCodes.has(object.slug)) continue;
+      seenCodes.add(object.slug);
+      merged.push({
+        id: object.id,
+        workspaceId: '',
+        appCode: object.slug,
+        name: object.labelPlural,
+        icon: object.icon,
+        status: 'active',
+        installedAt: new Date().toISOString(),
+        displayOrder: merged.length,
+        appType: 'object',
+      });
+    }
+
     return merged;
-  }, [systemAppsQuery.data, userAppsQuery.data]);
+  }, [systemAppsQuery.data, userAppsQuery.data, customObjectsQuery.data]);
 
   return {
     data,
-    isLoading: systemAppsQuery.isLoading || userAppsQuery.isLoading,
+    isLoading:
+      systemAppsQuery.isLoading || userAppsQuery.isLoading || customObjectsQuery.isLoading,
   };
 }

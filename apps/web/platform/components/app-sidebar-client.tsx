@@ -29,13 +29,17 @@ import { CSS } from '@dnd-kit/utilities';
 import { getAppLogo, getAppLucideIcon, getAppSidebarIconClass } from '@/lib/apps/app-registry';
 import { CalendarLogoIcon } from '@/components/calendar-logo-icon';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
-import { Puzzle } from 'lucide-react';
+import { Box, Puzzle } from 'lucide-react';
 
 /** Path this app's sidebar icon links to — WeldApps (`appType: 'user'`) are
  * hosted at `/apps/{code}`, first-party system apps keep their own `/{code}`
  * top-level route. */
-function appHref(appCode: string, appType?: 'system' | 'user'): string {
-  return appType === 'user' ? `/apps/${appCode}` : `/${appCode}`;
+function appHref(appCode: string, appType?: 'system' | 'user' | 'object'): string {
+  if (appType === 'user') return `/apps/${appCode}`;
+  // WeldObjects are first-party UI over user-defined schema, so they get a real
+  // platform route rather than the sandboxed /apps/ iframe host.
+  if (appType === 'object') return `/objects/${appCode}`;
+  return `/${appCode}`;
 }
 
 // Stable `app-nav-<appCode>` testid for each app's rail icon, keyed by the
@@ -54,8 +58,18 @@ function SidebarAppIcon({
   name: string;
   imgSize?: number;
   icon?: string;
-  appType?: 'system' | 'user';
+  appType?: 'system' | 'user' | 'object';
 }) {
+  if (appType === 'object') {
+    // Custom objects carry a lucide icon name picked in the object builder.
+    return (
+      <LucideDynamicIcon
+        name={icon ?? 'Box'}
+        className="h-6 w-6"
+        fallback={() => <Box className="h-6 w-6" />}
+      />
+    );
+  }
   if (appType === 'user') {
     // WeldApps aren't in APP_REGISTRY (that's first-party apps only) — render
     // the developer-declared lucide icon name, falling back to a generic

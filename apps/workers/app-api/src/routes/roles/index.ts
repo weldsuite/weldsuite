@@ -23,6 +23,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, eq, isNull } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
+import { listCustomObjects } from '../../services/custom-objects';
 import { createRoleSchema, updateRoleSchema } from '@weldsuite/app-api-client/schemas/roles';
 import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '../../lib/response';
@@ -49,7 +50,11 @@ app.get('/', requirePermission('roles:read'), async (c) => {
 // Must be defined before /:roleId so the literal segment wins.
 app.get('/permission-catalog', requirePermission('roles:read'), async (c) => {
   const { PERMISSION_CATALOG_OBJECTS } = await import('@weldsuite/permissions/catalog');
-  const objects = PERMISSION_CATALOG_OBJECTS.map((obj) => ({
+  const { buildCustomObjectPermissionCatalog } = await import(
+    '@weldsuite/permissions/custom-objects'
+  );
+
+  const toResponse = (obj: { key: string; label: string; permissions: Array<{ key: string; label: string; description?: string }> }) => ({
     object: obj.key,
     objectName: obj.label,
     permissions: obj.permissions.map((p) => ({
@@ -59,8 +64,30 @@ app.get('/permission-catalog', requirePermission('roles:read'), async (c) => {
       action: p.key.split(':').slice(1).join(':') || 'read',
       isGranted: false,
     })),
-  }));
-  return success(c, { objects });
+  });
+
+  const objects = PERMISSION_CATALOG_OBJECTS.map(toResponse);
+
+  // WeldObjects — per-object keys (`weldobjects:<slug>:read` …) exist only at
+  // runtime, so they are built from the tenant's own custom_objects rows and
+  // returned in a SEPARATE group. Five keys per object means a workspace with
+  // forty objects contributes two hundred checkboxes; mixing those into the
+  // first-party list would drown it, so the role editor renders this group
+  // collapsed.
+  let customObjectGroups: ReturnType<typeof toResponse>[] = [];
+  try {
+    const db = c.get('tenantDb');
+    const rows = await listCustomObjects(db);
+    customObjectGroups = buildCustomObjectPermissionCatalog(
+      rows.map((r) => ({ slug: r.slug, labelPlural: r.labelPlural })),
+    ).map(toResponse);
+  } catch (err) {
+    // A tenant that predates the custom_objects table must still be able to
+    // edit roles — degrade to the static catalog rather than 500.
+    console.error('[app-api/roles] custom object permission merge failed:', err);
+  }
+
+  return success(c, { objects, customObjects: customObjectGroups });
 });
 
 // GET /installable-apps — workspace apps that a role can grant. Literal segment

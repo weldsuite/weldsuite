@@ -476,6 +476,14 @@ const EVENT_TYPE_ALIASES: Record<string, SearchEntityType> = {
 
 /** Resolve an entity-event type onto the search type it indexes under. */
 export function resolveIndexedType(eventEntityType: string): SearchEntityType | null {
+  // WeldObjects entity types (`co_<slug>`) index under their own key and have
+  // no static loader, so they pass straight through. Whether the object is
+  // actually opted into search is decided later, by `getCustomObjectLoader` —
+  // keeping that gate in one place means a toggle takes effect on every path
+  // (queue, backfill, reindex) at once. The cost is one DB lookup for a
+  // message belonging to a search-disabled object, which then no-ops.
+  if (eventEntityType.startsWith('co_')) return eventEntityType as SearchEntityType;
+
   const aliased = EVENT_TYPE_ALIASES[eventEntityType] ?? eventEntityType;
   return isIndexedEntityType(aliased) ? aliased : null;
 }

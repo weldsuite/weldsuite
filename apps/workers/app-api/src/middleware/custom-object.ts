@@ -1,0 +1,162 @@
+/**
+ * WeldObjects — slug resolution + dynamic permission gate.
+ *
+ * `requirePermission('leads:read')` builds its middleware closure at route
+ * REGISTRATION time, which works because the key is a constant. A custom
+ * object's key isn't: `weldobjects:machine:read` is only knowable once the
+ * request's `:slug` param has been read. This middleware closes that gap.
+ *
+ * It does two jobs in one pass so every data route gets both without
+ * boilerplate:
+ *
+ *   1. Resolve `:slug` → the `custom_objects` row, 404 if unknown, and stash it
+ *      on the context as `customObject` so handlers never re-query it.
+ *   2. Resolve the caller's permissions once and check
+ *      `weldobjects:<slug>:<action>` against them.
+ *
+ * Note this does NOT call `requirePermission` internally — it calls
+ * `ensurePermissionsResolved` + `hasPermission` directly, so the permission
+ * resolution is shared with any other gate on the same request (both read from
+ * the same context cache, so there is still exactly one DB round-trip).
+ *
+ * Wildcard grants work unchanged: `weldobjects:*`, `weldobjects:machine:*` and
+ * `weldobjects:*:read` all match, because the matcher in @weldsuite/permissions
+ * walks segments generically rather than assuming two of them.
+ */
+
+import type { Context, Next } from 'hono';
+import { ensurePermissionsResolved } from '@weldsuite/permissions/server';
+import { hasPermission } from '@weldsuite/permissions';
+import {
+  customObjectPermission,
+  customObjectScopeAllPermission,
+  type CustomObjectPermissionAction,
+} from '@weldsuite/permissions/custom-objects';
+import { getCustomObjectBySlug, type CustomObjectRow } from '../services/custom-objects';
+import { targetReadPermission } from '../services/custom-object-targets';
+import { error } from '../lib/response';
+import type { Env, Variables } from '../types';
+
+/**
+ * The app's own context, with its bindings and variables.
+ *
+ * The path parameter stays generic (`PATH extends string`) rather than being
+ * pinned: Hono brands `HonoRequest` per path literal, so a context typed for
+ * `"/:slug/records"` is not assignable to one typed for the default. Leaving
+ * the path open lets these helpers accept any route's context while keeping
+ * `Env` and `Variables` fully checked — which is what actually matters here,
+ * since every one of them reads `c.get('customObject')` or `c.get('userId')`.
+ */
+type AppContext<PATH extends string = string> = Context<
+  { Bindings: Env; Variables: Variables },
+  PATH
+>;
+
+/**
+ * Middleware return type — deliberately loose in its context parameter, and
+ * the one `any` in this file that cannot be removed.
+ *
+ * Hono brands `HonoRequest` per path literal, so a precisely-typed middleware
+ * is not assignable to a route slot declared with a path literal and simply
+ * cannot be mounted. Narrowing this to `never` also breaks `c.req.param()`
+ * inference in every handler downstream, turning each param into
+ * `string | undefined`. `requirePermission` in @weldsuite/permissions/server
+ * widens for exactly this reason and documents it at length.
+ *
+ * The widening is confined to the mount boundary: the handler body below, and
+ * every exported helper, are fully typed via `AppContext`.
+ */
+type RouteSlot = (c: any, next: Next) => Promise<Response | undefined>;
+
+/**
+ * Resolve `:slug` and enforce `weldobjects:<slug>:<action>`.
+ *
+ * A caller lacking permission gets 403; an unknown slug gets 404. The order
+ * matters and is deliberate: slug resolution happens FIRST, so a user without
+ * access to object A cannot probe which objects exist by comparing 403 against
+ * 404 — they get 404 for a nonexistent object either way, and 403 only for one
+ * that exists. That does leak existence to authenticated workspace members,
+ * which is acceptable: object types are workspace-wide metadata, and the
+ * sidebar lists them anyway.
+ */
+export function requireCustomObject(action: CustomObjectPermissionAction): RouteSlot {
+  const handler = async (c: AppContext, next: Next): Promise<Response | undefined> => {
+    const slug = c.req.param('slug');
+    if (!slug) return error.badRequest(c, 'Missing object slug');
+
+    const db = c.get('tenantDb');
+    const object = await getCustomObjectBySlug(db, slug);
+    if (!object) return error.notFound(c, 'Custom object', slug);
+    if (object.status === 'disabled') {
+      return error.notFound(c, 'Custom object', slug);
+    }
+
+    const resolved = await ensurePermissionsResolved(c);
+    const permissions = resolved?.permissions ?? [];
+    if (!hasPermission(permissions, customObjectPermission(slug, action))) {
+      return c.json(
+        {
+          error: {
+            code: 'FORBIDDEN',
+            message: `You do not have permission to ${action} ${object.labelPlural.toLowerCase()}`,
+          },
+        },
+        403,
+      );
+    }
+
+    c.set('customObject', object);
+    await next();
+    return undefined;
+  };
+  return handler as unknown as RouteSlot;
+}
+
+/**
+ * The owner-scope value for the current caller on the resolved object:
+ * `undefined` when they hold `<slug>:scope:all` (see everything), otherwise
+ * their own user id (see only what they own).
+ *
+ * Same shape and semantics as `scopeFor` in routes/leads — pass the result
+ * straight into `listRecords({ ownerScope })`.
+ */
+export async function customObjectScope(c: AppContext): Promise<string | undefined> {
+  const object = c.get('customObject');
+  if (!object) return c.get('userId');
+
+  const resolved = await ensurePermissionsResolved(c);
+  const permissions = resolved?.permissions ?? [];
+  if (hasPermission(permissions, customObjectScopeAllPermission(object.slug))) return undefined;
+  return c.get('userId');
+}
+
+/**
+ * Can the caller read records of a link TARGET?
+ *
+ * Linking reads the target as much as it writes the source: a related panel
+ * resolves and shows the target's title. Checking only the source object would
+ * let someone with `weldobjects:machine:update` attach a Machine to an
+ * arbitrary Customer id and read that customer's name back out of the panel,
+ * holding no `companies:read` at all.
+ *
+ * An unknown target type denies — a type with no known permission is one we
+ * can't reason about, and defaulting to "allow" there is how gaps get shipped.
+ */
+export async function canReadTarget(c: AppContext, targetEntityKey: string): Promise<boolean> {
+  const permission = targetReadPermission(targetEntityKey);
+  if (!permission) return false;
+
+  const resolved = await ensurePermissionsResolved(c);
+  return hasPermission(resolved?.permissions ?? [], permission);
+}
+
+/** The resolved object, for handlers running behind `requireCustomObject`. */
+export function getCustomObject(c: AppContext): CustomObjectRow {
+  const object = c.get('customObject');
+  if (!object) {
+    throw new Error(
+      '[custom-object] getCustomObject() called without requireCustomObject() on the route',
+    );
+  }
+  return object;
+}

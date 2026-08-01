@@ -9,9 +9,17 @@ import {
   userAppInputShape,
   executeUserAppTool,
 } from '../tools/user-apps';
+import {
+  loadCustomObjectTools,
+  buildCustomObjectTools,
+  executeCustomObjectTool,
+} from '../tools/custom-objects';
 
 /** Scope gating user-created WeldApp agent tools (and app storage access). */
 const USER_APPS_SCOPE = 'user-apps:manage';
+
+/** Scope gating WeldObjects (user-defined custom object) agent tools. */
+const CUSTOM_OBJECTS_SCOPE = 'custom-objects:read';
 
 /**
  * Guidance sent to the client on `initialize`.
@@ -143,6 +151,49 @@ export async function createMcpServer(
           }
         },
       );
+    }
+  }
+
+  // Register WeldObjects tools (dynamic, scope-gated). Same failure posture as
+  // the WeldApp tools above: `loadCustomObjectTools` returns [] on any error so
+  // a misconfigured object can never take the static tools down with it.
+  if (canUseScope(session.permissions, CUSTOM_OBJECTS_SCOPE)) {
+    const objects = await loadCustomObjectTools(session, env, executionCtx);
+
+    for (const object of objects) {
+      for (const objectTool of buildCustomObjectTools(object)) {
+        // A user-defined slug can collide with a static tool ("list_products"
+        // if someone names an object `products`) or with another object's
+        // tools. Dedupe by numeric suffix rather than dropping the tool, so the
+        // object stays reachable either way.
+        let toolName = objectTool.name;
+        for (let i = 2; registeredNames.has(toolName); i++) {
+          toolName = `${objectTool.name}_${i}`;
+        }
+        registeredNames.add(toolName);
+
+        server.tool(
+          toolName,
+          objectTool.description,
+          objectTool.inputSchema,
+          async (args) => {
+            try {
+              return await executeCustomObjectTool(
+                objectTool,
+                args as Record<string, unknown>,
+                session,
+                env,
+                executionCtx,
+              );
+            } catch (error) {
+              const message =
+                error instanceof Error ? error.message : 'An unexpected error occurred';
+              console.error(`[MCP Tool] ${toolName} error:`, error);
+              return toolError(message);
+            }
+          },
+        );
+      }
     }
   }
 

@@ -316,6 +316,25 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
       },
     ],
   },
+
+  // ── WeldObjects (user-defined custom objects) ─────────────────────────
+  // Only the MODULE-level keys live here. The per-object keys
+  // (`weldobjects:<slug>:read` etc.) are generated at runtime from the
+  // tenant's `custom_objects` rows — see ./custom-objects.ts — and merged
+  // into the role editor by GET /api/roles/permission-catalog.
+  {
+    key: 'weldobjects',
+    label: 'WeldObjects',
+    permissions: [
+      { key: 'weldobjects:read', label: 'View custom objects' },
+      {
+        key: 'weldobjects:manage',
+        label: 'Define & manage custom objects',
+        description:
+          'Create, edit and delete custom object types, their fields and their relationships. Deleting an object type deletes every record in it — grant this like a settings permission, not a data one.',
+      },
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -356,6 +375,12 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'prospects:read', 'prospects:create', 'prospects:update', 'prospects:delete',
   // WeldApps (user-created apps) — admins can build, publish, and install
   'weldapps:read', 'weldapps:develop', 'weldapps:publish', 'weldapps:manage',
+  // WeldObjects — admins define object types AND get full cross-owner access
+  // to every object's records. The `weldobjects:*:<action>` middle wildcard
+  // matches any slug without matching the 2-segment `weldobjects:manage`.
+  'weldobjects:read', 'weldobjects:manage',
+  'weldobjects:*:read', 'weldobjects:*:create', 'weldobjects:*:update', 'weldobjects:*:delete',
+  'weldobjects:*:scope:all',
 ];
 
 const LEGACY_MEMBER_PERMISSIONS: string[] = [
@@ -456,6 +481,10 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   'weldsocial:analytics:read',
   // WeldApps (user-created apps) — members can use installed apps
   'weldapps:read',
+  // WeldObjects — members manage records in any object, but only the ones they
+  // own (no scope:all) and they cannot change object definitions (no manage).
+  'weldobjects:read',
+  'weldobjects:*:read', 'weldobjects:*:create', 'weldobjects:*:update',
 ];
 
 const LEGACY_VIEWER_PERMISSIONS: string[] = [
@@ -468,6 +497,8 @@ const LEGACY_VIEWER_PERMISSIONS: string[] = [
   'prospects:read',
   // WeldApps (user-created apps) — read-only
   'weldapps:read',
+  // WeldObjects — read-only, own records only
+  'weldobjects:read', 'weldobjects:*:read',
 ];
 
 export const SYSTEM_ROLES: Record<string, SystemRoleDefinition> = {

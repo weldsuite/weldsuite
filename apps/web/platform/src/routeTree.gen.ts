@@ -184,6 +184,7 @@ import { Route as SettingsGeneralIndexRouteImport } from './routes/settings/gene
 import { Route as SettingsFeedbackIndexRouteImport } from './routes/settings/feedback/index'
 import { Route as SettingsExportIndexRouteImport } from './routes/settings/export/index'
 import { Route as SettingsDesktopIndexRouteImport } from './routes/settings/desktop/index'
+import { Route as SettingsCustomObjectsIndexRouteImport } from './routes/settings/custom-objects/index'
 import { Route as SettingsCustomFieldsIndexRouteImport } from './routes/settings/custom-fields/index'
 import { Route as SettingsBusinessIndexRouteImport } from './routes/settings/business/index'
 import { Route as SettingsBillingIndexRouteImport } from './routes/settings/billing/index'
@@ -191,6 +192,7 @@ import { Route as SettingsAppearanceIndexRouteImport } from './routes/settings/a
 import { Route as SettingsApiKeysIndexRouteImport } from './routes/settings/api-keys/index'
 import { Route as SettingsAdvancedIndexRouteImport } from './routes/settings/advanced/index'
 import { Route as SettingsActivityIndexRouteImport } from './routes/settings/activity/index'
+import { Route as ObjectsSlugIndexRouteImport } from './routes/objects/$slug/index'
 import { Route as InviteAcceptIndexRouteImport } from './routes/invite/accept/index'
 import { Route as AuthSsoCallbackIndexRouteImport } from './routes/auth/sso-callback/index'
 import { Route as AuthResetPasswordIndexRouteImport } from './routes/auth/reset-password/index'
@@ -205,7 +207,9 @@ import { Route as WeldmeetMeetingIdRoomRouteImport } from './routes/weldmeet/$me
 import { Route as WelddeskWeldagentNewRouteImport } from './routes/welddesk/weldagent/new'
 import { Route as WeldconnectIntegrationsCallbackRouteImport } from './routes/weldconnect/integrations/callback'
 import { Route as WeldchatDmUserIdRouteImport } from './routes/weldchat/dm/$userId'
+import { Route as SettingsCustomObjectsObjectIdRouteImport } from './routes/settings/custom-objects/$objectId'
 import { Route as SettingsAppsWeldcrmRouteImport } from './routes/settings/apps/weldcrm'
+import { Route as ObjectsSlugRecordIdRouteImport } from './routes/objects/$slug/$recordId'
 import { Route as AuthRegisterSplatRouteImport } from './routes/auth/register/$'
 import { Route as AuthLoginSplatRouteImport } from './routes/auth/login/$'
 import { Route as WeldmailUnifiedLabelSlugRouteRouteImport } from './routes/weldmail/unified/$labelSlug/route'
@@ -1283,6 +1287,12 @@ const SettingsDesktopIndexRoute = SettingsDesktopIndexRouteImport.update({
   path: '/desktop/',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
+const SettingsCustomObjectsIndexRoute =
+  SettingsCustomObjectsIndexRouteImport.update({
+    id: '/custom-objects/',
+    path: '/custom-objects/',
+    getParentRoute: () => SettingsRouteRoute,
+  } as any)
 const SettingsCustomFieldsIndexRoute =
   SettingsCustomFieldsIndexRouteImport.update({
     id: '/custom-fields/',
@@ -1318,6 +1328,11 @@ const SettingsActivityIndexRoute = SettingsActivityIndexRouteImport.update({
   id: '/activity/',
   path: '/activity/',
   getParentRoute: () => SettingsRouteRoute,
+} as any)
+const ObjectsSlugIndexRoute = ObjectsSlugIndexRouteImport.update({
+  id: '/objects/$slug/',
+  path: '/objects/$slug/',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const InviteAcceptIndexRoute = InviteAcceptIndexRouteImport.update({
   id: '/invite/accept/',
@@ -1390,10 +1405,21 @@ const WeldchatDmUserIdRoute = WeldchatDmUserIdRouteImport.update({
   path: '/dm/$userId',
   getParentRoute: () => WeldchatRouteRoute,
 } as any)
+const SettingsCustomObjectsObjectIdRoute =
+  SettingsCustomObjectsObjectIdRouteImport.update({
+    id: '/custom-objects/$objectId',
+    path: '/custom-objects/$objectId',
+    getParentRoute: () => SettingsRouteRoute,
+  } as any)
 const SettingsAppsWeldcrmRoute = SettingsAppsWeldcrmRouteImport.update({
   id: '/apps/weldcrm',
   path: '/apps/weldcrm',
   getParentRoute: () => SettingsRouteRoute,
+} as any)
+const ObjectsSlugRecordIdRoute = ObjectsSlugRecordIdRouteImport.update({
+  id: '/objects/$slug/$recordId',
+  path: '/objects/$slug/$recordId',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRegisterSplatRoute = AuthRegisterSplatRouteImport.update({
   id: '/register/$',
@@ -2541,7 +2567,9 @@ export interface FileRoutesByFullPath {
   '/weldmail/unified/$labelSlug': typeof WeldmailUnifiedLabelSlugRouteRouteWithChildren
   '/auth/login/$': typeof AuthLoginSplatRoute
   '/auth/register/$': typeof AuthRegisterSplatRoute
+  '/objects/$slug/$recordId': typeof ObjectsSlugRecordIdRoute
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
+  '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
   '/welddesk/weldagent/new': typeof WelddeskWeldagentNewRoute
@@ -2556,6 +2584,7 @@ export interface FileRoutesByFullPath {
   '/auth/reset-password/': typeof AuthResetPasswordIndexRoute
   '/auth/sso-callback/': typeof AuthSsoCallbackIndexRoute
   '/invite/accept/': typeof InviteAcceptIndexRoute
+  '/objects/$slug/': typeof ObjectsSlugIndexRoute
   '/settings/activity/': typeof SettingsActivityIndexRoute
   '/settings/advanced/': typeof SettingsAdvancedIndexRoute
   '/settings/api-keys/': typeof SettingsApiKeysIndexRoute
@@ -2563,6 +2592,7 @@ export interface FileRoutesByFullPath {
   '/settings/billing/': typeof SettingsBillingIndexRoute
   '/settings/business/': typeof SettingsBusinessIndexRoute
   '/settings/custom-fields/': typeof SettingsCustomFieldsIndexRoute
+  '/settings/custom-objects/': typeof SettingsCustomObjectsIndexRoute
   '/settings/desktop/': typeof SettingsDesktopIndexRoute
   '/settings/export/': typeof SettingsExportIndexRoute
   '/settings/feedback/': typeof SettingsFeedbackIndexRoute
@@ -2891,7 +2921,9 @@ export interface FileRoutesByTo {
   '/weldstash': typeof WeldstashIndexRoute
   '/auth/login/$': typeof AuthLoginSplatRoute
   '/auth/register/$': typeof AuthRegisterSplatRoute
+  '/objects/$slug/$recordId': typeof ObjectsSlugRecordIdRoute
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
+  '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
   '/welddesk/weldagent/new': typeof WelddeskWeldagentNewRoute
@@ -2906,6 +2938,7 @@ export interface FileRoutesByTo {
   '/auth/reset-password': typeof AuthResetPasswordIndexRoute
   '/auth/sso-callback': typeof AuthSsoCallbackIndexRoute
   '/invite/accept': typeof InviteAcceptIndexRoute
+  '/objects/$slug': typeof ObjectsSlugIndexRoute
   '/settings/activity': typeof SettingsActivityIndexRoute
   '/settings/advanced': typeof SettingsAdvancedIndexRoute
   '/settings/api-keys': typeof SettingsApiKeysIndexRoute
@@ -2913,6 +2946,7 @@ export interface FileRoutesByTo {
   '/settings/billing': typeof SettingsBillingIndexRoute
   '/settings/business': typeof SettingsBusinessIndexRoute
   '/settings/custom-fields': typeof SettingsCustomFieldsIndexRoute
+  '/settings/custom-objects': typeof SettingsCustomObjectsIndexRoute
   '/settings/desktop': typeof SettingsDesktopIndexRoute
   '/settings/export': typeof SettingsExportIndexRoute
   '/settings/feedback': typeof SettingsFeedbackIndexRoute
@@ -3275,7 +3309,9 @@ export interface FileRoutesById {
   '/weldmail/unified/$labelSlug': typeof WeldmailUnifiedLabelSlugRouteRouteWithChildren
   '/auth/login/$': typeof AuthLoginSplatRoute
   '/auth/register/$': typeof AuthRegisterSplatRoute
+  '/objects/$slug/$recordId': typeof ObjectsSlugRecordIdRoute
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
+  '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
   '/welddesk/weldagent/new': typeof WelddeskWeldagentNewRoute
@@ -3290,6 +3326,7 @@ export interface FileRoutesById {
   '/auth/reset-password/': typeof AuthResetPasswordIndexRoute
   '/auth/sso-callback/': typeof AuthSsoCallbackIndexRoute
   '/invite/accept/': typeof InviteAcceptIndexRoute
+  '/objects/$slug/': typeof ObjectsSlugIndexRoute
   '/settings/activity/': typeof SettingsActivityIndexRoute
   '/settings/advanced/': typeof SettingsAdvancedIndexRoute
   '/settings/api-keys/': typeof SettingsApiKeysIndexRoute
@@ -3297,6 +3334,7 @@ export interface FileRoutesById {
   '/settings/billing/': typeof SettingsBillingIndexRoute
   '/settings/business/': typeof SettingsBusinessIndexRoute
   '/settings/custom-fields/': typeof SettingsCustomFieldsIndexRoute
+  '/settings/custom-objects/': typeof SettingsCustomObjectsIndexRoute
   '/settings/desktop/': typeof SettingsDesktopIndexRoute
   '/settings/export/': typeof SettingsExportIndexRoute
   '/settings/feedback/': typeof SettingsFeedbackIndexRoute
@@ -3660,7 +3698,9 @@ export interface FileRouteTypes {
     | '/weldmail/unified/$labelSlug'
     | '/auth/login/$'
     | '/auth/register/$'
+    | '/objects/$slug/$recordId'
     | '/settings/apps/weldcrm'
+    | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
     | '/weldconnect/integrations/callback'
     | '/welddesk/weldagent/new'
@@ -3675,6 +3715,7 @@ export interface FileRouteTypes {
     | '/auth/reset-password/'
     | '/auth/sso-callback/'
     | '/invite/accept/'
+    | '/objects/$slug/'
     | '/settings/activity/'
     | '/settings/advanced/'
     | '/settings/api-keys/'
@@ -3682,6 +3723,7 @@ export interface FileRouteTypes {
     | '/settings/billing/'
     | '/settings/business/'
     | '/settings/custom-fields/'
+    | '/settings/custom-objects/'
     | '/settings/desktop/'
     | '/settings/export/'
     | '/settings/feedback/'
@@ -4010,7 +4052,9 @@ export interface FileRouteTypes {
     | '/weldstash'
     | '/auth/login/$'
     | '/auth/register/$'
+    | '/objects/$slug/$recordId'
     | '/settings/apps/weldcrm'
+    | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
     | '/weldconnect/integrations/callback'
     | '/welddesk/weldagent/new'
@@ -4025,6 +4069,7 @@ export interface FileRouteTypes {
     | '/auth/reset-password'
     | '/auth/sso-callback'
     | '/invite/accept'
+    | '/objects/$slug'
     | '/settings/activity'
     | '/settings/advanced'
     | '/settings/api-keys'
@@ -4032,6 +4077,7 @@ export interface FileRouteTypes {
     | '/settings/billing'
     | '/settings/business'
     | '/settings/custom-fields'
+    | '/settings/custom-objects'
     | '/settings/desktop'
     | '/settings/export'
     | '/settings/feedback'
@@ -4393,7 +4439,9 @@ export interface FileRouteTypes {
     | '/weldmail/unified/$labelSlug'
     | '/auth/login/$'
     | '/auth/register/$'
+    | '/objects/$slug/$recordId'
     | '/settings/apps/weldcrm'
+    | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
     | '/weldconnect/integrations/callback'
     | '/welddesk/weldagent/new'
@@ -4408,6 +4456,7 @@ export interface FileRouteTypes {
     | '/auth/reset-password/'
     | '/auth/sso-callback/'
     | '/invite/accept/'
+    | '/objects/$slug/'
     | '/settings/activity/'
     | '/settings/advanced/'
     | '/settings/api-keys/'
@@ -4415,6 +4464,7 @@ export interface FileRouteTypes {
     | '/settings/billing/'
     | '/settings/business/'
     | '/settings/custom-fields/'
+    | '/settings/custom-objects/'
     | '/settings/desktop/'
     | '/settings/export/'
     | '/settings/feedback/'
@@ -4739,8 +4789,10 @@ export interface RootRouteChildren {
   InviteIndexRoute: typeof InviteIndexRoute
   OnboardingIndexRoute: typeof OnboardingIndexRoute
   WelcomeIndexRoute: typeof WelcomeIndexRoute
+  ObjectsSlugRecordIdRoute: typeof ObjectsSlugRecordIdRoute
   AppsManageIndexRoute: typeof AppsManageIndexRoute
   InviteAcceptIndexRoute: typeof InviteAcceptIndexRoute
+  ObjectsSlugIndexRoute: typeof ObjectsSlugIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -5970,6 +6022,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsDesktopIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
+    '/settings/custom-objects/': {
+      id: '/settings/custom-objects/'
+      path: '/custom-objects'
+      fullPath: '/settings/custom-objects/'
+      preLoaderRoute: typeof SettingsCustomObjectsIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
     '/settings/custom-fields/': {
       id: '/settings/custom-fields/'
       path: '/custom-fields'
@@ -6018,6 +6077,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/activity/'
       preLoaderRoute: typeof SettingsActivityIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
+    }
+    '/objects/$slug/': {
+      id: '/objects/$slug/'
+      path: '/objects/$slug'
+      fullPath: '/objects/$slug/'
+      preLoaderRoute: typeof ObjectsSlugIndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/invite/accept/': {
       id: '/invite/accept/'
@@ -6117,12 +6183,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldchatDmUserIdRouteImport
       parentRoute: typeof WeldchatRouteRoute
     }
+    '/settings/custom-objects/$objectId': {
+      id: '/settings/custom-objects/$objectId'
+      path: '/custom-objects/$objectId'
+      fullPath: '/settings/custom-objects/$objectId'
+      preLoaderRoute: typeof SettingsCustomObjectsObjectIdRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
     '/settings/apps/weldcrm': {
       id: '/settings/apps/weldcrm'
       path: '/apps/weldcrm'
       fullPath: '/settings/apps/weldcrm'
       preLoaderRoute: typeof SettingsAppsWeldcrmRouteImport
       parentRoute: typeof SettingsRouteRoute
+    }
+    '/objects/$slug/$recordId': {
+      id: '/objects/$slug/$recordId'
+      path: '/objects/$slug/$recordId'
+      fullPath: '/objects/$slug/$recordId'
+      preLoaderRoute: typeof ObjectsSlugRecordIdRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/auth/register/$': {
       id: '/auth/register/$'
@@ -7495,6 +7575,7 @@ const AuthRouteRouteWithChildren = AuthRouteRoute._addFileChildren(
 interface SettingsRouteRouteChildren {
   SettingsIndexRoute: typeof SettingsIndexRoute
   SettingsAppsWeldcrmRoute: typeof SettingsAppsWeldcrmRoute
+  SettingsCustomObjectsObjectIdRoute: typeof SettingsCustomObjectsObjectIdRoute
   SettingsActivityIndexRoute: typeof SettingsActivityIndexRoute
   SettingsAdvancedIndexRoute: typeof SettingsAdvancedIndexRoute
   SettingsApiKeysIndexRoute: typeof SettingsApiKeysIndexRoute
@@ -7502,6 +7583,7 @@ interface SettingsRouteRouteChildren {
   SettingsBillingIndexRoute: typeof SettingsBillingIndexRoute
   SettingsBusinessIndexRoute: typeof SettingsBusinessIndexRoute
   SettingsCustomFieldsIndexRoute: typeof SettingsCustomFieldsIndexRoute
+  SettingsCustomObjectsIndexRoute: typeof SettingsCustomObjectsIndexRoute
   SettingsDesktopIndexRoute: typeof SettingsDesktopIndexRoute
   SettingsExportIndexRoute: typeof SettingsExportIndexRoute
   SettingsFeedbackIndexRoute: typeof SettingsFeedbackIndexRoute
@@ -7543,6 +7625,7 @@ interface SettingsRouteRouteChildren {
 const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsIndexRoute: SettingsIndexRoute,
   SettingsAppsWeldcrmRoute: SettingsAppsWeldcrmRoute,
+  SettingsCustomObjectsObjectIdRoute: SettingsCustomObjectsObjectIdRoute,
   SettingsActivityIndexRoute: SettingsActivityIndexRoute,
   SettingsAdvancedIndexRoute: SettingsAdvancedIndexRoute,
   SettingsApiKeysIndexRoute: SettingsApiKeysIndexRoute,
@@ -7550,6 +7633,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsBillingIndexRoute: SettingsBillingIndexRoute,
   SettingsBusinessIndexRoute: SettingsBusinessIndexRoute,
   SettingsCustomFieldsIndexRoute: SettingsCustomFieldsIndexRoute,
+  SettingsCustomObjectsIndexRoute: SettingsCustomObjectsIndexRoute,
   SettingsDesktopIndexRoute: SettingsDesktopIndexRoute,
   SettingsExportIndexRoute: SettingsExportIndexRoute,
   SettingsFeedbackIndexRoute: SettingsFeedbackIndexRoute,
@@ -8606,8 +8690,10 @@ const rootRouteChildren: RootRouteChildren = {
   InviteIndexRoute: InviteIndexRoute,
   OnboardingIndexRoute: OnboardingIndexRoute,
   WelcomeIndexRoute: WelcomeIndexRoute,
+  ObjectsSlugRecordIdRoute: ObjectsSlugRecordIdRoute,
   AppsManageIndexRoute: AppsManageIndexRoute,
   InviteAcceptIndexRoute: InviteAcceptIndexRoute,
+  ObjectsSlugIndexRoute: ObjectsSlugIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
