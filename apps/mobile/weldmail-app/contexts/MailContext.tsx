@@ -68,6 +68,7 @@ interface MailContextValue {
   selectedAccount: MailAccount | null;
   isUnifiedInbox: boolean;
   selectAccount: (account: MailAccount) => void;
+  selectAccountById: (accountId: string) => void;
   selectUnifiedInbox: () => void;
   isLoading: boolean;
   refreshLabels: () => Promise<void>;
@@ -120,6 +121,13 @@ export function MailProvider({ children }: { children: React.ReactNode }) {
   const [retryTick, setRetryTick] = useState(0);
   const retryCountRef = useRef(0);
   const MAX_INIT_RETRIES = 5;
+  // Mailbox requested from outside the mail UI — a push-notification tap, which
+  // knows which account the email landed in. Held in a ref (not state) because
+  // it may arrive before the account list exists: the effect below applies it
+  // once the mailbox has settled. Bumping `accountRequestTick` re-runs that
+  // effect for requests that arrive after everything is already loaded.
+  const pendingAccountIdRef = useRef<string | null>(null);
+  const [accountRequestTick, setAccountRequestTick] = useState(0);
 
   const refreshMail = useCallback(() => setMailVersion(v => v + 1), []);
 
@@ -204,6 +212,35 @@ export function MailProvider({ children }: { children: React.ReactNode }) {
     setSelectedLabel('INBOX');
     AsyncStorage.setItem(STORAGE_KEY_SELECTED_ACCOUNT, account.id);
   }, []);
+
+  /**
+   * Ask the mailbox to follow a message into the account it belongs to. Called
+   * when a push notification is tapped, so an email from account A opens with
+   * account A's mailbox behind it instead of whichever account was last used.
+   *
+   * The request is recorded rather than applied straight away — on a cold start
+   * the tap is what launched the app, long before the account list exists.
+   */
+  const selectAccountById = useCallback((accountId: string) => {
+    if (!accountId) return;
+    pendingAccountIdRef.current = accountId;
+    setAccountRequestTick((t) => t + 1);
+  }, []);
+
+  // Apply a pending account request once the mailbox has settled: accounts
+  // fetched AND the saved selection applied (both complete before `isLoading`
+  // flips), so we can tell an explicit mailbox choice from the initial default.
+  useEffect(() => {
+    const requestedId = pendingAccountIdRef.current;
+    if (!requestedId) return;
+    if (isLoading || accounts.length === 0) return;
+    pendingAccountIdRef.current = null;
+    // Nothing to switch to: the unified inbox already lists this account's mail,
+    // and the account may well be the one already open.
+    if (isUnifiedInbox || selectedAccount?.id === requestedId) return;
+    const match = accounts.find((a) => a.id === requestedId);
+    if (match) selectAccount(match);
+  }, [accountRequestTick, isLoading, accounts, isUnifiedInbox, selectedAccount, selectAccount]);
 
   const selectUnifiedInbox = useCallback(() => {
     setIsUnifiedInbox(true);
@@ -352,6 +389,8 @@ export function MailProvider({ children }: { children: React.ReactNode }) {
     if (prev && next && prev !== next) {
       initializedRef.current = false;
       retryCountRef.current = 0;
+      // Any queued notification account belongs to the org we're leaving.
+      pendingAccountIdRef.current = null;
       setAccounts([]);
       setSelectedAccount(null);
       setIsUnifiedInbox(true);
@@ -386,6 +425,7 @@ export function MailProvider({ children }: { children: React.ReactNode }) {
         selectedAccount,
         isUnifiedInbox,
         selectAccount,
+        selectAccountById,
         selectUnifiedInbox,
         isLoading,
         refreshLabels,

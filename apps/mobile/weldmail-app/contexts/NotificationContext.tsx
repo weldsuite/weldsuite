@@ -16,6 +16,8 @@ import {
   addPushTokenRefreshListener,
 } from '@weldsuite/mobile-ui/services/notifications';
 import appApi from '@/services/app-api';
+import { useMail } from '@/contexts/MailContext';
+import { parseNotificationTarget, type NotificationTarget } from '@/utils/notification-target';
 
 async function getDeviceId(): Promise<string> {
   if (Platform.OS === 'android') {
@@ -60,6 +62,9 @@ export const useNotifications = () => useContext(NotificationContext);
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const { user, getCredentials, organizationId } = useClerkAuth();
+  // Lets a notification tap move the mailbox to the account the email arrived
+  // in — this provider therefore has to sit inside MailProvider (see _layout).
+  const { selectAccountById } = useMail();
   const router = useRouter();
   // Defined once the root navigator is mounted — `?.key` is our "safe to
   // navigate" signal. On a cold start the provider's effects run before the
@@ -71,7 +76,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const [isPermissionGranted, setIsPermissionGranted] = useState(false);
   const cleanupRef = useRef<(() => void) | null>(null);
   // A notification target held until the router is ready (cold start).
-  const [pendingNav, setPendingNav] = useState<{ emailId?: string; inbox?: boolean } | null>(null);
+  const [pendingNav, setPendingNav] = useState<NotificationTarget | null>(null);
   // Session-local dedupe so a single tap never navigates twice (live listener
   // + cold-start replay can both surface the same response).
   const handledNotifIds = useRef<Set<string>>(new Set());
@@ -86,15 +91,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       handledNotifIds.current.add(notifId);
       AsyncStorage.setItem(HANDLED_NOTIF_KEY, notifId).catch(() => {});
     }
-    const data = response.notification.request.content.data;
-    const emailId = typeof data?.emailId === 'string' ? data.emailId : '';
-    // Only navigate to an id that matches our generateId() shape — never
-    // interpolate a raw push payload into the route path (path injection).
-    if (emailId && /^[A-Za-z0-9_-]{1,40}$/.test(emailId)) {
-      setPendingNav({ emailId });
-    } else if (data?.emailAccountId) {
-      setPendingNav({ inbox: true });
-    }
+    // Ids are validated against our generateId() shape before use — a raw push
+    // payload is never interpolated into a route path (path injection).
+    const target = parseNotificationTarget(response.notification.request.content.data);
+    if (target) setPendingNav(target);
   }, []);
 
   // Fire the queued navigation once the root navigator is mounted. This is what
@@ -103,13 +103,17 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   // the navigation because the router wasn't ready yet.
   useEffect(() => {
     if (!navReady || !pendingNav) return;
+    // Follow the email into its own mailbox first: tapping a notification for
+    // account A must not leave the user sitting in account B. No-op when the
+    // unified inbox is active or that account is already the selected one.
+    if (pendingNav.accountId) selectAccountById(pendingNav.accountId);
     if (pendingNav.emailId) {
       router.push({ pathname: '/[id]', params: { id: pendingNav.emailId } });
-    } else if (pendingNav.inbox) {
+    } else {
       router.push('/');
     }
     setPendingNav(null);
-  }, [navReady, pendingNav, router]);
+  }, [navReady, pendingNav, router, selectAccountById]);
 
   // Register this device's push token with the backend. Shared by
   // requestPermissions (awaited) and the init effect (fire-and-forget).
