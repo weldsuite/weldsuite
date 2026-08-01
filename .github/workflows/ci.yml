@@ -29,17 +29,22 @@ permissions:
 
 jobs:
   # ────────────────────────────────────────────
-  # Lint + platform type-check surface pre-existing failures on the default
-  # branch (ESLint v9 migration in @weldsuite/db; ~1300 platform type errors
-  # from the ongoing schema/refactor work). They run as informational jobs so
-  # contributors see NEW regressions without a red wall on day one. Flip
-  # `continue-on-error` to `false` once each is clean.
+  # Lint and platform type-check were informational while pre-existing failures
+  # were worked down (ESLint v9 migration in @weldsuite/db; the platform type
+  # errors from the schema/refactor work). Both are clean now, so both block.
+  #
+  # Note on lint: only the three design packages run `--max-warnings 0`, so this
+  # job blocks on ERRORS. Warnings elsewhere still pass — notably the remaining
+  # react-hooks/exhaustive-deps ones in the mobile apps.
+  #
+  # The job NAMES are reused verbatim as required status checks in branch
+  # protection, so don't rename them without updating that in the same change:
+  # a renamed required check sits pending forever and blocks every PR.
   # ────────────────────────────────────────────
   lint:
     name: Lint (informational)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
@@ -67,9 +72,8 @@ jobs:
     name: Type Check · platform (informational)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # ~1300 pre-existing platform type errors. Surfaces them on every PR but
-    # doesn't block. Flip `continue-on-error` to `false` once the count is low.
-    continue-on-error: true
+    # Was informational while ~1300 pre-existing errors were worked down.
+    # `tsc --noEmit` is clean as of this change, so it blocks.
     env:
       NODE_OPTIONS: --max-old-space-size=8192
     steps:
