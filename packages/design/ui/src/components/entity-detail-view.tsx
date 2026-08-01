@@ -46,6 +46,15 @@ export interface EntityDetailViewProps {
 
   // Header slots
   title?: React.ReactNode;
+  /**
+   * Let the title wrap onto as many lines as it needs, growing the header row
+   * instead of clamping to one line with an ellipsis. Set this whenever the
+   * title slot renders its own multi-line content (e.g. the task panel's
+   * `contentEditable` title) — the default single-line clamp is an
+   * `overflow: hidden` box, which turns such a title into its own scroll
+   * region rather than letting it wrap.
+   */
+  titleWrap?: boolean;
   avatar?: React.ReactNode;
   /** Domain-specific buttons rendered before the shell's expand + close controls. */
   actions?: React.ReactNode;
@@ -170,6 +179,7 @@ export function EntityDetailView(props: EntityDetailViewProps) {
   const sharedHeader: HeaderRenderProps = {
     avatar: props.avatar,
     title: props.title,
+    titleWrap: props.titleWrap,
     actions: props.actions,
     onBack: props.onBack,
     onClose: props.onClose,
@@ -192,6 +202,7 @@ export function EntityDetailView(props: EntityDetailViewProps) {
 interface HeaderRenderProps {
   avatar?: React.ReactNode;
   title?: React.ReactNode;
+  titleWrap?: boolean;
   actions?: React.ReactNode;
   onBack?: () => void;
   onClose?: () => void;
@@ -246,6 +257,7 @@ function HeaderControls({
 function HeaderRow({
   avatar,
   title,
+  titleWrap,
   actions,
   onBack,
   onClose,
@@ -255,7 +267,15 @@ function HeaderRow({
   showCloseButton,
 }: HeaderRenderProps) {
   return (
-    <div className="flex items-center gap-2 px-3 md:px-4 py-[12.5px] flex-shrink-0 min-h-[52px]">
+    <div
+      className={cn(
+        "flex gap-2 px-3 md:px-4 py-[12.5px] flex-shrink-0 min-h-[52px]",
+        // A wrapping title makes the row taller than its controls, so pin the
+        // avatar and buttons to the first line instead of floating them in the
+        // vertical middle of a multi-line block.
+        titleWrap ? "items-start" : "items-center",
+      )}
+    >
       {onBack && (
         <Button
           variant="ghost"
@@ -269,7 +289,18 @@ function HeaderRow({
       )}
       {avatar && <div className="flex-shrink-0">{avatar}</div>}
       <div className="flex-1 min-w-0">
-        {title && <div className="text-[15px] font-medium truncate">{title}</div>}
+        {title && (
+          <div
+            className={cn(
+              "text-[15px] font-medium",
+              // `truncate` is an `overflow: hidden` box — keep it off whenever
+              // the title is meant to wrap, or the content scrolls inside it.
+              titleWrap ? "break-words" : "truncate",
+            )}
+          >
+            {title}
+          </div>
+        )}
       </div>
       {actions && (
         <div className="flex items-center gap-0.5 md:gap-1">{actions}</div>
@@ -306,6 +337,7 @@ function AnimatedShell({
   leftOffset = 64,
   zIndex = 50,
   title,
+  titleWrap,
   avatar,
   actions,
   isExpanded,
@@ -339,6 +371,7 @@ function AnimatedShell({
     <HeaderRow
       avatar={avatar}
       title={title}
+      titleWrap={titleWrap}
       actions={actions}
       onBack={onBack}
       onClose={onClose}
@@ -816,6 +849,7 @@ function InlineFullscreenLayout({
   onClose,
   onBack,
   title,
+  titleWrap,
   avatar,
   actions,
   isExpanded,
@@ -841,6 +875,7 @@ function InlineFullscreenLayout({
       <HeaderRow
         avatar={avatar}
         title={title}
+        titleWrap={titleWrap}
         actions={actions}
         onBack={onBack}
         onClose={onClose}

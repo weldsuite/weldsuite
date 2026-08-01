@@ -250,6 +250,51 @@ export const PanelModeWithSidebar: Story = {
   },
 };
 
+/**
+ * `titleWrap` — for panels whose title slot renders its own multi-line content
+ * (the task panel's editable title, for one). Without it the header clamps the
+ * title to a single line inside an `overflow: hidden` box, so a long title
+ * scrolls within the header instead of wrapping. With it the header grows.
+ */
+export const PanelModeWrappingTitle: Story = {
+  render: () => {
+    const [open, setOpen] = React.useState(true);
+    return (
+      <div className="relative h-screen w-screen">
+        <StageBackground />
+        <div className="absolute top-4 left-4 z-10">
+          <Button onClick={() => setOpen((v) => !v)}>
+            {open ? "Close panel" : "Open panel"}
+          </Button>
+        </div>
+        <EntityDetailView
+          defaultMode="panel"
+          isOpen={open}
+          onClose={() => setOpen(false)}
+          topOffset={0}
+          width={480}
+          avatar={<MockAvatar label="TS" />}
+          titleWrap
+          title={
+            <span
+              contentEditable
+              suppressContentEditableWarning
+              className="block whitespace-pre-wrap break-words rounded-md border border-transparent px-1.5 py-0.5 -mx-1.5 -my-0.5 outline-none hover:border-border focus:border-border"
+            >
+              Migrate every tenant database off the legacy connection pool and
+              onto Hyperdrive before the next billing cycle closes
+            </span>
+          }
+          actions={<MockActions />}
+          tabs={<MockTabs items={["Details", "Activity"]} />}
+        >
+          <MockContent rows={10} />
+        </EntityDetailView>
+      </div>
+    );
+  },
+};
+
 export const PanelModeStacked: Story = {
   render: () => {
     return (

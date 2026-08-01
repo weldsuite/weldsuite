@@ -632,6 +632,9 @@ export function TaskPanel(props: ObjectPanelComponentProps) {
           ? <TaskTitle title={task.title} isDone={task.status === 'done'} onSave={(next) => handleUpdate(task.id, { title: next })} />
           : <div className="h-4 w-32 rounded bg-muted animate-pulse" />
       }
+      // `TaskTitle` is a wrapping `contentEditable` — without this the shell's
+      // single-line clamp boxes it in and the title scrolls instead of wrapping.
+      titleWrap
       actions={
         <TaskActions
           onEdit={handleEdit}
