@@ -18,6 +18,23 @@ import { getTranslations } from '@/lib/i18n';
 
 type FormValues = z.input<typeof createWmsSupplierSchema>;
 
+/**
+ * `valueAsNumber` yields NaN for an empty input, which an optional Zod number
+ * rejects — blocking submit with no visible cause. Map blank to undefined.
+ */
+const optionalNumber = {
+  setValueAs: (v: unknown) => (v === '' || v == null ? undefined : Number(v)),
+};
+
+/**
+ * Only `name` rendered an error before, so a failure on any other field left
+ * `handleSubmit` blocking with nothing on screen — the Save button looked dead.
+ */
+function FieldError({ message }: { message?: unknown }) {
+  if (!message) return null;
+  return <p className="text-xs text-destructive">{String(message)}</p>;
+}
+
 export function SupplierDialog({
   open,
   onOpenChange,
@@ -50,6 +67,8 @@ export function SupplierDialog({
       : { name: '' },
   });
 
+  const { errors } = form.formState;
+
   const onSubmit = async (values: FormValues) => {
     try {
       const parsed = createWmsSupplierSchema.parse(values) as CreateWmsSupplierInput;
@@ -80,52 +99,58 @@ export function SupplierDialog({
             <div className="grid gap-1.5">
               <Label htmlFor="name">{t.fields.name}</Label>
               <Input id="name" {...form.register('name')} />
-              {form.formState.errors.name && (
-                <p className="text-xs text-destructive">{String(form.formState.errors.name.message ?? '')}</p>
-              )}
+              <FieldError message={errors.name?.message} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="code">{t.fields.code}</Label>
               <Input id="code" {...form.register('code')} />
+              <FieldError message={errors.code?.message} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
               <Label htmlFor="contactName">{t.fields.contact}</Label>
               <Input id="contactName" {...form.register('contactName')} />
+              <FieldError message={errors.contactName?.message} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="defaultLeadTimeDays">{t.fields.leadTime}</Label>
               <Input
                 id="defaultLeadTimeDays"
                 type="number"
-                {...form.register('defaultLeadTimeDays', { valueAsNumber: true })}
+                {...form.register('defaultLeadTimeDays', optionalNumber)}
               />
+              <FieldError message={errors.defaultLeadTimeDays?.message} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
               <Label htmlFor="email">{t.fields.email}</Label>
               <Input id="email" type="email" {...form.register('email')} />
+              <FieldError message={errors.email?.message} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="phone">{t.fields.phone}</Label>
               <Input id="phone" {...form.register('phone')} />
+              <FieldError message={errors.phone?.message} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
               <Label htmlFor="city">{t.fields.city}</Label>
               <Input id="city" {...form.register('city')} />
+              <FieldError message={errors.city?.message} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="country">{t.fields.country}</Label>
               <Input id="country" {...form.register('country')} />
+              <FieldError message={errors.country?.message} />
             </div>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="notes">{t.fields.description}</Label>
             <Textarea id="notes" rows={3} {...form.register('notes')} />
+            <FieldError message={errors.notes?.message} />
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

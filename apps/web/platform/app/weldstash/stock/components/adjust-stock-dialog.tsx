@@ -9,7 +9,7 @@
  * EntityGrid.
  */
 
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { z } from 'zod';
 import { adjustStockSchema, type AdjustStockInput } from '@weldsuite/core-api-client/schemas/weldstash';
@@ -65,28 +65,43 @@ export function AdjustStockDialog({
         <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-3">
           <div className="grid gap-1.5">
             <Label>{t.weldstash.stock.labelProduct}</Label>
-            <Select onValueChange={(v) => form.setValue('productId', v)}>
-              <SelectTrigger><SelectValue placeholder={t.weldstash.stock.placeholderProduct} /></SelectTrigger>
-              <SelectContent>
-                {products.data?.data.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>{p.name}{p.sku ? ` (${p.sku})` : ''}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/* Controller, not bare setValue: an uncontrolled Select keeps its
+                own display state, so after form.reset() the field would clear
+                while the trigger still showed the old product. */}
+            <Controller
+              control={form.control}
+              name="productId"
+              render={({ field }) => (
+                <Select value={field.value ?? ''} onValueChange={field.onChange}>
+                  <SelectTrigger><SelectValue placeholder={t.weldstash.stock.placeholderProduct} /></SelectTrigger>
+                  <SelectContent>
+                    {products.data?.data.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>{p.name}{p.sku ? ` (${p.sku})` : ''}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
             {form.formState.errors.productId && (
               <p className="text-xs text-destructive">{form.formState.errors.productId.message}</p>
             )}
           </div>
           <div className="grid gap-1.5">
             <Label>{t.weldstash.stock.labelWarehouse}</Label>
-            <Select onValueChange={(v) => form.setValue('warehouseId', v)}>
-              <SelectTrigger><SelectValue placeholder={t.weldstash.stock.placeholderWarehouse} /></SelectTrigger>
-              <SelectContent>
-                {warehouses.data?.data.map((w) => (
-                  <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Controller
+              control={form.control}
+              name="warehouseId"
+              render={({ field }) => (
+                <Select value={field.value ?? ''} onValueChange={field.onChange}>
+                  <SelectTrigger><SelectValue placeholder={t.weldstash.stock.placeholderWarehouse} /></SelectTrigger>
+                  <SelectContent>
+                    {warehouses.data?.data.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
             {form.formState.errors.warehouseId && (
               <p className="text-xs text-destructive">{form.formState.errors.warehouseId.message}</p>
             )}

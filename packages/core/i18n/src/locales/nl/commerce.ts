@@ -188,6 +188,13 @@ export const commerce = {
         toastDeleted: 'Bestelling verwijderd',
         untitled: 'Naamloze bestelling',
         noCustomer: 'Geen klant',
+        statusLabels: {
+          pending: 'In afwachting',
+          processing: 'In behandeling',
+          shipped: 'Verzonden',
+          delivered: 'Afgeleverd',
+          cancelled: 'Geannuleerd',
+        },
       },
 
       customers: {

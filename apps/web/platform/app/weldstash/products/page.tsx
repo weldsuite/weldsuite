@@ -1,5 +1,6 @@
 import { Suspense, useMemo, useCallback } from 'react';
 import { useRouter, useSearchParams } from '@/lib/router';
+import { useDebounce } from '@/hooks/use-debounce';
 import { PageLoader } from '@/components/page-loader';
 import { useInfiniteWeldstashProducts } from '@/hooks/queries/use-weldstash-queries';
 import type { WeldstashProduct } from '@weldsuite/core-api-client/schemas/weldstash';
@@ -9,6 +10,10 @@ function ProductsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const search = searchParams.get('search') || '';
+  // The input stays bound to the URL value so typing feels immediate; only the
+  // value that forms the infinite-query key is debounced, so a search costs one
+  // request per pause instead of one per keystroke plus a cache entry each.
+  const debouncedSearch = useDebounce(search, 300);
   const status = searchParams.get('status') || undefined;
 
   const setSearch = useCallback(
@@ -24,10 +29,10 @@ function ProductsPageContent() {
 
   const filters = useMemo(() => {
     const f: { limit: number; search?: string; status?: string } = { limit: 50 };
-    if (search) f.search = search;
+    if (debouncedSearch) f.search = debouncedSearch;
     if (status) f.status = status;
     return f;
-  }, [search, status]);
+  }, [debouncedSearch, status]);
 
   const {
     data: infiniteData,

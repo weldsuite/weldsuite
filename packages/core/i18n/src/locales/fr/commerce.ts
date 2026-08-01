@@ -160,7 +160,14 @@ export const commerce = {
       "toastUpdated": "Commande mise à jour",
       "toastDeleted": "Commande supprimée",
       "untitled": "Commande sans titre",
-      "noCustomer": "Aucun client"
+      "noCustomer": "Aucun client",
+      "statusLabels": {
+        "pending": "En attente",
+        "processing": "En cours",
+        "shipped": "Expédié",
+        "delivered": "Livré",
+        "cancelled": "Annulé"
+      }
     },
     "customers": {
       "title": "Clients",

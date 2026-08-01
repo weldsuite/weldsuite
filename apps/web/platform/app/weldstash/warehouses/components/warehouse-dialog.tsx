@@ -1,4 +1,4 @@
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { z } from 'zod';
 import {
@@ -120,10 +120,20 @@ export function WarehouseDialog({
             <Textarea id="description" rows={2} {...form.register('description')} />
           </div>
           <div className="flex items-center gap-3">
-            <Switch
-              id="isDefault"
-              defaultChecked={warehouse?.isDefault ?? false}
-              onCheckedChange={(checked) => form.setValue('isDefault', checked)}
+            {/* Controlled via Controller: with defaultChecked the Switch keeps
+                its own state, so form.reset() (or reopening the dialog for a
+                different warehouse) would leave the toggle showing the previous
+                value while the form held another. */}
+            <Controller
+              control={form.control}
+              name="isDefault"
+              render={({ field }) => (
+                <Switch
+                  id="isDefault"
+                  checked={field.value ?? false}
+                  onCheckedChange={field.onChange}
+                />
+              )}
             />
             <Label htmlFor="isDefault">{t.fields.isDefault}</Label>
           </div>

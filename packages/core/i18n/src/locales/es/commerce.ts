@@ -188,6 +188,13 @@ export const commerce = {
         toastDeleted: 'Pedido eliminado',
         untitled: 'Pedido sin título',
         noCustomer: 'Sin cliente',
+        statusLabels: {
+          pending: 'Pendiente',
+          processing: 'En proceso',
+          shipped: 'Enviado',
+          delivered: 'Entregado',
+          cancelled: 'Cancelado',
+        },
       },
 
       customers: {

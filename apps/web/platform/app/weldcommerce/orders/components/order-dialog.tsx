@@ -15,11 +15,30 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
-import { ORDER_STATUS_OPTIONS } from '../config/order-columns';
+import { ORDER_STATUS_OPTIONS, orderStatusLabel } from '../config/order-columns';
 
 type FormValues = z.input<typeof createOrderSchema>;
+/** What the resolver hands `onSubmit` — already parsed, so no second parse. */
+type SubmitValues = z.output<typeof createOrderSchema>;
 
 const NO_CUSTOMER = '__none__';
+
+/**
+ * `valueAsNumber` turns an empty input into NaN, which an optional Zod number
+ * rejects — and because `handleSubmit` then never calls `onSubmit`, the user
+ * sees a Save button that silently does nothing. Map blank to undefined so the
+ * field reads as "not provided".
+ */
+const optionalNumber = { setValueAs: (v: unknown) => (v === '' || v == null ? undefined : Number(v)) };
+
+/**
+ * Without this, `handleSubmit` blocks on a validation failure and nothing on
+ * screen changes — the Save button just appears dead.
+ */
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null;
+  return <p className="text-xs text-destructive">{message}</p>;
+}
 
 export function OrderDialog({
   open,
@@ -51,10 +70,13 @@ export function OrderDialog({
         }
       : { status: 'pending' },
   });
+  const { errors } = form.formState;
 
-  const onSubmit = async (values: FormValues) => {
+  const onSubmit = async (values: SubmitValues) => {
     try {
-      const parsed = createOrderSchema.parse(values) as CreateOrderInput;
+      // zodResolver already parsed and applied transforms; parsing again would
+      // re-run them on their own output.
+      const parsed = values as CreateOrderInput;
       if (isEdit && order) {
         await update.mutateAsync({ id: order.id, data: parsed });
         toast.success(t.orders.toastUpdated);
@@ -80,6 +102,7 @@ export function OrderDialog({
             <div className="grid gap-1.5">
               <Label htmlFor="orderNumber">{t.fields.orderNumber}</Label>
               <Input id="orderNumber" {...form.register('orderNumber')} />
+              <FieldError message={errors.orderNumber?.message} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="status">{t.fields.status}</Label>
@@ -90,7 +113,7 @@ export function OrderDialog({
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {ORDER_STATUS_OPTIONS.map((s) => (
-                    <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>
+                    <SelectItem key={s} value={s}>{orderStatusLabel(s)}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -110,24 +133,29 @@ export function OrderDialog({
                 ))}
               </SelectContent>
             </Select>
+            <FieldError message={errors.customerId?.message} />
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div className="grid gap-1.5">
               <Label htmlFor="subtotal">{t.fields.subtotal}</Label>
-              <Input id="subtotal" type="number" step="0.01" {...form.register('subtotal', { valueAsNumber: true })} />
+              <Input id="subtotal" type="number" step="0.01" {...form.register('subtotal', optionalNumber)} />
+              <FieldError message={errors.subtotal?.message} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="taxTotal">{t.fields.tax}</Label>
-              <Input id="taxTotal" type="number" step="0.01" {...form.register('taxTotal', { valueAsNumber: true })} />
+              <Input id="taxTotal" type="number" step="0.01" {...form.register('taxTotal', optionalNumber)} />
+              <FieldError message={errors.taxTotal?.message} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="total">{t.fields.total}</Label>
-              <Input id="total" type="number" step="0.01" {...form.register('total', { valueAsNumber: true })} />
+              <Input id="total" type="number" step="0.01" {...form.register('total', optionalNumber)} />
+              <FieldError message={errors.total?.message} />
             </div>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="currency">{t.fields.currency}</Label>
             <Input id="currency" placeholder="EUR" {...form.register('currency')} />
+            <FieldError message={errors.currency?.message} />
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

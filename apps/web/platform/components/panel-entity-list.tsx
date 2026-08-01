@@ -108,9 +108,28 @@ export function PanelEntityList<T extends { id: string }>({
     <div
       key={item.id}
       onClick={onRowClick ? () => onRowClick(item) : undefined}
+      // A click-only row is unreachable without a mouse. Give it a button role,
+      // put it in the tab order, and accept the keys a button accepts. Only when
+      // the row is actually clickable — otherwise these would announce an
+      // interactive element that does nothing.
+      role={onRowClick ? 'button' : undefined}
+      tabIndex={onRowClick ? 0 : undefined}
+      onKeyDown={
+        onRowClick
+          ? (e) => {
+              if (e.key !== 'Enter' && e.key !== ' ') return;
+              // Ignore keys forwarded from a control inside the row (the row
+              // menu trigger), which handles them itself.
+              if (e.target !== e.currentTarget) return;
+              e.preventDefault(); // Space would otherwise scroll the list.
+              onRowClick(item);
+            }
+          : undefined
+      }
       className={cn(
         'group flex items-center gap-4 px-4 py-3 border-b border-border/70 transition-colors',
-        onRowClick && 'cursor-pointer hover:bg-muted/40',
+        onRowClick &&
+          'cursor-pointer hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
       )}
     >
       {columns.map((column) => (

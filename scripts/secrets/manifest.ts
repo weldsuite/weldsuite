@@ -65,6 +65,11 @@ export const manifest: Record<string, SecretEntry[]> = {
 
   "external-api": [
     "API_SIGNING_SECRET",
+    // Publishes through @weldsuite/social-publishing directly (no dependency on
+    // app-api), so it needs the SAME PostPeer key as app-api and mcp-server —
+    // one WeldSuite-level PostPeer account backs all three. Unset leaves
+    // POST /v1/social-posts/:id/publish and /schedule answering 503.
+    "POSTPEER_API_KEY",
   ],
 
   // Authenticates every caller with Clerk OAuth (no API keys), then serves tool
@@ -81,6 +86,10 @@ export const manifest: Record<string, SecretEntry[]> = {
     "NEON_API_KEY",
     "DATABASE_URL_MASTER",
     "DATABASE_ENCRYPTION_KEY",
+    // Same PostPeer key as app-api and external-api — publish_social_post and
+    // schedule_social_post go through @weldsuite/social-publishing directly.
+    // Unset leaves those two tools answering 503.
+    "POSTPEER_API_KEY",
   ],
 
   "discord-bot-worker": [
@@ -138,6 +147,15 @@ export const manifest: Record<string, SecretEntry[]> = {
     // webhook is rejected, so both must be set in the same env.
     "NANGO_SECRET_KEY",
     "NANGO_WEBHOOK_SECRET",
+    // WeldSocial (PostPeer). The API key must hold the SAME value here as on
+    // external-api and mcp-server below — all three publish through
+    // @weldsuite/social-publishing against one WeldSuite-level PostPeer
+    // account. The webhook secret verifies delivery callbacks, which only land
+    // on this worker. POSTPEER_APP_IDS maps platform → BYOK OAuth app id and is
+    // read on the connect flow, which only this worker exposes.
+    "POSTPEER_API_KEY",
+    "POSTPEER_WEBHOOK_SECRET",
+    "POSTPEER_APP_IDS",
   ],
 
   "audit-log-worker": [

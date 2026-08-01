@@ -24,6 +24,20 @@ function statusVariant(status: string | null | undefined) {
 }
 
 /**
+ * Translate a status for display.
+ *
+ * `orders.status` is a free-form varchar, so a row can hold a value outside
+ * ORDER_STATUS_OPTIONS (imported data, a future status). Those fall back to the
+ * raw string rather than rendering blank — showing the unknown value is more
+ * useful than hiding it.
+ */
+export function orderStatusLabel(status: string | null | undefined): string {
+  if (!status) return '—';
+  const labels = getTranslations('commerce').module.orders.statusLabels as Record<string, string>;
+  return labels[status] ?? status;
+}
+
+/**
  * Orders carry only `customerId`, so the page resolves an id→name map once and
  * passes it in rather than making every row fetch.
  */
@@ -57,9 +71,9 @@ export function buildOrderColumns(customerNames: Map<string, string>): ColumnDef
       header: t.fields.status,
       width: 'w-[130px]',
       render: (o) => (
-        <Badge variant={statusVariant(o.status)} className="capitalize">
-          {o.status ?? '—'}
-        </Badge>
+        // No `capitalize` — the translations carry their own casing, and
+        // forcing it breaks locales where a mid-phrase word stays lowercase.
+        <Badge variant={statusVariant(o.status)}>{orderStatusLabel(o.status)}</Badge>
       ),
     },
     {
