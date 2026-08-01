@@ -35,6 +35,8 @@ import { generateId } from '../lib/id';
 import { schema } from '../db';
 import type { Database } from '../db';
 
+import { escapeLikeTerm } from '@weldsuite/db/lib/custom-objects';
+
 export {
   entityKeyForSlug,
   getCustomObjectBySlug,
@@ -156,7 +158,9 @@ export async function listRecords(
   } else if (opts.ownerId) {
     conditions.push(eq(records.ownerId, opts.ownerId));
   }
-  if (opts.search) conditions.push(ilike(records.title, `%${opts.search}%`));
+  // Escaped so `%` and `_` in the user's term are literal — see
+  // escapeLikeTerm. Same unindexed-leading-wildcard caveat as listRecordsSimple.
+  if (opts.search) conditions.push(ilike(records.title, `%${escapeLikeTerm(opts.search)}%`));
 
   // An unresolvable filter means "no rows match", never "drop the filter".
   // Silently widening a result set is the more dangerous failure — the caller

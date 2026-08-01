@@ -20,6 +20,8 @@
 
 import { inArray, sql } from 'drizzle-orm';
 import type { AnyPgColumn, PgTable } from 'drizzle-orm/pg-core';
+import { customObjectSlugFromEntityKey } from '@weldsuite/entity-events';
+import { customObjectPermission } from '@weldsuite/permissions/custom-objects';
 import { schema } from '../db';
 import type { Database } from '../db';
 
@@ -54,6 +56,15 @@ interface TargetDefinition<T extends LinkableTable = LinkableTable> {
   fallbackColumn?: (t: T) => AnyPgColumn;
   /** Singular label used in the link editor. */
   label: string;
+  /**
+   * Permission required to see records of this type.
+   *
+   * Linking is a read of the TARGET as much as a write to the source: a related
+   * panel resolves and displays the target's title. Without this, a user with
+   * `weldobjects:machine:update` could attach a Machine to any Customer id and
+   * read that customer's name back out of the panel, with no `companies:read`.
+   */
+  readPermission: string;
   /** Platform route builder. */
   href: (id: string) => string;
   /** Whether the table soft-deletes; controls the deletedAt filter. */
@@ -79,6 +90,7 @@ const TARGETS: Record<string, TargetDefinition> = {
     table: schema.companies,
     titleColumn: (t) => t.name,
     fallbackColumn: (t) => t.displayName,
+    readPermission: 'companies:read',
     label: 'Company',
     href: (id) => `/crm/companies/${id}`,
     softDeletes: true,
@@ -87,6 +99,7 @@ const TARGETS: Record<string, TargetDefinition> = {
     table: schema.people,
     titleColumn: (t) => t.fullName,
     fallbackColumn: (t) => t.displayName,
+    readPermission: 'people:read',
     label: 'Person',
     href: (id) => `/crm/people/${id}`,
     softDeletes: true,
@@ -95,6 +108,7 @@ const TARGETS: Record<string, TargetDefinition> = {
     table: schema.crmLeads,
     titleColumn: (t) => t.fullName,
     fallbackColumn: (t) => t.email,
+    readPermission: 'leads:read',
     label: 'Lead',
     href: (id) => `/crm/leads/${id}`,
     softDeletes: true,
@@ -102,6 +116,7 @@ const TARGETS: Record<string, TargetDefinition> = {
   opportunity: defineTarget({
     table: schema.crmOpportunities,
     titleColumn: (t) => t.name,
+    readPermission: 'opportunities:read',
     label: 'Deal',
     href: (id) => `/crm/opportunities/${id}`,
     softDeletes: true,
@@ -110,6 +125,7 @@ const TARGETS: Record<string, TargetDefinition> = {
     table: schema.crmQuotes,
     titleColumn: (t) => t.name,
     fallbackColumn: (t) => t.quoteNumber,
+    readPermission: 'quotes:read',
     label: 'Quote',
     href: (id) => `/crm/quotes/${id}`,
     softDeletes: true,
@@ -117,6 +133,7 @@ const TARGETS: Record<string, TargetDefinition> = {
   ticket: defineTarget({
     table: schema.helpdeskTickets,
     titleColumn: (t) => t.subject,
+    readPermission: 'tickets:read',
     label: 'Ticket',
     href: (id) => `/welddesk/tickets/${id}`,
     softDeletes: true,
@@ -124,6 +141,7 @@ const TARGETS: Record<string, TargetDefinition> = {
   conversation: defineTarget({
     table: schema.deskConversations,
     titleColumn: (t) => t.title,
+    readPermission: 'conversations:read',
     label: 'Conversation',
     href: (id) => `/welddesk/inbox/${id}`,
     softDeletes: true,
@@ -131,6 +149,7 @@ const TARGETS: Record<string, TargetDefinition> = {
   project: defineTarget({
     table: schema.projects,
     titleColumn: (t) => t.name,
+    readPermission: 'projects:read',
     label: 'Project',
     href: (id) => `/weldflow/projects/${id}`,
     softDeletes: true,
@@ -138,6 +157,7 @@ const TARGETS: Record<string, TargetDefinition> = {
   task: defineTarget({
     table: schema.tasks,
     titleColumn: (t) => t.title,
+    readPermission: 'tasks:read',
     label: 'Task',
     href: (id) => `/weldflow/tasks/${id}`,
     softDeletes: true,
@@ -145,6 +165,7 @@ const TARGETS: Record<string, TargetDefinition> = {
   product: defineTarget({
     table: schema.products,
     titleColumn: (t) => t.name,
+    readPermission: 'products:read',
     label: 'Product',
     href: (id) => `/commerce/products/${id}`,
     softDeletes: true,
@@ -152,6 +173,7 @@ const TARGETS: Record<string, TargetDefinition> = {
   order: defineTarget({
     table: schema.orders,
     titleColumn: (t) => t.orderNumber,
+    readPermission: 'orders:read',
     label: 'Order',
     href: (id) => `/commerce/orders/${id}`,
     softDeletes: true,
@@ -159,6 +181,7 @@ const TARGETS: Record<string, TargetDefinition> = {
   invoice: defineTarget({
     table: schema.invoices,
     titleColumn: (t) => t.invoiceNumber,
+    readPermission: 'invoices:read',
     label: 'Invoice',
     href: (id) => `/weldbooks/invoices/${id}`,
     softDeletes: true,
@@ -171,6 +194,21 @@ export function isLinkableBuiltin(entityType: string): boolean {
 
 export function builtinTargetLabel(entityType: string): string | null {
   return TARGETS[entityType]?.label ?? null;
+}
+
+/**
+ * Permission needed to read records of a link target.
+ *
+ * Built-ins map to their own object permission; custom objects map to
+ * `weldobjects:<slug>:read`. Returns null for an unknown type, which callers
+ * must treat as "deny" rather than "no check required".
+ */
+export function targetReadPermission(targetEntityKey: string): string | null {
+  const builtin = TARGETS[targetEntityKey];
+  if (builtin) return builtin.readPermission;
+
+  const slug = customObjectSlugFromEntityKey(targetEntityKey);
+  return slug ? customObjectPermission(slug, 'read') : null;
 }
 
 export function listLinkableBuiltins(): Array<{ entityType: string; label: string }> {

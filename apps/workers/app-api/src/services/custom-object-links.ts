@@ -495,6 +495,48 @@ export function buildTargetDeleteCascadeStatements(
   return statements;
 }
 
+/**
+ * Links with `onDelete: 'restrict'` that would be violated by deleting this
+ * object type, i.e. links pointing AT it that still have live edges.
+ *
+ * `deleteCustomObjectCascade` wipes every matching edge unconditionally, so
+ * without this check `restrict` was enforced when deleting a single RECORD but
+ * silently ignored when deleting the whole object — the stricter operation had
+ * the weaker guarantee. Returns the source-side labels, for the error message.
+ */
+export async function findRestrictingLinks(
+  db: Database,
+  entityKey: string,
+): Promise<string[]> {
+  const restricting = await db
+    .select({ id: links.id, sourceLabel: links.sourceLabel })
+    .from(links)
+    .where(
+      and(
+        eq(links.targetEntityKey, entityKey),
+        eq(links.onDelete, 'restrict'),
+        isNull(links.deletedAt),
+      ),
+    );
+  if (restricting.length === 0) return [];
+
+  // Only links that actually hold edges block the delete — a `restrict` link
+  // with nothing attached has nothing to protect.
+  const withEdges = await db
+    .select({ linkId: relations.linkId })
+    .from(relations)
+    .where(
+      inArray(
+        relations.linkId,
+        restricting.map((l) => l.id),
+      ),
+    )
+    .groupBy(relations.linkId);
+
+  const blocking = new Set(withEdges.map((r) => r.linkId));
+  return restricting.filter((l) => blocking.has(l.id)).map((l) => l.sourceLabel);
+}
+
 /** Count of edges per source record for a link — used to render panel badges. */
 export async function countRelated(
   db: Database,

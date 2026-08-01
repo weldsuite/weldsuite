@@ -38,6 +38,7 @@ import {
 } from '../../services/custom-objects';
 import { clearCustomObjectIndex } from '../../services/search/custom-object-documents';
 import { atomically } from '../../lib/atomically';
+import { findRestrictingLinks } from '../../services/custom-object-links';
 import { isUniqueViolation } from '../../lib/pg-errors';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -111,7 +112,14 @@ app.get('/:id/delete-impact', requirePermission('weldobjects:manage'), async (c)
       .where(and(eq(t.id, id), isNull(t.deletedAt)))
       .limit(1);
     if (!row) return error.notFound(c, 'Custom object', id);
-    return success(c, await getDeleteImpact(db, row));
+    // `blockedBy` lets the confirmation dialog say up front that the delete is
+    // blocked, instead of letting the user type the confirmation and then
+    // handing them a 409.
+    const [impact, blockedBy] = await Promise.all([
+      getDeleteImpact(db, row),
+      findRestrictingLinks(db, row.entityKey),
+    ]);
+    return success(c, { ...impact, blockedBy });
   } catch (err) {
     console.error('[app-api/custom-objects] delete-impact failed:', err);
     return error.internal(c, 'Failed to compute delete impact');
@@ -339,6 +347,19 @@ app.delete('/:id', requirePermission('weldobjects:manage'), async (c) => {
           `${impact.fieldCount} field(s) and ${impact.relationCount} relationship(s). ` +
           `Re-send with ?confirm=${existing.slug} to proceed.`,
         impact,
+      );
+    }
+
+    // `restrict` links pointing at this object block the delete, exactly as
+    // they do for a single record. Without this the cascade wiped their edges
+    // regardless, so the broader operation had the weaker guarantee.
+    const restricting = await findRestrictingLinks(db, existing.entityKey);
+    if (restricting.length > 0) {
+      return error.conflict(
+        c,
+        `'${existing.labelPlural}' is still linked from ${restricting.join(', ')}, and those relationships are set to block deletion. ` +
+          `Remove those links or change their delete rule first.`,
+        { blockedBy: restricting },
       );
     }
 

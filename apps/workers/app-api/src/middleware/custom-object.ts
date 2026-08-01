@@ -33,6 +33,7 @@ import {
   type CustomObjectPermissionAction,
 } from '@weldsuite/permissions/custom-objects';
 import { getCustomObjectBySlug, type CustomObjectRow } from '../services/custom-objects';
+import { targetReadPermission } from '../services/custom-object-targets';
 import { error } from '../lib/response';
 
 /** Hono's branded HonoRequest makes a typed middleware non-assignable to a
@@ -99,6 +100,26 @@ export async function customObjectScope(c: Context<any>): Promise<string | undef
   const permissions = resolved?.permissions ?? [];
   if (hasPermission(permissions, customObjectScopeAllPermission(object.slug))) return undefined;
   return c.get('userId');
+}
+
+/**
+ * Can the caller read records of a link TARGET?
+ *
+ * Linking reads the target as much as it writes the source: a related panel
+ * resolves and shows the target's title. Checking only the source object would
+ * let someone with `weldobjects:machine:update` attach a Machine to an
+ * arbitrary Customer id and read that customer's name back out of the panel,
+ * holding no `companies:read` at all.
+ *
+ * An unknown target type denies — a type with no known permission is one we
+ * can't reason about, and defaulting to "allow" there is how gaps get shipped.
+ */
+export async function canReadTarget(c: Context<any>, targetEntityKey: string): Promise<boolean> {
+  const permission = targetReadPermission(targetEntityKey);
+  if (!permission) return false;
+
+  const resolved = await ensurePermissionsResolved(c);
+  return hasPermission(resolved?.permissions ?? [], permission);
 }
 
 /** The resolved object, for handlers running behind `requireCustomObject`. */

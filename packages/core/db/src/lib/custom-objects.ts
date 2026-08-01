@@ -81,6 +81,18 @@ export function parseLimit(raw: string | undefined, fallback = 25, max = 100): n
   return Math.min(Math.max(parsed, 1), max);
 }
 
+/**
+ * Escape a user search term for use inside an ILIKE pattern.
+ *
+ * `%` and `_` are wildcards in LIKE, so an unescaped term means a user typing
+ * `50%` matches far more than they asked for and a lone `%` matches every row.
+ * The term is the user's literal text; only the surrounding `%…%` should act as
+ * a wildcard.
+ */
+export function escapeLikeTerm(term: string): string {
+  return term.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
 // ---------------------------------------------------------------------------
 // Object type resolution
 // ---------------------------------------------------------------------------
@@ -254,7 +266,12 @@ export async function listRecordsSimple(
   } else if (opts.ownerId) {
     filters.push(eq(records.ownerId, opts.ownerId));
   }
-  if (opts.search) filters.push(ilike(records.title, `%${opts.search}%`));
+  // NOTE: the leading wildcard means `cor_entity_key_title_idx` can't serve
+  // this — each search scans the object's live records. Fine at the volumes a
+  // hand-curated custom object reaches; if one ever grows large, the fix is a
+  // pg_trgm GIN index on `title` (a migration, so not added here) or routing
+  // search through the semantic index.
+  if (opts.search) filters.push(ilike(records.title, `%${escapeLikeTerm(opts.search)}%`));
 
   const conditions = [...filters];
   if (opts.cursor) {
@@ -405,7 +422,12 @@ export async function deleteRecord(
   await db
     .update(records)
     .set({ deletedAt: new Date(), updatedAt: new Date() })
-    .where(eq(records.id, id));
+    // Scoped by entityKey as well as id, matching the value and relation
+    // deletes below. Callers resolve the record through `getRecord` first
+    // (which scopes), so a mismatched (object, id) pair shouldn't reach here —
+    // but an unscoped soft-delete would silently hit another object's record if
+    // one ever did.
+    .where(and(eq(records.id, id), eq(records.entityKey, object.entityKey)));
 
   await deleteValuesForEntity(db, object.entityKey, id);
 
@@ -433,7 +455,12 @@ export function buildRecordDeleteStatements(
   now = new Date(),
 ): unknown[] {
   return [
-    handle.update(records).set({ deletedAt: now, updatedAt: now }).where(eq(records.id, id)),
+    handle
+      .update(records)
+      .set({ deletedAt: now, updatedAt: now })
+      // See deleteRecord — scoped by entityKey so a mismatched (object, id)
+      // pair can never soft-delete a different object's record.
+      .where(and(eq(records.id, id), eq(records.entityKey, object.entityKey))),
     handle
       .delete(schema.customFieldValues)
       .where(

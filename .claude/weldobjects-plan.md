@@ -323,6 +323,16 @@ That last one is the reverse lookup: given a Customer, return every custom
 object record linked to it, grouped by link. It is what lets a Customer detail
 page grow a "Machines" panel without CRM code knowing custom objects exist.
 
+**Link traversal is permission-checked on BOTH sides.** A related panel resolves
+and displays the target's title, so linking reads the target as much as it
+writes the source — checking only the source object would let someone with
+`weldobjects:machine:update` attach a Machine to an arbitrary Customer id and
+read that customer's name back out of the panel while holding no
+`companies:read`. Each linkable built-in carries its read permission in the
+target registry; custom object targets map to `weldobjects:<slug>:read`. Panels
+whose target type the caller can't read are dropped rather than resolved. The
+check is one cached set-membership test per LINK, not per record.
+
 Permission enforcement is dynamic — resolve `:slug` first, then call
 `requirePermission(\`weldobjects:${slug}:read\`)`. Since `requirePermission`
 returns a middleware closure, this needs a small wrapper that reads the param at

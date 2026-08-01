@@ -69,13 +69,27 @@ export const RESERVED_FIELD_SLUGS = [
   'cursor',
   'fields',
   'title',
-  'ownerid',
-  'createdat',
-  'updatedat',
+  'owner_id',
+  'created_at',
+  'updated_at',
 ] as const;
 
+/**
+ * Strip separators and case so `owner_id`, `ownerId` and `ownerid` are all the
+ * same name. Field slugs permit underscores, so comparing raw strings let
+ * `owner_id` through while blocking `ownerid` — the collision the list is meant
+ * to prevent doesn't care which spelling was used.
+ */
+function normalizeFieldSlug(slug: string): string {
+  return slug.toLowerCase().replace(/[_-]/g, '');
+}
+
+const NORMALIZED_RESERVED_FIELD_SLUGS = new Set(
+  (RESERVED_FIELD_SLUGS as readonly string[]).map(normalizeFieldSlug),
+);
+
 export function isReservedFieldSlug(slug: string): boolean {
-  return (RESERVED_FIELD_SLUGS as readonly string[]).includes(slug.toLowerCase());
+  return NORMALIZED_RESERVED_FIELD_SLUGS.has(normalizeFieldSlug(slug));
 }
 
 export const CUSTOM_OBJECT_STATUSES = ['draft', 'active', 'disabled'] as const;

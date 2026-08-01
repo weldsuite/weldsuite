@@ -32,8 +32,9 @@ import {
   requireCustomObject,
   customObjectScope,
   getCustomObject,
+  canReadTarget,
 } from '../../middleware/custom-object';
-import { getRecord } from '../../services/custom-objects';
+import { getRecord, entityKeyForSlug } from '../../services/custom-objects';
 import {
   assertValidTarget,
   attach,
@@ -295,9 +296,18 @@ traversalApp.get('/:slug/records/:id/links', requireCustomObject('read'), async 
     const record = await getRecord(db, object, recordId, scope);
     if (!record) return error.notFound(c, object.labelSingular, recordId);
 
-    const linkRows = await listLinksForObject(db, object.entityKey);
+    // Drop whole panels the caller can't read the target type of, rather than
+    // resolving titles they have no permission to see. One permission check per
+    // LINK, not per record — permissions are resolved once and cached on the
+    // context, so this costs nothing beyond the first call.
+    const allLinks = await listLinksForObject(db, object.entityKey);
+    const readable = [];
+    for (const link of allLinks) {
+      if (await canReadTarget(c, link.targetEntityKey)) readable.push(link);
+    }
+
     const panels = await Promise.all(
-      linkRows.map(async (link) => ({
+      readable.map(async (link) => ({
         linkId: link.id,
         linkSlug: link.slug,
         label: link.targetLabel,
@@ -331,6 +341,13 @@ traversalApp.get(
       const link = await getLinkBySlug(db, object.entityKey, linkSlug);
       if (!link) return error.notFound(c, 'Relationship', linkSlug);
 
+      if (!(await canReadTarget(c, link.targetEntityKey))) {
+        return error.forbidden(
+          c,
+          `You do not have permission to view ${link.targetLabel.toLowerCase()}`,
+        );
+      }
+
       return success(c, await listRelated(db, link, recordId));
     } catch (err) {
       console.error(`[app-api/objects/${object.slug}] related failed:`, err);
@@ -358,6 +375,15 @@ traversalApp.post(
 
       const link = await getLinkBySlug(db, object.entityKey, linkSlug);
       if (!link) return error.notFound(c, 'Relationship', linkSlug);
+
+      // Attaching exposes the target's title through the related panel, so it
+      // needs read access to the TARGET, not just update on the source.
+      if (!(await canReadTarget(c, link.targetEntityKey))) {
+        return error.forbidden(
+          c,
+          `You do not have permission to link ${link.targetLabel.toLowerCase()}`,
+        );
+      }
 
       await attach(db, link, recordId, targetId, userId);
       return success(c, await listRelated(db, link, recordId), 201);
@@ -405,12 +431,12 @@ const reverseApp = new Hono<{ Bindings: Env; Variables: Variables }>();
 /**
  * Custom object records linked to an arbitrary record, grouped by relationship.
  *
- * Gated on `weldobjects:read` only. The per-object read grant is deliberately
- * NOT checked here: this returns titles of records already linked to something
- * the caller is looking at, and requiring N permission resolutions to render
- * one detail page would make the panel too expensive to be worth having. If an
- * object's records are sensitive enough that their titles matter, the object
- * should not be linked to a widely-visible entity in the first place.
+ * Each panel is filtered by `weldobjects:<slug>:read` for the object the
+ * records belong to. An earlier version checked only the module-level
+ * `weldobjects:read`, on the reasoning that per-object checks would be too
+ * expensive to render one detail page — that was wrong on both counts: the
+ * panel exposes record TITLES, and permissions resolve once per request and are
+ * cached on the context, so this is one set-membership test per panel.
  */
 reverseApp.get('/:entityType/:entityId/custom-objects', requirePermission('weldobjects:read'), async (c) => {
   const db = c.get('tenantDb');
@@ -418,7 +444,14 @@ reverseApp.get('/:entityType/:entityId/custom-objects', requirePermission('weldo
   const entityId = c.req.param('entityId');
 
   try {
-    return success(c, await listReversePanels(db, entityType, entityId));
+    const panels = await listReversePanels(db, entityType, entityId);
+
+    const visible = [];
+    for (const panel of panels) {
+      if (await canReadTarget(c, entityKeyForSlug(panel.objectSlug))) visible.push(panel);
+    }
+
+    return success(c, visible);
   } catch (err) {
     console.error('[app-api/related] reverse lookup failed:', err);
     return error.internal(c, 'Failed to load related custom object records');

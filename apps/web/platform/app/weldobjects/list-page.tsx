@@ -191,12 +191,18 @@ export default function CustomObjectListPage() {
               enableExport: true,
             }}
             actions={{
+              // Both handlers reconcile `loadedPages` directly rather than
+              // relying on invalidate-and-refetch. Once a second page is
+              // loaded the merge below de-dupes by id, so a refetched row for
+              // an already-loaded id is DISCARDED — an edit would keep showing
+              // its old value and a deleted row would linger as a ghost.
               onUpdateEntity: async (id, updates) => {
                 try {
-                  await updateRecord.mutateAsync({
+                  const updated = await updateRecord.mutateAsync({
                     id,
                     fields: (updates.fields as Record<string, unknown>) ?? undefined,
                   });
+                  setLoadedPages((prev) => prev.map((r) => (r.id === id ? updated : r)));
                   return { success: true };
                 } catch (err) {
                   const message = err instanceof Error ? err.message : t.errors.updateFailed;
@@ -207,6 +213,7 @@ export default function CustomObjectListPage() {
               onDeleteEntity: async (id) => {
                 try {
                   await deleteRecord.mutateAsync(id);
+                  setLoadedPages((prev) => prev.filter((r) => r.id !== id));
                   return { success: true };
                 } catch (err) {
                   const message = err instanceof Error ? err.message : t.errors.deleteFailed;
@@ -220,7 +227,10 @@ export default function CustomObjectListPage() {
             entities={records}
             searchParams={{ search }}
             pagination={{
-              page: 1,
+              // Advances with the accumulated pages; `totalPages` is derived
+              // from the full count, so a fixed 1 would read as "page 1 of 7"
+              // no matter how much the user had loaded.
+              page: Math.max(1, Math.ceil(loadedPages.length / PAGE_SIZE)),
               pageSize: PAGE_SIZE,
               totalCount,
               totalPages: Math.max(1, Math.ceil(totalCount / PAGE_SIZE)),
