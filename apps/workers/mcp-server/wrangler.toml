@@ -2,9 +2,21 @@
 # Allows WeldSuite customers to access their data through AI assistants.
 #
 # Authentication is Clerk OAuth (see src/middleware/auth.ts). There are no API
-# keys. The worker is self-contained: it serves tool calls from its own copy of
-# the v1 resource routes (src/api/) against the tenant DB, so no request path
-# depends on another worker and no service bindings are configured here.
+# keys. The worker serves tool calls from its own copy of the v1 resource routes
+# (src/api/) against the tenant DB, so almost no request path depends on another
+# worker and no service bindings are configured here.
+#
+# The one exception is social publishing: publish_social_post and
+# schedule_social_post POST to app-api's /api/internal/* surface over HTTPS,
+# because PostPeer delivery webhooks land on app-api and reconcile through a KV
+# mapping only that worker can write (see src/api/lib/app-api-internal.ts).
+#
+# Secrets (set via `wrangler secret put`, never hardcoded here):
+# - INTERNAL_API_SECRET (shared bearer for app-api's /api/internal/*. MUST match
+#   app-api's value. Unset leaves the two social publishing tools answering 503
+#   and changes nothing else.)
+#   (APP_API_INTERNAL_URL defaults to https://app-api.weldsuite.org; override
+#   via [vars] to point at a different app-api origin.)
 name = "weldsuite-mcp-server"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"

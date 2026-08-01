@@ -64,4 +64,14 @@ export interface Env {
   REALTIME?: Fetcher;
   /** R2 bucket for user-app bundles (shared with app-api's STORAGE binding). */
   STORAGE?: R2Bucket;
+
+  // --- app-api internal surface ------------------------------------------
+  // Used by the social publish/schedule tools, which delegate to app-api
+  // because PostPeer publishing depends on bindings only that worker holds
+  // (see api/lib/app-api-internal.ts). Unset leaves those two tools answering
+  // 503 and changes nothing else.
+  /** Shared secret for `/api/internal/*` on app-api — must match app-api's. */
+  INTERNAL_API_SECRET?: string;
+  /** app-api origin; defaults to https://app-api.weldsuite.org. */
+  APP_API_INTERNAL_URL?: string;
 }

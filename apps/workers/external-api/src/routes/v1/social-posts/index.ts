@@ -1,7 +1,8 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { and, eq, isNull, type SQL } from 'drizzle-orm';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
@@ -10,6 +11,7 @@ import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
 import { stripServerFields } from '../../../lib/sanitize';
+import { callAppApiInternal } from '../../../lib/app-api-internal';
 import {
   createSocialPostSchema,
   updateSocialPostSchema,
@@ -116,5 +118,90 @@ app.delete('/:id', requireScope('social_posts:write'), async (c) => {
   });
   return noContent(c);
 });
+
+// ---------------------------------------------------------------------------
+// Publish / schedule
+//
+// These delegate to app-api's internal surface rather than talking to PostPeer
+// here — see lib/app-api-internal.ts for why (the delivery webhook resolves the
+// tenant through a KV mapping only app-api can write). app-api also emits the
+// `social_post` published/scheduled entity event, so these routes deliberately
+// do not publish one of their own; doing so would double-fire it.
+//
+// Note that creating a post with `status: 'scheduled'` does NOT schedule it —
+// nothing sweeps scheduled rows. A post only reaches PostPeer through these
+// endpoints.
+// ---------------------------------------------------------------------------
+
+const schedulePostSchema = z.object({
+  /** ISO-8601 with offset, e.g. 2026-08-05T09:30:00+02:00. Must be in the future. */
+  scheduledAt: z.string().datetime({ offset: true }),
+  /** IANA timezone the schedule should be interpreted in (e.g. Europe/Amsterdam). */
+  timezone: z.string().max(50).optional(),
+});
+
+/**
+ * Confirm the post exists in this tenant, then hand off to app-api.
+ *
+ * The local existence check is not redundant: it turns an unknown id into the
+ * standard v1 404 (`error.notFound`) instead of the upstream's 400, which is
+ * also what lets the MCP server's resolve-by-name retry engage when a caller
+ * passes a post title where an id was expected.
+ */
+async function forwardToAppApi(
+  c: Context<HonoEnv>,
+  id: string,
+  path: string,
+  extra: Record<string, unknown> = {},
+) {
+  const db = c.get('tenantDb');
+
+  const [row] = await db
+    .select({ id: table.id })
+    .from(table)
+    .where(and(eq(table.id, id), isNull(table.deletedAt)))
+    .limit(1);
+  if (!row) return error.notFound(c, 'SocialPost', id);
+
+  const upstream = await callAppApiInternal(c.env, path, {
+    workspaceId: c.get('workspaceId'),
+    postId: id,
+    actorUserId: c.get('userId'),
+    ...extra,
+  });
+
+  if (upstream.status >= 200 && upstream.status < 300) {
+    return success(c, (upstream.body?.data ?? null) as Record<string, unknown>);
+  }
+
+  // Forward the upstream code/message verbatim — it already speaks the v1
+  // error envelope, and carries statuses (402 insufficient credits, 409
+  // conflict, 503 not configured) the local helpers don't all express.
+  const upstreamError = upstream.body?.error;
+  return c.json(
+    {
+      error: {
+        code: upstreamError?.code ?? 'UPSTREAM_ERROR',
+        message: upstreamError?.message ?? 'Failed to reach the publishing service',
+        ...(upstreamError?.details !== undefined ? { details: upstreamError.details } : {}),
+      },
+    },
+    upstream.status as ContentfulStatusCode,
+  );
+}
+
+app.post('/:id/publish', requireScope('social_posts:write'), async (c) =>
+  forwardToAppApi(c, c.req.param('id'), '/social-posts/publish'),
+);
+
+app.post(
+  '/:id/schedule',
+  requireScope('social_posts:write'),
+  zValidator('json', schedulePostSchema),
+  async (c) => {
+    const { scheduledAt, timezone } = c.req.valid('json');
+    return forwardToAppApi(c, c.req.param('id'), '/social-posts/schedule', { scheduledAt, timezone });
+  },
+);
 
 export default app;
