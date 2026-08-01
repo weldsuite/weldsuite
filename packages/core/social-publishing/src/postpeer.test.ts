@@ -105,6 +105,21 @@ describe('toPostPeerSchedule', () => {
   it('throws on an unparseable time rather than sending garbage upstream', () => {
     expect(() => toPostPeerSchedule('not a date')).toThrow(/Invalid scheduled time/);
   });
+
+  // `new Date('2030-06-01T14:00:00')` resolves in the RUNTIME's zone, so a
+  // timezone-less string denotes a different instant per host. Reject it rather
+  // than let the schedule silently depend on where the worker runs.
+  it('rejects a timestamp with no explicit UTC offset', () => {
+    expect(() => toPostPeerSchedule('2030-06-01T14:00:00')).toThrow(/explicit UTC offset/);
+    expect(() => toPostPeerSchedule('2030-06-01')).toThrow(/explicit UTC offset/);
+  });
+
+  it('accepts the offset forms our APIs emit', () => {
+    expect(() => toPostPeerSchedule('2030-06-01T14:00:00Z')).not.toThrow();
+    expect(() => toPostPeerSchedule('2030-06-01T14:00:00.000Z')).not.toThrow();
+    expect(() => toPostPeerSchedule('2030-06-01T16:00:00+02:00')).not.toThrow();
+    expect(() => toPostPeerSchedule('2030-06-01T16:00:00-0500')).not.toThrow();
+  });
 });
 
 describe('getPostPeerClient', () => {

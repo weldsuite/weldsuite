@@ -139,17 +139,24 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
     }
   }, [editPost, defaultAccountIds, open]);
 
-  // The label doubles as the dropdown's search text, so the handle is folded in:
-  // the same brand name often exists on several platforms, and the icon alone
-  // can't disambiguate a chip or a search hit.
+  // The label doubles as the dropdown's search text AND is the only part a
+  // screen reader announces (the icon is decorative), so it carries everything
+  // that identifies the channel: name, handle, and platform. One brand name
+  // routinely exists on several platforms, and searching "linkedin" should find
+  // them. The icon stays uncoloured — X and TikTok are pure black and vanish
+  // against a dark chip.
   const accountOptions: MultiSelectOption[] = useMemo(
     () =>
-      accounts.map((account: SocialAccount) => ({
-        value: account.id,
-        label: account.username ? `${account.name} (@${account.username})` : account.name,
-        icon: <SocialPlatformIcon platform={account.platform} colored />,
-      })),
-    [accounts]
+      accounts.map((account: SocialAccount) => {
+        const platformName = t.social.accounts.platforms[account.platform] ?? account.platform;
+        const named = account.username ? `${account.name} (@${account.username})` : account.name;
+        return {
+          value: account.id,
+          label: `${named} · ${platformName}`,
+          icon: <SocialPlatformIcon platform={account.platform} />,
+        };
+      }),
+    [accounts, t]
   );
 
   const toggleMedia = (id: string) => {

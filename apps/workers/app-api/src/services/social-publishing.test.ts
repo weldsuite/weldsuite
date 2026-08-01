@@ -48,8 +48,8 @@ const ctx = {
 } as unknown as SocialPublishingContext;
 
 /** Stub fetch; record (method, path, body) and return canned PostPeer responses. */
-function stubPostPeer(): Array<{ method: string; path: string; body?: any }> {
-  const calls: Array<{ method: string; path: string; body?: any }> = [];
+function stubPostPeer(): Array<{ method: string; path: string; body?: unknown }> {
+  const calls: Array<{ method: string; path: string; body?: unknown }> = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init: { method: string; body?: string }) => {

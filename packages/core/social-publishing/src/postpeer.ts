@@ -78,11 +78,25 @@ export interface PostPeerCreatePostInput {
  * delivery by that zone's offset — the post would fire at the wrong time.
  * A post's own `timezone` column stays a display preference; it never reaches
  * the wire.
+ *
+ * The offset is mandatory. `new Date('2030-06-01T14:00:00')` is parsed in the
+ * *runtime's* zone per the ES spec, so a timezone-less string would denote a
+ * different instant depending on where the code runs — silently, and only for
+ * non-UTC runtimes. Every HTTP route into `publishPost` validates with
+ * `z.string().datetime({ offset: true })`, so this is defence in depth for
+ * direct callers of the exported helper rather than a live hole.
  */
+const HAS_UTC_OFFSET = /(?:Z|[+-]\d{2}:?\d{2})$/i;
+
 export function toPostPeerSchedule(isoInstant: string): {
   scheduledFor: string;
   timezone: string;
 } {
+  if (!HAS_UTC_OFFSET.test(isoInstant)) {
+    throw new Error(
+      `Invalid scheduled time: ${isoInstant} (needs an explicit UTC offset, e.g. a trailing Z)`,
+    );
+  }
   const date = new Date(isoInstant);
   if (Number.isNaN(date.getTime())) {
     throw new Error(`Invalid scheduled time: ${isoInstant}`);
