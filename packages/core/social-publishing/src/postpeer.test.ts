@@ -9,6 +9,7 @@ import {
   verifyPostPeerSignature,
   getPostPeerClient,
   getPostPeerAppId,
+  toPostPeerSchedule,
 } from './postpeer';
 
 function mockFetchOnce(status: number, body: unknown) {
@@ -46,6 +47,26 @@ describe('PostPeerClient', () => {
     expect(JSON.parse(init.body).publishNow).toBe(true);
   });
 
+  // PostPeer validates the body with `additionalProperties: false`, so an
+  // unknown key is a hard 400 ("body must NOT have additional properties"),
+  // not a silently ignored field. Pin the exact wire names.
+  it('sends the schedule as scheduledFor + timezone, never scheduledAt', async () => {
+    const fetchMock = mockFetchOnce(200, { postId: 'p2', status: 'scheduled', platforms: [] });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new PostPeerClient({ apiKey: 'k' });
+    await client.createPost({
+      content: 'later',
+      platforms: [{ platform: 'twitter', accountId: 'i1' }],
+      ...toPostPeerSchedule('2030-01-01T09:30:00.000Z'),
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
+    expect(body.scheduledFor).toBe('2030-01-01T09:30:00');
+    expect(body.timezone).toBe('UTC');
+    expect(body).not.toHaveProperty('scheduledAt');
+  });
+
   it('builds query params for analytics and unwraps array/data shapes', async () => {
     const fetchMock = mockFetchOnce(200, { data: [{ postId: 'p1', likes: 5 }] });
     vi.stubGlobal('fetch', fetchMock);
@@ -61,6 +82,28 @@ describe('PostPeerClient', () => {
     vi.stubGlobal('fetch', mockFetchOnce(401, { message: 'bad key' }));
     const client = new PostPeerClient({ apiKey: 'k' });
     await expect(client.healthCheck()).rejects.toThrow('bad key');
+  });
+});
+
+describe('toPostPeerSchedule', () => {
+  it('normalises an instant to a naive UTC wall clock', () => {
+    expect(toPostPeerSchedule('2030-06-01T14:00:00.000Z')).toEqual({
+      scheduledFor: '2030-06-01T14:00:00',
+      timezone: 'UTC',
+    });
+  });
+
+  // An offset instant must keep the SAME moment — shifting it here would
+  // publish at the wrong time.
+  it('converts an offset instant to the equivalent UTC wall clock', () => {
+    expect(toPostPeerSchedule('2030-06-01T16:00:00+02:00')).toEqual({
+      scheduledFor: '2030-06-01T14:00:00',
+      timezone: 'UTC',
+    });
+  });
+
+  it('throws on an unparseable time rather than sending garbage upstream', () => {
+    expect(() => toPostPeerSchedule('not a date')).toThrow(/Invalid scheduled time/);
   });
 });
 

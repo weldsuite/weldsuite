@@ -42,6 +42,7 @@ import { generateId } from './id';
 import {
   getPostPeerClient,
   getPostPeerAppId,
+  toPostPeerSchedule,
   type PostPeerCreatePostResult,
   type PostPeerPlatformResult,
   type PostPeerIntegration,
@@ -367,6 +368,14 @@ export interface PublishPostOptions {
   timezone?: string;
 }
 
+/** `scheduledAt` is only optional on the type because `now: true` ignores it. */
+function requireScheduledAt(options: PublishPostOptions): string {
+  if (!options.scheduledAt) {
+    throw new Error('scheduledAt is required when publishing with now: false');
+  }
+  return options.scheduledAt;
+}
+
 export interface PublishPostResult {
   postId: string;
   postpeerPostId: string;
@@ -436,6 +445,10 @@ export async function publishPost(
   if (platforms.length === 0) {
     throw new Error('No PostPeer-connected accounts among the post targets');
   }
+
+  // Resolve the schedule up front, while the row is still untouched: a bad or
+  // missing time must fail before the claim below flips the row to `publishing`.
+  const schedule = options.now ? undefined : toPostPeerSchedule(requireScheduledAt(options));
 
   // Resolve media urls.
   const mediaIds = (post.mediaIds ?? []) as string[];
@@ -546,13 +559,17 @@ export async function publishPost(
 
   let result: PostPeerCreatePostResult;
   try {
+    // Publish-now carries no schedule at all: PostPeer's body schema is closed
+    // (`additionalProperties: false`), so send only the fields that branch
+    // actually takes. `timezone` belongs with `scheduledFor` — see
+    // `toPostPeerSchedule` for why it is always UTC on the wire.
     result = await client.createPost({
       content: post.content,
       platforms,
       mediaItems,
       publishNow: options.now ? true : undefined,
-      scheduledAt: options.now ? undefined : options.scheduledAt,
-      timezone: options.timezone ?? post.timezone ?? undefined,
+      scheduledFor: schedule?.scheduledFor,
+      timezone: schedule?.timezone,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'PostPeer publish failed';

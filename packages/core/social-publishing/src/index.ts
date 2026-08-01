@@ -39,6 +39,7 @@ export {
   PostPeerError,
   getPostPeerClient,
   getPostPeerAppId,
+  toPostPeerSchedule,
   verifyPostPeerSignature,
 } from './postpeer';
 

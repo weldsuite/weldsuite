@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { Input } from '@weldsuite/ui/components/input';
+import { MultiSelect, type MultiSelectOption } from '@weldsuite/ui/components/multi-select';
 import {
   useSocialAccounts,
   useSocialMedia,
@@ -73,7 +74,9 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
   const schedulePost = useScheduleSocialPost();
   const createMedia = useCreateSocialMedia();
 
-  const accounts = accountsData?.data || [];
+  // Memoised because the option list below derives from it — a fresh `[]` every
+  // render would rebuild the dropdown options on every keystroke in the editor.
+  const accounts = useMemo(() => accountsData?.data || [], [accountsData]);
   const mediaItems = mediaData?.data || [];
   const timezones = (timezonesData?.data as string[] | undefined) || [];
 
@@ -97,11 +100,18 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
     }
   }, [editPost, defaultAccountIds, open]);
 
-  const toggleAccount = (id: string) => {
-    setSelectedAccountIds((prev) =>
-      prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id]
-    );
-  };
+  // The label doubles as the dropdown's search text, so the handle is folded in:
+  // the same brand name often exists on several platforms, and the icon alone
+  // can't disambiguate a chip or a search hit.
+  const accountOptions: MultiSelectOption[] = useMemo(
+    () =>
+      accounts.map((account: SocialAccount) => ({
+        value: account.id,
+        label: account.username ? `${account.name} (@${account.username})` : account.name,
+        icon: <SocialPlatformIcon platform={account.platform} colored />,
+      })),
+    [accounts]
+  );
 
   const toggleMedia = (id: string) => {
     setSelectedMediaIds((prev) =>
@@ -201,25 +211,18 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
         <div className="space-y-4 py-2">
           {/* Account selection */}
           {accounts.length > 0 && (
-            <div className="space-y-2">
-              <Label>{t.social.accounts.connectedAccounts}</Label>
-              <div className="flex flex-wrap gap-2">
-                {accounts.map((account: SocialAccount) => (
-                  <label
-                    key={account.id}
-                    className="flex items-center gap-1.5 cursor-pointer text-sm"
-                  >
-                    <Checkbox
-                      checked={selectedAccountIds.includes(account.id)}
-                      onCheckedChange={() => toggleAccount(account.id)}
-                    />
-                    <span className="flex items-center gap-2">
-                      <SocialPlatformIcon platform={account.platform} colored />
-                      {account.name}
-                    </span>
-                  </label>
-                ))}
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="composer-accounts">{t.social.accounts.connectedAccounts}</Label>
+              <MultiSelect
+                id="composer-accounts"
+                options={accountOptions}
+                value={selectedAccountIds}
+                onChange={setSelectedAccountIds}
+                placeholder={t.social.accounts.selectAccounts}
+                searchPlaceholder={t.social.accounts.searchAccounts}
+                emptyText={t.social.accounts.noAccountsFound}
+                maxDisplay={4}
+              />
             </div>
           )}
 
