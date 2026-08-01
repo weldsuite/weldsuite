@@ -197,11 +197,13 @@ function AppStack() {
     <NetworkProvider>
     <RealtimeProvider>
     <ToastProvider>
-      <NotificationProvider>
-        <InstalledAppsProvider api={installedAppsApi}>
-          <WorkspaceProvider api={workspaceApi}>
-            <PermissionProvider>
+      <InstalledAppsProvider api={installedAppsApi}>
+        <WorkspaceProvider api={workspaceApi}>
+          <PermissionProvider>
             <MailProvider>
+              {/* Inside MailProvider: a notification tap switches the mailbox to
+                  the account the email arrived in before opening it. */}
+              <NotificationProvider>
               <MailRealtimeWatcher />
               <PinnedMessagesProvider>
               <NavigationThemeProvider value={navigationTheme}>
@@ -266,11 +268,11 @@ function AppStack() {
                 </AuthGuard>
               </NavigationThemeProvider>
               </PinnedMessagesProvider>
+              </NotificationProvider>
             </MailProvider>
-            </PermissionProvider>
-          </WorkspaceProvider>
-        </InstalledAppsProvider>
-      </NotificationProvider>
+          </PermissionProvider>
+        </WorkspaceProvider>
+      </InstalledAppsProvider>
     </ToastProvider>
     </RealtimeProvider>
     </NetworkProvider>
