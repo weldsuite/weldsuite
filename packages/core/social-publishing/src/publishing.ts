@@ -758,14 +758,24 @@ export async function cancelPost(
     }
   }
 
-  // Atomic guard: only unschedule if it hasn't become published/publishing in
-  // the meantime (mirrors the publishPost claim).
+  // Atomic guard: only unschedule if the row is still the one we just cancelled
+  // upstream (mirrors the publishPost claim).
   //
   // Back to `draft`, not `cancelled` — the content survives so the user can
   // re-schedule it. `scheduledAt` and `postpeerPostId` are cleared because both
   // are now false: there is no slot, and the upstream post was just deleted.
   // Leaving a stale `postpeerPostId` would make a later publish of this same row
   // issue a DELETE against an id that no longer exists.
+  //
+  // The status check alone is NOT enough, and the gap it leaves is the exact
+  // failure this function exists to prevent. A concurrent reschedule can land
+  // entirely between our read and this update: it claims the row (`publishing`),
+  // creates a NEW PostPeer post, and puts the row back to `scheduled` with a new
+  // id. Status is then `scheduled` again — passing a status-only guard — so we
+  // would blank a live schedule that nobody cancelled, leaving the row saying
+  // `draft` while PostPeer still publishes. Pinning `postpeerPostId` to the value
+  // we actually deleted upstream makes the update apply only to that same
+  // schedule; if it changed, we lost the race and must not touch the row.
   const cancelled = await db
     .update(socialPosts)
     .set({
@@ -781,11 +791,20 @@ export async function cancelPost(
         eq(socialPosts.id, postId),
         isNull(socialPosts.deletedAt),
         notInArray(socialPosts.status, ['published', 'publishing']),
+        post.postpeerPostId
+          ? eq(socialPosts.postpeerPostId, post.postpeerPostId)
+          : isNull(socialPosts.postpeerPostId),
       ),
     )
     .returning({ id: socialPosts.id });
   if (cancelled.length === 0) {
-    throw new SocialPublishConflictError('Cannot cancel a post that is already published or publishing');
+    // Two causes, both of which mean "the row moved under us": it became
+    // published/publishing, or its schedule was replaced by a concurrent
+    // (re)schedule. Either way the safe answer is to refuse and let the caller
+    // reload — never to force the cancel onto whatever is there now.
+    throw new SocialPublishConflictError(
+      'Cannot cancel: the post was published, is publishing, or its schedule changed. Reload and try again.',
+    );
   }
 
   // Refund the credits charged when the post was scheduled. Idempotent on the

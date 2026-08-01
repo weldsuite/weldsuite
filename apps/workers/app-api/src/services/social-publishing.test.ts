@@ -54,7 +54,9 @@ const ctx = {
  * `deleteStatus` forces DELETE /posts/:id to fail with that HTTP status, which
  * is how the cancel-must-fail-loudly paths are exercised.
  */
-function stubPostPeer(opts: { deleteStatus?: number } = {}): Array<{
+function stubPostPeer(
+  opts: { deleteStatus?: number; onDelete?: () => Promise<void> } = {},
+): Array<{
   method: string;
   path: string;
   body?: unknown;
@@ -69,6 +71,9 @@ function stubPostPeer(opts: { deleteStatus?: number } = {}): Array<{
         path,
         ...(init.body ? { body: JSON.parse(init.body) } : {}),
       });
+      // Lets a test land a concurrent DB change in the exact window between
+      // cancelPost's upstream delete and its local update.
+      if (init.method === 'DELETE' && opts.onDelete) await opts.onDelete();
       if (opts.deleteStatus && init.method === 'DELETE') {
         return {
           ok: false,
@@ -233,6 +238,39 @@ describe('social publishing · double-post guards', () => {
     expect(row.content).toBe('hello world');
     expect(row.scheduledAt).toBeNull();
     expect(row.postpeerPostId).toBeNull();
+  });
+
+  it('cancelPost refuses to blank a schedule replaced by a concurrent reschedule', async () => {
+    if (!available) return;
+    await seedAccount();
+    await seedPost('spo_resched_race', 'scheduled', 'pp_old', new Date('2030-06-01T14:00:00Z'));
+
+    // Simulate a reschedule completing in the window between our upstream
+    // delete and our local update: it mints a NEW PostPeer post and puts the row
+    // back to `scheduled`. Status alone would look unchanged at update time.
+    const newScheduledAt = new Date('2030-07-01T09:00:00Z');
+    stubPostPeer({
+      onDelete: async () => {
+        await db
+          .update(schema.socialPosts)
+          .set({ status: 'scheduled', postpeerPostId: 'pp_new', scheduledAt: newScheduledAt })
+          .where(eq(schema.socialPosts.id, 'spo_resched_race'));
+      },
+    });
+
+    await expect(cancelPost(db, ctx, 'org_1', 'spo_resched_race')).rejects.toBeInstanceOf(
+      SocialPublishConflictError,
+    );
+
+    // pp_new is live upstream, so the row must still say scheduled. Blanking it
+    // would leave us claiming `draft` while PostPeer goes on to publish.
+    const [row] = await db
+      .select()
+      .from(schema.socialPosts)
+      .where(eq(schema.socialPosts.id, 'spo_resched_race'));
+    expect(row.status).toBe('scheduled');
+    expect(row.postpeerPostId).toBe('pp_new');
+    expect(row.scheduledAt).toEqual(newScheduledAt);
   });
 
   it('cancelPost fails loudly and leaves the post scheduled when PostPeer errors', async () => {
