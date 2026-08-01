@@ -61,12 +61,60 @@ app.get('/:id', requireScope('projects:read'), async (c) => {
 
 app.post('/', requireScope('projects:write'), zValidator('json', createProjectSchema), async (c) => {
   const db = c.get('tenantDb');
-  const body = c.req.valid('json');
+  const body = c.req.valid('json') as Record<string, unknown>;
+  const userId = c.get('userId') || c.get('apiSession').userId || null;
   const now = new Date();
   const id = generateId('prj');
-  const values = { ...coerceDates(body as Record<string, unknown>), id, createdAt: now, updatedAt: now };
+
+  // Schema exposes `ownerId`; the projects table column is `projectManagerId`.
+  // Drop API-only fields so they are not passed to the insert.
+  const rest = { ...body };
+  const ownerId = typeof rest.ownerId === 'string' ? rest.ownerId : null;
+  delete rest.ownerId;
+  delete rest.metadata;
+  const projectManagerId =
+    ownerId ??
+    (typeof rest.projectManagerId === 'string' ? rest.projectManagerId : null) ??
+    userId;
+
+  const values = {
+    ...coerceDates(rest),
+    id,
+    projectManagerId,
+    createdAt: now,
+    updatedAt: now,
+  };
   const [row] = await db.insert(table).values(values as typeof table.$inferInsert).returning();
   if (!row) return error.internal(c, 'Failed to create project');
+
+  // Mirror app-api: add the creator as an `owner` member so the project is
+  // accessible. Without this row the creator cannot work in their own project.
+  // Best-effort — never fail project creation over membership insert.
+  if (userId) {
+    try {
+      const memberId = generateId('pmem');
+      await db.insert(schema.projectMembers).values({
+        id: memberId,
+        projectId: id,
+        userId,
+        role: 'owner',
+        isActive: true,
+        joinedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      } as typeof schema.projectMembers.$inferInsert);
+      publishEntityEvent({
+        c,
+        entityType: 'project_member',
+        entityId: memberId,
+        action: 'added',
+        data: { id: memberId, projectId: id, userId, role: 'owner' },
+      });
+    } catch (memberErr) {
+      console.error('[mcp-server/projects] failed to add creator as owner member:', memberErr);
+    }
+  }
+
   publishEntityEvent({ c, entityType: 'project', entityId: id, action: 'created', data: { id, name: row.name } });
   return success(c, row, 201);
 });
