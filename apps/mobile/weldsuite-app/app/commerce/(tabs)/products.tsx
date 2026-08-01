@@ -15,7 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
-import api, { Product as ApiProduct, ProductStats } from '@/services/api';
+import { api, Product as ApiProduct, ProductStats } from '@/services/api';
 import { useToast } from '@/contexts/ToastContext';
 
 interface Product {
@@ -36,7 +36,7 @@ export default function ProductsAdminScreen() {
   const toast = useToast();
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
-  const [totalProducts, setTotalProducts] = useState<number>(0);
+  const [, setTotalProducts] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [hasMore, setHasMore] = useState<boolean>(true);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -44,9 +44,8 @@ export default function ProductsAdminScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [filterLoading, setFilterLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedCategory, ] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [showFilters, setShowFilters] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [bulkActionModalVisible, setBulkActionModalVisible] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
@@ -208,7 +207,7 @@ export default function ProductsAdminScreen() {
     router.push(`/product/edit/${productId}` as any);
   };
 
-  const handleDeleteProduct = (productId: string) => {
+  const _handleDeleteProduct = (productId: string) => {
     setProducts(products.filter(p => p.id !== productId));
     toast.success('Product deleted successfully');
   };
@@ -247,7 +246,7 @@ export default function ProductsAdminScreen() {
     setSelectedProducts([]);
   };
 
-  const getStatusText = (status: string) => {
+  const _getStatusText = (status: string) => {
     switch (status) {
       case 'active': return 'ACTIVE';
       case 'draft': return 'DRAFT';
@@ -265,7 +264,7 @@ export default function ProductsAdminScreen() {
   const renderProduct = ({ item }: { item: Product }) => {
     const isSelected = selectedProducts.includes(item.id);
     const hasImage = item.featuredImageUrl && item.featuredImageUrl !== '';
-    const stockStatus = getStockText(item.quantityAvailable);
+    const _stockStatus = getStockText(item.quantityAvailable);
     const stockColor = item.quantityAvailable === 0 ? '#DC2626' : item.quantityAvailable < 10 ? '#EA580C' : '#16A34A';
     const stockBgColor = item.quantityAvailable === 0 ? '#FEF2F2' : item.quantityAvailable < 10 ? '#FFF7ED' : '#F0FDF4';
 

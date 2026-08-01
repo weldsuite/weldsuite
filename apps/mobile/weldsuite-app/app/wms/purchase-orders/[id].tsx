@@ -13,7 +13,7 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import type { PurchaseOrderDto, PurchaseOrderItemDto } from '@/types/wms';
 import {
   getPurchaseOrderStatusColor,
@@ -23,12 +23,9 @@ import {
 import {
   ChevronLeft,
   FileText,
-  User,
   Package,
-  Calendar,
   CheckCircle2,
   AlertTriangle,
-  MapPin,
   ScanBarcode,
 } from 'lucide-react-native';
 import { Camera, CameraView, BarcodeScanningResult } from 'expo-camera';

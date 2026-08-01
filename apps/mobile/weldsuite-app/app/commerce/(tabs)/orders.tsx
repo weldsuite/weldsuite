@@ -179,7 +179,7 @@ export default function OrdersAdminScreen() {
     router.push(`/order/${order.id}` as any);
   };
 
-  const handleUpdateOrderStatus = (order: Order) => {
+  const _handleUpdateOrderStatus = (order: Order) => {
     setSelectedOrder(order);
     setStatusUpdateModalVisible(true);
   };
@@ -210,12 +210,12 @@ export default function OrdersAdminScreen() {
     }
   };
 
-  const handleCancelOrder = (order: Order) => {
+  const _handleCancelOrder = (order: Order) => {
     setSelectedOrder(order);
     updateOrderStatus('cancelled');
   };
 
-  const handleRefundOrder = (order: Order) => {
+  const _handleRefundOrder = (order: Order) => {
     setSelectedOrder(order);
     updateOrderStatus('refunded');
   };
@@ -318,7 +318,7 @@ export default function OrdersAdminScreen() {
     </View>
   );
 
-  const renderHeader = () => (
+  const _renderHeader = () => (
     <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.divider }]}>
       <Text style={[styles.headerTitle, { color: colors.text }]}>Orders ({filteredOrders.length})</Text>
     </View>

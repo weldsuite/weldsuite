@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData } from '../types';
 import React from 'react';
 import { NavbarLuxurySection } from '../sections/navbar-luxury-section';
 
@@ -50,7 +51,7 @@ export interface NavbarLuxuryBlockProps {
   showNavBorder?: boolean;
   navBorderColor?: string;
 
-  store?: any;
+  store?: StoreData;
   mode?: string;
 }
 

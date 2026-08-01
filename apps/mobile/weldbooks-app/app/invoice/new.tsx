@@ -187,7 +187,7 @@ export default function CreateInvoiceScreen() {
         } else {
           router.back();
         }
-      } catch (err) {
+      } catch {
         Alert.alert('Error', 'Failed to create invoice. Please try again.');
       } finally {
         setSaving(false);

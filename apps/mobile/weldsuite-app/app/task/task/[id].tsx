@@ -11,12 +11,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLocalSearchParams, router } from 'expo-router';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import {
   ChevronLeft,
-  MoreVertical,
   Calendar,
-  Flag,
   FolderKanban,
   Star,
   CheckCircle2,
@@ -24,9 +22,8 @@ import {
   MessageSquare,
   Clock,
   Trash2,
-  Edit3,
 } from 'lucide-react-native';
-import type { TaskItem, TaskPriority, TaskComment, TaskActivity } from '@/types/task.types';
+import type { TaskItem, TaskPriority, TaskComment } from '@/types/task.types';
 
 export default function TaskDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -35,7 +32,6 @@ export default function TaskDetailScreen() {
 
   const [task, setTask] = useState<TaskItem | null>(null);
   const [comments, setComments] = useState<TaskComment[]>([]);
-  const [activities, setActivities] = useState<TaskActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,7 +58,7 @@ export default function TaskDetailScreen() {
       } else {
         setError(response.error || 'Failed to load task');
       }
-    } catch (err) {
+    } catch {
       setError('An error occurred while loading the task');
     } finally {
       setLoading(false);
@@ -80,7 +76,7 @@ export default function TaskDetailScreen() {
           status: task.status === 'completed' ? 'todo' : 'completed',
         });
       }
-    } catch (err) {
+    } catch {
       Alert.alert('Error', 'Failed to update task status');
     }
   };
@@ -96,7 +92,7 @@ export default function TaskDetailScreen() {
           isImportant: !task.isImportant,
         });
       }
-    } catch (err) {
+    } catch {
       Alert.alert('Error', 'Failed to update task');
     }
   };
@@ -116,7 +112,7 @@ export default function TaskDetailScreen() {
             } else {
               Alert.alert('Error', 'Failed to delete task');
             }
-          } catch (err) {
+          } catch {
             Alert.alert('Error', 'An error occurred while deleting the task');
           }
         },

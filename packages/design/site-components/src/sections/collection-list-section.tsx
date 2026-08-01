@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData } from '../types';
 import React from 'react';
 import { ArrowRight } from 'lucide-react';
 
@@ -22,7 +23,7 @@ interface CollectionListSectionProps {
   textColor?: string;
   paddingTop?: number;
   paddingBottom?: number;
-  store?: any;
+  store?: StoreData;
 }
 
 // Mock collection data
@@ -85,8 +86,16 @@ export function CollectionListSection({
   store,
 }: CollectionListSectionProps) {
   // Use real collections if available, otherwise fall back to mock data
-  const displayCollections = collections && collections.length > 0 ? collections :
-                              (store?.collections && store.collections.length > 0 ? store.collections : mockCollections);
+  const storeCollections: Collection[] = (store?.collections ?? []).map((c, i) => ({
+    id: Number(c.id ?? i),
+    name: c.name ?? c.title ?? '',
+    description: c.description ?? '',
+    image: c.image ?? c.imageUrl ?? c.banner ?? '',
+    productCount: c.productCount ?? 0,
+  }));
+  const displayCollections = collections && collections.length > 0
+    ? collections
+    : (storeCollections.length > 0 ? storeCollections : mockCollections);
   const getAspectRatioClass = () => {
     switch (imageAspectRatio) {
       case 'portrait': return 'aspect-[3/4]';
@@ -130,7 +139,7 @@ export function CollectionListSection({
             gridTemplateColumns: `repeat(${Math.min(columns, 4)}, minmax(0, 1fr))`
           }}
         >
-          {displayCollections.map((collection: any) => (
+          {displayCollections.map((collection: Collection) => (
             <a
               key={collection.id}
               href={`/collections/${collection.id}`}

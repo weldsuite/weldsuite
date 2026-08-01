@@ -14,8 +14,8 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api from '@/services/api';
-import type { ReturnDto } from '@/types/wms';
+import { api } from '@/services/api';
+import type { ReturnDto , ReturnItemDto } from '@/types/wms';
 import {
   getReturnStatusColor,
   formatDate,
@@ -24,7 +24,6 @@ import {
 import {
   ChevronLeft,
   RotateCcw,
-  User,
   Package,
   FileText,
   CheckCircle2,
@@ -34,7 +33,7 @@ import {
   Eye,
 } from 'lucide-react-native';
 import { Camera, CameraView, BarcodeScanningResult } from 'expo-camera';
-import type { ReturnItemDto } from '@/types/wms';
+
 
 export default function ReturnDetailScreen() {
   const { colors } = useTheme();

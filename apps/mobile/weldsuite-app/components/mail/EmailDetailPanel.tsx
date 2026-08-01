@@ -58,15 +58,13 @@ export default function EmailDetailPanel({
   emailId,
   onClose,
   showBackButton = false,
-  isEmbedded = false,
 }: EmailDetailPanelProps) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const toast = useToast();
 
   const {
-    currentMessage,
-    loading: mailLoading,
+    loading: _mailLoading,
     isConnected,
     loadMessage,
     markAsRead,

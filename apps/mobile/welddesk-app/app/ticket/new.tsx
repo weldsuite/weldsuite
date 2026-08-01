@@ -50,7 +50,7 @@ export default function NewTicketScreen() {
       } else {
         setError('Failed to create ticket. Please try again.');
       }
-    } catch (err) {
+    } catch {
       setError('An error occurred. Please try again.');
     } finally {
       setSubmitting(false);

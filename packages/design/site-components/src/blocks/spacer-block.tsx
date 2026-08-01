@@ -9,9 +9,7 @@ interface SpacerBlockProps {
 
 export function SpacerBlock({
   height = 40,
-  mode = 'live'
 }: SpacerBlockProps) {
-  const isEditing = mode === 'edit';
 
   return (
     <div

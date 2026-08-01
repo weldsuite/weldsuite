@@ -83,7 +83,7 @@ export default function InvoicesScreen() {
           setHasNext(meta?.hasNext ?? false);
           setPage(pageNum);
         }
-      } catch (err) {
+      } catch {
         setError('Failed to load invoices');
       } finally {
         setLoading(false);

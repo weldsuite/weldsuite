@@ -13,11 +13,11 @@ import {
 } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Search, X, Phone, Mail, Menu as MenuIcon, Inbox as InboxIcon, Users } from 'lucide-react-native';
+import { Search, X, Phone, Menu as MenuIcon, Inbox as InboxIcon, Users } from 'lucide-react-native';
 import AppDrawer from '@/components/layout/AppDrawer';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api, { Contact, getApiErrorMessage } from '@/services/api';
+import { api, Contact, getApiErrorMessage } from '@/services/api';
 import { useShouldShowMiniSidebar } from '@/components/layout/MiniSidebar';
 import { useCollapsibleHeader } from '@/contexts/CollapsibleHeaderContext';
 
@@ -48,7 +48,7 @@ const STATUS_TABS = [
 export default function ContactsScreen() {
   const { colors } = useTheme();
   const toast = useToast();
-  const showMiniSidebar = useShouldShowMiniSidebar();
+  const _showMiniSidebar = useShouldShowMiniSidebar();
   const { resetHeader, onScroll: onCollapsibleScroll } = useCollapsibleHeader();
 
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -202,7 +202,7 @@ export default function ContactsScreen() {
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   };
 
-  const renderStatusTabs = () => (
+  const _renderStatusTabs = () => (
     <View style={[styles.filterContainer, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterList}>
         {STATUS_TABS.map((item) => (

@@ -20,10 +20,9 @@ import {
   Calendar,
   Plus,
   Trash2,
-  Camera,
   FileText,
 } from 'lucide-react-native';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface LineItem {
   id: string;
@@ -142,7 +141,7 @@ export default function NewBillScreen() {
           { text: 'OK', onPress: () => router.back() },
         ]);
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Success', 'Bill created successfully', [
         { text: 'OK', onPress: () => router.back() },
       ]);

@@ -23,7 +23,7 @@ interface RequiredRule {
   /** i18n key under `actionConfigForm` for the field's label. */
   labelKey: string;
   /** Returns true when this required field is not satisfied by the config. */
-  isMissing: (config: Record<string, any>) => boolean;
+  isMissing: (config: Record<string, unknown>) => boolean;
 }
 
 /** Empty = undefined, null, blank/whitespace string. 0 and false count as present. */
@@ -98,7 +98,7 @@ export const ACTION_REQUIRED_FIELDS: Record<string, RequiredRule[]> = {
     { labelKey: 'fieldToCheck', isMissing: (c) => isBlank(c.field) },
     {
       labelKey: 'value',
-      isMissing: (c) => !NO_VALUE_OPERATORS.includes(c.operator || 'eq') && isBlank(c.value),
+      isMissing: (c) => !NO_VALUE_OPERATORS.includes(String(c.operator ?? 'eq')) && isBlank(c.value),
     },
   ],
   loop: [{ labelKey: 'itemsToIterate', isMissing: (c) => isBlank(c.items) }],
@@ -191,7 +191,7 @@ const ACTION_TYPE_ALIASES: Record<string, string> = {
  */
 export function getMissingRequiredFields(
   actionType: string,
-  config: Record<string, any> = {},
+  config: Record<string, unknown> = {},
 ): MissingField[] {
   const resolvedType = ACTION_TYPE_ALIASES[actionType] || actionType;
   const rules = ACTION_REQUIRED_FIELDS[resolvedType];
@@ -202,6 +202,6 @@ export function getMissingRequiredFields(
 }
 
 /** True when the step has no missing required fields. */
-export function isStepConfigured(step: { type: string; config?: Record<string, any> | null }): boolean {
+export function isStepConfigured(step: { type: string; config?: Record<string, unknown> | null }): boolean {
   return getMissingRequiredFields(step.type, step.config || {}).length === 0;
 }

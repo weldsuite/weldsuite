@@ -6,37 +6,31 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  KeyboardAvoidingView,
   Platform,
   StatusBar,
   ActivityIndicator,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
-  Dimensions,
   ActionSheetIOS,
   Alert,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
-  X,
   Clock,
-  Paperclip,
 } from 'lucide-react-native';
 import ComposeEmailForm from '@/components/mail/ComposeEmailForm';
-import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Path } from 'react-native-svg';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import _Svg, { } from 'react-native-svg';
 import { useMail } from '@/contexts/MailContext';
 import { useToast } from '@/contexts/ToastContext';
-import { useEditorBridge, RichText } from '@10play/tentap-editor';
-import { EmailEditorToolbar } from '@/components/mail/EmailEditorToolbar';
+import { useEditorBridge } from '@10play/tentap-editor';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 
 export default function ComposeScreen() {
   const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
   const toast = useToast();
   const { draftId } = useLocalSearchParams();
 
@@ -53,19 +47,17 @@ export default function ComposeScreen() {
     selectAccount,
   } = useMail();
 
-  const [bodyFocused, setBodyFocused] = useState(false);
   const [to, setTo] = useState('');
   const [cc, setCc] = useState('');
   const [bcc, setBcc] = useState('');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
-  const [showCcBcc, setShowCcBcc] = useState(false);
+  const [, setShowCcBcc] = useState(false);
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [isDraft, setIsDraft] = useState(false);
+  const [, setIsDraft] = useState(false);
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
-  const [showFromPicker, setShowFromPicker] = useState(false);
   const [showDiscardModal, setShowDiscardModal] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -75,7 +67,7 @@ export default function ComposeScreen() {
   const [selectedHour, setSelectedHour] = useState(9);
   const [selectedMinute, setSelectedMinute] = useState(0);
   const [linkUrl, setLinkUrl] = useState('');
-  const [attachments, setAttachments] = useState<Array<{ name: string; uri: string; type: string }>>([]);
+  const [attachments, setAttachments] = useState<{ name: string; uri: string; type: string }[]>([]);
   const bodyContentRef = useRef<string>('');
   const scrollViewRef = useRef<ScrollView>(null);
   const scrollPositionRef = useRef<number>(0);
@@ -124,7 +116,7 @@ export default function ComposeScreen() {
   const hasContent = to || cc || bcc || subject || body;
 
   // Common emojis for quick access
-  const commonEmojis = ['😊', '👍', '🎉', '❤️', '🙏', '😂', '🔥', '✨', '👋', '💯', '🤝', '📧'];
+  const _commonEmojis = ['😊', '👍', '🎉', '❤️', '🙏', '😂', '🔥', '✨', '👋', '💯', '🤝', '📧'];
 
   useEffect(() => {
     if (accounts.length === 0) {
@@ -452,7 +444,7 @@ export default function ComposeScreen() {
   };
 
   // Link insertion handler
-  const handleInsertLink = () => {
+  const _handleInsertLink = () => {
     setLinkUrl('');
     setShowLinkModal(true);
   };
@@ -581,12 +573,12 @@ export default function ComposeScreen() {
   };
 
   // Track scroll position
-  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+  const _handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     scrollPositionRef.current = event.nativeEvent.contentOffset.y;
   }, []);
 
   // Restore scroll position before toolbar action
-  const handleBeforeToolbarAction = useCallback(() => {
+  const _handleBeforeToolbarAction = useCallback(() => {
     const currentPosition = scrollPositionRef.current;
     // Restore scroll position after a short delay
     setTimeout(() => {

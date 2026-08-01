@@ -10,13 +10,12 @@ import {
   Modal,
   PanResponder,
   Animated,
-  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import { ChevronLeft, Package, Truck, MapPin, Clock, User, Building, Phone, Mail, DollarSign, Box, AlertCircle, CheckCircle, Copy, MoreVertical, Printer, RefreshCw, Edit, AlertTriangle, MessageCircle, Trash2, X } from 'lucide-react-native';
+import { ChevronLeft, Package, Truck, MapPin, Clock, User, Building, AlertCircle, CheckCircle, Copy, MoreVertical, Printer, RefreshCw, Edit, AlertTriangle, MessageCircle, Trash2 } from 'lucide-react-native';
 
 interface ParcelEvent {
   id: string;

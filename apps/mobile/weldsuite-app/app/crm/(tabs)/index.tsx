@@ -5,14 +5,12 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   RefreshControl,
 } from 'react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { TrendingUp, TrendingDown, Users, UserPlus, DollarSign, Activity, Target } from 'lucide-react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface DashboardStats {
   totalCustomers: number;
@@ -35,10 +33,9 @@ interface RecentActivity {
 export default function CrmDashboard() {
   const { colors } = useTheme();
   const toast = useToast();
-  const insets = useSafeAreaInsets();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {

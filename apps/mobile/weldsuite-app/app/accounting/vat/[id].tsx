@@ -23,7 +23,7 @@ import {
   Building2,
   Receipt,
 } from 'lucide-react-native';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import type { VatReturnDetail } from '@/services/api';
 
 export default function VatReturnDetailScreen() {
@@ -100,7 +100,7 @@ export default function VatReturnDetailScreen() {
               } else {
                 Alert.alert('Error', 'Failed to submit VAT return');
               }
-            } catch (error) {
+            } catch {
               Alert.alert('Error', 'An error occurred while submitting');
             } finally {
               setSubmitting(false);

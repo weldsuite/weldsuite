@@ -13,7 +13,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useEditorBridge, RichText } from '@10play/tentap-editor';
-import { FileText, Save, Link as LinkIcon, X } from 'lucide-react-native';
+import { FileText, Save, X } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 
 import { EditorToolbar } from './EditorToolbar';
@@ -43,10 +43,6 @@ interface DocumentEditorProps {
 }
 
 export function DocumentEditor({
-  projectId,
-  userId,
-  userName,
-  userAvatar,
   initialTitle = '',
   initialContent = '',
   initialCoverImage,
@@ -190,7 +186,7 @@ export function DocumentEditor({
         setPages(updatedPages);
         lastSavedContentRef.current = { title, content: currentContent, pagesCount: updatedPages.length };
       }
-    } catch (error) {
+    } catch {
       if (!isAutoSave) {
         Alert.alert('Error', 'Failed to save document');
       }

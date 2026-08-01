@@ -23,7 +23,7 @@ import {
   TrendingUp,
   AlertTriangle,
 } from 'lucide-react-native';
-import api, { ProjectTask, ProjectMember } from '@/services/api';
+import { api, ProjectTask } from '@/services/api';
 
 // Workload types from API
 interface WorkloadMemberTask {
@@ -72,7 +72,7 @@ interface ProjectWorkloadData {
   members: WorkloadMember[];
 }
 
-const { width: screenWidth } = Dimensions.get('window');
+const { width: _screenWidth } = Dimensions.get('window');
 const DAY_WIDTH = 50;
 const MEMBER_ROW_HEIGHT = 60;
 const HEADER_HEIGHT = 80;
@@ -261,7 +261,7 @@ export default function ProjectWorkloadScreen() {
   };
 
   // Get status badge text
-  const getStatusText = (status: WorkloadMember['status']): string => {
+  const _getStatusText = (status: WorkloadMember['status']): string => {
     switch (status) {
       case 'overallocated': return 'Over';
       case 'near-capacity': return 'Busy';

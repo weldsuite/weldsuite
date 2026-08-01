@@ -12,8 +12,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useWms } from '@/contexts/WmsContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import type { CycleCountDto, CycleCountStatus } from '@/types/wms';
 import {
   getCycleCountStatusColor,
@@ -34,14 +33,13 @@ const STATUS_OPTIONS: { key: CycleCountStatus | 'all'; label: string }[] = [
 export default function CycleCountsListScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { } = useWms();
 
   const [cycleCounts, setCycleCounts] = useState<CycleCountDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<CycleCountStatus | 'all'>('all');
-  const [totalCounts, setTotalCounts] = useState(0);
+  const [, setTotalCounts] = useState(0);
 
   useEffect(() => {
     loadCycleCounts();

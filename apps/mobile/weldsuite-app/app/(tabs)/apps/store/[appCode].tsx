@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
-import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { useLocalSearchParams,Stack } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import {
@@ -15,7 +15,7 @@ import {
   Headphones, Mail, Warehouse, Calculator,
   Send, Globe, Grid3X3, LucideIcon, CheckCircle,
 } from 'lucide-react-native';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import { useInstalledApps } from '@/contexts/InstalledAppsContext';
 import { ConfirmModal } from '@/components/ConfirmModal';
 
@@ -52,7 +52,6 @@ export default function AppDetailScreen() {
   const { appCode } = useLocalSearchParams<{ appCode: string }>();
   const { colors } = useTheme();
   const toast = useToast();
-  const router = useRouter();
   const { refreshApps } = useInstalledApps();
 
   const [app, setApp] = useState<AppDetail | null>(null);
@@ -92,7 +91,7 @@ export default function AppDetailScreen() {
       setApp((prev) => (prev ? { ...prev, isInstalled: true } : null));
       refreshApps(); // Refresh installed apps list
       toast.success(`${app.name} has been installed`);
-    } catch (error) {
+    } catch {
       toast.error('Failed to install app');
     } finally {
       setIsInstalling(false);
@@ -113,7 +112,7 @@ export default function AppDetailScreen() {
       refreshApps();
       setShowUninstallModal(false);
       toast.success(`${app.name} has been uninstalled`);
-    } catch (error) {
+    } catch {
       toast.error('Failed to uninstall app');
     } finally {
       setIsInstalling(false);

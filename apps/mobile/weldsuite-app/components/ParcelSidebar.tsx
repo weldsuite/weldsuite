@@ -5,7 +5,6 @@ import {
   Home, Package, Search, BarChart, Settings, ShoppingCart,
   CalendarCheck, RotateCcw, Box, DollarSign, PanelLeftClose
 } from 'lucide-react-native';
-import { useTheme } from '@/contexts/ThemeContext';
 import { router, usePathname } from 'expo-router';
 
 interface SidebarItem {
@@ -79,7 +78,6 @@ interface ParcelSidebarProps {
 }
 
 export default function ParcelSidebar({ onCollapse }: ParcelSidebarProps) {
-  const { colors } = useTheme();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
 

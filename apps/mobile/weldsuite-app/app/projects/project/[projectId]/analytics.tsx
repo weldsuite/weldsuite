@@ -8,9 +8,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
-import { api } from '@/services/api';
 import {
-  BarChart3,
   TrendingUp,
   CheckCircle2,
   Clock,

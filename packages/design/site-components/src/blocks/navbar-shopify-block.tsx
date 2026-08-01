@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData } from '../types';
 import React from 'react';
 import { NavbarShopifySection } from '../sections/navbar-shopify-section';
 
@@ -49,7 +50,7 @@ export interface NavbarShopifyBlockProps {
   megamenuShowDescriptions?: boolean;
   mobileBreakpoint?: 'sm' | 'md' | 'lg';
   mobileMenuStyle?: 'drawer' | 'dropdown';
-  store?: any;
+  store?: StoreData;
   mode?: string;
 }
 

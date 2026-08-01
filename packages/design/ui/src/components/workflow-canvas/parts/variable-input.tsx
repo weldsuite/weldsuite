@@ -50,7 +50,8 @@ export function VariableInput({
   inputRef: externalRef,
 }: VariableInputProps & { inputRef?: React.RefObject<HTMLInputElement | HTMLTextAreaElement | null> }) {
   const internalRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
-  const inputRef = externalRef || internalRef;
+  // Memoised so the hooks below can list it without re-running every render.
+  const inputRef = useMemo(() => externalRef ?? internalRef, [externalRef]);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [autocomplete, setAutocomplete] = useState<{
     open: boolean;
@@ -94,7 +95,7 @@ export function VariableInput({
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
-  }, [autocomplete.open]);
+  }, [autocomplete.open, inputRef]);
 
   const handleInputChange = useCallback(
     (newValue: string) => {
@@ -119,7 +120,7 @@ export function VariableInput({
         setAutocomplete({ open: true, query: between, startPos: lastOpen });
       }, 0);
     },
-    [onChange]
+    [onChange, inputRef]
   );
 
   const handleAutocompleteSelect = useCallback(
@@ -140,7 +141,7 @@ export function VariableInput({
         }
       }, 0);
     },
-    [autocomplete, value, onChange]
+    [autocomplete, value, onChange, inputRef]
   );
 
   const handleVariableSelect = useCallback(
@@ -163,7 +164,7 @@ export function VariableInput({
         }
       }, 0);
     },
-    [value, onChange]
+    [value, onChange, inputRef]
   );
 
   const handleKeyDown = useCallback(
@@ -211,7 +212,7 @@ export function VariableInput({
   return (
     <div className="relative">
       <InputComponent
-        ref={inputRef as any}
+        ref={inputRef as React.RefObject<HTMLInputElement & HTMLTextAreaElement>}
         value={value}
         onChange={(e) => handleInputChange(e.target.value)}
         onKeyDown={handleKeyDown}

@@ -44,7 +44,7 @@ export default function TasksScreen() {
   const { colors } = useTheme();
   const { tasks, loading, loadTasks, toggleTaskComplete, toggleTaskImportant } = useTask();
   const { width: windowWidth } = useWindowDimensions();
-  const showMiniSidebar = useShouldShowMiniSidebar();
+  const _showMiniSidebar = useShouldShowMiniSidebar();
   const { onScroll: onCollapsibleScroll, resetHeader } = useCollapsibleHeader();
 
   // Check if we should show split view (iPad/tablet)

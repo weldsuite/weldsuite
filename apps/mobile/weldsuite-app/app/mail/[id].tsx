@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Modal,
-  TextInput,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -18,18 +17,15 @@ import {
   ReplyAll,
   Forward,
   Trash2,
-  MoreVertical,
   Paperclip,
   Archive,
-  Save,
-  WifiOff,
   ChevronUp,
   ChevronDown,
   Lock,
 } from 'lucide-react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import EmailHtmlView from '@/components/EmailHtmlView';
-import { useMail, type EmailDetail, type ThreadMessage } from '@/contexts/MailContext';
+import { useMail, type EmailDetail } from '@/contexts/MailContext';
 import ComposeEmailForm from '@/components/mail/ComposeEmailForm';
 import { useToast } from '@/contexts/ToastContext';
 
@@ -471,9 +467,8 @@ export default function EmailDetailScreen() {
 
   // Use MailContext
   const {
-    currentMessage,
     threadMessages,
-    loading: mailLoading,
+    loading: _mailLoading,
     isConnected,
     accounts,
     loadMessage,
@@ -500,7 +495,7 @@ export default function EmailDetailScreen() {
   const [replySubject, setReplySubject] = useState('');
   const [replyBody, setReplyBody] = useState('');
   const [sending, setSending] = useState(false);
-  const [savingDraft, setSavingDraft] = useState(false);
+  const [, setSavingDraft] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -738,7 +733,7 @@ export default function EmailDetailScreen() {
     }
   };
 
-  const saveReplyDraft = async () => {
+  const _saveReplyDraft = async () => {
     if (!email) return;
 
     try {

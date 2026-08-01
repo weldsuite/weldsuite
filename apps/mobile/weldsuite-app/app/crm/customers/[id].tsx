@@ -21,7 +21,6 @@ import {
   Phone,
   Building2,
   Globe,
-  MapPin,
   FileText,
   Save,
   X,

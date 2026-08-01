@@ -13,14 +13,6 @@ import {
   Dimensions,
 } from 'react-native';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-// Calculate column widths to fill screen
-const TASK_COLUMN_WIDTH = 150;
-const TOTAL_COLUMN_WIDTH = 67;
-const DAY_COLUMN_WIDTH = Math.floor((SCREEN_WIDTH - TASK_COLUMN_WIDTH - TOTAL_COLUMN_WIDTH) / 7);
-// Month view column width (7 equal columns)
-const MONTH_DAY_WIDTH = Math.floor(SCREEN_WIDTH / 7);
-
 import { useLocalSearchParams } from 'expo-router';
 import {
   Clock,
@@ -30,7 +22,15 @@ import {
   ChevronRight,
   X,
 } from 'lucide-react-native';
-import api, { TimeEntry, ProjectTask } from '@/services/api';
+import { api, TimeEntry, ProjectTask } from '@/services/api';
+
+const { width: SCREEN_WIDTH, height: ____SCREEN_HEIGHT } = Dimensions.get('window');
+// Calculate column widths to fill screen
+const TASK_COLUMN_WIDTH = 150;
+const TOTAL_COLUMN_WIDTH = 67;
+const DAY_COLUMN_WIDTH = Math.floor((SCREEN_WIDTH - TASK_COLUMN_WIDTH - TOTAL_COLUMN_WIDTH) / 7);
+// Month view column width (7 equal columns)
+const MONTH_DAY_WIDTH = Math.floor(SCREEN_WIDTH / 7);
 
 // Light mode colors
 const colors = {
@@ -138,8 +138,8 @@ const WEEKDAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
 export default function ProjectTimesheetScreen() {
   const { projectId } = useLocalSearchParams();
-  const [entries, setEntries] = useState<TimeEntry[]>([]);
-  const [tasks, setTasks] = useState<ProjectTask[]>([]);
+  const [, setEntries] = useState<TimeEntry[]>([]);
+  const [, setTasks] = useState<ProjectTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
@@ -159,11 +159,11 @@ export default function ProjectTimesheetScreen() {
   const [showDayDetail, setShowDayDetail] = useState(false);
 
   // Mock task entries for display
-  const [timesheetRows, setTimesheetRows] = useState<Array<{
+  const [timesheetRows, setTimesheetRows] = useState<{
     id: string;
     taskName: string;
     hours: Record<string, number>;
-  }>>([
+  }[]>([
     { id: '1', taskName: 'wedwedskssk', hours: {} },
     { id: '2', taskName: 'dwedwedwed', hours: {} },
   ]);
@@ -567,7 +567,7 @@ export default function ProjectTimesheetScreen() {
           <View style={styles.monthHeaderRow}>
             {WEEKDAYS.map((day, index) => {
               const isWeekendDay = index >= 5;
-              const isTodayCol = isTodayColumn(index);
+              const _isTodayCol = isTodayColumn(index);
               return (
                 <View
                   key={day}
@@ -599,7 +599,7 @@ export default function ProjectTimesheetScreen() {
                   const isWeekendDay = dayIndex >= 5;
                   const isCurrentMonth = isSameMonth(date, currentDate);
                   const isTodayCol = isTodayColumn(dayIndex);
-                  const dayEntries = getEntriesForDate(date);
+                  const _dayEntries = getEntriesForDate(date);
 
                   return (
                     <TouchableOpacity

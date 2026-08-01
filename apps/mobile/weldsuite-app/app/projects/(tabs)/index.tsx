@@ -18,7 +18,7 @@ import {
   CheckCircle,
   AlertCircle,
 } from 'lucide-react-native';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface Project {
   id: string;

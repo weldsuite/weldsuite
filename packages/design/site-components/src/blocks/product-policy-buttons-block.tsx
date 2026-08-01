@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData } from '../types';
 import React from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 
@@ -10,10 +11,7 @@ export interface ProductPolicyButtonsBlockProps {
   refundPolicyText?: string;
   borderRadius?: number;
   mode?: 'live' | 'edit' | 'preview';
-  store?: {
-    selectedProduct?: any;
-    [key: string]: any;
-  };
+  store?: StoreData;
 }
 
 export function ProductPolicyButtonsBlock({

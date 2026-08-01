@@ -2,28 +2,9 @@
 
 import React from 'react';
 import { Heart, Plus } from 'lucide-react';
-
-interface Money {
-  amount: number;
-  currency: string;
-  formatted?: string;
-}
-
-interface Product {
-  id: string;
-  name: string;
-  price: number | string | Money;
-  compareAtPrice?: number | string | Money;
-  description?: string;
-  imageUrl?: string;
-  images?: string[];
-  stock?: number;
-  sku?: string;
-  category?: string;
-  badge?: string;
-  rating?: number;
-  reviewCount?: number;
-}
+import type { Product } from '../types';
+import { toImageUrls } from '../lib/product-images';
+import { toPriceNumber } from '../lib/price';
 
 interface ProductCardProps {
   product: Product;
@@ -63,52 +44,18 @@ export function ProductCard({
 }: ProductCardProps) {
   const [isHovered, setIsHovered] = React.useState(false);
   const [isFavorited, setIsFavorited] = React.useState(false);
-  const [currentImageIndex, setCurrentImageIndex] = React.useState(0);
+  const [, setCurrentImageIndex] = React.useState(0);
 
-  // Debug logging (only once per product)
-  React.useEffect(() => {
-    console.log(`ProductCard [${product.name}] customization:`, {
-      imageRatio,
-      imageShape,
-      cardStyle,
-      showRatings,
-      showVendor,
-      titleSize,
-      priceSize,
-      textAlignment,
-      imageHoverEffect,
-      cardHoverEffect
-    });
-  }, [imageRatio, imageShape, cardStyle, showRatings, showVendor, titleSize, priceSize, textAlignment, imageHoverEffect, cardHoverEffect]);
+  const productImages = toImageUrls(product.images);
+  const imageUrl = product.imageUrl || productImages[0];
+  const secondImage = productImages[1];
 
-  const imageUrl = product.imageUrl || product.images?.[0];
-  const secondImage = product.images?.[1];
-
-  // Helper function to extract price amount
-  const extractPrice = (priceValue: number | string | Money | undefined): number => {
-    if (!priceValue) return 0;
-
-    // Check if it's a Money object
-    if (typeof priceValue === 'object' && 'amount' in priceValue) {
-      return priceValue.amount;
-    }
-
-    // Check if it's a number
-    if (typeof priceValue === 'number') {
-      return priceValue;
-    }
-
-    // Try to parse as string
-    const parsed = parseFloat(priceValue);
-    return isNaN(parsed) ? 0 : parsed;
-  };
-
-  const price = extractPrice(product.price);
+  const price = toPriceNumber(product.price);
   const formattedPrice = `$${price.toFixed(2)}`;
   const isOutOfStock = product.stock !== undefined && product.stock <= 0;
 
   // Compare at price (sale price)
-  const compareAtPrice = product.compareAtPrice ? extractPrice(product.compareAtPrice) : null;
+  const compareAtPrice = product.compareAtPrice ? toPriceNumber(product.compareAtPrice) : null;
   const formattedComparePrice = compareAtPrice ? `$${compareAtPrice.toFixed(2)}` : null;
   const onSale = compareAtPrice && compareAtPrice > price;
 
@@ -296,7 +243,7 @@ export function ProductCard({
         {/* Vendor/Category */}
         {showVendor && product.category && (
           <p className="text-xs text-gray-500 uppercase tracking-wide" style={{ color: textColor }}>
-            {product.category}
+            {typeof product.category === 'string' ? product.category : product.category.name}
           </p>
         )}
 
@@ -341,9 +288,9 @@ export function ProductCard({
         </div>
 
         {/* Color Swatches (if available) */}
-        {product.images && product.images.length > 2 && (
+        {productImages.length > 2 && (
           <div className="flex gap-1 mt-2">
-            {product.images.slice(0, 4).map((img, idx) => (
+            {productImages.slice(0, 4).map((img, idx) => (
               <button
                 key={idx}
                 className="w-6 h-6 rounded-full border-2 border-gray-200 hover:border-black transition-colors overflow-hidden"

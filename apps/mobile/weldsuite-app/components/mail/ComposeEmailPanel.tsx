@@ -17,7 +17,6 @@ import {
 } from 'react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
-  Send,
   Paperclip,
   X,
   Clock,
@@ -41,7 +40,6 @@ export default function ComposeEmailPanel({
   onClose,
   onSent,
   draftId,
-  isEmbedded = false,
 }: ComposeEmailPanelProps) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -68,7 +66,7 @@ export default function ComposeEmailPanel({
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [isDraft, setIsDraft] = useState(false);
+  const [, setIsDraft] = useState(false);
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(null);
   const [showDiscardModal, setShowDiscardModal] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -80,7 +78,7 @@ export default function ComposeEmailPanel({
   const [selectedHour, setSelectedHour] = useState(9);
   const [selectedMinute, setSelectedMinute] = useState(0);
   const [linkUrl, setLinkUrl] = useState('');
-  const [attachments, setAttachments] = useState<Array<{ name: string; uri: string; type: string }>>([]);
+  const [attachments, setAttachments] = useState<{ name: string; uri: string; type: string }[]>([]);
   const bodyContentRef = useRef<string>('');
 
   // Initialize rich text editor
@@ -459,7 +457,7 @@ export default function ComposeEmailPanel({
   };
 
   // Link insertion handler
-  const handleInsertLink = () => {
+  const _handleInsertLink = () => {
     setLinkUrl('');
     setShowLinkModal(true);
   };

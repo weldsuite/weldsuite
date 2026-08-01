@@ -120,12 +120,12 @@ function extractChanges(activity: ActivityItem): ChangeEntry[] {
   // The field-change diff moved out of the custom_fields blob into the dedicated
   // `change_log` column (docs/custom-fields-blob-extraction.md). Prefer it, and
   // fall back to the legacy blob until Phase 4 drops that column. Both hold the
-  // same shape — whatever subset of changes/__changeLog/previousValues/... the
+  // same shape — whatever subset of changes/_changeLog/previousValues/... the
   // (now-deleted) writer produced.
   const cf = ((activity as { changeLog?: Record<string, unknown> | null }).changeLog ??
     activity.customFields) as Record<string, unknown> | null | undefined;
   if (!cf) return [];
-  const changeLog = (cf.changes || cf.__changeLog || cf.changedFields) as Record<string, { from?: string; to?: string }> | undefined;
+  const changeLog = (cf.changes || cf._changeLog || cf.changedFields) as Record<string, { from?: string; to?: string }> | undefined;
   if (changeLog && typeof changeLog === 'object') {
     return Object.entries(changeLog).map(([field, val]) => ({
       field: FIELD_LABELS[field] || field.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()),

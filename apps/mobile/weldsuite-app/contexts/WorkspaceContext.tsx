@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useOrganizationList, useOrganization } from '@clerk/expo';
-import api, { Workspace, WorkspaceWithMembership } from '@/services/api';
+import { api, Workspace, WorkspaceWithMembership } from '@/services/api';
 import { useClerkAuth } from './ClerkAuthContext';
 
 interface WorkspaceContextValue {

@@ -228,7 +228,7 @@ export default function NewChannelScreen() {
   );
 }
 
-const makeStyles = (c: ColorScheme, bottomInset: number) =>
+const makeStyles = (c: ColorScheme, _bottomInset: number) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: c.bgPrimary },
     handleBar: { alignItems: 'center', paddingTop: 10, paddingBottom: 4 },

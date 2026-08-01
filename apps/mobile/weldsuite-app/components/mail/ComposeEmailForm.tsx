@@ -15,7 +15,6 @@ import {
   Animated,
   Keyboard,
   Pressable,
-  KeyboardEvent,
 } from 'react-native';
 import {
   X,
@@ -30,27 +29,22 @@ import {
   Strikethrough,
   List,
   Link,
-  ChevronLeft,
-  Send,
   ThumbsUp,
   ThumbsDown,
   Copy,
-  Sparkles,
-  ArrowRight,
   ArrowUp,
   CornerDownRight,
   Plus,
-  FileText,
   SendHorizontal,
 } from 'lucide-react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Path as SvgPath } from 'react-native-svg';
-import { LinearGradient as SvgLinearGradient, Stop, Defs, Text as SvgText } from 'react-native-svg';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Path as SvgPath , LinearGradient as SvgLinearGradient, Stop, Defs, Text as SvgText } from 'react-native-svg';
+
 import { useTheme } from '@/contexts/ThemeContext';
 import { type EmailAccount } from '@/contexts/MailContext';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-import api, { getApiErrorMessage } from '@/services/api';
+import { api, getApiErrorMessage } from '@/services/api';
 import { haptics } from '@/utils/haptics';
 
 interface ComposeEmailFormProps {
@@ -78,7 +72,7 @@ interface ComposeEmailFormProps {
   onChangeBody: (text: string) => void;
 
   // Attachments
-  attachments?: Array<{ name: string; uri: string; type: string }>;
+  attachments?: { name: string; uri: string; type: string }[];
   onAttachment?: () => void;
   onRemoveAttachment?: (index: number) => void;
 
@@ -138,8 +132,7 @@ export default function ComposeEmailForm({
   onAttachment,
   onRemoveAttachment,
   onSchedule,
-  quotedMessage,
-  closeIcon = 'x',
+  quotedMessage = 'x',
   isModal = false,
   replyToMessageId,
   emailAccountId,
@@ -161,7 +154,7 @@ export default function ComposeEmailForm({
   const [copiedVisible, setCopiedVisible] = useState(false);
   const [aiFeedback, setAiFeedback] = useState<'up' | 'down' | null>(null);
   const copiedOpacity = useRef(new Animated.Value(0)).current;
-  const [aiAttachments, setAiAttachments] = useState<Array<{ name: string; uri: string; type: string }>>([]);
+  const [aiAttachments, setAiAttachments] = useState<{ name: string; uri: string; type: string }[]>([]);
   const aiScrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
@@ -230,7 +223,7 @@ export default function ComposeEmailForm({
         const errorMsg = getApiErrorMessage(response.error, 'Failed to generate draft. Please try again.');
         setAiMessages(prev => [...prev, { role: 'assistant', content: `Error: ${errorMsg}` }]);
       }
-    } catch (err) {
+    } catch {
       setAiMessages(prev => [...prev, { role: 'assistant', content: 'Failed to generate draft. Please try again.' }]);
     } finally {
       setAiGenerating(false);
@@ -671,6 +664,7 @@ export default function ComposeEmailForm({
                             <TouchableOpacity style={aiStyles.feedbackButton} onPress={async () => {
                               haptics.light();
                               try {
+                                // eslint-disable-next-line @typescript-eslint/no-require-imports -- native module is absent in Expo Go; probed synchronously inside try/catch
                                 const Clip = require('expo-clipboard');
                                 await Clip.setStringAsync(msg.content);
                               } catch {

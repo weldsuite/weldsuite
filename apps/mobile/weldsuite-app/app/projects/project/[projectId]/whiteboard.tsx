@@ -11,7 +11,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useClerkAuth } from '@/contexts/ClerkAuthContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import Svg, { Path, Rect, Line, G, Text as SvgText, TSpan } from 'react-native-svg';
 import {
   Pencil,
@@ -60,7 +60,7 @@ const COLORS = ['#000000', '#EF4444', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6'
 const STROKE_WIDTHS = [2, 4, 6, 8, 12];
 
 // Default sticky note colors
-const STICKY_COLORS = ['#FEF08A', '#FDE68A', '#D9F99D', '#A5F3FC', '#E9D5FF', '#FECACA'];
+const ____STICKY_COLORS = ['#FEF08A', '#FDE68A', '#D9F99D', '#A5F3FC', '#E9D5FF', '#FECACA'];
 
 // Convert points to SVG path string with smooth curves
 const pointsToPath = (points: Point[]): string => {

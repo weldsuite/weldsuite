@@ -8,13 +8,12 @@ import {
   View,
   Text,
   Modal,
-  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface BankAccount {
   id: string;
@@ -35,7 +34,7 @@ interface BankAccount {
   };
 }
 
-const ACCOUNT_TYPE_CONFIG = {
+const ___ACCOUNT_TYPE_CONFIG = {
   checking: {
     label: 'Checking',
     icon: 'wallet-outline' as const,
@@ -97,7 +96,7 @@ export default function BanksScreen() {
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedAccount, setSelectedAccount] = useState<BankAccount | null>(null);
+  const [selectedAccount, ] = useState<BankAccount | null>(null);
   const [accountModalVisible, setAccountModalVisible] = useState(false);
 
   useEffect(() => {
@@ -185,12 +184,11 @@ export default function BanksScreen() {
     return accounts.reduce((total, account) => total + account.balance, 0);
   };
 
-  const getAccountsByType = (type: BankAccount['type']) => {
+  const _getAccountsByType = (type: BankAccount['type']) => {
     return accounts.filter(account => account.type === type);
   };
 
   const renderAccount = ({ item }: { item: BankAccount }) => {
-    const typeConfig = ACCOUNT_TYPE_CONFIG[item.type];
     const statusConfig = SYNC_STATUS_CONFIG[item.status];
 
     return (

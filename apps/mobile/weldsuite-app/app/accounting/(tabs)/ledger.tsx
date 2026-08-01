@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   FlatList,
-  TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
   View,
@@ -12,7 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface LedgerEntry {
   id: string;

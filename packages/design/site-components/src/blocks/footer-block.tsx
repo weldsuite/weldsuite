@@ -3,16 +3,63 @@
 import React, { useState, useEffect } from 'react';
 import { Facebook, Twitter, Instagram, Youtube, Linkedin, Mail, Globe, ChevronDown } from 'lucide-react';
 
+/** A link inside a footer column. */
+interface FooterLink {
+  label?: string;
+  url?: string;
+}
+
+/** One column of the footer's link grid. */
+interface FooterColumn {
+  id?: string;
+  title?: string;
+  links?: FooterLink[];
+}
+
+interface CurrencyOption {
+  code: string;
+  symbol?: string;
+  name?: string;
+}
+
+interface LanguageOption {
+  code: string;
+  name?: string;
+}
+
+interface SocialMediaLink {
+  platform: string;
+  url?: string;
+  enabled?: boolean;
+}
+
+/** Settings a nested footer block may carry, keyed by the block's own type. */
+interface FooterBlockSettings {
+  columns?: FooterColumn[];
+  showCurrencySelector?: boolean;
+  showLanguageSelector?: boolean;
+  availableCurrencies?: CurrencyOption[];
+  availableLanguages?: LanguageOption[];
+  socialMediaLinks?: SocialMediaLink[];
+  socialIconsPosition?: 'left' | 'center' | 'right';
+  copyright?: string;
+  copyrightPosition?: 'left' | 'center' | 'right';
+  showPaymentIcons?: boolean;
+}
+
+/** A nested block rendered inside the footer. */
+interface FooterBlockNode {
+  id: string;
+  type: string;
+  settings: FooterBlockSettings;
+}
+
 export interface FooterBlockProps {
   background?: string;
   textColor?: string;
   paddingTop?: number;
   paddingBottom?: number;
-  blocks?: Array<{
-    id: string;
-    type: string;
-    settings: any;
-  }>;
+  blocks?: FooterBlockNode[];
   // Legacy props for backwards compatibility
   columns?: Array<{
     id: string;
@@ -178,11 +225,11 @@ export function FooterBlock({
   };
 
   // Render individual footer blocks
-  const renderFooterBlock = (block: any) => {
+  const renderFooterBlock = (block: FooterBlockNode) => {
     const { type, settings } = block;
 
     switch (type) {
-      case 'footerColumns':
+      case 'footerColumns': {
         const columnCount = (settings.columns || []).length;
         const gridColsClass = isMobileView
           ? 'grid-cols-1'
@@ -190,13 +237,13 @@ export function FooterBlock({
 
         return (
           <div key={block.id} className={`grid gap-8 mb-12 ${gridColsClass}`}>
-            {(settings.columns || []).map((column: any) => (
+            {(settings.columns || []).map((column) => (
               <div key={column.id}>
                 <h3 className="font-bold text-sm uppercase tracking-wide mb-4" style={{ color: textColor }}>
                   {column.title}
                 </h3>
                 <ul className="space-y-3">
-                  {column.links.map((link: any, index: number) => (
+                  {(column.links ?? []).map((link, index) => (
                     <li key={index}>
                       <a
                         href={isEditing ? undefined : link.url}
@@ -213,8 +260,9 @@ export function FooterBlock({
             ))}
           </div>
         );
+      }
 
-      case 'footerCurrencyLanguage':
+      case 'footerCurrencyLanguage': {
         const showCurrency = settings.showCurrencySelector !== false;
         const showLanguage = settings.showLanguageSelector !== false;
         const currencies = settings.availableCurrencies || availableCurrencies;
@@ -232,7 +280,7 @@ export function FooterBlock({
                   style={{ borderColor: `${textColor}40`, color: textColor }}
                 >
                   <Globe className="w-4 h-4" />
-                  <span className="text-sm">{currencies.find((c: any) => c.code === selectedCurrency)?.code || 'USD'}</span>
+                  <span className="text-sm">{currencies.find((c) => c.code === selectedCurrency)?.code || 'USD'}</span>
                   <ChevronDown className="w-4 h-4" />
                 </button>
                 {showCurrencyDropdown && !isEditing && (
@@ -240,7 +288,7 @@ export function FooterBlock({
                     className="absolute bottom-full mb-2 left-0 min-w-[200px] rounded-md shadow-lg border overflow-hidden z-50"
                     style={{ backgroundColor: background, borderColor: `${textColor}30` }}
                   >
-                    {currencies.map((currency: any) => (
+                    {currencies.map((currency) => (
                       <button
                         key={currency.code}
                         onClick={() => handleCurrencyChange(currency.code)}
@@ -264,7 +312,7 @@ export function FooterBlock({
                   className={`flex items-center gap-2 px-4 py-2 border rounded-md transition-colors hover:opacity-70 ${isEditing ? 'pointer-events-none' : ''}`}
                   style={{ borderColor: `${textColor}40`, color: textColor }}
                 >
-                  <span className="text-sm">{languages.find((l: any) => l.code === selectedLanguage)?.name || 'English'}</span>
+                  <span className="text-sm">{languages.find((l) => l.code === selectedLanguage)?.name || 'English'}</span>
                   <ChevronDown className="w-4 h-4" />
                 </button>
                 {showLanguageDropdown && !isEditing && (
@@ -272,7 +320,7 @@ export function FooterBlock({
                     className="absolute bottom-full mb-2 left-0 min-w-[200px] rounded-md shadow-lg border overflow-hidden z-50"
                     style={{ backgroundColor: background, borderColor: `${textColor}30` }}
                   >
-                    {languages.map((language: any) => (
+                    {languages.map((language) => (
                       <button
                         key={language.code}
                         onClick={() => handleLanguageChange(language.code)}
@@ -291,6 +339,7 @@ export function FooterBlock({
             )}
           </div>
         );
+      }
 
       case 'footerDivider':
         return (
@@ -301,10 +350,10 @@ export function FooterBlock({
           />
         );
 
-      case 'footerSocialIcons':
+      case 'footerSocialIcons': {
         const socialLinks = (settings.socialMediaLinks || [])
-          .filter((link: any) => link.enabled && link.url)
-          .map((link: any) => ({ platform: link.platform, url: link.url }));
+          .filter((link) => link.enabled && link.url)
+          .map((link) => ({ platform: link.platform, url: link.url }));
         const position = settings.socialIconsPosition || 'left';
 
         if (socialLinks.length === 0) return null;
@@ -312,7 +361,7 @@ export function FooterBlock({
         return (
           <div key={block.id} className={`mb-8 flex ${position === 'left' ? 'justify-start' : position === 'right' ? 'justify-end' : 'justify-center'}`}>
             <div className="flex gap-4">
-              {socialLinks.map((social: any, index: number) => {
+              {socialLinks.map((social, index) => {
                 const Icon = socialIcons[social.platform];
                 if (!Icon) return null;
                 return (
@@ -332,8 +381,9 @@ export function FooterBlock({
             </div>
           </div>
         );
+      }
 
-      case 'footerCopyright':
+      case 'footerCopyright': {
         const copyrightText = settings.copyright || '© 2024 Your Store. All rights reserved.';
         const copyrightPos = settings.copyrightPosition || 'center';
 
@@ -346,6 +396,7 @@ export function FooterBlock({
             {copyrightText}
           </div>
         );
+      }
 
       case 'footerPaymentMethods':
         if (!settings.showPaymentIcons) return null;

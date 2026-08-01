@@ -112,7 +112,7 @@ export default function NewBillScreen() {
       due.setDate(due.getDate() + 30);
       setDueDate(due.toISOString().split('T')[0]);
     }
-  }, []);
+  }, [params.amount, params.date, params.documentId, params.items, params.vendorName]);
 
   const updateLineItem = (key: string, field: keyof LineItem, value: string) => {
     setLineItems((prev) =>

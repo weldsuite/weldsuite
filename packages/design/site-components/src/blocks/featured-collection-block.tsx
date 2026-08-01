@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData, Product } from '../types';
 import React from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Heart, ShoppingBag, ArrowRight, Star, ChevronRight } from 'lucide-react';
@@ -22,7 +23,7 @@ export interface FeaturedCollectionBlockProps {
   imageAspectRatio?: 'square' | 'portrait' | 'landscape';
   showQuickAdd?: boolean;
   mode?: 'live' | 'edit' | 'preview';
-  store?: any;
+  store?: StoreData;
 }
 
 export function FeaturedCollectionBlock({
@@ -48,7 +49,7 @@ export function FeaturedCollectionBlock({
 
   // Filter by collection if specified
   if (collectionId) {
-    products = products.filter((p: any) => {
+    products = products.filter((p: Product) => {
       // Check categoryIds array (API format)
       if (p.categoryIds && Array.isArray(p.categoryIds)) {
         return p.categoryIds.includes(collectionId);
@@ -60,7 +61,7 @@ export function FeaturedCollectionBlock({
       return false;
     });
   } else if (collectionHandle) {
-    products = products.filter((p: any) => p.collection === collectionHandle);
+    products = products.filter((p: Product) => p.collection === collectionHandle);
   }
 
   const displayProducts = products.slice(0, productsPerRow * rows);
@@ -93,12 +94,6 @@ export function FeaturedCollectionBlock({
     square: 'aspect-square',
     portrait: 'aspect-[3/4]',
     landscape: 'aspect-[4/3]',
-  };
-
-  const buttonVariantClasses = {
-    primary: 'bg-black text-white hover:bg-gray-800',
-    secondary: 'bg-white text-black border border-gray-300 hover:bg-gray-50',
-    outline: 'bg-transparent border-2 border-current hover:bg-black/5',
   };
 
   return (
@@ -137,7 +132,7 @@ export function FeaturedCollectionBlock({
 
         {/* Product Grid - Shadcn Style */}
         <div className={`grid ${gridColumns[productsPerRow]} gap-4 md:gap-6`}>
-          {finalProducts.map((product: any) => (
+          {finalProducts.map((product: Product) => (
             <div
               key={product.id}
               className="group"

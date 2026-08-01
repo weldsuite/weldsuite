@@ -26,11 +26,10 @@ import {
   File,
   Trash2,
   Download,
-  MoreVertical,
   FolderOpen,
 } from 'lucide-react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface ProjectFile {
   id: string;
@@ -195,7 +194,7 @@ export default function ProjectFilesScreen() {
       } else {
         toast.error('File URL not available');
       }
-    } catch (error) {
+    } catch {
       toast.error('Failed to open file');
     }
   };
@@ -218,7 +217,7 @@ export default function ProjectFilesScreen() {
               } else {
                 toast.error(response.error || 'Failed to delete file');
               }
-            } catch (error) {
+            } catch {
               toast.error('Failed to delete file');
             }
           },

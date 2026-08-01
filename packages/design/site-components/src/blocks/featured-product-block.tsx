@@ -1,11 +1,19 @@
 "use client";
 
+import type { StoreData, Product, SectionSettings } from '../types';
+import { toImageUrls } from '../lib/product-images';
 import React, { useState } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Star, ChevronLeft, ChevronRight, Minus, Plus, Truck, Store, Undo2 } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
 
 // Shop app style with 60/40 split
+
+/** A swatch in the colour selector — `color` is any CSS colour value. */
+interface ColorOption {
+  name: string;
+  color: string;
+}
 
 export interface FeaturedProductBlockProps {
   layout?: 'image-left' | 'image-right' | 'image-top';
@@ -25,12 +33,12 @@ export interface FeaturedProductBlockProps {
   backgroundColor?: string;
   textColor?: string;
   mode?: 'live' | 'edit' | 'preview';
-  store?: any;
+  store?: StoreData;
   storeName?: string;
   rating?: number;
   reviewCount?: number;
   images?: string[];
-  settings?: any;
+  settings?: SectionSettings;
   showSizeSelector?: boolean;
   showColorSelector?: boolean;
   showReviews?: boolean;
@@ -51,7 +59,6 @@ export function FeaturedProductBlock({
   badgeColor = '#dc2626',
   backgroundColor = '#ffffff',
   textColor = '#000000',
-  mode = 'live',
   store,
   rating = 4.8,
   reviewCount = 14600,
@@ -67,25 +74,24 @@ export function FeaturedProductBlock({
   showShippingPolicy = true,
   showRefundPolicy = true,
 }: FeaturedProductBlockProps) {
-  const isEditing = mode === 'edit' || mode === 'preview';
   const [quantity, setQuantity] = React.useState(1);
   const [activeImage, setActiveImage] = useState(0);
   const [selectedSize, setSelectedSize] = useState('XS');
   const [selectedColor, setSelectedColor] = useState('Black');
-  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
 
   // Get product from store if handle is provided
-  const product = store?.products?.find((p: any) => p.handle === productHandle);
+  const product = store?.products?.find((p: Product) => p.handle === productHandle);
 
   // Use product data if available, otherwise use settings
   const finalHeading = product?.name || heading;
   const finalDescription = product?.description || description;
   const finalPrice = product?.price || price;
-  const finalImages = product?.images || images;
+  const finalImages = product?.images ? toImageUrls(product.images) : images;
 
   // Use settings for available sizes, colors, and FAQ items
-  const availableSizes = settings.availableSizes || ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
-  const availableColors = settings.availableColors || [
+  // (settings is a builder-supplied bag, so these two are cast at the boundary)
+  const availableSizes = (settings.availableSizes as string[] | undefined) ?? ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
+  const availableColors = (settings.availableColors as ColorOption[] | undefined) ?? [
     { name: 'Black', color: '#000000' },
     { name: 'White', color: '#FFFFFF' },
     { name: 'Gray', color: '#9CA3AF' },
@@ -93,22 +99,8 @@ export function FeaturedProductBlock({
     { name: 'Red', color: '#EF4444' },
     { name: 'Green', color: '#10B981' },
   ];
-  const faqItems = settings.faqItems || [
-    {
-      question: 'What is your return policy?',
-      answer: 'We offer a 30-day return policy for all unused items in their original packaging. Simply contact our customer service team to initiate a return.'
-    },
-    {
-      question: 'How long does shipping take?',
-      answer: 'Standard shipping typically takes 5-7 business days. Express shipping options are available at checkout for faster delivery.'
-    },
-    {
-      question: 'Is this product covered by warranty?',
-      answer: 'Yes, all our products come with a 1-year manufacturer warranty covering defects in materials and workmanship.'
-    }
-  ];
 
-  const hasCompareAtPrice = compareAtPrice && parseFloat(compareAtPrice) > parseFloat(finalPrice);
+  const hasCompareAtPrice = compareAtPrice && parseFloat(compareAtPrice) > parseFloat(String(finalPrice));
 
   return (
     <div
@@ -228,7 +220,7 @@ export function FeaturedProductBlock({
                       Color: <span className="font-normal">{selectedColor}</span>
                     </p>
                     <div className="flex gap-2">
-                      {availableColors.map((colorOption: any) => (
+                      {availableColors.map((colorOption) => (
                         <button
                           key={colorOption.name}
                           onClick={() => setSelectedColor(colorOption.name)}
@@ -258,7 +250,7 @@ export function FeaturedProductBlock({
                       </button>
                     </div>
                     <div className="inline-flex border rounded-md overflow-hidden" style={{ width: '100%' }}>
-                      {availableSizes.map((size: any, index: number) => (
+                      {availableSizes.map((size, index) => (
                         <button
                           key={size}
                           onClick={() => setSelectedSize(size)}

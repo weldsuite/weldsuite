@@ -155,7 +155,7 @@ export default function WorkflowsPage() {
 
   // Render card item for phone view
   const renderWorkflowCard = (workflow: Workflow) => {
-    const { date, time } = formatDate(workflow.createdAt);
+    const { date } = formatDate(workflow.createdAt);
     return (
       <TouchableOpacity
         key={workflow.id}

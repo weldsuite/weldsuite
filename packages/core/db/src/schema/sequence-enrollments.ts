@@ -10,7 +10,7 @@ import {
 
 /**
  * Sequence Enrollments table
- * Junction table linking customers to sequences (workflows tagged __type:sequence).
+ * Junction table linking customers to sequences (workflows tagged _type:sequence).
  * Tracks enrollment status, progress, and execution linkage.
  */
 export const sequenceEnrollments = pgTable('sequence_enrollments', {

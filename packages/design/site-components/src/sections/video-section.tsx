@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData, SectionSettings } from '../types';
 import React, { useState, useRef } from 'react';
 
 interface VideoSectionProps {
@@ -38,8 +39,8 @@ interface VideoSectionProps {
   fullWidth?: boolean;
 
   // Legacy props
-  store?: any;
-  settings?: any;
+  store?: StoreData;
+  settings?: SectionSettings;
 }
 
 export default function VideoSection({
@@ -94,11 +95,10 @@ export default function VideoSection({
   // Check if it's a YouTube or Vimeo URL
   const isYouTube = videoType === 'youtube' || url.includes('youtube.com') || url.includes('youtu.be');
   const isVimeo = videoType === 'vimeo' || url.includes('vimeo.com');
-  const isHosted = videoType === 'hosted' || (!isYouTube && !isVimeo);
 
   const getEmbedUrl = () => {
     if (isYouTube) {
-      const videoId = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/)?.[1];
+      const videoId = url.match(/(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?/\s]{11})/)?.[1];
       if (!videoId) return '';
 
       const params = new URLSearchParams();

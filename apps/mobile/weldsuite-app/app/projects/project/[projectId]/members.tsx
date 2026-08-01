@@ -19,7 +19,6 @@ import { useLocalSearchParams } from 'expo-router';
 import {
   Plus,
   Mail,
-  MoreHorizontal,
   Search,
   X,
   Trash2,
@@ -27,7 +26,7 @@ import {
   UserCog,
   ChevronDown,
 } from 'lucide-react-native';
-import api, { WorkspaceMember } from '@/services/api';
+import { api, WorkspaceMember } from '@/services/api';
 
 interface Member {
   id: string;
@@ -58,7 +57,7 @@ const getMemberEmail = (member: Member): string => {
   return member.email || member.user?.email || member.userId;
 };
 
-const getMemberAvatar = (member: Member): string | undefined => {
+const _getMemberAvatar = (member: Member): string | undefined => {
   return member.picture || member.user?.avatar;
 };
 
@@ -238,7 +237,7 @@ export default function ProjectMembersScreen() {
               } else {
                 toast.error(response.error || 'Failed to remove member');
               }
-            } catch (error) {
+            } catch {
               toast.error('Failed to remove member');
             }
           },
@@ -263,7 +262,7 @@ export default function ProjectMembersScreen() {
       } else {
         toast.error(response.error || 'Failed to update role');
       }
-    } catch (error) {
+    } catch {
       toast.error('Failed to update role');
     }
   };

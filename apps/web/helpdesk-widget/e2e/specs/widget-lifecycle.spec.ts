@@ -19,7 +19,7 @@ test.describe('Widget Lifecycle', () => {
       await widgetPage.waitForReady();
 
       // Should show the home view or main content
-      const mainContent = widgetPage.page.locator('main, [role="main"], #__next');
+      const mainContent = widgetPage.page.locator('main, [role="main"], #_next');
       await expect(mainContent).toBeVisible();
     });
 
@@ -98,7 +98,7 @@ test.describe('Widget Lifecycle', () => {
       await widgetPage.waitForReady();
 
       // Widget should be visible and adapted
-      const mainContent = widgetPage.page.locator('main, [role="main"], #__next');
+      const mainContent = widgetPage.page.locator('main, [role="main"], #_next');
       await expect(mainContent).toBeVisible();
     });
 
@@ -110,7 +110,7 @@ test.describe('Widget Lifecycle', () => {
       await widgetPage.waitForReady();
 
       // Widget should be visible
-      const mainContent = widgetPage.page.locator('main, [role="main"], #__next');
+      const mainContent = widgetPage.page.locator('main, [role="main"], #_next');
       await expect(mainContent).toBeVisible();
     });
 
@@ -122,7 +122,7 @@ test.describe('Widget Lifecycle', () => {
       await widgetPage.waitForReady();
 
       // Widget should be visible
-      const mainContent = widgetPage.page.locator('main, [role="main"], #__next');
+      const mainContent = widgetPage.page.locator('main, [role="main"], #_next');
       await expect(mainContent).toBeVisible();
     });
   });
@@ -154,7 +154,7 @@ test.describe('Widget Lifecycle', () => {
       }
 
       // Page should still be responsive
-      const mainContent = widgetPage.page.locator('main, [role="main"], #__next');
+      const mainContent = widgetPage.page.locator('main, [role="main"], #_next');
       await expect(mainContent).toBeVisible();
     });
   });

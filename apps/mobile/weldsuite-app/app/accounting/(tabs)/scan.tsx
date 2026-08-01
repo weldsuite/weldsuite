@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -9,25 +9,25 @@ import {
   ActivityIndicator,
   Image,
   Platform,
-  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { router } from 'expo-router';
-import { Camera, CameraView } from 'expo-camera';
+import { Camera } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 // DocumentScanner is not available in Expo Go - use conditional loading
 let DocumentScanner: any = null;
 let isDocumentScannerAvailable = false;
 
 try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- native module is absent in Expo Go; probed synchronously inside try/catch
   DocumentScanner = require('react-native-document-scanner-plugin').default;
   isDocumentScannerAvailable = true;
-} catch (error) {
+} catch {
   isDocumentScannerAvailable = false;
 }
 
@@ -42,7 +42,7 @@ export default function ScanScreen() {
   const { colors } = useTheme();
   const toast = useToast();
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [processing, setProcessing] = useState(false);
+  const [processing, ] = useState(false);
   const [scannedDocument, setScannedDocument] = useState<ScannedDocument | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [uploading, setUploading] = useState(false);

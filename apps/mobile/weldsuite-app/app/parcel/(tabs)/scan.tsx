@@ -30,7 +30,7 @@ import {
   Clock,
 } from 'lucide-react-native';
 import { Ionicons } from '@expo/vector-icons';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import type { ParcelLookup } from '@/services/api';
 
 export default function ScanScreen() {
@@ -115,7 +115,7 @@ export default function ScanScreen() {
           setRecentScans((prev) => [trackingNumber, ...prev.slice(0, 4)]);
         }
       }
-    } catch (error) {
+    } catch {
       // Use mock data for demo
       setScanResult({
         found: true,

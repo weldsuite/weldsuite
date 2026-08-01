@@ -7,11 +7,11 @@ import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { Spinner } from '@weldsuite/mobile-ui/components/Spinner';
 import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
-import type { SocialAnalyticsOverview, SocialDashboardStats } from '@weldsuite/app-api-client/domains/social';
-import appApi from '@/services/app-api';
+import type { SocialAnalyticsOverview, SocialDashboardStats , SocialPlatform } from '@weldsuite/app-api-client/domains/social';
+import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
 import { PLATFORM_META, formatCompact } from '@/lib/social';
-import type { SocialPlatform } from '@weldsuite/app-api-client/domains/social';
+
 
 interface AnalyticsData {
   overview: SocialAnalyticsOverview;

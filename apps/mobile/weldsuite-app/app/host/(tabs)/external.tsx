@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Switch,
 } from 'react-native';
 import {
   Globe,
@@ -35,7 +34,7 @@ const WELDHOST_NAMESERVERS = [
 
 export default function ExternalDomainScreen() {
   const { colors } = useTheme();
-  const showMiniSidebar = useShouldShowMiniSidebar();
+  const _showMiniSidebar = useShouldShowMiniSidebar();
   const { resetHeader } = useCollapsibleHeader();
   const toast = useToast();
 
@@ -81,7 +80,7 @@ export default function ExternalDomainScreen() {
       setDomainName('');
       setRegistrar('');
       setConfirmNameservers(false);
-    } catch (error) {
+    } catch {
       toast.error('Failed to add external domain');
     } finally {
       setIsPending(false);

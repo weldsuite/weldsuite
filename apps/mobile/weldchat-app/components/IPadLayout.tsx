@@ -19,7 +19,6 @@ import {
   Plus,
   Search,
   PenSquare,
-  Settings,
 } from 'lucide-react-native';
 import { useUser } from '@clerk/expo';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -288,7 +287,7 @@ export function IPadLayout() {
   );
 }
 
-const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
+const makeStyles = (c: ColorScheme, topInset: number, _bottomInset: number) =>
   StyleSheet.create({
     container: {
       flex: 1,

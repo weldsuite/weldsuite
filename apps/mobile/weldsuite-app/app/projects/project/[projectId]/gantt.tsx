@@ -1,21 +1,16 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Animated } from 'react-native';
-import {
+import { Animated ,
   StyleSheet,
   View,
   Text,
   TouchableOpacity,
   ScrollView,
-  RefreshControl,
-  ActivityIndicator,
-  useWindowDimensions,
-  Dimensions,
-  NativeSyntheticEvent,
-  NativeScrollEvent,
+  ActivityIndicator,  Dimensions,
   Modal,
   Pressable,
   TextInput,
 } from 'react-native';
+
 import { useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { api } from '@/services/api';
@@ -43,7 +38,7 @@ interface ProjectTask {
 
 type ViewMode = 'day' | 'week' | 'month' | 'quarter';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const { width: ____SCREEN_WIDTH } = Dimensions.get('window');
 const LEFT_PANEL_WIDTH = 320;
 
 // Base column widths for different view modes (at 100% zoom)
@@ -66,12 +61,11 @@ interface TimePeriod {
 export default function ProjectGanttScreen() {
   const { projectId } = useLocalSearchParams<{ projectId: string }>();
   const { colors } = useTheme();
-  const { width } = useWindowDimensions();
 
   // State
   const [tasks, setTasks] = useState<ProjectTask[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [, setRefreshing] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   const [zoom, setZoom] = useState(100);
   const [viewYear, setViewYear] = useState(() => new Date().getFullYear());
@@ -87,7 +81,7 @@ export default function ProjectGanttScreen() {
   const [selectedTask, setSelectedTask] = useState<ProjectTask | null>(null);
   const [editStartDate, setEditStartDate] = useState<Date>(new Date());
   const [editEndDate, setEditEndDate] = useState<Date>(new Date());
-  const [editingField, setEditingField] = useState<'start' | 'end' | null>(null);
+  const [, setEditingField] = useState<'start' | 'end' | null>(null);
   const [saving, setSaving] = useState(false);
 
   // Add task modal state
@@ -210,7 +204,7 @@ export default function ProjectGanttScreen() {
     loadTasks();
   }, [loadTasks]);
 
-  const onRefresh = useCallback(() => {
+  const _onRefresh = useCallback(() => {
     setRefreshing(true);
     loadTasks();
   }, [loadTasks]);
@@ -751,7 +745,7 @@ export default function ProjectGanttScreen() {
                 </View>
                 {/* Period labels */}
                 <View style={styles.monthLabelsContainer}>
-                  {timePeriods.map((period, index) => (
+                  {timePeriods.map((period, _index) => (
                     <View
                       key={`${period.date.getTime()}`}
                       style={[
@@ -841,7 +835,7 @@ export default function ProjectGanttScreen() {
                 )}
                 contentContainerStyle={styles.taskBarsContainer}
               >
-                {tasks.map((task, index) => {
+                {tasks.map((task, _index) => {
                   const bar = getTaskBar(task);
 
                   return (

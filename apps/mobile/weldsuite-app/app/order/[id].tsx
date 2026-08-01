@@ -12,7 +12,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { ChevronLeft, MoreVertical, Package, User, MapPin, CreditCard } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface OrderItem {
   id: string;

@@ -20,8 +20,8 @@ import { Stack, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import { ChevronLeft, Plus, Trash2, Search, X, Check } from 'lucide-react-native';
-import api, { Customer, Product } from '@/services/api';
+import { ChevronLeft, Plus, Trash2, Search, Check } from 'lucide-react-native';
+import { api, Customer, Product } from '@/services/api';
 
 interface OrderItem {
   id: string;
@@ -37,10 +37,9 @@ export default function AddOrderScreen() {
   const toast = useToast();
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
-  const [showProductModal, setShowProductModal] = useState(false);
-  const [currentItemIndex, setCurrentItemIndex] = useState<number | null>(null);
+  const [showProductModal, ] = useState(false);
   const [customerSearch, setCustomerSearch] = useState('');
-  const [productSearch, setProductSearch] = useState('');
+  const [productSearch, ] = useState('');
   const [shippingAddress, setShippingAddress] = useState('');
   const [items, setItems] = useState<OrderItem[]>([
     { id: '1', productName: '', quantity: 1, price: 0 }
@@ -49,12 +48,12 @@ export default function AddOrderScreen() {
 
   // Loading states
   const [loadingCustomers, setLoadingCustomers] = useState(false);
-  const [loadingProducts, setLoadingProducts] = useState(false);
+  const [, setLoadingProducts] = useState(false);
   const [creatingOrder, setCreatingOrder] = useState(false);
 
   // Data lists
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [, setProducts] = useState<Product[]>([]);
 
   // Animation values for stacked page effect
   const slideAnim = useRef(new Animated.Value(1000)).current;
@@ -181,7 +180,7 @@ export default function AddOrderScreen() {
         scaleAnim.setValue(1);
       });
     }
-  }, [showCustomerModal]);
+  }, [showCustomerModal, fadeAnim, scaleAnim, slideAnim]);
 
   // Handle modal animations for product modal
   useEffect(() => {
@@ -235,7 +234,7 @@ export default function AddOrderScreen() {
         productScaleAnim.setValue(1);
       });
     }
-  }, [showProductModal]);
+  }, [showProductModal, productFadeAnim, productScaleAnim, productSlideAnim]);
 
   const addItem = () => {
     const newItem: OrderItem = {

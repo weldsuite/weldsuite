@@ -22,9 +22,8 @@ import {
   Circle,
   CheckCircle2,
   XCircle,
-  Pause,
 } from 'lucide-react-native';
-import api, { ProjectTaskWithProject, ProjectTaskStats } from '@/services/api';
+import { api, ProjectTaskWithProject, ProjectTaskStats } from '@/services/api';
 
 const STATUS_OPTIONS = [
   { label: 'All', value: '' },
@@ -116,7 +115,7 @@ export default function TasksScreen() {
     }
   };
 
-  const getStatusColor = (status: string) => {
+  const _getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
       case 'todo':
         return colors.muted;

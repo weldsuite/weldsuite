@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData, SectionSettings } from '../types';
 import { Facebook, Twitter, Instagram, Mail } from "lucide-react";
 
 interface FooterSectionProps {
@@ -8,8 +9,8 @@ interface FooterSectionProps {
     title: string;
     items: string[];
   }>;
-  store?: any;
-  settings?: any;
+  store?: StoreData;
+  settings?: SectionSettings;
 }
 
 const defaultLinks = [

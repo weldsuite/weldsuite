@@ -3,7 +3,6 @@ import {
   varchar,
   timestamp,
   boolean,
-  integer,
   jsonb,
   index,
   uniqueIndex,

@@ -27,7 +27,7 @@ import {
   ChevronRight,
   X,
 } from 'lucide-react-native';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 const PROJECT_COLORS = [
   '#F59E0B', // Amber

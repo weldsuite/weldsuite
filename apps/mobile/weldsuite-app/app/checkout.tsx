@@ -16,7 +16,7 @@ import { router } from 'expo-router';
 import { useCart } from '@/contexts/CartContext';
 import { useToast } from '@/contexts/ToastContext';
 import { track } from '@/lib/analytics';
-import api, { Address } from '@/services/api';
+import { api, Address } from '@/services/api';
 
 interface CheckoutFormData {
   shippingAddress: Address;

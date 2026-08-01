@@ -6,19 +6,15 @@ import {
   Send,
   Sparkles,
   Code,
-  Lightbulb,
   FileSearch,
   Bug,
-  MessageSquare,
   User,
-  Loader2,
   ChevronDown,
   Trash2,
 } from "lucide-react"
 import { Button } from "./button"
 import { Input } from "./input"
 import { ScrollArea } from "./scroll-area"
-import { Badge } from "./badge"
 import { Avatar, AvatarFallback } from "./avatar"
 import { cn } from "../lib/utils"
 import {
@@ -26,7 +22,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "./popover"
-import { Separator } from "./separator"
 import { TypingIndicator, StreamingCursor } from "./ai-typing-indicator"
 
 interface Message {
@@ -46,15 +41,17 @@ interface Suggestion {
   category: "code" | "debug" | "improve" | "search"
 }
 
+import type { AiAction, AiActionRecord, AiActionResult, AiStreamChunk } from "../hooks/use-ai-stream"
+
 interface AiChatDropdownProps {
   onSendMessage?: (message: string) => Promise<string>
   onStartStream?: (message: string) => Promise<{ streamId: string }>
   onGetChunks?: (streamId: string, lastIndex: number) => Promise<{
-    chunks: any[]
+    chunks: AiStreamChunk[]
     isComplete: boolean
     error?: string
   }>
-  onAction?: (action: any) => void
+  onAction?: (action: AiAction) => void
   className?: string
 }
 
@@ -103,8 +100,8 @@ export function AiChatDropdown({
   const [open, setOpen] = React.useState(false)
   const [messages, setMessages] = React.useState<Message[]>([])
   const [input, setInput] = React.useState("")
+  const [, setStreamingMessageId] = React.useState<string | null>(null)
   const [isLoading, setIsLoading] = React.useState(false)
-  const [streamingMessageId, setStreamingMessageId] = React.useState<string | null>(null)
   const scrollAreaRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
   
@@ -171,7 +168,7 @@ export function AiChatDropdown({
         // Poll for chunks with batching to reduce re-renders
         let accumulatedContent = ""
         let updateTimer: NodeJS.Timeout | null = null
-        const pendingActions: any[] = []
+        const pendingActions: AiAction[] = []
         
         const updateMessage = () => {
           if (accumulatedContent) {
@@ -217,7 +214,7 @@ export function AiChatDropdown({
                 accumulatedContent += chunk.content
                 hasNewContent = true
               } else if (chunk.type === "action" && onAction) {
-                pendingActions.push(chunk.action)
+                if (chunk.action) pendingActions.push(chunk.action)
               }
             }
             
@@ -237,9 +234,8 @@ export function AiChatDropdown({
               // Execute action immediately without waiting
               if (onAction) {
                 const actionHandler = onAction;
-                Promise.resolve(actionHandler(action)).then((result: any) => {
+                Promise.resolve(actionHandler(action) as AiActionResult | void).then((result) => {
                   if (result) {
-                    let resultContent = ""
                     
                     if (result.success) {
                       // Format the result based on the action type
@@ -249,7 +245,7 @@ export function AiChatDropdown({
                           prev.map(msg => {
                             if (msg.id === assistantMessageId) {
                               // Clean up the message first
-                              let cleanContent = msg.content
+                              const cleanContent = msg.content
                                 .replace(/\[ACTION:[^\]]+\]/g, '') // Remove action markers
                                 .replace(/I'll get that information for you\./g, '') // Remove generic text
                                 .replace(/Let me retrieve those details\./g, '')
@@ -257,7 +253,7 @@ export function AiChatDropdown({
                                 .trim()
                               
                               // Add the result
-                              const resultText = `You have ${result.data} ${action.params.model?.toLowerCase() || 'item'}s in your workspace.`
+                              const resultText = `You have ${result.data} ${action.params?.model?.toLowerCase() || 'item'}s in your workspace.`
                               return { ...msg, content: `${cleanContent} ${resultText}`.trim() }
                             }
                             return msg
@@ -269,14 +265,14 @@ export function AiChatDropdown({
                         let resultText = ""
                         
                         if (count === 0) {
-                          resultText = `I couldn't find any ${action.params.model?.toLowerCase() || 'item'}s in your workspace.`
+                          resultText = `I couldn't find any ${action.params?.model?.toLowerCase() || 'item'}s in your workspace.`
                         } else if (count === 1) {
-                          resultText = `I found 1 ${action.params.model?.toLowerCase() || 'item'}.`
+                          resultText = `I found 1 ${action.params?.model?.toLowerCase() || 'item'}.`
                           if (result.data[0]?.name) {
                             resultText += ` It's "${result.data[0].name}".`
                           }
                         } else {
-                          resultText = `I found ${count} ${action.params.model?.toLowerCase() || 'item'}s.`
+                          resultText = `I found ${count} ${action.params?.model?.toLowerCase() || 'item'}s.`
                           if (result.data[0]?.name) {
                             resultText += ` Including "${result.data[0].name}".`
                           }
@@ -286,7 +282,7 @@ export function AiChatDropdown({
                           prev.map(msg => {
                             if (msg.id === assistantMessageId) {
                               // Clean up the message first
-                              let cleanContent = msg.content
+                              const cleanContent = msg.content
                                 .replace(/\[ACTION:[^\]]+\]/g, '') // Remove action markers
                                 .replace(/I'll get that information for you\./g, '') // Remove generic text
                                 .replace(/Let me retrieve those details\./g, '')
@@ -302,20 +298,24 @@ export function AiChatDropdown({
                       } else if (result.type?.includes('found')) {
                         let resultText = ""
                         
+                        const record: AiActionRecord | null =
+                          result.data && typeof result.data === 'object' && !Array.isArray(result.data)
+                            ? result.data
+                            : null
                         if (result.data) {
-                          resultText = `I found the ${action.params.model?.toLowerCase() || 'item'}.`
-                          if (result.data.name) {
-                            resultText += ` It's "${result.data.name}".`
+                          resultText = `I found the ${action.params?.model?.toLowerCase() || 'item'}.`
+                          if (record?.name) {
+                            resultText += ` It's "${record.name}".`
                           }
                         } else {
-                          resultText = `I couldn't find that ${action.params.model?.toLowerCase() || 'item'}.`
+                          resultText = `I couldn't find that ${action.params?.model?.toLowerCase() || 'item'}.`
                         }
                         
                         setMessages((prev) => 
                           prev.map(msg => {
                             if (msg.id === assistantMessageId) {
                               // Clean up the message first
-                              let cleanContent = msg.content
+                              const cleanContent = msg.content
                                 .replace(/\[ACTION:[^\]]+\]/g, '') // Remove action markers
                                 .replace(/I'll get that information for you\./g, '') // Remove generic text
                                 .replace(/Let me retrieve those details\./g, '')
@@ -351,7 +351,7 @@ export function AiChatDropdown({
                       )
                     }
                   }
-                }).catch((error: any) => {
+                }).catch((error: unknown) => {
                   console.error("Action error:", error)
                   setMessages((prev) => 
                     prev.map(msg => 
@@ -391,7 +391,7 @@ export function AiChatDropdown({
           }
         }, 100) // Poll every 100ms
         
-      } catch (error) {
+      } catch {
         setMessages((prev) => 
           prev.map(msg => 
             msg.id === assistantMessageId 
@@ -434,7 +434,7 @@ export function AiChatDropdown({
   }
 
   const handleSuggestionClick = (suggestion: Suggestion) => {
-    onAction?.(suggestion.action)
+    onAction?.({ type: suggestion.action })
     const promptMap: { [key: string]: string } = {
       generate: "Help me generate code for ",
       debug: "I need help debugging ",

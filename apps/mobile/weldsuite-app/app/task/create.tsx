@@ -20,8 +20,6 @@ import {
   Flag,
   FolderKanban,
   Star,
-  Tag,
-  User,
 } from 'lucide-react-native';
 import type { TaskPriority } from '@/types/task.types';
 
@@ -40,8 +38,8 @@ export default function CreateTaskScreen() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('medium');
-  const [dueDate, setDueDate] = useState('');
-  const [projectId, setProjectId] = useState<string | undefined>();
+  const [dueDate, ] = useState('');
+  const [projectId, ] = useState<string | undefined>();
   const [isImportant, setIsImportant] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -71,7 +69,7 @@ export default function CreateTaskScreen() {
       } else {
         Alert.alert('Error', 'Failed to create task. Please try again.');
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'An error occurred while creating the task.');
     } finally {
       setIsSubmitting(false);

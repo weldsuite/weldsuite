@@ -12,13 +12,11 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useWms } from '@/contexts/WmsContext';
 import { useToast } from '@/contexts/ToastContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import type { InventoryDto, InventoryAdjustmentReason } from '@/types/wms';
-import { calculateStockStatus, formatDate, formatRelativeTime, formatMoney } from '@/utils/wms-helpers';
+import { calculateStockStatus, formatMoney } from '@/utils/wms-helpers';
 
 const STOCK_STATUS_CONFIG = {
   in_stock: {
@@ -57,7 +55,7 @@ export default function InventoryScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
-  const [showLowStockOnly, setShowLowStockOnly] = useState(false);
+  const [showLowStockOnly, ] = useState(false);
   const [adjustStockModalVisible, setAdjustStockModalVisible] = useState(false);
   const [selectedItem, setSelectedItem] = useState<InventoryDto | null>(null);
   const [adjustmentQuantity, setAdjustmentQuantity] = useState('');

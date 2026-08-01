@@ -93,7 +93,7 @@ export const crmActivities = pgTable('crm_activities', {
   assigneeIds: jsonb('assignee_ids').$type<string[]>(), // string[]
   repeat: jsonb('repeat').$type<Record<string, unknown>>(), // recurrence config
 
-  // Legacy/read-only: consolidates the old blob keys `changes`, `__changeLog`,
+  // Legacy/read-only: consolidates the old blob keys `changes`, `_changeLog`,
   // `changedFields`, `previousValues`, `newValues`. Their writer was the
   // api-worker (deleted 2026-07-17); the CRM activity feed still reads this.
   // Do not write new data here going forward.

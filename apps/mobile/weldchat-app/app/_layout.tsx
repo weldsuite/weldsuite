@@ -25,7 +25,7 @@ import { CallProvider } from '@/contexts/CallContext';
 import { IncomingCallModal } from '@/components/call/IncomingCallModal';
 import { CallHost, CallInsetContainer } from '@/components/call/CallHost';
 import { RealtimeProvider } from '@/providers/realtime-provider';
-import appApi, { setAppApiTokenGetter } from '@/services/app-api';
+import { appApi, setAppApiTokenGetter } from '@/services/app-api';
 import { useUpdateGate } from '@/hooks/useUpdateGate';
 
 SplashScreen.preventAutoHideAsync();
@@ -81,7 +81,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     if (userMemberships?.data && userMemberships.data.length === 0) {
       setOrgReady(true);
     }
-  }, [user, isOrgListLoaded, organizationId, userMemberships?.data?.length, setActive]);
+  }, [user, isOrgListLoaded, organizationId, userMemberships?.data?.length, setActive, userMemberships.data]);
 
   // Wire the app-api token getter during render (not in an effect) so it is set
   // BEFORE the child tab screens mount and fire their first data load. Effects

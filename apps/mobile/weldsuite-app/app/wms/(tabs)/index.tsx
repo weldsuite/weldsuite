@@ -6,7 +6,6 @@ import {
   Text,
   RefreshControl,
   TouchableOpacity,
-  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -21,17 +20,15 @@ import {
   ClipboardList,
   Truck,
   BarChart3,
-  ChevronRight,
-  RefreshCw,
 } from 'lucide-react-native';
-import type { DashboardOverviewDto, LowStockItemDto, OrderSummaryDto } from '@/types/wms';
-import { formatMoney, formatRelativeTime, getOrderStatusColor, getPriorityColor } from '@/utils/wms-helpers';
+import type { LowStockItemDto, OrderSummaryDto } from '@/types/wms';
+import { formatMoney, formatRelativeTime, getOrderStatusColor } from '@/utils/wms-helpers';
 
 export default function WmsDashboardScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const toast = useToast();
-  const { dashboardData, loadDashboard, refreshDashboard, loading } = useWms();
+  const { dashboardData, loadDashboard, refreshDashboard } = useWms();
 
   const [refreshing, setRefreshing] = useState(false);
 

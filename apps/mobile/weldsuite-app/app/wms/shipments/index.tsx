@@ -12,8 +12,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useWms } from '@/contexts/WmsContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import type { ShipmentDto, ShipmentStatus } from '@/types/wms';
 import {
   getShipmentStatusColor,
@@ -37,14 +36,13 @@ const STATUS_OPTIONS: { key: ShipmentStatus | 'all'; label: string }[] = [
 export default function ShipmentsListScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { } = useWms();
 
   const [shipments, setShipments] = useState<ShipmentDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<ShipmentStatus | 'all'>('all');
-  const [totalShipments, setTotalShipments] = useState(0);
+  const [, setTotalShipments] = useState(0);
 
   useEffect(() => {
     loadShipments();

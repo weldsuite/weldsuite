@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface InvoiceItem {
   id: string;
@@ -141,7 +141,7 @@ export default function InvoicesScreen() {
     router.push(`/invoice/${invoice.id}` as any);
   };
 
-  const handleUpdateInvoiceStatus = (invoice: Invoice) => {
+  const _handleUpdateInvoiceStatus = (invoice: Invoice) => {
     setSelectedInvoice(invoice);
     setStatusUpdateModalVisible(true);
   };
@@ -160,12 +160,12 @@ export default function InvoicesScreen() {
     toast.success(`Invoice ${selectedInvoice.invoiceNumber} status updated to ${newStatus}`);
   };
 
-  const handleCancelInvoice = (invoice: Invoice) => {
+  const _handleCancelInvoice = (invoice: Invoice) => {
     updateInvoiceStatus('cancelled');
     toast.success(`Invoice ${invoice.invoiceNumber} has been cancelled`);
   };
 
-  const handleRefundInvoice = (invoice: Invoice) => {
+  const _handleRefundInvoice = (invoice: Invoice) => {
     updateInvoiceStatus('refunded');
     toast.success(`Invoice ${invoice.invoiceNumber} has been refunded`);
   };

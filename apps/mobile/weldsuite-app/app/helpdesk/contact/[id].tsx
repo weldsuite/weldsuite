@@ -33,8 +33,7 @@ import {
 } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api, { Contact, Conversation, getApiErrorMessage } from '@/services/api';
-import { ContactSkeleton } from '@/components/helpdesk/Skeleton';
+import { api, Contact, Conversation, getApiErrorMessage } from '@/services/api';
 
 const INDUSTRY_OPTIONS = [
   'Technology', 'Healthcare', 'Finance', 'Education', 'Manufacturing',
@@ -64,7 +63,7 @@ export default function ContactDetailsScreen() {
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const [contact, setContact] = useState<Contact | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<SidebarTab>('details');
   const [recordDetailsExpanded, setRecordDetailsExpanded] = useState(true);
   const [conversationsExpanded, setConversationsExpanded] = useState(false);

@@ -5,13 +5,11 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  RefreshControl,
   ActivityIndicator,
   TextInput,
   Modal,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   Pressable,
   Animated,
 } from 'react-native';
@@ -21,7 +19,6 @@ import {
   Plus,
   Check,
   X,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   User,
@@ -47,15 +44,12 @@ import {
   EyeOff,
   ArrowLeft,
   ArrowRight,
-  ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Filter,
-  Settings2,
   Eye,
   Columns3,
 } from 'lucide-react-native';
-import api, { ProjectTask, ProjectMember } from '@/services/api';
+import { api, ProjectTask, ProjectMember } from '@/services/api';
 
 type EditingCell = {
   taskId: string;
@@ -119,7 +113,7 @@ export default function ProjectTableScreen() {
   const [showPicker, setShowPicker] = useState(false);
   const [showTaskPicker, setShowTaskPicker] = useState(false);
   const [allProjectTasks, setAllProjectTasks] = useState<ProjectTask[]>([]);
-  const [taskPickerRowId, setTaskPickerRowId] = useState<string | null>(null);
+  const [, setTaskPickerRowId] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showDatePickerModal, setShowDatePickerModal] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -543,9 +537,9 @@ export default function ProjectTableScreen() {
         useNativeDriver: true,
       }).start(() => setShowDatePickerModal(false));
     }
-  }, [showDatePicker]);
+  }, [showDatePicker, datePickerFadeAnim]);
 
-  const handleRefresh = () => {
+  const _handleRefresh = () => {
     setRefreshing(true);
     loadData();
   };
@@ -570,7 +564,7 @@ export default function ProjectTableScreen() {
     }
   };
 
-  const toggleTaskSelection = (taskId: string) => {
+  const _toggleTaskSelection = (taskId: string) => {
     const newSelected = new Set(selectedTasks);
     if (newSelected.has(taskId)) {
       newSelected.delete(taskId);
@@ -581,7 +575,7 @@ export default function ProjectTableScreen() {
   };
 
   // Open task picker to select an existing task
-  const openTaskPicker = async (rowId: string) => {
+  const _openTaskPicker = async (rowId: string) => {
     setTaskPickerRowId(rowId);
     // Load all project tasks if not already loaded
     if (allProjectTasks.length === 0) {
@@ -628,12 +622,12 @@ export default function ProjectTableScreen() {
   };
 
   // Date helper functions
-  const isToday = (date: Date) => {
+  const _isToday = (date: Date) => {
     const today = new Date();
     return date.toDateString() === today.toDateString();
   };
 
-  const isTomorrow = (date: Date) => {
+  const _isTomorrow = (date: Date) => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     return date.toDateString() === tomorrow.toDateString();
@@ -790,7 +784,7 @@ export default function ProjectTableScreen() {
     }
   };
 
-  const saveCustomDate = () => {
+  const _saveCustomDate = () => {
     if (editingCell?.columnId) {
       setCustomFieldValue(editingCell.taskId, editingCell.columnId, selectedDate.toISOString());
     }

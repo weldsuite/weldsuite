@@ -11,7 +11,7 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import type { WmsOrderDto, OrderStatus } from '@/types/wms';
 import {
   getOrderStatusColor,
@@ -26,9 +26,6 @@ import {
   User,
   MapPin,
   Truck,
-  Calendar,
-  DollarSign,
-  AlertTriangle,
   CheckCircle2,
 } from 'lucide-react-native';
 

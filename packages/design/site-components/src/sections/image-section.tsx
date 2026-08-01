@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData, SectionSettings } from '../types';
 import Image from "next/image";
 
 interface ImageSectionProps {
@@ -8,8 +9,8 @@ interface ImageSectionProps {
   caption?: string;
   fullWidth?: boolean;
   height?: number;
-  store?: any;
-  settings?: any;
+  store?: StoreData;
+  settings?: SectionSettings;
 }
 
 export default function ImageSection({

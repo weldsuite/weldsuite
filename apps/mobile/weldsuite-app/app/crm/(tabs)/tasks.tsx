@@ -8,7 +8,6 @@ import {
   TextInput,
   Modal,
   StatusBar,
-  FlatList,
   RefreshControl,
   ActivityIndicator,
 } from 'react-native';
@@ -16,21 +15,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import {
   Check,
-  Clock,
   Calendar,
-  User,
-  Search,
   Plus,
-  Filter,
-  CheckCircle2,
-  Circle,
-  Building2,
   X,
-  ChevronDown,
 } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface Task {
   id: string;
@@ -58,9 +49,9 @@ export default function TasksScreen() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [total, setTotal] = useState(0);
+  const [, setTotal] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showCompleted, setShowCompleted] = useState(true);
+  const [showCompleted, ] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
@@ -69,7 +60,6 @@ export default function TasksScreen() {
   const [newTaskDescription, setNewTaskDescription] = useState('');
   const [newTaskStatus, setNewTaskStatus] = useState<'todo' | 'in-progress' | 'blocked' | 'done'>('todo');
   const [newTaskDueDate, setNewTaskDueDate] = useState<Date | undefined>(undefined);
-  const [showDatePicker, setShowDatePicker] = useState(false);
 
   useEffect(() => {
     loadTasks();
@@ -192,7 +182,7 @@ export default function TasksScreen() {
 
     try {
       await api.updateCrmTask(taskId, { completed: !task.completed });
-    } catch (error) {
+    } catch {
       // Revert on error
       setTasks(tasks.map(t =>
         t.id === taskId ? { ...t, completed: task.completed } : t
@@ -427,8 +417,8 @@ export default function TasksScreen() {
   };
 
   // Stats
-  const totalTasks = tasks.filter(t => !t.completed).length;
-  const completedCount = tasks.filter(t => t.completed).length;
+  const _totalTasks = tasks.filter(t => !t.completed).length;
+  const _completedCount = tasks.filter(t => t.completed).length;
 
   if (loading && !refreshing) {
     return (

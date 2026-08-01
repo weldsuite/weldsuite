@@ -13,10 +13,6 @@ import {
   UIManager,
   Platform,
 } from 'react-native';
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import {
@@ -29,7 +25,6 @@ import {
   Archive,
   Mail,
   Clock,
-  Layers,
   Plus,
   ChevronDown,
   ChevronUp,
@@ -41,8 +36,11 @@ import { getLabelColor } from '@/utils/label-utils';
 import CreateLabelDialog from '@/components/CreateLabelDialog';
 import WeldMailLogo from '@/components/WeldMailLogo';
 
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
 const DRAWER_WIDTH = 340;
-const MINI_WIDTH = 68;
 
 export function getLabelIcon(slug: string, color: string, size: number = 22) {
   const icons: Record<string, React.ReactNode> = {
@@ -99,7 +97,7 @@ export default function LabelDrawer({ visible, onClose }: LabelDrawerProps) {
         }),
       ]).start();
     }
-  }, [visible]);
+  }, [visible, drawerAnim, overlayAnim]);
 
   const handleClose = useCallback(() => {
     Animated.parallel([
@@ -121,7 +119,7 @@ export default function LabelDrawer({ visible, onClose }: LabelDrawerProps) {
         pendingLabelRef.current = null;
       }
     });
-  }, [onClose, setSelectedLabel]);
+  }, [onClose, setSelectedLabel, drawerAnim, overlayAnim]);
 
   const handleSelectLabel = (slug: string) => {
     pendingLabelRef.current = slug;

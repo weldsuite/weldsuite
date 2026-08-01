@@ -2,7 +2,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
 import { Platform } from 'react-native';
-import api from './api';
+import { api } from './api';
 
 // Configure how notifications are displayed when app is in foreground
 // Suppress visual/sound alerts when the app is active; only update the badge
@@ -195,7 +195,7 @@ export async function getNotificationPreferences(accessToken: string, emailAccou
  */
 export async function updateNotificationPreferences(
   preferences: any,
-  accessToken: string
+  _accessToken: string
 ): Promise<boolean> {
   try {
     const response = await api.updateNotificationPreferences(preferences);
@@ -214,7 +214,7 @@ export async function updateNotificationPreferences(
 /**
  * Send test notification
  */
-export async function sendTestNotification(accessToken: string): Promise<boolean> {
+export async function sendTestNotification(_accessToken: string): Promise<boolean> {
   try {
     const response = await api.sendTestNotification();
 
@@ -247,7 +247,7 @@ export async function getNotificationHistory(accessToken: string, limit: number 
  */
 export async function markNotificationAsRead(
   notificationId: string,
-  accessToken: string
+  _accessToken: string
 ): Promise<boolean> {
   try {
     const response = await api.markNotificationAsRead(notificationId);

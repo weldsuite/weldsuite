@@ -69,7 +69,7 @@ export default function AppDrawer({ visible, onClose, currentApp, menuItems, act
     if (visible) {
       translateX.value = withSpring(0, SPRING_CONFIG);
     }
-  }, [visible]);
+  }, [visible, translateX]);
 
   const doClose = useCallback(() => {
     onClose();
@@ -130,7 +130,7 @@ export default function AppDrawer({ visible, onClose, currentApp, menuItems, act
     translateX.value = withSpring(-DRAWER_WIDTH, SPRING_CONFIG, (finished) => {
       if (finished) runOnJS(doClose)();
     });
-  }, [doClose]);
+  }, [doClose, translateX]);
 
   const apps = installedApps
     .filter(app => APP_CONFIG[app.appCode] && APPS_WITH_LOGOS.includes(app.appCode))

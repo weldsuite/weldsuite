@@ -28,7 +28,7 @@
 import { isApiError } from '@weldsuite/api-client/client';
 import type { ApiResponse, Workspace, WorkspaceWithMembership, InstalledApp } from '@weldsuite/mobile-ui/types';
 
-import appApi, { appApiClient, setAppApiTokenGetter, APP_API_URL } from './app-api';
+import { appApi, appApiClient, setAppApiTokenGetter, APP_API_URL } from './app-api';
 
 export const API_URL = APP_API_URL;
 

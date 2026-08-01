@@ -21,7 +21,7 @@ import {
   BarChart3,
   ClipboardList,
 } from 'lucide-react-native';
-import api, { WmsAnalytics } from '@/services/api';
+import { api, WmsAnalytics } from '@/services/api';
 
 export default function WmsAnalyticsScreen() {
   const { colors } = useTheme();
@@ -89,7 +89,7 @@ export default function WmsAnalyticsScreen() {
   }
 
   const maxOrders = Math.max(...analytics.dailyOrders.map(d => d.orders), 1);
-  const totalHealth =
+  const _totalHealth =
     analytics.inventory.health.healthy +
     analytics.inventory.health.adequate +
     analytics.inventory.health.low +

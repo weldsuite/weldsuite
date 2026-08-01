@@ -1,11 +1,11 @@
-import { Tabs } from "expo-router";
+import { Tabs , router } from "expo-router";
 import React, { useState, useEffect, useRef } from "react";
-import { Home, Package, Truck, ChevronLeft, BarChart, Search, History, Bell } from 'lucide-react-native';
+import { Home, Package, Truck, ChevronLeft, Search, Bell } from 'lucide-react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TouchableOpacity, Text, View, Modal, StyleSheet, TextInput, ScrollView, KeyboardAvoidingView, Platform, Animated, Easing, Keyboard, LayoutAnimation, UIManager, Dimensions, TouchableWithoutFeedback, Alert } from 'react-native';
-import { router } from 'expo-router';
+
 import WeldAgentLogo from '@/components/WeldAgentLogo';
 import ParcelSidebar from '@/components/ParcelSidebar';
 
@@ -13,7 +13,7 @@ import ParcelSidebar from '@/components/ParcelSidebar';
 if (
   Platform.OS === 'android' &&
   UIManager.setLayoutAnimationEnabledExperimental &&
-  !(global as any).__turboModuleProxy
+  !(global as any)._turboModuleProxy
 ) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
@@ -23,11 +23,10 @@ export default function ParcelTabsLayout() {
   const insets = useSafeAreaInsets();
   const [agentModalVisible, setAgentModalVisible] = useState(false);
   const [message, setMessage] = useState('');
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [, setIsKeyboardVisible] = useState(false);
   const slideAnim = useRef(new Animated.Value(1000)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
-  const keyboardHeight = useRef(new Animated.Value(0)).current;
 
   // Detect iPad - only check window width and ensure it's not being run on web
   const { width } = Dimensions.get('window');
@@ -133,7 +132,7 @@ export default function ParcelTabsLayout() {
         scaleAnim.setValue(1);
       });
     }
-  }, [agentModalVisible]);
+  }, [agentModalVisible, fadeAnim, scaleAnim, slideAnim]);
 
   const HeaderLeft = () => (
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -177,7 +176,7 @@ export default function ParcelTabsLayout() {
   if (isTablet) {
     const HeaderCenterTablet = () => {
       const [searchText, setSearchText] = useState('');
-      const [isFocused, setIsFocused] = useState(false);
+      const [, setIsFocused] = useState(false);
       const searchInputRef = useRef<TextInput>(null);
       
       return (
@@ -539,7 +538,7 @@ export default function ParcelTabsLayout() {
         name="index"
         options={{
           title: "Dashboard",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Home size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -549,7 +548,7 @@ export default function ParcelTabsLayout() {
         name="scan"
         options={{
           title: "Scan",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Ionicons name="scan" size={20} color={color} />
           ),
         }}
@@ -559,7 +558,7 @@ export default function ParcelTabsLayout() {
         name="parcels"
         options={{
           title: "Parcels",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Package size={20} color={color} strokeWidth={2} />
           ),
         }}

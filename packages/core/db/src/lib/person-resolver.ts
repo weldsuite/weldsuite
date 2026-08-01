@@ -15,7 +15,7 @@
  * flag in the return value.
  */
 
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, isNull, sql } from 'drizzle-orm';
 import * as schema from '../schema';
 import type { IdGenerator } from './mail-contacts';
 

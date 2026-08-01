@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface Transaction {
   id: string;
@@ -48,7 +48,7 @@ export default function BankTransactionsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'withdrawal' | 'deposit'>('all');
 
-  const getBankLogo = (bankName: string) => {
+  const _getBankLogo = (bankName: string) => {
     const logoStyle = { width: 48, height: 48, borderRadius: 8 };
     const iconColor = colors.background;
     

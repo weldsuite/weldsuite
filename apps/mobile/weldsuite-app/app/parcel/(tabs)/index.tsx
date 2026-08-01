@@ -11,8 +11,8 @@ import {
 } from 'react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { router } from 'expo-router';
-import { Package, Truck, Clock, CheckCircle, AlertCircle, TrendingUp, ArrowRight, BarChart3 } from 'lucide-react-native';
-import api from '@/services/api';
+import { Truck, Clock, CheckCircle, TrendingUp, ArrowRight, BarChart3 } from 'lucide-react-native';
+import { api } from '@/services/api';
 import { useToast } from '@/contexts/ToastContext';
 
 interface DashboardStats {

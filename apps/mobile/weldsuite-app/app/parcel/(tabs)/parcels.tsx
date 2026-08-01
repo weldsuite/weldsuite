@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   FlatList,
@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface Parcel {
   id: string;
@@ -190,7 +190,7 @@ export default function ParcelsScreen() {
     router.push(`/parcel/${parcel.id}` as any);
   };
 
-  const handleUpdateParcelStatus = (parcel: Parcel) => {
+  const _handleUpdateParcelStatus = (parcel: Parcel) => {
     setSelectedParcel(parcel);
     setStatusUpdateModalVisible(true);
   };

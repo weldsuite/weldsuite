@@ -19,15 +19,12 @@ import {
   X,
   ChevronDown,
   Star,
-  Inbox,
   Send,
   FileText,
   Clock,
   Mail,
   Archive,
   Trash2,
-  AlertTriangle,
-  Tag,
   User,
   Users,
   Paperclip,
@@ -211,7 +208,7 @@ export default function MailSearchScreen() {
     closeFilterModal();
   };
 
-  const clearFilter = (filter: string) => {
+  const _clearFilter = (filter: string) => {
     setActiveFilters(prev => {
       const newFilters = { ...prev };
       delete newFilters[filter];

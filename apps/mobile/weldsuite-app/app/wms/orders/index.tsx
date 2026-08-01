@@ -12,17 +12,15 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useWms } from '@/contexts/WmsContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import type { WmsOrderDto, OrderStatus, OrderPriority } from '@/types/wms';
 import {
   getOrderStatusColor,
   getPriorityColor,
-  formatDate,
   formatRelativeTime,
   formatMoney,
 } from '@/utils/wms-helpers';
-import { ChevronLeft, Search, Filter, ShoppingCart, AlertCircle } from 'lucide-react-native';
+import { ChevronLeft, Search, ShoppingCart, AlertCircle } from 'lucide-react-native';
 
 const ORDER_STATUS_OPTIONS: { key: OrderStatus | 'all'; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -45,7 +43,6 @@ const PRIORITY_OPTIONS: { key: OrderPriority | 'all'; label: string }[] = [
 export default function OrdersListScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { } = useWms();
 
   const [orders, setOrders] = useState<WmsOrderDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,7 +50,7 @@ export default function OrdersListScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus | 'all'>('all');
   const [selectedPriority, setSelectedPriority] = useState<OrderPriority | 'all'>('all');
-  const [totalOrders, setTotalOrders] = useState(0);
+  const [, setTotalOrders] = useState(0);
 
   useEffect(() => {
     loadOrders();

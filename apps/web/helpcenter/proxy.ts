@@ -3,10 +3,10 @@ import type { NextRequest } from 'next/server';
 
 export function proxy(request: NextRequest) {
   const hostname = request.headers.get('host') || '';
-  const url = request.nextUrl.clone();
+  const _url = request.nextUrl.clone();
 
   // Strip port for local dev
-  let currentHost = hostname.replace(':3008', '');
+  const currentHost = hostname.replace(':3008', '');
 
   const isLocalhost = currentHost.includes('localhost');
   const isWelddesk = currentHost.includes('welddesk.org');

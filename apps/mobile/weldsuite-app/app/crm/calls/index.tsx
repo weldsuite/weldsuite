@@ -17,15 +17,12 @@ import {
   Phone,
   Clock,
   Calendar,
-  User,
-  Search,
   Plus,
   PhoneOutgoing,
   PhoneIncoming,
   PhoneMissed,
   PhoneOff,
   X,
-  Building2,
   Mic,
   MicOff,
   Volume2,
@@ -35,7 +32,6 @@ import {
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useVoipSafe } from '@/contexts/VoipContext';
-import api from '@/services/api';
 
 interface Call {
   id: string;
@@ -84,7 +80,7 @@ export default function CallsScreen() {
       setLoading(true);
       // Call intelligence API not yet available on mobile — use VoIP calls if available
       setCalls([]);
-    } catch (error) {
+    } catch {
       // Fail silently — API not yet implemented
     } finally {
       setLoading(false);

@@ -14,8 +14,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import { ChevronLeft, Calendar } from 'lucide-react-native';
-import api from '@/services/api';
+import { ChevronLeft } from 'lucide-react-native';
+import { api } from '@/services/api';
 
 const PRIORITY_OPTIONS = [
   { value: 'low', label: 'Low', color: '#10B981' },

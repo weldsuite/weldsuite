@@ -67,7 +67,7 @@ export type ZonesFetch = NonNullable<ClientOptions['fetch']>;
 let testFetch: ZonesFetch | undefined;
 
 /** @internal Test-only. Pass `undefined` to restore the real transport. */
-export function __setZonesFetchForTests(fetch: ZonesFetch | undefined): void {
+export function _setZonesFetchForTests(fetch: ZonesFetch | undefined): void {
   testFetch = fetch;
 }
 

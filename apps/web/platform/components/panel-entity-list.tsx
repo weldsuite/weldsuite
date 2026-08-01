@@ -101,7 +101,7 @@ export function PanelEntityList<T extends { id: string }>({
   // the custom rows below, including the trailing menu gutter.
   const headerColumns: HeaderColumn[] = [
     ...columns.map((c) => ({ id: c.id, header: c.header, width: c.width, className: c.headerClassName })),
-    ...(hasRowMenu ? [{ id: '__actions', header: '', width: 'w-[40px]' }] : []),
+    ...(hasRowMenu ? [{ id: '_actions', header: '', width: 'w-[40px]' }] : []),
   ];
 
   const renderRow = (item: T) => (

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 
 export interface GalleryCarouselBlockProps {
@@ -49,7 +49,7 @@ export function GalleryCarouselBlock({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  const startAutoplay = () => {
+  const startAutoplay = useCallback(() => {
     if (!autoplay || images.length === 0) return;
 
     if (intervalRef.current) {
@@ -69,7 +69,7 @@ export function GalleryCarouselBlock({
         return next;
       });
     }, autoplayDelay);
-  };
+  }, [autoplay, autoplayDelay, images.length]);
 
   useEffect(() => {
     setIsLoaded(true);
@@ -83,7 +83,7 @@ export function GalleryCarouselBlock({
         clearInterval(intervalRef.current);
       }
     };
-  }, [autoplay, autoplayDelay, images.length]);
+  }, [startAutoplay]);
 
   const scrollTo = (direction: 'prev' | 'next') => {
     if (!scrollRef.current) return;

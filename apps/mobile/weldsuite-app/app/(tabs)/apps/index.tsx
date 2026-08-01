@@ -12,7 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChevronRight, Plus } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useInstalledApps, InstalledApp } from '@/contexts/InstalledAppsContext';
+import { useInstalledApps } from '@/contexts/InstalledAppsContext';
 import { router } from 'expo-router';
 import { AppIcon, APPS_WITH_LOGOS } from '@/components/AppIcon';
 import { haptics } from '@/utils/haptics';
@@ -75,7 +75,7 @@ export default function AppsScreen() {
   }, [installedApps]);
 
   // Group apps by category
-  const appSections = useMemo(() => {
+  const _appSections = useMemo(() => {
     const categoryMap = new Map<string, AppItem[]>();
 
     appItems.forEach(app => {

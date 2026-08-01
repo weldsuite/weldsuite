@@ -1,25 +1,25 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { getEnv, getAllEnv } from './env';
 
-// `Window.__ENV` is already declared globally by `./env` (imported above);
+// `Window._ENV` is already declared globally by `./env` (imported above);
 // redeclaring it here with a looser type conflicts with that declaration.
 
 describe('getEnv', () => {
   beforeEach(() => {
-    delete window.__ENV;
+    delete window._ENV;
   });
 
   afterEach(() => {
-    delete window.__ENV;
+    delete window._ENV;
     vi.unstubAllEnvs();
   });
 
-  it('returns the value from window.__ENV when present (Docker runtime)', () => {
-    window.__ENV = { VITE_API_BASE_URL: 'https://runtime.example' };
+  it('returns the value from window._ENV when present (Docker runtime)', () => {
+    window._ENV = { VITE_API_BASE_URL: 'https://runtime.example' };
     expect(getEnv('VITE_API_BASE_URL')).toBe('https://runtime.example');
   });
 
-  it('falls back to import.meta.env when window.__ENV is absent', () => {
+  it('falls back to import.meta.env when window._ENV is absent', () => {
     vi.stubEnv('VITE_API_BASE_URL', 'https://meta.example');
     expect(getEnv('VITE_API_BASE_URL')).toBe('https://meta.example');
   });
@@ -28,25 +28,25 @@ describe('getEnv', () => {
     expect(getEnv('VITE_BETTERSTACK_SOURCE_TOKEN')).toBe('');
   });
 
-  it('window.__ENV takes precedence over import.meta.env', () => {
+  it('window._ENV takes precedence over import.meta.env', () => {
     vi.stubEnv('VITE_API_BASE_URL', 'https://meta.example');
-    window.__ENV = { VITE_API_BASE_URL: 'https://runtime.example' };
+    window._ENV = { VITE_API_BASE_URL: 'https://runtime.example' };
     expect(getEnv('VITE_API_BASE_URL')).toBe('https://runtime.example');
   });
 });
 
 describe('getAllEnv', () => {
   beforeEach(() => {
-    delete window.__ENV;
+    delete window._ENV;
   });
 
-  it('returns window.__ENV verbatim when present', () => {
+  it('returns window._ENV verbatim when present', () => {
     const fake = { VITE_API_BASE_URL: 'https://x', VITE_MIXPANEL_TOKEN: 'tok' };
-    window.__ENV = fake;
+    window._ENV = fake;
     expect(getAllEnv()).toEqual(fake);
   });
 
-  it('returns a snapshot from import.meta.env when window.__ENV is missing', () => {
+  it('returns a snapshot from import.meta.env when window._ENV is missing', () => {
     vi.stubEnv('VITE_API_BASE_URL', 'https://meta');
     const all = getAllEnv();
     expect(all.VITE_API_BASE_URL).toBe('https://meta');

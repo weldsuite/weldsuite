@@ -1,5 +1,7 @@
 "use client";
 
+import type { Product } from '../types';
+import { toPriceNumber } from '../lib/price';
 import React, { useState, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Minus, Plus } from 'lucide-react';
 
@@ -22,8 +24,8 @@ export interface ProductDetailGalleryBlockProps {
   textColor?: string;
   mode?: 'live' | 'preview' | 'edit';
   store?: {
-    products?: any[];
-    selectedProduct?: any;
+    products?: Product[];
+    selectedProduct?: Product;
   };
 }
 
@@ -45,9 +47,13 @@ export function ProductDetailGalleryBlock({
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const thumbnailRef = useRef<HTMLUListElement>(null);
 
-  // Use product images from store if available
-  const productImages = store?.selectedProduct?.images;
-  const displayImages = productImages && productImages.length > 0 ? productImages : (images || DEFAULT_IMAGES);
+  // Use product images from store if available. Store products carry either
+  // plain URL strings or image objects, so normalise to the object form here
+  // and let the rest of the gallery work with a single shape.
+  const productImages = (store?.selectedProduct?.images ?? []).map<ProductImage>((img) =>
+    typeof img === 'string' ? { src: img } : { ...img, src: img.src ?? img.url ?? '' },
+  );
+  const displayImages = productImages.length > 0 ? productImages : (images || DEFAULT_IMAGES);
 
   const handlePrevImage = () => {
     setCurrentImageIndex(currentImageIndex === 0 ? displayImages.length - 1 : currentImageIndex - 1);
@@ -271,8 +277,8 @@ export interface ProductDetailTitleBlockProps {
   fontWeight?: 'normal' | 'medium' | 'semibold' | 'bold';
   mode?: 'live' | 'preview' | 'edit';
   store?: {
-    products?: any[];
-    selectedProduct?: any;
+    products?: Product[];
+    selectedProduct?: Product;
   };
 }
 
@@ -317,8 +323,8 @@ export interface ProductDetailPriceBlockProps {
   textColor?: string;
   mode?: 'live' | 'preview' | 'edit';
   store?: {
-    products?: any[];
-    selectedProduct?: any;
+    products?: Product[];
+    selectedProduct?: Product;
   };
 }
 
@@ -329,7 +335,7 @@ export function ProductDetailPriceBlock({
   textColor = '#171717',
   store,
 }: ProductDetailPriceBlockProps) {
-  const displayPrice = store?.selectedProduct?.price || price;
+  const displayPrice = toPriceNumber(store?.selectedProduct?.price) || price;
   const displaySalePrice = store?.selectedProduct?.salePrice || salePrice;
   const displayCurrency = store?.selectedProduct?.currency || currency;
 
@@ -377,8 +383,8 @@ export interface ProductDetailVariantSelectorBlockProps {
   textColor?: string;
   mode?: 'live' | 'preview' | 'edit';
   store?: {
-    products?: any[];
-    selectedProduct?: any;
+    products?: Product[];
+    selectedProduct?: Product;
   };
 }
 
@@ -429,8 +435,8 @@ export interface ProductDetailQuantityBlockProps {
   textColor?: string;
   mode?: 'live' | 'preview' | 'edit';
   store?: {
-    products?: any[];
-    selectedProduct?: any;
+    products?: Product[];
+    selectedProduct?: Product;
   };
 }
 
@@ -482,8 +488,8 @@ export interface ProductDetailButtonsBlockProps {
   textColor?: string;
   mode?: 'live' | 'preview' | 'edit';
   store?: {
-    products?: any[];
-    selectedProduct?: any;
+    products?: Product[];
+    selectedProduct?: Product;
   };
 }
 
@@ -527,8 +533,8 @@ export interface ProductDetailDescriptionBlockProps {
   textColor?: string;
   mode?: 'live' | 'preview' | 'edit';
   store?: {
-    products?: any[];
-    selectedProduct?: any;
+    products?: Product[];
+    selectedProduct?: Product;
   };
 }
 
@@ -562,8 +568,8 @@ export interface ProductDetailAccordionBlockProps {
   borderColor?: string;
   mode?: 'live' | 'preview' | 'edit';
   store?: {
-    products?: any[];
-    selectedProduct?: any;
+    products?: Product[];
+    selectedProduct?: Product;
   };
 }
 
@@ -581,7 +587,9 @@ export function ProductDetailAccordionBlock({
   store,
 }: ProductDetailAccordionBlockProps) {
   const [openItem, setOpenItem] = useState<string | null>(null);
-  const displayItems = store?.selectedProduct?.info || items;
+  const displayItems: AccordionItem[] = store?.selectedProduct?.info
+    ? store.selectedProduct.info.map((row, i) => ({ id: String(i), title: row.title ?? '', content: row.content ?? '' }))
+    : items;
 
   const toggleItem = (id: string) => setOpenItem(prev => prev === id ? null : id);
 
@@ -617,7 +625,7 @@ export interface ProductDetailBlockProps {
   showAccordion?: boolean;
   mode?: 'live' | 'preview' | 'edit';
   store?: {
-    products?: any[];
+    products?: Product[];
   };
   children?: React.ReactNode;
 }

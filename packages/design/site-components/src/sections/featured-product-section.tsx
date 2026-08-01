@@ -1,5 +1,8 @@
 "use client";
 
+import type { StoreData, Product, SectionSettings } from '../types';
+import { toPriceNumber } from '../lib/price';
+import { toImageUrls } from '../lib/product-images';
 import React, { useState } from 'react';
 import { ProductImageGalleryElement } from '../elements/product-image-gallery-element';
 import { ProductInfoHeaderElement } from '../elements/product-info-header-element';
@@ -14,7 +17,7 @@ import { ProductPolicyButtonsElement } from '../elements/product-policy-buttons-
 interface Block {
   id: string;
   type: string;
-  settings: Record<string, any>;
+  settings: SectionSettings;
   order: number;
   children?: Block[];
 }
@@ -34,8 +37,8 @@ interface FeaturedProductSectionProps {
   buttonColor?: string;
   paddingTop?: number;
   paddingBottom?: number;
-  store?: any;
-  product?: any;
+  store?: StoreData;
+  product?: Product;
   productId?: string;
   storeName?: string;
   images?: string[];
@@ -74,13 +77,14 @@ export function FeaturedProductSection({
   const [selectedSize, setSelectedSize] = useState('big (4.2 oz)');
 
   // Use product data if available
-  const selectedProduct = product || (productId && store?.products?.find((p: any) => p.id === productId));
+  const selectedProduct: Product | undefined =
+    product ?? (productId ? store?.products?.find((p: Product) => p.id === productId) : undefined);
 
   const productName = selectedProduct?.name || propProductName || 'glazing milk';
   const productDescription = selectedProduct?.description || propProductDescription || 'The essential prep step for your skincare routine. Glazing Milk is a potent, nutrient-rich complex with a milky texture that leaves skin feeling hydrated and glowy while boosting the skin barrier over time.';
-  const price = selectedProduct?.price || propPrice || 32.00;
+  const price = toPriceNumber(selectedProduct?.price) || propPrice || 32.00;
   const compareAtPrice = selectedProduct?.compareAtPrice || propCompareAtPrice;
-  const storeName = selectedProduct?.storeName || propStoreName || 'rhode';
+  const storeName = propStoreName || 'rhode';
   const rating = selectedProduct?.rating || propRating || 4.8;
   const reviewCount = selectedProduct?.reviews || propReviews || 14600;
 
@@ -91,7 +95,7 @@ export function FeaturedProductSection({
     'https://images.unsplash.com/photo-1556228578-0d85b1a4d571?w=800&h=800&fit=crop',
   ];
 
-  const finalImages = selectedProduct?.images || propImages || defaultImages;
+  const finalImages = selectedProduct?.images ? toImageUrls(selectedProduct.images) : (propImages || defaultImages);
 
   // Helper to render block with selection UI
   const renderBlock = (blockId: string, blockType: string, children: React.ReactNode) => {

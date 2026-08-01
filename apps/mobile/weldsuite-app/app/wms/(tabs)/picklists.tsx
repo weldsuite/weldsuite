@@ -12,8 +12,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
-import { useWms } from '@/contexts/WmsContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import type { PickListDto, PickListStatus } from '@/types/wms';
 import {
   getPickListStatusColor,
@@ -36,7 +35,6 @@ const STATUS_OPTIONS: { key: PickListStatus | 'all'; label: string }[] = [
 export default function PickListsTabScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { } = useWms();
 
   const [pickLists, setPickLists] = useState<PickListDto[]>([]);
   const [loading, setLoading] = useState(true);

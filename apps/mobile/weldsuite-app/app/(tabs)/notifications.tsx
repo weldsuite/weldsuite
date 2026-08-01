@@ -21,11 +21,10 @@ import {
   Shield,
   Info,
   Bell,
-  Trash2,
 } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import { haptics } from '@/utils/haptics';
 
 interface NotificationItem {
@@ -237,7 +236,7 @@ export default function NotificationsScreen() {
     }
   };
 
-  const handleDelete = async (notificationId: string) => {
+  const _handleDelete = async (notificationId: string) => {
     haptics.medium();
     try {
       await api.deleteNotification(notificationId);

@@ -46,7 +46,7 @@ export default function ScanScreen() {
       if (photo?.uri) {
         processImage(photo.uri);
       }
-    } catch (err) {
+    } catch {
       Alert.alert('Error', 'Failed to capture photo');
     }
   }, [processImage]);

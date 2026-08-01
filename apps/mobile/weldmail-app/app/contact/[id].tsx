@@ -26,7 +26,6 @@ import {
   Globe,
   Type,
   Users,
-  Tag,
   MapPin,
 } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';

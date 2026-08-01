@@ -1,11 +1,9 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Stack } from 'expo-router';
-import { useTheme } from '@/contexts/ThemeContext';
 import MiniSidebar, { useShouldShowMiniSidebar } from '@/components/layout/MiniSidebar';
 
 export default function AccountingLayout() {
-  const { colors } = useTheme();
   const showMiniSidebar = useShouldShowMiniSidebar();
 
   if (showMiniSidebar) {

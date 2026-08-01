@@ -69,7 +69,7 @@ export function preloadNamespace<NS extends NamespaceName>(locale: Language, ns:
  * Reset the namespace cache. Test-only — production code should never call
  * this since cache invalidation across React trees is fiddly.
  */
-export function __clearNamespaceCache(): void {
+export function _clearNamespaceCache(): void {
   cache.clear();
 }
 

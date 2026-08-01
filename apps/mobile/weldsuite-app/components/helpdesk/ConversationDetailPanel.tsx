@@ -20,7 +20,7 @@ import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useUser } from '@clerk/expo';
-import api, { ConversationDetail, ConversationMessage as ApiConversationMessage, getApiErrorMessage } from '@/services/api';
+import { api, ConversationDetail, getApiErrorMessage } from '@/services/api';
 import { useHelpdeskRealtime } from '@/hooks/useHelpdeskRealtime';
 import { TypingIndicator } from './TypingIndicator';
 import { ChatSkeleton } from './Skeleton';
@@ -64,7 +64,7 @@ export default function ConversationDetailPanel({
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [showActionSheet, setShowActionSheet] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
-  const [agents, setAgents] = useState<Array<{ id: string; userId: string; name: string; email: string; role: string; availability: string }>>([]);
+  const [agents, setAgents] = useState<{ id: string; userId: string; name: string; email: string; role: string; availability: string }[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [closing, setClosing] = useState(false);
   const flatListRef = useRef<FlatList>(null);
@@ -306,7 +306,7 @@ export default function ConversationDetailPanel({
     const prevMessage = index > 0 ? messages[index - 1] : null;
     const nextMessage = index < messages.length - 1 ? messages[index + 1] : null;
 
-    const isGroupedWithPrev = prevMessage &&
+    const _isGroupedWithPrev = prevMessage &&
       prevMessage.sender === item.sender &&
       (new Date(item.timestamp).getTime() - new Date(prevMessage.timestamp).getTime()) < 5 * 60 * 1000;
 
@@ -428,7 +428,7 @@ export default function ConversationDetailPanel({
                   toast.error(getApiErrorMessage(response.error, 'Failed to close conversation'));
                   setClosing(false);
                 }
-              } catch (error) {
+              } catch {
                 toast.error('Failed to close conversation');
                 setClosing(false);
               }
@@ -558,7 +558,7 @@ export default function ConversationDetailPanel({
                   } else {
                     toast.error(getApiErrorMessage(response.error, 'Failed to snooze'));
                   }
-                } catch (error) {
+                } catch {
                   toast.error('Failed to snooze conversation');
                 }
               }}
@@ -582,7 +582,7 @@ export default function ConversationDetailPanel({
                   } else {
                     toast.error(getApiErrorMessage(response.error, 'Failed to update star'));
                   }
-                } catch (error) {
+                } catch {
                   toast.error('Failed to update star');
                 }
               }}
@@ -623,7 +623,7 @@ export default function ConversationDetailPanel({
                   } else {
                     toast.error(getApiErrorMessage(response.error, 'Failed to archive'));
                   }
-                } catch (error) {
+                } catch {
                   toast.error('Failed to archive conversation');
                 }
               }}
@@ -664,7 +664,7 @@ export default function ConversationDetailPanel({
                           } else {
                             toast.error(getApiErrorMessage(response.error, 'Failed to delete'));
                           }
-                        } catch (error) {
+                        } catch {
                           toast.error('Failed to delete conversation');
                         }
                       },

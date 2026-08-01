@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData } from '../types';
 import React from 'react';
 import { NavbarMinimalSection } from '../sections/navbar-minimal-section';
 
@@ -26,7 +27,7 @@ export interface NavbarMinimalBlockProps {
   showBorder?: boolean;
   borderColor?: string;
   minimalStyle?: boolean;
-  store?: any;
+  store?: StoreData;
   mode?: string;
 }
 

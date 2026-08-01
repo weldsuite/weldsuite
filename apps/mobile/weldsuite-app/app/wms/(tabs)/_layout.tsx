@@ -1,11 +1,11 @@
-import { Tabs } from "expo-router";
+import { Tabs , router } from "expo-router";
 import React, { useState, useEffect, useRef } from "react";
 import { Home, Package, ListChecks, Layers3, ChevronLeft } from 'lucide-react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TouchableOpacity, Text, View, Modal, StyleSheet, TextInput, ScrollView, KeyboardAvoidingView, Platform, Animated, Easing, Alert } from 'react-native';
-import { router } from 'expo-router';
+
 import WeldAgentLogo from '@/components/WeldAgentLogo';
 
 export default function WmsTabsLayout() {
@@ -67,7 +67,7 @@ export default function WmsTabsLayout() {
         scaleAnim.setValue(1);
       });
     }
-  }, [agentModalVisible]);
+  }, [agentModalVisible, fadeAnim, scaleAnim, slideAnim]);
 
   const HeaderLeft = () => (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -147,7 +147,7 @@ export default function WmsTabsLayout() {
         name="index"
         options={{
           title: "Dashboard",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Home size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -157,7 +157,7 @@ export default function WmsTabsLayout() {
         name="inventory"
         options={{
           title: "Products",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Package size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -167,7 +167,7 @@ export default function WmsTabsLayout() {
         name="picklists"
         options={{
           title: "Picklists",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <ListChecks size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -177,7 +177,7 @@ export default function WmsTabsLayout() {
         name="analytics"
         options={{
           title: "Batches",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Layers3 size={20} color={color} strokeWidth={2} />
           ),
         }}

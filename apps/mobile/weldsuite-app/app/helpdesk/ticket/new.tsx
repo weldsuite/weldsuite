@@ -15,7 +15,7 @@ import { router } from 'expo-router';
 import { ChevronLeft, ChevronDown } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 const PRIORITY_OPTIONS = [
   { value: 'low', label: 'Low', color: '#10B981' },

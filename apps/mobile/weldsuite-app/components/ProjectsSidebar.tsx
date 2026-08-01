@@ -15,10 +15,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Inbox, CheckSquare, Grid3x3, Users, FolderKanban, Plus, Settings, ChevronRight, X, PanelLeftClose
 } from 'lucide-react-native';
-import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { router, usePathname } from 'expo-router';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface SidebarItem {
   id: string;
@@ -78,7 +77,6 @@ interface ProjectsSidebarProps {
 }
 
 export default function ProjectsSidebar({ onCollapse }: ProjectsSidebarProps) {
-  const { colors } = useTheme();
   const toast = useToast();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();

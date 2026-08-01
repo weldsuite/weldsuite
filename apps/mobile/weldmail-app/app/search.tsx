@@ -12,14 +12,14 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
-  ChevronLeft, X, ChevronDown, Star, Inbox, SendHorizontal, File, Clock,
-  Mail, Archive, Trash2, AlertCircle, Tag, User, Users, Paperclip,
+  ChevronLeft, X, ChevronDown, Star,SendHorizontal, File, Clock,
+  Mail, Archive, Trash2, AlertCircle,User, Users, Paperclip,
   Calendar, CheckCircle, Circle,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { formatEmailTime } from '@weldsuite/mobile-ui/utils/dateFormatter';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 import { getAvatarColor } from '@/contexts/MailContext';
 import type { EmailListItem } from '@/types/mail';
 

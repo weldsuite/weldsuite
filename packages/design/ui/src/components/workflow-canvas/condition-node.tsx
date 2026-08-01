@@ -6,7 +6,7 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { GitBranch, CheckCircle2, X, Plus, ArrowUpRight, XCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { SetupRequiredBadge } from './action-node';
-import type { ConditionNodeData, ConditionBranchNodeData } from './flow-utils';
+import type { ConditionNodeData, ConditionBranchNodeData, ConditionStepConfig } from './flow-utils';
 
 // Static operator symbols (language-neutral)
 const OPERATOR_SYMBOLS: Record<string, string> = {
@@ -26,15 +26,16 @@ interface ConditionNodeLabels {
   branchLabels?: Record<string, string>;
 }
 
-function getConditionSummary(config: Record<string, any>, operatorLabels: Record<string, string>): string | null {
+function getConditionSummary(config: ConditionStepConfig, operatorLabels: Record<string, string>): string | null {
   const field = config?.field;
   if (!field) return null;
-  const op = OPERATOR_SYMBOLS[config.operator] ?? operatorLabels[config.operator] ?? config.operator ?? '=';
+  const operator = config.operator ?? '';
+  const op = OPERATOR_SYMBOLS[operator] ?? operatorLabels[operator] ?? operator ?? '=';
   const value = config.value;
   const shortField = field
     .replace(/\{\{steps\.[^.]+\./, '{{agent.')
     .replace(/\{\{trigger\.data\./, '{{');
-  if (['isEmpty', 'isNotEmpty'].includes(config.operator)) {
+  if (['isEmpty', 'isNotEmpty'].includes(config.operator ?? '')) {
     return `${shortField} ${op}`;
   }
   return `${shortField} ${op} ${value || '?'}`;
@@ -45,7 +46,7 @@ function ConditionNodeComponent({ data, selected }: NodeProps) {
   const labels = nodeData.labels || {};
   const operatorLabels = (labels.operators || {}) as Record<string, string>;
 
-  const config = (nodeData.step?.config || {}) as Record<string, any>;
+  const config = (nodeData.step?.config || {}) as ConditionStepConfig;
   const hasMultiBranch = config.branches && Array.isArray(config.branches);
   const summary = getConditionSummary(config, operatorLabels);
   const conditionLabel = labels.label || 'Condition';

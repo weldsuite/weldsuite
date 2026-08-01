@@ -1,12 +1,9 @@
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   StyleSheet,
   View,
   Text,
-  TouchableOpacity,
-  ScrollView,
-  RefreshControl,
-  ActivityIndicator,
+  TouchableOpacity,  ActivityIndicator,
   Modal,
   TextInput,
   Alert,
@@ -14,7 +11,6 @@ import {
   Platform,
   KeyboardAvoidingView,
   Pressable,
-  Keyboard,
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { api } from '@/services/api';
@@ -27,28 +23,13 @@ import {
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  withSpring,
   runOnJS,
 } from 'react-native-reanimated';
 import {
-  Target,
   Plus,
-  Edit3,
-  Trash2,
   X,
-  ChevronDown,
   MessageSquare,
   Save,
-  ZoomIn,
-  ZoomOut,
-  MoreHorizontal,
-  AtSign,
-  Image,
-  Paperclip,
-  Settings,
-  Check,
-  ChevronUp,
-  ArrowUp,
 } from 'lucide-react-native';
 import { DetailPanel, DetailPanelSubItem } from '@/components/projects/DetailPanel';
 
@@ -113,15 +94,14 @@ const MISSION_CARD_HEIGHT = 100;
 
 export default function ProjectGoalsScreen() {
   const { projectId } = useLocalSearchParams<{ projectId: string }>();
-  const { width, height } = useWindowDimensions();
-  const scrollViewRef = useRef<ScrollView>(null);
+  const { width } = useWindowDimensions();
 
   // State
   const [goalsData, setGoalsData] = useState<ProjectGoalsData>({ goals: [] });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [zoom, setZoom] = useState(100);
+  const [, setZoom] = useState(100);
 
   // Gesture values for pinch-to-zoom
   const scale = useSharedValue(1);
@@ -193,7 +173,7 @@ export default function ProjectGoalsScreen() {
   }));
 
   // Button zoom controls
-  const handleZoomIn = () => {
+  const _handleZoomIn = () => {
     const newScale = Math.min(scale.value + 0.1, 2);
     scale.value = newScale;
     savedScale.value = newScale;
@@ -201,7 +181,7 @@ export default function ProjectGoalsScreen() {
     setZoom(Math.round(newScale * 100));
   };
 
-  const handleZoomOut = () => {
+  const _handleZoomOut = () => {
     const newScale = Math.max(scale.value - 0.1, 0.5);
     scale.value = newScale;
     savedScale.value = newScale;
@@ -209,7 +189,7 @@ export default function ProjectGoalsScreen() {
     setZoom(Math.round(newScale * 100));
   };
 
-  const handleResetZoom = () => {
+  const _handleResetZoom = () => {
     scale.value = 1;
     savedScale.value = 1;
     lastScale.value = 1;
@@ -264,7 +244,7 @@ export default function ProjectGoalsScreen() {
     loadGoals();
   }, [loadGoals]);
 
-  const onRefresh = useCallback(() => {
+  const _onRefresh = useCallback(() => {
     setRefreshing(true);
     loadGoals();
   }, [loadGoals]);
@@ -349,7 +329,7 @@ export default function ProjectGoalsScreen() {
     setShowGoalModal(true);
   };
 
-  const handleEditGoal = (goal: Goal) => {
+  const _handleEditGoal = (goal: Goal) => {
     setEditingGoal(goal);
     setParentGoalId(goal.parentId || null);
     setGoalTitle(goal.title);
@@ -397,7 +377,7 @@ export default function ProjectGoalsScreen() {
         setGoalsData(prev => ({ ...prev, goals: updatedGoals }));
         setShowGoalModal(false);
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to save goal');
     } finally {
       setSaving(false);
@@ -427,7 +407,7 @@ export default function ProjectGoalsScreen() {
         setShowDeleteConfirm(false);
         setDeletingGoal(null);
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to delete goal');
     }
   };
@@ -447,7 +427,7 @@ export default function ProjectGoalsScreen() {
         }));
         setShowMissionModal(false);
       }
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to save mission');
     } finally {
       setSaving(false);

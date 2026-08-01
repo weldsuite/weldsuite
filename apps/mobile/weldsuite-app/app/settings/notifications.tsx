@@ -28,13 +28,14 @@ import {
 } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api, {
+import {
+  api,
   NotificationPreferences,
   ModuleChannelPreferences,
 } from '@/services/api';
 
 // Module definitions matching platform app
-const NOTIFICATION_MODULES: Array<{ key: string; label: string; icon: LucideIcon }> = [
+const NOTIFICATION_MODULES: { key: string; label: string; icon: LucideIcon }[] = [
   { key: 'helpdesk', label: 'Helpdesk', icon: Headphones },
   { key: 'crm', label: 'CRM', icon: Users },
   { key: 'wms', label: 'Warehouse', icon: Warehouse },
@@ -106,7 +107,7 @@ export default function NotificationPreferencesScreen() {
         setPreferences((prev) => ({ ...prev, [key]: previousValue }));
         toast.error(response.error || 'Failed to update setting');
       }
-    } catch (error) {
+    } catch {
       setPreferences((prev) => ({ ...prev, [key]: previousValue }));
       toast.error('Failed to update setting');
     } finally {
@@ -126,7 +127,7 @@ export default function NotificationPreferencesScreen() {
         setPreferences((prev) => ({ ...prev, [fullKey]: previousValue }));
         toast.error(response.error || 'Failed to update setting');
       }
-    } catch (error) {
+    } catch {
       setPreferences((prev) => ({ ...prev, [fullKey]: previousValue }));
       toast.error('Failed to update setting');
     } finally {
@@ -165,7 +166,7 @@ export default function NotificationPreferencesScreen() {
         }));
         toast.error(response.error || 'Failed to update module preferences');
       }
-    } catch (error) {
+    } catch {
       setPreferences((prev) => ({
         ...prev,
         modulePreferences: {

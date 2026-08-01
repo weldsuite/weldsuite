@@ -1,79 +1,23 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
 import {
   Settings,
-  Users,
-  Building2,
-  Lock,
-  Key,
   Database,
-  Server,
-  Globe,
   Shield,
-  AlertCircle,
-  CreditCard,
-  TrendingUp,
-  FileText,
   Bell,
-  UserCheck,
-  HelpCircle,
-  Home,
-  Search,
   Palette,
-  Languages,
-  FileDown,
-  Trash2,
   Moon,
   Sun,
   Monitor,
-  Check,
-  ChevronRight,
-  Volume2,
-  VolumeX,
-  Mail,
-  Smartphone,
-  Wifi,
-  WifiOff,
   Eye,
-  EyeOff,
-  Download,
-  Upload,
-  RefreshCw,
   Save,
-  X,
-  Laptop,
-  Cloud,
   Zap,
-  Activity,
-  Archive,
-  BarChart3,
-  Calendar,
-  Clock,
-  Cpu,
-  HardDrive,
   Headphones,
   Info,
-  Layers,
   Link,
-  LogOut,
   MessageSquare,
-  Mic,
-  Package,
-  Paperclip,
-  Play,
-  Power,
-  Printer,
-  Radio,
-  Rss,
-  Share2,
-  Sliders,
-  Tag,
   Terminal,
-  Trash,
-  User,
-  Video,
   Webhook,
   Wrench,
 } from "lucide-react"
@@ -92,8 +36,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./car
 import { Separator } from "./separator"
 import { ScrollArea } from "./scroll-area"
 import { RadioGroup, RadioGroupItem } from "./radio-group"
-import { Checkbox } from "./checkbox"
-import { cn } from "../lib/utils"
 import { toast } from "sonner"
 
 interface SettingsCommandProps {
@@ -102,9 +44,12 @@ interface SettingsCommandProps {
 }
 
 // Settings state management
+/** The three theme options the appearance settings expose. */
+type ThemeSetting = "light" | "dark" | "system";
+
 const useSettingsState = () => {
   // Load initial state from localStorage
-  const loadSetting = (key: string, defaultValue: any) => {
+  const loadSetting = <T,>(key: string, defaultValue: T): T => {
     if (typeof window === 'undefined') return defaultValue
     const stored = localStorage.getItem(key)
     if (stored) {
@@ -255,7 +200,7 @@ const useSettingsState = () => {
   )
 
   // Save settings to localStorage
-  const saveSetting = (key: string, value: any) => {
+  const saveSetting = (key: string, value: unknown) => {
     if (typeof window !== 'undefined') {
       localStorage.setItem(key, JSON.stringify(value))
     }
@@ -297,7 +242,6 @@ export function SettingsCommand({
   open = false,
   onOpenChange,
 }: SettingsCommandProps) {
-  const router = useRouter()
   const [activeTab, setActiveTab] = React.useState("appearance")
   const [hasChanges, setHasChanges] = React.useState(false)
   const state = useSettingsState()
@@ -393,7 +337,7 @@ export function SettingsCommand({
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="theme">Color Theme</Label>
-                    <RadioGroup value={state.theme} onValueChange={(v: any) => { state.setTheme(v); setHasChanges(true) }}>
+                    <RadioGroup value={state.theme} onValueChange={(v) => { state.setTheme(v as ThemeSetting); setHasChanges(true) }}>
                       <div className="flex items-center space-x-2">
                         <RadioGroupItem value="light" id="light" />
                         <Label htmlFor="light" className="flex items-center gap-2">
@@ -483,7 +427,7 @@ export function SettingsCommand({
                     <Label htmlFor="fontSize">Font Size: {state.fontSize}%</Label>
                     <Slider 
                       value={[state.fontSize]} 
-                      onValueChange={(v) => { state.setFontSize(v[0]); setHasChanges(true) }}
+                      onValueChange={(v) => { state.setFontSize(v[0] ?? state.fontSize); setHasChanges(true) }}
                       min={80} 
                       max={120} 
                       step={5}
@@ -770,7 +714,7 @@ export function SettingsCommand({
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
                       <Label htmlFor="activity">Activity Status</Label>
-                      <p className="text-sm text-muted-foreground">Show when you're online</p>
+                      <p className="text-sm text-muted-foreground">Show when you&apos;re online</p>
                     </div>
                     <Switch
                       id="activity"
@@ -873,7 +817,7 @@ export function SettingsCommand({
                       id="timeout"
                       value={[state.security.sessionTimeout]}
                       onValueChange={(v) => {
-                        state.setSecurity({ ...state.security, sessionTimeout: v[0] })
+                        state.setSecurity({ ...state.security, sessionTimeout: v[0] ?? state.security.sessionTimeout })
                         setHasChanges(true)
                       }}
                       min={5}
@@ -926,7 +870,7 @@ export function SettingsCommand({
                       id="expiry"
                       value={[state.security.passwordExpiry]}
                       onValueChange={(v) => {
-                        state.setSecurity({ ...state.security, passwordExpiry: v[0] })
+                        state.setSecurity({ ...state.security, passwordExpiry: v[0] ?? state.security.passwordExpiry })
                         setHasChanges(true)
                       }}
                       min={30}
@@ -1120,7 +1064,7 @@ export function SettingsCommand({
                         id="rate"
                         value={[state.accessibility.speechRate]}
                         onValueChange={(v) => {
-                          state.setAccessibility({ ...state.accessibility, speechRate: v[0] })
+                          state.setAccessibility({ ...state.accessibility, speechRate: v[0] ?? state.accessibility.speechRate })
                           setHasChanges(true)
                         }}
                         min={0.5}
@@ -1274,7 +1218,7 @@ export function SettingsCommand({
                       id="cache"
                       value={[state.dataStorage.cacheSize]}
                       onValueChange={(v) => {
-                        state.setDataStorage({ ...state.dataStorage, cacheSize: v[0] })
+                        state.setDataStorage({ ...state.dataStorage, cacheSize: v[0] ?? state.dataStorage.cacheSize })
                         setHasChanges(true)
                       }}
                       min={50}
@@ -1304,7 +1248,7 @@ export function SettingsCommand({
                       id="retention"
                       value={[state.dataStorage.retentionPeriod]}
                       onValueChange={(v) => {
-                        state.setDataStorage({ ...state.dataStorage, retentionPeriod: v[0] })
+                        state.setDataStorage({ ...state.dataStorage, retentionPeriod: v[0] ?? state.dataStorage.retentionPeriod })
                         setHasChanges(true)
                       }}
                       min={7}
@@ -1667,7 +1611,7 @@ export function SettingsCommand({
                       id="ratelimit"
                       value={[state.advanced.apiRateLimit]}
                       onValueChange={(v) => {
-                        state.setAdvanced({ ...state.advanced, apiRateLimit: v[0] })
+                        state.setAdvanced({ ...state.advanced, apiRateLimit: v[0] ?? state.advanced.apiRateLimit })
                         setHasChanges(true)
                       }}
                       min={10}
@@ -1682,7 +1626,7 @@ export function SettingsCommand({
                       id="upload"
                       value={[state.advanced.maxUploadSize]}
                       onValueChange={(v) => {
-                        state.setAdvanced({ ...state.advanced, maxUploadSize: v[0] })
+                        state.setAdvanced({ ...state.advanced, maxUploadSize: v[0] ?? state.advanced.maxUploadSize })
                         setHasChanges(true)
                       }}
                       min={1}
@@ -1697,7 +1641,7 @@ export function SettingsCommand({
                       id="timeout"
                       value={[state.advanced.connectionTimeout]}
                       onValueChange={(v) => {
-                        state.setAdvanced({ ...state.advanced, connectionTimeout: v[0] })
+                        state.setAdvanced({ ...state.advanced, connectionTimeout: v[0] ?? state.advanced.connectionTimeout })
                         setHasChanges(true)
                       }}
                       min={5}

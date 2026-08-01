@@ -59,7 +59,6 @@ async function fitRect(srcSharp, width, height, targetFraction, bg) {
   fs.mkdirSync(OUT, { recursive: true });
 
   const iconRed = await trim(path.join(SRC, 'Asset 4@4x.png'));
-  const iconWhite = await trim(path.join(SRC, 'Asset 1@4x.png'));
   const lockupH = await trim(path.join(SRC, 'Asset 5@4x.png'));
 
   const TRANSPARENT = { r: 0, g: 0, b: 0, alpha: 0 };

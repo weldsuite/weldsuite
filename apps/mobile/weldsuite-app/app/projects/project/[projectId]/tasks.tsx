@@ -27,7 +27,7 @@ import {
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useLocalSearchParams } from 'expo-router';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface Task {
   id: string;
@@ -53,7 +53,7 @@ export default function ProjectTasksScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showCompleted, setShowCompleted] = useState(true);
+  const [showCompleted, ] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
@@ -102,7 +102,7 @@ export default function ProjectTasksScreen() {
         useNativeDriver: true,
       }).start(() => setShowCreateModal(false));
     }
-  }, [isCreateModalVisible]);
+  }, [isCreateModalVisible, fadeAnim]);
 
   useEffect(() => {
     loadTasks();
@@ -234,7 +234,7 @@ export default function ProjectTasksScreen() {
 
     try {
       await api.updateProjectTask(projectId as string, taskId, { status: newStatus });
-    } catch (error) {
+    } catch {
       setTasks(tasks.map(t =>
         t.id === taskId ? { ...t, completed: task.completed, status: task.status } : t
       ));

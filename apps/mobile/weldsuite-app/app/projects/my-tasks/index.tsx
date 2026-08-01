@@ -16,14 +16,12 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   Check,
   Calendar,
-  Search,
-  Plus,
   X,
   FolderKanban,
 } from 'lucide-react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface Task {
   id: string;
@@ -49,9 +47,9 @@ export default function MyTasksScreen() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [total, setTotal] = useState(0);
+  const [, setTotal] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showCompleted, setShowCompleted] = useState(true);
+  const [showCompleted, ] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
@@ -192,7 +190,7 @@ export default function MyTasksScreen() {
 
     try {
       await api.updateTask(taskId, { status: newStatus });
-    } catch (error) {
+    } catch {
       // Revert on error
       setTasks(tasks.map(t =>
         t.id === taskId ? { ...t, completed: task.completed, status: task.status } : t

@@ -44,7 +44,7 @@ const mockCustomers: Customer[] = [
 
 export default function PipelinePage() {
   const { colors } = useTheme();
-  const { id, name } = useLocalSearchParams<{ id: string; name?: string }>();
+  const { name } = useLocalSearchParams<{ id: string; name?: string }>();
 
   const pageTitle = name || 'Pipeline';
 

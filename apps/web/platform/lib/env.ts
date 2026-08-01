@@ -2,7 +2,7 @@
  * Runtime environment variables helper
  *
  * This module provides access to environment variables that are injected at runtime
- * via the __ENV.js script (for Docker deployments) or from import.meta.env (for local dev).
+ * via the _ENV.js script (for Docker deployments) or from import.meta.env (for local dev).
  */
 
 type EnvVars = {
@@ -17,7 +17,7 @@ type EnvVars = {
 
 declare global {
   interface Window {
-    __ENV?: Partial<EnvVars>;
+    _ENV?: Partial<EnvVars>;
   }
 }
 
@@ -26,9 +26,9 @@ declare global {
  * Falls back to import.meta.env for SSR and local development
  */
 export function getEnv<K extends keyof EnvVars>(key: K): string {
-  // Client-side: check window.__ENV first (runtime injection)
-  if (typeof window !== "undefined" && window.__ENV?.[key]) {
-    return window.__ENV[key] as string;
+  // Client-side: check window._ENV first (runtime injection)
+  if (typeof window !== "undefined" && window._ENV?.[key]) {
+    return window._ENV[key] as string;
   }
 
   // Server-side or fallback: use import.meta.env
@@ -39,8 +39,8 @@ export function getEnv<K extends keyof EnvVars>(key: K): string {
  * Get all runtime environment variables
  */
 export function getAllEnv(): Partial<EnvVars> {
-  if (typeof window !== "undefined" && window.__ENV) {
-    return window.__ENV;
+  if (typeof window !== "undefined" && window._ENV) {
+    return window._ENV;
   }
 
   return {

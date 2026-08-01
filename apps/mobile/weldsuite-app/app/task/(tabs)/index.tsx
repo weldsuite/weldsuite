@@ -6,7 +6,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   RefreshControl,
-  ActivityIndicator,
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,8 +35,6 @@ export default function TaskDashboard() {
   const {
     dashboardData,
     taskStats,
-    loading,
-    errors,
     loadDashboard,
     refreshDashboard,
     loadWorkflowStats,

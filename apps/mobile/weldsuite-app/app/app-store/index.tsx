@@ -14,11 +14,11 @@ import { useTheme } from '@/contexts/ThemeContext';
 import {
   Package, Users, ClipboardList, CheckSquare,
   Headphones, Mail, Warehouse, Calculator,
-  Send, Globe, Grid3X3, LucideIcon, ChevronLeft, Menu, Search, X,
+  Send, Globe, Grid3X3, LucideIcon, ChevronLeft,Search, X,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AppDrawer from '@/components/layout/AppDrawer';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface AvailableApp {
   code: string;
@@ -57,7 +57,7 @@ export default function AppStoreScreen() {
   const [apps, setApps] = useState<AvailableApp[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedCategory, ] = useState<string | null>(null);
 
   const fetchApps = useCallback(async () => {
     try {
@@ -94,7 +94,7 @@ export default function AppStoreScreen() {
     return grouped;
   }, [apps]);
 
-  const categoryList = Object.keys(categories);
+  const _categoryList = Object.keys(categories);
 
   const filteredApps = apps
     .filter(app => !selectedCategory || app.category === selectedCategory)

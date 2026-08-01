@@ -18,6 +18,7 @@ import {
 } from 'firebase/auth';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
+import { getErrorMessage } from '../lib/errors';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -62,6 +63,15 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/**
+ * Non-standard navigator fields probed for device fingerprinting. They are not
+ * in lib.dom and are absent on most browsers, so every read is optional.
+ */
+interface NavigatorWithLegacyExtras extends Navigator {
+  deviceMemory?: number;
+  cpuClass?: string;
+}
+
 // Generate browser fingerprint
 function generateBrowserFingerprint(): string {
   if (typeof window === 'undefined') return '';
@@ -78,7 +88,7 @@ function generateBrowserFingerprint(): string {
     userAgent: navigator.userAgent,
     language: navigator.language,
     colorDepth: screen.colorDepth,
-    deviceMemory: (navigator as any).deviceMemory || 0,
+    deviceMemory: (navigator as NavigatorWithLegacyExtras).deviceMemory || 0,
     hardwareConcurrency: navigator.hardwareConcurrency || 0,
     screenResolution: `${screen.width}x${screen.height}`,
     availableScreenResolution: `${screen.availWidth}x${screen.availHeight}`,
@@ -87,9 +97,9 @@ function generateBrowserFingerprint(): string {
     sessionStorage: !!window.sessionStorage,
     localStorage: !!window.localStorage,
     indexedDb: !!window.indexedDB,
-    addBehavior: !!(document.body as any).addBehavior,
-    openDatabase: !!(window as any).openDatabase,
-    cpuClass: (navigator as any).cpuClass || '',
+    addBehavior: !!(document.body as HTMLElement & { addBehavior?: unknown }).addBehavior,
+    openDatabase: !!(window as Window & { openDatabase?: unknown }).openDatabase,
+    cpuClass: (navigator as NavigatorWithLegacyExtras).cpuClass || '',
     platform: navigator.platform,
     plugins: Array.from(navigator.plugins || []).map(p => p.name).join(','),
     canvas: canvas.toDataURL(),
@@ -100,7 +110,7 @@ function generateBrowserFingerprint(): string {
         if (gl && 'getParameter' in gl) {
           return (gl as WebGLRenderingContext).getParameter((gl as WebGLRenderingContext).VERSION);
         }
-      } catch (e) {}
+      } catch { /* ignore */ }
       return null;
     })(),
   };
@@ -117,6 +127,9 @@ function generateBrowserFingerprint(): string {
   return Math.abs(hash).toString(36);
 }
 
+// Paths that render without an authenticated session.
+const PUBLIC_PATHS = ['/login', '/signup', '/reset-password', '/verify-email', '/'];
+
 // Get CSRF token from cookie
 function getCsrfToken(): string | null {
   if (typeof document === 'undefined') return null;
@@ -132,9 +145,6 @@ export function SecureAuthProvider({ children }: { children: React.ReactNode }) 
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
   const router = useRouter();
   const pathname = usePathname();
-
-  // Public paths that don't require authentication
-  const publicPaths = ['/login', '/signup', '/reset-password', '/verify-email', '/'];
 
   // Clear error
   const clearError = useCallback(() => {
@@ -257,9 +267,9 @@ export function SecureAuthProvider({ children }: { children: React.ReactNode }) 
       }
       
       router.push(redirectTo);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Sign in error:', error);
-      setError(error.message || 'Failed to sign in');
+      setError(getErrorMessage(error, 'Failed to sign in'));
       throw error;
     } finally {
       setLoading(false);
@@ -318,9 +328,9 @@ export function SecureAuthProvider({ children }: { children: React.ReactNode }) 
 
       // Redirect to email verification or dashboard
       router.push(data.user.emailVerified ? '/dashboard' : '/verify-email');
-    } catch (error: any) {
+    } catch (error) {
       console.error('Sign up error:', error);
-      setError(error.message || 'Failed to create account');
+      setError(getErrorMessage(error, 'Failed to create account'));
       throw error;
     } finally {
       setLoading(false);
@@ -395,9 +405,9 @@ export function SecureAuthProvider({ children }: { children: React.ReactNode }) 
       });
 
       router.push('/dashboard');
-    } catch (error: any) {
+    } catch (error) {
       console.error('Social sign in error:', error);
-      setError(error.message || 'Social authentication failed');
+      setError(getErrorMessage(error, 'Social authentication failed'));
       throw error;
     } finally {
       setLoading(false);
@@ -429,9 +439,9 @@ export function SecureAuthProvider({ children }: { children: React.ReactNode }) 
 
       // Redirect to login
       router.push('/login');
-    } catch (error: any) {
+    } catch (error) {
       console.error('Sign out error:', error);
-      setError(error.message || 'Failed to sign out');
+      setError(getErrorMessage(error, 'Failed to sign out'));
     } finally {
       setLoading(false);
     }
@@ -462,9 +472,9 @@ export function SecureAuthProvider({ children }: { children: React.ReactNode }) 
 
       // Redirect to login
       router.push('/login');
-    } catch (error: any) {
+    } catch (error) {
       console.error('Sign out all error:', error);
-      setError(error.message || 'Failed to sign out from all devices');
+      setError(getErrorMessage(error, 'Failed to sign out from all devices'));
     } finally {
       setLoading(false);
     }
@@ -475,9 +485,9 @@ export function SecureAuthProvider({ children }: { children: React.ReactNode }) 
     try {
       setError(null);
       await sendPasswordResetEmail(clientAuth, email);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Reset password error:', error);
-      setError(error.message || 'Failed to send reset email');
+      setError(getErrorMessage(error, 'Failed to send reset email'));
       throw error;
     }
   }, []);
@@ -549,10 +559,10 @@ export function SecureAuthProvider({ children }: { children: React.ReactNode }) 
 
   // Redirect if not authenticated
   useEffect(() => {
-    if (!loading && !user && !publicPaths.includes(pathname)) {
+    if (!loading && !user && !PUBLIC_PATHS.includes(pathname)) {
       router.push(`/login?redirect=${encodeURIComponent(pathname)}`);
     }
-  }, [loading, user, pathname, router, publicPaths]);
+  }, [loading, user, pathname, router]);
 
   return (
     <AuthContext.Provider

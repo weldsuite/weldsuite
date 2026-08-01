@@ -67,7 +67,6 @@ export default function TicketDetailScreen() {
 
   // Real-time
   const {
-    isConnected,
     sendTypingIndicator,
   } = useHelpdeskRealtime({
     conversationId: id || '',
@@ -119,7 +118,7 @@ export default function TicketDetailScreen() {
         // Replace temp with real
         setMessages((prev) => prev.map((m) => m.id === tempId ? { ...response.data, authorType: 'agent' } : m));
       }
-    } catch (error) {
+    } catch {
       // Mark as failed
       setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, failed: true } : m));
     } finally {

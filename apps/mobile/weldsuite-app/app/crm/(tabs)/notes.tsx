@@ -16,10 +16,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import { Building2, User, X, Plus } from 'lucide-react-native';
 
 interface Note {
@@ -37,7 +36,7 @@ interface Note {
   updatedAt: string;
 }
 
-const NOTE_CATEGORY_CONFIG = {
+const ____NOTE_CATEGORY_CONFIG = {
   general: {
     label: 'General',
     color: '#374151',
@@ -64,7 +63,7 @@ export default function NotesScreen() {
   const { colors } = useTheme();
   const toast = useToast();
   const [notes, setNotes] = useState<Note[]>([]);
-  const [total, setTotal] = useState(0);
+  const [, setTotal] = useState(0);
   const [filteredNotes, setFilteredNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);

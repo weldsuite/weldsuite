@@ -3,7 +3,6 @@ import {
   varchar,
   text,
   timestamp,
-  boolean,
   integer,
   bigint,
   pgEnum,

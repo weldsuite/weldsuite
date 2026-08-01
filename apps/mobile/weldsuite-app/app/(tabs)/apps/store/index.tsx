@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { ChevronLeft } from 'lucide-react-native';
 import { AppIcon } from '@/components/AppIcon';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface AvailableApp {
   code: string;

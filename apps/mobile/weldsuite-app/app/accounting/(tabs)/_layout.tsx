@@ -1,12 +1,12 @@
-import { Tabs } from "expo-router";
+import { Tabs , router } from "expo-router";
 import React, { useState, useEffect, useRef } from "react";
-import { Calculator, FileText, TrendingUp, ChevronLeft, BarChart, Inbox, Menu, Home, CreditCard, Settings, HelpCircle, X } from 'lucide-react-native';
+import { Calculator, FileText, ChevronLeft, BarChart, Inbox, Menu, Home, CreditCard, Settings, HelpCircle } from 'lucide-react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TouchableOpacity, Text, View, Modal, StyleSheet, TextInput, ScrollView, KeyboardAvoidingView, Platform, Animated, Easing, Keyboard, LayoutAnimation, UIManager, ActivityIndicator, Switch, Dimensions } from 'react-native';
-import { router } from 'expo-router';
+
 import WeldAgentLogo from '@/components/WeldAgentLogo';
 import { Camera, CameraView } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -18,7 +18,7 @@ import Svg, { Line, Circle, Polygon } from 'react-native-svg';
 if (
   Platform.OS === 'android' &&
   UIManager.setLayoutAnimationEnabledExperimental &&
-  !(global as any).__turboModuleProxy
+  !(global as any)._turboModuleProxy
 ) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
@@ -31,21 +31,20 @@ export default function AccountingTabsLayout() {
   const [menuModalVisible, setMenuModalVisible] = useState(false);
   const [scanModalVisible, setScanModalVisible] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [, setHasPermission] = useState<boolean | null>(null);
   const [flashMode, setFlashMode] = useState<'off' | 'on'>('off');
   const [processing, setProcessing] = useState(false);
   const [autoCapture, setAutoCapture] = useState(true);
   const [documentDetected, setDocumentDetected] = useState(false);
   const [detectionQuality, setDetectionQuality] = useState<'good' | 'poor' | 'none'>('none');
-  const [receiptBoundaries, setReceiptBoundaries] = useState<Array<{ x: number; y: number }> | null>(null);
+  const [receiptBoundaries, setReceiptBoundaries] = useState<{ x: number; y: number }[] | null>(null);
   const [message, setMessage] = useState('');
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [, setIsKeyboardVisible] = useState(false);
   const cameraRef = useRef<any>(null);
   const detectionTimerRef = useRef<any>(null);
   const slideAnim = useRef(new Animated.Value(1000)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
-  const keyboardHeight = useRef(new Animated.Value(0)).current;
   const menuSlideAnim = useRef(new Animated.Value(-320)).current;
   const backdropOpacityAnim = useRef(new Animated.Value(0)).current;
   const scanSlideAnim = useRef(new Animated.Value(1000)).current;
@@ -138,7 +137,7 @@ export default function AccountingTabsLayout() {
         scaleAnim.setValue(1);
       });
     }
-  }, [agentModalVisible]);
+  }, [agentModalVisible, fadeAnim, scaleAnim, slideAnim]);
 
   useEffect(() => {
     if (menuModalVisible) {
@@ -154,7 +153,7 @@ export default function AccountingTabsLayout() {
         }).start();
       });
     }
-  }, [menuModalVisible]);
+  }, [menuModalVisible, backdropOpacityAnim, menuSlideAnim]);
 
   const closeMenu = () => {
     Animated.timing(menuSlideAnim, {
@@ -185,7 +184,7 @@ export default function AccountingTabsLayout() {
         easing: Easing.out(Easing.ease),
       }).start();
     }
-  }, [scanModalVisible]);
+  }, [scanModalVisible, scanSlideAnim]);
 
   // Request camera permissions
   useEffect(() => {
@@ -308,7 +307,7 @@ export default function AccountingTabsLayout() {
     if (cameraRef.current) {
       try {
         setProcessing(true);
-        const photo = await cameraRef.current.takePictureAsync({
+        const _photo = await cameraRef.current.takePictureAsync({
           quality: 1,
           base64: false,
         });
@@ -429,7 +428,7 @@ export default function AccountingTabsLayout() {
         name="index"
         options={{
           title: "Dashboard",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Calculator size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -439,7 +438,7 @@ export default function AccountingTabsLayout() {
         name="inbox"
         options={{
           title: "My Inbox",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Inbox size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -449,7 +448,7 @@ export default function AccountingTabsLayout() {
         name="scan"
         options={{
           title: "Scan",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Ionicons name="scan" size={20} color={color} />
           ),
         }}
@@ -465,7 +464,7 @@ export default function AccountingTabsLayout() {
         name="invoices"
         options={{
           title: "Invoices",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <FileText size={20} color={color} strokeWidth={2} />
           ),
         }}
@@ -475,7 +474,7 @@ export default function AccountingTabsLayout() {
         name="banks"
         options={{
           title: "Banks",
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color }) => (
             <Ionicons name="card" size={20} color={color} />
           ),
         }}

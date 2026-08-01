@@ -1,4 +1,4 @@
-import { ClerkProvider, ClerkLoaded, useAuth, useOrganization, useOrganizationList } from '@clerk/expo';
+import { ClerkProvider, ClerkLoaded, useOrganizationList } from '@clerk/expo';
 import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -7,6 +7,24 @@ import { View, ActivityIndicator, Text, LogBox } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import 'react-native-reanimated';
+import { tokenCache } from '@clerk/expo/token-cache';
+import { ClerkAuthProvider, useClerkAuth } from '@/contexts/ClerkAuthContext';
+import { useInstalledApps , InstalledAppsProvider } from '@/contexts/InstalledAppsContext';
+import { APPS_WITH_LOGOS } from '@/components/AppIcon';
+// import { CartProvider } from '@/contexts/CartContext';
+import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
+import { NotificationProvider } from '@/contexts/NotificationContext';
+// import { WmsProvider } from '@/contexts/WmsContext';
+import { ToastProvider } from '@/contexts/ToastContext';
+
+import { WorkspaceProvider } from '@/contexts/WorkspaceContext';
+// import { VoipProvider } from '@/contexts/VoipContext';
+import { AnalyticsProvider } from '@/contexts/AnalyticsContext';
+import { I18nBootstrap } from '@/contexts/I18nBootstrap';
+import { RealtimeProvider } from '@/providers/realtime-provider';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { api } from '@/services/api';
+import { useUpdateGate } from '@/hooks/useUpdateGate';
 
 // Suppress known deprecation warnings
 // TODO: Migrate to Firebase modular API when React Native Firebase v22 is stable
@@ -14,24 +32,6 @@ LogBox.ignoreLogs([
   'This method is deprecated (as well as all React Native Firebase namespaced API)',
   'setLayoutAnimationEnabledExperimental',
 ]);
-import { tokenCache } from '@clerk/expo/token-cache';
-import { ClerkAuthProvider, useClerkAuth } from '@/contexts/ClerkAuthContext';
-import { useInstalledApps } from '@/contexts/InstalledAppsContext';
-import { APPS_WITH_LOGOS } from '@/components/AppIcon';
-// import { CartProvider } from '@/contexts/CartContext';
-import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
-import { NotificationProvider } from '@/contexts/NotificationContext';
-// import { WmsProvider } from '@/contexts/WmsContext';
-import { ToastProvider } from '@/contexts/ToastContext';
-import { InstalledAppsProvider } from '@/contexts/InstalledAppsContext';
-import { WorkspaceProvider } from '@/contexts/WorkspaceContext';
-// import { VoipProvider } from '@/contexts/VoipContext';
-import { AnalyticsProvider } from '@/contexts/AnalyticsContext';
-import { I18nBootstrap } from '@/contexts/I18nBootstrap';
-import { RealtimeProvider } from '@/providers/realtime-provider';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
-import api from '@/services/api';
-import { useUpdateGate } from '@/hooks/useUpdateGate';
 
 // Get the publishable key from environment
 const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;

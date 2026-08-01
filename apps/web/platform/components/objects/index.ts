@@ -1,6 +1,6 @@
 /**
  * Auto-registers every object panel by importing each `index.ts`. Importing
- * this file once at app boot (see `src/routes/__root.tsx`) guarantees the
+ * this file once at app boot (see `src/routes/_root.tsx`) guarantees the
  * panel registry is populated before `<ObjectPanelHost />` mounts.
  *
  * When adding a new object: create `components/objects/{type}/index.ts` that

@@ -3,18 +3,15 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   View,
   Text,
   RefreshControl,
-  Dimensions,
   FlatList,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { router } from 'expo-router';
-import api from '@/services/api';
+import { api } from '@/services/api';
 
 interface AccountingStats {
   totalRevenue: number;
@@ -53,7 +50,7 @@ export default function AccountingDashboardScreen() {
   const [stats, setStats] = useState<AccountingStats | null>(null);
   const [recentInvoices, setRecentInvoices] = useState<RecentInvoice[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<RecentTransaction[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {

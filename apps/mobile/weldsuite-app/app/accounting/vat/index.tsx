@@ -21,7 +21,7 @@ import {
   FileText,
   Calendar,
 } from 'lucide-react-native';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import type { VatReturn } from '@/services/api';
 
 export default function VatReturnsScreen() {

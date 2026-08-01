@@ -11,7 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useLocalSearchParams, router } from 'expo-router';
+import { router } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import {
   ChevronLeft,
@@ -104,7 +104,6 @@ const STEP_TYPES: StepType[] = [
 const STEP_CATEGORIES = ['Communication', 'Data', 'Logic & Flow', 'Integration'];
 
 export default function WorkflowEditorPage() {
-  const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
@@ -399,7 +398,6 @@ export default function WorkflowEditorPage() {
             <View style={styles.stepsListSection}>
               <Text style={[styles.checklistTitle, { color: colors.text }]}>Steps ({workflowSteps.length})</Text>
               {workflowSteps.map((step, index) => {
-                const StepIcon = step.type.icon;
                 return (
                   <TouchableOpacity
                     key={step.id}

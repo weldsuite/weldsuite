@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
-import { ChevronLeft, EllipsisVertical, Image as ImageIcon, Zap, X, Clock, Forward, Archive, Trash2, Star, Ticket, ArrowUp, MessageSquare, Lock, Wifi, Plus, Mic, Camera, FileText, File, StickyNote } from 'lucide-react-native';
+import { ChevronLeft, Image as ImageIcon, Zap, X, Clock, Forward, Archive, Trash2, Star, Ticket, ArrowUp, Lock, Plus, Camera, FileText, File, StickyNote } from 'lucide-react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -26,9 +26,9 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming, Easing, runOnJS
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
-import api, { ConversationDetail, ConversationMessage as ApiConversationMessage, getApiErrorMessage } from '@/services/api';
+import { api, ConversationDetail, getApiErrorMessage } from '@/services/api';
 import { useHelpdeskRealtime } from '@/hooks/useHelpdeskRealtime';
-import { TypingIndicator, ConnectionBanner, ChatSkeleton } from '@/components/helpdesk';
+import { TypingIndicator, ConnectionBanner } from '@/components/helpdesk';
 import type { RealtimeMessage, TypingIndicator as TypingIndicatorType, PresenceMember } from '@/hooks/useHelpdeskRealtime';
 
 interface Message {
@@ -64,10 +64,10 @@ export default function ConversationChatScreen() {
   const [creatingTicket, setCreatingTicket] = useState(false);
   const [closing, setClosing] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
-  const [agents, setAgents] = useState<Array<{ id: string; userId: string; name: string; email: string; role: string; availability: string }>>([]);
+  const [agents, setAgents] = useState<{ id: string; userId: string; name: string; email: string; role: string; availability: string }[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [typingUsers, setTypingUsers] = useState<Map<string, TypingIndicatorType>>(new Map());
-  const [customerOnline, setCustomerOnline] = useState(false);
+  const [, setCustomerOnline] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   // Get agent info from Clerk user
@@ -568,13 +568,13 @@ export default function ConversationChatScreen() {
     };
   });
 
-  const animatedTicketOverlayStyle = useAnimatedStyle(() => {
+  const _animatedTicketOverlayStyle = useAnimatedStyle(() => {
     return {
       opacity: ticketOverlayOpacity.value,
     };
   });
 
-  const animatedTicketSheetStyle = useAnimatedStyle(() => {
+  const _animatedTicketSheetStyle = useAnimatedStyle(() => {
     return {
       transform: [{ translateY: ticketSheetTranslateY.value }],
     };
@@ -638,7 +638,7 @@ export default function ConversationChatScreen() {
       }
     });
 
-  const ticketPanGesture = Gesture.Pan()
+  const _ticketPanGesture = Gesture.Pan()
     .enableTrackpadTwoFingerGesture(true)
     .activeOffsetY(10)
     .failOffsetY(-10)
@@ -962,7 +962,7 @@ export default function ConversationChatScreen() {
                     toast.error(getApiErrorMessage(response.error, 'Failed to close conversation'));
                     setClosing(false);
                   }
-                } catch (error) {
+                } catch {
                   toast.error('Failed to close conversation');
                   setClosing(false);
                 }
@@ -1012,7 +1012,7 @@ export default function ConversationChatScreen() {
                     } else {
                       toast.error(getApiErrorMessage(response.error, 'Failed to snooze'));
                     }
-                  } catch (error) {
+                  } catch {
                     toast.error('Failed to snooze conversation');
                   }
                 }}
@@ -1036,7 +1036,7 @@ export default function ConversationChatScreen() {
                     } else {
                       toast.error(getApiErrorMessage(response.error, 'Failed to update star'));
                     }
-                  } catch (error) {
+                  } catch {
                     toast.error('Failed to update star');
                   }
                 }}
@@ -1077,7 +1077,7 @@ export default function ConversationChatScreen() {
                     } else {
                       toast.error(getApiErrorMessage(response.error, 'Failed to archive'));
                     }
-                  } catch (error) {
+                  } catch {
                     toast.error('Failed to archive conversation');
                   }
                 }}
@@ -1118,7 +1118,7 @@ export default function ConversationChatScreen() {
                             } else {
                               toast.error(getApiErrorMessage(response.error, 'Failed to delete'));
                             }
-                          } catch (error) {
+                          } catch {
                             toast.error('Failed to delete conversation');
                           }
                         },
@@ -1379,7 +1379,7 @@ export default function ConversationChatScreen() {
                   } else {
                     toast.error(getApiErrorMessage(response.error, 'Failed to create ticket'));
                   }
-                } catch (error) {
+                } catch {
                   toast.error('Failed to create ticket');
                 } finally {
                   setCreatingTicket(false);

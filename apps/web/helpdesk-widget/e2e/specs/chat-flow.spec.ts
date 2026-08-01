@@ -263,7 +263,7 @@ test.describe('Chat Flow', () => {
       await widgetPage.page.waitForTimeout(1000);
 
       // Widget should recover
-      const mainContent = widgetPage.page.locator('main, [role="main"], #__next');
+      const mainContent = widgetPage.page.locator('main, [role="main"], #_next');
       await expect(mainContent).toBeVisible();
     });
   });

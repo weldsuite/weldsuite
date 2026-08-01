@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { useClerkAuth } from '@/contexts/ClerkAuthContext';
-import api from '@/services/api';
+import { api } from '@/services/api';
 import { useI18n } from '@weldsuite/i18n/provider';
 import {
   languageNames,
@@ -72,7 +72,7 @@ export default function ProfileScreen() {
             phone: response.data.phone || '',
           }));
         }
-      } catch (apiError) {
+      } catch {
         // API might not be available, use token data
       }
     } catch (error) {
@@ -155,7 +155,7 @@ export default function ProfileScreen() {
               } else {
                 showToast('Failed to send reset email', 'error');
               }
-            } catch (error) {
+            } catch {
               showToast('Failed to send reset email', 'error');
             }
           },

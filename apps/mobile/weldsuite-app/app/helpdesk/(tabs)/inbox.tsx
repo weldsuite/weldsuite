@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useFocusEffect } from 'expo-router';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect , router } from 'expo-router';
 import {
   StyleSheet,
   FlatList,
@@ -15,19 +15,18 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+
 import { useSession, useUser } from '@clerk/expo';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
-import { X, Clock, Archive, Star, Menu as MenuIcon, Search, Plus, SlidersHorizontal, Inbox as InboxIcon, Users } from 'lucide-react-native';
+import { X, Clock, Archive, Star, Menu as MenuIcon, Search, Plus, Inbox as InboxIcon, Users } from 'lucide-react-native';
 import AppDrawer from '@/components/layout/AppDrawer';
 import Svg, { Path as SvgPath } from 'react-native-svg';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import api, { Conversation, getApiErrorMessage } from '@/services/api';
+import { api, Conversation, getApiErrorMessage } from '@/services/api';
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
-import { ConnectionBanner, ConversationDetailPanel, InboxSkeleton } from '@/components/helpdesk';
+import { ConnectionBanner, ConversationDetailPanel } from '@/components/helpdesk';
 import type { InboxConversation, InboxNewMessageEvent, ConnectionState } from '@/hooks/useInboxRealtime';
 import { useTopic } from '@weldsuite/realtime/react';
 import { topics } from '@weldsuite/realtime/topics';
@@ -114,9 +113,8 @@ export default function InboxScreen() {
   const { user } = useUser();
   const currentUserId = user?.id || session?.user?.id || '';
   const currentUserName = user?.fullName || session?.user?.fullName || 'Agent';
-  const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
-  const showMiniSidebar = useShouldShowMiniSidebar();
+  const _showMiniSidebar = useShouldShowMiniSidebar();
   const { onScroll: onCollapsibleScroll, resetHeader } = useCollapsibleHeader();
 
   // Check if we should show split view (iPad/tablet)
@@ -128,7 +126,7 @@ export default function InboxScreen() {
   }, [resetHeader]);
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [initialLoading, setInitialLoading] = useState(true);
+  const [, setInitialLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -158,7 +156,7 @@ export default function InboxScreen() {
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
+  const [, setTotalCount] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [sortBy, setSortBy] = useState('createdAt');
@@ -252,7 +250,7 @@ export default function InboxScreen() {
   }, []);
 
   // Setup realtime updates
-  const { isConnected, connect: connectRealtime } = useInboxRealtime({
+  const { connect: connectRealtime } = useInboxRealtime({
     agentId: session?.user?.id || '',
     agentName: session?.user?.fullName || session?.user?.firstName || 'Agent',
     agentEmail: session?.user?.primaryEmailAddress?.emailAddress,
@@ -390,7 +388,7 @@ export default function InboxScreen() {
     setSortModalVisible(false);
   };
 
-  const getCurrentSortLabel = () => {
+  const _getCurrentSortLabel = () => {
     const option = SORT_OPTIONS.find(o => o.key === sortBy && o.order === sortOrder);
     return option?.label || 'Newest First';
   };
@@ -411,7 +409,7 @@ export default function InboxScreen() {
     }
   };
 
-  const handleUpdateConversationStatus = (conversation: Conversation) => {
+  const _handleUpdateConversationStatus = (conversation: Conversation) => {
     setSelectedConversation(conversation);
     setStatusUpdateModalVisible(true);
   };
@@ -460,7 +458,7 @@ export default function InboxScreen() {
       } else {
         toast.error(getApiErrorMessage(response.error, 'Failed to snooze conversation'));
       }
-    } catch (error) {
+    } catch {
       toast.error('Failed to snooze conversation');
     }
   };
@@ -481,7 +479,7 @@ export default function InboxScreen() {
       } else {
         toast.error(getApiErrorMessage(response.error, 'Failed to archive conversation'));
       }
-    } catch (error) {
+    } catch {
       toast.error('Failed to archive conversation');
     }
   };
@@ -502,7 +500,7 @@ export default function InboxScreen() {
       } else {
         toast.error(getApiErrorMessage(response.error, 'Failed to close conversation'));
       }
-    } catch (error) {
+    } catch {
       toast.error('Failed to close conversation');
     }
   };
@@ -925,7 +923,7 @@ export default function InboxScreen() {
             </TouchableOpacity>
           </View>
           <ScrollView style={styles.modalContentScroll} showsVerticalScrollIndicator={false}>
-            {SORT_OPTIONS.map((option, index) => (
+            {SORT_OPTIONS.map((option, _index) => (
               <TouchableOpacity
                 key={`${option.key}-${option.order}`}
                 style={[styles.modalOption, { borderBottomColor: colors.divider }]}

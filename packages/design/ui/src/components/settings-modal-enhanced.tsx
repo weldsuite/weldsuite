@@ -3,17 +3,8 @@
 import * as React from "react"
 import {
   Bell,
-  Check,
-  Globe,
-  Home,
   Keyboard,
-  Link,
-  Lock,
-  Menu,
-  MessageCircle,
   Paintbrush,
-  Settings,
-  Video,
   Users,
   Building2,
   CreditCard,
@@ -26,32 +17,17 @@ import {
   Sun,
   Monitor,
   Mail,
-  Smartphone,
-  Eye,
-  Volume2,
   UserPlus,
   Plus,
   Search,
-  Filter,
   MoreVertical,
   Edit,
   Trash,
   Copy,
   RefreshCw,
   Download,
-  ChevronRight,
   Crown,
-  CheckCircle,
-  XCircle,
-  Clock,
-  AlertTriangle,
-  GitBranch,
-  Zap,
   Save,
-  X,
-  UserX,
-  Activity,
-  DollarSign,
   Loader2,
 } from "lucide-react"
 
@@ -97,10 +73,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./car
 import { Separator } from "./separator"
 import { RadioGroup, RadioGroupItem } from "./radio-group"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./table"
-import { Avatar, AvatarFallback, AvatarImage } from "./avatar"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "./dropdown-menu"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./tabs"
-import { Progress } from "./progress"
+import { Avatar, AvatarFallback } from "./avatar"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "./dropdown-menu"
 import { Checkbox } from "./checkbox"
 import { ScrollArea } from "./scroll-area"
 import { cn } from "../lib/utils"
@@ -163,20 +137,20 @@ interface SettingsModalProps {
   // Server actions
   serverActions?: {
     getUsers: () => Promise<{ success: boolean; data?: User[]; error?: string }>
-    createUser: (data: any) => Promise<{ success: boolean; data?: User; error?: string }>
-    updateUser: (userId: string, data: any) => Promise<{ success: boolean; data?: User; error?: string }>
+    createUser: (data: Record<string, unknown>) => Promise<{ success: boolean; data?: User; error?: string }>
+    updateUser: (userId: string, data: Record<string, unknown>) => Promise<{ success: boolean; data?: User; error?: string }>
     deleteUser: (userId: string) => Promise<{ success: boolean; error?: string }>
     getWorkspaces: () => Promise<{ success: boolean; data?: Workspace[]; error?: string }>
-    createWorkspace: (data: any) => Promise<{ success: boolean; data?: Workspace; error?: string }>
-    updateWorkspace: (id: string, data: any) => Promise<{ success: boolean; data?: Workspace; error?: string }>
+    createWorkspace: (data: Record<string, unknown>) => Promise<{ success: boolean; data?: Workspace; error?: string }>
+    updateWorkspace: (id: string, data: Record<string, unknown>) => Promise<{ success: boolean; data?: Workspace; error?: string }>
     deleteWorkspace: (id: string) => Promise<{ success: boolean; error?: string }>
     getApiKeys: () => Promise<{ success: boolean; data?: ApiKey[]; error?: string }>
-    createApiKey: (data: any) => Promise<{ success: boolean; data?: ApiKey; error?: string }>
+    createApiKey: (data: Record<string, unknown>) => Promise<{ success: boolean; data?: ApiKey; error?: string }>
     revokeApiKey: (id: string) => Promise<{ success: boolean; error?: string }>
-    getAuditLogs: (filters?: any) => Promise<{ success: boolean; data?: AuditLog[]; error?: string }>
-    updateGeneralSettings: (settings: any) => Promise<{ success: boolean; data?: any; error?: string }>
-    updateNotificationSettings: (settings: any) => Promise<{ success: boolean; data?: any; error?: string }>
-    updateSecuritySettings: (settings: any) => Promise<{ success: boolean; data?: any; error?: string }>
+    getAuditLogs: (filters?: Record<string, unknown>) => Promise<{ success: boolean; data?: AuditLog[]; error?: string }>
+    updateGeneralSettings: (settings: Record<string, unknown>) => Promise<{ success: boolean; data?: unknown; error?: string }>
+    updateNotificationSettings: (settings: Record<string, unknown>) => Promise<{ success: boolean; data?: unknown; error?: string }>
+    updateSecuritySettings: (settings: Record<string, unknown>) => Promise<{ success: boolean; data?: unknown; error?: string }>
   }
 }
 
@@ -253,43 +227,40 @@ export function SettingsModalEnhanced({
     permissions: [] as string[]
   })
 
-  // Load data when modal opens or section changes
-  React.useEffect(() => {
-    if (open && serverActions) {
-      loadDataForSection(activeSection)
-    }
-  }, [open, activeSection, serverActions])
-
-  const loadDataForSection = async (section: string) => {
+  const loadDataForSection = React.useCallback(async (section: string) => {
     if (!serverActions) return
     
     setLoading(true)
     try {
       switch (section) {
-        case "users":
+        case "users": {
           const usersResult = await serverActions.getUsers()
           if (usersResult.success && usersResult.data) {
             setUsers(usersResult.data)
           }
-          break
-        case "workspaces":
+          break;
+        }
+        case "workspaces": {
           const workspacesResult = await serverActions.getWorkspaces()
           if (workspacesResult.success && workspacesResult.data) {
             setWorkspaces(workspacesResult.data)
           }
-          break
-        case "api-keys":
+          break;
+        }
+        case "api-keys": {
           const keysResult = await serverActions.getApiKeys()
           if (keysResult.success && keysResult.data) {
             setApiKeys(keysResult.data)
           }
-          break
-        case "audit":
+          break;
+        }
+        case "audit": {
           const logsResult = await serverActions.getAuditLogs()
           if (logsResult.success && logsResult.data) {
             setAuditLogs(logsResult.data)
           }
-          break
+          break;
+        }
       }
     } catch (error) {
       console.error("Failed to load data:", error)
@@ -297,7 +268,14 @@ export function SettingsModalEnhanced({
     } finally {
       setLoading(false)
     }
-  }
+  }, [serverActions])
+
+  // Load data when modal opens or section changes
+  React.useEffect(() => {
+    if (open && serverActions) {
+      loadDataForSection(activeSection)
+    }
+  }, [open, activeSection, serverActions, loadDataForSection])
 
   const handleCreateUser = async () => {
     if (!serverActions) return
@@ -317,7 +295,7 @@ export function SettingsModalEnhanced({
       } else {
         toast.error(result.error || "Failed to create user")
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to create user")
     } finally {
       setLoading(false)
@@ -336,7 +314,7 @@ export function SettingsModalEnhanced({
       } else {
         toast.error(result.error || "Failed to delete user")
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to delete user")
     } finally {
       setLoading(false)
@@ -361,7 +339,7 @@ export function SettingsModalEnhanced({
       } else {
         toast.error(result.error || "Failed to create workspace")
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to create workspace")
     } finally {
       setLoading(false)
@@ -389,7 +367,7 @@ export function SettingsModalEnhanced({
       } else {
         toast.error(result.error || "Failed to create API key")
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to create API key")
     } finally {
       setLoading(false)
@@ -424,7 +402,7 @@ export function SettingsModalEnhanced({
       
       toast.success("Settings saved successfully")
       onOpenChange?.(false)
-    } catch (error) {
+    } catch {
       toast.error("Failed to save settings")
     } finally {
       setLoading(false)
@@ -467,7 +445,7 @@ export function SettingsModalEnhanced({
                 <CardDescription>Select your preferred theme for the application</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <RadioGroup value={theme} onValueChange={(v: any) => setTheme(v)}>
+                <RadioGroup value={theme} onValueChange={(v) => setTheme(v as typeof theme)}>
                   <div className="grid grid-cols-3 gap-4">
                     <label className={cn(
                       "flex flex-col items-center justify-center rounded-lg border-2 p-4 cursor-pointer hover:bg-accent",
