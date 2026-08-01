@@ -26,7 +26,7 @@ import {
   reorderCustomObjectsSchema,
 } from '@weldsuite/app-api-client/schemas/custom-objects';
 import type { Env, Variables } from '../../types';
-import { cursorPagination, error, list, success } from '../../lib/response';
+import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema } from '../../db';
 import {
@@ -373,7 +373,10 @@ app.delete('/:id', requirePermission('weldobjects:manage'), async (c) => {
       data: { id, kind: 'custom_object', slug: existing.slug },
     });
 
-    return success(c, { deleted: true });
+    // 204, matching the record and relationship deletes. Not flagged in review,
+    // but three deletes in one feature returning two different shapes is worse
+    // than either shape on its own.
+    return noContent(c);
   } catch (err) {
     console.error('[app-api/custom-objects] delete failed:', err);
     return error.internal(c, 'Failed to delete custom object');

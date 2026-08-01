@@ -35,9 +35,37 @@ import {
 import { getCustomObjectBySlug, type CustomObjectRow } from '../services/custom-objects';
 import { targetReadPermission } from '../services/custom-object-targets';
 import { error } from '../lib/response';
+import type { Env, Variables } from '../types';
 
-/** Hono's branded HonoRequest makes a typed middleware non-assignable to a
- *  route slot with a path literal; widen exactly as requirePermission does. */
+/**
+ * The app's own context, with its bindings and variables.
+ *
+ * The path parameter stays generic (`PATH extends string`) rather than being
+ * pinned: Hono brands `HonoRequest` per path literal, so a context typed for
+ * `"/:slug/records"` is not assignable to one typed for the default. Leaving
+ * the path open lets these helpers accept any route's context while keeping
+ * `Env` and `Variables` fully checked — which is what actually matters here,
+ * since every one of them reads `c.get('customObject')` or `c.get('userId')`.
+ */
+type AppContext<PATH extends string = string> = Context<
+  { Bindings: Env; Variables: Variables },
+  PATH
+>;
+
+/**
+ * Middleware return type — deliberately loose in its context parameter, and
+ * the one `any` in this file that cannot be removed.
+ *
+ * Hono brands `HonoRequest` per path literal, so a precisely-typed middleware
+ * is not assignable to a route slot declared with a path literal and simply
+ * cannot be mounted. Narrowing this to `never` also breaks `c.req.param()`
+ * inference in every handler downstream, turning each param into
+ * `string | undefined`. `requirePermission` in @weldsuite/permissions/server
+ * widens for exactly this reason and documents it at length.
+ *
+ * The widening is confined to the mount boundary: the handler body below, and
+ * every exported helper, are fully typed via `AppContext`.
+ */
 type RouteSlot = (c: any, next: Next) => Promise<Response | undefined>;
 
 /**
@@ -52,7 +80,7 @@ type RouteSlot = (c: any, next: Next) => Promise<Response | undefined>;
  * sidebar lists them anyway.
  */
 export function requireCustomObject(action: CustomObjectPermissionAction): RouteSlot {
-  const handler = async (c: Context<any>, next: Next): Promise<Response | undefined> => {
+  const handler = async (c: AppContext, next: Next): Promise<Response | undefined> => {
     const slug = c.req.param('slug');
     if (!slug) return error.badRequest(c, 'Missing object slug');
 
@@ -92,8 +120,8 @@ export function requireCustomObject(action: CustomObjectPermissionAction): Route
  * Same shape and semantics as `scopeFor` in routes/leads — pass the result
  * straight into `listRecords({ ownerScope })`.
  */
-export async function customObjectScope(c: Context<any>): Promise<string | undefined> {
-  const object = c.get('customObject') as CustomObjectRow | undefined;
+export async function customObjectScope(c: AppContext): Promise<string | undefined> {
+  const object = c.get('customObject');
   if (!object) return c.get('userId');
 
   const resolved = await ensurePermissionsResolved(c);
@@ -114,7 +142,7 @@ export async function customObjectScope(c: Context<any>): Promise<string | undef
  * An unknown target type denies — a type with no known permission is one we
  * can't reason about, and defaulting to "allow" there is how gaps get shipped.
  */
-export async function canReadTarget(c: Context<any>, targetEntityKey: string): Promise<boolean> {
+export async function canReadTarget(c: AppContext, targetEntityKey: string): Promise<boolean> {
   const permission = targetReadPermission(targetEntityKey);
   if (!permission) return false;
 
@@ -123,8 +151,8 @@ export async function canReadTarget(c: Context<any>, targetEntityKey: string): P
 }
 
 /** The resolved object, for handlers running behind `requireCustomObject`. */
-export function getCustomObject(c: Context<any>): CustomObjectRow {
-  const object = c.get('customObject') as CustomObjectRow | undefined;
+export function getCustomObject(c: AppContext): CustomObjectRow {
+  const object = c.get('customObject');
   if (!object) {
     throw new Error(
       '[custom-object] getCustomObject() called without requireCustomObject() on the route',

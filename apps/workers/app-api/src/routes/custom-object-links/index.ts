@@ -13,11 +13,11 @@
  * custom objects exist.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, eq, isNull } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
-import { publishEntityEvent } from '@weldsuite/entity-events';
+import { publishEntityEvent, publishCustomObjectEvent } from '@weldsuite/entity-events';
 import {
   createCustomObjectLinkSchema,
   updateCustomObjectLinkSchema,
@@ -34,7 +34,11 @@ import {
   getCustomObject,
   canReadTarget,
 } from '../../middleware/custom-object';
-import { getRecord, entityKeyForSlug } from '../../services/custom-objects';
+import {
+  getRecord,
+  entityKeyForSlug,
+  type CustomObjectRow,
+} from '../../services/custom-objects';
 import {
   assertValidTarget,
   attach,
@@ -49,6 +53,29 @@ import {
 import { listLinkableBuiltins } from '../../services/custom-object-targets';
 
 const links = schema.customObjectLinks;
+
+/**
+ * Publish `co_<slug>:updated` for a source record whose relationships changed.
+ *
+ * Honours the object's `enableEvents` switch, same as the record routes. The
+ * payload carries which link changed and in which direction so a workflow can
+ * condition on it without re-fetching the edge table.
+ */
+function emitSourceUpdated(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  object: CustomObjectRow,
+  recordId: string,
+  detail: Record<string, unknown>,
+): void {
+  if (!object.enableEvents) return;
+  publishCustomObjectEvent({
+    c,
+    entityKey: object.entityKey,
+    action: 'updated',
+    entityId: recordId,
+    data: { id: recordId, relationship: detail },
+  });
+}
 
 /** Resolve `:id` to a live custom object row. */
 async function resolveObject(db: Database, objectId: string) {
@@ -273,7 +300,7 @@ definitionApp.delete('/:id/links/:linkId', requirePermission('weldobjects:manage
       data: { id: linkId, kind: 'custom_object_link', slug: existing.slug },
     });
 
-    return success(c, { deleted: true });
+    return noContent(c);
   } catch (err) {
     console.error('[app-api/custom-objects] delete link failed:', err);
     return error.internal(c, 'Failed to delete relationship');
@@ -386,6 +413,19 @@ traversalApp.post(
       }
 
       await attach(db, link, recordId, targetId, userId);
+
+      // An edge change IS a change to the source record as far as any consumer
+      // is concerned — workflows, webhooks and the search indexer all key off
+      // the record, not the join table. Emitted as `updated` on the source's
+      // own co_* type rather than a bespoke event, so existing subscribers pick
+      // it up without knowing relationships exist.
+      emitSourceUpdated(c, object, recordId, {
+        link: link.slug,
+        action: 'attached',
+        targetEntityKey: link.targetEntityKey,
+        targetId,
+      });
+
       return success(c, await listRelated(db, link, recordId), 201);
     } catch (err) {
       if (err instanceof LinkCardinalityError) return error.conflict(c, err.message);
@@ -414,6 +454,14 @@ traversalApp.delete(
       if (!link) return error.notFound(c, 'Relationship', linkSlug);
 
       await detach(db, link, recordId, targetId);
+
+      emitSourceUpdated(c, object, recordId, {
+        link: link.slug,
+        action: 'detached',
+        targetEntityKey: link.targetEntityKey,
+        targetId,
+      });
+
       return noContent(c);
     } catch (err) {
       console.error(`[app-api/objects/${object.slug}] detach failed:`, err);
