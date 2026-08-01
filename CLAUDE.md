@@ -58,7 +58,8 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - `discord-bot`, Discord bot process (companion to `discord-bot-worker`)
 
 **`apps/mobile/`**, Expo / RN 0.81, Expo 54:
-- `weldsuite-app` (main) + per-module standalone apps: `welddesk-app`, `weldmail-app`, `weldchat-app`, `weldbooks-app`, `weldcrm-app`, `weldflow-app`, `weldmeet-app`, `weldsocial-app`
+- Per-module standalone apps: `welddesk-app`, `weldmail-app`, `weldchat-app`, `weldbooks-app`, `weldcrm-app`, `weldflow-app`, `weldmeet-app`, `weldsocial-app`
+- The combined `weldsuite-app` was retired; the per-module apps replaced it
 - `_template`, Scaffold for new mobile apps (see root script `create:mobile-app`)
 
 **`apps/desktop/`**, Desktop app shell (lone top-level app).
