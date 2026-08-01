@@ -103,13 +103,36 @@ async function seedAccount() {
     .onConflictDoNothing();
 }
 
-async function seedPost(id: string, status: string, postpeerPostId: string | null) {
+/** A second twitter account, for tests pinning the exact-accountId match order. */
+async function seedSecondAccount() {
+  await db
+    .insert(schema.socialAccounts)
+    .values({
+      id: 'sac_2',
+      platform: 'twitter',
+      platformAccountId: 'pa2',
+      name: 'X acct 2',
+      postpeerIntegrationId: 'intg_2',
+      status: 'active',
+      connectedByUserId: 'u1',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as typeof schema.socialAccounts.$inferInsert)
+    .onConflictDoNothing();
+}
+
+async function seedPost(
+  id: string,
+  status: string,
+  postpeerPostId: string | null,
+  targetAccountIds: string[] = ['sac_1'],
+) {
   await db.insert(schema.socialPosts).values({
     id,
     content: 'hello world',
     postType: 'post',
     status: status as never,
-    targetAccountIds: ['sac_1'],
+    targetAccountIds,
     postpeerPostId,
     timezone: 'UTC',
     createdByUserId: 'u1',
@@ -310,6 +333,34 @@ describe('social publishing · platform content', () => {
     // The account id has to survive a failure — the refund idempotency key is
     // built from it, and colliding keys silently drop refunds.
     expect(pc.accountId).toBe('sac_1');
+  });
+
+  it('an exact accountId match is claimed by its own target, not stolen by an earlier platform fallback', async () => {
+    if (!available) return;
+    await seedAccount();
+    await seedSecondAccount();
+    // Two twitter accounts on one post. Only ONE result comes back, naming
+    // sac_2's integration explicitly. A single pass that resolves targets in
+    // order would let sac_1 grab this result via the platform fallback before
+    // sac_2 ever gets a chance at its own exact match — attributing sac_2's
+    // failure to sac_1 instead.
+    await seedPost('spo_multi_acct', 'draft', null, ['sac_1', 'sac_2']);
+    stubPostPeer([{ platform: 'twitter', accountId: 'intg_2', success: false, error: 'revoked' }]);
+
+    const res = await publishPost(db, ctx, 'org_1', 'spo_multi_acct', { now: true });
+
+    expect(res.platformContent).toHaveLength(2);
+    const bySac1 = res.platformContent.find((p) => p.accountId === 'sac_1');
+    const bySac2 = res.platformContent.find((p) => p.accountId === 'sac_2');
+    expect(bySac1).toBeDefined();
+    expect(bySac2).toBeDefined();
+
+    // The named account gets the failure...
+    expect(bySac2!.status).toBe('failed');
+    expect(bySac2!.error).toBe('revoked');
+    // ...and the other stays unclaimed rather than wrongly inheriting it.
+    expect(bySac1!.status).toBe('pending');
+    expect(bySac1!.error).toBeUndefined();
   });
 });
 

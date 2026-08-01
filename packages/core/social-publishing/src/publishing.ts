@@ -424,10 +424,24 @@ function buildPlatformContent(
     return i === -1 ? undefined : unclaimed.splice(i, 1)[0];
   };
 
+  // Two passes, not one map: an exact accountId match must be claimed by ITS
+  // target before any platform fallback runs. In a single pass, an earlier
+  // target with no accountId match could fall back to a result that a later
+  // target actually owns by accountId — attributing that failure/success (and
+  // therefore its refund key and webhook reconciliation) to the wrong account.
+  const matches = new Map<string, PostPeerPlatformResult>();
+  for (const target of targets) {
+    const exact = take((r) => !!r.accountId && r.accountId === target.postpeerIntegrationId);
+    if (exact) matches.set(target.id, exact);
+  }
+  for (const target of targets) {
+    if (matches.has(target.id)) continue;
+    const byPlatform = take((r) => normalisePlatform(r.platform) === target.platform);
+    if (byPlatform) matches.set(target.id, byPlatform);
+  }
+
   return targets.map((target) => {
-    const match =
-      take((r) => !!r.accountId && r.accountId === target.postpeerIntegrationId) ??
-      take((r) => normalisePlatform(r.platform) === target.platform);
+    const match = matches.get(target.id);
 
     // No result for this target means PostPeer accepted the post without
     // reporting on the channel — unknown, not delivered. Leave it pending for

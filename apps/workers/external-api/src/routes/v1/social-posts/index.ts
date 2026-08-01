@@ -302,13 +302,20 @@ app.post('/:id/cancel', requireScope('social_posts:write'), async (c) => {
     return error.internal(c, err instanceof Error ? err.message : 'Failed to cancel post');
   }
 
-  publishEntityEvent({
-    c,
-    entityType: 'social_post',
-    entityId: id,
-    action: 'cancelled',
-    data: { id, status: 'cancelled' },
-  });
+  // Emitted outside the try, and defensively: cancelPost already cancelled the
+  // upstream delivery and refunded the credits by now, so a failure to
+  // announce it must not be reported to the caller as a failed cancel.
+  try {
+    publishEntityEvent({
+      c,
+      entityType: 'social_post',
+      entityId: id,
+      action: 'cancelled',
+      data: { id, status: 'cancelled' },
+    });
+  } catch (err) {
+    console.error(`${SOCIAL_LOG_PREFIX} entity event failed after cancel:`, err);
+  }
 
   return success(c, { id, status: 'cancelled' });
 });
