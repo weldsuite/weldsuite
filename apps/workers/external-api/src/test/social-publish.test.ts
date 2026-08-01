@@ -29,6 +29,7 @@ vi.mock('@weldsuite/social-publishing', async (importOriginal) => {
 vi.mock('../lib/social-context', () => ({
   socialContext: () => ({ POSTPEER_API_KEY: 'k', masterDb: () => ({}) }),
   resolveClerkOrgId: (...args: unknown[]) => resolveClerkOrgId(...(args as [])),
+  SOCIAL_LOG_PREFIX: '[external-api/social-posts]',
 }));
 
 const {

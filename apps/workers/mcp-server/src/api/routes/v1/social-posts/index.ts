@@ -17,7 +17,7 @@ import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
 import { stripServerFields } from '../../../lib/sanitize';
-import { socialContext, resolveClerkOrgId } from '../../../lib/social-context';
+import { socialContext, resolveClerkOrgId, SOCIAL_LOG_PREFIX } from '../../../lib/social-context';
 import {
   createSocialPostSchema,
   updateSocialPostSchema,
@@ -208,7 +208,7 @@ async function publishOrSchedule(
       );
     }
     const message = err instanceof Error ? err.message : 'Failed to publish post';
-    console.error('[external-api/social-posts] publish failed:', err);
+    console.error(`${SOCIAL_LOG_PREFIX} publish failed:`, err);
     // A post with no targets, or none of them connected, is a caller error.
     const isCallerError =
       message === 'Post has no target accounts' ||
@@ -228,7 +228,7 @@ async function publishOrSchedule(
       data: { id, status: result.status, postpeerPostId: result.postpeerPostId },
     });
   } catch (err) {
-    console.error('[external-api/social-posts] entity event failed after publish:', err);
+    console.error(`${SOCIAL_LOG_PREFIX} entity event failed after publish:`, err);
   }
 
   return success(c, result as unknown as Record<string, unknown>);

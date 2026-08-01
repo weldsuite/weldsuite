@@ -13,6 +13,17 @@ import type { SocialPublishingContext } from '@weldsuite/social-publishing';
 import type { Env } from '../types';
 import { createMasterDb, masterSchema } from './master-db';
 
+/**
+ * Log prefix for the social routes.
+ *
+ * Lives here rather than inline in the route because the route file is kept
+ * byte-identical to mcp-server's copy (see lib/proxy.ts there) — a hardcoded
+ * worker name would either break that or, worse, make both workers log the
+ * same prefix into a shared sink. This adapter is already the per-worker seam,
+ * so the name belongs in it.
+ */
+export const SOCIAL_LOG_PREFIX = '[external-api/social-posts]';
+
 export function socialContext(env: Env): SocialPublishingContext {
   return {
     POSTPEER_API_KEY: env.POSTPEER_API_KEY,
