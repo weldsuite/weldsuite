@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData } from '../types';
 import React from 'react';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { ChevronRight } from 'lucide-react';
@@ -17,11 +18,7 @@ export interface CategoryHeaderBlockProps {
   overlayOpacity?: number;
   textColor?: string;
   mode?: 'live' | 'preview' | 'edit';
-  store?: {
-    products?: any[];
-    collections?: any[];
-    [key: string]: any;
-  };
+  store?: StoreData;
 }
 
 const DEFAULT_BREADCRUMB: BreadcrumbLink[] = [

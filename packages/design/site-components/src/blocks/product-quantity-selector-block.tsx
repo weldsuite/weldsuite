@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData } from '../types';
 import React, { useState } from 'react';
 import { Minus, Plus } from 'lucide-react';
 
@@ -9,10 +10,7 @@ export interface ProductQuantitySelectorBlockProps {
   maxQuantity?: number;
   borderRadius?: number;
   mode?: 'live' | 'edit' | 'preview';
-  store?: {
-    selectedProduct?: any;
-    [key: string]: any;
-  };
+  store?: StoreData;
 }
 
 export function ProductQuantitySelectorBlock({

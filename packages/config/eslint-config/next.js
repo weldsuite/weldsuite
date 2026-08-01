@@ -37,6 +37,15 @@ const nextJsConfig = [
     },
   },
   {
+    // Tooling configs at the app root are CommonJS run by Node, not bundled
+    // browser code, so `module`/`require`/`process` are legitimate there.
+    files: ["*.config.js", "*.config.cjs", "*.config.mjs", "**/postcss.config.js", "**/prettier.config.js"],
+    languageOptions: {
+      globals: { ...globals.node },
+      sourceType: "commonjs",
+    },
+  },
+  {
     plugins: {
       "react-hooks": pluginReactHooks,
     },

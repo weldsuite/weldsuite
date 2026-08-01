@@ -21,7 +21,7 @@ import { ErrorBoundary } from '@weldsuite/mobile-ui/components/ErrorBoundary';
 import { WorkspaceProvider } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
 import { InstalledAppsProvider } from '@weldsuite/mobile-ui/contexts/InstalledAppsContext';
 
-import appApi, { setAppApiTokenGetter } from '@/services/app-api';
+import { appApi, setAppApiTokenGetter } from '@/services/app-api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { RealtimeProvider } from '@/providers/realtime-provider';
 import { useUpdateGate } from '@/hooks/useUpdateGate';

@@ -14,7 +14,7 @@
  * Must be mounted inside both RealtimeProvider and MailProvider.
  */
 
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { useAuth } from '@clerk/expo';
 import { useTopic } from '@weldsuite/realtime/react';
 import { useMail } from '@/contexts/MailContext';

@@ -275,7 +275,7 @@ function ActiveCall({ session }: { session: CallSession }) {
         /* best effort */
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   return (

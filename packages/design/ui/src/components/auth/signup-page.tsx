@@ -19,8 +19,7 @@ interface SignupPageProps {
 
 export function SignupPage({ 
   appName = 'WeldSuite',
-  showSocialLogin = true,
-  redirectTo = '/verify-email'
+  showSocialLogin = true
 }: SignupPageProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -58,7 +57,7 @@ export function SignupPage({
       setPasswordError('Password must contain at least one number');
       return false;
     }
-    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+    if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password)) {
       setPasswordError('Password must contain at least one special character');
       return false;
     }

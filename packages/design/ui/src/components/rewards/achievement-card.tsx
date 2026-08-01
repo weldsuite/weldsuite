@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader } from '../card';
 import { Progress } from '../progress';
 import { RewardBadge } from './reward-badge';
 import { cn } from '../../lib/utils';
-import { CheckCircle2, Lock, Trophy } from 'lucide-react';
+import { CheckCircle2, Trophy } from 'lucide-react';
 
 interface AchievementCardProps {
   name: string;

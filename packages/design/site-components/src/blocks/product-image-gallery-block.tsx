@@ -1,5 +1,7 @@
 "use client";
 
+import type { StoreData } from '../types';
+import { toImageUrls } from '../lib/product-images';
 import React, { useState } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -15,10 +17,7 @@ export interface ProductImageGalleryBlockProps {
   buttonBorderRadius?: number;
   layout?: 'horizontal' | 'vertical' | 'grid';
   mode?: 'live' | 'edit' | 'preview';
-  store?: {
-    selectedProduct?: any;
-    [key: string]: any;
-  };
+  store?: StoreData;
 }
 
 export function ProductImageGalleryBlock({
@@ -38,8 +37,8 @@ export function ProductImageGalleryBlock({
   store,
 }: ProductImageGalleryBlockProps) {
   // Use product data from store if available
-  const productImages = store?.selectedProduct?.images;
-  const displayImages = productImages && productImages.length > 0 ? productImages : images;
+  const productImages = toImageUrls(store?.selectedProduct?.images);
+  const displayImages = productImages.length > 0 ? productImages : images;
   const displayName = store?.selectedProduct?.name || productName;
 
   const [activeImage, setActiveImage] = useState(0);

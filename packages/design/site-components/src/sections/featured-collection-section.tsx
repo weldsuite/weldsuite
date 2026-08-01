@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData, Product } from '../types';
 import React from 'react';
 import { ShoppingBag, Star, ArrowRight } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
@@ -46,15 +47,15 @@ interface FeaturedCollectionSectionProps {
   // Hidden elements
   hiddenElements?: string[];
   // Store data
-  store?: any;
-  products?: any[];
+  store?: StoreData;
+  products?: Product[];
   collectionId?: string;
 }
 
 // Mock product data - Shopify style with real PNG product images
-const mockProducts = [
+const mockProducts: Product[] = [
   {
-    id: 1,
+    id: '1',
     name: 'Classic Cotton T-Shirt',
     price: 29.99,
     compareAtPrice: 39.99,
@@ -64,7 +65,7 @@ const mockProducts = [
     reviews: 128
   },
   {
-    id: 2,
+    id: '2',
     name: 'Denim Jacket',
     price: 89.99,
     image: 'https://images.unsplash.com/photo-1576995853123-5a10305d93c0?w=800&h=800&fit=crop&fm=png',
@@ -73,7 +74,7 @@ const mockProducts = [
     reviews: 95
   },
   {
-    id: 3,
+    id: '3',
     name: 'Leather Sneakers',
     price: 119.99,
     compareAtPrice: 149.99,
@@ -83,7 +84,7 @@ const mockProducts = [
     reviews: 203
   },
   {
-    id: 4,
+    id: '4',
     name: 'Cotton Chinos',
     price: 59.99,
     image: 'https://images.unsplash.com/photo-1473966968600-fa801b869a1a?w=800&h=800&fit=crop&fm=png',
@@ -92,7 +93,7 @@ const mockProducts = [
     reviews: 156
   },
   {
-    id: 5,
+    id: '5',
     name: 'Wool Sweater',
     price: 79.99,
     image: 'https://images.unsplash.com/photo-1576566588028-4147f3842f27?w=800&h=800&fit=crop&fm=png',
@@ -100,7 +101,7 @@ const mockProducts = [
     reviews: 87
   },
   {
-    id: 6,
+    id: '6',
     name: 'Canvas Backpack',
     price: 49.99,
     image: 'https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=800&h=800&fit=crop&fm=png',
@@ -109,7 +110,7 @@ const mockProducts = [
     reviews: 64
   },
   {
-    id: 7,
+    id: '7',
     name: 'Oxford Shirt',
     price: 69.99,
     compareAtPrice: 89.99,
@@ -119,7 +120,7 @@ const mockProducts = [
     reviews: 112
   },
   {
-    id: 8,
+    id: '8',
     name: 'Running Shoes',
     price: 129.99,
     image: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=800&h=800&fit=crop&fm=png',
@@ -260,7 +261,7 @@ export function FeaturedCollectionSection({
             rowGap: `${gapY}px`,
           }}
         >
-          {displayProducts.map((product: any) => (
+          {displayProducts.map((product: Product) => (
             <div key={product.id} className="group overflow-hidden">
                 {/* Product Image */}
                 <div className="relative overflow-hidden">
@@ -325,7 +326,7 @@ export function FeaturedCollectionSection({
                             key={i}
                             className={cn(
                               "w-3.5 h-3.5",
-                              i < Math.floor(product.rating)
+                              i < Math.floor(product.rating ?? 0)
                                 ? 'fill-primary text-primary'
                                 : 'fill-muted text-muted'
                             )}

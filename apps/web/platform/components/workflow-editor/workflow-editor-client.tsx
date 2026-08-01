@@ -76,7 +76,7 @@ import {
   getMissingRequiredFields,
   isStepConfigured,
 } from '@weldsuite/ui/components/workflow-canvas';
-import type { WorkflowStep, TriggerConfig, WorkflowCanvasLabels } from '@weldsuite/ui/components/workflow-canvas';
+import type { WorkflowStep, TriggerConfig, WorkflowCanvasLabels, ConditionStepConfig } from '@weldsuite/ui/components/workflow-canvas';
 import { buildAllVariables } from '@weldsuite/ui/components/workflow-canvas/parts/variable-picker';
 import { WorkflowTemplateDialog } from '@/app/weldconnect/components/workflow-template-dialog';
 import { TriggerEmptyState } from './components/trigger-empty-state';
@@ -1035,7 +1035,7 @@ export function WorkflowEditorClient({
     function collectDeletions(id: string, type: string, config?: unknown) {
       idsToDelete.add(id);
       if (type === 'condition') {
-        const branchIds = getConditionBranchIds({ id, config });
+        const branchIds = getConditionBranchIds({ id, config: config as ConditionStepConfig | undefined });
         branchIds.forEach((branchId) => {
           workflow.steps.forEach((s) => {
             if (s.parentBranchId === branchId) {

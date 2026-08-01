@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 import ComposeScreen, { type ComposeCloseInfo, type ComposePrefill } from '@/app/compose';
 
 type OpenComposeOptions = {

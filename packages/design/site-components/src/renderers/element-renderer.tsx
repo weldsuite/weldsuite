@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { Element, RenderMode } from '../types';
+import { Element, RenderMode, type ElementContent } from '../types';
 import { cn } from '@weldsuite/ui/lib/utils';
 import Image from 'next/image';
 
@@ -18,7 +18,10 @@ export function ElementRenderer({
   onSelect,
   onUpdate
 }: ElementRendererProps) {
-  const { type, content, settings, children } = element;
+  const { type, settings, children } = element;
+  // Older builder data stores plain strings; normalise to the object form.
+  const content: ElementContent | undefined =
+    typeof element.content === 'string' ? { text: element.content } : element.content;
   const isEditing = mode === 'edit';
 
   // Convert settings to CSS styles
@@ -27,25 +30,25 @@ export function ElementRenderer({
     height: settings.height,
     padding: settings.padding,
     margin: settings.margin,
-    position: settings.position as any,
-    display: settings.display as any,
-    flexDirection: settings.flexDirection as any,
-    justifyContent: settings.justifyContent as any,
-    alignItems: settings.alignItems as any,
+    position: settings.position,
+    display: settings.display,
+    flexDirection: settings.flexDirection,
+    justifyContent: settings.justifyContent,
+    alignItems: settings.alignItems,
     gap: settings.gap,
     fontSize: settings.fontSize,
     fontWeight: settings.fontWeight,
     fontFamily: settings.fontFamily,
     lineHeight: settings.lineHeight,
     letterSpacing: settings.letterSpacing,
-    textAlign: settings.textAlign as any,
+    textAlign: settings.textAlign,
     textDecoration: settings.textDecoration,
-    textTransform: settings.textTransform as any,
+    textTransform: settings.textTransform,
     color: settings.color,
     backgroundColor: settings.backgroundColor,
     borderColor: settings.borderColor,
     borderWidth: settings.borderWidth,
-    borderStyle: settings.borderStyle as any,
+    borderStyle: settings.borderStyle,
     borderRadius: settings.borderRadius,
     boxShadow: settings.boxShadow,
     opacity: settings.opacity,
@@ -61,14 +64,16 @@ export function ElementRenderer({
 
   // Apply custom styles if provided
   if (settings.customStyles) {
-    const customStyles = settings.customStyles.split(';').reduce((acc, style) => {
+    // Property names come from a free-form CSS string, so build a plain record
+    // first and let Object.assign merge it onto the typed style object.
+    const customStyles = settings.customStyles.split(';').reduce<Record<string, string>>((acc, style) => {
       const [key, value] = style.split(':').map(s => s.trim());
       if (key && value) {
         const camelKey = key.replace(/-([a-z])/g, g => g[1]?.toUpperCase() || '');
-        (acc as any)[camelKey] = value;
+        acc[camelKey] = value;
       }
       return acc;
-    }, {} as React.CSSProperties);
+    }, {});
     Object.assign(styles, customStyles);
   }
 
@@ -87,7 +92,7 @@ export function ElementRenderer({
 
   const renderElement = () => {
     switch (type) {
-      case 'heading':
+      case 'heading': {
         const HeadingTag = (content?.tag || 'h2') as 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
         return (
           <HeadingTag
@@ -95,9 +100,10 @@ export function ElementRenderer({
             className={wrapperClasses}
             onClick={handleClick}
           >
-            {content?.text || content || 'Heading'}
+            {content?.text || 'Heading'}
           </HeadingTag>
         );
+      }
 
       case 'paragraph':
         return (
@@ -106,7 +112,7 @@ export function ElementRenderer({
             className={wrapperClasses}
             onClick={handleClick}
           >
-            {content || 'Paragraph text'}
+            {content?.text || 'Paragraph text'}
           </p>
         );
 
@@ -117,7 +123,7 @@ export function ElementRenderer({
             className={wrapperClasses}
             onClick={handleClick}
           >
-            {content || 'Text'}
+            {content?.text || 'Text'}
           </span>
         );
 
@@ -128,7 +134,7 @@ export function ElementRenderer({
             className={cn(wrapperClasses, "cursor-pointer hover:opacity-90 transition-opacity")}
             onClick={handleClick}
           >
-            {content?.text || content || 'Button'}
+            {content?.text || 'Button'}
           </button>
         );
 
@@ -140,7 +146,7 @@ export function ElementRenderer({
             className={cn(wrapperClasses, "hover:underline")}
             onClick={isEditing ? handleClick : undefined}
           >
-            {content?.text || content || 'Link'}
+            {content?.text || 'Link'}
           </a>
         );
 
@@ -149,7 +155,7 @@ export function ElementRenderer({
           return (
             <div style={styles} className={wrapperClasses} onClick={handleClick}>
               <Image
-                src={content?.src || content?.url}
+                src={content?.src || content?.url || ''}
                 alt={content?.alt || ''}
                 width={parseInt(settings.width || '400')}
                 height={parseInt(settings.height || '300')}
@@ -173,7 +179,7 @@ export function ElementRenderer({
           return (
             <div style={styles} className={wrapperClasses} onClick={handleClick}>
               <video
-                src={content?.src || content?.url}
+                src={content?.src || content?.url || ''}
                 controls
                 className="w-full h-auto"
               >

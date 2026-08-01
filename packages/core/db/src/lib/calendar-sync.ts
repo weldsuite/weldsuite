@@ -27,7 +27,6 @@ import type { WorkingHours, DayHours } from '../schema/helpdesk-agents';
 type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
 
 const DEFAULT_DURATION_MINUTES = 30;
-const MAX_SEARCH_DAYS = 14;
 const MAX_SEARCH_DAYS_NO_DEADLINE = 60;
 const MAX_SEARCH_DAYS_NO_DEADLINE_EXTENDED = 90;
 const SLOT_STEP_MINUTES = 15;
@@ -172,7 +171,7 @@ interface ExistingEvent {
   startTime: Date | string;
   endTime: Date | string | null;
   priority: string | null;
-  customFields: Record<string, any> | null;
+  customFields: Record<string, unknown> | null;
 }
 
 function parseTime(timeStr: string): { hours: number; minutes: number } {
@@ -903,7 +902,7 @@ export async function updateCalendarEventForTask(
 ): Promise<void> {
   const { calendarEvents } = schema;
 
-  const updateData: Record<string, any> = { updatedAt: new Date() };
+  const updateData: Record<string, unknown> = { updatedAt: new Date() };
 
   if (params.title !== undefined) {
     updateData.title = params.title;
@@ -980,7 +979,7 @@ export async function rescheduleCalendarEvent(
     .limit(1);
 
   if (existing && existing.autoScheduled === false) {
-    const update: Record<string, any> = {
+    const update: Record<string, unknown> = {
       updatedAt: new Date(),
       title: params.title,
       description: params.description ?? null,

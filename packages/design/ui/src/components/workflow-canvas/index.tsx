@@ -33,11 +33,15 @@ export {
 } from './flow-utils';
 export type {
   FlowNodeType,
+  FlowNodeData,
   TriggerNodeData,
   ActionNodeData,
   ConditionNodeData,
   ConditionBranchNodeData,
   SubAgentNodeData,
+  ConditionBranch,
+  ConditionStepConfig,
+  AiAgentStepConfig,
 } from './flow-utils';
 
 // Step validation (single source of truth for required-field checks)

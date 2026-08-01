@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useFocusEffect } from 'expo-router';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 import { useChatUserEvents } from './useChatUserEvents';
 
 export function useActivityUnreadCount(): number {

@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Package, RotateCcw, Shield } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 interface MulticolumnItem {
   heading: string;
@@ -53,7 +54,7 @@ export function MulticolumnSection({
     4: 'md:grid-cols-4',
   };
 
-  const iconMap: Record<string, React.ComponentType<any>> = {
+  const iconMap: Record<string, LucideIcon> = {
     'package': Package,
     'rotate-ccw': RotateCcw,
     'shield': Shield,

@@ -1,11 +1,21 @@
 "use client";
 
+import type { StoreData } from '../types';
 import React from 'react';
 
 interface Block {
   id: string;
   type: string;
-  settings: any;
+  settings: {
+    image?: string;
+    imagePosition?: 'left' | 'right';
+    heading?: string;
+    headingSize?: string;
+    text?: string;
+    buttonLabel?: string;
+    buttonLink?: string;
+    buttonStyle?: string;
+  };
 }
 
 export interface ImageWithTextBlockProps {
@@ -37,7 +47,7 @@ export interface ImageWithTextBlockProps {
   selectedBlockId?: string;
 
   // Store context
-  store?: any;
+  store?: StoreData;
 }
 
 export function ImageWithTextBlock({
@@ -65,11 +75,9 @@ export function ImageWithTextBlock({
   const finalImage = imageBlock?.settings?.image || image;
   const finalImagePosition = imageBlock?.settings?.imagePosition || imagePosition;
   const finalHeading = headingBlock?.settings?.heading || heading;
-  const finalHeadingSize = headingBlock?.settings?.headingSize || headingSize;
   const finalText = textBlock?.settings?.text || text;
   const finalButtonLabel = buttonBlock?.settings?.buttonLabel || buttonLabel;
   const finalButtonLink = buttonBlock?.settings?.buttonLink || buttonLink;
-  const finalButtonStyle = buttonBlock?.settings?.buttonStyle || buttonStyle;
 
   // Check which element is selected
   const isImageSelected = selectedBlockId === imageBlock?.id;

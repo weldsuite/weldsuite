@@ -23,8 +23,6 @@ import 'react-native-reanimated';
 
 import { applyInterAsDefaultFont } from '@/utils/inter-font';
 
-applyInterAsDefaultFont();
-
 import { tokenCache } from '@clerk/expo/token-cache';
 import { ClerkAuthProvider, useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { ThemeProvider, useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
@@ -34,7 +32,7 @@ import { ErrorBoundary } from '@weldsuite/mobile-ui/components/ErrorBoundary';
 import { WorkspaceProvider } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
 import { InstalledAppsProvider } from '@weldsuite/mobile-ui/contexts/InstalledAppsContext';
 
-import appApi, { appApiClient, setAppApiTokenGetter } from '@/services/app-api';
+import { appApi, appApiClient, setAppApiTokenGetter } from '@/services/app-api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { PermissionProvider } from '@/contexts/PermissionContext';
 import { MailProvider } from '@/contexts/MailContext';
@@ -46,6 +44,8 @@ import { OfflineBanner } from '@/components/OfflineBanner';
 import { OutboxFlusher } from '@/components/OutboxFlusher';
 import { useMailRealtime } from '@/hooks/useMailRealtime';
 import { useUpdateGate } from '@/hooks/useUpdateGate';
+
+applyInterAsDefaultFont();
 
 const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 

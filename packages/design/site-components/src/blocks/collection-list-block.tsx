@@ -1,5 +1,7 @@
 "use client";
 
+import type { StoreData, Collection } from '../types';
+import { toPriceNumber } from '../lib/price';
 import React from 'react';
 import { Heart } from 'lucide-react';
 
@@ -25,11 +27,11 @@ export interface CollectionListBlockProps {
   }>;
 
   // Store context
-  store?: any;
+  store?: StoreData;
 }
 
 // Mock collections for demo/preview (Shopify style)
-const mockCollections = [
+const mockCollections: Collection[] = [
   {
     id: '1',
     title: 'Mars Record Needle HC-V100',
@@ -61,7 +63,7 @@ const mockCollections = [
 ];
 
 // Collection Card Component
-function CollectionCard({ collection, imageRatioClass }: { collection: any; imageRatioClass: string }) {
+function CollectionCard({ collection, imageRatioClass }: { collection: Collection; imageRatioClass: string }) {
   const [isFavorited, setIsFavorited] = React.useState(false);
 
   return (
@@ -117,7 +119,7 @@ function CollectionCard({ collection, imageRatioClass }: { collection: any; imag
         {/* Price */}
         <div className="flex items-center gap-2 mt-1">
           <span className="text-sm font-medium text-gray-900">
-            {collection.price}
+            {toPriceNumber(collection.price).toFixed(2)}
           </span>
         </div>
       </div>
@@ -143,7 +145,7 @@ export function CollectionListBlock({
     }
     if (store?.collections && store.collections.length > 0) {
       // Map API collections to the format expected by the component
-      return store.collections.map((cat: any) => ({
+      return store.collections.map((cat: Collection) => ({
         id: cat.id,
         title: cat.name,
         handle: cat.slug || cat.id,
@@ -248,7 +250,7 @@ export function CollectionListBlock({
             rowGap: '24px' // More vertical spacing matching Product Grid
           }}
         >
-          {displayCollections.map((collection: any) => (
+          {displayCollections.map((collection: Collection) => (
             <CollectionCard
               key={collection.id}
               collection={collection}

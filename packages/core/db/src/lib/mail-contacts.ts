@@ -13,7 +13,7 @@
  * a wide rename. Internally everything is `schema.people` now.
  */
 
-import { eq, inArray, isNull, and, sql } from 'drizzle-orm';
+import { eq, isNull, and, sql } from 'drizzle-orm';
 import * as schema from '../schema';
 
 /** Single mail email address — matches `MailEmailAddress` shape on mail_messages. */

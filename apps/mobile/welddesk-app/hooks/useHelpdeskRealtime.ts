@@ -27,7 +27,7 @@ export interface RealtimeMessage {
   senderAvatar?: string;
   timestamp: string;
   isRead?: boolean;
-  attachments?: Array<{ id: string; name: string; url: string; type: string; size: number }>;
+  attachments?: { id: string; name: string; url: string; type: string; size: number }[];
 }
 
 export interface TypingIndicator {

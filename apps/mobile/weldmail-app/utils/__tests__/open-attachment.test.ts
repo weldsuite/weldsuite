@@ -3,6 +3,8 @@
  * are fully mocked so no native runtime loads under the node test env.
  */
 
+import { openAttachment, resolveAttachmentUrl } from '../open-attachment';
+
 const mockOpenBrowserAsync = jest.fn();
 const mockOpenURL = jest.fn();
 const mockAlert = jest.fn();
@@ -12,8 +14,6 @@ jest.mock('react-native', () => ({
   Alert: { alert: (...a: unknown[]) => mockAlert(...a) },
   Linking: { openURL: (...a: unknown[]) => mockOpenURL(...a) },
 }));
-
-import { openAttachment, resolveAttachmentUrl } from '../open-attachment';
 
 beforeEach(() => {
   mockOpenBrowserAsync.mockReset().mockResolvedValue(undefined);

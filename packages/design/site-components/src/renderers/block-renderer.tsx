@@ -1,6 +1,8 @@
 "use client";
 
 // Block renderer for all block types
+import type { StoreData, Block } from '../types';
+import { toPriceNumber } from '../lib/price';
 import React, { useState } from 'react';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { ChevronUp, ChevronDown, Copy, Trash2 } from 'lucide-react';
@@ -131,18 +133,18 @@ import { FlexBlock } from '../blocks/flex-block';
 import { ProductGridBlock } from '../blocks/product-grid-block';
 import { FAQBlock } from '../blocks/faq-block';
 
-interface Block {
-  id: string;
-  type: string;
-  settings: Record<string, any>;
-  order: number;
-  children?: Block[];
-}
+/**
+ * The block registry maps a block type to its component. Every block takes a
+ * different props shape and receives the settings bag spread onto it, so there
+ * is no common props type to declare for the registry.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- heterogeneous component registry
+type BlockComponent = React.ComponentType<any>;
 
 interface BlockRendererProps {
   block: Block;
   mode?: 'live' | 'edit';
-  store?: any;
+  store?: StoreData;
   previewMode?: 'desktop' | 'tablet' | 'mobile';
   selectedBlockId?: string;
   onSelectBlock?: (blockId: string) => void;
@@ -156,7 +158,7 @@ interface BlockRendererProps {
 }
 
 // Helper function to replace dynamic content placeholders
-function replaceDynamicContent(content: any, store: any): any {
+function replaceDynamicContent(content: unknown, store?: StoreData): unknown {
   if (typeof content !== 'string') return content;
 
   // Replace {{product.field}} with actual product data
@@ -165,12 +167,13 @@ function replaceDynamicContent(content: any, store: any): any {
     const product = products[0]; // Use first product for preview
 
     if (product) {
-      return content.replace(/\{\{product\.(\w+)\}\}/g, (match, field) => {
-        // Handle special formatting for price
-        if (field === 'price' && product[field]) {
-          return `$${parseFloat(product[field]).toFixed(2)}`;
-        }
-        return product[field] || match;
+      // Placeholders address product fields by name, so index through a record view.
+      const fields = product as Record<string, unknown>;
+      return content.replace(/\{\{product\.(\w+)\}\}/g, (match, field: string) => {
+        const value = fields[field];
+        if (value === undefined || value === null || value === '') return match;
+        if (field === 'price') return `$${toPriceNumber(product.price).toFixed(2)}`;
+        return String(value);
       });
     }
   }
@@ -199,7 +202,7 @@ function NestedBlockWrapper({
   childIndex: number;
   totalChildren: number;
   mode?: 'live' | 'edit';
-  store?: any;
+  store?: StoreData;
   previewMode?: 'desktop' | 'tablet' | 'mobile';
   selectedBlockId?: string;
   onSelectBlock: (blockId: string) => void;
@@ -337,7 +340,7 @@ export function BlockRenderer({
   onDeleteBlock,
   sectionId
 }: BlockRendererProps) {
-  const blockComponents: Record<string, React.ComponentType<any>> = {
+  const blockComponents: Record<string, BlockComponent> = {
     // Original blocks
     text: TextBlock,
     heading: HeadingBlock,

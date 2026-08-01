@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData } from '../types';
 import React from 'react';
 
 type ImageMedia = {
@@ -36,11 +37,7 @@ export interface ProductCategoriesBlockProps {
   buttonTextColor?: string;
   imageRounding?: number;
   mode?: 'live' | 'preview' | 'edit';
-  store?: {
-    products?: any[];
-    collections?: any[];
-    [key: string]: any;
-  };
+  store?: StoreData;
 }
 
 const DEFAULT_CATEGORIES: ProductCategory[] = [

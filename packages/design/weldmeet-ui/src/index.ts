@@ -1,5 +1,12 @@
 // Shared types
-export type { ViewMode, RecordingState, MeetingRoomViewProps } from './types';
+export type {
+  ViewMode,
+  RecordingState,
+  MeetingRoomViewProps,
+  MeetingClient,
+  MeetingPeer,
+  WaitlistedPeer,
+} from './types';
 
 // Chat
 export {

@@ -112,9 +112,6 @@ async function provisionWorkspace(clerkOrgId: string): Promise<Workspace> {
   // Fetch org details from Clerk
   let orgName = 'My Workspace';
   let orgSlug = clerkOrgId;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  let orgEmail: string | undefined;
-
   try {
     const clerkClient = await getClerkClient();
     if (clerkClient) {
@@ -122,15 +119,6 @@ async function provisionWorkspace(clerkOrgId: string): Promise<Workspace> {
       const org = await clerk.organizations.getOrganization({ organizationId: clerkOrgId });
       orgName = org.name;
       orgSlug = org.slug || generateSlug(org.name);
-
-      // Try to get admin email from the organization creator
-      const memberships = await clerk.organizations.getOrganizationMembershipList({
-        organizationId: clerkOrgId,
-        limit: 1,
-      });
-      if (memberships.data[0]?.publicUserData?.identifier) {
-        orgEmail = memberships.data[0].publicUserData.identifier;
-      }
     }
   } catch (error) {
     console.warn('Could not fetch Clerk org details, using defaults:', error);

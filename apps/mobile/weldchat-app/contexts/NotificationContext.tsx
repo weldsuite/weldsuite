@@ -60,12 +60,14 @@ let notifUtils: {
   registerForPushNotificationsAsync: (id: string) => Promise<string | undefined>;
   setupNotificationListeners: (onReceive: (n: any) => void, onTap: (r: any) => void) => () => void;
   setBadgeCount: (count: number) => Promise<void>;
-  createNotificationChannels: (channels: Array<{ id: string; name: string; description?: string }>) => Promise<void>;
+  createNotificationChannels: (channels: { id: string; name: string; description?: string }[]) => Promise<void>;
 } | null = null;
 
 if (!isExpoGo) {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- native module is absent in Expo Go; probed synchronously inside try/catch
     Notifications = require('expo-notifications');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- native module is absent in Expo Go; probed synchronously inside try/catch
     notifUtils = require('@weldsuite/mobile-ui/services/notifications');
   } catch {
     // Not available

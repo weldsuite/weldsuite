@@ -14,7 +14,7 @@ import { Sheet } from '@weldsuite/mobile-ui/components/Sheet';
 import { Textarea } from '@weldsuite/mobile-ui/components/Textarea';
 import { SegmentedControl } from '@weldsuite/mobile-ui/components/SegmentedControl';
 import type { SocialApproval, SocialPost } from '@weldsuite/app-api-client/domains/social';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
 import { APPROVAL_STATUS_META, formatDateTime } from '@/lib/social';
 

@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData, Product } from '../types';
 import React from 'react';
 import { ProductCard } from '../components/product-card';
 
@@ -17,7 +18,7 @@ export interface ProductGridBlockProps {
   collectionId?: string;
   collectionHandle?: string;
   filterBy?: 'all' | 'collection' | 'new' | 'sale' | 'category';
-  store?: any;
+  store?: StoreData;
   mode?: 'live' | 'preview';
   // Product Card Settings
   imageRatio?: '1/1' | '4/5' | '3/4' | '16/9' | 'auto';
@@ -44,7 +45,7 @@ export interface ProductGridBlockProps {
 }
 
 // Mock products for demo/preview with PNG product images
-const mockProducts = [
+const mockProducts: Product[] = [
   {
     id: '1',
     name: 'Premium Wireless Headphones',
@@ -236,7 +237,7 @@ export function ProductGridBlock({
 
   // Filter by collection first if specified
   if (filterBy === 'collection' && (collectionId || collectionHandle)) {
-    products = products.filter((p: any) => {
+    products = products.filter((p: Product) => {
       // Check categoryIds array (API format)
       if (collectionId && p.categoryIds && Array.isArray(p.categoryIds)) {
         return p.categoryIds.includes(collectionId);
@@ -256,12 +257,12 @@ export function ProductGridBlock({
   // Then filter products based on active tab
   let filteredProducts = products;
   if (activeTab === 'new') {
-    filteredProducts = products.filter((p: any) => p.badge === 'New');
+    filteredProducts = products.filter((p: Product) => p.badge === 'New');
   } else if (activeTab === 'categories') {
     // For now, show all - in real implementation, this would show by category
     filteredProducts = products;
   } else if (activeTab === 'sale') {
-    filteredProducts = products.filter((p: any) => p.badge === 'Sale' || p.compareAtPrice);
+    filteredProducts = products.filter((p: Product) => p.badge === 'Sale' || p.compareAtPrice);
   }
 
   const displayProducts = filteredProducts.slice(0, limit);
@@ -312,7 +313,7 @@ export function ProductGridBlock({
     4: 'md:grid-cols-4',
   }[autoTabletColumns] || 'md:grid-cols-3';
 
-  const handleAddToCart = (product: any) => {
+  const handleAddToCart = (product: Product) => {
     console.log('Add to cart:', product);
     // Cart action will be dispatched here
   };
@@ -377,7 +378,7 @@ export function ProductGridBlock({
             rowGap: `${gap * 1.5}px` // More vertical spacing for Shopify look
           }}
         >
-          {displayProducts.map((product: any) => (
+          {displayProducts.map((product: Product) => (
             <ProductCard
               key={product.id}
               product={product}

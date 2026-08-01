@@ -137,35 +137,3 @@ export function GalleryAccordionBlock({
     </section>
   );
 }
-
-const DashedBorderH = (props: React.SVGProps<SVGSVGElement>) => {
-  return (
-    <svg {...props} fill="none" xmlns="http://www.w3.org/2000/svg">
-      <line
-        opacity="0.2"
-        x1="1571.5"
-        y1="0.570312"
-        x2="0.683594"
-        y2="0.570271"
-        stroke="black"
-        strokeDasharray="5 5"
-      />
-    </svg>
-  );
-};
-
-const DashedBorderV = (props: React.SVGProps<SVGSVGElement>) => {
-  return (
-    <svg {...props} fill="none" xmlns="http://www.w3.org/2000/svg">
-      <line
-        opacity="0.2"
-        x1="0.631348"
-        y1="0.208984"
-        x2="0.631311"
-        y2="828.348"
-        stroke="black"
-        strokeDasharray="5 5"
-      />
-    </svg>
-  );
-};

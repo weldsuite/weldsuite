@@ -78,7 +78,7 @@ export default function QuickExpenseScreen() {
     if (params.vendorName) setVendorName(params.vendorName);
     if (params.date) setDate(params.date);
     if (params.documentId) setDocumentId(params.documentId);
-  }, []);
+  }, [params.amount, params.date, params.documentId, params.vendorName]);
 
   // Focus amount input on mount
   useEffect(() => {

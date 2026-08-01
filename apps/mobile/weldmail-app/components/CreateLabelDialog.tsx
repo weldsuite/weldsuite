@@ -12,7 +12,7 @@ import MaterialSpinner from './MaterialSpinner';
 import CenteredModalShell from './CenteredModalShell';
 import { X } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 import { useMail } from '@/contexts/MailContext';
 
 const LABEL_COLORS = [

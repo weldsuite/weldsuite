@@ -146,16 +146,16 @@ function ActionNodeComponent({ data, selected }: NodeProps) {
 
   const getDescription = () => {
     if (nodeData.step?.description) return nodeData.step.description;
-    const config = nodeData.step?.config as Record<string, any> | undefined;
+    const config = nodeData.step?.config as Record<string, unknown> | undefined;
     if (!config || Object.keys(config).length === 0) return labels.noDescription || 'Not configured';
-    if (config.description) return config.description;
+    if (typeof config.description === 'string') return config.description;
 
     switch (nodeData.actionType) {
       case 'send_email':
         if (config.to) return (labels.descTo || 'To: {to}').replace('{to}', String(config.to));
         break;
       case 'http_request':
-        if (config.url) return `${config.method || 'GET'} ${config.url}`;
+        if (config.url) return `${String(config.method ?? 'GET')} ${String(config.url)}`;
         break;
       case 'delay': {
         const unit = config.days ? 'days' : config.hours ? 'hours' : config.minutes ? 'minutes' : config.seconds ? 'seconds' : null;

@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData, SectionSettings } from '../types';
 import { Card, CardContent } from "@weldsuite/ui/components/card";
 import { Star } from "lucide-react";
 
@@ -11,8 +12,8 @@ interface TestimonialsSectionProps {
     content: string;
     rating?: number;
   }>;
-  store?: any;
-  settings?: any;
+  store?: StoreData;
+  settings?: SectionSettings;
 }
 
 const defaultTestimonials = [
@@ -53,7 +54,7 @@ export default function TestimonialsSection({
                     <Star key={i} className="h-4 w-4 fill-primary text-primary" />
                   ))}
                 </div>
-                <p className="text-muted-foreground mb-4">"{testimonial.content}"</p>
+                <p className="text-muted-foreground mb-4">&quot;{testimonial.content}&quot;</p>
                 <div>
                   <p className="font-semibold">{testimonial.name}</p>
                   {testimonial.role && (

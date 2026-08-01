@@ -6,6 +6,7 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Zap, Calendar, Webhook, MousePointerClick, GitMerge, Plus } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { TriggerNodeData } from './flow-utils';
+import type { TriggerConfig } from './types';
 
 const triggerIcons: Record<string, React.ElementType> = {
   entity_event: Zap,
@@ -36,14 +37,30 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
   const triggerType = nodeData.trigger?.type || 'manual';
   const Icon = triggerIcons[triggerType] || Zap;
   const triggerBadge = labels.triggerBadge ?? 'Trigger';
-  const category = labels.categories?.[triggerType] ?? triggerBadge;
   const [isHovered, setIsHovered] = useState(false);
 
   const desc = labels.descriptions;
   const clickToConfigure = desc?.clickToConfigure ?? 'Click to configure';
 
   const getDescription = () => {
-    const trigger = nodeData.trigger as any;
+    // Schedule/workflow triggers carry extra fields alongside the base config,
+  // and older records keep them nested under `config` instead.
+  const trigger = nodeData.trigger as TriggerConfig & {
+    entityType?: string;
+    eventType?: string;
+    scheduleType?: string;
+    cronExpression?: string;
+    executeAt?: string;
+    triggerOn?: string;
+    config?: {
+      scheduleType?: string;
+      cronExpression?: string;
+      executeAt?: string;
+      triggerOn?: string;
+      entityType?: string;
+      eventType?: string;
+    };
+  };
     if (!trigger) return clickToConfigure;
     if (nodeData.label === 'Select Trigger') return clickToConfigure;
 

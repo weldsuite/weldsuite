@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TouchableHighlight, RefreshControl, Image, ScrollView, Platform } from 'react-native';
 import { Plus, Archive, Trash2, BellOff, Bell, Pin, PinOff } from 'lucide-react-native';
 import Svg, { Defs, Pattern, Path, Rect } from 'react-native-svg';
@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser } from '@clerk/expo';
 import { useTheme } from '@/contexts/ThemeContext';
 import type { ColorScheme } from '@/constants/colors';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 import { useChatUserEvents } from '@/hooks/useChatUserEvents';
 import { SearchField } from '@/components/chat/SearchField';
 import { Spinner } from '@/components/ui/Spinner';

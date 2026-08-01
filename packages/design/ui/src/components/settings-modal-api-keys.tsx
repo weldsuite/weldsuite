@@ -7,11 +7,7 @@ import {
   Copy,
   MoreVertical,
   Trash,
-  Shield,
-  AlertCircle,
   CheckCircle,
-  Eye,
-  EyeOff,
   RefreshCw,
   Loader2,
 } from 'lucide-react';
@@ -104,8 +100,8 @@ interface ApiKeysContentProps {
   onAddNew: () => void;
   onDelete: (id: string) => void;
   showForm: boolean;
-  formData: any;
-  setFormData: (data: any) => void;
+  formData: Record<string, unknown>;
+  setFormData: (data: Record<string, unknown>) => void;
   onFormSubmit: (e: React.FormEvent) => void;
   setShowForm: (show: boolean) => void;
   formMode: 'add' | 'edit';
@@ -115,15 +111,12 @@ interface ApiKeysContentProps {
 
 export function ApiKeysContent({
   apiKeys,
-  loading,
-  onAddNew,
   onDelete,
   showForm,
   formData,
   setFormData,
   onFormSubmit,
   setShowForm,
-  formMode,
   newApiToken,
   setNewApiToken,
 }: ApiKeysContentProps) {
@@ -198,7 +191,7 @@ export function ApiKeysContent({
               <Label htmlFor="token-name">Token Name</Label>
               <Input
                 id="token-name"
-                value={formData.name || ''}
+                value={String(formData.name ?? '')}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 placeholder="e.g., Production API"
                 required
@@ -212,7 +205,7 @@ export function ApiKeysContent({
               <Label htmlFor="token-description">Description (Optional)</Label>
               <Textarea
                 id="token-description"
-                value={formData.description || ''}
+                value={String(formData.description ?? '')}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 placeholder="Describe what this token will be used for..."
                 rows={3}
@@ -222,7 +215,7 @@ export function ApiKeysContent({
             <div>
               <Label htmlFor="token-environment">Environment</Label>
               <Select
-                value={formData.environment || 'production'}
+                value={String(formData.environment ?? 'production')}
                 onValueChange={(value) => setFormData({ ...formData, environment: value })}
               >
                 <SelectTrigger id="token-environment">
@@ -274,7 +267,7 @@ export function ApiKeysContent({
             <div>
               <Label htmlFor="token-expires">Expiration</Label>
               <Select
-                value={formData.expiresIn || '90'}
+                value={String(formData.expiresIn ?? '90')}
                 onValueChange={(value) => setFormData({ ...formData, expiresIn: value })}
               >
                 <SelectTrigger id="token-expires">
@@ -328,8 +321,8 @@ export function ApiKeysContent({
           <AlertTitle>API Token Created Successfully</AlertTitle>
           <AlertDescription className="mt-2 space-y-2">
             <p>
-              Your API token "{newTokenData.name}" has been created. Make sure to copy it now as you
-              won't be able to see it again.
+              Your API token &quot;{newTokenData.name}&quot; has been created. Make sure to copy it now as you
+              won&apos;t be able to see it again.
             </p>
             <div className="flex items-center gap-2 mt-3">
               <code className="relative rounded bg-white px-2 py-1 font-mono text-sm border flex-1">

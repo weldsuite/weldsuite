@@ -2,13 +2,13 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator,
-  Animated, FlatList, Modal,
+  _Animated, FlatList, Modal,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useOrganizationList } from '@clerk/expo';
 import {
-  ArrowLeft, Bell, BellOff, Check, ChevronDown, Inbox,
-  Loader2, Shield, Database, Zap,
+  ArrowLeft, Bell,Check, ChevronDown, Inbox,
+  _Loader2, Shield, Database, Zap,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
@@ -273,7 +273,7 @@ function ProvisioningStep({ onComplete, colors }: {
   onComplete: () => void; colors: any;
 }) {
   const [currentPhase, setCurrentPhase] = useState(0);
-  const [pollCount, setPollCount] = useState(0);
+  const [, setPollCount] = useState(0);
   const [failed, setFailed] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -406,7 +406,7 @@ const provisionStyles = StyleSheet.create({
 function NotificationStep({ onNext, colors }: {
   onNext: () => void; colors: any;
 }) {
-  const { requestPermissions, isPermissionGranted } = useNotifications();
+  const { requestPermissions } = useNotifications();
   const [loading, setLoading] = useState(false);
 
   const handleEnable = async () => {

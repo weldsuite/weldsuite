@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData } from '../types';
 import { AudioLines } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { cn } from "@weldsuite/ui/lib/utils";
@@ -141,7 +142,7 @@ interface VideoCarouselBlockProps {
   textColor?: string;
   className?: string;
   mode?: 'live' | 'edit';
-  store?: any;
+  store?: StoreData;
 }
 
 export function VideoCarouselBlock({
