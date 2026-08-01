@@ -13,7 +13,7 @@ test.describe('Error Handling', () => {
       await widgetPage.waitForReady();
 
       // Widget should still be visible and show error state
-      const mainContent = page.locator('main, [role="main"], #_next');
+      const mainContent = page.locator('main, [role="main"], #__next');
       await expect(mainContent).toBeVisible();
     });
 
@@ -31,7 +31,7 @@ test.describe('Error Handling', () => {
       await widgetPage.waitForReady();
 
       // Widget should handle error gracefully
-      const mainContent = page.locator('main, [role="main"], #_next');
+      const mainContent = page.locator('main, [role="main"], #__next');
       await expect(mainContent).toBeVisible();
     });
 
@@ -49,7 +49,7 @@ test.describe('Error Handling', () => {
       await widgetPage.waitForReady();
 
       // Widget should handle gracefully, possibly with defaults
-      const mainContent = page.locator('main, [role="main"], #_next');
+      const mainContent = page.locator('main, [role="main"], #__next');
       await expect(mainContent).toBeVisible();
     });
 
@@ -70,7 +70,7 @@ test.describe('Error Handling', () => {
 
       // Should recover
       await widgetPage.goto('/');
-      const mainContent = page.locator('main, [role="main"], #_next');
+      const mainContent = page.locator('main, [role="main"], #__next');
       await expect(mainContent).toBeVisible();
     });
 
@@ -210,7 +210,7 @@ test.describe('Error Handling', () => {
       await widgetPage.waitForReady();
 
       // Widget should show connection error or fallback state
-      const mainContent = page.locator('main, [role="main"], #_next');
+      const mainContent = page.locator('main, [role="main"], #__next');
       await expect(mainContent).toBeVisible();
     });
 
@@ -275,7 +275,7 @@ test.describe('Error Handling', () => {
       await widgetPage.waitForReady();
 
       // Widget should handle auth error gracefully
-      const mainContent = page.locator('main, [role="main"], #_next');
+      const mainContent = page.locator('main, [role="main"], #__next');
       await expect(mainContent).toBeVisible();
     });
 
@@ -292,7 +292,7 @@ test.describe('Error Handling', () => {
       await widgetPage.waitForReady();
 
       // Widget should show appropriate message
-      const mainContent = page.locator('main, [role="main"], #_next');
+      const mainContent = page.locator('main, [role="main"], #__next');
       await expect(mainContent).toBeVisible();
     });
   });
@@ -400,7 +400,7 @@ test.describe('Error Handling', () => {
       await page.reload();
       await widgetPage.waitForReady();
 
-      const mainContent = page.locator('main, [role="main"], #_next');
+      const mainContent = page.locator('main, [role="main"], #__next');
       await expect(mainContent).toBeVisible();
     });
   });

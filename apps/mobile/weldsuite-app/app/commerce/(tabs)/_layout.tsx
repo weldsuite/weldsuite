@@ -12,7 +12,7 @@ import WeldAgentLogo from '@/components/WeldAgentLogo';
 if (
   Platform.OS === 'android' &&
   UIManager.setLayoutAnimationEnabledExperimental &&
-  !(global as any)._turboModuleProxy
+  !(global as any).__turboModuleProxy
 ) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }

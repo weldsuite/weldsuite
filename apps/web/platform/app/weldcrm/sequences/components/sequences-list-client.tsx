@@ -157,7 +157,7 @@ export function SequencesListClient({ initialSequences }: SequencesListClientPro
       const result = await client.post<{ data: { id: string } }>('/workflows', {
         name: newName.trim(),
         status: 'draft',
-        tags: ['_type:sequence'],
+        tags: ['__type:sequence'],
       });
       if (result?.data?.id) {
         setShowCreateDialog(false);

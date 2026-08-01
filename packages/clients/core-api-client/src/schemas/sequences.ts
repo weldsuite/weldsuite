@@ -3,7 +3,7 @@ import { z } from 'zod';
 // ============================================================================
 // Sequences — `/api/sequences`.
 //
-// A "sequence" is a workflow row (`workflows` table) tagged `_type:sequence`.
+// A "sequence" is a workflow row (`workflows` table) tagged `__type:sequence`.
 // Sequence CRUD itself goes through workflow APIs; this route exposes the
 // sequence view and manages enrollments via `sequence_enrollments`.
 //

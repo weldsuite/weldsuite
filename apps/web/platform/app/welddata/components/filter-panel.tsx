@@ -33,7 +33,7 @@ interface FilterPanelProps {
   onExcludeListIdsChange: (ids: string[]) => void;
 }
 
-const ANY = '_any';
+const ANY = '__any';
 
 /**
  * Renders the hard-coded WeldData filter catalog (see lib/filters-catalog).

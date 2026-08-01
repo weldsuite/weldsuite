@@ -18,7 +18,7 @@ import Svg, { Line, Circle, Polygon } from 'react-native-svg';
 if (
   Platform.OS === 'android' &&
   UIManager.setLayoutAnimationEnabledExperimental &&
-  !(global as any)._turboModuleProxy
+  !(global as any).__turboModuleProxy
 ) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }

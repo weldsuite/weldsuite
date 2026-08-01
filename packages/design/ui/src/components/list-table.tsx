@@ -349,7 +349,7 @@ export function ListTable<T>({
             );
           })}
           {buckets.leftover.length > 0 ? (
-            <React.Fragment key="_ungrouped">
+            <React.Fragment key="__ungrouped">
               <GroupHeaderRow
                 label={ungroupedLabel ?? 'Other'}
                 count={buckets.leftover.length}

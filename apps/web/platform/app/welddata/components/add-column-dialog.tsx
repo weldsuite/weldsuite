@@ -57,7 +57,7 @@ export function AddColumnDialog({ open, onOpenChange, listId, column }: AddColum
   const [name, setName] = useState('');
   const [actionType, setActionType] = useState<EnrichmentActionType>('email_finder');
   const [prompt, setPrompt] = useState('');
-  const [model, setModel] = useState<string>('_default');
+  const [model, setModel] = useState<string>('__default');
   const [webSearch, setWebSearch] = useState(false);
   const [provider, setProvider] = useState<EmailFinderProvider>('findymail');
 
@@ -69,7 +69,7 @@ export function AddColumnDialog({ open, onOpenChange, listId, column }: AddColum
       setActionType(column.type);
       if (column.config.type === 'ai') {
         setPrompt(column.config.prompt ?? '');
-        setModel(column.config.model ?? '_default');
+        setModel(column.config.model ?? '__default');
         setWebSearch(!!column.config.webSearch);
       } else if (column.config.type === 'email_finder') {
         setProvider(column.config.provider);
@@ -80,7 +80,7 @@ export function AddColumnDialog({ open, onOpenChange, listId, column }: AddColum
       setName('');
       setActionType('email_finder');
       setPrompt('');
-      setModel('_default');
+      setModel('__default');
       setWebSearch(false);
       setProvider('findymail');
     }
@@ -105,7 +105,7 @@ export function AddColumnDialog({ open, onOpenChange, listId, column }: AddColum
           : {
               type: 'ai' as const,
               prompt: prompt.trim(),
-              model: model === '_default' ? undefined : model,
+              model: model === '__default' ? undefined : model,
               webSearch: webSearch || undefined,
             };
     try {

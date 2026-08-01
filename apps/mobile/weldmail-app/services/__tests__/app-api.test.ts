@@ -79,7 +79,7 @@ describe('services/app-api', () => {
       let capturedGetToken: () => Promise<string | null> = async () => 'never-set';
       createClientApi.mockImplementation((opts: { getToken: () => Promise<string | null> }) => {
         capturedGetToken = opts.getToken;
-        return { _stub: 'client' };
+        return { __stub: 'client' };
       });
 
       // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules() requires a fresh synchronous require per case

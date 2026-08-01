@@ -4,7 +4,7 @@ import { NativeScrollEvent, NativeSyntheticEvent, LayoutAnimation, Platform, UIM
 if (
   Platform.OS === 'android' &&
   UIManager.setLayoutAnimationEnabledExperimental &&
-  !(global as any)._turboModuleProxy
+  !(global as any).__turboModuleProxy
 ) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }

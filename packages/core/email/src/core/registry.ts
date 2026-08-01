@@ -129,7 +129,7 @@ export function hasAccountProvider(name: string): boolean {
  * Test helper — wipes every registration. Production code should never call
  * this; it exists so unit tests can start from a clean slate.
  */
-export function _resetRegistryForTests(): void {
+export function __resetRegistryForTests(): void {
   sendProviders.clear();
   receiveProviders.clear();
   domainProviders.clear();

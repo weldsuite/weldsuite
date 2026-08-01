@@ -29,7 +29,7 @@ export function applyInterAsDefaultFont() {
     defaultProps?: { style?: TextStyle | TextStyle[] };
   };
 
-  if ((Any as { _interPatched?: boolean })._interPatched) return;
+  if ((Any as { __interPatched?: boolean }).__interPatched) return;
 
   const originalRender = Any.render;
   if (typeof originalRender !== 'function') {
@@ -39,7 +39,7 @@ export function applyInterAsDefaultFont() {
       { fontFamily: 'Inter_400Regular' },
       Any.defaultProps.style as TextStyle | undefined,
     ].filter(Boolean) as TextStyle[];
-    (Any as { _interPatched?: boolean })._interPatched = true;
+    (Any as { __interPatched?: boolean }).__interPatched = true;
     return;
   }
 
@@ -76,5 +76,5 @@ export function applyInterAsDefaultFont() {
     };
   };
 
-  (Any as { _interPatched?: boolean })._interPatched = true;
+  (Any as { __interPatched?: boolean }).__interPatched = true;
 }
