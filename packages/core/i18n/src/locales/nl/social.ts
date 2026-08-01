@@ -233,5 +233,6 @@ export const social = {
       approvalSubmitted: 'Ingediend voor goedkeuring',
       postApproved: 'Bericht goedgekeurd',
       postRejected: 'Bericht afgewezen',
+      invalidScheduleTime: 'Deze planningstijd kon niet worden gelezen — controleer de datum en tijdzone',
     },
   };

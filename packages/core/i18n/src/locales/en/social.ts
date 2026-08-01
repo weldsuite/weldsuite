@@ -233,5 +233,6 @@ export const social = {
       approvalSubmitted: 'Submitted for approval',
       postApproved: 'Post approved',
       postRejected: 'Post rejected',
+      invalidScheduleTime: 'That schedule time could not be read — check the date and timezone',
     },
   };
