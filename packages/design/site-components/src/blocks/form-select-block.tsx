@@ -28,8 +28,7 @@ export function FormSelectBlock({
   defaultValue,
   labelColor = '#374151',
   inputBorderColor = '#d1d5db',
-  inputBackgroundColor = '#ffffff',
-  mode = 'live'
+  inputBackgroundColor = '#ffffff'
 }: FormSelectBlockProps) {
   const [selectedValue, setSelectedValue] = React.useState(defaultValue || '');
   const [showError, setShowError] = React.useState(false);

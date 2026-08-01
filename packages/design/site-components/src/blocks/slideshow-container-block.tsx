@@ -26,7 +26,6 @@ export function SlideshowContainerBlock({
   transitionStyle = 'fade',
   mode = 'live',
   children,
-  settings,
 }: SlideshowContainerBlockProps) {
   const isEditing = mode === 'edit' || mode === 'preview';
 

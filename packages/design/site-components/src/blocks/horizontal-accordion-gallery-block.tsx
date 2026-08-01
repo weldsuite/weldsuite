@@ -63,7 +63,6 @@ export function HorizontalAccordionGalleryBlock({
   collapsedWidth = 80,
   gap = 4,
   showBorder = false,
-  mode = 'live',
 }: HorizontalAccordionGalleryBlockProps) {
   const [activeImage, setActiveImage] = useState<number>(0);
 

@@ -16,8 +16,6 @@ export function VideoTextBlock({
   text = "Blocks",
   fontFamily = "system-ui, sans-serif",
   fontSize = "clamp(4rem, 15vw, 15rem)",
-  textColor = '#333',
-  mode = 'live',
 }: VideoTextBlockProps) {
   const [isLoaded, setIsLoaded] = React.useState(false);
 

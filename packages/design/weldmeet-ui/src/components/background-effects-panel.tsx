@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { ImagePlus, Ban, Loader2, X, User, VideoOff } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
 import type { VirtualBackgroundType } from '../hooks/use-virtual-background';
+import type { MeetingPeer } from '../types';
 
 const PROFESSIONAL_BACKGROUNDS = [
   { label: 'Modern Office', url: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=1920&q=80' },
@@ -95,14 +96,14 @@ export interface BackgroundEffectsPanelProps {
   backgroundValue: string | null;
   isLoading?: boolean;
   isOpen: boolean;
-  localParticipant?: any;
+  localParticipant?: MeetingPeer;
   onApplyBlur: (intensity?: number) => void | Promise<void>;
   onApplyImage: (url: string) => void | Promise<void>;
   onRemove: () => void;
   onClose: () => void;
 }
 
-function VideoPreview({ participant }: { participant: any }) {
+function VideoPreview({ participant }: { participant?: MeetingPeer }) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {

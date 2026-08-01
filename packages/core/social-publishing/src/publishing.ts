@@ -24,7 +24,7 @@
  * profile ids it returns (see `social-accounts.ts` / `social-posts.ts` schema).
  */
 
-import { and, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
 import {
   consumeCredits,
   refundCredits,
@@ -272,10 +272,29 @@ export async function syncAccounts(
     const platform = normalisePlatform(String(integration.platform));
     if (!platform) continue; // skip platforms we don't model yet
 
+    const platformAccountId = integration.platformUserId ?? integration.id;
+
+    // Match on the PostPeer integration id OR on the channel itself.
+    //
+    // The integration id alone is not enough: reconnecting a channel — moving
+    // it onto a BYOK OAuth app, or re-authorising after a revoke — mints a NEW
+    // integration id for the SAME account. Keyed only on the old id, the row
+    // looked absent and sync fell through to an insert, which then collided
+    // with the `(platform, platform_account_id)` unique index and failed the
+    // whole sync with a 500. That pair is the row's real identity, so it has to
+    // be part of the lookup that decides insert-vs-update.
     const [existing] = await db
       .select()
       .from(socialAccounts)
-      .where(eq(socialAccounts.postpeerIntegrationId, integration.id))
+      .where(
+        or(
+          eq(socialAccounts.postpeerIntegrationId, integration.id),
+          and(
+            eq(socialAccounts.platform, platform),
+            eq(socialAccounts.platformAccountId, platformAccountId),
+          ),
+        ),
+      )
       .limit(1);
 
     if (existing) {
@@ -285,6 +304,11 @@ export async function syncAccounts(
           name: integration.name ?? integration.username ?? existing.name,
           username: integration.username ?? existing.username,
           avatarUrl: integration.avatarUrl ?? existing.avatarUrl,
+          // Re-bind to the current integration — this is what makes a
+          // reconnected channel point at its new PostPeer integration instead
+          // of a dead one. Publishing resolves accounts through this id, so a
+          // stale value here means posts go nowhere.
+          postpeerIntegrationId: integration.id,
           postpeerProfileId: integration.profileId,
           status: 'active',
           lastSyncAt: now,
@@ -295,21 +319,38 @@ export async function syncAccounts(
       accountIds.push(existing.id);
     } else {
       const id = generateId('sac');
-      await db.insert(socialAccounts).values({
-        id,
-        platform,
-        platformAccountId: integration.platformUserId ?? integration.id,
-        name: integration.name ?? integration.username ?? `${platform} account`,
-        username: integration.username,
-        avatarUrl: integration.avatarUrl,
-        postpeerIntegrationId: integration.id,
-        postpeerProfileId: integration.profileId,
-        status: 'active',
-        lastSyncAt: now,
-        connectedByUserId,
-        createdAt: now,
-        updatedAt: now,
-      } as unknown as typeof socialAccounts.$inferInsert);
+      await db
+        .insert(socialAccounts)
+        .values({
+          id,
+          platform,
+          platformAccountId,
+          name: integration.name ?? integration.username ?? `${platform} account`,
+          username: integration.username,
+          avatarUrl: integration.avatarUrl,
+          postpeerIntegrationId: integration.id,
+          postpeerProfileId: integration.profileId,
+          status: 'active',
+          lastSyncAt: now,
+          connectedByUserId,
+          createdAt: now,
+          updatedAt: now,
+        } as unknown as typeof socialAccounts.$inferInsert)
+        // Belt and braces for the same unique index: two syncs racing (the
+        // post-OAuth auto-sync and a manual click) can both read "absent" and
+        // both insert. Upserting keeps that a no-op instead of failing the
+        // whole sync, which is what the read-then-insert above cannot prevent.
+        .onConflictDoUpdate({
+          target: [socialAccounts.platform, socialAccounts.platformAccountId],
+          set: {
+            postpeerIntegrationId: integration.id,
+            postpeerProfileId: integration.profileId,
+            status: 'active',
+            lastSyncAt: now,
+            deletedAt: null,
+            updatedAt: now,
+          },
+        });
       accountIds.push(id);
     }
   }

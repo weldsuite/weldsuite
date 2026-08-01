@@ -1,7 +1,65 @@
 import type { ReactNode } from 'react';
+import type RealtimeKitClient from '@cloudflare/realtimekit';
+import type { VirtualBackgroundType } from './hooks/use-virtual-background';
 
 export type ViewMode = 'grid' | 'spotlight' | 'speaker' | 'sidebar';
 export type RecordingState = 'IDLE' | 'STARTING' | 'RECORDING' | 'PAUSED' | 'STOPPING';
+
+/** The RealtimeKit meeting handle. Owned by the host app, passed down as a prop. */
+export type MeetingClient = RealtimeKitClient;
+
+/**
+ * The participant surface this package renders against.
+ *
+ * Deliberately structural rather than `RTKParticipant`, because host apps pass
+ * three different shapes into the same tiles and rows:
+ *   - `RTKParticipant` — a joined remote peer (has the moderation actions)
+ *   - `RTKSelf`        — the local peer, via `meeting.self` (no moderation actions)
+ *   - a synthetic "ringing" placeholder for a callee who hasn't picked up yet,
+ *     injected by WeldChat's outgoing-call view (no media tracks at all)
+ *
+ * Everything only some of those provide is optional, so the components have to
+ * check before reaching for it.
+ */
+export interface MeetingPeer {
+  id: string;
+  userId?: string;
+  name?: string;
+  picture?: string;
+  customParticipantId?: string;
+  isHost?: boolean;
+
+  audioEnabled: boolean;
+  videoEnabled: boolean;
+  screenShareEnabled?: boolean;
+  audioTrack?: MediaStreamTrack | null;
+  videoTrack?: MediaStreamTrack | null;
+  screenShareTracks?: {
+    audio?: MediaStreamTrack | null;
+    video?: MediaStreamTrack | null;
+  };
+
+  /** Set only on the synthetic outgoing-call placeholder tiles. */
+  ringing?: boolean;
+  ringingLabel?: string;
+
+  /** Remote-peer only — absent on `RTKSelf` and on ringing placeholders. */
+  pin?: () => Promise<void>;
+  unpin?: () => Promise<void>;
+  kick?: () => Promise<void>;
+  disableAudio?: () => Promise<void>;
+  disableVideo?: () => Promise<void>;
+  isPinned?: boolean;
+}
+
+/**
+ * A peer sitting in the waiting room. RealtimeKit withholds the media tracks
+ * until the guest is admitted, so these never carry audio/video.
+ */
+export type WaitlistedPeer = Omit<
+  MeetingPeer,
+  'audioTrack' | 'videoTrack' | 'screenShareTracks'
+>;
 
 /**
  * Props for the shared MeetingRoomView. Pure presentational — no Clerk, no
@@ -21,8 +79,8 @@ export interface MeetingRoomViewProps {
   scheduledStart?: string | null;
 
   // ── RTK / live meeting client ──────────────────────────────────────────────
-  meeting: any;
-  participants: any[];
+  meeting: MeetingClient | null;
+  participants: MeetingPeer[];
   waitlistedCount?: number;
 
   // ── Self state ────────────────────────────────────────────────────────────
@@ -68,7 +126,7 @@ export interface MeetingRoomViewProps {
   // ── Background effects (omit to hide) ─────────────────────────────────────
   onToggleEffects?: () => void;
   effectsOpen?: boolean;
-  backgroundType?: any;
+  backgroundType?: VirtualBackgroundType;
   /** Slot — host app renders its BackgroundEffectsPanel here (always portaled). */
   backgroundEffectsSlot?: ReactNode;
 
@@ -151,7 +209,7 @@ export interface MeetingRoomViewProps {
    * context menu) invokes this callback. The platform uses it to open a
    * side sheet showing the linked CRM contact / team-member details.
    */
-  onClickParticipantDetails?: (participant: any) => void;
+  onClickParticipantDetails?: (participant: MeetingPeer) => void;
 
   // ── Host-app right-edge reservation (fullscreen only) ─────────────────────
   /**

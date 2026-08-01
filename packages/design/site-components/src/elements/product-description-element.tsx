@@ -15,7 +15,6 @@ export function ProductDescriptionElement({
   heading = 'Omschrijving',
   storeName = 'rhode',
   showStoreLink = true,
-  mode = 'live',
 }: ProductDescriptionElementProps) {
   return (
     <>

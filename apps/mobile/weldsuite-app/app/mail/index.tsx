@@ -67,6 +67,8 @@ const ConnectionBanner = memo(({ isConnected, realtimeState }: { isConnected: bo
   );
 });
 
+ConnectionBanner.displayName = 'ConnectionBanner';
+
 // Swipeable Email Item Component
 const SwipeableEmailItem = ({ item, onPress, onDelete, onArchive, onSnooze, colors, getAvatarColor, isSelected }: {
   item: Email;
@@ -1154,20 +1156,6 @@ const styles = StyleSheet.create({
   },
   emailDetailPanel: {
     flex: 1,
-  },
-  homeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    gap: 6,
-  },
-  homeButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
   },
   splitViewBottomBar: {
     paddingHorizontal: 12,

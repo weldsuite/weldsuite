@@ -7,6 +7,7 @@ import { PeoplePanel } from './people-panel';
 import { MeetingToolsPanel } from './meeting-tools-panel';
 import { useIsMobile } from '../hooks/use-is-mobile';
 import type { RecordingState } from '../types';
+import type { MeetingClient, MeetingPeer } from '../types';
 
 function formatMeetingDate(iso: string): string {
   const date = new Date(iso);
@@ -40,8 +41,8 @@ export interface MeetingRightPanelProps {
   shareUrl?: string;
   description?: string;
   scheduledStart?: string | null;
-  participants: any[];
-  meeting: any;
+  participants: MeetingPeer[];
+  meeting: MeetingClient | null;
   skipTransition?: boolean;
 
   /** Optional slot — replaces built-in PeoplePanel. */
@@ -49,7 +50,7 @@ export interface MeetingRightPanelProps {
   /** Optional slot — replaces built-in HostControlsPanel. */
   hostControlsSlot?: ReactNode;
   /** Forwarded to the built-in PeoplePanel — opens host app's details sheet. */
-  onClickParticipantDetails?: (participant: any) => void;
+  onClickParticipantDetails?: (participant: MeetingPeer) => void;
 
   /** Forwarded to MeetingToolsPanel. */
   isRecording?: boolean;
@@ -69,7 +70,6 @@ export function MeetingRightPanel({
   scheduledStart,
   participants,
   meeting,
-  skipTransition,
   peoplePanelSlot,
   hostControlsSlot,
   onClickParticipantDetails,

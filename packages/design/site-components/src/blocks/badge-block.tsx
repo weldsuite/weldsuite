@@ -12,8 +12,7 @@ export interface BadgeBlockProps {
 export function BadgeBlock({
   text = 'Badge',
   variant = 'neutral',
-  size = 'md',
-  mode = 'live'
+  size = 'md'
 }: BadgeBlockProps) {
   const sizeClasses = {
     sm: 'px-2 py-0.5 text-xs',

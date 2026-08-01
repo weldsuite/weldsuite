@@ -14,7 +14,8 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
 } from '@weldsuite/ui/components/dropdown-menu';
-import type { ViewMode, RecordingState } from '../types';
+import type { ViewMode, RecordingState, MeetingClient } from '../types';
+import type { VirtualBackgroundType } from '../hooks/use-virtual-background';
 
 // ─── Tooltip ─────────────────────────────────────────────────────────────────
 
@@ -84,7 +85,7 @@ function CallTooltip({ label, children }: { label: string; children: React.React
 
 export interface CallControlsBarProps {
   // Required state
-  meeting: any;
+  meeting: MeetingClient | null;
   isMuted: boolean;
   isVideoOff: boolean;
   isScreenSharing: boolean;
@@ -103,7 +104,7 @@ export interface CallControlsBarProps {
   // Background effects (optional)
   onToggleEffects?: () => void;
   effectsOpen?: boolean;
-  backgroundType?: any;
+  backgroundType?: VirtualBackgroundType;
 
   // Recording (optional — weldmeet organizer only)
   isRecording?: boolean;
@@ -206,18 +207,20 @@ export function CallControlsBar({
 
   useEffect(() => {
     if (!meeting) return;
+    // Bound locally so the nested async closure keeps the non-null narrowing.
+    const rtk = meeting;
 
     let cancelled = false;
     async function loadDevices() {
       try {
-        const all = await meeting.self.getAllDevices();
+        const all = await rtk.self.getAllDevices();
         if (cancelled) return;
-        const inputs = (all ?? []).filter((d: any) => d.kind === 'audioinput') as MediaDeviceInfo[];
-        const videos = (all ?? []).filter((d: any) => d.kind === 'videoinput') as MediaDeviceInfo[];
+        const inputs = (all ?? []).filter((d) => d.kind === 'audioinput');
+        const videos = (all ?? []).filter((d) => d.kind === 'videoinput');
         setAudioDevices(inputs);
         setVideoDevices(videos);
 
-        const current = meeting.self.getCurrentDevices();
+        const current = rtk.self.getCurrentDevices();
         if (current?.audio?.deviceId) {
           setActiveDeviceId(current.audio.deviceId);
         } else if (inputs.length > 0) {
@@ -281,7 +284,7 @@ export function CallControlsBar({
   const applyScreenShareAudio = useCallback((enabled: boolean) => {
     if (!meeting) return;
     try {
-      const track = (meeting.self as any).screenShareTracks?.audio as MediaStreamTrack | undefined;
+      const track = meeting.self.screenShareTracks?.audio;
       if (track) track.enabled = enabled;
     } catch { /* track not available */ }
   }, [meeting]);
@@ -304,7 +307,7 @@ export function CallControlsBar({
     let tries = 0;
     const apply = () => {
       if (cancelled) return;
-      const track = (meeting.self as any).screenShareTracks?.audio as MediaStreamTrack | undefined;
+      const track = meeting.self.screenShareTracks?.audio;
       if (track) { track.enabled = shareScreenAudio; return; }
       if (tries++ < 10) setTimeout(apply, 100);
     };
@@ -473,7 +476,7 @@ export function CallControlsBar({
                   // the share or re-prompt for the source picker.
                   if (isScreenSharing && meeting) {
                     try {
-                      await (meeting.self as any).updateScreenshareConstraints({
+                      await meeting.self.updateScreenshareConstraints({
                         width: { ideal: res.width },
                         height: { ideal: res.height },
                         frameRate: { ideal: res.frameRate },

@@ -4,6 +4,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/av
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardFooter } from '@weldsuite/ui/components/card';
 import { Separator } from '@weldsuite/ui/components/separator';
+import type { MeetingClient, WaitlistedPeer } from '../types';
 
 // Same palette as ParticipantTile so the in-call tile and the admit pill
 // resolve to the exact same color for a given guest. The lighter `avatar`
@@ -43,7 +44,7 @@ function getAvatarColor(seed: string): string {
 }
 
 export interface AdmitGuestsPillProps {
-  meeting: any;
+  meeting: MeetingClient | null;
 }
 
 /**
@@ -54,7 +55,7 @@ export interface AdmitGuestsPillProps {
  * actions. Returns null when no one is waiting.
  */
 export function AdmitGuestsPill({ meeting }: AdmitGuestsPillProps) {
-  const [waitlisted, setWaitlisted] = useState<any[]>([]);
+  const [waitlisted, setWaitlisted] = useState<WaitlistedPeer[]>([]);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -77,7 +78,7 @@ export function AdmitGuestsPill({ meeting }: AdmitGuestsPillProps) {
   // Drop dismissed ids that are no longer in the queue.
   useEffect(() => {
     setDismissedIds((prev) => {
-      const liveIds = new Set(waitlisted.map((p: any) => p.id));
+      const liveIds = new Set(waitlisted.map((p) => p.id));
       const next = new Set<string>();
       for (const id of prev) if (liveIds.has(id)) next.add(id);
       return next.size === prev.size ? prev : next;
@@ -107,7 +108,7 @@ export function AdmitGuestsPill({ meeting }: AdmitGuestsPillProps) {
   );
 
   const handleAdmitAll = useCallback(async () => {
-    const ids = waitlisted.map((p: any) => p.id);
+    const ids = waitlisted.map((p) => p.id);
     try {
       await meeting?.participants?.acceptAllWaitingRoomRequest(ids);
     } catch {
@@ -115,10 +116,10 @@ export function AdmitGuestsPill({ meeting }: AdmitGuestsPillProps) {
     }
   }, [meeting, waitlisted]);
 
-  const visible = waitlisted.filter((p: any) => !dismissedIds.has(p.id));
-  if (visible.length === 0) return null;
-
+  const visible = waitlisted.filter((p) => !dismissedIds.has(p.id));
   const primary = visible[0];
+  if (!primary) return null;
+
   const extraCount = visible.length - 1;
   const primaryName = primary.name ?? 'Guest';
   const initials = getInitials(primaryName);

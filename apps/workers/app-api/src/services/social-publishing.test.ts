@@ -13,6 +13,7 @@ import { createPgliteDb, isPgliteAvailable } from '../test/pglite';
 import { schema, type Database } from '../db';
 import {
   publishPost,
+  syncAccounts,
   cancelPost,
   SocialPublishConflictError,
   type SocialPublishingContext,
@@ -206,5 +207,86 @@ describe('social publishing · double-post guards', () => {
       .from(schema.socialPosts)
       .where(eq(schema.socialPosts.id, 'spo_pub_cancel'));
     expect(row.status).toBe('published');
+  });
+});
+
+describe('social publishing · account sync', () => {
+  /**
+   * Stub the three PostPeer calls syncAccounts makes, returning one integration
+   * for an account that is already in the tenant DB under a DIFFERENT
+   * integration id — what reconnecting a channel under a BYOK OAuth app does.
+   */
+  function stubSyncPostPeer(integrationId: string, platformUserId: string) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const u = new URL(String(url));
+        const body = u.pathname.endsWith('/profiles')
+          ? { profiles: [{ id: 'prof_1', name: 'org_1' }] }
+          : u.pathname.endsWith('/connect/integrations')
+            ? {
+                integrations: [
+                  {
+                    id: integrationId,
+                    platform: 'twitter',
+                    platformUserId,
+                    username: '@WeldSuite',
+                    profileId: 'prof_1',
+                  },
+                ],
+              }
+            : {};
+        return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+      }),
+    );
+  }
+
+  /** Point the workspace at a known PostPeer profile so no profile is created. */
+  async function seedProfileSetting(orgId: string) {
+    await db
+      .insert(schema.workspaceSettings)
+      .values({
+        id: orgId,
+        customSettings: { social: { postpeerProfileId: 'prof_1' } },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as unknown as typeof schema.workspaceSettings.$inferInsert)
+      .onConflictDoNothing();
+  }
+
+  it('re-binds a reconnected channel instead of colliding on the unique index', async () => {
+    if (!available) return;
+    await seedProfileSetting('org_1');
+
+    // Existing row from an earlier sync, under the OLD integration id.
+    await db.insert(schema.socialAccounts).values({
+      id: 'sac_rebind',
+      platform: 'twitter',
+      platformAccountId: '2069473473458528256',
+      name: 'WeldSuite',
+      postpeerIntegrationId: 'intg_old',
+      postpeerProfileId: 'prof_1',
+      status: 'active',
+      connectedByUserId: 'u1',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as typeof schema.socialAccounts.$inferInsert);
+
+    // PostPeer now reports the SAME channel under a NEW integration id.
+    stubSyncPostPeer('intg_new', '2069473473458528256');
+
+    const res = await syncAccounts(db, ctx, 'org_1', 'u1');
+
+    // Updated in place — not inserted, which is what used to blow up on
+    // (platform, platform_account_id) and fail the whole sync with a 500.
+    expect(res.accountIds).toEqual(['sac_rebind']);
+
+    const rows = await db
+      .select()
+      .from(schema.socialAccounts)
+      .where(eq(schema.socialAccounts.platformAccountId, '2069473473458528256'));
+    expect(rows).toHaveLength(1);
+    // Re-bound to the new integration, or publishing would target a dead one.
+    expect(rows[0].postpeerIntegrationId).toBe('intg_new');
   });
 });

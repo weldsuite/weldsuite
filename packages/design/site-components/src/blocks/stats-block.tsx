@@ -26,8 +26,7 @@ export function StatsBlock({
   duration = 2000,
   numberColor = '#000000',
   labelColor = '#6b7280',
-  iconColor = '#3b82f6',
-  mode = 'live'
+  iconColor = '#3b82f6'
 }: StatsBlockProps) {
   const [displayNumber, setDisplayNumber] = useState(animateOnScroll ? '0' : number);
   const [hasAnimated, setHasAnimated] = useState(false);

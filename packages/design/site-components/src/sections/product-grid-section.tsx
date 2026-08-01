@@ -16,8 +16,7 @@ interface ProductGridSectionProps {
 export default function ProductGridSection({ 
   title = "Featured Products",
   limit = 6,
-  store,
-  settings
+  store
 }: ProductGridSectionProps) {
   const products = store?.products || [];
   const displayProducts = products.slice(0, limit);

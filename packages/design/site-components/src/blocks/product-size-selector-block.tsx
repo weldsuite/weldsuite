@@ -20,7 +20,6 @@ export function ProductSizeSelectorBlock({
   textColor = '#000000',
   showSizeFit = true,
   borderRadius = 6,
-  mode = 'live',
   store,
 }: ProductSizeSelectorBlockProps) {
   // Extract sizes from product variants if available

@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { DynamicIcon } from 'lucide-react/dynamic';
-import { Truck, RotateCcw, Shield, Star } from 'lucide-react';
+import { Star } from 'lucide-react';
 
 function toKebab(name: string): string {
   return name
@@ -68,7 +68,6 @@ export function TrustStripBlock({
   alignment = 'center',
   itemGap = 24,
   showDescriptions = true,
-  mode = 'live',
 }: TrustStripBlockProps) {
   // Icon mapping function - dynamically resolve any Lucide icon (per-icon
   // chunk via lucide-react/dynamic). Falls back to Star when the name is

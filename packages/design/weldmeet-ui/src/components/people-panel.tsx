@@ -4,6 +4,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/av
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { cn } from '@weldsuite/ui/lib/utils';
+import type { MeetingClient, MeetingPeer, WaitlistedPeer } from '../types';
 
 // Same palette as ParticipantTile + AdmitGuestsPill so a guest's avatar color
 // is identical in the side panel, the admission pill, and the in-call tile.
@@ -33,15 +34,15 @@ function getAvatarColor(seed: string): string {
 }
 
 export interface PeoplePanelProps {
-  meeting: any;
-  participants: any[];
+  meeting: MeetingClient | null;
+  participants: MeetingPeer[];
   /** When true, the leftmost participant tile shows "(Host)" suffix. */
   selfIsHost?: boolean;
   /**
    * When provided, clicking a participant row opens the host app's
    * details sheet (CRM contact / team member). Hover state surfaces.
    */
-  onClickDetails?: (participant: any) => void;
+  onClickDetails?: (participant: MeetingPeer) => void;
   /** Meeting join code — when set, shows the code chip + copy button at the top. */
   joinCode?: string;
   /** Public share URL copied when the chip's copy button is clicked. */
@@ -59,7 +60,7 @@ export function PeoplePanel({
   shareUrl,
   invitePopoverSlot,
 }: PeoplePanelProps) {
-  const [waitlisted, setWaitlisted] = useState<any[]>([]);
+  const [waitlisted, setWaitlisted] = useState<WaitlistedPeer[]>([]);
   const [codeCopied, setCodeCopied] = useState(false);
 
   const handleCopyCode = async () => {
@@ -95,7 +96,7 @@ export function PeoplePanel({
   }, [meeting]);
 
   const handleAdmitAll = useCallback(async () => {
-    const ids = waitlisted.map((p: any) => p.id);
+    const ids = waitlisted.map((p) => p.id);
     try { await meeting?.participants?.acceptAllWaitingRoomRequest(ids); } catch { /* ignore */ }
   }, [meeting, waitlisted]);
 
@@ -133,7 +134,7 @@ export function PeoplePanel({
             </p>
           </div>
           <div className="px-4">
-            {waitlisted.map((p: any) => {
+            {waitlisted.map((p) => {
               const seed = String(p.customParticipantId ?? p.userId ?? p.id ?? p.name ?? '');
               return (
               <div key={p.id} className="flex items-center gap-3 py-2">

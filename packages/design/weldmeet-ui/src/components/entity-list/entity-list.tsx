@@ -28,7 +28,6 @@ import type {
   EntityListProps,
   ActiveFilter,
   RowHandlers,
-  HeaderColumn,
 } from './types';
 
 export function EntityList<T extends { id: string }>({
@@ -108,7 +107,12 @@ export function EntityList<T extends { id: string }>({
   const isSearchControlled = onSearchChange !== undefined;
   const isFiltersControlled = onFiltersChange !== undefined;
   const searchQuery = isSearchControlled ? (searchQueryProp ?? '') : internalSearchQuery;
-  const activeFilters = isFiltersControlled ? (activeFiltersProp ?? []) : internalActiveFilters;
+  // Memoised because the `?? []` fallback would otherwise hand a fresh array to
+  // the filtering useMemo below on every render.
+  const activeFilters = useMemo(
+    () => (isFiltersControlled ? (activeFiltersProp ?? []) : internalActiveFilters),
+    [isFiltersControlled, activeFiltersProp, internalActiveFilters],
+  );
   const setSearchQuery = (q: string) => {
     if (isSearchControlled) onSearchChange!(q);
     else setInternalSearchQuery(q);

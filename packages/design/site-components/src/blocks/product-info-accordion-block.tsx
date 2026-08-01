@@ -47,7 +47,6 @@ export function ProductInfoAccordionBlock({
   items = DEFAULT_ITEMS,
   textColor = '#171717',
   borderColor = '#e5e5e5',
-  mode = 'live',
   store,
 }: ProductInfoAccordionBlockProps) {
   const [openItem, setOpenItem] = useState<string | null>(null);

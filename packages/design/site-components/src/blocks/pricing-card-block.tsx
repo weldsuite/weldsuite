@@ -33,8 +33,7 @@ export function PricingCardBlock({
   highlighted = false,
   backgroundColor = '#ffffff',
   textColor = '#000000',
-  accentColor = '#3b82f6',
-  mode = 'live'
+  accentColor = '#3b82f6'
 }: PricingCardBlockProps) {
   return (
     <div

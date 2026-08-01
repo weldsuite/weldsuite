@@ -15,7 +15,6 @@ export function SlideHeadingBlock({
   fontSize = 64,
   fontWeight = 700,
   color = '#ffffff',
-  mode = 'live',
 }: SlideHeadingBlockProps) {
   return (
     <h2

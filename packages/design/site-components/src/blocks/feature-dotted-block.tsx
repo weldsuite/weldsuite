@@ -53,7 +53,6 @@ export function FeatureDottedBlock({
   textColor,
   className,
   mode = 'live',
-  store,
 }: FeatureDottedBlockProps) {
   const isEditing = mode === 'edit' || mode === 'preview';
 

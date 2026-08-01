@@ -15,8 +15,7 @@ export interface TabsBlockProps {
 export function TabsBlock({
   items = [],
   defaultTab = 0,
-  variant = 'underline',
-  mode = 'live'
+  variant = 'underline'
 }: TabsBlockProps) {
   const [activeTab, setActiveTab] = React.useState(defaultTab);
 

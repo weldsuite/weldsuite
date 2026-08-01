@@ -18,8 +18,7 @@ export function GalleryBlock({
   ],
   columns = 3,
   gap = 'md',
-  lightbox = true,
-  mode = 'live'
+  lightbox = true
 }: GalleryBlockProps) {
   const [selectedImage, setSelectedImage] = useState<number | null>(null);
 

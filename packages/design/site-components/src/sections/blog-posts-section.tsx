@@ -2,7 +2,6 @@
 
 import React from 'react';
 import { Calendar, User } from 'lucide-react';
-import { cn } from '@weldsuite/ui/lib/utils';
 
 interface BlogPost {
   id: number;
@@ -68,7 +67,6 @@ const mockPosts: BlogPost[] = [
 
 export function BlogPostsSection({
   heading = 'From the Blog',
-  subheading = 'Latest stories and updates',
   postsToShow = 3,
   columns = 3,
   showExcerpt = true,
@@ -78,7 +76,6 @@ export function BlogPostsSection({
   textColor = '#000000',
   paddingTop = 80,
   paddingBottom = 80,
-  sectionId,
   store,
   posts,
 }: BlogPostsSectionProps) {

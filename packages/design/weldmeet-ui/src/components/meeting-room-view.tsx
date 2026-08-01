@@ -7,6 +7,7 @@ import { MeetingRightPanel, type RightPanelKind } from './meeting-right-panel';
 import { ShareLinkCard } from './share-link-card';
 import { AdmitGuestsPill } from './admit-guests-pill';
 import type { MeetingRoomViewProps } from '../types';
+import type { MeetingPeer } from '../types';
 
 /**
  * Audio-only playback for a single remote participant.
@@ -17,7 +18,7 @@ import type { MeetingRoomViewProps } from '../types';
  * Rendering this hidden sink in such layouts keeps each remote participant
  * audible regardless of what's on screen.
  */
-function RemoteParticipantAudio({ participant }: { participant: any }) {
+function RemoteParticipantAudio({ participant }: { participant: MeetingPeer }) {
   const ref = useRef<HTMLAudioElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -90,7 +91,6 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     showToolsButton = true,
     peoplePanelSlot,
     hostControlsSlot,
-    invitePopoverSlot,
     addPeopleDialogContent,
     onClickParticipantDetails,
     selfColorSeed,
@@ -192,7 +192,9 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
     const sync = () => setActiveSpeakerId(parts.lastActiveSpeaker ?? null);
     sync();
     parts.on?.('activeSpeaker', sync);
-    return () => parts.off?.('activeSpeaker', sync);
+    return () => {
+      parts.off?.('activeSpeaker', sync);
+    };
   }, [meeting]);
 
   const toggleRightPanel = useCallback((panel: 'info' | 'people' | 'settings' | 'tools') => {
@@ -210,6 +212,9 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
   }, [onTogglePinProp]);
 
   const allParticipants = participants.map((p, i) => ({ p, isSelf: i === 0 }));
+  // The host app always hands us the local peer first, remotes after it.
+  const selfPeer = participants[0];
+  const firstRemote = participants[1];
 
   // Derive screen-share pseudo-tiles from any participant (self or remote)
   // that currently has an active screen-share track.  RTK exposes
@@ -256,15 +261,15 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
   const focusedParticipant = (() => {
     if (focusedScreen) return null;
     if (pinnedParticipant) return pinnedParticipant;
-    if (participants.length <= 1) return null;
+    if (participants.length <= 1 || !firstRemote) return null;
     if (viewMode === 'speaker') {
       const active = activeSpeakerId
         ? allParticipants.find(({ p }) => p.id === activeSpeakerId)
         : null;
-      return active ?? { p: participants[1], isSelf: false };
+      return active ?? { p: firstRemote, isSelf: false };
     }
     if (viewMode === 'spotlight' || viewMode === 'sidebar') {
-      return { p: participants[1], isSelf: false };
+      return { p: firstRemote, isSelf: false };
     }
     return null;
   })();
@@ -279,7 +284,7 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
   // Shared renderer for the camera-focus layout — one big tile plus a strip of
   // everyone else. Used both for an explicit pin and the spotlight/sidebar
   // viewMode auto-focus, so the markup lives in one place.
-  const renderCameraFocus = (focused: { p: any; isSelf: boolean }) => {
+  const renderCameraFocus = (focused: { p: MeetingPeer; isSelf: boolean }) => {
     const others = allParticipants.filter(({ p }) => p.id !== focused.p.id);
     const isPinned = pinnedParticipant?.p.id === focused.p.id;
     const mainTile = (
@@ -440,7 +445,7 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
           ) : pinnedParticipant ? (
             /* An explicit camera pin wins over the auto screen-share presenter. */
             renderCameraFocus(pinnedParticipant)
-          ) : participants.length === 1 && isScreenShareActive ? (
+          ) : participants.length === 1 && isScreenShareActive && selfPeer ? (
             /*
              * ── Solo presenter layout ─────────────────────────────────────────
              * Mirrors Google Meet's "you are the only one in this call" presenter
@@ -456,7 +461,7 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
                   matches the inset of every other layout). */}
               <div className="relative h-full w-full rounded-xl overflow-hidden bg-[#1a1a1a]">
                 <ScreenShareTile
-                  participant={participants[0]}
+                  participant={selfPeer}
                   isSelf
                   meeting={meeting}
                 />
@@ -465,7 +470,7 @@ export function MeetingRoomView(props: MeetingRoomViewProps) {
                 {!isVideoOff && (
                   <div className="absolute bottom-4 right-4 z-10 w-[300px] h-[195px] rounded-lg shadow-lg overflow-hidden ring-1 ring-white/20">
                     <ParticipantTile
-                      participant={participants[0]}
+                      participant={selfPeer}
                       isSelf
                       isHandRaised={handRaised}
                       meeting={meeting}

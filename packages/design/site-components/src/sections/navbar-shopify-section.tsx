@@ -87,7 +87,6 @@ export function NavbarShopifySection({
   ],
   backgroundColor = '#ffffff',
   textColor = '#121212',
-  hoverColor = '#000000',
   showSearch = true,
   searchStyle = 'icon',
   showCart = true,

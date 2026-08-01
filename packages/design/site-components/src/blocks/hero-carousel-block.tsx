@@ -94,8 +94,6 @@ export function HeroCarouselBlock({
   paddingTop = 128,
   paddingBottom = 128,
   className,
-  mode = 'live',
-  store,
 }: HeroCarouselBlockProps) {
   // Position classes mapping
   const positionClasses = {

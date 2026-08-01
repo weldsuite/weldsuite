@@ -11,9 +11,7 @@ interface TextSectionProps {
 export default function TextSection({
   title,
   content = "Add your text content here",
-  align = 'center',
-  store,
-  settings
+  align = 'center'
 }: TextSectionProps) {
   const textAlign = align === 'left' ? 'text-left' : align === 'right' ? 'text-right' : 'text-center';
   

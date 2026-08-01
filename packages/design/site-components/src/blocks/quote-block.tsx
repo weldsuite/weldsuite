@@ -24,8 +24,7 @@ export function QuoteBlock({
   textColor = '#1f2937',
   borderColor = '#3b82f6',
   fontSize = 'lg',
-  fontStyle = 'italic',
-  mode = 'live'
+  fontStyle = 'italic'
 }: QuoteBlockProps) {
   const fontSizeClasses = {
     sm: 'text-base',

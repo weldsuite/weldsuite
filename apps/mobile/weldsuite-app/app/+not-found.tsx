@@ -7,7 +7,7 @@ export default function NotFoundScreen() {
       <Stack.Screen options={{ title: 'Not Found' }} />
       <View style={styles.container}>
         <Text style={styles.title}>404</Text>
-        <Text style={styles.message}>This screen doesn't exist.</Text>
+        <Text style={styles.message}>This screen doesn&apos;t exist.</Text>
         <Link href="/(tabs)" style={styles.link}>
           Go to Dashboard
         </Link>

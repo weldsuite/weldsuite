@@ -515,7 +515,7 @@ export default function ProjectDocumentsScreen() {
                 Delete Document?
               </Text>
               <Text style={styles.confirmMessage}>
-                Are you sure you want to delete "{selectedDocument?.title}"? This action cannot be undone.
+                Are you sure you want to delete &quot;{selectedDocument?.title}&quot;? This action cannot be undone.
               </Text>
               <View style={styles.confirmActions}>
                 <TouchableOpacity
@@ -632,7 +632,7 @@ export default function ProjectDocumentsScreen() {
                 <View style={styles.noResults}>
                   <Search size={48} color={colors.muted} strokeWidth={1} />
                   <Text style={styles.noResultsText}>
-                    No documents matching "{searchQuery}"
+                    No documents matching &quot;{searchQuery}&quot;
                   </Text>
                 </View>
               ) : (
@@ -700,7 +700,7 @@ export default function ProjectDocumentsScreen() {
               Delete Document?
             </Text>
             <Text style={styles.confirmMessage}>
-              Are you sure you want to delete "{selectedDocument?.title}"? This action cannot be undone.
+              Are you sure you want to delete &quot;{selectedDocument?.title}&quot;? This action cannot be undone.
             </Text>
             <View style={styles.confirmActions}>
               <TouchableOpacity

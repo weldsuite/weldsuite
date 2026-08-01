@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
+import { desc, gte, sql } from 'drizzle-orm';
 import * as masterSchema from '@weldsuite/db/schema/master';
 
 import { getMasterDb } from './db';

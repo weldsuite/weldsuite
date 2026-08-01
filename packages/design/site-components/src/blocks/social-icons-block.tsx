@@ -27,8 +27,7 @@ export function SocialIconsBlock({
   color = '#000000',
   hoverColor = '#3b82f6',
   backgroundColor = 'transparent',
-  layout = 'horizontal',
-  mode = 'live'
+  layout = 'horizontal'
 }: SocialIconsBlockProps) {
   const sizeClasses = {
     sm: 'w-8 h-8',

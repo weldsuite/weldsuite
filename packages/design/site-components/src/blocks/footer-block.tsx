@@ -65,7 +65,6 @@ export function FooterBlock({
   blocks = [],
   // Legacy props
   columns = [],
-  socialLinks = [],
   showSocialIcons = false,
   socialMediaLinks = [],
   socialIconsPosition = 'left',

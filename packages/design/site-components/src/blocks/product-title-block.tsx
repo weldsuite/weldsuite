@@ -15,7 +15,6 @@ export interface ProductTitleBlockProps {
 export function ProductTitleBlock({
   productName = 'glazing milk',
   textColor = '#000000',
-  mode = 'live',
   store,
 }: ProductTitleBlockProps) {
   // Use product data from store if available

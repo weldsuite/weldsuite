@@ -15,7 +15,6 @@ export function SlideTextBlock({
   fontSize = 24,
   color = '#ffffff',
   maxWidth = 672, // 2xl = 42rem = 672px
-  mode = 'live',
 }: SlideTextBlockProps) {
   return (
     <p

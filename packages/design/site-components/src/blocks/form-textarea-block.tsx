@@ -26,8 +26,7 @@ export function FormTextareaBlock({
   value,
   labelColor = '#374151',
   inputBorderColor = '#d1d5db',
-  inputBackgroundColor = '#ffffff',
-  mode = 'live'
+  inputBackgroundColor = '#ffffff'
 }: FormTextareaBlockProps) {
   const [textValue, setTextValue] = React.useState(value || '');
   const [showError, setShowError] = React.useState(false);

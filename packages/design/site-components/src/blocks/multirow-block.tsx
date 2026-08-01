@@ -42,7 +42,6 @@ export function MultirowBlock({
   containerColorScheme = 'scheme-1',
   blocks = [],
   selectedBlockId,
-  store,
 }: MultirowBlockProps) {
 
   // Get heading size class

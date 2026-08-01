@@ -489,7 +489,7 @@ function WelcomeStep({ onFinish, isLoading, colors }: {
       </View>
 
       <Text style={[stepStyles.title, { color: colors.text, textAlign: 'center' }]}>
-        You're all set!
+        You&apos;re all set!
       </Text>
       <Text style={[stepStyles.subtitle, { color: colors.muted, textAlign: 'center', marginBottom: 32 }]}>
         Your helpdesk is ready to go. Start managing your customer conversations from anywhere.

@@ -53,9 +53,7 @@ const IconComponent = ({ icon }: { icon: string }) => {
 
 export default function FeaturesSection({
   title = "Why Choose Us",
-  features = defaultFeatures,
-  store,
-  settings
+  features = defaultFeatures
 }: FeaturesectionProps) {
   return (
     <section className="py-16 px-4 bg-muted/50">

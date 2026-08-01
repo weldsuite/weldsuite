@@ -15,7 +15,6 @@ import {
   useCallback,
   useLayoutEffect,
   useEffect,
-  type ReactNode,
 } from 'react';
 import {
   X,

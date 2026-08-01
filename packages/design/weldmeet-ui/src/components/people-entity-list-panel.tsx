@@ -27,6 +27,7 @@ import {
   type ActiveFilter,
   type RowHandlers,
 } from './entity-list';
+import type { MeetingClient, MeetingPeer, WaitlistedPeer } from '../types';
 
 interface PersonRow {
   id: string;
@@ -36,12 +37,12 @@ interface PersonRow {
   videoEnabled: boolean;
   status: 'in-call' | 'waiting';
   isSelf: boolean;
-  raw: any;
+  raw: MeetingPeer | WaitlistedPeer;
 }
 
 export interface PeopleEntityListPanelProps {
-  meeting: any;
-  participants: any[];
+  meeting: MeetingClient | null;
+  participants: MeetingPeer[];
   selfIsHost?: boolean;
   /** Workspace member-search content rendered inside the "+ Add people" dialog. */
   addPeopleDialogContent?: ReactNode;
@@ -50,7 +51,7 @@ export interface PeopleEntityListPanelProps {
    * participant object. Platform-only — omit in the portal where guests have no
    * detail panel. Self + waiting rows are never clickable.
    */
-  onClickPerson?: (participant: any) => void;
+  onClickPerson?: (participant: MeetingPeer) => void;
 }
 
 export function PeopleEntityListPanel({
@@ -60,7 +61,7 @@ export function PeopleEntityListPanel({
   addPeopleDialogContent,
   onClickPerson,
 }: PeopleEntityListPanelProps) {
-  const [waitlisted, setWaitlisted] = useState<any[]>([]);
+  const [waitlisted, setWaitlisted] = useState<WaitlistedPeer[]>([]);
   const [groupBy, setGroupBy] = useState<'status' | 'audio' | 'video' | 'none'>('status');
   const [showAddDialog, setShowAddDialog] = useState(false);
   // Right-click context menu (platform only — gated on onClickPerson).
@@ -91,7 +92,7 @@ export function PeopleEntityListPanel({
   }, [meeting]);
 
   const handleAdmitAll = useCallback(async () => {
-    const ids = waitlisted.map((p: any) => p.id);
+    const ids = waitlisted.map((p) => p.id);
     try { await meeting?.participants?.acceptAllWaitingRoomRequest(ids); } catch { /* ignore */ }
   }, [meeting, waitlisted]);
 
@@ -110,7 +111,7 @@ export function PeopleEntityListPanel({
         raw: p,
       };
     });
-    const waiting: PersonRow[] = waitlisted.map((p: any) => ({
+    const waiting: PersonRow[] = waitlisted.map((p) => ({
       id: p.id,
       name: p.name ?? 'Guest',
       picture: p.picture ?? null,
@@ -395,7 +396,7 @@ export function PeopleEntityListPanel({
           participant={menuRow.raw}
           isSelf={menuRow.isSelf}
           meeting={meeting}
-          pinned={!!menuRow.raw?.pinned}
+          pinned={!!menuRow.raw?.isPinned}
           position={menuPos}
           onClose={() => setMenuRow(null)}
           onClickDetails={onClickPerson}

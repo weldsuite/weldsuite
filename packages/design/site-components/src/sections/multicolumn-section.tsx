@@ -2,7 +2,6 @@
 
 import React from 'react';
 import { Package, RotateCcw, Shield } from 'lucide-react';
-import { cn } from '@weldsuite/ui/lib/utils';
 
 interface MulticolumnItem {
   heading: string;
@@ -47,7 +46,6 @@ export function MulticolumnSection({
   paddingTop = 60,
   paddingBottom = 60,
   columnCount = 3,
-  sectionId,
 }: MulticolumnSectionProps) {
   const gridCols = {
     2: 'md:grid-cols-2',

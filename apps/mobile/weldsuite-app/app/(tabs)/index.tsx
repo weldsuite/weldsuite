@@ -229,7 +229,7 @@ function IPadHomeScreen({ showSidebar = false }: { showSidebar?: boolean }) {
           {/* Center Content */}
           <View style={styles.centerContent}>
             <Text style={styles.greetingText}>{getGreeting()}</Text>
-            <Text style={styles.subtitleText}>Let's check your Inbox</Text>
+            <Text style={styles.subtitleText}>Let&apos;s check your Inbox</Text>
 
             {/* Email Stats Pills */}
             <View style={styles.statsContainer}>

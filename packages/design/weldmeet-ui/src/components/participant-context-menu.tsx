@@ -28,11 +28,12 @@ import {
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { cn } from '@weldsuite/ui/lib/utils';
+import type { MeetingClient, MeetingPeer } from '../types';
 
 export interface ParticipantContextMenuProps {
-  participant: any;
+  participant: MeetingPeer;
   isSelf?: boolean;
-  meeting?: any;
+  meeting?: MeetingClient | null;
   pinned?: boolean;
   /**
    * Whether the local viewer may control other participants (mute for everyone,
@@ -44,8 +45,8 @@ export interface ParticipantContextMenuProps {
   position: { x: number; y: number };
   onClose: () => void;
   onTogglePin?: (id: string) => void;
-  onSendMessage?: (participant: any) => void;
-  onClickDetails?: (participant: any) => void;
+  onSendMessage?: (participant: MeetingPeer) => void;
+  onClickDetails?: (participant: MeetingPeer) => void;
   /** Local-playback controls — when omitted the volume slider + "Mute for me"
    *  row are hidden (e.g. in the People panel, which has no audio element). */
   volume?: number;
@@ -149,7 +150,8 @@ export function ParticipantContextMenu({
             <>
               <button
                 onClick={() => {
-                  meeting?.self?.audioEnabled ? meeting.self.disableAudio() : meeting?.self?.enableAudio();
+                  if (meeting?.self?.audioEnabled) meeting.self.disableAudio();
+                  else meeting?.self?.enableAudio();
                   onClose();
                 }}
                 className="relative flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded-sm cursor-default select-none outline-none hover:bg-accent hover:text-accent-foreground transition-colors"
@@ -159,7 +161,8 @@ export function ParticipantContextMenu({
               </button>
               <button
                 onClick={() => {
-                  meeting?.self?.videoEnabled ? meeting.self.disableVideo() : meeting?.self?.enableVideo();
+                  if (meeting?.self?.videoEnabled) meeting.self.disableVideo();
+                  else meeting?.self?.enableVideo();
                   onClose();
                 }}
                 className="relative flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded-sm cursor-default select-none outline-none hover:bg-accent hover:text-accent-foreground transition-colors"
@@ -187,7 +190,7 @@ export function ParticipantContextMenu({
             onClick={() => {
               onTogglePin?.(participant.id);
               onClose();
-              (!pinned ? participant.pin() : participant.unpin()).catch((err: any) => console.warn('Pin failed:', err));
+              (!pinned ? participant.pin?.() : participant.unpin?.())?.catch((err: unknown) => console.warn('Pin failed:', err));
             }}
             className="relative flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded-sm cursor-default select-none outline-none hover:bg-accent hover:text-accent-foreground transition-colors"
           >
@@ -199,7 +202,7 @@ export function ParticipantContextMenu({
             onClick={() => {
               onTogglePin?.(participant.id);
               onClose();
-              participant.pin().catch((err: any) => console.warn('Spotlight failed:', err));
+              participant.pin?.()?.catch((err: unknown) => console.warn('Spotlight failed:', err));
             }}
             className="relative flex items-center gap-2 w-full text-sm px-2 py-1.5 rounded-sm cursor-default select-none outline-none hover:bg-accent hover:text-accent-foreground transition-colors"
           >
@@ -259,7 +262,7 @@ export function ParticipantContextMenu({
               <button
                 onClick={async () => {
                   try {
-                    await participant.disableAudio();
+                    await participant.disableAudio?.();
                   } catch (err) {
                     console.warn('Mute for everyone failed:', err);
                   }
@@ -277,7 +280,7 @@ export function ParticipantContextMenu({
               <button
                 onClick={async () => {
                   try {
-                    await participant.disableVideo();
+                    await participant.disableVideo?.();
                   } catch (err) {
                     console.warn('Disable video failed:', err);
                   }
@@ -295,7 +298,7 @@ export function ParticipantContextMenu({
               <button
                 onClick={async () => {
                   try {
-                    await participant.kick();
+                    await participant.kick?.();
                   } catch (err) {
                     console.warn('Kick failed:', err);
                   }

@@ -16,8 +16,7 @@ export function DividerBlock({
   thickness = 1,
   color = '#e5e7eb',
   width = 100,
-  alignment = 'center',
-  mode = 'live'
+  alignment = 'center'
 }: DividerBlockProps) {
   const alignmentClass = {
     left: 'mr-auto',

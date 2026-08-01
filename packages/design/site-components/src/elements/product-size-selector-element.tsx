@@ -17,7 +17,6 @@ export function ProductSizeSelectorElement({
   onSizeChange,
   buttonColor = '#000000',
   label = 'Size',
-  mode = 'live',
 }: ProductSizeSelectorElementProps) {
   return (
     <div>

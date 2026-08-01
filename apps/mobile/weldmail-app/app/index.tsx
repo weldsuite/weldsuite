@@ -274,6 +274,8 @@ const SwipeableEmailItem = memo(({ item, onPress, onDelete, onArchive, onSnooze,
   );
 });
 
+SwipeableEmailItem.displayName = 'SwipeableEmailItem';
+
 export default function MailScreen() {
   const { colors, theme } = useTheme();
   const isDark = theme === 'dark';

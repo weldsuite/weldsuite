@@ -22,8 +22,7 @@ export function ProgressBarBlock({
   backgroundColor = '#e5e7eb',
   height = 'md',
   animated = true,
-  striped = false,
-  mode = 'live'
+  striped = false
 }: ProgressBarBlockProps) {
   const clampedPercentage = Math.min(Math.max(percentage, 0), 100);
 

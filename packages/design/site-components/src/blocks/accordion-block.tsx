@@ -15,8 +15,7 @@ export interface AccordionBlockProps {
 export function AccordionBlock({
   items = [],
   allowMultiple = false,
-  defaultOpen = [0],
-  mode = 'live'
+  defaultOpen = [0]
 }: AccordionBlockProps) {
   const [openItems, setOpenItems] = React.useState<number[]>(defaultOpen);
 

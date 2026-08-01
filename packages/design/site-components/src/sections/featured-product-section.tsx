@@ -51,7 +51,6 @@ export function FeaturedProductSection({
   price: propPrice,
   compareAtPrice: propCompareAtPrice,
   imageUrl: propImageUrl,
-  imagePosition = 'left',
   showRating = true,
   rating: propRating,
   reviews: propReviews,

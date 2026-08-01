@@ -20,8 +20,7 @@ export function TestimonialCardBlock({
   avatarUrl = 'https://via.placeholder.com/64',
   rating = 5,
   backgroundColor = '#ffffff',
-  textColor = '#000000',
-  mode = 'live'
+  textColor = '#000000'
 }: TestimonialCardBlockProps) {
   return (
     <div

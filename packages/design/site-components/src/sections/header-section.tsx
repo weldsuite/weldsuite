@@ -14,8 +14,7 @@ interface HeaderSectionProps {
 export default function HeaderSection({ 
   title,
   links = ["Home", "Products", "About", "Contact"],
-  store,
-  settings
+  store
 }: HeaderSectionProps) {
   const displayTitle = title || store?.name || "Your Store";
   const logo = store?.logo;

@@ -29,8 +29,6 @@ export function HeroVideoTextOverlayBlock({
   paddingTop = 128,
   paddingBottom = 128,
   className,
-  mode = 'live',
-  store,
 }: HeroVideoTextOverlayBlockProps) {
   return (
     <section

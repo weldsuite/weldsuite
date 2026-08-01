@@ -21,7 +21,6 @@ export function ProductImageGalleryElement({
   productName = 'Product',
   activeImage,
   onImageChange,
-  mode = 'live',
 }: ProductImageGalleryElementProps) {
   return (
     <div style={{

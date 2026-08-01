@@ -24,8 +24,7 @@ export function ButtonBlock({
   backgroundColor,
   textColor,
   borderRadius = 2,
-  alignment = 'left',
-  mode = 'live'
+  alignment = 'left'
 }: ButtonBlockProps) {
   // Support both 'url' and 'href' props, with 'url' taking precedence
   const linkUrl = url || href || '#';

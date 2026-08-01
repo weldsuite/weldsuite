@@ -27,7 +27,6 @@ export interface FeaturedCollectionBlockProps {
 
 export function FeaturedCollectionBlock({
   heading = 'Featured Collection',
-  subheading = '',
   collectionId = '',
   collectionHandle = '',
   productsPerRow = 4,
@@ -37,8 +36,6 @@ export function FeaturedCollectionBlock({
   viewAllLink = '/collections/all',
   backgroundColor = '#ffffff',
   textColor = '#000000',
-  cardBackgroundColor = '#ffffff',
-  buttonVariant = 'primary',
   imageAspectRatio = 'square',
   showQuickAdd = true,
   mode = 'live',

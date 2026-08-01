@@ -16,8 +16,7 @@ export function GridBlock({
   gap = 16,
   mobileColumns = 1,
   tabletColumns = 2,
-  children,
-  mode = 'live'
+  children
 }: GridBlockProps) {
   // Responsive grid classes
   const gridCols = {

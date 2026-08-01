@@ -1,8 +1,6 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Mail } from 'lucide-react';
-import { cn } from '@weldsuite/ui/lib/utils';
 
 interface EmailSignupSectionProps {
   heading?: string;
@@ -23,11 +21,8 @@ export function EmailSignupSection({
   buttonText = 'Subscribe',
   backgroundColor = '#f9fafb',
   textColor = '#000000',
-  showImage = false,
-  image = 'https://images.unsplash.com/photo-1557821552-17105176677c?w=600&h=400&fit=crop',
   paddingTop = 80,
   paddingBottom = 80,
-  sectionId,
 }: EmailSignupSectionProps) {
   const [email, setEmail] = useState('');
 

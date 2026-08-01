@@ -400,7 +400,7 @@ export default function NotificationsScreen() {
           </View>
           <Text style={[styles.emptyStateTitle, { color: colors.text }]}>No notifications</Text>
           <Text style={[styles.emptyStateText, { color: colors.muted }]}>
-            You're all caught up! Check back later for updates.
+            You&apos;re all caught up! Check back later for updates.
           </Text>
         </View>
       ) : (

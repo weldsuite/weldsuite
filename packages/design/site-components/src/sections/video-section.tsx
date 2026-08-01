@@ -62,9 +62,7 @@ export default function VideoSection({
   overlayOpacity = 0.3,
   textColor = '#ffffff',
   contentAlignment = 'center',
-  fullWidth = false,
-  store,
-  settings
+  fullWidth = false
 }: VideoSectionProps) {
   const [isPlaying, setIsPlaying] = useState(autoplay);
   const videoRef = useRef<HTMLVideoElement>(null);

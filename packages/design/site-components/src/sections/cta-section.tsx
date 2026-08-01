@@ -21,9 +21,7 @@ export default function CTASection({
   primaryButtonLink = "#",
   secondaryButtonText,
   secondaryButtonLink = "#",
-  backgroundColor,
-  store,
-  settings
+  backgroundColor
 }: CTASectionProps) {
   return (
     <section 

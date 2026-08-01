@@ -17,7 +17,6 @@ export function ProductDescriptionBlock({
   description = 'The essential prep step for your skincare routine. Glazing Milk is a potent, nutrient-rich complex with a milky texture that leaves skin feeling hydrated and glowy while boosting the skin barrier over time.',
   heading = 'Omschrijving',
   textColor = '#000000',
-  mode = 'live',
   store,
 }: ProductDescriptionBlockProps) {
   // Use product data from store if available

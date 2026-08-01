@@ -1,7 +1,6 @@
 "use client";
 
 import React from 'react';
-import { cn } from '@weldsuite/ui/lib/utils';
 
 export interface CategoryBannerBlockProps {
   title?: string;
@@ -31,8 +30,6 @@ export function CategoryBannerBlock({
   overlayOpacity = 30,
   borderRadius = 12,
   textColor = '#ffffff',
-  mode = 'live',
-  store,
 }: CategoryBannerBlockProps) {
   return (
     <section className="py-32">

@@ -14,7 +14,6 @@ export function SlideContainerBlock({
   backgroundImage = 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=1920&h=600&fit=crop',
   overlayOpacity = 0.4,
   contentAlignment = 'center',
-  mode = 'live',
   children,
 }: SlideContainerBlockProps) {
   const getAlignmentClasses = () => {

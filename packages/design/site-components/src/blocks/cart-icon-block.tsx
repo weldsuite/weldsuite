@@ -18,8 +18,7 @@ export function CartIconBlock({
   badgeColor = '#ef4444',
   badgeTextColor = '#ffffff',
   size = 'md',
-  onClick,
-  mode = 'live'
+  onClick
 }: CartIconBlockProps) {
   const sizeMap = {
     sm: { icon: 20, badge: 'text-xs px-1.5 py-0.5' },

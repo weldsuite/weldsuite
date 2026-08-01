@@ -406,7 +406,7 @@ export default function ParcelTabsLayout() {
                     {/* What's new button */}
                     <TouchableOpacity style={styles.whatsNewButton}>
                       <View style={styles.bulletPoint} />
-                      <Text style={[styles.whatsNewText, { color: colors.muted }]}>What's new?</Text>
+                      <Text style={[styles.whatsNewText, { color: colors.muted }]}>What&apos;s new?</Text>
                     </TouchableOpacity>
                   </View>
 
@@ -660,7 +660,7 @@ export default function ParcelTabsLayout() {
                   {/* What's new button */}
                   <TouchableOpacity style={styles.whatsNewButton}>
                     <View style={styles.bulletPoint} />
-                    <Text style={[styles.whatsNewText, { color: colors.muted }]}>What's new?</Text>
+                    <Text style={[styles.whatsNewText, { color: colors.muted }]}>What&apos;s new?</Text>
                   </TouchableOpacity>
                 </View>
 

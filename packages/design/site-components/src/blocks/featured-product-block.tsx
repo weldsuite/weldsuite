@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Star, Heart, ChevronLeft, ChevronRight, Minus, Plus, ChevronDown, Truck, Store, Undo2 } from 'lucide-react';
+import { Star, ChevronLeft, ChevronRight, Minus, Plus, Truck, Store, Undo2 } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
 
 // Shop app style with 60/40 split
@@ -40,17 +40,12 @@ export interface FeaturedProductBlockProps {
 }
 
 export function FeaturedProductBlock({
-  layout = 'image-left',
   productHandle = '',
   heading = 'Glazing Milk',
   description = 'The essential prep step for your skincare routine. Glazing Milk is a potent, nutrient-rich complex with a milky texture that leaves skin feeling hydrated and glowy while boosting the skin barrier over time. This luxurious formula combines powerful ingredients to deliver deep hydration and nourishment. Experience the transformative benefits of our carefully crafted blend, designed to enhance your natural radiance and promote healthy, glowing skin. Perfect for all skin types, this product absorbs quickly without leaving a greasy residue. Our advanced formulation includes premium botanical extracts and cutting-edge skincare technology to provide visible results. Each application helps to strengthen your skin\'s protective barrier while delivering intense moisture that lasts throughout the day. The lightweight, non-comedogenic formula is ideal for daily use and works beautifully under makeup.',
   price = '32.00',
   compareAtPrice = '',
-  imageUrl = 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=800&h=800&fit=crop',
-  imageAspectRatio = 'square',
   showQuantitySelector = true,
-  buttonText = 'Koop nu',
-  buttonVariant = 'primary',
   showBadge = false,
   badgeText = 'Sale',
   badgeColor = '#dc2626',
@@ -58,7 +53,6 @@ export function FeaturedProductBlock({
   textColor = '#000000',
   mode = 'live',
   store,
-  storeName = 'rhode',
   rating = 4.8,
   reviewCount = 14600,
   images = [
@@ -70,8 +64,6 @@ export function FeaturedProductBlock({
   settings = {},
   showSizeSelector = true,
   showColorSelector = true,
-  showReviews = false,
-  showFAQ = true,
   showShippingPolicy = true,
   showRefundPolicy = true,
 }: FeaturedProductBlockProps) {
