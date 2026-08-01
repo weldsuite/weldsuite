@@ -49,7 +49,8 @@ describe('PostPeerClient', () => {
 
   // PostPeer validates the body with `additionalProperties: false`, so an
   // unknown key is a hard 400 ("body must NOT have additional properties"),
-  // not a silently ignored field. Pin the exact wire names.
+  // not a silently ignored field. It also validates `scheduledFor` as
+  // `format: "date-time"`, so a naive wall clock 400s too. Pin both.
   it('sends the schedule as scheduledFor + timezone, never scheduledAt', async () => {
     const fetchMock = mockFetchOnce(200, { postId: 'p2', status: 'scheduled', platforms: [] });
     vi.stubGlobal('fetch', fetchMock);
@@ -62,7 +63,7 @@ describe('PostPeerClient', () => {
     });
 
     const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
-    expect(body.scheduledFor).toBe('2030-01-01T09:30:00');
+    expect(body.scheduledFor).toBe('2030-01-01T09:30:00.000Z');
     expect(body.timezone).toBe('UTC');
     expect(body).not.toHaveProperty('scheduledAt');
   });
@@ -86,20 +87,45 @@ describe('PostPeerClient', () => {
 });
 
 describe('toPostPeerSchedule', () => {
-  it('normalises an instant to a naive UTC wall clock', () => {
+  it('normalises an instant to UTC', () => {
     expect(toPostPeerSchedule('2030-06-01T14:00:00.000Z')).toEqual({
-      scheduledFor: '2030-06-01T14:00:00',
+      scheduledFor: '2030-06-01T14:00:00.000Z',
       timezone: 'UTC',
     });
   });
 
   // An offset instant must keep the SAME moment — shifting it here would
   // publish at the wrong time.
-  it('converts an offset instant to the equivalent UTC wall clock', () => {
+  it('converts an offset instant to the equivalent UTC instant', () => {
     expect(toPostPeerSchedule('2030-06-01T16:00:00+02:00')).toEqual({
-      scheduledFor: '2030-06-01T14:00:00',
+      scheduledFor: '2030-06-01T14:00:00.000Z',
       timezone: 'UTC',
     });
+  });
+
+  // The regression this guards: dropping the offset to build a naive wall
+  // clock fails PostPeer's `format: "date-time"` check with
+  // `body/scheduledFor must match format "date-time"`. This is ajv-formats'
+  // own RFC 3339 regex, so it fails here exactly when PostPeer would 400.
+  // Shape alone is not enough: a parser regression could emit a perfectly
+  // valid RFC 3339 timestamp for the WRONG moment, which PostPeer would
+  // accept and then publish at the wrong time — a silent failure, and worse
+  // than the 400 this fix removes. So pin the exact instant per form too.
+  it('emits a value that satisfies RFC 3339 date-time', () => {
+    const RFC_3339 =
+      /^\d\d\d\d-[0-1]\d-[0-3]\d[t\s](?:[0-2]\d:[0-5]\d:[0-5]\d|23:59:60)(?:\.\d+)?(?:z|[+-]\d\d(?::?\d\d)?)$/i;
+    const cases: Array<[input: string, expected: string]> = [
+      ['2030-06-01T14:00:00Z', '2030-06-01T14:00:00.000Z'],
+      ['2030-06-01T14:00:00.000Z', '2030-06-01T14:00:00.000Z'],
+      ['2030-06-01T16:00:00+02:00', '2030-06-01T14:00:00.000Z'],
+      // Compact offset, no colon — its own parsing path, and the only form
+      // without an exact-value assertion elsewhere in this file.
+      ['2030-06-01T16:00:00-0500', '2030-06-01T21:00:00.000Z'],
+    ];
+    for (const [input, expected] of cases) {
+      expect(toPostPeerSchedule(input)).toEqual({ scheduledFor: expected, timezone: 'UTC' });
+      expect(toPostPeerSchedule(input).scheduledFor).toMatch(RFC_3339);
+    }
   });
 
   it('throws on an unparseable time rather than sending garbage upstream', () => {

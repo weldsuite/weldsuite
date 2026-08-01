@@ -53,14 +53,22 @@ export interface PostPeerCreatePostInput {
   /** Publish immediately. Mutually exclusive with `scheduledFor`. */
   publishNow?: boolean;
   /**
-   * When to publish, as a NAIVE local timestamp (`YYYY-MM-DDTHH:mm:ss`, no `Z`
-   * and no offset) that PostPeer interprets in `timezone`.
+   * When to publish, as a full RFC 3339 instant (`YYYY-MM-DDTHH:mm:ss.sssZ`).
    *
-   * The field is `scheduledFor`, not `scheduledAt` — PostPeer validates the
-   * body with `additionalProperties: false`, so any other name is rejected
-   * outright with "body must NOT have additional properties" rather than being
-   * ignored. Build the pair with `toPostPeerSchedule` instead of formatting it
-   * by hand.
+   * Two things about this field are load-bearing, and each has already caused a
+   * production 400:
+   *
+   *  - The name is `scheduledFor`, not `scheduledAt`. PostPeer validates the
+   *    body with `additionalProperties: false`, so any other name is rejected
+   *    outright with "body must NOT have additional properties" rather than
+   *    being ignored.
+   *  - The value needs its UTC offset. PostPeer validates the field with
+   *    JSON-Schema `format: "date-time"`, i.e. RFC 3339, where the offset is
+   *    mandatory. A naive `YYYY-MM-DDTHH:mm:ss` — which reads like a plausible
+   *    "wall clock in `timezone`" encoding — fails with
+   *    `body/scheduledFor must match format "date-time"`.
+   *
+   * Build the pair with `toPostPeerSchedule` instead of formatting it by hand.
    */
   scheduledFor?: string;
   timezone?: string;
@@ -72,12 +80,18 @@ export interface PostPeerCreatePostInput {
  * schedule/reschedule APIs take) into the `scheduledFor` + `timezone` pair
  * PostPeer expects.
  *
- * PostPeer reads `scheduledFor` as wall-clock time in `timezone`, so an instant
- * has to be normalised to UTC and paired with `timezone: 'UTC'`. Passing the
- * caller's display timezone alongside a UTC-derived wall clock would shift
- * delivery by that zone's offset — the post would fire at the wrong time.
+ * The instant is normalised to UTC and paired with `timezone: 'UTC'`, keeping
+ * the moment exact under either reading of the upstream contract: as an
+ * absolute instant (the offset decides, `timezone` is display metadata) or as
+ * wall-clock time in `timezone` (UTC clock + UTC zone is the same moment).
+ * Passing the caller's display timezone alongside a UTC-derived timestamp would
+ * shift delivery by that zone's offset — the post would fire at the wrong time.
  * A post's own `timezone` column stays a display preference; it never reaches
  * the wire.
+ *
+ * The `Z` is kept. Stripping it to a naive `YYYY-MM-DDTHH:mm:ss` fails
+ * PostPeer's `format: "date-time"` (RFC 3339) check, which is what produced
+ * `body/scheduledFor must match format "date-time"`.
  *
  * The offset is mandatory. `new Date('2030-06-01T14:00:00')` is parsed in the
  * *runtime's* zone per the ES spec, so a timezone-less string would denote a
@@ -101,8 +115,8 @@ export function toPostPeerSchedule(isoInstant: string): {
   if (Number.isNaN(date.getTime())) {
     throw new Error(`Invalid scheduled time: ${isoInstant}`);
   }
-  // '2030-01-01T00:00:00.000Z' -> '2030-01-01T00:00:00'
-  return { scheduledFor: date.toISOString().slice(0, 19), timezone: 'UTC' };
+  // '2030-06-01T16:00:00+02:00' -> '2030-06-01T14:00:00.000Z'
+  return { scheduledFor: date.toISOString(), timezone: 'UTC' };
 }
 
 export interface PostPeerPlatformResult {
