@@ -22,6 +22,7 @@ export {
   syncAccounts,
   publishPost,
   cancelPost,
+  cancelDeliveryBeforeDelete,
   resolvePostpeerPost,
   reconcileFromWebhook,
   syncAnalytics,

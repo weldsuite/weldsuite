@@ -383,20 +383,71 @@ export interface PublishPostResult {
   platformContent: SocialPlatformContent[];
 }
 
-function mapPlatformResults(
+/** One resolved publish target: our account row joined to its PostPeer integration. */
+interface PublishTarget {
+  /** Our `socialAccounts.id`. */
+  id: string;
+  platform: SocialPlatformContent['platform'];
+  postpeerIntegrationId: string;
+}
+
+/**
+ * Build the per-platform record for a post.
+ *
+ * Seeded from OUR OWN targets rather than from PostPeer's response, because the
+ * response is not a reliable carrier of account identity: `accountId` is
+ * optional in a PostPeer platform result and is absent on the schedule path, so
+ * deriving the array from it left `accountId: ''` on every scheduled post. An
+ * empty id breaks two things downstream — `reconcileFromWebhook` can then only
+ * fall back to matching by platform (which binds to the wrong entry when one
+ * platform has two connected accounts), and the per-account refund idempotency
+ * key `social_refund:<txn>:<accountId>` collides, so a second failed account is
+ * silently deduped and never refunded.
+ *
+ * `now` is the other half. On the schedule path PostPeer's `success: true` only
+ * means "accepted into the queue"; reporting that as `published` — with a
+ * `publishedAt` of now — contradicted the row's own `scheduled` status and made
+ * a queued post look like it had already gone out. Scheduled targets stay
+ * `pending` until the delivery webhook reconciles them. A target PostPeer
+ * rejected outright is still `failed` on both paths.
+ */
+function buildPlatformContent(
+  targets: PublishTarget[],
   results: PostPeerPlatformResult[],
-  byAccount: Map<string, { id: string; platform: SocialPlatformContent['platform'] }>,
+  now: boolean,
 ): SocialPlatformContent[] {
-  return results.map((r) => {
-    const acc = r.accountId ? byAccount.get(r.accountId) : undefined;
+  // Matches are consumed so two accounts on the same platform can't both bind
+  // to the same result when we fall back to matching by platform.
+  const unclaimed = [...results];
+  const take = (predicate: (r: PostPeerPlatformResult) => boolean) => {
+    const i = unclaimed.findIndex(predicate);
+    return i === -1 ? undefined : unclaimed.splice(i, 1)[0];
+  };
+
+  return targets.map((target) => {
+    const match =
+      take((r) => !!r.accountId && r.accountId === target.postpeerIntegrationId) ??
+      take((r) => normalisePlatform(r.platform) === target.platform);
+
+    // No result for this target means PostPeer accepted the post without
+    // reporting on the channel — unknown, not delivered. Leave it pending for
+    // the webhook rather than asserting an outcome we were never told.
+    const status: SocialPlatformContent['status'] = match
+      ? !match.success
+        ? 'failed'
+        : now
+          ? 'published'
+          : 'pending'
+      : 'pending';
+
     return {
-      platform: (acc?.platform ?? (normalisePlatform(r.platform) || 'facebook')) as SocialPlatformContent['platform'],
-      accountId: acc?.id ?? r.accountId ?? '',
+      platform: target.platform,
+      accountId: target.id,
       platformPostId: undefined,
-      publishedUrl: r.platformPostUrl,
-      status: r.success ? 'published' : 'failed',
-      error: r.error,
-      publishedAt: r.success ? new Date().toISOString() : undefined,
+      publishedUrl: match?.platformPostUrl,
+      status,
+      error: match?.error,
+      publishedAt: status === 'published' ? new Date().toISOString() : undefined,
     } satisfies SocialPlatformContent;
   });
 }
@@ -432,19 +483,22 @@ export async function publishPost(
     .from(socialAccounts)
     .where(and(inArray(socialAccounts.id, targetIds), isNull(socialAccounts.deletedAt)));
 
-  const platforms: Array<{ platform: string; accountId: string }> = [];
-  const byPostpeerAccount = new Map<string, { id: string; platform: SocialPlatformContent['platform'] }>();
+  const targets: PublishTarget[] = [];
   for (const acc of accounts) {
     if (!acc.postpeerIntegrationId) continue; // not connected via PostPeer
-    platforms.push({ platform: acc.platform, accountId: acc.postpeerIntegrationId });
-    byPostpeerAccount.set(acc.postpeerIntegrationId, {
+    targets.push({
       id: acc.id,
       platform: acc.platform as SocialPlatformContent['platform'],
+      postpeerIntegrationId: acc.postpeerIntegrationId,
     });
   }
-  if (platforms.length === 0) {
+  if (targets.length === 0) {
     throw new Error('No PostPeer-connected accounts among the post targets');
   }
+  const platforms = targets.map((t) => ({
+    platform: t.platform,
+    accountId: t.postpeerIntegrationId,
+  }));
 
   // Resolve the schedule up front, while the row is still untouched: a bad or
   // missing time must fail before the claim below flips the row to `publishing`.
@@ -595,7 +649,7 @@ export async function publishPost(
     throw err;
   }
 
-  const platformContent = mapPlatformResults(result.platforms ?? [], byPostpeerAccount);
+  const platformContent = buildPlatformContent(targets, result.platforms ?? [], options.now);
   const anyFailed = platformContent.some((p) => p.status === 'failed');
   const allFailed = platformContent.length > 0 && platformContent.every((p) => p.status === 'failed');
 
@@ -747,6 +801,37 @@ export async function cancelPost(
   }
 
   return true;
+}
+
+/**
+ * Stop any live PostPeer delivery for a post that is about to be soft-deleted.
+ *
+ * Deleting only set `deletedAt`, which does nothing to the scheduled post that
+ * already exists on PostPeer's side — so a "deleted" scheduled post still fired
+ * on the customer's real account at its scheduled time, and the delivery
+ * webhook then found the row soft-deleted and skipped reconciliation, leaving
+ * no local trace of a post that went out. It also stranded the credits charged
+ * at schedule time. Cancelling first closes both.
+ *
+ * Best-effort by design. A post that is already published or mid-publish CANNOT
+ * be recalled, and that must not block deleting the record — the conflict is
+ * swallowed and the caller proceeds with the soft delete.
+ */
+export async function cancelDeliveryBeforeDelete(
+  db: Database,
+  ctx: SocialPublishingContext,
+  orgId: string,
+  postId: string,
+): Promise<void> {
+  try {
+    await cancelPost(db, ctx, orgId, postId);
+  } catch (err) {
+    if (err instanceof SocialPublishConflictError) return; // already live — nothing to stop
+    console.error(
+      `[social-publishing] failed to cancel delivery before deleting ${postId} — a scheduled post may still fire:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
 }
 
 // --- Webhook reconciliation ------------------------------------------------

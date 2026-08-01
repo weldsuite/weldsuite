@@ -5,6 +5,8 @@ import { and, eq, isNull, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   publishPost,
+  cancelPost,
+  cancelDeliveryBeforeDelete,
   PostPeerNotConfiguredError,
   SocialPublishConflictError,
   SocialInsufficientCreditsError,
@@ -109,6 +111,27 @@ app.patch('/:id', requireScope('social_posts:write'), zValidator('json', updateS
 app.delete('/:id', requireScope('social_posts:write'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
+
+  const [existing] = await db
+    .select({ id: table.id })
+    .from(table)
+    .where(and(eq(table.id, id), isNull(table.deletedAt)))
+    .limit(1);
+  if (!existing) return error.notFound(c, 'SocialPost', id);
+
+  // Stop the upstream delivery before the row goes away. A soft delete on its
+  // own leaves the scheduled post live on PostPeer, so it still fires on the
+  // customer's real account — and the delivery webhook then skips the
+  // soft-deleted row, so nothing records that it went out.
+  const deleteOrgId = await resolveClerkOrgId(c.env, c.get('workspaceId'));
+  if (deleteOrgId) {
+    await cancelDeliveryBeforeDelete(db, socialContext(c.env), deleteOrgId, id);
+  } else {
+    console.error(
+      `${SOCIAL_LOG_PREFIX} cannot cancel delivery for ${id} — workspace is not linked to an organization`,
+    );
+  }
+
   const [row] = await db
     .update(table)
     .set({ deletedAt: new Date(), updatedAt: new Date() })
@@ -247,5 +270,47 @@ app.post(
     return publishOrSchedule(c, c.req.param('id'), { now: false, scheduledAt, timezone });
   },
 );
+
+/**
+ * Cancel a scheduled post, keeping the record.
+ *
+ * This is what callers need to call off a schedule: cancelling on PostPeer is
+ * the only thing that stops the delivery, since the scheduled time lives
+ * upstream — flipping `status` locally would leave the post to fire anyway. It
+ * also refunds the credits charged when the post was scheduled.
+ *
+ * A post that is already published or mid-publish is a 409: its content is (or
+ * is becoming) live on the channels and cannot be recalled.
+ */
+app.post('/:id/cancel', requireScope('social_posts:write'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+
+  const orgId = await resolveClerkOrgId(c.env, c.get('workspaceId'));
+  if (!orgId) {
+    return error.internal(c, 'Workspace is not linked to an organization');
+  }
+
+  try {
+    const cancelled = await cancelPost(db, socialContext(c.env), orgId, id);
+    if (!cancelled) return error.notFound(c, 'SocialPost', id);
+  } catch (err) {
+    if (err instanceof SocialPublishConflictError) {
+      return error.conflict(c, err.message);
+    }
+    console.error(`${SOCIAL_LOG_PREFIX} cancel failed:`, err);
+    return error.internal(c, err instanceof Error ? err.message : 'Failed to cancel post');
+  }
+
+  publishEntityEvent({
+    c,
+    entityType: 'social_post',
+    entityId: id,
+    action: 'cancelled',
+    data: { id, status: 'cancelled' },
+  });
+
+  return success(c, { id, status: 'cancelled' });
+});
 
 export default app;
