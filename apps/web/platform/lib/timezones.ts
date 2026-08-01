@@ -69,15 +69,25 @@ function zoneOffsetMs(instant: Date, timeZone: string): number {
  * which is why a timezone picker next to a datetime-local input is inert unless
  * the conversion is done explicitly.
  *
- * Two passes: guess the instant using the offset that applies at the
- * naive-as-UTC time, then re-measure at the guessed instant so a DST boundary
- * between the two is accounted for. Gap times (the hour that does not exist on
- * a spring-forward day) resolve to the instant just after the transition;
- * ambiguous times on a fall-back day resolve to the first occurrence.
+ * DST makes the mapping non-unique twice a year, so both offsets in play around
+ * a transition are probed (a day either side) and every candidate instant is
+ * checked back against the zone. A candidate is real only if the zone actually
+ * shows the requested wall clock at it, which is what rules out gap times.
+ *
+ *  - Ambiguous (fall-back) times, which occur twice, take the EARLIER instant.
+ *  - Gap times, which never occur, take the instant just after the transition.
+ *
+ * That matches Temporal's `disambiguation: 'compatible'`. Resolving from a
+ * single probe instead looks simpler but is not deterministic across zones: it
+ * returns the first occurrence for `America/New_York` and the second for
+ * `Europe/Amsterdam`, because which side of the transition the naive-as-UTC
+ * probe lands on depends on the sign of the offset.
  *
  * Returns null when the value or the zone can't be parsed, so callers can fall
  * back rather than schedule at a silently wrong moment.
  */
+const OFFSET_PROBE_MS = 24 * 60 * 60 * 1000;
+
 export function zonedWallClockToInstant(wallClock: string, timeZone: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/.exec(wallClock);
   if (!match) return null;
@@ -94,10 +104,17 @@ export function zonedWallClockToInstant(wallClock: string, timeZone: string): Da
   if (Number.isNaN(naiveAsUtc)) return null;
 
   try {
-    const firstOffset = zoneOffsetMs(new Date(naiveAsUtc), timeZone);
-    const guess = naiveAsUtc - firstOffset;
-    const secondOffset = zoneOffsetMs(new Date(guess), timeZone);
-    return new Date(secondOffset === firstOffset ? guess : naiveAsUtc - secondOffset);
+    const before = zoneOffsetMs(new Date(naiveAsUtc - OFFSET_PROBE_MS), timeZone);
+    const after = zoneOffsetMs(new Date(naiveAsUtc + OFFSET_PROBE_MS), timeZone);
+    const candidates =
+      before === after ? [naiveAsUtc - before] : [naiveAsUtc - before, naiveAsUtc - after];
+
+    const real = candidates.filter(
+      (candidate) => zoneOffsetMs(new Date(candidate), timeZone) === naiveAsUtc - candidate,
+    );
+    // No real candidate means the wall clock falls in a gap; the later instant
+    // is the one just past the transition.
+    return new Date(real.length > 0 ? Math.min(...real) : Math.max(...candidates));
   } catch {
     return null;
   }

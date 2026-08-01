@@ -53,11 +53,28 @@ describe('zonedWallClockToInstant', () => {
   });
 
   // A time in the spring-forward gap does not exist; it must still resolve to a
-  // real instant rather than NaN. 02:30 on 2026-03-29 is skipped in Amsterdam.
-  it('resolves a nonexistent spring-forward time to a real instant', () => {
+  // real instant rather than NaN. 02:30 on 2026-03-29 is skipped in Amsterdam,
+  // so it lands just past the transition (03:30 CEST).
+  it('resolves a nonexistent spring-forward time to the instant after the gap', () => {
     const instant = zonedWallClockToInstant('2026-03-29T02:30', 'Europe/Amsterdam');
     expect(instant).not.toBeNull();
     expect(Number.isNaN(instant!.getTime())).toBe(false);
+    expect(instant!.toISOString()).toBe('2026-03-29T01:30:00.000Z');
+  });
+
+  // Fall-back days repeat an hour, so the wall clock maps to two instants. The
+  // earlier one wins, and it must win in BOTH offset directions — resolving
+  // from a single probe silently picks the later occurrence for zones east of
+  // UTC, which is exactly the zone this feature was built for.
+  it('takes the earlier instant for an ambiguous fall-back time', () => {
+    // 02:30 on 2026-10-25 in Amsterdam is 00:30Z (CEST) then 01:30Z (CET).
+    expect(zonedWallClockToInstant('2026-10-25T02:30', 'Europe/Amsterdam')?.toISOString()).toBe(
+      '2026-10-25T00:30:00.000Z',
+    );
+    // 01:30 on 2026-11-01 in New York is 05:30Z (EDT) then 06:30Z (EST).
+    expect(zonedWallClockToInstant('2026-11-01T01:30', 'America/New_York')?.toISOString()).toBe(
+      '2026-11-01T05:30:00.000Z',
+    );
   });
 
   it('returns null on a malformed value or unknown zone', () => {

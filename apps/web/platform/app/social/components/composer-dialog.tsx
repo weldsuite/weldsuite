@@ -127,6 +127,12 @@ export function ComposerDialog({ open, onOpenChange, editPost, defaultAccountIds
         // Pin the zone that clock was rendered in, so the two can't drift apart.
         setTimezone(postTimezone);
       } else {
+        // Clear rather than leave whatever the previous post set. Today the
+        // call sites null `editPost` on close, so this branch is reached with
+        // the state already reset — but the branch shouldn't depend on that:
+        // an unscheduled post must never inherit a schedule.
+        setScheduleMode(false);
+        setScheduledAt('');
         setTimezone(editPost.timezone || '');
       }
     } else {
