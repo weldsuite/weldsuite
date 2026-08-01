@@ -125,11 +125,12 @@ describe('social publishing · double-post guards', () => {
     expect(created).toBeDefined();
     expect(res.postpeerPostId).toBe('new_pp');
 
-    // PostPeer's body schema is closed — the schedule must go out as
-    // `scheduledFor` (naive UTC) + `timezone`, with no `scheduledAt` and no
+    // PostPeer's body schema is closed and `scheduledFor` is validated as
+    // `format: "date-time"` — the schedule must go out as an RFC 3339 UTC
+    // instant (offset included) + `timezone`, with no `scheduledAt` and no
     // `publishNow`, or the whole request 400s.
     expect(created!.body).toMatchObject({
-      scheduledFor: '2030-01-01T00:00:00',
+      scheduledFor: '2030-01-01T00:00:00.000Z',
       timezone: 'UTC',
     });
     expect(created!.body).not.toHaveProperty('scheduledAt');
