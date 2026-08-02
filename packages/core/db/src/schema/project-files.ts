@@ -22,6 +22,9 @@ export const projectFiles = pgTable('project_files', {
   // Reference
   projectId: varchar('project_id', { length: 255 }).references(() => projects.id),
 
+  // Hierarchy — null = project root. Folders are rows with isFolder=true.
+  parentId: varchar('parent_id', { length: 255 }),
+
   // File info
   fileName: varchar('file_name', { length: 500 }).notNull(),
   originalName: varchar('original_name', { length: 500 }),
@@ -53,6 +56,7 @@ export const projectFiles = pgTable('project_files', {
   index('project_files_project_idx').on(table.projectId),
   index('project_files_uploaded_by_idx').on(table.uploadedById),
   index('project_files_file_type_idx').on(table.fileType),
+  index('project_files_parent_idx').on(table.parentId),
 ]);
 
 export type ProjectFile = typeof projectFiles.$inferSelect;

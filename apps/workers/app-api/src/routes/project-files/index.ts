@@ -1,6 +1,7 @@
 /**
- * Project file routes — flat /api/project-files/* surface backed by `projectFiles`.
+ * Project file routes — /api/project-files/* surface backed by `projectFiles`.
  *
+ * Supports a folder hierarchy via `parentId` + `isFolder` rows.
  * Permissions: files:read | files:create | files:update | files:delete.
  */
 
@@ -9,12 +10,21 @@ import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { createProjectFileSchema, updateProjectFileSchema } from '@weldsuite/core-api-client/schemas/project-files';
+import {
+  createProjectFileSchema,
+  createProjectFolderSchema,
+  updateProjectFileSchema,
+} from '@weldsuite/core-api-client/schemas/project-files';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema } from '../../db';
 import { accessibleProjectIds, canAccessProject } from '../../lib/project-access';
+import {
+  createProjectFolder,
+  softDeleteProjectFolderCascade,
+  wouldCreateCycle,
+} from '../../services/project-files';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.projectFiles;
@@ -24,7 +34,7 @@ const PROJECT_DENIED = 'You are not a member of this project';
 app.get('/', requirePermission('files:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 500);
 
   const conditions: any[] = [isNull(t.deletedAt)];
   if (q.projectId !== undefined && q.projectId !== '') conditions.push(eq(t.projectId, q.projectId));
@@ -36,6 +46,23 @@ app.get('/', requirePermission('files:read'), async (c) => {
   }
   if (q.uploadedById !== undefined && q.uploadedById !== '') conditions.push(eq(t.uploadedById, q.uploadedById));
   if (q.fileType !== undefined && q.fileType !== '') conditions.push(eq(t.fileType, q.fileType));
+
+  // Folder navigation:
+  //   parentId=root (or empty string) → only root-level items
+  //   parentId=<id> → children of that folder
+  //   all=true → no parent filter (flat list, used by move dialogs)
+  //   omitted → same as all=true for backwards compatibility
+  if (q.all !== 'true' && q.parentId !== undefined) {
+    if (q.parentId === '' || q.parentId === 'root') {
+      conditions.push(isNull(t.parentId));
+    } else {
+      conditions.push(eq(t.parentId, q.parentId));
+    }
+  }
+  if (q.foldersOnly === 'true') {
+    conditions.push(eq(t.isFolder, true));
+  }
+
   if (q.cursor) {
     const [cur] = await db
       .select({ createdAt: t.createdAt, id: t.id })
@@ -52,7 +79,7 @@ app.get('/', requirePermission('files:read'), async (c) => {
 
   try {
     const [rows, countRes] = await Promise.all([
-      db.select().from(t).where(where).orderBy(desc(t.createdAt), desc(t.id)).limit(limit + 1),
+      db.select().from(t).where(where).orderBy(desc(t.isFolder), desc(t.createdAt), desc(t.id)).limit(limit + 1),
       db.select({ count: sql<number>`count(*)` }).from(t).where(countWhere),
     ]);
     const hasMore = rows.length > limit;
@@ -82,6 +109,37 @@ app.get('/:id', requirePermission('files:read'), async (c) => {
   }
 });
 
+/** Create a folder row (isFolder=true). Separate from file upload POST. */
+app.post('/folders', requirePermission('files:create'), zValidator('json', createProjectFolderSchema), async (c) => {
+  const db = c.get('tenantDb');
+  const data = c.req.valid('json');
+  if (!(await canAccessProject(c, data.projectId))) {
+    return error.forbidden(c, PROJECT_DENIED);
+  }
+  try {
+    const row = await createProjectFolder(db, {
+      projectId: data.projectId,
+      name: data.name,
+      parentId: data.parentId ?? null,
+      uploadedById: c.get('userId') ?? null,
+    });
+    publishEntityEvent({
+      c,
+      entityType: 'project_file',
+      entityId: row.id,
+      action: 'created',
+      data: { id: row.id, projectId: data.projectId, fileName: row.fileName, fileType: 'folder' },
+    });
+    return success(c, row, 201);
+  } catch (err) {
+    const status = (err as { status?: number }).status;
+    if (status === 404) return error.notFound(c, 'Parent folder', data.parentId ?? '');
+    if (status === 400) return error.badRequest(c, (err as Error).message);
+    console.error('[app-api/project-files] create folder failed:', err);
+    return error.internal(c, 'Failed to create folder');
+  }
+});
+
 app.post('/', requirePermission('files:create'), zValidator('json', createProjectFileSchema), async (c) => {
   const db = c.get('tenantDb');
   const data = c.req.valid('json') as Record<string, any>;
@@ -91,7 +149,31 @@ app.post('/', requirePermission('files:create'), zValidator('json', createProjec
     return error.forbidden(c, PROJECT_DENIED);
   }
   try {
-    await db.insert(t).values({ id, ...data, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
+    // If the client is creating a folder via the generic POST, normalize fields.
+    if (data.isFolder || data.fileType === 'folder') {
+      const row = await createProjectFolder(db, {
+        projectId: data.projectId,
+        name: data.fileName ?? data.name ?? 'Untitled folder',
+        parentId: data.parentId ?? null,
+        uploadedById: c.get('userId') ?? data.uploadedById ?? null,
+      });
+      publishEntityEvent({
+        c,
+        entityType: 'project_file',
+        entityId: row.id,
+        action: 'created',
+        data: { id: row.id, projectId: data.projectId, fileName: row.fileName, fileType: 'folder' },
+      });
+      return success(c, row, 201);
+    }
+
+    await db.insert(t).values({
+      id,
+      ...data,
+      parentId: data.parentId ?? null,
+      createdAt: now,
+      updatedAt: now,
+    } as unknown as typeof t.$inferInsert);
     publishEntityEvent({
       c,
       entityType: 'project_file',
@@ -116,8 +198,30 @@ app.patch('/:id', requirePermission('files:update'), zValidator('json', updatePr
     if (existing.projectId && !(await canAccessProject(c, existing.projectId))) {
       return error.forbidden(c, PROJECT_DENIED);
     }
+
+    if (data.parentId !== undefined && existing.isFolder) {
+      const cycle = await wouldCreateCycle(db, id, data.parentId ?? null);
+      if (cycle) {
+        return error.badRequest(c, 'Cannot move a folder into itself or one of its subfolders');
+      }
+    }
+
+    if (data.parentId) {
+      const [parent] = await db
+        .select({ id: t.id, isFolder: t.isFolder, projectId: t.projectId })
+        .from(t)
+        .where(and(eq(t.id, data.parentId), isNull(t.deletedAt)))
+        .limit(1);
+      if (!parent || !parent.isFolder) return error.notFound(c, 'Parent folder', data.parentId);
+      if (existing.projectId && parent.projectId !== existing.projectId) {
+        return error.badRequest(c, 'Cannot move across projects');
+      }
+    }
+
     const update: Record<string, any> = { updatedAt: new Date() };
-    for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
+    for (const [k, v] of Object.entries(data)) {
+      if (v !== undefined && k !== 'projectId') update[k] = v;
+    }
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
     publishEntityEvent({
       c,
@@ -147,6 +251,21 @@ app.delete('/:id', requirePermission('files:delete'), async (c) => {
     if (existing.projectId && !(await canAccessProject(c, existing.projectId))) {
       return error.forbidden(c, PROJECT_DENIED);
     }
+
+    if (existing.isFolder) {
+      const deletedIds = await softDeleteProjectFolderCascade(db, id);
+      for (const deletedId of deletedIds) {
+        publishEntityEvent({
+          c,
+          entityType: 'project_file',
+          entityId: deletedId,
+          action: 'deleted',
+          data: { id: deletedId },
+        });
+      }
+      return noContent(c);
+    }
+
     await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));
     publishEntityEvent({
       c,

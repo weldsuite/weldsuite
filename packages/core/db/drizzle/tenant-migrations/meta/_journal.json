@@ -1240,6 +1240,13 @@
       "when": 1785569740639,
       "tag": "0176_lean_christian_walker",
       "breakpoints": true
+    },
+    {
+      "idx": 177,
+      "version": "7",
+      "when": 1785671439413,
+      "tag": "0177_project_files_parent",
+      "breakpoints": true
     }
   ]
 }
