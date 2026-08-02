@@ -6,6 +6,7 @@ import {
   integer,
   jsonb,
   index,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { projects } from './projects';
 
@@ -21,6 +22,14 @@ export const projectFiles = pgTable('project_files', {
 
   // Reference
   projectId: varchar('project_id', { length: 255 }).references(() => projects.id),
+
+  // Hierarchy — null = project root. Folders are rows with isFolder=true.
+  // Width matches `id` (varchar(255)) so the self-FK is valid; hard-deleting a
+  // parent reparents children to root via ON DELETE SET NULL (soft-delete is
+  // the normal path and leaves the row in place).
+  parentId: varchar('parent_id', { length: 255 }).references((): AnyPgColumn => projectFiles.id, {
+    onDelete: 'set null',
+  }),
 
   // File info
   fileName: varchar('file_name', { length: 500 }).notNull(),
@@ -53,6 +62,7 @@ export const projectFiles = pgTable('project_files', {
   index('project_files_project_idx').on(table.projectId),
   index('project_files_uploaded_by_idx').on(table.uploadedById),
   index('project_files_file_type_idx').on(table.fileType),
+  index('project_files_parent_idx').on(table.parentId),
 ]);
 
 export type ProjectFile = typeof projectFiles.$inferSelect;
