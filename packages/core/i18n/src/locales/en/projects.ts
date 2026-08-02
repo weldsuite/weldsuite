@@ -285,6 +285,8 @@ export const projects = {
       emptyFolderTitle: 'This folder is empty',
       emptyFolderDescCanWrite: 'Upload a file or create a subfolder.',
       emptyFolderDescViewer: 'Nothing has been added to this folder yet.',
+      folderPathSeparator: ' / ',
+      folderSizePlaceholder: '—',
     },
 
     // Documents

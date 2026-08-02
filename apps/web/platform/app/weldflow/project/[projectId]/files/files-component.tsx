@@ -80,7 +80,7 @@ const getFileType = (contentType: string | undefined | null, isFolder?: boolean)
 };
 
 const formatFileSize = (bytes: number): string => {
-  if (bytes === 0) return '—';
+  if (bytes === 0) return '0 Bytes';
   const k = 1024;
   const sizes = ['Bytes', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -118,6 +118,8 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
   const { t } = useI18n();
   const { canWrite } = useProjectPermissions();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileRequestSequence = useRef(0);
+  const folderRequestSequence = useRef(0);
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [breadcrumb, setBreadcrumb] = useState<{ id: string; name: string }[]>([]);
   const [files, setFiles] = useState<ExtendedFile[]>(
@@ -158,13 +160,14 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
   }, [previewFile]);
 
   const loadFiles = useCallback(async (folderId: string | null = currentFolderId) => {
+    const requestSequence = ++fileRequestSequence.current;
     try {
       const result = await filesApi.list(projectId, {
         limit: 500,
         parentId: folderId,
       });
 
-      if (result.success && result.data) {
+      if (result.success && result.data && requestSequence === fileRequestSequence.current) {
         const rows: Record<string, unknown>[] = Array.isArray(result.data) ? result.data : (result.data.items ?? []);
         setFiles(rows.map(normalizeFile));
       }
@@ -174,13 +177,14 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
   }, [projectId, currentFolderId]);
 
   const loadAllFolders = useCallback(async () => {
+    const requestSequence = ++folderRequestSequence.current;
     try {
       const result = await filesApi.list(projectId, {
         limit: 500,
         all: true,
         foldersOnly: true,
       });
-      if (result.success && result.data) {
+      if (result.success && result.data && requestSequence === folderRequestSequence.current) {
         const rows: Record<string, unknown>[] = Array.isArray(result.data) ? result.data : (result.data.items ?? []);
         setAllFolders(rows.map(normalizeFile).filter((f) => f.isFolder));
       }
@@ -534,8 +538,8 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
       parts.unshift(parent.fileName);
       current = parent.parentId;
     }
-    return parts.join(' / ');
-  }, [allFolders]);
+    return parts.join(t.projects.files.folderPathSeparator);
+  }, [allFolders, t]);
 
   const activateRow = useCallback((file: ExtendedFile) => {
     if (file.isFolder) {
@@ -680,6 +684,7 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
         tabIndex={0}
         className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
         onKeyDown={(e) => {
+          if (e.currentTarget !== e.target) return;
           if (e.key !== 'Enter' && e.key !== ' ') return;
           e.preventDefault();
           activateRow(file);
@@ -703,7 +708,7 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
 
         <div className="w-[100px]">
           <span className="text-sm text-gray-500">
-            {file.isFolder ? '—' : formatFileSize(file.size)}
+            {file.isFolder ? t.projects.files.folderSizePlaceholder : formatFileSize(file.size)}
           </span>
         </div>
 

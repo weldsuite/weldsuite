@@ -285,6 +285,8 @@ export const projects = {
       emptyFolderTitle: 'Deze map is leeg',
       emptyFolderDescCanWrite: 'Upload een bestand of maak een submap aan.',
       emptyFolderDescViewer: 'Er is nog niets aan deze map toegevoegd.',
+      folderPathSeparator: ' / ',
+      folderSizePlaceholder: '—',
     },
 
     // Documents
