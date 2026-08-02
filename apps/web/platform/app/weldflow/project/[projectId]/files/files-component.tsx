@@ -160,7 +160,6 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
   const loadFiles = useCallback(async (folderId: string | null = currentFolderId) => {
     try {
       const result = await filesApi.list(projectId, {
-        page: 1,
         limit: 500,
         parentId: folderId,
       });
@@ -192,9 +191,11 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
 
   // Initial load scoped to root (page may have passed a flat legacy list).
   useEffect(() => {
+    setCurrentFolderId(null);
+    setBreadcrumb([]);
     void loadFiles(null);
     void loadAllFolders();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount only
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- remount navigation when project changes
   }, [projectId]);
 
   const navigateToFolder = useCallback(async (folder: ExtendedFile | null) => {
@@ -521,6 +522,31 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
     return allFolders.filter((f) => !blocked.has(f.id));
   }, [allFolders, moveTarget]);
 
+  const folderPathLabel = useCallback((folder: ExtendedFile) => {
+    const byId = new Map(allFolders.map((f) => [f.id, f]));
+    const parts: string[] = [folder.fileName];
+    let current = folder.parentId;
+    const seen = new Set<string>([folder.id]);
+    while (current && !seen.has(current)) {
+      seen.add(current);
+      const parent = byId.get(current);
+      if (!parent) break;
+      parts.unshift(parent.fileName);
+      current = parent.parentId;
+    }
+    return parts.join(' / ');
+  }, [allFolders]);
+
+  const activateRow = useCallback((file: ExtendedFile) => {
+    if (file.isFolder) {
+      void navigateToFolder(file);
+    } else if (canPreview(file.contentType)) {
+      void handlePreview(file);
+    } else {
+      void handleDownload(file);
+    }
+  }, [handleDownload, handlePreview, navigateToFolder]);
+
   const filterConfigs: FilterConfig[] = useMemo(() => [
     {
       field: 'fileType',
@@ -650,16 +676,15 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
     return (
       <div
         key={file.id}
+        role="button"
+        tabIndex={0}
         className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
-        onClick={() => {
-          if (file.isFolder) {
-            void navigateToFolder(file);
-          } else if (canPreview(file.contentType)) {
-            void handlePreview(file);
-          } else {
-            void handleDownload(file);
-          }
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          activateRow(file);
         }}
+        onClick={() => activateRow(file)}
       >
         <div className="flex-1 min-w-[250px] flex items-center gap-3">
           <div className={cn(
@@ -743,7 +768,7 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
         </div>
       </div>
     );
-  }, [canWrite, handleDownload, handlePreview, navigateToFolder, t]);
+  }, [activateRow, canWrite, handleDownload, navigateToFolder, t]);
 
   const isInFolder = currentFolderId !== null;
 
@@ -1075,7 +1100,7 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
                   ) : (
                     <Folder className="h-4 w-4 text-amber-500 shrink-0" />
                   )}
-                  <span className="truncate">{folder.fileName}</span>
+                  <span className="truncate">{folderPathLabel(folder)}</span>
                   {moveTarget?.parentId === folder.id && (
                     <span className="text-xs text-muted-foreground ml-auto">{t.projects.files.moveCurrent}</span>
                   )}

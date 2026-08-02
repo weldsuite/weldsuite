@@ -1846,6 +1846,19 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "project_files_parent_id_project_files_id_fk": {
+          "name": "project_files_parent_id_project_files_id_fk",
+          "tableFrom": "project_files",
+          "tableTo": "project_files",
+          "columnsFrom": [
+            "parent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},

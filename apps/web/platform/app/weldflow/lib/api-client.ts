@@ -967,9 +967,7 @@ export const filesApi = {
   list: (
     projectId: string,
     params?: {
-      page?: number;
       limit?: number;
-      search?: string;
       fileType?: string;
       /** `null`/`'root'` = project root; omit + all=true for flat list. */
       parentId?: string | null;
