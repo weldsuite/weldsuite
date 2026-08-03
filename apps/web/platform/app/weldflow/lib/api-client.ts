@@ -1077,7 +1077,14 @@ export const filesApi = {
   // that unwrap the standard `{ data }` envelope.
   confirmUpload: async (
     projectId: string,
-    data: { uploadToken: string; fileKey: string; etag?: string; parentId?: string | null },
+    data: {
+      uploadToken: string;
+      fileKey: string;
+      etag?: string;
+      parentId?: string | null;
+      /** When set, update this existing project_files row instead of creating a new one. */
+      replaceFileId?: string;
+    },
   ) => {
     try {
       const token = await getAuthToken();
@@ -1109,7 +1116,7 @@ export const filesApi = {
         return { success: false, error: message } as ApiResponse<ApiProjectFile>;
       }
       const f = body.file;
-      return appApiPost<ApiProjectFile>('/project-files', {
+      const filePayload = {
         projectId,
         fileName: f.fileName,
         originalName: f.fileName,
@@ -1120,8 +1127,16 @@ export const filesApi = {
         url: f.url,
         storageProvider: 'r2',
         isPublic: f.isPublic,
-        parentId: data.parentId ?? null,
-      });
+        // On replace, omit parentId unless the caller set it explicitly so we
+        // don't accidentally move the file to project root (null).
+        ...(!data.replaceFileId || data.parentId !== undefined
+          ? { parentId: data.parentId ?? null }
+          : {}),
+      };
+      if (data.replaceFileId) {
+        return appApiPatch<ApiProjectFile>(`/project-files/${data.replaceFileId}`, filePayload);
+      }
+      return appApiPost<ApiProjectFile>('/project-files', filePayload);
     } catch (err) {
       return {
         success: false,

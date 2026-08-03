@@ -7,6 +7,7 @@ import {
   createProjectFolder,
   softDeleteProjectFolderCascade,
   wouldCreateCycle,
+  replacedStorageKey,
 } from './project-files';
 import { createPgliteDb } from '../test/pglite';
 import { schema, type Database } from '../db';
@@ -104,5 +105,61 @@ describe('project-files service · folder hierarchy', () => {
     expect(await wouldCreateCycle(db, a.id, a.id)).toBe(true);
     expect(await wouldCreateCycle(db, a.id, null)).toBe(false);
     expect(await wouldCreateCycle(db, c.id, a.id)).toBe(false);
+  });
+});
+
+describe('replacedStorageKey', () => {
+  it('returns the old key when storagePath / fileKey changes', () => {
+    expect(
+      replacedStorageKey(
+        { storagePath: 'old/key.pdf', fileKey: 'old/key.pdf' },
+        { storagePath: 'new/key.pdf', fileKey: 'new/key.pdf' },
+      ),
+    ).toBe('old/key.pdf');
+  });
+
+  it('prefers fileKey over storagePath for the previous object', () => {
+    expect(
+      replacedStorageKey(
+        { storagePath: 'legacy/path', fileKey: 'canonical/key' },
+        { fileKey: 'new/key' },
+      ),
+    ).toBe('canonical/key');
+  });
+
+  it('returns null when storage is unchanged', () => {
+    expect(
+      replacedStorageKey(
+        { storagePath: 'same/key', fileKey: 'same/key' },
+        { storagePath: 'same/key', fileKey: 'same/key' },
+      ),
+    ).toBeNull();
+  });
+
+  it('returns null when the update does not change storage', () => {
+    expect(
+      replacedStorageKey(
+        { storagePath: 'old/key', fileKey: 'old/key' },
+        {},
+      ),
+    ).toBeNull();
+  });
+
+  it('ignores empty folder storage placeholders', () => {
+    expect(
+      replacedStorageKey(
+        { storagePath: '', fileKey: null },
+        { storagePath: 'new/key', fileKey: 'new/key' },
+      ),
+    ).toBeNull();
+  });
+
+  it('does not orphan fileKey on a storagePath-only partial update', () => {
+    expect(
+      replacedStorageKey(
+        { storagePath: 'legacy/path', fileKey: 'canonical/a' },
+        { storagePath: 'new/b' },
+      ),
+    ).toBeNull();
   });
 });

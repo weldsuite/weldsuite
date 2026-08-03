@@ -49,6 +49,11 @@ import { cn } from "@/lib/utils";
 import { filesApi } from "@/app/weldflow/lib/api-client";
 import type { FileResponse } from "@/lib/api/legacy-types";
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from "@/components/entity-list";
+import {
+  findFileNameConflict,
+  type NameConflictChoice,
+  type NamedFolderEntry,
+} from "./file-name-conflict";
 
 interface FilesComponentProps {
   projectId: string;
@@ -150,6 +155,10 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
   const [moveSelectedId, setMoveSelectedId] = useState<string | null>(null);
   const [moving, setMoving] = useState(false);
 
+  const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
+  const [conflictFileName, setConflictFileName] = useState<string | null>(null);
+  const conflictResolverRef = useRef<((choice: NameConflictChoice) => void) | null>(null);
+
   useEffect(() => {
     if (!previewFile) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -230,11 +239,33 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
     await loadFiles(crumb.id);
   }, [breadcrumb, loadFiles, navigateToFolder]);
 
+  const askNameConflict = useCallback((fileName: string): Promise<NameConflictChoice> => {
+    return new Promise((resolve) => {
+      conflictResolverRef.current = resolve;
+      setConflictFileName(fileName);
+      setConflictDialogOpen(true);
+    });
+  }, []);
+
+  const resolveNameConflict = useCallback((choice: NameConflictChoice) => {
+    setConflictDialogOpen(false);
+    setConflictFileName(null);
+    const resolve = conflictResolverRef.current;
+    conflictResolverRef.current = null;
+    resolve?.(choice);
+  }, []);
+
   const handleFileUpload = async (selectedFiles: FileList | null) => {
     if (!selectedFiles || selectedFiles.length === 0) return;
 
     setUploading(true);
     const uploadedFiles: string[] = [];
+    // Track names in this folder across the batch so later files see earlier uploads.
+    const folderEntries: NamedFolderEntry[] = files.map((f) => ({
+      id: f.id,
+      fileName: f.fileName,
+      isFolder: f.isFolder,
+    }));
 
     try {
       for (let i = 0; i < selectedFiles.length; i++) {
@@ -242,6 +273,19 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
         const fileId = `${file.name}-${Date.now()}`;
 
         try {
+          const existing = findFileNameConflict(file.name, folderEntries);
+          let replaceFileId: string | undefined;
+
+          if (existing) {
+            const choice = await askNameConflict(file.name);
+            if (choice === 'cancel') {
+              continue;
+            }
+            if (choice === 'replace') {
+              replaceFileId = existing.id;
+            }
+          }
+
           const urlResult = await filesApi.generateUploadUrl(projectId, {
             fileName: file.name,
             contentType: file.type,
@@ -287,6 +331,7 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
             fileKey,
             etag: etag || undefined,
             parentId: currentFolderId,
+            replaceFileId,
           });
 
           if (!confirmResult.success) {
@@ -295,7 +340,22 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
           }
 
           uploadedFiles.push(file.name);
-          toast.success(t.projects.files.fileUploadedSuccessfully.replace('{name}', file.name));
+          toast.success(
+            (replaceFileId
+              ? t.projects.files.fileReplacedSuccessfully
+              : t.projects.files.fileUploadedSuccessfully
+            ).replace('{name}', file.name),
+          );
+
+          if (replaceFileId) {
+            // Name unchanged; keep the same id in the local conflict set.
+          } else {
+            folderEntries.push({
+              id: (confirmResult.data as { id?: string } | undefined)?.id ?? `pending-${fileId}`,
+              fileName: file.name,
+              isFolder: false,
+            });
+          }
 
           setUploadProgress(prev => {
             const newProgress = { ...prev };
@@ -1163,6 +1223,39 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
               ) : (
                 t.projects.files.deleteMenuItem
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Duplicate name on upload */}
+      <Dialog
+        open={conflictDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && conflictResolverRef.current) {
+            resolveNameConflict('cancel');
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t.projects.files.duplicateFileTitle}</DialogTitle>
+            <DialogDescription>
+              {t.projects.files.duplicateFileConfirm.replace(
+                '{name}',
+                conflictFileName ?? '',
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col-reverse sm:flex-row sm:justify-end gap-2">
+            <Button variant="outline" onClick={() => resolveNameConflict('cancel')}>
+              {t.projects.files.cancel}
+            </Button>
+            <Button variant="secondary" onClick={() => resolveNameConflict('new')}>
+              {t.projects.files.uploadAsNew}
+            </Button>
+            <Button onClick={() => resolveNameConflict('replace')}>
+              {t.projects.files.replaceExisting}
             </Button>
           </DialogFooter>
         </DialogContent>
