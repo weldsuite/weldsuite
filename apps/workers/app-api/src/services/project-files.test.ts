@@ -140,7 +140,7 @@ describe('replacedStorageKey', () => {
     expect(
       replacedStorageKey(
         { storagePath: 'old/key', fileKey: 'old/key' },
-        { fileName: 'renamed.pdf' },
+        {},
       ),
     ).toBeNull();
   });
