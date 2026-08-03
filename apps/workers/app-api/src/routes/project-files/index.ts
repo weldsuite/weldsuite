@@ -24,6 +24,7 @@ import {
   createProjectFolder,
   softDeleteProjectFolderCascade,
   wouldCreateCycle,
+  replacedStorageKey,
 } from '../../services/project-files';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -255,7 +256,26 @@ app.patch('/:id', requirePermission('files:update'), zValidator('json', updatePr
     for (const [k, v] of Object.entries(data)) {
       if (v !== undefined && k !== 'projectId') update[k] = v;
     }
+
+    // Capture the previous R2 key before the row flips to the new object so we
+    // can delete it only after the DB update succeeds (replace-file flow).
+    const oldStorageKey = replacedStorageKey(
+      { storagePath: existing.storagePath, fileKey: existing.fileKey ?? null },
+      update,
+    );
+
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
+
+    if (oldStorageKey && c.env.STORAGE) {
+      await c.env.STORAGE.delete(oldStorageKey).catch((cleanupErr) => {
+        console.error(
+          '[app-api/project-files] failed to delete replaced R2 object:',
+          oldStorageKey,
+          cleanupErr,
+        );
+      });
+    }
+
     publishEntityEvent({
       c,
       entityType: 'project_file',

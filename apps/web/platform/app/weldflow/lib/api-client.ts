@@ -1127,7 +1127,11 @@ export const filesApi = {
         url: f.url,
         storageProvider: 'r2',
         isPublic: f.isPublic,
-        parentId: data.parentId ?? null,
+        // On replace, omit parentId unless the caller set it explicitly so we
+        // don't accidentally move the file to project root (null).
+        ...(!data.replaceFileId || data.parentId !== undefined
+          ? { parentId: data.parentId ?? null }
+          : {}),
       };
       if (data.replaceFileId) {
         return appApiPatch<ApiProjectFile>(`/project-files/${data.replaceFileId}`, filePayload);

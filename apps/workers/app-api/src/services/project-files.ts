@@ -130,3 +130,27 @@ export async function wouldCreateCycle(
   }
   return false;
 }
+
+/**
+ * When a project file's storage object is replaced, return the previous R2 key
+ * that should be cleaned up after the DB update succeeds. Returns null when
+ * storage is unchanged, missing, or the new key matches the old one.
+ */
+export function replacedStorageKey(
+  existing: { storagePath: string | null; fileKey: string | null },
+  update: { storagePath?: unknown; fileKey?: unknown },
+): string | null {
+  const nextKey =
+    (typeof update.fileKey === 'string' && update.fileKey) ||
+    (typeof update.storagePath === 'string' && update.storagePath) ||
+    null;
+  if (!nextKey) return null;
+
+  const oldKey =
+    (existing.fileKey && existing.fileKey.length > 0 ? existing.fileKey : null) ||
+    (existing.storagePath && existing.storagePath.length > 0 ? existing.storagePath : null) ||
+    null;
+  if (!oldKey || oldKey === nextKey) return null;
+  return oldKey;
+}
+
