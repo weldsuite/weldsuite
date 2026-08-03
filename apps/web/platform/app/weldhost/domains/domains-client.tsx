@@ -1,5 +1,5 @@
 
-import { useMemo, useCallback, useState } from 'react';
+import { useMemo, useCallback } from 'react';
 import { Link, useRouter } from '@/lib/router';
 import {
   MoreVertical,
@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 import type { HostDomain } from "@/lib/api/domains/weldhost";
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { DomainDetailPanel } from '@/components/weldhost/domain-detail-panel';
+import { useObjectPanel, useObjectPanelStack } from '@/components/object-panel';
 import { useI18n } from '@/lib/i18n/provider';
 
 interface DomainsClientProps {
@@ -40,7 +40,12 @@ export function DomainsClient({ domains }: DomainsClientProps) {
   const router = useRouter();
   const { t } = useI18n();
   const tdl = t.host.domainsList;
-  const [selectedDomain, setSelectedDomain] = useState<HostDomain | null>(null);
+  // The domain detail lives in the shared object panel (registered as type
+  // 'domain'), rendered by the global <ObjectPanelHost /> that WeldHost's
+  // layout already mounts. Same shell as the WeldFlow task panel.
+  const { open: openPanel } = useObjectPanel();
+  const panelStack = useObjectPanelStack();
+  const selectedDomainId = panelStack[panelStack.length - 1]?.id ?? null;
 
   useBreadcrumbs([
     { label: tdl.breadcrumbHost, href: '/weldhost' },
@@ -131,10 +136,10 @@ export function DomainsClient({ domains }: DomainsClientProps) {
     return (
       <div
         key={domain.id}
-        onClick={() => setSelectedDomain(domain)}
+        onClick={() => openPanel({ type: 'domain', id: domain.id })}
         className={cn(
           'flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group',
-          selectedDomain?.id === domain.id && 'bg-accent',
+          selectedDomainId === domain.id && 'bg-accent',
         )}
       >
         {/* Domain */}
@@ -225,10 +230,9 @@ export function DomainsClient({ domains }: DomainsClientProps) {
         </div>
       </div>
     );
-  }, [selectedDomain?.id, tdl]);
+  }, [selectedDomainId, openPanel, tdl]);
 
   return (
-    <>
     <EntityList<HostDomain>
       items={domains}
       isLoading={false}
@@ -290,11 +294,5 @@ export function DomainsClient({ domains }: DomainsClientProps) {
         description: tdl.noResultsDescription,
       }}
     />
-    <DomainDetailPanel
-      domain={selectedDomain}
-      isOpen={!!selectedDomain}
-      onClose={() => setSelectedDomain(null)}
-    />
-    </>
   );
 }
