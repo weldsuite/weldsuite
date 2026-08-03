@@ -17,13 +17,23 @@
  */
 
 import { useCallback, useMemo, useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { Lock, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@weldsuite/ui/components/form';
 import { Input } from '@weldsuite/ui/components/input';
-import { Label } from '@weldsuite/ui/components/label';
 import {
   Select,
   SelectContent,
@@ -46,77 +56,106 @@ import {
  * but are registry-managed — offering them here would only produce
  * Cloudflare errors.
  */
-const DNS_RECORD_TYPES: DnsRecordInput['type'][] = [
-  'A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SRV', 'CAA',
-];
+const DNS_RECORD_TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SRV', 'CAA'] as const;
+
+type PanelRecordType = (typeof DNS_RECORD_TYPES)[number];
 
 /** Only these carry a meaningful priority in the Cloudflare API. */
-const PRIORITY_TYPES = new Set<DnsRecordInput['type']>(['MX', 'SRV']);
+const PRIORITY_TYPES = new Set<PanelRecordType>(['MX', 'SRV']);
 
 const DEFAULT_TTL = 3600;
 
 type DomainDetailTranslations = ReturnType<typeof useI18n>['t']['host']['domainDetail'];
 
-interface RecordDraft {
-  type: DnsRecordInput['type'];
-  name: string;
-  value: string;
-  ttl: string;
-  priority: string;
+/**
+ * Form schema. TTL and priority stay strings because they're bound to
+ * `<Input type="number">`, which yields `''` when cleared — coercing at the
+ * schema level would turn that empty string into `0` and silently write an
+ * invalid TTL. They're parsed in `toRecordInput` once validation has passed.
+ *
+ * Bounds mirror `createDnsRecordSchema` in
+ * `@weldsuite/core-api-client/schemas/dns-records`, which revalidates
+ * server-side. Messages come from the locale module, so the schema is built
+ * per-render rather than hoisted to a module constant.
+ */
+function buildRecordSchema(td: DomainDetailTranslations) {
+  const numeric = (raw: string, min: number, max: number) => {
+    const n = Number(raw);
+    return Number.isInteger(n) && n >= min && n <= max;
+  };
+
+  return z
+    .object({
+      type: z.enum(DNS_RECORD_TYPES),
+      name: z.string().trim().min(1, td.nameRequired).max(255),
+      value: z.string().trim().min(1, td.valueRequired).max(2048),
+      ttl: z.string(),
+      priority: z.string(),
+    })
+    .superRefine((values, ctx) => {
+      if (values.ttl.trim() && !numeric(values.ttl.trim(), 1, 86400)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['ttl'], message: td.ttlRange });
+      }
+      // Priority is only sent for MX/SRV, so only validate it there — a stale
+      // value left in the field after switching type away from MX must not
+      // block the submit.
+      if (
+        PRIORITY_TYPES.has(values.type) &&
+        values.priority.trim() &&
+        !numeric(values.priority.trim(), 0, 65535)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['priority'],
+          message: td.priorityRange,
+        });
+      }
+    });
 }
 
-function emptyDraft(): RecordDraft {
+type RecordFormValues = z.infer<ReturnType<typeof buildRecordSchema>>;
+
+/** Narrow validated form values into the API payload. */
+function toRecordInput(values: RecordFormValues): DnsRecordInput {
+  const data: DnsRecordInput = {
+    type: values.type,
+    name: values.name.trim(),
+    value: values.value.trim(),
+  };
+  const ttl = values.ttl.trim();
+  if (ttl) data.ttl = Number(ttl);
+  const priority = values.priority.trim();
+  if (priority && PRIORITY_TYPES.has(values.type)) data.priority = Number(priority);
+  return data;
+}
+
+function emptyValues(): RecordFormValues {
   return { type: 'A', name: '', value: '', ttl: String(DEFAULT_TTL), priority: '' };
 }
 
-function draftFromRecord(record: HostDnsRecord): RecordDraft {
+function valuesFromRecord(record: HostDnsRecord): RecordFormValues {
   return {
-    type: record.type as DnsRecordInput['type'],
+    type: record.type as PanelRecordType,
     name: record.name,
     value: record.value,
     ttl: String(record.ttl ?? DEFAULT_TTL),
-    priority: record.priority === null || record.priority === undefined ? '' : String(record.priority),
+    priority:
+      record.priority === null || record.priority === undefined ? '' : String(record.priority),
   };
-}
-
-/** Validate + normalise a draft into the API payload, or return the error. */
-function parseDraft(
-  draft: RecordDraft,
-  td: DomainDetailTranslations,
-): DnsRecordInput | { error: string } {
-  if (!DNS_RECORD_TYPES.includes(draft.type)) return { error: td.pickRecordType };
-  const name = draft.name.trim();
-  const value = draft.value.trim();
-  if (!name) return { error: td.nameRequired };
-  if (!value) return { error: td.valueRequired };
-
-  const data: DnsRecordInput = { type: draft.type, name, value };
-
-  const ttlRaw = draft.ttl.trim();
-  if (ttlRaw) {
-    const ttl = Number(ttlRaw);
-    if (!Number.isInteger(ttl) || ttl < 1 || ttl > 86400) return { error: td.ttlRange };
-    data.ttl = ttl;
-  }
-
-  const priorityRaw = draft.priority.trim();
-  if (priorityRaw && PRIORITY_TYPES.has(draft.type)) {
-    const priority = Number(priorityRaw);
-    if (!Number.isInteger(priority) || priority < 0 || priority > 65535) {
-      return { error: td.priorityRange };
-    }
-    data.priority = priority;
-  }
-
-  return data;
 }
 
 // ─── Record form ───────────────────────────────────────────────────────────
 
+/**
+ * Add / edit form. Owns its own `useForm` instance — callers remount it (via
+ * `key`) to switch records rather than resetting it from outside.
+ *
+ * `FormLabel` + `FormControl` derive a shared id from `FormItem`, so every
+ * label is associated with its control without hand-rolled `useId` wiring.
+ */
 function RecordForm({
   title,
-  draft,
-  onChange,
+  defaultValues,
   onSubmit,
   onCancel,
   isPending,
@@ -125,102 +164,137 @@ function RecordForm({
   td,
 }: {
   title: string;
-  draft: RecordDraft;
-  onChange: (next: RecordDraft) => void;
-  onSubmit: () => void;
+  defaultValues: RecordFormValues;
+  onSubmit: (data: DnsRecordInput) => void | Promise<void>;
   onCancel: () => void;
   isPending: boolean;
   submitLabel: string;
   pendingLabel: string;
   td: DomainDetailTranslations;
 }) {
-  const showPriority = PRIORITY_TYPES.has(draft.type);
+  const schema = useMemo(() => buildRecordSchema(td), [td]);
+  const form = useForm<RecordFormValues>({
+    resolver: zodResolver(schema),
+    defaultValues,
+  });
+
+  const selectedType = form.watch('type');
+  const showPriority = PRIORITY_TYPES.has(selectedType);
+
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        onSubmit();
-      }}
-      className="rounded-lg border border-border bg-muted/30 p-3 space-y-3"
-    >
-      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
+    <Form {...form}>
+      <form
+        onSubmit={form.handleSubmit((values) => onSubmit(toRecordInput(values)))}
+        className="rounded-lg border border-border bg-muted/30 p-3 space-y-3"
+      >
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <Label className="text-xs">{td.type}</Label>
-          <Select
-            value={draft.type}
-            onValueChange={(next) => onChange({ ...draft, type: next as DnsRecordInput['type'] })}
-          >
-            <SelectTrigger className="h-8">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {DNS_RECORD_TYPES.map((type) => (
-                <SelectItem key={type} value={type}>
-                  {type}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label className="text-xs">{td.ttlSeconds}</Label>
-          <Input
-            className="h-8"
-            type="number"
-            min={1}
-            max={86400}
-            value={draft.ttl}
-            onChange={(e) => onChange({ ...draft, ttl: e.target.value })}
+        <div className="grid grid-cols-2 gap-3">
+          <FormField
+            control={form.control}
+            name="type"
+            render={({ field }) => (
+              <FormItem className="space-y-1.5">
+                <FormLabel className="text-xs">{td.type}</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl>
+                    <SelectTrigger className="h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {DNS_RECORD_TYPES.map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {type}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="ttl"
+            render={({ field }) => (
+              <FormItem className="space-y-1.5">
+                <FormLabel className="text-xs">{td.ttlSeconds}</FormLabel>
+                <FormControl>
+                  <Input className="h-8" type="number" min={1} max={86400} {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
           />
         </div>
-      </div>
 
-      <div className="space-y-1.5">
-        <Label className="text-xs">{td.recordName}</Label>
-        <Input
-          className="h-8 font-mono"
-          value={draft.name}
-          placeholder={td.recordNamePlaceholder}
-          onChange={(e) => onChange({ ...draft, name: e.target.value })}
+        <FormField
+          control={form.control}
+          name="name"
+          render={({ field }) => (
+            <FormItem className="space-y-1.5">
+              <FormLabel className="text-xs">{td.recordName}</FormLabel>
+              <FormControl>
+                <Input
+                  className="h-8 font-mono"
+                  placeholder={td.recordNamePlaceholder}
+                  {...field}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
         />
-      </div>
 
-      <div className="space-y-1.5">
-        <Label className="text-xs">{td.value}</Label>
-        <Input
-          className="h-8 font-mono"
-          value={draft.value}
-          placeholder={td.ipOrHostname}
-          onChange={(e) => onChange({ ...draft, value: e.target.value })}
+        <FormField
+          control={form.control}
+          name="value"
+          render={({ field }) => (
+            <FormItem className="space-y-1.5">
+              <FormLabel className="text-xs">{td.value}</FormLabel>
+              <FormControl>
+                <Input className="h-8 font-mono" placeholder={td.ipOrHostname} {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
         />
-      </div>
 
-      {showPriority && (
-        <div className="space-y-1.5">
-          <Label className="text-xs">{td.priorityOptional}</Label>
-          <Input
-            className="h-8"
-            type="number"
-            min={0}
-            max={65535}
-            placeholder="10"
-            value={draft.priority}
-            onChange={(e) => onChange({ ...draft, priority: e.target.value })}
+        {showPriority && (
+          <FormField
+            control={form.control}
+            name="priority"
+            render={({ field }) => (
+              <FormItem className="space-y-1.5">
+                <FormLabel className="text-xs">{td.priorityOptional}</FormLabel>
+                <FormControl>
+                  <Input
+                    className="h-8"
+                    type="number"
+                    min={0}
+                    max={65535}
+                    placeholder="10"
+                    {...field}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
           />
-        </div>
-      )}
+        )}
 
-      <div className="flex justify-end gap-2 pt-1">
-        <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={isPending}>
-          {td.cancel}
-        </Button>
-        <Button type="submit" size="sm" disabled={isPending}>
-          {isPending ? pendingLabel : submitLabel}
-        </Button>
-      </div>
-    </form>
+        <div className="flex justify-end gap-2 pt-1">
+          <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={isPending}>
+            {td.cancel}
+          </Button>
+          <Button type="submit" size="sm" disabled={isPending}>
+            {isPending ? pendingLabel : submitLabel}
+          </Button>
+        </div>
+      </form>
+    </Form>
   );
 }
 
@@ -231,11 +305,17 @@ interface DomainDnsTabProps {
   records: HostDnsRecord[];
   isLoading: boolean;
   /**
-   * Per-action gates. Each is already ANDed with "the zone is Cloudflare-
-   * backed" by the panel, because the API proxies every mutation to CF and a
-   * pending zone has nothing to write to. Kept separate rather than one
-   * `canManage` flag so a user granted only `weldhost:dns:update` still gets
-   * the edit button instead of a fully read-only tab.
+   * True when the domain has a Cloudflare-backed zone to write to. Separate
+   * from the permission flags because the two produce different empty-state
+   * copy: "no zone yet" vs "you can't edit this".
+   */
+  hasZone: boolean;
+  /**
+   * Per-action gates. Each is already ANDed with `hasZone` by the panel,
+   * because the API proxies every mutation to CF and a pending zone has
+   * nothing to write to. Kept separate rather than one `canManage` flag so a
+   * user granted only `weldhost:dns:update` still gets the edit button
+   * instead of a fully read-only tab.
    */
   canCreate: boolean;
   canEdit: boolean;
@@ -248,6 +328,7 @@ export function DomainDnsTab({
   domainId,
   records,
   isLoading,
+  hasZone,
   canCreate,
   canEdit,
   canDelete,
@@ -258,9 +339,7 @@ export function DomainDnsTab({
 
   const [search, setSearch] = useState('');
   const [isAdding, setIsAdding] = useState(false);
-  const [addDraft, setAddDraft] = useState<RecordDraft>(emptyDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editDraft, setEditDraft] = useState<RecordDraft>(emptyDraft);
   const [pendingDelete, setPendingDelete] = useState<HostDnsRecord | null>(null);
 
   const createRecord = useCreateDnsRecord();
@@ -282,47 +361,39 @@ export function DomainDnsTab({
 
   const openAdd = useCallback(() => {
     setEditingId(null);
-    setAddDraft(emptyDraft());
     setIsAdding(true);
   }, []);
 
   const openEdit = useCallback((record: HostDnsRecord) => {
     setIsAdding(false);
-    setEditDraft(draftFromRecord(record));
     setEditingId(record.id);
   }, []);
 
-  const handleCreate = useCallback(async () => {
-    const parsed = parseDraft(addDraft, td);
-    if ('error' in parsed) {
-      toast.error(parsed.error);
-      return;
-    }
-    try {
-      await createRecord.mutateAsync({ domainId, data: parsed });
-      setIsAdding(false);
-      setAddDraft(emptyDraft());
-      toast.success(td.dnsRecordAdded);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : td.failedToAddRecord);
-    }
-  }, [addDraft, td, createRecord, domainId]);
+  const handleCreate = useCallback(
+    async (data: DnsRecordInput) => {
+      try {
+        await createRecord.mutateAsync({ domainId, data });
+        setIsAdding(false);
+        toast.success(td.dnsRecordAdded);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : td.failedToAddRecord);
+      }
+    },
+    [createRecord, domainId, td],
+  );
 
-  const handleUpdate = useCallback(async () => {
-    if (!editingId) return;
-    const parsed = parseDraft(editDraft, td);
-    if ('error' in parsed) {
-      toast.error(parsed.error);
-      return;
-    }
-    try {
-      await updateRecord.mutateAsync({ id: editingId, domainId, data: parsed });
-      setEditingId(null);
-      toast.success(td.dnsRecordUpdated);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : td.failedToUpdateRecord);
-    }
-  }, [editingId, editDraft, td, updateRecord, domainId]);
+  const handleUpdate = useCallback(
+    async (recordId: string, data: DnsRecordInput) => {
+      try {
+        await updateRecord.mutateAsync({ id: recordId, domainId, data });
+        setEditingId(null);
+        toast.success(td.dnsRecordUpdated);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : td.failedToUpdateRecord);
+      }
+    },
+    [updateRecord, domainId, td],
+  );
 
   const handleDelete = useCallback(async () => {
     if (!pendingDelete) return;
@@ -363,8 +434,7 @@ export function DomainDnsTab({
       {isAdding && canCreate && (
         <RecordForm
           title={td.newRecord}
-          draft={addDraft}
-          onChange={setAddDraft}
+          defaultValues={emptyValues()}
           onSubmit={handleCreate}
           onCancel={() => setIsAdding(false)}
           isPending={createRecord.isPending}
@@ -388,7 +458,7 @@ export function DomainDnsTab({
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             {records.length === 0
-              ? canCreate
+              ? hasZone
                 ? td.noDnsRecordsDescription
                 : td.noDnsRecordsNoZone
               : td.noMatchingRecordsDescription}
@@ -402,9 +472,8 @@ export function DomainDnsTab({
                 <RecordForm
                   key={record.id}
                   title={td.editRecord}
-                  draft={editDraft}
-                  onChange={setEditDraft}
-                  onSubmit={handleUpdate}
+                  defaultValues={valuesFromRecord(record)}
+                  onSubmit={(data) => handleUpdate(record.id, data)}
                   onCancel={() => setEditingId(null)}
                   isPending={updateRecord.isPending}
                   submitLabel={td.save}
@@ -460,7 +529,9 @@ export function DomainDnsTab({
                           className="h-6 w-6"
                           disabled={locked || updateRecord.isPending}
                           title={locked ? lockTooltip : td.edit}
-                          aria-label={td.edit}
+                          aria-label={td.editRecordAriaLabel
+                            .replace('{type}', record.type)
+                            .replace('{name}', record.name)}
                           onClick={() => openEdit(record)}
                         >
                           <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
@@ -473,7 +544,7 @@ export function DomainDnsTab({
                           className="h-6 w-6"
                           disabled={locked || deleteRecord.isPending}
                           title={locked ? lockTooltip : td.deleteAction}
-                          aria-label={td.deleteConfirm
+                          aria-label={td.deleteRecordAriaLabel
                             .replace('{type}', record.type)
                             .replace('{name}', record.name)}
                           onClick={() => setPendingDelete(record)}

@@ -96,6 +96,20 @@ function formatDate(value: string | null | undefined): string | null {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+/**
+ * Copy + toast. `writeText` rejects in an insecure context or when the user
+ * denies clipboard permission, so the success toast has to wait for the
+ * promise rather than fire alongside it.
+ */
+async function copyToClipboard(text: string, td: DomainDetailTranslations): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success(td.copiedToClipboard);
+  } catch {
+    toast.error(td.copyFailed);
+  }
+}
+
 function daysUntil(value: string | null | undefined): number | null {
   if (!value) return null;
   const d = new Date(value);
@@ -164,10 +178,7 @@ function DomainActions({
         className="p-1.5 hover:bg-muted rounded-md transition-colors"
         title={td.copyDomain}
         aria-label={td.copyDomain}
-        onClick={() => {
-          void navigator.clipboard.writeText(fullDomain);
-          toast.success(td.copiedToClipboard);
-        }}
+        onClick={() => void copyToClipboard(fullDomain, td)}
       >
         <Copy className="h-4 w-4 text-muted-foreground" />
       </Button>
@@ -467,10 +478,7 @@ function DomainNameserversTab({
               className="h-6 w-6 flex-shrink-0"
               title={td.copy}
               aria-label={td.copy}
-              onClick={() => {
-                void navigator.clipboard.writeText(ns);
-                toast.success(td.copiedToClipboard);
-              }}
+              onClick={() => void copyToClipboard(ns, td)}
             >
               <Copy className="h-3.5 w-3.5 text-muted-foreground" />
             </Button>
@@ -768,6 +776,7 @@ export function DomainPanel(props: ObjectPanelComponentProps) {
             domainId={domain.id}
             records={records}
             isLoading={recordsQuery.isLoading || zoneQuery.isLoading}
+            hasZone={zoneIsManageable}
             canCreate={zoneIsManageable && canCreateDns}
             canEdit={zoneIsManageable && canUpdateDns}
             canDelete={zoneIsManageable && canDeleteDns}

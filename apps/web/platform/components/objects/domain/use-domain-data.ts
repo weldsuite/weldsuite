@@ -9,6 +9,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
+import { hostKeys } from '@/hooks/queries/use-host-queries';
 
 export function useDeleteDomain() {
   const { domains } = useAppApi();
@@ -16,11 +17,12 @@ export function useDeleteDomain() {
   return useMutation({
     mutationFn: (id: string) => domains.delete(id),
     onSuccess: () => {
-      // Mirrors `hostKeys` in use-host-queries. `['host','domains']` is a
-      // prefix of the per-domain key too, so this covers the deleted row,
-      // every list page and its DNS sub-queries in one go.
-      qc.invalidateQueries({ queryKey: ['host', 'domains'] });
-      qc.invalidateQueries({ queryKey: ['host', 'dashboard'] });
+      // Reuse the key factory rather than literal arrays, so a prefix change
+      // in use-host-queries can't silently stop these from matching.
+      // `hostKeys.domains()` is a prefix of the per-domain key too, so this
+      // covers the deleted row, every list page and its DNS sub-queries.
+      qc.invalidateQueries({ queryKey: hostKeys.domains() });
+      qc.invalidateQueries({ queryKey: hostKeys.dashboard() });
     },
   });
 }

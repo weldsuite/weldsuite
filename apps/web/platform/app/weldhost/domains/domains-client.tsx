@@ -45,7 +45,11 @@ export function DomainsClient({ domains }: DomainsClientProps) {
   // layout already mounts. Same shell as the WeldFlow task panel.
   const { open: openPanel } = useObjectPanel();
   const panelStack = useObjectPanelStack();
-  const selectedDomainId = panelStack[panelStack.length - 1]?.id ?? null;
+  // Match on `type` rather than reading the stack tail: a panel pushed on top
+  // of the domain panel would otherwise clear the row highlight, or — if its
+  // id happened to collide — move it to the wrong row.
+  const selectedDomainId =
+    [...panelStack].reverse().find((handle) => handle.type === 'domain')?.id ?? null;
 
   useBreadcrumbs([
     { label: tdl.breadcrumbHost, href: '/weldhost' },

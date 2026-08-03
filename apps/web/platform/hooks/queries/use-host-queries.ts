@@ -19,7 +19,7 @@ import type { DnsZone } from '@weldsuite/core-api-client/schemas/dns-zones';
 // Query Keys
 // =============================================================================
 
-const hostKeys = {
+export const hostKeys = {
   all: ['host'] as const,
   domains: () => [...hostKeys.all, 'domains'] as const,
   domainList: (filters?: Record<string, unknown>) => [...hostKeys.domains(), 'list', filters] as const,
