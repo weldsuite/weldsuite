@@ -70,8 +70,14 @@ export const aiProviderUsage = pgTable('ai_provider_usage', {
   /** CANONICAL model id (never the gateway-native one) — keeps reports joinable. */
   modelId: varchar('model_id', { length: 200 }).notNull(),
 
-  /** Nullable: unmetered/fail-open calls should still record cost when we can. */
-  workspaceId: varchar('workspace_id', { length: 255 }).references(() => workspaces.id),
+  /**
+   * Nullable: unmetered/fail-open calls should still record cost when we can.
+   *
+   * SET NULL rather than cascade on workspace delete — this is the OPS ledger
+   * (what WE paid), so the spend must survive the tenant it was incurred for,
+   * or the gateway rollup silently loses money it already spent.
+   */
+  workspaceId: varchar('workspace_id', { length: 255 }).references(() => workspaces.id, { onDelete: 'set null' }),
 
   /** generate | ai_generate | ai_classify | mail_draft | … */
   op: varchar('op', { length: 30 }).notNull(),
