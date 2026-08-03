@@ -153,4 +153,13 @@ describe('replacedStorageKey', () => {
       ),
     ).toBeNull();
   });
+
+  it('does not orphan fileKey on a storagePath-only partial update', () => {
+    expect(
+      replacedStorageKey(
+        { storagePath: 'legacy/path', fileKey: 'canonical/a' },
+        { storagePath: 'new/b' },
+      ),
+    ).toBeNull();
+  });
 });
