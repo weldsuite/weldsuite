@@ -71,15 +71,15 @@ export const COUNTRIES_REQUIRING_ADDRESS = [
 ];
 
 /**
- * Resolve the billing-worker base URL for the current environment. Mirrors
- * the hardcoded selection the legacy api-worker telephony/porting routes used.
+ * Resolve the billing-worker base URL for the current environment.
+ * Production host matches apps/workers/billing-worker/wrangler.toml
+ * (`billing-worker.weldsuite.org`). The old `billing.weldsuite.org` /
+ * `billing-preview.weldsuite.org` hostnames do not serve this worker.
  */
 export function billingWorkerUrl(env: Env): string {
-  return env.ENVIRONMENT === 'production'
-    ? 'https://billing.weldsuite.org'
-    : env.ENVIRONMENT === 'preview'
-      ? 'https://billing-preview.weldsuite.org'
-      : 'http://localhost:8788';
+  return env.ENVIRONMENT === 'production' || env.ENVIRONMENT === 'preview'
+    ? 'https://billing-worker.weldsuite.org'
+    : 'http://localhost:8788';
 }
 
 // ============================================================================

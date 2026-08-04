@@ -11,7 +11,24 @@
 
 import { getBrowserAccessToken } from '@/lib/api/app-api-browser-client';
 
-const BILLING_WORKER_URL = import.meta.env.VITE_BILLING_WORKER_URL || 'http://localhost:8788';
+/** Production custom domain from apps/workers/billing-worker/wrangler.toml. */
+export const BILLING_WORKER_PRODUCTION_URL = 'https://billing-worker.weldsuite.org';
+
+/**
+ * Resolve the billing-worker base URL.
+ *
+ * Prefer `VITE_BILLING_WORKER_URL` when set. Production Vite builds must not
+ * fall back to localhost — that shipped `http://localhost:8788/api/billing/...`
+ * to app.weldsuite.org and broke the billing page phone-subscription fetch.
+ */
+export function resolveBillingWorkerUrl(
+  env: { VITE_BILLING_WORKER_URL?: string; PROD?: boolean } = import.meta.env,
+): string {
+  if (env.VITE_BILLING_WORKER_URL) return env.VITE_BILLING_WORKER_URL;
+  return env.PROD ? BILLING_WORKER_PRODUCTION_URL : 'http://localhost:8788';
+}
+
+const BILLING_WORKER_URL = resolveBillingWorkerUrl();
 const API_PREFIX = '/api/billing';
 
 class BillingWorkerClient {
