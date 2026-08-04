@@ -371,11 +371,11 @@ export function DomainDnsTab({
     return counts;
   }, [records]);
 
-  const typeChips = useMemo(() => {
-    const present = DNS_RECORD_TYPES.filter((type) => typeCounts.has(type));
+  const typeChips = useMemo<string[]>(() => {
+    const present: string[] = DNS_RECORD_TYPES.filter((type) => typeCounts.has(type));
     // Include any unexpected types returned by CF that aren't in the create list.
     for (const type of typeCounts.keys()) {
-      if (!present.includes(type as PanelRecordType)) present.push(type as PanelRecordType);
+      if (!present.includes(type)) present.push(type);
     }
     return present;
   }, [typeCounts]);
