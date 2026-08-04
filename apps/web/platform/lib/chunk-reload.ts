@@ -4,9 +4,15 @@
 // content-hashed chunks (e.g. `call-overlay-DxU6oOZU.js`). When a new build is
 // deployed, every hash changes and Pages only serves the *latest* deployment on
 // the production alias, so a tab still running the previous build's entry asks
-// for a chunk that no longer exists. Pages answers the 404 with the SPA
-// fallback `index.html` (MIME `text/html`), and the dynamic `import()` throws
-// "Failed to fetch dynamically imported module".
+// for a chunk that no longer exists.
+//
+// Historically Pages answered that miss with the SPA fallback `index.html`
+// (200, MIME `text/html`), and the dynamic `import()` threw either "Failed to
+// fetch dynamically imported module" or the stricter "Expected a
+// JavaScript-or-Wasm module script but the server responded with a MIME type of
+// text/html". `public/assets/404.html` makes misses under /assets/ return a
+// real 404 instead; both error shapes are still handled here for older deploys
+// and for any edge that still has a poisoned HTML response cached.
 //
 // The cure is to force the stale tab to reload once so it boots the new
 // `index.html` with the current hash map. The guard below prevents a genuinely
