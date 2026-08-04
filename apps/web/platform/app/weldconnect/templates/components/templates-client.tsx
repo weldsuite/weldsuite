@@ -37,7 +37,7 @@ export function TemplatesClient() {
   const CATEGORIES = useLocalizedCategories();
 
   useBreadcrumbs([
-    { label: t.weldconnect.breadcrumbs.task, href: '/weldconnect' },
+    { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },
     { label: t.weldconnect.breadcrumbs.templates },
   ]);
 

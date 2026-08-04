@@ -257,6 +257,7 @@ import { workflowTemplatesRoutes } from './routes/workflow-templates';
 import { workflowTriggersRoutes } from './routes/workflow-triggers';
 import { workflowVariablesRoutes } from './routes/workflow-variables';
 import { workflowWebhooksRoutes } from './routes/workflow-webhooks';
+import { weldconnectRoutes } from './routes/weldconnect';
 import { workflowsRoutes } from './routes/workflows';
 import { testFixturesRoutes } from './routes/_test-fixtures';
 import { publicHelpcenterRoutes } from './routes/public-helpcenter';
@@ -442,6 +443,8 @@ app.route('/public/webhooks/telnyx', telnyxWebhookRoutes);
 // Mounted more specifically than the authed /api/workflows router below, so
 // only /api/workflows/webhook/* bypasses Clerk. Must stay ABOVE the guard.
 app.route('/api/workflows/webhook', publicWorkflowWebhookRoutes);
+// WeldConnect inbound webhook alias (same receiver as /api/workflows/webhook).
+app.route('/api/weldconnect/webhooks/inbound', publicWorkflowWebhookRoutes);
 
 // MeetingBaas meeting-bot webhook — PUBLIC (server-to-server, no Clerk).
 app.route('/api/webhooks/meeting-bot', webhooksMeetingBotRoutes);
@@ -719,6 +722,8 @@ app.route('/api/workspaces', workspacesRoutes);
 app.route('/api/weldagent', weldagentRoutes);
 app.route('/api/welddata', welddataRoutes);
 app.route('/api/whiteboards', whiteboardsRoutes);
+app.route('/api/weldconnect', weldconnectRoutes);
+// Legacy flat mounts — aliases during WeldConnect cutover (remove once clients migrate).
 app.route('/api/workflow-builder', workflowBuilderRoutes);
 app.route('/api/workflow-dashboard', workflowDashboardRoutes);
 app.route('/api/workflow-executions', workflowExecutionsRoutes);

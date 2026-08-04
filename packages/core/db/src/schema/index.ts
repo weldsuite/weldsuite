@@ -23,10 +23,12 @@ export * from './task-projects';
 export * from './task-tags';
 export * from './task-comments';
 
-// Workflow Automation module
+// Workflow Automation module (WeldConnect)
 export * from './workflows';
 export * from './workflow-executions';
 export * from './workflow-execution-steps';
+export * from './workflow-trigger-index';
+/** @deprecated Dual CRUD table — use embedded workflows.triggers + workflow_trigger_index */
 export * from './workflow-triggers';
 export * from './workflow-schedules';
 export * from './workflow-webhooks';

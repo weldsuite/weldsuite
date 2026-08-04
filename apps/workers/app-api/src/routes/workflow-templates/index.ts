@@ -18,7 +18,7 @@ import * as templates from '../../services/workflow-templates';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-app.get('/', requirePermission('tasks:read'), async (c) => {
+app.get('/', requirePermission('workflow-templates:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   try {
@@ -36,7 +36,7 @@ app.get('/', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.get('/categories', requirePermission('tasks:read'), async (c) => {
+app.get('/categories', requirePermission('workflow-templates:read'), async (c) => {
   const db = c.get('tenantDb');
   try {
     return success(c, await templates.getTemplateCategories(db));
@@ -46,7 +46,7 @@ app.get('/categories', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.get('/:id', requirePermission('tasks:read'), async (c) => {
+app.get('/:id', requirePermission('workflow-templates:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
@@ -59,7 +59,7 @@ app.get('/:id', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.post('/', requirePermission('tasks:create'), zValidator('json', createTemplateSchema), async (c) => {
+app.post('/', requirePermission('workflow-templates:create'), zValidator('json', createTemplateSchema), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const data = c.req.valid('json');
@@ -79,7 +79,7 @@ app.post('/', requirePermission('tasks:create'), zValidator('json', createTempla
   }
 });
 
-app.post('/from-workflow/:workflowId', requirePermission('tasks:create'), async (c) => {
+app.post('/from-workflow/:workflowId', requirePermission('workflow-templates:create'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const workflowId = c.req.param('workflowId');
@@ -101,7 +101,7 @@ app.post('/from-workflow/:workflowId', requirePermission('tasks:create'), async 
   }
 });
 
-app.post('/:id/use', requirePermission('tasks:create'), async (c) => {
+app.post('/:id/use', requirePermission('workflow-templates:create'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const id = c.req.param('id');
@@ -124,7 +124,7 @@ app.post('/:id/use', requirePermission('tasks:create'), async (c) => {
 });
 
 for (const method of ['put', 'patch'] as const) {
-  app[method]('/:id', requirePermission('tasks:update'), zValidator('json', updateTemplateSchema), async (c) => {
+  app[method]('/:id', requirePermission('workflow-templates:update'), zValidator('json', updateTemplateSchema), async (c) => {
     const db = c.get('tenantDb');
     const id = c.req.param('id');
     const data = c.req.valid('json');
@@ -146,7 +146,7 @@ for (const method of ['put', 'patch'] as const) {
   });
 }
 
-app.delete('/:id', requirePermission('tasks:delete'), async (c) => {
+app.delete('/:id', requirePermission('workflow-templates:delete'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {

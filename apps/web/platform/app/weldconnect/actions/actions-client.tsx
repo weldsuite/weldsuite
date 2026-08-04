@@ -1,5 +1,6 @@
 
 import { useState, useMemo } from 'react';
+import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { Button } from '@weldsuite/ui/components/button';
@@ -142,8 +143,9 @@ const categoryInfo: Record<string, { icon: LucideIcon; color: string }> = {
 
 export function ActionsClient({ initialActions, categories }: ActionsClientProps) {
   const { t } = useI18n();
+  const router = useRouter();
   useBreadcrumbs([
-    { label: t.weldconnect.breadcrumbs.task, href: '/weldconnect' },
+    { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },
     { label: t.weldconnect.breadcrumbs.actions },
   ]);
 
@@ -610,7 +612,7 @@ export function ActionsClient({ initialActions, categories }: ActionsClientProps
                   <Copy className="h-4 w-4" />
                   {t.weldconnect.actions.copyConfiguration}
                 </Button>
-                <Button className="flex items-center gap-2">
+                <Button className="flex items-center gap-2" onClick={() => router.push('/weldconnect/workflows')}>
                   <Plus className="h-4 w-4" />
                   {t.weldconnect.actions.addToWorkflow}
                 </Button>

@@ -60,7 +60,7 @@ const ENTITY_ICONS: Record<string, LucideIcon> = {
 export function TriggersClient({ triggerTypes, entityEvents }: TriggersClientProps) {
   const { t } = useI18n();
   useBreadcrumbs([
-    { label: t.weldconnect.breadcrumbs.task, href: '/weldconnect' },
+    { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },
     { label: t.weldconnect.breadcrumbs.triggers },
   ]);
 

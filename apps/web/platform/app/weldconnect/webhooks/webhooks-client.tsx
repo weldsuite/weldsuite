@@ -58,7 +58,7 @@ interface WebhooksClientProps {
 export function WebhooksClient({ webhooks: initialWebhooks }: WebhooksClientProps) {
   const { t } = useI18n();
   useBreadcrumbs([
-    { label: t.weldconnect.breadcrumbs.task, href: '/weldconnect' },
+    { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },
     { label: t.weldconnect.breadcrumbs.webhooks },
   ]);
 

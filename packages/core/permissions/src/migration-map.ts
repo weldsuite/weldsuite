@@ -116,13 +116,20 @@ const RAW_MIGRATION: ReadonlyArray<readonly [string, string, string, readonly st
   ['weldchat', 'settings', 'settings', ['read', 'update', 'manage']],
 
   // ── weldconnect ─────────────────────────────────────────────────────────
-  ['weldconnect', 'tasks',        'tasks',        ['read', 'create', 'update', 'delete']],
+  // Legacy weldconnect:tasks:* collapsed onto shared tasks — remapped to
+  // workflows so Connect no longer shares WeldFlow task permissions.
+  ['weldconnect', 'tasks',                 'workflows',            ['read', 'create', 'update', 'delete']],
+  ['weldconnect', 'workflows',             'workflows',            ['read', 'create', 'update', 'delete']],
+  ['weldconnect', 'workflow-executions',   'workflow-executions',  ['read', 'update']],
+  ['weldconnect', 'workflow-templates',    'workflow-templates',   ['read', 'create', 'update', 'delete']],
+  ['weldconnect', 'workflow-variables',    'workflow-variables',   ['read', 'create', 'update', 'delete']],
+  ['weldconnect', 'workflow-webhooks',     'workflow-webhooks',    ['read', 'create', 'update', 'delete']],
   // 'weldconnect:integrations:*' uses non-standard 4-segment keys
   // (e.g. 'weldconnect:integrations:github:manage'). Migrating it
   // collapses to 'integrations:github:manage'. We list the supported
   // terminal action 'github:manage' as the action segment so wildcard
   // expansion stays well-defined.
-  ['weldconnect', 'integrations', 'integrations', ['github:manage']],
+  ['weldconnect', 'integrations', 'integrations', ['github:manage', 'read', 'create', 'update', 'delete']],
 
   // ── welddrive ───────────────────────────────────────────────────────────
   ['welddrive', 'files',   'files',   ['read', 'create', 'update', 'delete']],

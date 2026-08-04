@@ -639,7 +639,7 @@ export function WorkflowEditorClient({
     return () => window.removeEventListener('beforeunload', handler);
   }, [isDirty]);
 
-  const apiBasePath = module === 'helpdesk' ? '/helpdesk-workflows' : '/workflows';
+  const apiBasePath = module === 'helpdesk' ? '/helpdesk-workflows' : '/weldconnect/workflows';
   const updateWorkflowMutation = useUpdateWorkflow(apiBasePath);
   const testWorkflowMutation = useTestWorkflow();
   const updateStatusMutation = useUpdateWorkflowStatus(apiBasePath);

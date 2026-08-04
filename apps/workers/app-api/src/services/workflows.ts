@@ -9,6 +9,7 @@
 import { and, desc, eq, isNull, like, lt, or, sql } from 'drizzle-orm';
 import { schema, type Database } from '../db';
 import { generateId } from '../lib/id';
+import { clearWorkflowTriggerIndex, syncWorkflowTriggerIndex } from './workflow-trigger-index';
 
 const { workflows, workflowExecutions } = schema;
 
@@ -94,12 +95,15 @@ export async function createWorkflow(
   const id = generateId('wf');
   const now = new Date();
 
+  const status = data.status || 'draft';
+  const triggers = data.triggers ?? [];
+
   await db.insert(workflows).values({
     id,
     name: data.name,
     description: data.description ?? null,
-    status: data.status || 'draft',
-    triggers: (data.triggers ?? []) as any,
+    status,
+    triggers: triggers as any,
     steps: (data.steps ?? []) as any,
     settings: (data.settings ?? {}) as any,
     tags: data.tags ?? [],
@@ -112,6 +116,8 @@ export async function createWorkflow(
     createdAt: now,
     updatedAt: now,
   });
+
+  await syncWorkflowTriggerIndex(db, id, triggers, { workflowActive: status === 'active' });
 
   return { id };
 }
@@ -134,6 +140,11 @@ export async function updateWorkflow(
   }
 
   await db.update(workflows).set(update).where(eq(workflows.id, id));
+
+  const nextStatus = (update.status as string | undefined) ?? existing.status;
+  const nextTriggers = update.triggers !== undefined ? update.triggers : existing.triggers;
+  await syncWorkflowTriggerIndex(db, id, nextTriggers, { workflowActive: nextStatus === 'active' });
+
   return { id };
 }
 
@@ -146,6 +157,7 @@ export async function updateWorkflowStatus(db: Database, id: string, status: str
   if (!existing) return null;
 
   await db.update(workflows).set({ status, updatedAt: new Date() }).where(eq(workflows.id, id));
+  await syncWorkflowTriggerIndex(db, id, existing.triggers, { workflowActive: status === 'active' });
   return { id, status };
 }
 
@@ -184,6 +196,9 @@ export async function duplicateWorkflow(
     updatedAt: now,
   });
 
+  // Duplicates start as draft — no active trigger index rows.
+  await syncWorkflowTriggerIndex(db, newId, original.triggers, { workflowActive: false });
+
   return { id: newId };
 }
 
@@ -192,6 +207,7 @@ export async function deleteWorkflow(db: Database, id: string) {
     .update(workflows)
     .set({ deletedAt: new Date(), updatedAt: new Date() })
     .where(and(eq(workflows.id, id), isNull(workflows.deletedAt)));
+  await clearWorkflowTriggerIndex(db, id);
 }
 
 export async function getWorkflowStats(db: Database) {

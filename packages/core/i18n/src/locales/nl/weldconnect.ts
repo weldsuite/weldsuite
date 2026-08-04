@@ -2108,7 +2108,8 @@ export const weldconnect = {
 
   // Veelgebruikte breadcrumblabels
   breadcrumbs: {
-    task: 'Taak',
+    connect: 'WeldConnect',
+    task: 'WeldConnect',
     actions: 'Acties',
     triggers: 'Triggers',
     executions: 'Uitvoeringen',
@@ -2117,7 +2118,9 @@ export const weldconnect = {
     analytics: 'Analyses',
     workflows: 'Workflows',
     templates: 'Sjablonen',
-    automation: 'Automatisering',
+    automation: 'WeldConnect',
     integrations: 'Integraties',
+    editor: 'Editor',
+    settings: 'Instellingen',
   },
 };

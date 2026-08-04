@@ -2133,7 +2133,8 @@ export const weldconnect = {
 
   // Common breadcrumb labels used across module
   breadcrumbs: {
-    task: 'Task',
+    connect: 'WeldConnect',
+    task: 'WeldConnect',
     actions: 'Actions',
     triggers: 'Triggers',
     executions: 'Executions',
@@ -2142,7 +2143,9 @@ export const weldconnect = {
     analytics: 'Analytics',
     workflows: 'Workflows',
     templates: 'Templates',
-    automation: 'Automation',
+    automation: 'WeldConnect',
     integrations: 'Integrations',
+    editor: 'Editor',
+    settings: 'Settings',
   },
 };

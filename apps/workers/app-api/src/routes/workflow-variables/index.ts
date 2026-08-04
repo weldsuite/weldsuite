@@ -18,7 +18,7 @@ import * as variables from '../../services/workflow-variables';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-app.get('/', requirePermission('tasks:read'), async (c) => {
+app.get('/', requirePermission('workflow-variables:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   try {
@@ -37,7 +37,7 @@ app.get('/', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.get('/global', requirePermission('tasks:read'), async (c) => {
+app.get('/global', requirePermission('workflow-variables:read'), async (c) => {
   const db = c.get('tenantDb');
   try {
     return success(c, await variables.getGlobalVariables(db));
@@ -47,7 +47,7 @@ app.get('/global', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.get('/workflow/:workflowId', requirePermission('tasks:read'), async (c) => {
+app.get('/workflow/:workflowId', requirePermission('workflow-variables:read'), async (c) => {
   const db = c.get('tenantDb');
   const workflowId = c.req.param('workflowId');
   try {
@@ -58,7 +58,7 @@ app.get('/workflow/:workflowId', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.get('/:id', requirePermission('tasks:read'), async (c) => {
+app.get('/:id', requirePermission('workflow-variables:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
@@ -71,7 +71,7 @@ app.get('/:id', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.post('/', requirePermission('tasks:create'), zValidator('json', createVariableSchema), async (c) => {
+app.post('/', requirePermission('workflow-variables:create'), zValidator('json', createVariableSchema), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const data = c.req.valid('json');
@@ -92,7 +92,7 @@ app.post('/', requirePermission('tasks:create'), zValidator('json', createVariab
 });
 
 for (const method of ['put', 'patch'] as const) {
-  app[method]('/:id', requirePermission('tasks:update'), zValidator('json', updateVariableSchema), async (c) => {
+  app[method]('/:id', requirePermission('workflow-variables:update'), zValidator('json', updateVariableSchema), async (c) => {
     const db = c.get('tenantDb');
     const userId = c.get('userId');
     const id = c.req.param('id');
@@ -115,7 +115,7 @@ for (const method of ['put', 'patch'] as const) {
   });
 }
 
-app.delete('/:id', requirePermission('tasks:delete'), async (c) => {
+app.delete('/:id', requirePermission('workflow-variables:delete'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {

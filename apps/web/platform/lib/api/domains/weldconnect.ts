@@ -5,8 +5,8 @@
  * `taskWorkerApi` object with 82 calls against the obsolete api-worker under
  * `/task/*`. It was never exported and had zero call sites — the live
  * WeldConnect data path is `hooks/queries/use-automation-queries.ts`, which
- * already runs on app-api (`/api/workflows`, `/api/workflow-executions`, and
- * the sibling `/api/workflow-*` route groups). The dead client was removed
+ * already runs on app-api (`/api/weldconnect/workflows`, `/api/weldconnect/executions`, and
+ * the sibling `/api/weldconnect/*` route groups). The dead client was removed
  * rather than repointed.
  *
  * The two interfaces below are the module's only exported surface; they are
