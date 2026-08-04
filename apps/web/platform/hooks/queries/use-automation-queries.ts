@@ -38,16 +38,19 @@ export type EntityEvent = {
 /** app-api list envelope pagination — opaque cursor, no page/totalPages. */
 export type CursorPaginationMeta = { totalCount: number; hasMore: boolean; cursor: string | null };
 
-/** Canonical WeldConnect API paths on app-api (`/api/weldconnect/*`). */
+/**
+ * Object-based WeldConnect API paths on app-api (not module-prefixed).
+ * SPA routes stay under `/weldconnect/*`; API mirrors other platform objects.
+ */
 export const WELDCONNECT_API = {
-  workflows: '/weldconnect/workflows',
-  executions: '/weldconnect/executions',
-  templates: '/weldconnect/templates',
-  variables: '/weldconnect/variables',
-  webhooks: '/weldconnect/webhooks',
-  dashboard: '/weldconnect/dashboard',
-  integrations: '/weldconnect/integrations',
-  builder: '/weldconnect/builder',
+  workflows: '/workflows',
+  executions: '/workflow-executions',
+  templates: '/workflow-templates',
+  variables: '/workflow-variables',
+  webhooks: '/workflow-webhooks',
+  dashboard: '/workflow-dashboard',
+  integrations: '/workflow-integrations',
+  builder: '/workflow-builder',
 } as const;
 
 export interface ConnectDashboardStats {
@@ -152,7 +155,7 @@ export function useWorkflowStats() {
   });
 }
 
-// 6a. Connect dashboard stats — `/weldconnect/dashboard/stats` (analytics overview)
+// 6a. Connect dashboard stats — `/workflow-dashboard/stats` (analytics overview)
 export function useConnectDashboardStats() {
   const { getClient } = useAppApiClient();
   return useQuery({
@@ -434,7 +437,7 @@ export function useWebhookEvents(webhookId: string, enabled = true) {
 // ---- Workflows ----
 
 // `apiBasePath` lets the same hook back two different surfaces, both on app-api:
-//   `/weldconnect/workflows` — WeldConnect automation (default)
+//   `/workflows` — WeldConnect automation (default)
 //   `/helpdesk-workflows`    — WeldDesk helpdesk workflows
 // The two differ only in the mount path and the query keys they invalidate.
 

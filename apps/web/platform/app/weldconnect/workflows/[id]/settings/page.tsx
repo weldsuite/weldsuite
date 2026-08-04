@@ -36,7 +36,7 @@ export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/w
       setIsLoading(true);
       try {
         const client = await getClient();
-        const workflowResult = await client.get<{ data: { id: string; settings?: WorkflowSettings | null } }>(`/weldconnect/workflows/${workflowId}`);
+        const workflowResult = await client.get<{ data: { id: string; settings?: WorkflowSettings | null } }>(`/workflows/${workflowId}`);
         const workflow = workflowResult.data;
         if (workflow?.settings) {
           const settings = workflow.settings;
@@ -65,7 +65,7 @@ export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/w
         };
 
         const client = await getClient();
-        await client.put<{ data: { id: string } }>(`/weldconnect/workflows/${workflowId}`, { settings });
+        await client.put<{ data: { id: string } }>(`/workflows/${workflowId}`, { settings });
         toast.success(t.weldconnect.workflowSettings.toasts.saved);
       } catch (error) {
         console.error('Failed to save settings:', error);

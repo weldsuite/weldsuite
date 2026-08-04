@@ -112,7 +112,7 @@ export function WorkflowsClient({
   // initialStats is accepted for API-compatibility with callers that compute
   // it, but this view doesn't currently render a stats summary.
   basePath = '/weldconnect/workflows',
-  apiBasePath = '/weldconnect/workflows',
+  apiBasePath = '/workflows',
   entityLabel = 'Workflow',
   entityLabelPlural = 'Workflows',
   parentLabel = 'WeldConnect',

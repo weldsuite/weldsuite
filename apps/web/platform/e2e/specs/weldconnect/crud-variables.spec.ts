@@ -14,7 +14,7 @@
  * single test workspace, and a sibling's global reset would otherwise delete
  * another spec's in-flight rows and flake it. There is no `api.seedVariable()`,
  * so each test creates via the UI and captures the new id from the
- * `POST /weldconnect/workflow-variables` response, then deletes it scoped in afterEach.
+ * `POST /api/workflow-variables` response, then deletes it scoped in afterEach.
  */
 
 import { test, expect } from '../../fixtures';

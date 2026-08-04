@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 
 /**
- * WeldConnect connector queries — Nango-backed CRM sync (`/weldconnect/nango/*`).
+ * WeldConnect connector queries — Nango-backed CRM sync (`/nango/*`).
  *
  * The connect flow is deliberately three steps: the client asks app-api for a
  * Connect session, opens Nango's hosted UI with the returned token, and reports
@@ -122,7 +122,7 @@ export function useNangoCatalog() {
     queryKey: nangoKeys.catalog(),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: NangoConnector[] }>('/weldconnect/nango/catalog');
+      return client.get<{ data: NangoConnector[] }>('/nango/catalog');
     },
   });
 }
@@ -133,7 +133,7 @@ export function useNangoConnections() {
     queryKey: nangoKeys.connections(),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: NangoConnection[] }>('/weldconnect/nango/connections');
+      return client.get<{ data: NangoConnection[] }>('/nango/connections');
     },
   });
 }
@@ -157,7 +157,7 @@ export function useNangoConnection(id: string | null, options?: { pollWhileRunni
     },
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: NangoConnectionDetail }>(`/weldconnect/nango/connections/${id}`);
+      return client.get<{ data: NangoConnectionDetail }>(`/nango/connections/${id}`);
     },
   });
 }
@@ -169,7 +169,7 @@ export function useNangoSyncRuns(id: string | null, limit = 25) {
     enabled: Boolean(id),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: NangoSyncRun[] }>(`/weldconnect/nango/connections/${id}/runs?limit=${limit}`);
+      return client.get<{ data: NangoSyncRun[] }>(`/nango/connections/${id}/runs?limit=${limit}`);
     },
   });
 }
@@ -184,7 +184,7 @@ export function useCreateNangoConnectSession() {
   return useMutation({
     mutationFn: async (providerConfigKey: string) => {
       const client = await getClient();
-      const result = await client.post<{ data: NangoConnectSession }>('/weldconnect/nango/connect-session', {
+      const result = await client.post<{ data: NangoConnectSession }>('/nango/connect-session', {
         providerConfigKey,
       });
       return result.data;
@@ -205,7 +205,7 @@ export function useFinalizeNangoConnection() {
       nangoConnectionId: string;
     }) => {
       const client = await getClient();
-      return client.post<{ data: NangoConnection }>(`/weldconnect/nango/connections/${connectionId}/finalize`, {
+      return client.post<{ data: NangoConnection }>(`/nango/connections/${connectionId}/finalize`, {
         nangoConnectionId,
       });
     },
@@ -222,7 +222,7 @@ export function useTriggerNangoSync() {
     mutationFn: async ({ connectionId, full }: { connectionId: string; full?: boolean }) => {
       const client = await getClient();
       return client.post<{ data: { triggered: string[]; full: boolean } }>(
-        `/weldconnect/nango/connections/${connectionId}/sync`,
+        `/nango/connections/${connectionId}/sync`,
         { full: full ?? false },
       );
     },
@@ -240,7 +240,7 @@ export function useSetNangoConnectionPaused() {
     mutationFn: async ({ connectionId, paused }: { connectionId: string; paused: boolean }) => {
       const client = await getClient();
       return client.post<{ data: { status: string } }>(
-        `/weldconnect/nango/connections/${connectionId}/${paused ? 'pause' : 'resume'}`,
+        `/nango/connections/${connectionId}/${paused ? 'pause' : 'resume'}`,
         {},
       );
     },
@@ -257,7 +257,7 @@ export function useDisconnectNangoConnection() {
     mutationFn: async (connectionId: string) => {
       const client = await getClient();
       return client.delete<{ data: { id: string; disconnected: boolean } }>(
-        `/weldconnect/nango/connections/${connectionId}`,
+        `/nango/connections/${connectionId}`,
       );
     },
     onSuccess: () => {
