@@ -27,6 +27,13 @@ export default defineConfig(async () => {
     chunkSizeWarningLimit: 700,
     rollupOptions: {
       output: {
+        // One-time content prefix so every emitted JS chunk gets a new hash.
+        // Needed after the 2026-08-04 app.weldsuite.org incident: SPA fallback
+        // HTML for missing /assets/*.js was cached at the custom-domain edge
+        // with our immutable Cache-Control, so re-promoting the same hashes
+        // kept serving text/html for index-D6fm6ay0.js / lucide-vendor-*.js.
+        // New hashes → new cache keys → clean fetch from origin. Safe to leave.
+        banner: '/* weldsuite-asset-cache-bust-2026-08-04 */\n',
         manualChunks(id: string) {
           // Pin Rollup's CJS interop helpers into react-vendor. Without this,
           // Rollup hoists the helper into whatever consumer chunk it picks
