@@ -1,5 +1,4 @@
 
-import { PageLoader } from '@/components/page-loader';
 import { useWebhooks, useWorkflows, type Workflow } from '@/hooks/queries/use-automation-queries';
 import { WebhooksClient, type WebhookView } from './webhooks-client';
 
@@ -8,7 +7,7 @@ export default function WebhooksPage() {
   const { data: workflowsResult, isLoading: isWorkflowsLoading } = useWorkflows();
 
   if (isWebhooksLoading || isWorkflowsLoading) {
-    return <PageLoader fullScreen={false} />;
+    return <WebhooksClient webhooks={[]} isLoading />;
   }
 
   const webhooks = webhooksResult?.data ?? [];
@@ -23,5 +22,5 @@ export default function WebhooksPage() {
     workflowName: w.workflowId ? workflowNames.get(w.workflowId as string) : undefined,
   }));
 
-  return <WebhooksClient webhooks={mappedWebhooks} />;
+  return <WebhooksClient webhooks={mappedWebhooks} isLoading={isWebhooksLoading || isWorkflowsLoading} />;
 }

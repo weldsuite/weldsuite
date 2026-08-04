@@ -2,7 +2,7 @@
 /**
  * "Generate with AI" dialog for the WeldConnect workflow editor.
  *
- * Single-shot prompt → draft flow: POST /api/workflows/generate (app-api,
+ * Single-shot prompt → draft flow: POST /api/weldconnect/workflows/generate (app-api,
  * see apps/workers/app-api/src/routes/workflows/generate.ts) returns a full workflow
  * draft (trigger + steps) that is never persisted server-side. This dialog
  * only collects the prompt, shows the result's review warnings, and hands

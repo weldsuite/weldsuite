@@ -65,6 +65,7 @@ interface PerformanceMetricsSummary {
 }
 
 interface AnalyticsDashboardClientProps {
+  isLoading?: boolean;
   stats: WorkflowStatsSummary | null;
   trends: ExecutionTrendsSummary | null;
   errorStats: ErrorStatsSummary | null;
@@ -86,6 +87,7 @@ const COLORS = {
 };
 
 export function AnalyticsDashboardClient({
+  isLoading = false,
   stats,
   trends,
   errorStats,
@@ -97,6 +99,14 @@ export function AnalyticsDashboardClient({
     { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },
     { label: t.weldconnect.breadcrumbs.analytics },
   ]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-24 text-sm text-muted-foreground">
+        {t.weldconnect.dashboard.loading}
+      </div>
+    );
+  }
 
   const successRate = stats?.totalExecutions
     ? ((stats.successfulExecutions / stats.totalExecutions) * 100).toFixed(1)
@@ -121,18 +131,17 @@ export function AnalyticsDashboardClient({
   }, {});
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto p-8 max-w-[1600px] space-y-8">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-            <BarChart3 className="h-8 w-8 text-primary" />
-            {t.weldconnect.analytics.title}
-          </h1>
-          <p className="text-muted-foreground mt-2">
-            {t.weldconnect.analytics.subtitle}
-          </p>
-        </div>
+    <div className="space-y-6 pb-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
+          <BarChart3 className="h-7 w-7 text-primary" />
+          {t.weldconnect.analytics.title}
+        </h1>
+        <p className="text-muted-foreground mt-1 md:mt-2 text-sm md:text-base">
+          {t.weldconnect.analytics.subtitle}
+        </p>
+      </div>
 
         {/* Overview Stats */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -503,7 +512,6 @@ export function AnalyticsDashboardClient({
             </div>
           </TabsContent>
         </Tabs>
-      </div>
     </div>
   );
 }

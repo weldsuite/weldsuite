@@ -1879,7 +1879,14 @@ export function ConnectCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldConnect — Recent executions',
-}: { rows?: ExecutionRow[]; isLoading?: boolean; isDemo?: boolean; title?: string } = {}) {
+  onRowClick,
+}: {
+  rows?: ExecutionRow[];
+  isLoading?: boolean;
+  isDemo?: boolean;
+  title?: string;
+  onRowClick?: (row: ExecutionRow) => void;
+} = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -1899,8 +1906,13 @@ export function ConnectCard({
         const config = EXEC_STATUS_CONFIG[e.status];
         const Icon = config.icon;
         const progress = e.total > 0 ? (e.completed / e.total) * 100 : 0;
+        const clickable = !!onRowClick && !!e.id;
         return (
-          <div key={e.id} className={ROW_CLASS}>
+          <div
+            key={e.id}
+            className={cn(ROW_CLASS, !clickable && 'cursor-default')}
+            onClick={clickable ? () => onRowClick!(e) : undefined}
+          >
             {/* Workflow — name + truncated id */}
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium truncate text-foreground">{e.workflowName}</div>
@@ -1968,6 +1980,7 @@ const TRIGGER_ICON: Record<TriggerType, React.ComponentType<{ className?: string
 };
 
 export type WorkflowRow = {
+  id?: string;
   name: string;
   description: string;
   trigger: TriggerType;
@@ -1992,7 +2005,14 @@ export function WorkflowsCard({
   isLoading = false,
   isDemo = false,
   title = 'WeldConnect — Workflows',
-}: { rows?: WorkflowRow[]; isLoading?: boolean; isDemo?: boolean; title?: string } = {}) {
+  onRowClick,
+}: {
+  rows?: WorkflowRow[];
+  isLoading?: boolean;
+  isDemo?: boolean;
+  title?: string;
+  onRowClick?: (row: WorkflowRow) => void;
+} = {}) {
   if (isLoading) {
     return <CardShell title={title}><div className="p-3"><SkeletonRows count={5} variant="table" /></div></CardShell>;
   }
@@ -2012,6 +2032,8 @@ export function WorkflowsCard({
         const status = WORKFLOW_STATUS[w.status];
         const StatusIcon = status.icon;
         const TrigIcon = TRIGGER_ICON[w.trigger];
+        const rowKey = w.id ?? w.name;
+        const clickable = !!onRowClick && !!w.id;
         const rateColor =
           w.executions === 0
             ? 'text-muted-foreground'
@@ -2021,7 +2043,11 @@ export function WorkflowsCard({
             ? 'text-yellow-600 dark:text-yellow-400'
             : 'text-red-600 dark:text-red-400';
         return (
-          <div key={w.name} className={ROW_CLASS}>
+          <div
+            key={rowKey}
+            className={cn(ROW_CLASS, !clickable && 'cursor-default')}
+            onClick={clickable ? () => onRowClick!(w) : undefined}
+          >
             {/* Name + description */}
             <div className="flex-1 min-w-0">
               <span className="text-sm font-medium text-gray-900 dark:text-foreground block truncate">

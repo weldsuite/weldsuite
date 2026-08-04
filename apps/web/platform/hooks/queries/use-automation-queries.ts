@@ -21,14 +21,19 @@ export type {
 } from '@weldsuite/core-api-client/schemas/weldconnect';export type WorkflowWebhook = Record<string, unknown>;
 export type WorkflowErrorLog = Record<string, unknown>;
 export type ActionType = { id: string; name: string; description: string; category: string; icon?: string };
-export type TriggerType = { id: string; name: string; description: string; category: string; icon?: string };
+export type TriggerType = {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  icon?: string;
+  provider?: string;
+};
 export type EntityEvent = {
   entityType: string;
-  // Bare type strings (e.g. "created") — see the comment in
-  // app/weldconnect/triggers/page.tsx for how these get a display name.
-  events: string[];
   category?: string;
   label?: string;
+  events: Array<string | { id: string; name: string; description?: string }>;
 };export type PaginationMeta = { page: number; pageSize: number; totalCount: number; totalPages: number; hasMore: boolean };
 /** app-api list envelope pagination — opaque cursor, no page/totalPages. */
 export type CursorPaginationMeta = { totalCount: number; hasMore: boolean; cursor: string | null };
@@ -36,13 +41,20 @@ export type CursorPaginationMeta = { totalCount: number; hasMore: boolean; curso
 /** Canonical WeldConnect API paths on app-api (`/api/weldconnect/*`). */
 export const WELDCONNECT_API = {
   workflows: '/weldconnect/workflows',
-  executions: '/weldconnect/workflow-executions',
-  templates: '/weldconnect/workflow-templates',
-  variables: '/weldconnect/workflow-variables',
-  webhooks: '/weldconnect/workflow-webhooks',
-  dashboard: '/weldconnect/workflow-dashboard',
-  integrations: '/weldconnect/workflow-integrations',
+  executions: '/weldconnect/executions',
+  templates: '/weldconnect/templates',
+  variables: '/weldconnect/variables',
+  webhooks: '/weldconnect/webhooks',
+  dashboard: '/weldconnect/dashboard',
+  integrations: '/weldconnect/integrations',
+  builder: '/weldconnect/builder',
 } as const;
+
+export interface ConnectDashboardStats {
+  workflows: { total: number; active: number; draft: number; paused: number; archived: number };
+  executions: { total: number; running: number; completed: number; failed: number; queued: number };
+  triggers: { schedules: number; webhooks: number };
+}
 
 // =============================================================================
 // Query Keys
@@ -119,7 +131,7 @@ export function useWorkflows(filters?: Record<string, unknown>) {
     },
   });
 }
-// 6. Workflow Stats
+// 6. Workflow Stats (workflows aggregate — home dashboard cards)
 export function useWorkflowStats() {
   const { getClient } = useAppApiClient();
   return useQuery({
@@ -136,6 +148,18 @@ export function useWorkflowStats() {
         failedExecutions: number;
         pendingExecutions: number;
       } }>(`${WELDCONNECT_API.workflows}/stats`);
+    },
+  });
+}
+
+// 6a. Connect dashboard stats — `/weldconnect/dashboard/stats` (analytics overview)
+export function useConnectDashboardStats() {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: automationKeys.dashboard(),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: ConnectDashboardStats }>(`${WELDCONNECT_API.dashboard}/stats`);
     },
   });
 }

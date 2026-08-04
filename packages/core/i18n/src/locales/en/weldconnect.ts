@@ -5,10 +5,14 @@ export const weldconnect = {
 
   // Connectors (Nango-backed connector framework)
   connectors: {
-    title: 'Connectors',
-    description: 'Connect third-party apps and sync their data into WeldSuite.',
-    searchPlaceholder: 'Search connectors...',
-    empty: 'No connectors match your search.',
+    title: 'CRM Connectors',
+    description:
+      'Sync companies, contacts, and deals from Salesforce or HubSpot into WeldCRM. This is data import — use Integrations for workflow OAuth (Slack, Gmail, …).',
+    searchPlaceholder: 'Search CRM connectors...',
+    empty: 'No CRM connectors match your search.',
+    emptyCatalog:
+      'No CRM connectors are available yet. Salesforce and HubSpot sync will appear here when enabled for your workspace.',
+    emptyCatalogHint: 'Looking to connect Slack or Google for workflows? Go to Integrations instead.',
     notConfigured: 'The connector framework is not configured for this environment.',
     connect: 'Connect',
     reconnect: 'Reconnect',
@@ -751,6 +755,13 @@ export const weldconnect = {
     },
   },
 
+  variablesClient: {
+    emptyTitle: 'No variables yet',
+    emptyDescription: 'Create variables and secrets to reuse across your workflows.',
+    noResultsTitle: 'No variables found',
+    noResultsDescription: 'Try adjusting your search or filters.',
+  },
+
   // Webhooks
   webhooks: {
     title: 'Webhooks',
@@ -900,6 +911,17 @@ export const weldconnect = {
       curlCopied: 'cURL command copied to clipboard',
     },
     notFound: 'Webhook not found',
+  },
+
+  webhooksClient: {
+    columnName: 'Name',
+    columnStatus: 'Status',
+    columnWorkflow: 'Workflow',
+    columnCalls: 'Calls',
+    columnCreated: 'Created',
+    lastCalled: 'Last: {date}',
+    noResultsTitle: 'No webhooks found',
+    noResultsDescription: 'Try adjusting your search or filters.',
   },
 
   // Analytics
@@ -1262,12 +1284,23 @@ export const weldconnect = {
       workflow_complete: { name: 'Workflow Complete', description: 'Trigger when another workflow completes' },
       webhook: { name: 'Webhook', description: 'Trigger via HTTP webhook URL' },
       manual: { name: 'Manual', description: 'Manually trigger the workflow' },
+      integration_event: {
+        name: 'Integration Event',
+        description: 'Start when a connected app sends an event (Slack, Google Sheets, …)',
+      },
+      api: { name: 'API Call', description: 'Trigger via API request' },
     },
     entityEvent: {
       entityTypeLabel: 'Entity Type',
       entityTypePlaceholder: 'Select entity...',
       eventLabel: 'Event',
       eventPlaceholder: 'Select event...',
+    },
+    integrationEvent: {
+      eventLabel: 'Integration event',
+      eventPlaceholder: 'Select an app event…',
+      noEvents: 'No integration events available. Connect apps on the Integrations page first.',
+      connectHint: 'Requires a connected account on Integrations.',
     },
     schedule: {
       scheduleTypeLabel: 'Schedule Type',
@@ -2089,6 +2122,7 @@ export const weldconnect = {
   integrations: {
     title: 'Integrations',
     breadcrumb: 'Integrations',
+    subtitle: 'Connect OAuth apps so workflows can send messages, read sheets, and react to external events.',
     availableCount: 'available',
     connectedCount: 'connected',
     categories: 'Categories',
@@ -2097,6 +2131,7 @@ export const weldconnect = {
     noResults: 'No integrations found',
     noResultsHint: 'Try adjusting your search or category filter',
     loadError: 'Failed to load integrations. Please refresh and try again.',
+    permissionDenied: 'You do not have permission to view integrations.',
     connect: 'Connect',
     connecting: 'Connecting...',
     disconnect: 'Disconnect',

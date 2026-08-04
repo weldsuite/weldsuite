@@ -5,10 +5,14 @@ export const weldconnect = {
 
   // Connectors (Nango-gebaseerd connectorframework)
   connectors: {
-    title: 'Connectors',
-    description: 'Verbind externe apps en synchroniseer hun gegevens naar WeldSuite.',
-    searchPlaceholder: 'Connectors zoeken...',
-    empty: 'Geen connectors gevonden voor je zoekopdracht.',
+    title: 'CRM-connectors',
+    description:
+      'Synchroniseer bedrijven, contacten en deals vanuit Salesforce of HubSpot naar WeldCRM. Dit is data-import — gebruik Integraties voor workflow-OAuth (Slack, Gmail, …).',
+    searchPlaceholder: 'CRM-connectors zoeken...',
+    empty: 'Geen CRM-connectors gevonden voor je zoekopdracht.',
+    emptyCatalog:
+      'Er zijn nog geen CRM-connectors beschikbaar. Salesforce- en HubSpot-sync verschijnt hier zodra het voor je workspace is ingeschakeld.',
+    emptyCatalogHint: 'Slack of Google voor workflows verbinden? Ga naar Integraties.',
     notConfigured: 'Het connectorframework is niet geconfigureerd voor deze omgeving.',
     connect: 'Verbinden',
     reconnect: 'Opnieuw verbinden',
@@ -751,6 +755,13 @@ export const weldconnect = {
     },
   },
 
+  variablesClient: {
+    emptyTitle: 'Nog geen variabelen',
+    emptyDescription: 'Maak variabelen en geheimen aan om ze in uw workflows te hergebruiken.',
+    noResultsTitle: 'Geen variabelen gevonden',
+    noResultsDescription: 'Pas uw zoekopdracht of filters aan.',
+  },
+
   // Webhooks
   webhooks: {
     title: 'Webhooks',
@@ -900,6 +911,17 @@ export const weldconnect = {
       curlCopied: 'cURL-opdracht gekopieerd naar klembord',
     },
     notFound: 'Webhook niet gevonden',
+  },
+
+  webhooksClient: {
+    columnName: 'Naam',
+    columnStatus: 'Status',
+    columnWorkflow: 'Workflow',
+    columnCalls: 'Aanroepen',
+    columnCreated: 'Aangemaakt',
+    lastCalled: 'Laatst: {date}',
+    noResultsTitle: 'Geen webhooks gevonden',
+    noResultsDescription: 'Pas uw zoekopdracht of filters aan.',
   },
 
   // Analyses
@@ -1262,12 +1284,23 @@ export const weldconnect = {
       workflow_complete: { name: 'Workflow voltooid', description: 'Trigger wanneer een andere workflow voltooid is' },
       webhook: { name: 'Webhook', description: 'Trigger via HTTP-webhook-URL' },
       manual: { name: 'Handmatig', description: 'De workflow handmatig activeren' },
+      integration_event: {
+        name: 'Integratiegebeurtenis',
+        description: 'Start wanneer een verbonden app een gebeurtenis stuurt (Slack, Google Sheets, …)',
+      },
+      api: { name: 'API-aanroep', description: 'Trigger via API-verzoek' },
     },
     entityEvent: {
       entityTypeLabel: 'Entiteitstype',
       entityTypePlaceholder: 'Entiteit selecteren...',
       eventLabel: 'Gebeurtenis',
       eventPlaceholder: 'Gebeurtenis selecteren...',
+    },
+    integrationEvent: {
+      eventLabel: 'Integratiegebeurtenis',
+      eventPlaceholder: 'Selecteer een app-gebeurtenis…',
+      noEvents: 'Geen integratiegebeurtenissen beschikbaar. Verbind eerst apps op de pagina Integraties.',
+      connectHint: 'Vereist een verbonden account op Integraties.',
     },
     schedule: {
       scheduleTypeLabel: 'Schematype',
@@ -2064,6 +2097,7 @@ export const weldconnect = {
   integrations: {
     title: 'Integraties',
     breadcrumb: 'Integraties',
+    subtitle: 'Verbind OAuth-apps zodat workflows berichten kunnen sturen, sheets kunnen lezen en op externe gebeurtenissen kunnen reageren.',
     availableCount: 'beschikbaar',
     connectedCount: 'verbonden',
     categories: 'Categorieën',
