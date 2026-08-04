@@ -2,7 +2,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { billingWorkerApi } from '@/lib/api/billing-worker-client';
-import type { BillingSubscriptionResponse } from '@/lib/api/domains/billing';
+import type {
+  BillingPaymentMethodResponse,
+  BillingSubscriptionResponse,
+} from '@/lib/api/domains/billing';
 import type { Billing } from '@/lib/api/types/apps/billing.types';
 
 // =============================================================================
@@ -16,6 +19,7 @@ export const billingKeys = {
   payments: (filters?: Record<string, unknown>) => [...billingKeys.all, 'payments', filters] as const,
   limits: () => [...billingKeys.all, 'limits'] as const,
   phoneSubscription: () => [...billingKeys.all, 'phone-subscription'] as const,
+  paymentMethods: () => [...billingKeys.all, 'payment-methods'] as const,
 };
 
 const creditsKeys = {
@@ -248,7 +252,84 @@ export function useReactivateSubscription() {
       qc.invalidateQueries({ queryKey: billingKeys.subscription() });
     },
   });
-}/**
+}// =============================================================================
+// Payment Methods
+//
+// Stripe is the source of truth — there is no local mirror, so every mutation
+// invalidates the list rather than patching a cached copy.
+// =============================================================================
+
+export function usePaymentMethods(enabled = true) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: billingKeys.paymentMethods(),
+    queryFn: async () => {
+      const client = await getClient();
+      const res = await client.get<{ data: BillingPaymentMethodResponse[] }>(
+        '/billing/payment-methods',
+      );
+      return res.data ?? [];
+    },
+    enabled,
+  });
+}
+
+/**
+ * Create a SetupIntent and return its client secret for Stripe Elements.
+ *
+ * Deliberately a mutation, not a query: each secret backs one confirmation
+ * attempt, so it is minted when the dialog opens rather than cached.
+ */
+export function useCreateSetupIntent() {
+  const { getClient } = useAppApiClient();
+  return useMutation({
+    mutationFn: async () => {
+      const client = await getClient();
+      const res = await client.post<{ data: { clientSecret: string } }>(
+        '/billing/payment-methods/setup-intent',
+        {},
+      );
+      return res.data;
+    },
+  });
+}
+
+export function useSetDefaultPaymentMethod() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (paymentMethodId: string) => {
+      const client = await getClient();
+      const res = await client.post<{ data: { success: boolean; id: string } }>(
+        `/billing/payment-methods/${paymentMethodId}/default`,
+        {},
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: billingKeys.paymentMethods() });
+      // The paywall gate keys off whether a method is on file.
+      qc.invalidateQueries({ queryKey: billingKeys.subscription() });
+    },
+  });
+}
+
+export function useRemovePaymentMethod() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (paymentMethodId: string) => {
+      const client = await getClient();
+      await client.delete(`/billing/payment-methods/${paymentMethodId}`);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: billingKeys.paymentMethods() });
+      qc.invalidateQueries({ queryKey: billingKeys.subscription() });
+    },
+  });
+}
+
+/**
  * Start a prepaid credit topup — redirects the browser to Stripe Checkout.
  * On success the caller receives `{ url }` and should navigate to it.
  */
