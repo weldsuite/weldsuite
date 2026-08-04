@@ -41,39 +41,48 @@ export async function syncWorkflowTriggerIndex(
   triggers: unknown,
   opts: { workflowActive: boolean },
 ): Promise<void> {
-  await db.delete(workflowTriggerIndex).where(eq(workflowTriggerIndex.workflowId, workflowId));
+  try {
+    await db.delete(workflowTriggerIndex).where(eq(workflowTriggerIndex.workflowId, workflowId));
 
-  if (!opts.workflowActive) return;
+    if (!opts.workflowActive) return;
 
-  const now = new Date();
-  const rows = asTriggers(triggers)
-    .filter((t) => t.id && t.type && t.isEnabled !== false)
-    .map((t) => {
-      const cfg = t.config ?? {};
-      const category = (t.type ?? cfg.type ?? 'manual') as typeof workflowTriggerIndex.$inferInsert.category;
-      return {
-        id: generateId('wti'),
-        createdAt: now,
-        updatedAt: now,
-        workflowId,
-        triggerId: t.id!,
-        category,
-        isEnabled: t.isEnabled !== false,
-        entityType: t.entityType ?? cfg.entityType ?? null,
-        eventType: t.eventType ?? cfg.eventType ?? null,
-        provider: t.provider ?? cfg.provider ?? null,
-        integrationEvent: t.event ?? cfg.event ?? null,
-        integrationId: t.integrationId ?? cfg.integrationId ?? null,
-        sourceWorkflowId: cfg.sourceWorkflowId ?? null,
-        filters: t.filters ?? cfg.filters ?? null,
-      };
-    });
+    const now = new Date();
+    const rows = asTriggers(triggers)
+      .filter((t) => t.id && t.type && t.isEnabled !== false)
+      .map((t) => {
+        const cfg = t.config ?? {};
+        const category = (t.type ?? cfg.type ?? 'manual') as typeof workflowTriggerIndex.$inferInsert.category;
+        return {
+          id: generateId('wti'),
+          createdAt: now,
+          updatedAt: now,
+          workflowId,
+          triggerId: t.id!,
+          category,
+          isEnabled: t.isEnabled !== false,
+          entityType: t.entityType ?? cfg.entityType ?? null,
+          eventType: t.eventType ?? cfg.eventType ?? null,
+          provider: t.provider ?? cfg.provider ?? null,
+          integrationEvent: t.event ?? cfg.event ?? null,
+          integrationId: t.integrationId ?? cfg.integrationId ?? null,
+          sourceWorkflowId: cfg.sourceWorkflowId ?? null,
+          filters: t.filters ?? cfg.filters ?? null,
+        };
+      });
 
-  if (rows.length > 0) {
-    await db.insert(workflowTriggerIndex).values(rows);
+    if (rows.length > 0) {
+      await db.insert(workflowTriggerIndex).values(rows);
+    }
+  } catch (err) {
+    // Table may be absent until the greenfield tenant migration is applied.
+    console.warn('[workflow-trigger-index] sync skipped:', err);
   }
 }
 
 export async function clearWorkflowTriggerIndex(db: Database, workflowId: string): Promise<void> {
-  await db.delete(workflowTriggerIndex).where(eq(workflowTriggerIndex.workflowId, workflowId));
+  try {
+    await db.delete(workflowTriggerIndex).where(eq(workflowTriggerIndex.workflowId, workflowId));
+  } catch (err) {
+    console.warn('[workflow-trigger-index] clear skipped:', err);
+  }
 }
