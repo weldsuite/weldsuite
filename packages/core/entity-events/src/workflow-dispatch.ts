@@ -7,7 +7,7 @@
  */
 
 import { and, eq, isNull } from 'drizzle-orm';
-import { workflows } from '@weldsuite/db/schema';
+import { workflows, workflowTriggerIndex } from '@weldsuite/db/schema';
 import type { TenantDb } from './internal-types';
 
 interface TriggerFilter {
@@ -167,41 +167,54 @@ export async function matchAndDispatchWorkflowTriggers(
 
   const eventTypes = deriveEventTypes(action, changes);
 
-  const activeWorkflows = await db
-    .select({ id: workflows.id, name: workflows.name, triggers: workflows.triggers })
-    .from(workflows)
-    .where(and(eq(workflows.status, 'active'), isNull(workflows.deletedAt)));
+  const indexRows = await db
+    .select({
+      workflowId: workflowTriggerIndex.workflowId,
+      triggerId: workflowTriggerIndex.triggerId,
+      eventType: workflowTriggerIndex.eventType,
+      filters: workflowTriggerIndex.filters,
+      workflowName: workflows.name,
+    })
+    .from(workflowTriggerIndex)
+    .innerJoin(workflows, eq(workflowTriggerIndex.workflowId, workflows.id))
+    .where(
+      and(
+        eq(workflowTriggerIndex.category, 'entity_event'),
+        eq(workflowTriggerIndex.entityType, entityType),
+        eq(workflowTriggerIndex.isEnabled, true),
+        eq(workflows.status, 'active'),
+        isNull(workflows.deletedAt),
+      ),
+    );
 
-  for (const workflow of activeWorkflows) {
-    const triggers = (workflow.triggers as TriggerConfig[]) || [];
+  for (const row of indexRows) {
+    if (row.eventType && !eventTypes.includes(row.eventType)) continue;
+    if (!evalFilters(row.filters ?? undefined, data)) continue;
 
-    for (const trigger of triggers) {
-      if (!triggerMatchesEvent(trigger, entityType, eventTypes, data)) continue;
-
-      try {
-        await env.EXECUTE_WORKFLOW.create({
-          params: {
-            workspaceId,
-            userId,
-            workflowId: workflow.id,
-            triggerType: 'entity_event',
-            triggerData: {
-              eventType: `${entityType}:${action}`,
-              entityType,
-              entityId,
-              action,
-              data,
-              changes,
-            },
-            source: 'task',
+    try {
+      await env.EXECUTE_WORKFLOW.create({
+        params: {
+          workspaceId,
+          userId,
+          workflowId: row.workflowId,
+          triggerId: row.triggerId,
+          triggerType: 'entity_event',
+          triggerData: {
+            eventType: `${entityType}:${action}`,
+            entityType,
+            entityId,
+            action,
+            data,
+            changes,
           },
-        });
-        console.log(
-          `[TriggerMatcher] Dispatched workflow "${workflow.name}" for ${entityType}:${action}`,
-        );
-      } catch (err) {
-        console.error(`[TriggerMatcher] Failed to dispatch workflow ${workflow.id}:`, err);
-      }
+          source: 'weldconnect',
+        },
+      });
+      console.log(
+        `[TriggerMatcher] Dispatched workflow "${row.workflowName}" for ${entityType}:${action}`,
+      );
+    } catch (err) {
+      console.error(`[TriggerMatcher] Failed to dispatch workflow ${row.workflowId}:`, err);
     }
   }
 }
@@ -234,40 +247,54 @@ export async function matchAndDispatchIntegrationTriggers(
 
   if (!workspaceId || !env.EXECUTE_WORKFLOW) return;
 
-  const activeWorkflows = await db
-    .select({ id: workflows.id, name: workflows.name, triggers: workflows.triggers })
-    .from(workflows)
-    .where(and(eq(workflows.status, 'active'), isNull(workflows.deletedAt)));
+  const indexRows = await db
+    .select({
+      workflowId: workflowTriggerIndex.workflowId,
+      triggerId: workflowTriggerIndex.triggerId,
+      integrationId: workflowTriggerIndex.integrationId,
+      filters: workflowTriggerIndex.filters,
+      workflowName: workflows.name,
+    })
+    .from(workflowTriggerIndex)
+    .innerJoin(workflows, eq(workflowTriggerIndex.workflowId, workflows.id))
+    .where(
+      and(
+        eq(workflowTriggerIndex.category, 'integration_event'),
+        eq(workflowTriggerIndex.provider, provider),
+        eq(workflowTriggerIndex.integrationEvent, event),
+        eq(workflowTriggerIndex.isEnabled, true),
+        eq(workflows.status, 'active'),
+        isNull(workflows.deletedAt),
+      ),
+    );
 
-  for (const workflow of activeWorkflows) {
-    const triggers = (workflow.triggers as TriggerConfig[]) || [];
+  for (const row of indexRows) {
+    if (row.integrationId && integrationId && row.integrationId !== integrationId) continue;
+    if (!evalFilters(row.filters ?? undefined, data)) continue;
 
-    for (const trigger of triggers) {
-      if (!integrationTriggerMatches(trigger, provider, event, integrationId, data)) continue;
-
-      try {
-        await env.EXECUTE_WORKFLOW.create({
-          params: {
-            workspaceId,
-            userId,
-            workflowId: workflow.id,
-            triggerType: 'integration_event',
-            triggerData: {
-              eventType: event,
-              provider,
-              event,
-              integrationId,
-              data,
-            },
-            source: 'integration',
+    try {
+      await env.EXECUTE_WORKFLOW.create({
+        params: {
+          workspaceId,
+          userId,
+          workflowId: row.workflowId,
+          triggerId: row.triggerId,
+          triggerType: 'integration_event',
+          triggerData: {
+            eventType: event,
+            provider,
+            event,
+            integrationId,
+            data,
           },
-        });
-        console.log(
-          `[TriggerMatcher] Dispatched workflow "${workflow.name}" for ${provider}:${event}`,
-        );
-      } catch (err) {
-        console.error(`[TriggerMatcher] Failed to dispatch workflow ${workflow.id}:`, err);
-      }
+          source: 'integration',
+        },
+      });
+      console.log(
+        `[TriggerMatcher] Dispatched workflow "${row.workflowName}" for ${provider}:${event}`,
+      );
+    } catch (err) {
+      console.error(`[TriggerMatcher] Failed to dispatch workflow ${row.workflowId}:`, err);
     }
   }
 }

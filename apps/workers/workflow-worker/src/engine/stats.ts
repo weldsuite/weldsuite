@@ -10,7 +10,7 @@ export async function updateWorkflowStats(
   db: WorkflowDb,
   workflowId: string,
   success: boolean,
-  source?: 'task' | 'helpdesk',
+  source?: 'weldconnect' | 'helpdesk',
 ): Promise<void> {
   const table = source === 'helpdesk' ? schema.helpdeskWorkflows : schema.workflows;
   const [workflow] = (await db.select().from(table).where(eq(table.id, workflowId)).limit(1)) as any[];

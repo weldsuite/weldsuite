@@ -16,12 +16,12 @@ export interface WorkflowCandidate {
   id: string;
   name?: string;
   triggers?: Array<{ type: string; isEnabled?: boolean; config?: Record<string, unknown> }> | null;
-  _source: 'task' | 'helpdesk';
+  _source: 'weldconnect' | 'helpdesk';
 }
 
 export interface ChainDispatch {
   workflowId: string;
-  source: 'task' | 'helpdesk';
+  source: 'weldconnect' | 'helpdesk';
   passOutput: boolean;
 }
 
@@ -86,7 +86,7 @@ export async function fireWorkflowCompleteTriggers(
     ]);
 
     const candidates: WorkflowCandidate[] = [
-      ...(taskWorkflows as any[]).map((w) => ({ ...w, _source: 'task' as const })),
+      ...(taskWorkflows as any[]).map((w) => ({ ...w, _source: 'weldconnect' as const })),
       ...(helpdeskList as any[]).map((w) => ({ ...w, _source: 'helpdesk' as const })),
     ];
 
