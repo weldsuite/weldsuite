@@ -11,9 +11,9 @@
  * and their edit/delete buttons are disabled — the server enforces the same
  * rule with a 423, so this is an affordance, not the guard.
  *
- * The layout is deliberately vertical (badge + name on one line, value and
- * TTL below) so it stays legible at the 400px panel width and simply gets
- * roomier in fullscreen, instead of needing a second table layout.
+ * Layout is a compact table (column header + dense rows) so many records
+ * stay scannable at panel width. Type filter chips narrow the list without
+ * burying content behind card chrome.
  */
 
 import { useCallback, useMemo, useState } from 'react';
@@ -22,7 +22,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Lock, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import {
@@ -41,6 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
+import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import {
   getDnsRecordLocks,
@@ -64,6 +64,10 @@ type PanelRecordType = (typeof DNS_RECORD_TYPES)[number];
 const PRIORITY_TYPES = new Set<PanelRecordType>(['MX', 'SRV']);
 
 const DEFAULT_TTL = 3600;
+
+/** Compact row grid: type · name · content · ttl · actions */
+const ROW_GRID =
+  'grid grid-cols-[44px_minmax(0,1fr)_minmax(0,1.35fr)_44px_48px] items-center gap-x-2';
 
 type DomainDetailTranslations = ReturnType<typeof useI18n>['t']['host']['domainDetail'];
 
@@ -144,6 +148,16 @@ function valuesFromRecord(record: HostDnsRecord): RecordFormValues {
   };
 }
 
+/** Short TTL label for the dense table (3600 → 1h, 1 → Auto). */
+function formatTtl(ttl: number | null | undefined): string {
+  if (ttl == null) return '—';
+  if (ttl === 1) return 'Auto';
+  if (ttl >= 86400 && ttl % 86400 === 0) return `${ttl / 86400}d`;
+  if (ttl >= 3600 && ttl % 3600 === 0) return `${ttl / 3600}h`;
+  if (ttl >= 60 && ttl % 60 === 0) return `${ttl / 60}m`;
+  return `${ttl}s`;
+}
+
 // ─── Record form ───────────────────────────────────────────────────────────
 
 /**
@@ -185,7 +199,7 @@ function RecordForm({
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit((values) => onSubmit(toRecordInput(values)))}
-        className="rounded-lg border border-border bg-muted/30 p-3 space-y-3"
+        className="rounded-md border border-border bg-muted/20 p-3 space-y-3"
       >
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
 
@@ -338,6 +352,7 @@ export function DomainDnsTab({
   const td = t.host.domainDetail;
 
   const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<HostDnsRecord | null>(null);
@@ -348,16 +363,35 @@ export function DomainDnsTab({
 
   const isReadOnly = !canCreate && !canEdit && !canDelete;
 
+  const typeCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of records) {
+      counts.set(r.type, (counts.get(r.type) ?? 0) + 1);
+    }
+    return counts;
+  }, [records]);
+
+  const typeChips = useMemo(() => {
+    const present = DNS_RECORD_TYPES.filter((type) => typeCounts.has(type));
+    // Include any unexpected types returned by CF that aren't in the create list.
+    for (const type of typeCounts.keys()) {
+      if (!present.includes(type as PanelRecordType)) present.push(type as PanelRecordType);
+    }
+    return present;
+  }, [typeCounts]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return records;
-    return records.filter(
-      (r) =>
+    return records.filter((r) => {
+      if (typeFilter && r.type !== typeFilter) return false;
+      if (!q) return true;
+      return (
         r.name.toLowerCase().includes(q) ||
         r.value.toLowerCase().includes(q) ||
-        r.type.toLowerCase().includes(q),
-    );
-  }, [records, search]);
+        r.type.toLowerCase().includes(q)
+      );
+    });
+  }, [records, search, typeFilter]);
 
   const openAdd = useCallback(() => {
     setEditingId(null);
@@ -407,7 +441,7 @@ export function DomainDnsTab({
   }, [pendingDelete, deleteRecord, domainId, td]);
 
   return (
-    <div className="p-4 space-y-3">
+    <div className="flex flex-col gap-3 p-3">
       {/* Toolbar */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1 min-w-0">
@@ -426,6 +460,41 @@ export function DomainDnsTab({
           </Button>
         )}
       </div>
+
+      {/* Type filter chips — only when there are records to narrow */}
+      {records.length > 0 && typeChips.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setTypeFilter(null)}
+            className={cn(
+              'inline-flex h-6 items-center rounded px-2 text-[11px] font-medium transition-colors',
+              typeFilter === null
+                ? 'bg-foreground text-background'
+                : 'bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground',
+            )}
+          >
+            {td.filterAllTypes}
+            <span className="ml-1 tabular-nums opacity-70">{records.length}</span>
+          </button>
+          {typeChips.map((type) => (
+            <button
+              key={type}
+              type="button"
+              onClick={() => setTypeFilter((prev) => (prev === type ? null : type))}
+              className={cn(
+                'inline-flex h-6 items-center rounded px-2 font-mono text-[11px] font-medium transition-colors',
+                typeFilter === type
+                  ? 'bg-foreground text-background'
+                  : 'bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground',
+              )}
+            >
+              {type}
+              <span className="ml-1 tabular-nums opacity-70">{typeCounts.get(type)}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {isReadOnly && readOnlyReason && (
         <p className="text-xs text-muted-foreground">{readOnlyReason}</p>
@@ -446,13 +515,13 @@ export function DomainDnsTab({
 
       {/* List */}
       {isLoading ? (
-        <div className="space-y-2">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />
+        <div className="space-y-0 divide-y divide-border/60 rounded-md border border-border overflow-hidden">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-9 bg-muted/40 animate-pulse" />
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="py-10 text-center">
+        <div className="py-8 text-center">
           <p className="text-sm font-medium text-foreground">
             {records.length === 0 ? td.noDnsRecordsTitle : td.noMatchingRecordsTitle}
           </p>
@@ -465,119 +534,152 @@ export function DomainDnsTab({
           </p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {filtered.map((record) => {
-            if (editingId === record.id) {
+        <div className="overflow-hidden rounded-md border border-border">
+          {/* Column headers */}
+          <div
+            className={cn(
+              ROW_GRID,
+              'border-b border-border bg-muted/40 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground',
+            )}
+          >
+            <span>{td.type}</span>
+            <span>{td.name}</span>
+            <span>{td.value}</span>
+            <span className="text-right">{td.ttl}</span>
+            <span />
+          </div>
+
+          <div className="divide-y divide-border/60">
+            {filtered.map((record) => {
+              if (editingId === record.id) {
+                return (
+                  <div key={record.id} className="p-2.5 bg-muted/10">
+                    <RecordForm
+                      title={td.editRecord}
+                      defaultValues={valuesFromRecord(record)}
+                      onSubmit={(data) => handleUpdate(record.id, data)}
+                      onCancel={() => setEditingId(null)}
+                      isPending={updateRecord.isPending}
+                      submitLabel={td.save}
+                      pendingLabel={td.saving}
+                      td={td}
+                    />
+                  </div>
+                );
+              }
+
+              const locks = getDnsRecordLocks(record);
+              const locked = locks.length > 0;
+              // Locks are system-managed — users never lock/unlock from the UI,
+              // they only see the protection and which module owns the record.
+              const systemLock = locks.find((l) => l.source !== 'user');
+              const lockLabel =
+                systemLock?.source === 'weldmail'
+                  ? td.usedByEmail
+                  : systemLock
+                    ? td.usedBy.replace('{source}', systemLock.source)
+                    : td.filterLocked;
+              const lockTooltip = locks.map((l) => l.reason).join('\n\n') || td.recordLocked;
+              const hasPriority =
+                record.priority !== null && record.priority !== undefined;
+              const valueLabel = hasPriority
+                ? `${record.priority} ${record.value}`
+                : record.value;
+
               return (
-                <RecordForm
+                <div
                   key={record.id}
-                  title={td.editRecord}
-                  defaultValues={valuesFromRecord(record)}
-                  onSubmit={(data) => handleUpdate(record.id, data)}
-                  onCancel={() => setEditingId(null)}
-                  isPending={updateRecord.isPending}
-                  submitLabel={td.save}
-                  pendingLabel={td.saving}
-                  td={td}
-                />
-              );
-            }
-
-            const locks = getDnsRecordLocks(record);
-            const locked = locks.length > 0;
-            // Locks are system-managed — users never lock/unlock from the UI,
-            // they only see the protection and which module owns the record.
-            const systemLock = locks.find((l) => l.source !== 'user');
-            const lockLabel =
-              systemLock?.source === 'weldmail'
-                ? td.usedByEmail
-                : systemLock
-                  ? td.usedBy.replace('{source}', systemLock.source)
-                  : td.filterLocked;
-            const lockTooltip = locks.map((l) => l.reason).join('\n\n') || td.recordLocked;
-
-            return (
-              <div
-                key={record.id}
-                className="group rounded-lg border border-border px-3 py-2 hover:bg-muted/40 transition-colors"
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <Badge
-                    variant="outline"
-                    className="h-5 px-1.5 font-mono text-[11px] flex-shrink-0"
-                  >
+                  className={cn(
+                    ROW_GRID,
+                    'group min-h-[36px] px-2.5 py-1.5 hover:bg-muted/30 transition-colors',
+                  )}
+                >
+                  <span className="font-mono text-[11px] font-semibold tabular-nums text-foreground">
                     {record.type}
-                  </Badge>
-                  <span className="flex-1 min-w-0 truncate font-mono text-sm font-medium text-foreground">
-                    {record.name}
                   </span>
-                  {locked && (
+
+                  <div className="min-w-0 flex items-center gap-1.5">
                     <span
-                      className="inline-flex h-[20px] flex-shrink-0 items-center gap-1 rounded bg-blue-50 px-1.5 text-[11px] font-medium leading-none text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-                      title={lockTooltip}
+                      className="truncate font-mono text-xs font-medium text-foreground"
+                      title={record.name}
                     >
-                      <Lock className="h-3 w-3" />
-                      {lockLabel}
+                      {record.name}
                     </span>
-                  )}
-                  {(canEdit || canDelete) && (
-                    <div className="flex flex-shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                      {canEdit && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          disabled={locked || updateRecord.isPending}
-                          title={locked ? lockTooltip : td.edit}
-                          aria-label={td.editRecordAriaLabel
-                            .replace('{type}', record.type)
-                            .replace('{name}', record.name)}
-                          onClick={() => openEdit(record)}
-                        >
-                          <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                        </Button>
-                      )}
-                      {canDelete && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          disabled={locked || deleteRecord.isPending}
-                          title={locked ? lockTooltip : td.deleteAction}
-                          aria-label={td.deleteRecordAriaLabel
-                            .replace('{type}', record.type)
-                            .replace('{name}', record.name)}
-                          onClick={() => setPendingDelete(record)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                </div>
+                    {locked && (
+                      <span
+                        className="inline-flex h-[18px] flex-shrink-0 items-center gap-0.5 rounded bg-blue-50 px-1 text-[10px] font-medium leading-none text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                        title={lockTooltip}
+                      >
+                        <Lock className="h-2.5 w-2.5" />
+                        <span className="max-w-[72px] truncate">{lockLabel}</span>
+                      </span>
+                    )}
+                  </div>
 
-                <p className="mt-1 truncate font-mono text-xs text-muted-foreground" title={record.value}>
-                  {record.value}
-                </p>
-
-                <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
-                  <span>
-                    {td.ttl} {record.ttl}s
+                  <span
+                    className="min-w-0 truncate font-mono text-xs text-foreground/80"
+                    title={
+                      hasPriority
+                        ? `${td.priority} ${record.priority} · ${record.value}`
+                        : record.value
+                    }
+                  >
+                    {valueLabel}
                   </span>
-                  {record.priority !== null && record.priority !== undefined && (
-                    <span>
-                      · {td.priority} {record.priority}
-                    </span>
-                  )}
-                  {record.syncError && (
-                    <span className="truncate text-red-600 dark:text-red-400" title={record.syncError}>
-                      · {record.syncError}
-                    </span>
-                  )}
+
+                  <span
+                    className="text-right text-[11px] tabular-nums text-muted-foreground"
+                    title={`${record.ttl ?? '—'}s`}
+                  >
+                    {formatTtl(record.ttl)}
+                  </span>
+
+                  <div className="flex items-center justify-end gap-0.5">
+                    {record.syncError && (
+                      <span
+                        className="mr-0.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-red-500"
+                        title={record.syncError}
+                      />
+                    )}
+                    {(canEdit || canDelete) && (
+                      <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                        {canEdit && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            disabled={locked || updateRecord.isPending}
+                            title={locked ? lockTooltip : td.edit}
+                            aria-label={td.editRecordAriaLabel
+                              .replace('{type}', record.type)
+                              .replace('{name}', record.name)}
+                            onClick={() => openEdit(record)}
+                          >
+                            <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                        )}
+                        {canDelete && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            disabled={locked || deleteRecord.isPending}
+                            title={locked ? lockTooltip : td.deleteAction}
+                            aria-label={td.deleteRecordAriaLabel
+                              .replace('{type}', record.type)
+                              .replace('{name}', record.name)}
+                            onClick={() => setPendingDelete(record)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
 

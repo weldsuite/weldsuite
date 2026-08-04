@@ -271,6 +271,7 @@ export const host = {
       noMatchingRecordsTitle: 'No matching DNS records',
       noMatchingRecordsDescription: 'Try adjusting your filters or search.',
       filterType: 'Type',
+      filterAllTypes: 'All',
       filterLock: 'Lock',
       filterLocked: 'Locked',
       filterUnlocked: 'Unlocked',

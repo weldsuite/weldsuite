@@ -271,6 +271,7 @@ export const host = {
       noMatchingRecordsTitle: 'Geen overeenkomende DNS-records',
       noMatchingRecordsDescription: 'Pas uw filters of zoekopdracht aan.',
       filterType: 'Type',
+      filterAllTypes: 'Alles',
       filterLock: 'Vergrendeling',
       filterLocked: 'Vergrendeld',
       filterUnlocked: 'Ontgrendeld',
