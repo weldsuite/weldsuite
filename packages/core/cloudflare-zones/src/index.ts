@@ -285,23 +285,27 @@ function isQuotedTxtContent(content: string): boolean {
  * values still work (CF may quote them on behalf of the caller) but surface a
  * dashboard warning — wrap on the way out so records are stored in the
  * preferred form. Already-quoted input is left alone to avoid double-quoting
- * on edit round-trips.
+ * on edit round-trips. Leading/trailing spaces are part of the TXT payload and
+ * must not be trimmed when quoting.
  */
 function quoteTxtContent(content: string): string {
+  if (content === '') return '""';
+  // Allow incidental whitespace around an already-quoted payload, but never
+  // strip spaces that are themselves the record value.
   const trimmed = content.trim();
-  if (!trimmed) return '""';
   if (isQuotedTxtContent(trimmed)) return trimmed;
-  return `"${trimmed.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  return `"${content.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
 /**
  * Inverse of {@link quoteTxtContent} for display / local storage: strip the
  * RFC quoting Cloudflare returns (and that we send) so the UI shows the bare
- * value users type. Multi-string payloads are concatenated.
+ * value users type. Multi-string payloads are concatenated. Spaces inside the
+ * quoted strings are preserved.
  */
 function unwrapTxtContent(content: string): string {
   const trimmed = content.trim();
-  if (!isQuotedTxtContent(trimmed)) return trimmed;
+  if (!isQuotedTxtContent(trimmed)) return content;
   return [...trimmed.matchAll(/"((?:[^"\\]|\\.)*)"/g)]
     .map((m) => m[1]!.replace(/\\"/g, '"').replace(/\\\\/g, '\\'))
     .join('');

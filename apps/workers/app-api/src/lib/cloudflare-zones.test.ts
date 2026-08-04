@@ -290,6 +290,21 @@ describe('DNS records', () => {
     expect(calls[0]!.body.content).toBe('"say \\"hello\\""');
   });
 
+  it('preserves leading and trailing spaces in TXT content', async () => {
+    const calls = withResponses([
+      { body: created({ type: 'TXT', content: '" value "' }) },
+    ]);
+
+    const result = await createDnsRecordInZone('tok', 'zone_1', {
+      type: 'TXT',
+      name: 'example.com',
+      content: ' value ',
+    });
+
+    expect(calls[0]!.body.content).toBe('" value "');
+    expect(result.record).toMatchObject({ content: ' value ' });
+  });
+
   it('unwraps multi-string TXT content when reading back', async () => {
     withResponses([
       {
