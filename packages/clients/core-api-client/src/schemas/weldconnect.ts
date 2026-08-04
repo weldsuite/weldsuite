@@ -1,3 +1,10 @@
+/**
+ * Legacy WeldConnect request/response schemas for routes still on this import path.
+ *
+ * Prefer `@weldsuite/app-api-client/schemas/weldconnect` for new code — it carries
+ * the full trigger taxonomy (`integration_event`, `api`, …) and tighter step schemas.
+ * This module remains for backward-compatible imports during the app-api cutover.
+ */
 import { z } from 'zod';
 
 // ============================================================================

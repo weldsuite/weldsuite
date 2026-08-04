@@ -165,6 +165,20 @@ function getTriggerVariables(triggerType?: string): VariableItem[] {
       { path: 'previousRecord', label: 'Previous Data', type: 'object' },
       { path: 'changes', label: 'Changed Fields', type: 'object' },
     ],
+    integration_event: [
+      { path: 'provider', label: 'Provider', type: 'string' },
+      { path: 'event', label: 'Event', type: 'string' },
+      { path: 'payload', label: 'Event Payload', type: 'object' },
+    ],
+    workflow_complete: [
+      { path: 'sourceWorkflowId', label: 'Source Workflow ID', type: 'string' },
+      { path: 'status', label: 'Completion Status', type: 'string' },
+      { path: 'output', label: 'Workflow Output', type: 'object' },
+    ],
+    api: [
+      { path: 'data', label: 'Request Data', type: 'object' },
+      { path: 'triggeredBy', label: 'Triggered By', type: 'string' },
+    ],
   };
 
   return triggerOutputs[triggerType || ''] || [{ path: 'data', label: 'Trigger Data', type: 'object' }];

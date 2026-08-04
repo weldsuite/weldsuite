@@ -295,7 +295,9 @@ export const weldconnect = {
       all: 'All Triggers',
       schedule: 'Schedule',
       entityEvent: 'Entity Events',
+      integration: 'Integrations',
       webhook: 'Webhooks',
+      manual: 'Manual',
     },
     howToUse: {
       title: 'How to Use Triggers',
@@ -1340,6 +1342,9 @@ export const weldconnect = {
     manual: {
       hint: 'This workflow can only be triggered manually from the workflows page or via the API.',
     },
+    api: {
+      hint: 'This workflow can be triggered by calling the WeldConnect API with your workspace credentials.',
+    },
     validation: {
       selectEntityAndEvent: 'Please select entity type and event',
       selectExecutionDate: 'Please select execution date and time',
@@ -2070,12 +2075,18 @@ export const weldconnect = {
     subtitle: 'Select how this workflow should be started',
     entityEvent: 'Entity Event',
     entityEventDesc: 'Run when a record is created, updated, or deleted',
+    integrationEvent: 'Integration Event',
+    integrationEventDesc: 'Run when a connected app sends an event',
     schedule: 'Schedule',
     scheduleDesc: 'Run on a recurring or one-time schedule',
+    workflowComplete: 'Workflow Complete',
+    workflowCompleteDesc: 'Run when another workflow finishes',
     webhook: 'Webhook',
     webhookDesc: 'Run when an HTTP request is received',
     manual: 'Manual',
     manualDesc: 'Run only when triggered manually',
+    api: 'API',
+    apiDesc: 'Run when called via the WeldConnect API',
   },
 
   // Workflows client — dynamic list strings

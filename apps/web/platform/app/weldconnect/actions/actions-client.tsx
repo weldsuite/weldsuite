@@ -243,14 +243,16 @@ export function ActionsClient({ initialActions, categories }: ActionsClientProps
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              className="h-8 text-xs md:text-sm px-2 md:px-3 flex items-center justify-center shadow-none"
-              onClick={() => toast.info(t.weldconnect.actions.documentationComingSoon)}
-            >
-              <Book className="h-4 w-4 -mr-0.5" />
-              <span className="hidden md:inline ml-1">{t.weldconnect.actions.documentation}</span>
-            </Button>
+            {filteredActions.length > 0 && (
+              <Button
+                variant="outline"
+                className="h-8 text-xs md:text-sm px-2 md:px-3 flex items-center justify-center shadow-none"
+                onClick={() => setSelectedAction(filteredActions[0])}
+              >
+                <Book className="h-4 w-4 -mr-0.5" />
+                <span className="hidden md:inline ml-1">{t.weldconnect.actions.documentation}</span>
+              </Button>
+            )}
           </div>
         </div>
 
@@ -579,6 +581,9 @@ export function ActionsClient({ initialActions, categories }: ActionsClientProps
 
                   <TabsContent value="documentation" className="mt-4">
                     <div className="space-y-4">
+                      <div className="p-4 bg-muted rounded-lg">
+                        <p className="text-sm text-foreground">{selectedAction.description}</p>
+                      </div>
                       {selectedAction.documentation ? (
                         <div className="prose prose-sm dark:prose-invert max-w-none">
                           <div className="p-4 bg-muted rounded-lg">
@@ -587,14 +592,7 @@ export function ActionsClient({ initialActions, categories }: ActionsClientProps
                             </pre>
                           </div>
                         </div>
-                      ) : (
-                        <div className="text-center py-8">
-                          <Book className="h-12 w-12 mx-auto text-muted-foreground/30 mb-4" />
-                          <p className="text-sm text-muted-foreground">
-                            {t.weldconnect.actions.noDocumentation}
-                          </p>
-                        </div>
-                      )}
+                      ) : null}
                     </div>
                   </TabsContent>
                 </div>

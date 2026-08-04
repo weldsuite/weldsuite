@@ -19,6 +19,7 @@ import { workflowTriggersRoutes } from '../workflow-triggers';
 import { workflowVariablesRoutes } from '../workflow-variables';
 import { workflowWebhooksRoutes } from '../workflow-webhooks';
 import { workflowsRoutes } from '../workflows';
+import { nangoRoutes } from '../nango';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -29,6 +30,7 @@ app.route('/variables', workflowVariablesRoutes);
 app.route('/webhooks', workflowWebhooksRoutes);
 app.route('/schedules', workflowSchedulesRoutes);
 app.route('/integrations', workflowIntegrationsRoutes);
+app.route('/nango', nangoRoutes);
 app.route('/builder', workflowBuilderRoutes);
 app.route('/dashboard', workflowDashboardRoutes);
 app.route('/github', workflowGithubRoutes);

@@ -48,14 +48,13 @@ const BUILTIN_ACTION_TYPES = [
 export const ACTION_TYPES = [...BUILTIN_ACTION_TYPES, ...deriveActionTypes()];
 
 const BUILTIN_TRIGGER_TYPES = [
+  { id: 'entity_event', name: 'Entity Event', description: 'Trigger when a WeldSuite record changes', category: 'entity_event', icon: 'zap' },
+  { id: 'integration_event', name: 'Integration Event', description: 'Trigger from connected apps (Slack, Google Sheets, …)', category: 'integration_event', icon: 'plug' },
+  { id: 'workflow_complete', name: 'Workflow Complete', description: 'Trigger when another workflow finishes', category: 'workflow_complete', icon: 'git-merge' },
   { id: 'schedule', name: 'Schedule', description: 'Run on a schedule', category: 'schedule', icon: 'calendar' },
-  { id: 'cron', name: 'Cron Expression', description: 'Run based on cron expression', category: 'schedule', icon: 'clock' },
-  { id: 'entity_created', name: 'Record Created', description: 'Trigger when a record is created', category: 'entity', icon: 'plus' },
-  { id: 'entity_updated', name: 'Record Updated', description: 'Trigger when a record is updated', category: 'entity', icon: 'edit' },
-  { id: 'entity_deleted', name: 'Record Deleted', description: 'Trigger when a record is deleted', category: 'entity', icon: 'trash' },
   { id: 'webhook', name: 'Webhook', description: 'Trigger via HTTP webhook', category: 'webhook', icon: 'webhook' },
   { id: 'manual', name: 'Manual', description: 'Trigger manually', category: 'manual', icon: 'hand' },
-  { id: 'api', name: 'API Call', description: 'Trigger via API', category: 'api', icon: 'code' },
+  { id: 'api', name: 'API Call', description: 'Trigger via the WeldConnect API', category: 'api', icon: 'code' },
 ];
 
 /** Built-in triggers + the integration_event triggers (Slack message, Sheets

@@ -11,7 +11,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   createVariableSchema,
   updateVariableSchema,
-} from '@weldsuite/core-api-client/schemas/weldconnect';
+} from '@weldsuite/app-api-client/schemas/weldconnect';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import * as variables from '../../services/workflow-variables';

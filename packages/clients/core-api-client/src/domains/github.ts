@@ -24,47 +24,47 @@ export function createGithubApi(api: ClientApi) {
 
     getInstallUrl(params: InstallUrlQuery = {}): Promise<DataResponse<{ url: string }>> {
       return api.get<DataResponse<{ url: string }>>(
-        `/workflow-github/install-url${buildQueryString(params as Record<string, unknown>)}`,
+        `/weldconnect/github/install-url${buildQueryString(params as Record<string, unknown>)}`,
       );
     },
 
     getConnection(): Promise<DataResponse<GithubConnection | null>> {
-      return api.get<DataResponse<GithubConnection | null>>('/workflow-github/connection');
+      return api.get<DataResponse<GithubConnection | null>>('/weldconnect/github/connection');
     },
 
     disconnect(): Promise<void> {
-      return api.delete<void>('/workflow-github/connection');
+      return api.delete<void>('/weldconnect/github/connection');
     },
 
     // ====== Repositories ======
 
     listAvailableRepos(): Promise<ListResponse<AvailableRepo>> {
-      return api.get<ListResponse<AvailableRepo>>('/workflow-github/repos/available');
+      return api.get<ListResponse<AvailableRepo>>('/weldconnect/github/repos/available');
     },
 
     listLinkedRepos(params: ListLinkedReposQuery = {}): Promise<ListResponse<GithubRepoLink>> {
       return api.get<ListResponse<GithubRepoLink>>(
-        `/workflow-github/repos/linked${buildQueryString(params as Record<string, unknown>)}`,
+        `/weldconnect/github/repos/linked${buildQueryString(params as Record<string, unknown>)}`,
       );
     },
 
     linkRepo(input: CreateRepoLinkInput): Promise<DataResponse<GithubRepoLink>> {
-      return api.post<DataResponse<GithubRepoLink>>('/workflow-github/repos/link', input);
+      return api.post<DataResponse<GithubRepoLink>>('/weldconnect/github/repos/link', input);
     },
 
     updateRepoLink(linkId: string, input: UpdateRepoLinkInput): Promise<DataResponse<GithubRepoLink>> {
-      return api.patch<DataResponse<GithubRepoLink>>(`/workflow-github/repos/${linkId}`, input);
+      return api.patch<DataResponse<GithubRepoLink>>(`/weldconnect/github/repos/${linkId}`, input);
     },
 
     unlinkRepo(linkId: string): Promise<void> {
-      return api.delete<void>(`/workflow-github/repos/${linkId}`);
+      return api.delete<void>(`/weldconnect/github/repos/${linkId}`);
     },
 
     // ====== Sync ======
 
     triggerFullSync(linkId: string): Promise<DataResponse<{ runId: string }>> {
       return api.post<DataResponse<{ runId: string }>>(
-        `/workflow-github/repos/${linkId}/sync`,
+        `/weldconnect/github/repos/${linkId}/sync`,
         {},
       );
     },
@@ -73,13 +73,13 @@ export function createGithubApi(api: ClientApi) {
 
     /** Projects (v2) visible to the installation, for the link picker. */
     listAvailableProjects(): Promise<ListResponse<AvailableProjectV2>> {
-      return api.get<ListResponse<AvailableProjectV2>>('/workflow-github/projects/available');
+      return api.get<ListResponse<AvailableProjectV2>>('/weldconnect/github/projects/available');
     },
 
     /** The "Status" single-select field + options of a Project, for stage mapping. */
     listProjectStatusFields(nodeId: string): Promise<DataResponse<ProjectV2StatusFieldInfo>> {
       return api.get<DataResponse<ProjectV2StatusFieldInfo>>(
-        `/workflow-github/projects/status-fields${buildQueryString({ nodeId })}`,
+        `/weldconnect/github/projects/status-fields${buildQueryString({ nodeId })}`,
       );
     },
 
@@ -122,12 +122,12 @@ export function createGithubApi(api: ClientApi) {
 
     listDiscoverableInstallations(): Promise<ListResponse<DiscoverableInstallation>> {
       return api.get<ListResponse<DiscoverableInstallation>>(
-        '/workflow-github/installations/discoverable',
+        '/weldconnect/github/installations/discoverable',
       );
     },
 
     recoverInstallation(input: RecoverInstallationInput): Promise<DataResponse<GithubConnection>> {
-      return api.post<DataResponse<GithubConnection>>('/workflow-github/recover', input);
+      return api.post<DataResponse<GithubConnection>>('/weldconnect/github/recover', input);
     },
   };
 }

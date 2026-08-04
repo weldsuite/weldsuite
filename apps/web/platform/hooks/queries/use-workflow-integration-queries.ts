@@ -87,7 +87,7 @@ export function useIntegrationCatalog() {
     queryKey: workflowIntegrationKeys.catalog(),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: IntegrationDef[] }>('/weldconnect/workflow-integrations/catalog');
+      return client.get<{ data: IntegrationDef[] }>('/weldconnect/integrations/catalog');
     },
   });
 }
@@ -107,7 +107,7 @@ export function useWorkflowIntegrations(filters?: WorkflowIntegrationFilters) {
       if (filters?.limit) params.set('limit', String(filters.limit));
       const qs = params.toString();
       return client.get<WorkflowIntegrationListResponse>(
-        `/weldconnect/workflow-integrations${qs ? `?${qs}` : ''}`,
+        `/weldconnect/integrations${qs ? `?${qs}` : ''}`,
       );
     },
   });
@@ -130,7 +130,7 @@ export function useConnectWorkflowProvider() {
       const client = await getClient();
       const result = await client.post<{
         data: { authorizeUrl: string; state: string };
-      }>(`/weldconnect/workflow-integrations/${provider}/authorize`, {
+      }>(`/weldconnect/integrations/${provider}/authorize`, {
         ...(integrationId ? { integrationId } : {}),
       });
       // Store provider in sessionStorage so the callback page can read it
@@ -158,7 +158,7 @@ export function useWorkflowProviderCallback() {
       const client = await getClient();
       return client.post<{
         data: { id: string; status: string; provider: string };
-      }>(`/weldconnect/workflow-integrations/${provider}/callback`, { code, state });
+      }>(`/weldconnect/integrations/${provider}/callback`, { code, state });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: workflowIntegrationKeys.list() });
@@ -172,7 +172,7 @@ export function useDisconnectWorkflowIntegration() {
     mutationFn: async (id: string) => {
       const client = await getClient();
       return client.patch<{ data: { id: string; status: string } }>(
-        `/weldconnect/workflow-integrations/${id}/disconnect`,
+        `/weldconnect/integrations/${id}/disconnect`,
         {},
       );
     },
@@ -188,7 +188,7 @@ export function useTestWorkflowIntegration() {
     mutationFn: async (id: string) => {
       const client = await getClient();
       return client.post<{ data: { success: boolean; message: string } }>(
-        `/weldconnect/workflow-integrations/${id}/test`,
+        `/weldconnect/integrations/${id}/test`,
         {},
       );
     },

@@ -11,7 +11,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   createTemplateSchema,
   updateTemplateSchema,
-} from '@weldsuite/core-api-client/schemas/weldconnect';
+} from '@weldsuite/app-api-client/schemas/weldconnect';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import * as templates from '../../services/workflow-templates';

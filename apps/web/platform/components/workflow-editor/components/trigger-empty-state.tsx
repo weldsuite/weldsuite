@@ -1,11 +1,18 @@
 
-import { Zap, Clock, Globe, MousePointerClick } from 'lucide-react';
+import { Zap, Clock, Globe, MousePointerClick, GitMerge, Plug, Code } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { Button } from '@weldsuite/ui/components/button';
 import type { ComponentType } from 'react';
 
-type TriggerType = 'entity_event' | 'schedule' | 'webhook' | 'manual';
+type TriggerType =
+  | 'entity_event'
+  | 'integration_event'
+  | 'schedule'
+  | 'workflow_complete'
+  | 'webhook'
+  | 'manual'
+  | 'api';
 
 interface TriggerTileProps {
   icon: ComponentType<{ className?: string }>;
@@ -49,13 +56,13 @@ export function TriggerEmptyState({ onSelectType }: TriggerEmptyStateProps) {
 
   return (
     <div className="flex h-full w-full items-center justify-center p-8">
-      <div className="w-full max-w-lg space-y-6">
+      <div className="w-full max-w-2xl space-y-6">
         <div className="text-center space-y-1.5">
           <h2 className="text-base font-semibold">{tes.title}</h2>
           <p className="text-sm text-muted-foreground">{tes.subtitle}</p>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <TriggerTile
             icon={Zap}
             title={tes.entityEvent}
@@ -65,12 +72,28 @@ export function TriggerEmptyState({ onSelectType }: TriggerEmptyStateProps) {
             iconBgClassName="bg-purple-100 dark:bg-purple-900/30"
           />
           <TriggerTile
+            icon={Plug}
+            title={tes.integrationEvent}
+            description={tes.integrationEventDesc}
+            onClick={() => onSelectType('integration_event')}
+            iconClassName="text-indigo-600 dark:text-indigo-400"
+            iconBgClassName="bg-indigo-100 dark:bg-indigo-900/30"
+          />
+          <TriggerTile
             icon={Clock}
             title={tes.schedule}
             description={tes.scheduleDesc}
             onClick={() => onSelectType('schedule')}
             iconClassName="text-blue-600 dark:text-blue-400"
             iconBgClassName="bg-blue-100 dark:bg-blue-900/30"
+          />
+          <TriggerTile
+            icon={GitMerge}
+            title={tes.workflowComplete}
+            description={tes.workflowCompleteDesc}
+            onClick={() => onSelectType('workflow_complete')}
+            iconClassName="text-orange-600 dark:text-orange-400"
+            iconBgClassName="bg-orange-100 dark:bg-orange-900/30"
           />
           <TriggerTile
             icon={Globe}
@@ -85,8 +108,16 @@ export function TriggerEmptyState({ onSelectType }: TriggerEmptyStateProps) {
             title={tes.manual}
             description={tes.manualDesc}
             onClick={() => onSelectType('manual')}
-            iconClassName="text-orange-600 dark:text-orange-400"
-            iconBgClassName="bg-orange-100 dark:bg-orange-900/30"
+            iconClassName="text-gray-600 dark:text-gray-400"
+            iconBgClassName="bg-gray-100 dark:bg-gray-800/30"
+          />
+          <TriggerTile
+            icon={Code}
+            title={tes.api}
+            description={tes.apiDesc}
+            onClick={() => onSelectType('api')}
+            iconClassName="text-teal-600 dark:text-teal-400"
+            iconBgClassName="bg-teal-100 dark:bg-teal-900/30"
           />
         </div>
       </div>

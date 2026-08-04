@@ -295,7 +295,9 @@ export const weldconnect = {
       all: 'Alle Triggers',
       schedule: 'Schema',
       entityEvent: 'Entiteitsgebeurtenissen',
+      integration: 'Integraties',
       webhook: 'Webhooks',
+      manual: 'Handmatig',
     },
     howToUse: {
       title: 'Triggers gebruiken',
@@ -1340,6 +1342,9 @@ export const weldconnect = {
     manual: {
       hint: 'Deze workflow kan alleen handmatig worden geactiveerd vanaf de workflowpagina of via de API.',
     },
+    api: {
+      hint: 'Deze workflow kan worden geactiveerd via de WeldConnect API met uw workspace-referenties.',
+    },
     validation: {
       selectEntityAndEvent: 'Selecteer een entiteitstype en een gebeurtenis',
       selectExecutionDate: 'Selecteer een uitvoerdatum en -tijd',
@@ -2045,12 +2050,18 @@ export const weldconnect = {
     subtitle: 'Selecteer hoe deze workflow gestart moet worden',
     entityEvent: 'Entiteitsgebeurtenis',
     entityEventDesc: 'Starten wanneer een record wordt aangemaakt, bijgewerkt of verwijderd',
+    integrationEvent: 'Integratiegebeurtenis',
+    integrationEventDesc: 'Starten wanneer een verbonden app een gebeurtenis stuurt',
     schedule: 'Schema',
     scheduleDesc: 'Starten op een terugkerend of eenmalig schema',
+    workflowComplete: 'Workflow voltooid',
+    workflowCompleteDesc: 'Starten wanneer een andere workflow is voltooid',
     webhook: 'Webhook',
     webhookDesc: 'Starten wanneer een HTTP-verzoek wordt ontvangen',
     manual: 'Handmatig',
     manualDesc: 'Alleen starten wanneer handmatig geactiveerd',
+    api: 'API',
+    apiDesc: 'Starten via een WeldConnect API-aanroep',
   },
 
   // Workflows client — dynamische lijststrings
@@ -2106,6 +2117,7 @@ export const weldconnect = {
     noResults: 'Geen integraties gevonden',
     noResultsHint: 'Probeer uw zoekopdracht of categorie aan te passen',
     loadError: 'Laden van integraties mislukt. Vernieuw de pagina en probeer opnieuw.',
+    permissionDenied: 'Je hebt geen toestemming om integraties te bekijken.',
     connect: 'Verbinden',
     connecting: 'Verbinden...',
     disconnect: 'Verbreken',
