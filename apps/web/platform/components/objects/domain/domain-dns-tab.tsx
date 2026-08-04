@@ -466,6 +466,7 @@ export function DomainDnsTab({
         <div className="flex flex-wrap items-center gap-1">
           <button
             type="button"
+            aria-pressed={typeFilter === null}
             onClick={() => setTypeFilter(null)}
             className={cn(
               'inline-flex h-6 items-center rounded px-2 text-[11px] font-medium transition-colors',
@@ -481,6 +482,7 @@ export function DomainDnsTab({
             <button
               key={type}
               type="button"
+              aria-pressed={typeFilter === type}
               onClick={() => setTypeFilter((prev) => (prev === type ? null : type))}
               className={cn(
                 'inline-flex h-6 items-center rounded px-2 font-mono text-[11px] font-medium transition-colors',
@@ -629,7 +631,13 @@ export function DomainDnsTab({
 
                   <span
                     className="text-right text-[11px] tabular-nums text-muted-foreground"
-                    title={`${record.ttl ?? '—'}s`}
+                    title={
+                      record.ttl == null
+                        ? '—'
+                        : record.ttl === 1
+                          ? td.ttlAuto
+                          : `${record.ttl}s`
+                    }
                   >
                     {formatTtl(record.ttl, td.ttlAuto)}
                   </span>
@@ -637,6 +645,8 @@ export function DomainDnsTab({
                   <div className="flex items-center justify-end gap-0.5">
                     {record.syncError && (
                       <span
+                        role="img"
+                        aria-label={record.syncError}
                         className="mr-0.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-red-500"
                         title={record.syncError}
                       />
