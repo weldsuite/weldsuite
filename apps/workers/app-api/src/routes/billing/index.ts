@@ -77,6 +77,7 @@ import {
   setCustomerDefaultPaymentMethod,
   setSubscriptionDefaultPaymentMethod,
   type StripePaymentMethod,
+  type StripeSubscription,
 } from '../../lib/stripe';
 import {
   getAccurateMemberCount,
@@ -948,6 +949,50 @@ function toId(value: string | { id: string } | null | undefined): string | null 
   return typeof value === 'string' ? value : value.id;
 }
 
+/**
+ * Subscription statuses that still produce invoices. A workspace keeps its
+ * `stripe*SubscriptionId` columns after cancellation, so the stored ids alone
+ * say nothing about whether anything is still being billed — the status has to
+ * come from Stripe.
+ */
+const BILLING_SUBSCRIPTION_STATUSES = new Set([
+  'active',
+  'trialing',
+  'past_due',
+  'unpaid',
+  'incomplete',
+]);
+
+/**
+ * Fetch the workspace's subscriptions that Stripe still reports as billing.
+ * Unreadable ids (deleted, or belonging to a rotated Stripe account) are
+ * treated as not billing rather than failing the whole request.
+ */
+async function getBillingSubscriptions(
+  stripeKey: string,
+  workspace: {
+    stripeSubscriptionId: string | null;
+    stripePhoneSubscriptionId: string | null;
+    stripeAgentsSubscriptionId: string | null;
+  },
+): Promise<StripeSubscription[]> {
+  const results = await Promise.all(
+    workspaceSubscriptionIds(workspace).map(async (id) => {
+      try {
+        return await retrieveSubscription(stripeKey, id);
+      } catch (err) {
+        console.error(`[Billing] Could not retrieve subscription ${id}:`, err);
+        return null;
+      }
+    }),
+  );
+
+  return results.filter(
+    (sub): sub is StripeSubscription =>
+      sub !== null && BILLING_SUBSCRIPTION_STATUSES.has(sub.status ?? ''),
+  );
+}
+
 /** Shape the billing page renders — one row per saved method. */
 function mapPaymentMethod(pm: StripePaymentMethod, defaultPaymentMethodId: string | null) {
   const card = pm.card ?? null;
@@ -1106,21 +1151,32 @@ app.post('/payment-methods/:id/default', canManageBilling, async (c) => {
     await setCustomerDefaultPaymentMethod(stripeKey, workspace.stripeCustomerId, paymentMethodId);
 
     // Subscription-level defaults override the customer default, so every
-    // subscription this workspace is billed on has to be updated too.
-    for (const subscriptionId of workspaceSubscriptionIds(workspace)) {
+    // subscription still billing has to be updated too. Canceled ones are
+    // filtered out first — writing to them would fail as a matter of course,
+    // which would make a genuine failure indistinguishable from noise.
+    const billingSubscriptions = await getBillingSubscriptions(stripeKey, workspace);
+    const failedSubscriptionIds: string[] = [];
+
+    for (const subscription of billingSubscriptions) {
       try {
-        await setSubscriptionDefaultPaymentMethod(stripeKey, subscriptionId, paymentMethodId);
+        await setSubscriptionDefaultPaymentMethod(stripeKey, subscription.id, paymentMethodId);
       } catch (err) {
-        // Canceled subscriptions reject writes — the customer default is
-        // already saved, so this is not fatal.
+        // A live subscription that rejects the write keeps charging the old
+        // method, so the caller is told the change landed only partially
+        // rather than being shown an unqualified success.
+        failedSubscriptionIds.push(subscription.id);
         console.error(
-          `[Billing] Could not set default payment method on subscription ${subscriptionId}:`,
+          `[Billing] Could not set default payment method on subscription ${subscription.id}:`,
           err,
         );
       }
     }
 
-    return success(c, { success: true, id: paymentMethodId });
+    return success(c, {
+      success: true,
+      id: paymentMethodId,
+      partial: failedSubscriptionIds.length > 0,
+    });
   } catch (err) {
     console.error('[Billing] Failed to set default payment method:', err);
     return error.internal(c, 'Could not set the primary payment method');
@@ -1148,17 +1204,34 @@ app.delete('/payment-methods/:id', canManageBilling, async (c) => {
       return error.notFound(c, 'Payment method', paymentMethodId);
     }
 
-    // Removing the primary method while the workspace is still being billed
-    // would leave the next invoice with nothing to charge. Require another
-    // method to be promoted first — the UI surfaces this as a disabled action.
-    const hasActiveSubscription = workspaceSubscriptionIds(workspace).length > 0;
-    if (hasActiveSubscription) {
-      const defaultPaymentMethodId = await resolveDefaultPaymentMethodId(
-        stripeKey,
-        workspace.stripeCustomerId,
-        workspace.stripeSubscriptionId,
+    // Removing a method that something is still billing against would leave
+    // the next invoice with nothing to charge. Require another method to be
+    // promoted first.
+    //
+    // The check spans every billing subscription, not just the plan one:
+    // setting a primary writes the phone and agents subscriptions too, so any
+    // of them can hold this method as its own default. Subscriptions Stripe
+    // reports as canceled are excluded, otherwise a workspace that stopped
+    // subscribing could never remove its last card.
+    const billingSubscriptions = await getBillingSubscriptions(stripeKey, workspace);
+
+    if (billingSubscriptions.length > 0) {
+      const blockedBySubscription = billingSubscriptions.some(
+        (sub) => toId(sub.default_payment_method) === paymentMethodId,
       );
-      if (defaultPaymentMethodId === paymentMethodId) {
+
+      // A subscription with no default of its own falls back to the customer
+      // default, so that method is equally load-bearing.
+      const someSubscriptionInherits = billingSubscriptions.some(
+        (sub) => toId(sub.default_payment_method) === null,
+      );
+      const customer = someSubscriptionInherits
+        ? await retrieveStripeCustomer(stripeKey, workspace.stripeCustomerId)
+        : null;
+      const blockedByCustomerDefault =
+        toId(customer?.invoice_settings?.default_payment_method) === paymentMethodId;
+
+      if (blockedBySubscription || blockedByCustomerDefault) {
         return error.badRequest(
           c,
           'This is your primary payment method. Set another method as primary before removing it.',

@@ -489,7 +489,7 @@ export const settings = {
       perMonth: '/mnd',
       paymentMethods: {
         title: 'Betaalmethoden',
-        description: 'Kaarten en bankrekeningen waarmee uw abonnement wordt betaald. De primaire methode wordt als eerste belast.',
+        description: 'Kaarten en bankrekeningen waarmee uw abonnement wordt betaald. De primaire methode wordt als eerste afgeschreven.',
         addMethod: 'Methode toevoegen',
         addDescription: 'Voeg een kaart, SEPA-incasso, iDEAL of Bancontact toe. Uw gegevens worden verwerkt door Stripe en nooit door WeldSuite opgeslagen.',
         method: 'Methode',
@@ -507,6 +507,7 @@ export const settings = {
         addSuccess: 'Betaalmethode toegevoegd',
         addFailed: 'Kon de betaalmethode niet toevoegen',
         setPrimarySuccess: 'Primaire betaalmethode bijgewerkt',
+        setPrimaryPartial: 'Primaire betaalmethode bijgewerkt, maar sommige abonnementen gebruiken nog de vorige methode. Neem contact op met support.',
         setPrimaryFailed: 'Kon de primaire betaalmethode niet bijwerken',
         removeSuccess: 'Betaalmethode verwijderd',
         removeFailed: 'Kon de betaalmethode niet verwijderen',

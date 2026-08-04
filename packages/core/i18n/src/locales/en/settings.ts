@@ -507,6 +507,7 @@ export const settings = {
         addSuccess: 'Payment method added',
         addFailed: 'Could not add the payment method',
         setPrimarySuccess: 'Primary payment method updated',
+        setPrimaryPartial: 'Primary payment method updated, but some subscriptions still use the previous method. Please contact support.',
         setPrimaryFailed: 'Could not update the primary payment method',
         removeSuccess: 'Payment method removed',
         removeFailed: 'Could not remove the payment method',

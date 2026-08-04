@@ -300,10 +300,11 @@ export function useSetDefaultPaymentMethod() {
   return useMutation({
     mutationFn: async (paymentMethodId: string) => {
       const client = await getClient();
-      const res = await client.post<{ data: { success: boolean; id: string } }>(
-        `/billing/payment-methods/${paymentMethodId}/default`,
-        {},
-      );
+      // `partial` is true when the customer default was written but at least
+      // one live subscription rejected it — those keep charging the old method.
+      const res = await client.post<{
+        data: { success: boolean; id: string; partial: boolean };
+      }>(`/billing/payment-methods/${paymentMethodId}/default`, {});
       return res.data;
     },
     onSuccess: () => {

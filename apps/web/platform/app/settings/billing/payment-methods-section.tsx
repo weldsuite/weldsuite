@@ -100,7 +100,14 @@ function isExpired(method: BillingPaymentMethodResponse): boolean {
 // Add-method form (inside <Elements>, so it can use the Stripe hooks)
 // ============================================================================
 
-function AddPaymentMethodForm({ onDone }: { onDone: () => void }) {
+function AddPaymentMethodForm({
+  onAdded,
+  onCancel,
+}: {
+  /** Receives the saved payment method id so the caller can promote it. */
+  onAdded: (paymentMethodId: string | null) => void;
+  onCancel: () => void;
+}) {
   const { t } = useI18n();
   const ts = t.settings.billing.paymentMethods;
   const stripe = useStripe();
@@ -124,7 +131,7 @@ function AddPaymentMethodForm({ onDone }: { onDone: () => void }) {
 
     // `if_required` keeps card and SEPA inline; iDEAL and Bancontact still
     // redirect, and come back to the return_url handled by the parent.
-    const { error: confirmError } = await stripe.confirmSetup({
+    const { error: confirmError, setupIntent } = await stripe.confirmSetup({
       elements,
       confirmParams: {
         return_url: `${window.location.origin}/settings/billing?payment_method=added`,
@@ -139,7 +146,9 @@ function AddPaymentMethodForm({ onDone }: { onDone: () => void }) {
     }
 
     setSubmitting(false);
-    onDone();
+
+    const savedId = setupIntent?.payment_method;
+    onAdded(typeof savedId === 'string' ? savedId : (savedId?.id ?? null));
   };
 
   return (
@@ -149,7 +158,7 @@ function AddPaymentMethodForm({ onDone }: { onDone: () => void }) {
       {errorMessage && <p className="text-sm text-destructive">{errorMessage}</p>}
 
       <div className="flex justify-end gap-3 pt-2">
-        <Button type="button" variant="outline" onClick={onDone} disabled={submitting}>
+        <Button type="button" variant="outline" onClick={onCancel} disabled={submitting}>
           {t.common.actions.cancel}
         </Button>
         <Button type="submit" disabled={!stripe || submitting}>
@@ -188,21 +197,61 @@ export function PaymentMethodsSection({ canManage }: { canManage: boolean }) {
     [resolvedTheme],
   );
 
+  /**
+   * Confirming a SetupIntent only attaches the method to the customer — Stripe
+   * writes no default anywhere. Without this, a workspace adding its very first
+   * method would end up with a saved card, no primary, and nothing selected on
+   * its subscriptions at renewal. Later additions are left alone so an explicit
+   * primary is never silently replaced.
+   */
+  const promoteIfNoPrimary = async (paymentMethodId: string | null) => {
+    if (!paymentMethodId) return;
+
+    const { data: latest } = await refetch();
+    if (!latest || latest.length === 0 || latest.some((m) => m.isDefault)) return;
+
+    try {
+      await setDefaultMutation.mutateAsync(paymentMethodId);
+    } catch {
+      // The method is saved either way; the user can still promote it by hand.
+      toast.error(ts.setPrimaryFailed);
+    }
+  };
+
   // Returning from an iDEAL/Bancontact redirect: Stripe has already saved the
-  // mandate, so just confirm it and drop the query params.
+  // mandate, so confirm it, promote it if it is the only one, and drop the
+  // query params.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('payment_method') !== 'added') return;
 
-    toast.success(ts.addSuccess);
-    void refetch();
+    const clientSecretParam = params.get('setup_intent_client_secret');
 
     ['payment_method', 'setup_intent', 'setup_intent_client_secret', 'redirect_status'].forEach(
       (key) => params.delete(key),
     );
     const qs = params.toString();
     window.history.replaceState({}, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`);
-  }, [refetch, ts]);
+
+    toast.success(ts.addSuccess);
+
+    void (async () => {
+      // The redirect carries no payment method id, so it is read back off the
+      // SetupIntent before deciding whether to promote.
+      const stripe = stripePromise ? await stripePromise : null;
+      if (!stripe || !clientSecretParam) {
+        void refetch();
+        return;
+      }
+
+      const { setupIntent } = await stripe.retrieveSetupIntent(clientSecretParam);
+      const savedId = setupIntent?.payment_method;
+      await promoteIfNoPrimary(typeof savedId === 'string' ? savedId : (savedId?.id ?? null));
+    })();
+    // Runs once per redirect return — the query param is stripped above, so a
+    // re-run cannot double-fire.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleOpenDialog = async () => {
     if (!stripePromise) {
@@ -226,16 +275,20 @@ export function PaymentMethodsSection({ canManage }: { canManage: boolean }) {
     if (!open) setClientSecret(null);
   };
 
-  const handleAdded = () => {
+  const handleAdded = (paymentMethodId: string | null) => {
     handleDialogChange(false);
     toast.success(ts.addSuccess);
-    void refetch();
+    void promoteIfNoPrimary(paymentMethodId);
   };
 
   const handleSetDefault = async (id: string) => {
     try {
-      await setDefaultMutation.mutateAsync(id);
-      toast.success(ts.setPrimarySuccess);
+      const result = await setDefaultMutation.mutateAsync(id);
+      // Some subscriptions kept the old method — saying "updated" outright
+      // would be wrong, since those still renew on the previous card.
+      toast[result.partial ? 'warning' : 'success'](
+        result.partial ? ts.setPrimaryPartial : ts.setPrimarySuccess,
+      );
     } catch {
       toast.error(ts.setPrimaryFailed);
     }
@@ -401,7 +454,10 @@ export function PaymentMethodsSection({ canManage }: { canManage: boolean }) {
               key={clientSecret}
               options={{ clientSecret, appearance }}
             >
-              <AddPaymentMethodForm onDone={handleAdded} />
+              <AddPaymentMethodForm
+                onAdded={handleAdded}
+                onCancel={() => handleDialogChange(false)}
+              />
             </Elements>
           )}
         </DialogContent>
