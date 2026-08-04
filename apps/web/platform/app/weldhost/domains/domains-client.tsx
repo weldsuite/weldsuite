@@ -140,7 +140,7 @@ export function DomainsClient({ domains }: DomainsClientProps) {
     return (
       <div
         key={domain.id}
-        onClick={() => openPanel({ type: 'domain', id: domain.id })}
+        onClick={() => openPanel({ type: 'domain', id: domain.id, initialTab: 'dns' })}
         className={cn(
           'flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group',
           selectedDomainId === domain.id && 'bg-accent',
