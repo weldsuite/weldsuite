@@ -18,7 +18,7 @@ export * from './project-labels';
 export * from './task-import-jobs';
 export * from './task-number-sequences';
 
-// Personal Task Management module (personal-tasks removed — use unified tasks table)
+// WeldFlow personal/my-task scaffolding (task_projects — not WeldConnect workflows)
 export * from './task-projects';
 export * from './task-tags';
 export * from './task-comments';

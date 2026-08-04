@@ -28,7 +28,7 @@ WeldSuite is one platform built from modules that share the same customer, conta
 | **WeldDesk** | Helpdesk, tickets, conversations, knowledge base, SLAs, AI copilot |
 | **WeldMail** | Email client with AI drafting and multi-account support |
 | **WeldFlow** | Projects, tasks, sprints, whiteboards, docs |
-| **WeldConnect** | Personal task + workflow automation engine |
+| **WeldConnect** | Workspace workflow automation, integrations, and connectors |
 | **WeldCommerce** | Products, orders, discounts, and a website builder |
 | **WeldBooks** | Double-entry accounting with multi-jurisdiction tax support |
 | **WeldStash** | Warehouse management (inventory, pick lists, cycle counts) |
