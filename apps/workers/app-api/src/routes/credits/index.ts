@@ -9,9 +9,16 @@
  *
  * Response shape preserved as `{ success, data }` to match the existing
  * api-worker contract its platform consumers still expect. No object-level
- * `requirePermission` (mirrors the source) — Clerk auth + org resolution is
- * enforced by the shared `/api/*` middleware. No entity events: billing
- * ledger writes live in master and are not fanned out over the entity bus.
+ * `requirePermission` on reads (mirrors the source) — Clerk auth + org
+ * resolution is enforced by the shared `/api/*` middleware. Spend writes
+ * (`POST /checkout`, `POST /adjust`) require `billing:manage`.
+ *
+ * `POST /checkout` proxies to billing-worker (Stripe Checkout session +
+ * webhook grant). App-api never mutates the prepaid balance on checkout —
+ * that remains webhook-owned on billing-worker.
+ *
+ * No entity events: billing ledger writes live in master and are not fanned
+ * out over the entity bus.
  */
 
 import { Hono } from 'hono';
@@ -29,6 +36,8 @@ import type { PlanFeatures } from '@weldsuite/db/schema/plans';
 import type { Env, Variables } from '../../types';
 import { getMasterDb, masterSchema, type MasterDatabase } from '../../db';
 import { getOrCreateWorkspaceCredits, updateSubscriptionCredits } from '../../services/credits';
+import { callBillingWorker } from '../../lib/billing-worker';
+import { success, error as apiError } from '../../lib/response';
 
 const { workspaceCredits, creditTransactions, creditPackages, workspaces, plans } = masterSchema;
 
@@ -598,5 +607,61 @@ app.post('/adjust', requirePermission('billing:manage'), zValidator('json', adju
     return c.json({ error: 'internal_error', message: 'Failed to adjust credits' }, 500);
   }
 });
+
+// ============================================================================
+// POST /checkout — Stripe Checkout for a prepaid credit package (proxied)
+// ============================================================================
+
+const checkoutSchema = z.object({
+  packageId: z.string().min(1),
+  successUrl: z.string().url().optional(),
+  cancelUrl: z.string().url().optional(),
+});
+
+/**
+ * Start a prepaid credit topup. Forwards to billing-worker, which creates the
+ * Stripe Checkout session; credits are granted by the checkout.session.completed
+ * webhook once payment succeeds.
+ */
+app.post(
+  '/checkout',
+  requirePermission('billing:manage'),
+  zValidator('json', checkoutSchema),
+  async (c) => {
+    const orgId = c.get('orgId');
+    if (!orgId) return apiError.orgRequired(c);
+
+    const body = c.req.valid('json');
+
+    try {
+      const resp = await callBillingWorker(c, '/api/billing/credits/checkout', {
+        method: 'POST',
+        body,
+      });
+      const payload = (await resp.json().catch(() => null)) as Record<string, unknown> | null;
+
+      if (!resp.ok) {
+        const message =
+          (payload && typeof payload.error === 'string' && payload.error) ||
+          'Failed to start credit checkout';
+        if (resp.status === 400) return apiError.badRequest(c, message);
+        if (resp.status === 404) return apiError.notFound(c, 'Credit package');
+        console.error('[app-api/credits] checkout proxy failed:', resp.status, payload);
+        return apiError.internal(c, message);
+      }
+
+      const url = payload && typeof payload.url === 'string' ? payload.url : null;
+      if (!url) {
+        return apiError.internal(c, 'Billing worker returned no checkout URL');
+      }
+
+      // Match /api/billing/checkout envelope so platform hooks can unwrap `{ data: { url } }`.
+      return success(c, { url });
+    } catch (err) {
+      console.error('[app-api/credits] checkout proxy error:', err);
+      return apiError.internal(c, 'Failed to start credit checkout');
+    }
+  },
+);
 
 export const creditsRoutes = app;

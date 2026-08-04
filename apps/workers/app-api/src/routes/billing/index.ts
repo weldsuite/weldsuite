@@ -3,6 +3,7 @@
  * Ported from apps/api-worker/src/routes/billing.ts (W3 legacy phase-out).
  *
  * READ:  subscription, plans, plans-page, invoices, payments, phone-numbers,
+ *        phone-subscription (proxied to billing-worker Stripe phone sub),
  *        domains, limits (master DB; phone-numbers/domains read the tenant DB),
  *        payment-methods (Stripe API — no local mirror)
  * WRITE: validate-downgrade, checkout, seats, cancel, reactivate (Stripe API),
@@ -10,8 +11,9 @@
  *        DELETE payment-methods/:id (Stripe API),
  *        enterprise-inquiry (sales email; NEW — never existed on any worker)
  *
- * The billing-worker only handles Stripe webhooks + backfill; this is the
- * interactive surface the platform calls.
+ * Phone/credit Stripe writes + webhooks still live on billing-worker; this
+ * worker is the browser-facing surface and proxies those reads so the
+ * platform never calls billing-worker directly.
  *
  * Scoping mirrors the original exactly: all subscription/plan/invoice/payment
  * state lives in the MASTER database keyed by the internal workspace id
@@ -24,6 +26,8 @@
  *    api-worker source — member-facing feature gates such as weldcall-gate and
  *    the WeldDesk chat-widget call /subscription and /limits for every role;
  *    Clerk auth + org resolution is enforced by the shared /api/* middleware).
+ *  - /phone-subscription exposes Stripe phone-line pricing, so it is gated on
+ *    `billing:read` like invoices/payments.
  *  - /invoices, /payments and /payment-methods expose Stripe hosted-invoice URLs
  *    and payment method brand/last4, so they are gated on `billing:read` — matching the
  *    platform UI, which returns AccessDenied on that same permission
@@ -39,12 +43,9 @@
  *    instead: it spends no money and is reachable from the member-facing
  *    pricing dialog. See the note on the route itself.
  *
- * NOT here: `GET /phone-subscription`. The platform's phone-cost row is served
- * by the billing-worker's `GET /api/billing/phone/subscription`, which reads
- * the Stripe phone subscription off `workspaces.stripePhoneSubscriptionId`.
- * It is deliberately NOT duplicated here — /phone-numbers (tenant DB) carries
- * no pricing whatsoever, so app-api cannot derive `totalMonthly` without
- * inventing prices. Phone billing is billing-worker's surface.
+ * Phone subscription pricing (`GET /phone-subscription`) is proxied to
+ * billing-worker rather than reimplemented: `/phone-numbers` (tenant DB) has
+ * no price column, and Stripe remains the source of truth for `totalMonthly`.
  *
  * Entity events: none — the entity-events catalog has no billing/subscription
  * entity type (checked packages/core/entity-events/src/events/), and these
@@ -89,6 +90,7 @@ import {
   renderEnterpriseInquiryEmail,
 } from '../../services/billing';
 import { sendInternalTransactionalEmail } from '../../services/internal-email';
+import { callBillingWorker } from '../../lib/billing-worker';
 
 const { workspaces, plans, billingInvoices, billingPayments } = masterSchema;
 
@@ -368,6 +370,35 @@ app.get('/phone-numbers', async (c) => {
   } catch (err) {
     console.error('[Billing] Failed to fetch phone numbers:', err);
     return success(c, []);
+  }
+});
+
+// ============================================================================
+// READ: GET /phone-subscription — Stripe phone-line costs (proxied to billing-worker)
+// ============================================================================
+
+app.get('/phone-subscription', canReadBilling, async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId) return error.orgRequired(c);
+
+  try {
+    const resp = await callBillingWorker(c, '/api/billing/phone/subscription');
+    const body = (await resp.json().catch(() => null)) as Record<string, unknown> | null;
+
+    if (!resp.ok) {
+      const message =
+        (body && typeof body.error === 'string' && body.error) ||
+        'Failed to fetch phone subscription';
+      if (resp.status === 400) return error.badRequest(c, message);
+      if (resp.status === 404) return error.notFound(c, 'Phone subscription');
+      console.error('[Billing] phone-subscription proxy failed:', resp.status, body);
+      return success(c, { exists: false });
+    }
+
+    return success(c, body ?? { exists: false });
+  } catch (err) {
+    console.error('[Billing] phone-subscription proxy error:', err);
+    return success(c, { exists: false });
   }
 });
 
