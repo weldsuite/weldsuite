@@ -44,6 +44,31 @@ export interface BillingSubscriptionResponse {
   isLocked: boolean;
 }
 
+/**
+ * A saved Stripe payment method. There is no local mirror table — this is
+ * mapped straight off the Stripe API by app-api's `GET /billing/payment-methods`.
+ *
+ * `type` is one of `card` or `sepa_debit`; iDEAL and Bancontact are collected
+ * as redirect methods but Stripe saves the resulting mandate as `sepa_debit`,
+ * so they never appear as their own type here.
+ */
+export interface BillingPaymentMethodResponse {
+  id: string;
+  type: string;
+  /** Card networks only (`visa`, `mastercard`, …); null for SEPA. */
+  brand: string | null;
+  last4: string | null;
+  expMonth: number | null;
+  expYear: number | null;
+  country: string | null;
+  /** SEPA only — the issuing bank code. */
+  bankCode: string | null;
+  holderName: string | null;
+  /** Stripe's own default, resolved subscription-first. Exactly one is true. */
+  isDefault: boolean;
+  createdAt: string | null;
+}
+
 export interface BillingInvoiceResponse {
   id: string;
   number: string | null;
