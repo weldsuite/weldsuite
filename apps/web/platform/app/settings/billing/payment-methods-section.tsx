@@ -211,16 +211,22 @@ export function PaymentMethodsSection({ canManage }: { canManage: boolean }) {
     if (!latest || latest.length === 0 || latest.some((m) => m.isDefault)) return;
 
     try {
-      await setDefaultMutation.mutateAsync(paymentMethodId);
+      const result = await setDefaultMutation.mutateAsync(paymentMethodId);
+      // Same caveat as the manual path: some subscriptions may still hold the
+      // old method, and staying silent here would hide that.
+      if (result.partial) toast.warning(ts.setPrimaryPartial);
     } catch {
       // The method is saved either way; the user can still promote it by hand.
       toast.error(ts.setPrimaryFailed);
     }
   };
 
-  // Returning from an iDEAL/Bancontact redirect: Stripe has already saved the
-  // mandate, so confirm it, promote it if it is the only one, and drop the
-  // query params.
+  // Returning from an iDEAL/Bancontact redirect.
+  //
+  // Stripe sends the browser back to `return_url` whatever the outcome, so the
+  // query param alone proves nothing — a cancelled or failed authorization
+  // lands here identically to a successful one. The SetupIntent is the only
+  // trustworthy signal, so nothing is reported until it has been read back.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('payment_method') !== 'added') return;
@@ -233,19 +239,30 @@ export function PaymentMethodsSection({ canManage }: { canManage: boolean }) {
     const qs = params.toString();
     window.history.replaceState({}, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`);
 
-    toast.success(ts.addSuccess);
-
     void (async () => {
-      // The redirect carries no payment method id, so it is read back off the
-      // SetupIntent before deciding whether to promote.
       const stripe = stripePromise ? await stripePromise : null;
+
+      // Nothing to verify against (hand-typed URL, or Stripe.js unavailable).
+      // The refetched list is the honest answer — claiming either outcome here
+      // would be a guess.
       if (!stripe || !clientSecretParam) {
         void refetch();
         return;
       }
 
-      const { setupIntent } = await stripe.retrieveSetupIntent(clientSecretParam);
-      const savedId = setupIntent?.payment_method;
+      const { error, setupIntent } = await stripe.retrieveSetupIntent(clientSecretParam);
+
+      if (error || setupIntent?.status !== 'succeeded') {
+        void refetch();
+        toast.error(error?.message ?? ts.addFailed);
+        return;
+      }
+
+      toast.success(ts.addSuccess);
+
+      // The redirect carries no payment method id, so it comes off the
+      // SetupIntent before deciding whether to promote.
+      const savedId = setupIntent.payment_method;
       await promoteIfNoPrimary(typeof savedId === 'string' ? savedId : (savedId?.id ?? null));
     })();
     // Runs once per redirect return — the query param is stripped above, so a
