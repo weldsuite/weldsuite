@@ -148,10 +148,10 @@ function valuesFromRecord(record: HostDnsRecord): RecordFormValues {
   };
 }
 
-/** Short TTL label for the dense table (3600 → 1h, 1 → Auto). */
-function formatTtl(ttl: number | null | undefined): string {
+/** Short TTL label for the dense table (3600 → 1h). */
+function formatTtl(ttl: number | null | undefined, autoLabel: string): string {
   if (ttl == null) return '—';
-  if (ttl === 1) return 'Auto';
+  if (ttl === 1) return autoLabel;
   if (ttl >= 86400 && ttl % 86400 === 0) return `${ttl / 86400}d`;
   if (ttl >= 3600 && ttl % 3600 === 0) return `${ttl / 3600}h`;
   if (ttl >= 60 && ttl % 60 === 0) return `${ttl / 60}m`;
@@ -631,7 +631,7 @@ export function DomainDnsTab({
                     className="text-right text-[11px] tabular-nums text-muted-foreground"
                     title={`${record.ttl ?? '—'}s`}
                   >
-                    {formatTtl(record.ttl)}
+                    {formatTtl(record.ttl, td.ttlAuto)}
                   </span>
 
                   <div className="flex items-center justify-end gap-0.5">

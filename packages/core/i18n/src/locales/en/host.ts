@@ -275,6 +275,7 @@ export const host = {
       filterLock: 'Lock',
       filterLocked: 'Locked',
       filterUnlocked: 'Unlocked',
+      ttlAuto: 'Auto',
       usedByEmail: 'Used by Email',
       usedBy: 'Used by {source}',
       nameserversTitle: 'WeldSuite nameservers',

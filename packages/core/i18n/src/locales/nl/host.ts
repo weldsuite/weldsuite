@@ -275,6 +275,7 @@ export const host = {
       filterLock: 'Vergrendeling',
       filterLocked: 'Vergrendeld',
       filterUnlocked: 'Ontgrendeld',
+      ttlAuto: 'Auto',
       usedByEmail: 'Gebruikt door e-mail',
       usedBy: 'Gebruikt door {source}',
       nameserversTitle: 'WeldSuite naamservers',
