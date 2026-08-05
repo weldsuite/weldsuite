@@ -152,6 +152,7 @@ export function ActionsClient({ initialActions, categories }: ActionsClientProps
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [search, setSearch] = useState('');
   const [selectedAction, setSelectedAction] = useState<ActionTypeDto | null>(null);
+  const [actionDialogTab, setActionDialogTab] = useState('configuration');
   const [showOnlyPremium, setShowOnlyPremium] = useState(false);
   const [showOnlyDeprecated, setShowOnlyDeprecated] = useState(false);
 
@@ -247,7 +248,10 @@ export function ActionsClient({ initialActions, categories }: ActionsClientProps
               <Button
                 variant="outline"
                 className="h-8 text-xs md:text-sm px-2 md:px-3 flex items-center justify-center shadow-none"
-                onClick={() => setSelectedAction(filteredActions[0])}
+                onClick={() => {
+                  setActionDialogTab('documentation');
+                  setSelectedAction(filteredActions[0]);
+                }}
               >
                 <Book className="h-4 w-4 -mr-0.5" />
                 <span className="hidden md:inline ml-1">{t.weldconnect.actions.documentation}</span>
@@ -368,7 +372,10 @@ export function ActionsClient({ initialActions, categories }: ActionsClientProps
                     <Card
                       key={action.id}
                       className="hover:shadow-md transition-all duration-200 cursor-pointer border-border/50"
-                      onClick={() => setSelectedAction(action)}
+                      onClick={() => {
+                        setActionDialogTab('configuration');
+                        setSelectedAction(action);
+                      }}
                     >
                       <CardHeader className="pb-3">
                         <div className="flex items-start justify-between">
@@ -426,7 +433,15 @@ export function ActionsClient({ initialActions, categories }: ActionsClientProps
       </div>
 
       {/* Action Details Dialog */}
-      <Dialog open={!!selectedAction} onOpenChange={() => setSelectedAction(null)}>
+      <Dialog
+        open={!!selectedAction}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedAction(null);
+            setActionDialogTab('configuration');
+          }
+        }}
+      >
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
           {selectedAction && (
             <>
@@ -460,7 +475,11 @@ export function ActionsClient({ initialActions, categories }: ActionsClientProps
                 </div>
               </DialogHeader>
 
-              <Tabs defaultValue="configuration" className="flex-1 overflow-hidden flex flex-col mt-6">
+              <Tabs
+                value={actionDialogTab}
+                onValueChange={setActionDialogTab}
+                className="flex-1 overflow-hidden flex flex-col mt-6"
+              >
                 <TabsList className="grid w-full grid-cols-4">
                   <TabsTrigger value="configuration">{t.weldconnect.actions.tabs.configuration}</TabsTrigger>
                   <TabsTrigger value="inputs">{t.weldconnect.actions.tabs.inputs}</TabsTrigger>

@@ -58,9 +58,8 @@ interface ErrorStatsSummary {
 
 interface PerformanceMetricsSummary {
   averageDuration?: number;
-  medianDuration?: number;
-  p95Duration?: number;
-  p99Duration?: number;
+  minDuration?: number;
+  maxDuration?: number;
   totalDuration?: number;
 }
 
@@ -201,9 +200,13 @@ export function AnalyticsDashboardClient({
               <div className="text-2xl font-bold">
                 {formatDuration(performanceMetrics?.averageDuration || 0)}
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {t.weldconnect.analytics.stats.median.replace('{value}', formatDuration(performanceMetrics?.medianDuration || 0))}
-              </p>
+              {performanceMetrics?.minDuration != null && performanceMetrics?.maxDuration != null ? (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t.weldconnect.analytics.stats.minMaxDuration
+                    .replace('{min}', formatDuration(performanceMetrics.minDuration))
+                    .replace('{max}', formatDuration(performanceMetrics.maxDuration))}
+                </p>
+              ) : null}
             </CardContent>
           </Card>
         </div>
@@ -285,24 +288,22 @@ export function AnalyticsDashboardClient({
                       {formatDuration(performanceMetrics?.averageDuration || 0)}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">{t.weldconnect.analytics.charts.median}</span>
-                    <span className="text-lg font-semibold">
-                      {formatDuration(performanceMetrics?.medianDuration || 0)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">{t.weldconnect.analytics.charts.p95}</span>
-                    <span className="text-lg font-semibold">
-                      {formatDuration(performanceMetrics?.p95Duration || 0)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">{t.weldconnect.analytics.charts.p99}</span>
-                    <span className="text-lg font-semibold">
-                      {formatDuration(performanceMetrics?.p99Duration || 0)}
-                    </span>
-                  </div>
+                  {performanceMetrics?.minDuration != null ? (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">{t.weldconnect.analytics.charts.min}</span>
+                      <span className="text-lg font-semibold">
+                        {formatDuration(performanceMetrics.minDuration)}
+                      </span>
+                    </div>
+                  ) : null}
+                  {performanceMetrics?.maxDuration != null ? (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">{t.weldconnect.analytics.charts.max}</span>
+                      <span className="text-lg font-semibold">
+                        {formatDuration(performanceMetrics.maxDuration)}
+                      </span>
+                    </div>
+                  ) : null}
                   <div className="flex items-center justify-between border-t pt-4">
                     <span className="text-sm text-muted-foreground">{t.weldconnect.analytics.charts.totalDuration}</span>
                     <span className="text-lg font-semibold">

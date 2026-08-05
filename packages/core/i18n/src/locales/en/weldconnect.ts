@@ -299,6 +299,36 @@ export const weldconnect = {
       webhook: 'Webhooks',
       manual: 'Manual',
     },
+    types: {
+      manual: {
+        name: 'Manual',
+        description: 'Trigger manually',
+      },
+      schedule: {
+        name: 'Schedule',
+        description: 'Run on a schedule',
+      },
+      webhook: {
+        name: 'Webhook',
+        description: 'Trigger via HTTP webhook',
+      },
+      entity_event: {
+        name: 'Entity Event',
+        description: 'Trigger when a WeldSuite record changes',
+      },
+      integration_event: {
+        name: 'Integration Event',
+        description: 'Trigger from connected apps (Slack, Google Sheets, …)',
+      },
+      workflow_complete: {
+        name: 'Workflow Complete',
+        description: 'Trigger when another workflow finishes',
+      },
+      api: {
+        name: 'API Call',
+        description: 'Trigger via the WeldConnect API',
+      },
+    },
     howToUse: {
       title: 'How to Use Triggers',
       subtitle: 'Learn how to configure triggers for your workflows',
@@ -938,7 +968,7 @@ export const weldconnect = {
       failedExecutions: 'Failed Executions',
       unacknowledgedErrors: '{count} unacknowledged errors',
       avgDuration: 'Avg Duration',
-      median: 'Median: {value}',
+      minMaxDuration: 'Min {min} · Max {max}',
       totalErrors: 'Total Errors',
       unacknowledged: 'Unacknowledged',
       errorsByType: 'Errors by Type',
@@ -969,6 +999,8 @@ export const weldconnect = {
       dailyVolume: 'Daily Execution Volume',
       dailyVolumeDescription: 'Total executions per day',
       average: 'Average',
+      min: 'Min',
+      max: 'Max',
       median: 'Median',
       p95: 'P95',
       p99: 'P99',
@@ -1176,6 +1208,8 @@ export const weldconnect = {
       manuallyTriggered: 'Manually triggered',
       onCompletion: 'On {triggerOn}',
       sequenceAdded: 'When a person is added to the sequence',
+      integrationEvent: 'Connected app event',
+      apiTriggered: 'Triggered via API',
     },
   },
 
@@ -1362,6 +1396,15 @@ export const weldconnect = {
     groups: {
       workflowVariables: 'Workflow Variables',
       environment: 'Environment',
+      triggerData: 'Trigger Data',
+    },
+    triggerFields: {
+      provider: 'Provider',
+      event: 'Event',
+      eventPayload: 'Event Payload',
+      completionStatus: 'Completion Status',
+      api: 'Triggered By',
+      apiRequestData: 'Request Data',
     },
   },
 

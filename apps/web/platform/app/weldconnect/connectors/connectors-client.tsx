@@ -448,7 +448,7 @@ function ConnectionDetails({ connectionId, onOpenChange, onDisconnect }: Connect
 export function ConnectorsClient() {
   const { t, format } = useI18n();
   const tc = t.weldconnect.connectors;
-  const { canAny } = usePermissions();
+  const { canAny, isLoading: permissionsLoading } = usePermissions();
   const canView = canAny('integrations:read', 'weldconnect:integrations:read');
   const canConnect = canAny('integrations:create', 'weldconnect:integrations:create');
   const canManage = canAny('integrations:update', 'weldconnect:integrations:update');
@@ -523,7 +523,7 @@ export function ConnectorsClient() {
           <p className="text-muted-foreground mt-1 text-sm md:text-base">{tc.description}</p>
         </div>
 
-        {!canView ? (
+        {!permissionsLoading && !canView ? (
           <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/10">
             <AlertCircle className="h-5 w-5 shrink-0 text-amber-600" />
             <p className="text-sm text-amber-800 dark:text-amber-200">{t.weldconnect.integrations.permissionDenied}</p>

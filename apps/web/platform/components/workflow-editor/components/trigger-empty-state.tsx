@@ -2,7 +2,7 @@
 import { Zap, Clock, Globe, MousePointerClick, GitMerge, Plug, Code } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
-import { Button } from '@weldsuite/ui/components/button';
+import { Button } from '@/components/ui/button';
 import type { ComponentType } from 'react';
 
 type TriggerType =

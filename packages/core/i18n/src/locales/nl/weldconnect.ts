@@ -299,6 +299,36 @@ export const weldconnect = {
       webhook: 'Webhooks',
       manual: 'Handmatig',
     },
+    types: {
+      manual: {
+        name: 'Handmatig',
+        description: 'Handmatig activeren',
+      },
+      schedule: {
+        name: 'Schema',
+        description: 'Uitvoeren volgens een schema',
+      },
+      webhook: {
+        name: 'Webhook',
+        description: 'Activeren via HTTP-webhook',
+      },
+      entity_event: {
+        name: 'Entiteitsgebeurtenis',
+        description: 'Activeren wanneer een WeldSuite-record wijzigt',
+      },
+      integration_event: {
+        name: 'Integratiegebeurtenis',
+        description: 'Activeren vanuit gekoppelde apps (Slack, Google Sheets, …)',
+      },
+      workflow_complete: {
+        name: 'Workflow voltooid',
+        description: 'Activeren wanneer een andere workflow eindigt',
+      },
+      api: {
+        name: 'API-aanroep',
+        description: 'Activeren via de WeldConnect API',
+      },
+    },
     howToUse: {
       title: 'Triggers gebruiken',
       subtitle: 'Leer hoe u triggers kunt configureren voor uw workflows',
@@ -938,7 +968,7 @@ export const weldconnect = {
       failedExecutions: 'Mislukte uitvoeringen',
       unacknowledgedErrors: '{count} niet-bevestigde fouten',
       avgDuration: 'Gemiddelde duur',
-      median: 'Mediaan: {value}',
+      minMaxDuration: 'Min {min} · Max {max}',
       totalErrors: 'Totaal fouten',
       unacknowledged: 'Niet bevestigd',
       errorsByType: 'Fouten per type',
@@ -969,6 +999,8 @@ export const weldconnect = {
       dailyVolume: 'Dagelijks uitvoeringsvolume',
       dailyVolumeDescription: 'Totaal uitvoeringen per dag',
       average: 'Gemiddelde',
+      min: 'Min',
+      max: 'Max',
       median: 'Mediaan',
       p95: 'P95',
       p99: 'P99',
@@ -1176,6 +1208,8 @@ export const weldconnect = {
       manuallyTriggered: 'Handmatig geactiveerd',
       onCompletion: 'Bij {triggerOn}',
       sequenceAdded: 'Wanneer een persoon aan de reeks wordt toegevoegd',
+      integrationEvent: 'Gebeurtenis van gekoppelde app',
+      apiTriggered: 'Geactiveerd via API',
     },
   },
 
@@ -1362,6 +1396,15 @@ export const weldconnect = {
     groups: {
       workflowVariables: 'Workflowvariabelen',
       environment: 'Omgeving',
+      triggerData: 'Triggergegevens',
+    },
+    triggerFields: {
+      provider: 'Provider',
+      event: 'Gebeurtenis',
+      eventPayload: 'Gebeurtenispayload',
+      completionStatus: 'Voltooiingsstatus',
+      api: 'Geactiveerd door',
+      apiRequestData: 'Aanvraaggegevens',
     },
   },
 

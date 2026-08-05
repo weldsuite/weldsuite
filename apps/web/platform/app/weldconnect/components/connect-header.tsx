@@ -2,6 +2,7 @@
 import { useMemo } from 'react';
 import { usePathname } from '@/lib/router';
 import { BreadcrumbHeader, BreadcrumbSegment } from '@/components/breadcrumb-header';
+import { useCurrentBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useI18n } from '@/lib/i18n/provider';
 
 interface ConnectHeaderProps {
@@ -13,8 +14,13 @@ interface ConnectHeaderProps {
 export function ConnectHeader({ onWeldAgentToggle, onCalendarToggle, onNotificationsToggle }: ConnectHeaderProps) {
   const { t } = useI18n();
   const pathname = usePathname();
+  const contextBreadcrumbs = useCurrentBreadcrumbs();
 
   const segments: BreadcrumbSegment[] = useMemo(() => {
+    if (contextBreadcrumbs.length > 0) {
+      return contextBreadcrumbs;
+    }
+
     const wc = t.navigation.moduleSidebar.weldconnect;
     const routeLabels: Record<string, string> = {
       workflows: wc.workflows,
@@ -58,7 +64,7 @@ export function ConnectHeader({ onWeldAgentToggle, onCalendarToggle, onNotificat
     }
 
     return result;
-  }, [pathname, t]);
+  }, [pathname, t, contextBreadcrumbs]);
 
   return (
     <BreadcrumbHeader

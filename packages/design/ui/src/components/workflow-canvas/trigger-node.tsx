@@ -30,6 +30,8 @@ interface TriggerNodeLabels {
     httpEndpoint?: string;
     manuallyTriggered?: string;
     sequenceAdded?: string;
+    integrationEvent?: string;
+    apiTriggered?: string;
   };
 }
 
@@ -50,6 +52,8 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
   const trigger = nodeData.trigger as TriggerConfig & {
     entityType?: string;
     eventType?: string;
+    provider?: string;
+    event?: string;
     scheduleType?: string;
     cronExpression?: string;
     executeAt?: string;
@@ -61,6 +65,8 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
       triggerOn?: string;
       entityType?: string;
       eventType?: string;
+      provider?: string;
+      event?: string;
     };
   };
     if (!trigger) return clickToConfigure;

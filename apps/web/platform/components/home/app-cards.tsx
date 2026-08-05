@@ -1910,8 +1910,24 @@ export function ConnectCard({
         return (
           <div
             key={e.id}
-            className={cn(ROW_CLASS, !clickable && 'cursor-default')}
+            role={clickable ? 'button' : undefined}
+            tabIndex={clickable ? 0 : undefined}
+            className={cn(
+              ROW_CLASS,
+              !clickable && 'cursor-default',
+              clickable && 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+            )}
             onClick={clickable ? () => onRowClick!(e) : undefined}
+            onKeyDown={
+              clickable
+                ? (ev) => {
+                    if (ev.key === 'Enter' || ev.key === ' ') {
+                      ev.preventDefault();
+                      onRowClick!(e);
+                    }
+                  }
+                : undefined
+            }
           >
             {/* Workflow — name + truncated id */}
             <div className="flex-1 min-w-0">
@@ -2045,8 +2061,24 @@ export function WorkflowsCard({
         return (
           <div
             key={rowKey}
-            className={cn(ROW_CLASS, !clickable && 'cursor-default')}
+            role={clickable ? 'button' : undefined}
+            tabIndex={clickable ? 0 : undefined}
+            className={cn(
+              ROW_CLASS,
+              !clickable && 'cursor-default',
+              clickable && 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+            )}
             onClick={clickable ? () => onRowClick!(w) : undefined}
+            onKeyDown={
+              clickable
+                ? (ev) => {
+                    if (ev.key === 'Enter' || ev.key === ' ') {
+                      ev.preventDefault();
+                      onRowClick!(w);
+                    }
+                  }
+                : undefined
+            }
           >
             {/* Name + description */}
             <div className="flex-1 min-w-0">

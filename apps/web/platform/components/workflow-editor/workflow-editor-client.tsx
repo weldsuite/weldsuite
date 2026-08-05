@@ -93,7 +93,7 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { RadioGroup, RadioGroupItem } from '@weldsuite/ui/components/radio-group';
-import { Switch } from '@weldsuite/ui/components/switch';
+import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@weldsuite/ui/components/dialog';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -467,6 +467,7 @@ export function WorkflowEditorClient({
   emailAccounts = [],
   workspaceMembers = [],
   workflowVariables = [],
+  workflowsForChaining = [],
   webhookData,
   basePath = '/weldconnect/workflows',
   parentLabel = 'Task',
@@ -645,8 +646,14 @@ export function WorkflowEditorClient({
 
   // Build flat variable list for canvas inline autocomplete
   const canvasVariableItems = useMemo(
-    () => extraVariableGroups ? buildAllVariables({ triggerType: initialWorkflow.triggers?.[0]?.type, workflowVariables, extraVariableGroups, excludeGroups: excludeVariableGroups }) : undefined,
-    [initialWorkflow.triggers, workflowVariables, extraVariableGroups, excludeVariableGroups]
+    () => extraVariableGroups ? buildAllVariables({
+      triggerType: initialWorkflow.triggers?.[0]?.type,
+      workflowVariables,
+      extraVariableGroups,
+      excludeGroups: excludeVariableGroups,
+      labels: t.weldconnect.variablePicker,
+    }) : undefined,
+    [initialWorkflow.triggers, workflowVariables, extraVariableGroups, excludeVariableGroups, t.weldconnect.variablePicker],
   );
 
   const router = useRouter();
@@ -1116,12 +1123,22 @@ export function WorkflowEditorClient({
       }
 
       if (trigger.type === 'workflow_complete') {
-        const cfg = (trigger.config as Record<string, unknown> | undefined) ?? trigger;
-        setSourceWorkflowId((cfg.sourceWorkflowId as string | undefined) || '');
-        setWorkflowCompleteTriggerOn(
-          (cfg.triggerOn as 'success' | 'failure' | 'both' | undefined) || 'success',
+        const cfg = (trigger.config as Record<string, unknown> | undefined) ?? {};
+        setSourceWorkflowId(
+          (trigger.sourceWorkflowId as string | undefined)
+            || (cfg.sourceWorkflowId as string | undefined)
+            || '',
         );
-        setWorkflowCompletePassOutput(Boolean(cfg.passOutput));
+        setWorkflowCompleteTriggerOn(
+          (trigger.triggerOn as 'success' | 'failure' | 'both' | undefined)
+            || (cfg.triggerOn as 'success' | 'failure' | 'both' | undefined)
+            || 'success',
+        );
+        setWorkflowCompletePassOutput(
+          trigger.passOutput !== undefined
+            ? Boolean(trigger.passOutput)
+            : Boolean(cfg.passOutput),
+        );
       } else {
         setSourceWorkflowId('');
         setWorkflowCompleteTriggerOn('success');
@@ -2064,14 +2081,14 @@ export function WorkflowEditorClient({
                             <SelectValue placeholder={tcd.workflowComplete.sourceWorkflowPlaceholder} />
                           </SelectTrigger>
                           <SelectContent>
-                            {(workflowsForChaining ?? []).map((wf) => (
+                            {(workflowsForChaining).map((wf) => (
                               <SelectItem key={wf.id} value={wf.id}>
                                 {wf.name}
                               </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
-                        {(workflowsForChaining ?? []).length === 0 && (
+                        {workflowsForChaining.length === 0 && (
                           <p className="text-xs text-muted-foreground">{tcd.workflowComplete.noOtherWorkflows}</p>
                         )}
                         <p className="text-xs text-muted-foreground">{tcd.workflowComplete.sourceWorkflowHint}</p>

@@ -32,9 +32,8 @@ export default function AnalyticsPage() {
   const performanceMetrics = rawPerformance
     ? {
         averageDuration: rawPerformance.averageDuration,
-        medianDuration: rawPerformance.averageDuration,
-        p95Duration: rawPerformance.maxDuration,
-        p99Duration: rawPerformance.maxDuration,
+        minDuration: rawPerformance.minDuration,
+        maxDuration: rawPerformance.maxDuration,
         totalDuration: rawPerformance.averageDuration * (rawPerformance.completedExecutions || 0),
       }
     : null;
