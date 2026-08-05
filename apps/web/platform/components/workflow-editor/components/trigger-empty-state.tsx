@@ -30,16 +30,19 @@ function TriggerTile({ icon: Icon, title, description, onClick, iconClassName, i
       variant="ghost"
       onClick={onClick}
       className={cn(
+        // Override Button defaults (h-9, whitespace-nowrap) so the multi-line
+        // card layout isn't crushed into a single-line control.
+        'h-auto w-full whitespace-normal justify-start',
         'flex flex-col items-start gap-3 rounded-lg border bg-card p-4 text-left',
         'transition-all hover:border-foreground/20 hover:shadow-sm hover:bg-accent/40',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
       )}
     >
-      <div className={cn('flex h-10 w-10 items-center justify-center rounded-md', iconBgClassName)}>
-        <Icon className={cn('h-5 w-5', iconClassName)} />
+      <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-md', iconBgClassName)}>
+        <Icon className={cn('size-5', iconClassName)} />
       </div>
-      <div className="space-y-1">
-        <p className="text-sm font-semibold leading-none">{title}</p>
+      <div className="min-w-0 space-y-1">
+        <p className="text-sm font-semibold leading-snug">{title}</p>
         <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
       </div>
     </Button>
