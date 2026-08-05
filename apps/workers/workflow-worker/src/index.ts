@@ -6,7 +6,7 @@
  * workflow + tenant db, runs `executeWorkflowSteps`, handles waiting-for-input
  * resume, and finalizes. All step orchestration logic lives in `src/engine/`.
  *
- * NOTE: this wires the `task` source. helpdesk-source table parity is completed
+ * NOTE: this wires the `weldconnect` source. helpdesk-source table parity is completed
  * during integration (only the execution/step/variable table set differs).
  */
 
@@ -39,7 +39,7 @@ export interface ExecuteWorkflowParams {
   triggerType: TriggerType;
   triggerData?: Record<string, unknown>;
   chainDepth?: number;
-  source?: 'task' | 'helpdesk';
+  source?: 'weldconnect' | 'helpdesk';
 }
 
 export type Env = WorkflowEnv;

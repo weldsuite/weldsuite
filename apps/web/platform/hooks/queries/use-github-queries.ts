@@ -2,7 +2,8 @@
  * GitHub Integration Query Hooks
  *
  * Provides typed TanStack Query hooks for the GitHub integration.
- * Consumers need `weldconnect:integrations:github:manage` permission.
+ * Consumers need `integrations:github:manage` permission
+ * (legacy key: `weldconnect:integrations:github:manage`).
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';

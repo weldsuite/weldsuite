@@ -41,7 +41,7 @@ export interface VariableItem {
   description?: string;
 }
 
-interface VariablePickerProps {
+export interface VariablePickerProps {
   trigger: React.ReactNode;
   onSelect: (variable: string) => void;
   triggerType?: string;
@@ -67,7 +67,9 @@ interface VariablePickerProps {
     groups?: {
       workflowVariables?: string;
       environment?: string;
+      triggerData?: string;
     };
+    triggerFields?: Record<string, string>;
   };
 }
 
@@ -141,7 +143,12 @@ function getStepOutputVariables(stepType: string): VariableItem[] {
   return commonOutputs[stepType] || [{ path: 'result', label: 'Result', type: 'object' }];
 }
 
-function getTriggerVariables(triggerType?: string): VariableItem[] {
+function getTriggerVariables(
+  triggerType?: string,
+  fieldLabels?: Record<string, string>,
+): VariableItem[] {
+  const label = (key: string, fallback: string) => fieldLabels?.[key] ?? fallback;
+
   const triggerOutputs: Record<string, VariableItem[]> = {
     manual: [
       { path: 'userId', label: 'User ID', type: 'string' },
@@ -165,9 +172,23 @@ function getTriggerVariables(triggerType?: string): VariableItem[] {
       { path: 'previousRecord', label: 'Previous Data', type: 'object' },
       { path: 'changes', label: 'Changed Fields', type: 'object' },
     ],
+    integration_event: [
+      { path: 'provider', label: label('provider', 'Provider'), type: 'string' },
+      { path: 'event', label: label('event', 'Event'), type: 'string' },
+      { path: 'payload', label: label('eventPayload', 'Event Payload'), type: 'object' },
+    ],
+    workflow_complete: [
+      { path: 'sourceWorkflowId', label: 'Source Workflow ID', type: 'string' },
+      { path: 'status', label: label('completionStatus', 'Completion Status'), type: 'string' },
+      { path: 'output', label: 'Workflow Output', type: 'object' },
+    ],
+    api: [
+      { path: 'data', label: label('apiRequestData', 'Request Data'), type: 'object' },
+      { path: 'triggeredBy', label: label('api', 'Triggered By'), type: 'string' },
+    ],
   };
 
-  return triggerOutputs[triggerType || ''] || [{ path: 'data', label: 'Trigger Data', type: 'object' }];
+  return triggerOutputs[triggerType || ''] || [{ path: 'data', label: label('api', 'Trigger Data'), type: 'object' }];
 }
 
 export function buildAllVariables({
@@ -176,19 +197,22 @@ export function buildAllVariables({
   workflowVariables = [],
   extraVariableGroups = [],
   excludeGroups = [],
+  labels = {},
 }: {
   triggerType?: string;
   steps?: Array<{ id: string; name: string; type: string }>;
   workflowVariables?: Array<{ name: string; type?: string }>;
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
+  labels?: VariablePickerProps['labels'];
 }): Array<VariableItem & { group: string }> {
   const items: Array<VariableItem & { group: string }> = [];
+  const triggerGroupLabel = labels.groups?.triggerData || 'Trigger Data';
 
   if (!excludeGroups.includes('trigger')) {
-    const triggerVars = getTriggerVariables(triggerType);
+    const triggerVars = getTriggerVariables(triggerType, labels.triggerFields);
     for (const v of triggerVars) {
-      items.push({ ...v, path: `trigger.${v.path}`, group: 'Trigger Data' });
+      items.push({ ...v, path: `trigger.${v.path}`, group: triggerGroupLabel });
     }
   }
 
@@ -242,10 +266,10 @@ export function VariablePicker({
     const groups: VariableGroup[] = [];
 
     if (!excludeGroups.includes('trigger')) {
-      const triggerVars = getTriggerVariables(triggerType);
+      const triggerVars = getTriggerVariables(triggerType, labels.triggerFields);
       groups.push({
         id: 'trigger',
-        label: 'Trigger Data',
+        label: labels.groups?.triggerData || 'Trigger Data',
         icon: <Zap className="h-4 w-4 text-yellow-500" />,
         variables: triggerVars.map((v) => ({ ...v, path: `trigger.${v.path}` })),
       });

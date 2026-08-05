@@ -18,15 +18,17 @@ export * from './project-labels';
 export * from './task-import-jobs';
 export * from './task-number-sequences';
 
-// Personal Task Management module (personal-tasks removed — use unified tasks table)
+// WeldFlow personal/my-task scaffolding (task_projects — not WeldConnect workflows)
 export * from './task-projects';
 export * from './task-tags';
 export * from './task-comments';
 
-// Workflow Automation module
+// Workflow Automation module (WeldConnect)
 export * from './workflows';
 export * from './workflow-executions';
 export * from './workflow-execution-steps';
+export * from './workflow-trigger-index';
+/** @deprecated Dual CRUD table — use embedded workflows.triggers + workflow_trigger_index */
 export * from './workflow-triggers';
 export * from './workflow-schedules';
 export * from './workflow-webhooks';

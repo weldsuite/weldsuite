@@ -4,11 +4,11 @@ export const task = {
 
     dashboard: {
       title: 'Dashboard',
-      taskDashboard: 'Taak Dashboard',
+      taskDashboard: 'Automatiseringdashboard',
       // Action items
       workflowsToReview: '{count} workflows te beoordelen',
       failedExecutions: '{count} mislukte uitvoeringen',
-      pendingTasks: '{count} taken in behandeling',
+      pendingTasks: '{count} workflowstappen in behandeling',
       viewExecutionAnalytics: 'Bekijk uitvoeringsanalyses',
       activeWorkflows: 'Actieve workflows',
     },

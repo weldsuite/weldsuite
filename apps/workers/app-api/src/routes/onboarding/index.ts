@@ -55,7 +55,7 @@ import { generateId } from '../../lib/id';
  * now lets the user pick apps (like the onboarding wizard), but we keep this
  * fallback for older clients / an empty selection. Core productivity set.
  */
-const DEFAULT_WORKSPACE_APPS = ['crm', 'projects', 'task', 'mail', 'helpdesk'];
+const DEFAULT_WORKSPACE_APPS = ['crm', 'projects', 'weldconnect', 'mail', 'helpdesk'];
 
 /**
  * Static fallback for GET /available-apps when the master DB has no published
@@ -90,13 +90,13 @@ const FALLBACK_CATALOG = [
     path: '/projects',
   },
   {
-    code: 'task',
-    name: 'Tasks',
+    code: 'weldconnect',
+    name: 'WeldConnect',
     description:
-      'Personal task management for tracking to-dos, deadlines, and daily productivity',
-    icon: 'CheckSquare',
+      'Workspace workflow automation — triggers, actions, integrations, and execution monitoring',
+    icon: 'Zap',
     category: 'Productivity',
-    path: '/task',
+    path: '/weldconnect',
   },
   {
     code: 'helpdesk',

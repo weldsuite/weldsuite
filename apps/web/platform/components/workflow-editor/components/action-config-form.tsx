@@ -46,7 +46,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@weldsuite/ui/components/tooltip';
-import { VariableInput } from '@weldsuite/ui/components/workflow-canvas/parts/variable-input';
+import { VariableInput } from './localized-variable-input';
 import type { VariableGroup } from '@weldsuite/ui/components/workflow-canvas/parts/variable-picker';
 import { EntityTypeSelect } from '@weldsuite/ui/components/workflow-canvas/parts/entity-type-select';
 import { FieldBuilder } from '@weldsuite/ui/components/workflow-canvas/parts/field-builder';

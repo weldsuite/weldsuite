@@ -5,7 +5,7 @@
  * the canonical /api/workflow-schedules/:id endpoint — they were always the
  * same DB ops; the cron sweep in api-worker is what actually fires them.
  *
- * Permissions: tasks:read | tasks:create | tasks:update | tasks:delete.
+ * Permissions: workflows:read | workflows:create | workflows:update | workflows:delete.
  */
 
 import { z } from 'zod';
@@ -16,14 +16,14 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   createScheduleSchema,
   updateScheduleSchema,
-} from '@weldsuite/core-api-client/schemas/weldconnect';
+} from '@weldsuite/app-api-client/schemas/weldconnect';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import * as schedules from '../../services/workflow-schedules';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-app.get('/', requirePermission('tasks:read'), async (c) => {
+app.get('/', requirePermission('workflows:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   try {
@@ -40,7 +40,7 @@ app.get('/', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.get('/:id', requirePermission('tasks:read'), async (c) => {
+app.get('/:id', requirePermission('workflows:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
@@ -53,7 +53,7 @@ app.get('/:id', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.post('/', requirePermission('tasks:create'), zValidator('json', createScheduleSchema), async (c) => {
+app.post('/', requirePermission('workflows:create'), zValidator('json', createScheduleSchema), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const data = c.req.valid('json');
@@ -76,7 +76,7 @@ app.post('/', requirePermission('tasks:create'), zValidator('json', createSchedu
 });
 
 for (const method of ['put', 'patch'] as const) {
-  app[method]('/:id', requirePermission('tasks:update'), zValidator('json', updateScheduleSchema), async (c) => {
+  app[method]('/:id', requirePermission('workflows:update'), zValidator('json', updateScheduleSchema), async (c) => {
     const db = c.get('tenantDb');
     const id = c.req.param('id');
     const data = c.req.valid('json');
@@ -101,7 +101,7 @@ for (const method of ['put', 'patch'] as const) {
 
 app.patch(
   '/:id/toggle',
-  requirePermission('tasks:update'),
+  requirePermission('workflows:update'),
   zValidator('json', z.object({ enabled: z.boolean() })),
   async (c) => {
     const db = c.get('tenantDb');
@@ -126,7 +126,7 @@ app.patch(
   },
 );
 
-app.delete('/:id', requirePermission('tasks:delete'), async (c) => {
+app.delete('/:id', requirePermission('workflows:delete'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const sync = { d1: c.env.SCHEDULE_INDEX, workspaceId: c.get('workspaceId') };

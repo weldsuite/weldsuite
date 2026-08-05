@@ -70,7 +70,7 @@ const formatDate = (date: string | Date) => {
 export function WebhookDetailClient({ webhook, initialEvents }: WebhookDetailClientProps) {
   const { t } = useI18n();
   useBreadcrumbs([
-    { label: t.weldconnect.breadcrumbs.task, href: '/weldconnect' },
+    { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },
     { label: t.weldconnect.breadcrumbs.webhooks, href: '/weldconnect/webhooks' },
     { label: webhook.name },
   ]);

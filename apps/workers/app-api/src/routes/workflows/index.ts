@@ -1,7 +1,7 @@
 /**
  * Workflow routes — flat /api/workflows/* surface backed by `workflows`.
  *
- * Permissions: tasks:read | tasks:create | tasks:update | tasks:delete.
+ * Permissions: workflows:read | workflows:create | workflows:update | workflows:delete.
  */
 
 import { Hono } from 'hono';
@@ -13,7 +13,7 @@ import {
   updateWorkflowSchema,
   updateWorkflowStatusSchema,
   triggerWorkflowSchema,
-} from '@weldsuite/core-api-client/schemas/weldconnect';
+} from '@weldsuite/app-api-client/schemas/weldconnect';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import * as workflowsService from '../../services/workflows';
@@ -27,7 +27,7 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 // of registration order, but this keeps intent obvious).
 registerGenerateWorkflowRoute(app);
 
-app.get('/', requirePermission('tasks:read'), async (c) => {
+app.get('/', requirePermission('workflows:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   try {
@@ -48,7 +48,7 @@ app.get('/', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.get('/stats', requirePermission('tasks:read'), async (c) => {
+app.get('/stats', requirePermission('workflows:read'), async (c) => {
   const db = c.get('tenantDb');
   try {
     const stats = await workflowsService.getWorkflowStats(db);
@@ -59,7 +59,7 @@ app.get('/stats', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.get('/for-chaining', requirePermission('tasks:read'), async (c) => {
+app.get('/for-chaining', requirePermission('workflows:read'), async (c) => {
   const db = c.get('tenantDb');
   const exclude = c.req.query('exclude');
   try {
@@ -71,7 +71,7 @@ app.get('/for-chaining', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.get('/:id', requirePermission('tasks:read'), async (c) => {
+app.get('/:id', requirePermission('workflows:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
@@ -84,7 +84,7 @@ app.get('/:id', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.get('/:id/metrics', requirePermission('tasks:read'), async (c) => {
+app.get('/:id/metrics', requirePermission('workflows:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
@@ -97,7 +97,7 @@ app.get('/:id/metrics', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.post('/', requirePermission('tasks:create'), zValidator('json', createWorkflowSchema), async (c) => {
+app.post('/', requirePermission('workflows:create'), zValidator('json', createWorkflowSchema), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const data = c.req.valid('json');
@@ -118,7 +118,7 @@ app.post('/', requirePermission('tasks:create'), zValidator('json', createWorkfl
 });
 
 for (const method of ['put', 'patch'] as const) {
-  app[method]('/:id', requirePermission('tasks:update'), zValidator('json', updateWorkflowSchema), async (c) => {
+  app[method]('/:id', requirePermission('workflows:update'), zValidator('json', updateWorkflowSchema), async (c) => {
     const db = c.get('tenantDb');
     const id = c.req.param('id');
     const data = c.req.valid('json') as Record<string, unknown>;
@@ -143,7 +143,7 @@ for (const method of ['put', 'patch'] as const) {
 
 app.patch(
   '/:id/status',
-  requirePermission('tasks:update'),
+  requirePermission('workflows:update'),
   zValidator('json', updateWorkflowStatusSchema),
   async (c) => {
     const db = c.get('tenantDb');
@@ -168,7 +168,7 @@ app.patch(
   },
 );
 
-app.post('/:id/duplicate', requirePermission('tasks:create'), async (c) => {
+app.post('/:id/duplicate', requirePermission('workflows:create'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const id = c.req.param('id');
@@ -191,7 +191,7 @@ app.post('/:id/duplicate', requirePermission('tasks:create'), async (c) => {
   }
 });
 
-app.delete('/:id', requirePermission('tasks:delete'), async (c) => {
+app.delete('/:id', requirePermission('workflows:delete'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
@@ -217,7 +217,7 @@ app.delete('/:id', requirePermission('tasks:delete'), async (c) => {
 // bound cross-worker via script_name).
 app.post(
   '/:id/test',
-  requirePermission('tasks:create'),
+  requirePermission('workflows:create'),
   zValidator('json', triggerWorkflowSchema),
   async (c) => {
     const orgId = c.get('orgId');
@@ -251,7 +251,7 @@ app.post(
 // POST /:id/trigger — manual run via EXECUTE_WORKFLOW binding.
 app.post(
   '/:id/trigger',
-  requirePermission('tasks:create'),
+  requirePermission('workflows:create'),
   zValidator('json', triggerWorkflowSchema),
   async (c) => {
     const orgId = c.get('orgId');

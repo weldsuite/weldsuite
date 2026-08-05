@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { EditorWorkflow } from '@/components/workflow-editor/workflow-editor-client';
 import type { ActionType, TriggerType, EntityEvent, WorkflowVariable } from '@/hooks/queries/use-automation-queries';
+import { WELDCONNECT_API } from '@/hooks/queries/use-automation-queries';
 
 export const workflowEditorKeys = {
   all: ['workflow-editor'] as const,
@@ -22,7 +23,7 @@ export function useWorkflowDetail(id: string, options?: { enabled?: boolean; mod
   const enabled = options?.enabled ?? true;
   // Both surfaces are app-api now; they differ only in the mount path.
   const isHelpdesk = options?.module === 'helpdesk';
-  const basePath = isHelpdesk ? '/helpdesk-workflows' : '/workflows';
+  const basePath = isHelpdesk ? '/helpdesk-workflows' : WELDCONNECT_API.workflows;
   return useQuery({
     queryKey: [...workflowEditorKeys.workflow(id), options?.module ?? 'task'],
     queryFn: async () => {
@@ -40,7 +41,7 @@ export function useActionTypes() {
     queryKey: workflowEditorKeys.actionTypes(),
     queryFn: async () => {
       const client = await getClient();
-      const result = await client.get<{ data: ActionType[] }>('/workflow-dashboard/action-types');
+      const result = await client.get<{ data: ActionType[] }>(`${WELDCONNECT_API.dashboard}/action-types`);
       return result.data || [];
     },
   });
@@ -52,7 +53,7 @@ export function useTriggerTypes() {
     queryKey: workflowEditorKeys.triggerTypes(),
     queryFn: async () => {
       const client = await getClient();
-      const result = await client.get<{ data: TriggerType[] }>('/workflow-dashboard/trigger-types');
+      const result = await client.get<{ data: TriggerType[] }>(`${WELDCONNECT_API.dashboard}/trigger-types`);
       return result.data || [];
     },
   });
@@ -64,7 +65,7 @@ export function useEntityEvents() {
     queryKey: workflowEditorKeys.entityEvents(),
     queryFn: async () => {
       const client = await getClient();
-      const result = await client.get<{ data: EntityEvent[] }>('/workflow-dashboard/entity-events');
+      const result = await client.get<{ data: EntityEvent[] }>(`${WELDCONNECT_API.dashboard}/entity-events`);
       return result.data || [];
     },
   });
@@ -120,7 +121,7 @@ export function useWorkflowVariables(workflowId: string, enabled = true) {
     queryKey: workflowEditorKeys.workflowVariables(workflowId),
     queryFn: async () => {
       const client = await getClient();
-      const result = await client.get<{ data: WorkflowVariable[] }>(`/workflow-variables/workflow/${workflowId}`);
+      const result = await client.get<{ data: WorkflowVariable[] }>(`${WELDCONNECT_API.variables}/workflow/${workflowId}`);
       return result.data || [];
     },
     enabled: !!workflowId && enabled,
@@ -134,7 +135,7 @@ function useWorkflowsForChaining(excludeId?: string) {
     queryFn: async () => {
       const client = await getClient();
       const query = excludeId ? `?exclude=${excludeId}` : '';
-      const result = await client.get<{ data: Array<{ id: string; name: string; status: string }> }>(`/workflows/for-chaining${query}`);
+      const result = await client.get<{ data: Array<{ id: string; name: string; status: string }> }>(`${WELDCONNECT_API.workflows}/for-chaining${query}`);
       return result.data || [];
     },
   });
@@ -148,7 +149,7 @@ function useWorkflowWebhook(workflowId: string, enabled = true) {
       const client = await getClient();
       const result = await client.get<{
         data: { id: string; url: string; externalUrl: string | null; secret: string | null; isEnabled: boolean } | null;
-      }>(`/workflow-webhooks/workflow/${workflowId}`);
+      }>(`${WELDCONNECT_API.webhooks}/workflow/${workflowId}`);
       return result.data || null;
     },
     enabled: !!workflowId && enabled,

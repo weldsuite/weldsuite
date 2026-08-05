@@ -4,7 +4,7 @@
  * Credentials are never returned to the client — responses include a
  * `hasCredentials` boolean instead.
  *
- * Permissions: tasks:read | tasks:create | tasks:update | tasks:delete.
+ * Permissions: integrations:read | integrations:create | integrations:update | integrations:delete.
  */
 
 import { z } from 'zod';
@@ -29,7 +29,7 @@ app.route('/', workflowIntegrationOAuthRoutes);
 
 // Catalog of available integrations (metadata only — no secrets). Powers the
 // integrations marketplace + the builder's action/trigger pickers.
-app.get('/catalog', requirePermission('tasks:read'), (c) => {
+app.get('/catalog', requirePermission('integrations:read'), (c) => {
   return success(c, listIntegrations());
 });
 
@@ -54,7 +54,7 @@ function stripCredentials(row: Integration) {
   return { ...rest, hasCredentials: !!credentials, hasOauthTokens: !!oauthTokens };
 }
 
-app.get('/', requirePermission('tasks:read'), async (c) => {
+app.get('/', requirePermission('integrations:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
@@ -84,7 +84,7 @@ app.get('/', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.get('/categories', requirePermission('tasks:read'), async (c) => {
+app.get('/categories', requirePermission('integrations:read'), async (c) => {
   const db = c.get('tenantDb');
   try {
     const rows = await db.select({ category: wi.category }).from(wi).where(isNull(wi.deletedAt));
@@ -105,7 +105,7 @@ app.get('/categories', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.get('/:id', requirePermission('tasks:read'), async (c) => {
+app.get('/:id', requirePermission('integrations:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
@@ -118,7 +118,7 @@ app.get('/:id', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.post('/', requirePermission('tasks:create'), zValidator('json', createIntegrationSchema), async (c) => {
+app.post('/', requirePermission('integrations:create'), zValidator('json', createIntegrationSchema), async (c) => {
   const db = c.get('tenantDb');
   const data = c.req.valid('json');
   try {
@@ -155,7 +155,7 @@ app.post('/', requirePermission('tasks:create'), zValidator('json', createIntegr
 });
 
 for (const method of ['put', 'patch'] as const) {
-  app[method]('/:id', requirePermission('tasks:update'), zValidator('json', updateIntegrationSchema), async (c) => {
+  app[method]('/:id', requirePermission('integrations:update'), zValidator('json', updateIntegrationSchema), async (c) => {
     const db = c.get('tenantDb');
     const id = c.req.param('id');
     const data = c.req.valid('json');
@@ -186,7 +186,7 @@ for (const method of ['put', 'patch'] as const) {
 
 app.patch(
   '/:id/connect',
-  requirePermission('tasks:update'),
+  requirePermission('integrations:update'),
   zValidator('json', z.object({ credentials: z.record(z.unknown()).optional() })),
   async (c) => {
     const db = c.get('tenantDb');
@@ -220,7 +220,7 @@ app.patch(
   },
 );
 
-app.patch('/:id/disconnect', requirePermission('tasks:update'), async (c) => {
+app.patch('/:id/disconnect', requirePermission('integrations:update'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
@@ -250,7 +250,7 @@ app.patch('/:id/disconnect', requirePermission('tasks:update'), async (c) => {
   }
 });
 
-app.post('/:id/test', requirePermission('tasks:create'), async (c) => {
+app.post('/:id/test', requirePermission('integrations:create'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const encKey = { v1: c.env.DATABASE_ENCRYPTION_KEY, v2: c.env.DATABASE_ENCRYPTION_KEY_V2 };
@@ -292,7 +292,7 @@ app.post('/:id/test', requirePermission('tasks:create'), async (c) => {
   }
 });
 
-app.delete('/:id', requirePermission('tasks:delete'), async (c) => {
+app.delete('/:id', requirePermission('integrations:delete'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {

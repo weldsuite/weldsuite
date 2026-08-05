@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 
 /**
- * WeldConnect connector queries — the Nango-backed `/api/nango/*` surface.
+ * WeldConnect connector queries — Nango-backed CRM sync (`/nango/*`).
  *
  * The connect flow is deliberately three steps: the client asks app-api for a
  * Connect session, opens Nango's hosted UI with the returned token, and reports

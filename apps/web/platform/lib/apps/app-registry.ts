@@ -1,6 +1,5 @@
 import {
   Users,
-  CheckSquare,
   BookOpen,
   Headphones,
   Mail,
@@ -19,6 +18,7 @@ import {
   Truck,
   Bot,
   Database,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 import type { AppLogo } from '@/components/app-sidebar-layout';
@@ -85,12 +85,11 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     sidebarIconClass: 'h-7 w-7',
   },
   weldconnect: {
-    lucideIcon: CheckSquare,
+    lucideIcon: Zap,
     shortName: 'Automations',
     icon: '/assets/images/weldconnect/icon.svg',
     logo: makeLogo('weldconnect'),
     sidebarIconClass: 'h-[27px] w-[27px]',
-    hideFromOnboarding: true,
   },
   weldhost: {
     lucideIcon: Globe,
