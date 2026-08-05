@@ -78,7 +78,7 @@ export default function VatReturnDetailScreen() {
               await api.submitVatReturn(id);
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               setVatReturn((prev) => (prev ? { ...prev, status: 'submitted' } : null));
-            } catch (err) {
+            } catch {
               Alert.alert('Error', 'Failed to submit VAT return. Please try again.');
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             } finally {

@@ -15,7 +15,7 @@ import {
   createNotificationChannels,
   addPushTokenRefreshListener,
 } from '@weldsuite/mobile-ui/services/notifications';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 import { useMail } from '@/contexts/MailContext';
 import { parseNotificationTarget, type NotificationTarget } from '@/utils/notification-target';
 

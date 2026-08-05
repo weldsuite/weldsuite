@@ -3,8 +3,11 @@
  * Ported from apps/api-worker/src/routes/billing.ts (W3 legacy phase-out).
  *
  * READ:  subscription, plans, plans-page, invoices, payments, phone-numbers,
- *        domains, limits (master DB; phone-numbers/domains read the tenant DB)
+ *        domains, limits (master DB; phone-numbers/domains read the tenant DB),
+ *        payment-methods (Stripe API — no local mirror)
  * WRITE: validate-downgrade, checkout, seats, cancel, reactivate (Stripe API),
+ *        payment-methods/setup-intent, payment-methods/:id/default,
+ *        DELETE payment-methods/:id (Stripe API),
  *        enterprise-inquiry (sales email; NEW — never existed on any worker)
  *
  * The billing-worker only handles Stripe webhooks + backfill; this is the
@@ -21,8 +24,8 @@
  *    api-worker source — member-facing feature gates such as weldcall-gate and
  *    the WeldDesk chat-widget call /subscription and /limits for every role;
  *    Clerk auth + org resolution is enforced by the shared /api/* middleware).
- *  - /invoices and /payments expose Stripe hosted-invoice URLs and payment
- *    method brand/last4, so they are gated on `billing:read` — matching the
+ *  - /invoices, /payments and /payment-methods expose Stripe hosted-invoice URLs
+ *    and payment method brand/last4, so they are gated on `billing:read` — matching the
  *    platform UI, which returns AccessDenied on that same permission
  *    (apps/web/platform/app/settings/billing/page.tsx). No member-facing feature
  *    gate reads them, so this does not affect plain members.
@@ -66,6 +69,15 @@ import {
   retrieveInvoice,
   cancelSubscriptionAtPeriodEnd,
   reactivateSubscription,
+  createSetupIntent,
+  detachPaymentMethod,
+  listPaymentMethods,
+  retrievePaymentMethod,
+  retrieveStripeCustomer,
+  setCustomerDefaultPaymentMethod,
+  setSubscriptionDefaultPaymentMethod,
+  type StripePaymentMethod,
+  type StripeSubscription,
 } from '../../lib/stripe';
 import {
   getAccurateMemberCount,
@@ -903,5 +915,337 @@ app.post(
     return success(c, { success: true }, 201);
   },
 );
+
+// ============================================================================
+// Payment methods — settings → billing → "Payment methods"
+//
+// Stripe stays the source of truth: there is no local mirror table and nothing
+// to keep in sync. "Primary" is Stripe's own default, written in two places
+// because a subscription's `default_payment_method` overrides the customer's
+// (see `setSubscriptionDefaultPaymentMethod`). The workspace's phone and agent
+// subscriptions are updated alongside the plan subscription so one primary
+// method covers every bill the workspace receives.
+//
+// Adding a method happens entirely in the browser via Stripe Elements against
+// a SetupIntent — card data never reaches this worker.
+// ============================================================================
+
+/** Every Stripe subscription a workspace can be billed on. */
+function workspaceSubscriptionIds(workspace: {
+  stripeSubscriptionId: string | null;
+  stripePhoneSubscriptionId: string | null;
+  stripeAgentsSubscriptionId: string | null;
+}): string[] {
+  return [
+    workspace.stripeSubscriptionId,
+    workspace.stripePhoneSubscriptionId,
+    workspace.stripeAgentsSubscriptionId,
+  ].filter((id): id is string => Boolean(id));
+}
+
+/** Normalize Stripe's `string | { id }` expandable fields to a plain id. */
+function toId(value: string | { id: string } | null | undefined): string | null {
+  if (!value) return null;
+  return typeof value === 'string' ? value : value.id;
+}
+
+/**
+ * Subscription statuses that still produce invoices. A workspace keeps its
+ * `stripe*SubscriptionId` columns after cancellation, so the stored ids alone
+ * say nothing about whether anything is still being billed — the status has to
+ * come from Stripe.
+ */
+const BILLING_SUBSCRIPTION_STATUSES = new Set([
+  'active',
+  'trialing',
+  'past_due',
+  'unpaid',
+  'incomplete',
+]);
+
+/**
+ * Fetch the workspace's subscriptions that Stripe still reports as billing.
+ * Unreadable ids (deleted, or belonging to a rotated Stripe account) are
+ * treated as not billing rather than failing the whole request.
+ */
+async function getBillingSubscriptions(
+  stripeKey: string,
+  workspace: {
+    stripeSubscriptionId: string | null;
+    stripePhoneSubscriptionId: string | null;
+    stripeAgentsSubscriptionId: string | null;
+  },
+): Promise<StripeSubscription[]> {
+  const results = await Promise.all(
+    workspaceSubscriptionIds(workspace).map(async (id) => {
+      try {
+        return await retrieveSubscription(stripeKey, id);
+      } catch (err) {
+        console.error(`[Billing] Could not retrieve subscription ${id}:`, err);
+        return null;
+      }
+    }),
+  );
+
+  return results.filter(
+    (sub): sub is StripeSubscription =>
+      sub !== null && BILLING_SUBSCRIPTION_STATUSES.has(sub.status ?? ''),
+  );
+}
+
+/** Shape the billing page renders — one row per saved method. */
+function mapPaymentMethod(pm: StripePaymentMethod, defaultPaymentMethodId: string | null) {
+  const card = pm.card ?? null;
+  const sepa = pm.sepa_debit ?? null;
+
+  return {
+    id: pm.id,
+    type: pm.type,
+    brand: card?.brand ?? null,
+    last4: card?.last4 ?? sepa?.last4 ?? null,
+    expMonth: card?.exp_month ?? null,
+    expYear: card?.exp_year ?? null,
+    country: card?.country ?? sepa?.country ?? null,
+    bankCode: sepa?.bank_code ?? null,
+    holderName: pm.billing_details?.name ?? null,
+    isDefault: pm.id === defaultPaymentMethodId,
+    createdAt: pm.created ? new Date(pm.created * 1000).toISOString() : null,
+  };
+}
+
+/**
+ * Resolve the effective default: the plan subscription's own default wins,
+ * falling back to the customer-level default for workspaces with no
+ * subscription yet (free plan, or a trial that never checked out).
+ */
+async function resolveDefaultPaymentMethodId(
+  stripeKey: string,
+  customerId: string,
+  subscriptionId: string | null,
+): Promise<string | null> {
+  if (subscriptionId) {
+    try {
+      const subscription = await retrieveSubscription(stripeKey, subscriptionId);
+      const subDefault = toId(subscription.default_payment_method);
+      if (subDefault) return subDefault;
+    } catch (err) {
+      // A stale/canceled subscription id must not break the list — fall through
+      // to the customer-level default.
+      console.error('[Billing] Could not read subscription default payment method:', err);
+    }
+  }
+
+  const customer = await retrieveStripeCustomer(stripeKey, customerId);
+  return toId(customer.invoice_settings?.default_payment_method);
+}
+
+// READ: GET /payment-methods — saved methods + which one is primary
+app.get('/payment-methods', canReadBilling, async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId) return error.orgRequired(c);
+
+  const stripeKey = requireStripeKey(c);
+  if (!stripeKey) return error.internal(c, 'Stripe is not configured');
+
+  const masterDb = getMasterDb(c.env);
+  const workspace = await getWorkspaceByOrgId(masterDb, orgId);
+  if (!workspace) return error.notFound(c, 'Workspace');
+
+  // No Stripe customer yet — the workspace has never paid for anything. An
+  // empty list is the correct answer, not an error.
+  if (!workspace.stripeCustomerId) return success(c, []);
+
+  try {
+    const [methods, defaultPaymentMethodId] = await Promise.all([
+      listPaymentMethods(stripeKey, workspace.stripeCustomerId),
+      resolveDefaultPaymentMethodId(
+        stripeKey,
+        workspace.stripeCustomerId,
+        workspace.stripeSubscriptionId,
+      ),
+    ]);
+
+    // Primary first, then newest — matches the reading order of the UI.
+    const mapped = methods.data
+      .map((pm) => mapPaymentMethod(pm, defaultPaymentMethodId))
+      .sort((a, b) => {
+        if (a.isDefault !== b.isDefault) return a.isDefault ? -1 : 1;
+        return (b.createdAt ?? '').localeCompare(a.createdAt ?? '');
+      });
+
+    return success(c, mapped);
+  } catch (err) {
+    console.error('[Billing] Failed to list payment methods:', err);
+    return error.internal(c, 'Could not load payment methods');
+  }
+});
+
+// WRITE: POST /payment-methods/setup-intent — client secret for Stripe Elements
+app.post('/payment-methods/setup-intent', canManageBilling, async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId) return error.orgRequired(c);
+
+  const stripeKey = requireStripeKey(c);
+  if (!stripeKey) return error.internal(c, 'Stripe is not configured');
+
+  const masterDb = getMasterDb(c.env);
+  const workspace = await getWorkspaceByOrgId(masterDb, orgId);
+  if (!workspace) return error.notFound(c, 'Workspace');
+
+  try {
+    // A workspace can add a card before it ever subscribes, so the customer is
+    // created on demand here exactly as /checkout does.
+    let customerId = workspace.stripeCustomerId;
+    if (!customerId) {
+      const customer = await createStripeCustomer(stripeKey, {
+        name: workspace.name,
+        metadata: { workspaceId: workspace.id, clerkOrgId: orgId },
+      });
+      customerId = customer.id;
+
+      await masterDb
+        .update(workspaces)
+        .set({ stripeCustomerId: customerId, updatedAt: new Date() })
+        .where(eq(workspaces.id, workspace.id));
+    }
+
+    const setupIntent = await createSetupIntent(stripeKey, {
+      customerId,
+      metadata: { workspaceId: workspace.id, clerkOrgId: orgId },
+    });
+
+    if (!setupIntent.client_secret) {
+      return error.internal(c, 'Stripe did not return a client secret');
+    }
+
+    return success(c, { clientSecret: setupIntent.client_secret }, 201);
+  } catch (err) {
+    console.error('[Billing] Failed to create setup intent:', err);
+    return error.internal(c, 'Could not start adding a payment method');
+  }
+});
+
+// WRITE: POST /payment-methods/:id/default — mark a method as primary
+app.post('/payment-methods/:id/default', canManageBilling, async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId) return error.orgRequired(c);
+
+  const stripeKey = requireStripeKey(c);
+  if (!stripeKey) return error.internal(c, 'Stripe is not configured');
+
+  const paymentMethodId = c.req.param('id');
+
+  const masterDb = getMasterDb(c.env);
+  const workspace = await getWorkspaceByOrgId(masterDb, orgId);
+  if (!workspace) return error.notFound(c, 'Workspace');
+  if (!workspace.stripeCustomerId) return error.notFound(c, 'Payment method', paymentMethodId);
+
+  try {
+    // Payment method ids are guessable, so ownership is verified against this
+    // workspace's customer before any write.
+    const paymentMethod = await retrievePaymentMethod(stripeKey, paymentMethodId);
+    if (toId(paymentMethod.customer) !== workspace.stripeCustomerId) {
+      return error.notFound(c, 'Payment method', paymentMethodId);
+    }
+
+    await setCustomerDefaultPaymentMethod(stripeKey, workspace.stripeCustomerId, paymentMethodId);
+
+    // Subscription-level defaults override the customer default, so every
+    // subscription still billing has to be updated too. Canceled ones are
+    // filtered out first — writing to them would fail as a matter of course,
+    // which would make a genuine failure indistinguishable from noise.
+    const billingSubscriptions = await getBillingSubscriptions(stripeKey, workspace);
+    const failedSubscriptionIds: string[] = [];
+
+    for (const subscription of billingSubscriptions) {
+      try {
+        await setSubscriptionDefaultPaymentMethod(stripeKey, subscription.id, paymentMethodId);
+      } catch (err) {
+        // A live subscription that rejects the write keeps charging the old
+        // method, so the caller is told the change landed only partially
+        // rather than being shown an unqualified success.
+        failedSubscriptionIds.push(subscription.id);
+        console.error(
+          `[Billing] Could not set default payment method on subscription ${subscription.id}:`,
+          err,
+        );
+      }
+    }
+
+    return success(c, {
+      success: true,
+      id: paymentMethodId,
+      partial: failedSubscriptionIds.length > 0,
+    });
+  } catch (err) {
+    console.error('[Billing] Failed to set default payment method:', err);
+    return error.internal(c, 'Could not set the primary payment method');
+  }
+});
+
+// WRITE: DELETE /payment-methods/:id — remove a saved method
+app.delete('/payment-methods/:id', canManageBilling, async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId) return error.orgRequired(c);
+
+  const stripeKey = requireStripeKey(c);
+  if (!stripeKey) return error.internal(c, 'Stripe is not configured');
+
+  const paymentMethodId = c.req.param('id');
+
+  const masterDb = getMasterDb(c.env);
+  const workspace = await getWorkspaceByOrgId(masterDb, orgId);
+  if (!workspace) return error.notFound(c, 'Workspace');
+  if (!workspace.stripeCustomerId) return error.notFound(c, 'Payment method', paymentMethodId);
+
+  try {
+    const paymentMethod = await retrievePaymentMethod(stripeKey, paymentMethodId);
+    if (toId(paymentMethod.customer) !== workspace.stripeCustomerId) {
+      return error.notFound(c, 'Payment method', paymentMethodId);
+    }
+
+    // Removing a method that something is still billing against would leave
+    // the next invoice with nothing to charge. Require another method to be
+    // promoted first.
+    //
+    // The check spans every billing subscription, not just the plan one:
+    // setting a primary writes the phone and agents subscriptions too, so any
+    // of them can hold this method as its own default. Subscriptions Stripe
+    // reports as canceled are excluded, otherwise a workspace that stopped
+    // subscribing could never remove its last card.
+    const billingSubscriptions = await getBillingSubscriptions(stripeKey, workspace);
+
+    if (billingSubscriptions.length > 0) {
+      const blockedBySubscription = billingSubscriptions.some(
+        (sub) => toId(sub.default_payment_method) === paymentMethodId,
+      );
+
+      // A subscription with no default of its own falls back to the customer
+      // default, so that method is equally load-bearing.
+      const someSubscriptionInherits = billingSubscriptions.some(
+        (sub) => toId(sub.default_payment_method) === null,
+      );
+      const customer = someSubscriptionInherits
+        ? await retrieveStripeCustomer(stripeKey, workspace.stripeCustomerId)
+        : null;
+      const blockedByCustomerDefault =
+        toId(customer?.invoice_settings?.default_payment_method) === paymentMethodId;
+
+      if (blockedBySubscription || blockedByCustomerDefault) {
+        return error.badRequest(
+          c,
+          'This is your primary payment method. Set another method as primary before removing it.',
+        );
+      }
+    }
+
+    await detachPaymentMethod(stripeKey, paymentMethodId);
+
+    return c.body(null, 204);
+  } catch (err) {
+    console.error('[Billing] Failed to remove payment method:', err);
+    return error.internal(c, 'Could not remove the payment method');
+  }
+});
 
 export { app as billingRoutes };

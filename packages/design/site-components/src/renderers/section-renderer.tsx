@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData } from '../types';
 import React from 'react';
 import { Section, RenderMode } from '../types';
 import { BlockRenderer } from './block-renderer';
@@ -10,10 +11,10 @@ import { ChevronUp, ChevronDown, Copy, Trash2 } from 'lucide-react';
 interface SectionRendererProps {
   section: Section;
   mode?: RenderMode;
-  store?: any;
-  settings?: Record<string, any>;
+  store?: StoreData;
+  settings?: SectionSettings;
   onSelectElement?: (elementId: string) => void;
-  onUpdateElement?: (sectionId: string, elementId: string, updates: any) => void;
+  onUpdateElement?: (sectionId: string, elementId: string, updates: Partial<Element>) => void;
   onSelectBlock?: (blockId: string) => void;
   onMoveBlockUp?: (sectionId: string, blockId: string, blockIndex: number) => void;
   onMoveBlockDown?: (sectionId: string, blockId: string, blockIndex: number) => void;
@@ -219,7 +220,7 @@ export function SectionRenderer({
               isBlockSelected && isEditing && !isSingleBlockSection && "ring-2 ring-blue-500 ring-inset"
             )}
             style={{}}
-            onMouseEnter={(e) => {
+            onMouseEnter={() => {
               if (isEditing && !isSingleBlockSection) {
                 setHoveredBlockId(block.id);
               }
@@ -359,8 +360,8 @@ export function SectionRenderer({
   // In live/preview mode, handle single-block sections specially
   // If section has only one block, render it directly without section wrapper
   // This makes the frontend cleaner and more Shopify-like
-  if (section.blocks.length === 1) {
-    const singleBlock = section.blocks[0];
+  const singleBlock = section.blocks.length === 1 ? section.blocks[0] : undefined;
+  if (singleBlock) {
     return (
       <BlockRenderer
         block={singleBlock}

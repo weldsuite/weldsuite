@@ -83,7 +83,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const attachmentId = generateId('matt');
-    const safeName = (file.name || 'file').replace(/[^\w.\-]+/g, '_').slice(0, 120);
+    const safeName = (file.name || 'file').replace(/[^\w.-]+/g, '_').slice(0, 120);
     const key = `meeting-attachments/${meetingId}/${attachmentId}-${safeName}`;
     const contentType = file.type || 'application/octet-stream';
     const body = new Uint8Array(await file.arrayBuffer());

@@ -23,12 +23,14 @@ describe('services/app-api', () => {
   describe('APP_API_URL', () => {
     it('defaults to the local app-api when the env var is unset', () => {
       delete process.env.EXPO_PUBLIC_APP_API_URL;
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules() requires a fresh synchronous require per case
       const { APP_API_URL } = require('../app-api');
       expect(APP_API_URL).toBe('http://localhost:8789');
     });
 
     it('uses EXPO_PUBLIC_APP_API_URL when provided', () => {
       process.env.EXPO_PUBLIC_APP_API_URL = 'https://app-api.weldsuite.org';
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules() requires a fresh synchronous require per case
       const { APP_API_URL } = require('../app-api');
       expect(APP_API_URL).toBe('https://app-api.weldsuite.org');
     });
@@ -36,6 +38,7 @@ describe('services/app-api', () => {
 
   describe('appApi domain clients', () => {
     it('exposes a client for every mail/platform domain', () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules() requires a fresh synchronous require per case
       const { appApi } = require('../app-api');
       expect(Object.keys(appApi).sort()).toEqual(
         [
@@ -56,11 +59,13 @@ describe('services/app-api', () => {
     });
 
     it('default export is the same object as the named appApi export', () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules() requires a fresh synchronous require per case
       const mod = require('../app-api');
       expect(mod.default).toBe(mod.appApi);
     });
 
     it('exports the raw client for surfaces without a domain wrapper', () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules() requires a fresh synchronous require per case
       const { appApiClient } = require('../app-api');
       expect(appApiClient).toBeDefined();
     });
@@ -69,6 +74,7 @@ describe('services/app-api', () => {
   describe('setAppApiTokenGetter', () => {
     it('passes a token getter to createClientApi that reflects the latest setter', async () => {
       // Capture the getToken callback handed to the client factory at load time.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules() requires a fresh synchronous require per case
       const { createClientApi } = require('@weldsuite/api-client/client');
       let capturedGetToken: () => Promise<string | null> = async () => 'never-set';
       createClientApi.mockImplementation((opts: { getToken: () => Promise<string | null> }) => {
@@ -76,6 +82,7 @@ describe('services/app-api', () => {
         return { __stub: 'client' };
       });
 
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules() requires a fresh synchronous require per case
       const { setAppApiTokenGetter } = require('../app-api');
 
       // Before wiring, the default getter resolves to null.
@@ -91,6 +98,7 @@ describe('services/app-api', () => {
     });
 
     it('is exported as a function', () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- jest.resetModules() requires a fresh synchronous require per case
       const { setAppApiTokenGetter } = require('../app-api');
       expect(typeof setAppApiTokenGetter).toBe('function');
     });

@@ -14,7 +14,7 @@ import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 import { Spinner } from '@weldsuite/mobile-ui/components/Spinner';
 import { Sheet } from '@weldsuite/mobile-ui/components/Sheet';
 import type { SocialAccount, SocialMedia, SocialPost } from '@weldsuite/app-api-client/domains/social';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
 import { PLATFORM_META, formatDateTime } from '@/lib/social';
 

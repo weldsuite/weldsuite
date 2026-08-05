@@ -5,10 +5,14 @@ export const weldconnect = {
 
   // Connectors (Nango-gebaseerd connectorframework)
   connectors: {
-    title: 'Connectors',
-    description: 'Verbind externe apps en synchroniseer hun gegevens naar WeldSuite.',
-    searchPlaceholder: 'Connectors zoeken...',
-    empty: 'Geen connectors gevonden voor je zoekopdracht.',
+    title: 'CRM-connectors',
+    description:
+      'Synchroniseer bedrijven, contacten en deals vanuit Salesforce of HubSpot naar WeldCRM. Dit is data-import — gebruik Integraties voor workflow-OAuth (Slack, Gmail, …).',
+    searchPlaceholder: 'CRM-connectors zoeken...',
+    empty: 'Geen CRM-connectors gevonden voor je zoekopdracht.',
+    emptyCatalog:
+      'Er zijn nog geen CRM-connectors beschikbaar. Salesforce- en HubSpot-sync verschijnt hier zodra het voor je workspace is ingeschakeld.',
+    emptyCatalogHint: 'Slack of Google voor workflows verbinden? Ga naar Integraties.',
     notConfigured: 'Het connectorframework is niet geconfigureerd voor deze omgeving.',
     connect: 'Verbinden',
     reconnect: 'Opnieuw verbinden',
@@ -291,7 +295,39 @@ export const weldconnect = {
       all: 'Alle Triggers',
       schedule: 'Schema',
       entityEvent: 'Entiteitsgebeurtenissen',
+      integration: 'Integraties',
       webhook: 'Webhooks',
+      manual: 'Handmatig',
+    },
+    types: {
+      manual: {
+        name: 'Handmatig',
+        description: 'Handmatig activeren',
+      },
+      schedule: {
+        name: 'Schema',
+        description: 'Uitvoeren volgens een schema',
+      },
+      webhook: {
+        name: 'Webhook',
+        description: 'Activeren via HTTP-webhook',
+      },
+      entity_event: {
+        name: 'Entiteitsgebeurtenis',
+        description: 'Activeren wanneer een WeldSuite-record wijzigt',
+      },
+      integration_event: {
+        name: 'Integratiegebeurtenis',
+        description: 'Activeren vanuit gekoppelde apps (Slack, Google Sheets, …)',
+      },
+      workflow_complete: {
+        name: 'Workflow voltooid',
+        description: 'Activeren wanneer een andere workflow eindigt',
+      },
+      api: {
+        name: 'API-aanroep',
+        description: 'Activeren via de WeldConnect API',
+      },
     },
     howToUse: {
       title: 'Triggers gebruiken',
@@ -751,6 +787,13 @@ export const weldconnect = {
     },
   },
 
+  variablesClient: {
+    emptyTitle: 'Nog geen variabelen',
+    emptyDescription: 'Maak variabelen en geheimen aan om ze in uw workflows te hergebruiken.',
+    noResultsTitle: 'Geen variabelen gevonden',
+    noResultsDescription: 'Pas uw zoekopdracht of filters aan.',
+  },
+
   // Webhooks
   webhooks: {
     title: 'Webhooks',
@@ -902,6 +945,17 @@ export const weldconnect = {
     notFound: 'Webhook niet gevonden',
   },
 
+  webhooksClient: {
+    columnName: 'Naam',
+    columnStatus: 'Status',
+    columnWorkflow: 'Workflow',
+    columnCalls: 'Aanroepen',
+    columnCreated: 'Aangemaakt',
+    lastCalled: 'Laatst: {date}',
+    noResultsTitle: 'Geen webhooks gevonden',
+    noResultsDescription: 'Pas uw zoekopdracht of filters aan.',
+  },
+
   // Analyses
   analytics: {
     title: 'Analysedashboard',
@@ -914,7 +968,7 @@ export const weldconnect = {
       failedExecutions: 'Mislukte uitvoeringen',
       unacknowledgedErrors: '{count} niet-bevestigde fouten',
       avgDuration: 'Gemiddelde duur',
-      median: 'Mediaan: {value}',
+      minMaxDuration: 'Min {min} · Max {max}',
       totalErrors: 'Totaal fouten',
       unacknowledged: 'Niet bevestigd',
       errorsByType: 'Fouten per type',
@@ -945,6 +999,8 @@ export const weldconnect = {
       dailyVolume: 'Dagelijks uitvoeringsvolume',
       dailyVolumeDescription: 'Totaal uitvoeringen per dag',
       average: 'Gemiddelde',
+      min: 'Min',
+      max: 'Max',
       median: 'Mediaan',
       p95: 'P95',
       p99: 'P99',
@@ -1152,6 +1208,8 @@ export const weldconnect = {
       manuallyTriggered: 'Handmatig geactiveerd',
       onCompletion: 'Bij {triggerOn}',
       sequenceAdded: 'Wanneer een persoon aan de reeks wordt toegevoegd',
+      integrationEvent: 'Gebeurtenis van gekoppelde app',
+      apiTriggered: 'Geactiveerd via API',
     },
   },
 
@@ -1262,12 +1320,23 @@ export const weldconnect = {
       workflow_complete: { name: 'Workflow voltooid', description: 'Trigger wanneer een andere workflow voltooid is' },
       webhook: { name: 'Webhook', description: 'Trigger via HTTP-webhook-URL' },
       manual: { name: 'Handmatig', description: 'De workflow handmatig activeren' },
+      integration_event: {
+        name: 'Integratiegebeurtenis',
+        description: 'Start wanneer een verbonden app een gebeurtenis stuurt (Slack, Google Sheets, …)',
+      },
+      api: { name: 'API-aanroep', description: 'Trigger via API-verzoek' },
     },
     entityEvent: {
       entityTypeLabel: 'Entiteitstype',
       entityTypePlaceholder: 'Entiteit selecteren...',
       eventLabel: 'Gebeurtenis',
       eventPlaceholder: 'Gebeurtenis selecteren...',
+    },
+    integrationEvent: {
+      eventLabel: 'Integratiegebeurtenis',
+      eventPlaceholder: 'Selecteer een app-gebeurtenis…',
+      noEvents: 'Geen integratiegebeurtenissen beschikbaar. Verbind eerst apps op de pagina Integraties.',
+      connectHint: 'Vereist een verbonden account op Integraties.',
     },
     schedule: {
       scheduleTypeLabel: 'Schematype',
@@ -1307,6 +1376,9 @@ export const weldconnect = {
     manual: {
       hint: 'Deze workflow kan alleen handmatig worden geactiveerd vanaf de workflowpagina of via de API.',
     },
+    api: {
+      hint: 'Deze workflow kan worden geactiveerd via de WeldConnect API met uw workspace-referenties.',
+    },
     validation: {
       selectEntityAndEvent: 'Selecteer een entiteitstype en een gebeurtenis',
       selectExecutionDate: 'Selecteer een uitvoerdatum en -tijd',
@@ -1324,6 +1396,15 @@ export const weldconnect = {
     groups: {
       workflowVariables: 'Workflowvariabelen',
       environment: 'Omgeving',
+      triggerData: 'Triggergegevens',
+    },
+    triggerFields: {
+      provider: 'Provider',
+      event: 'Gebeurtenis',
+      eventPayload: 'Gebeurtenispayload',
+      completionStatus: 'Voltooiingsstatus',
+      api: 'Geactiveerd door',
+      apiRequestData: 'Aanvraaggegevens',
     },
   },
 
@@ -2012,12 +2093,18 @@ export const weldconnect = {
     subtitle: 'Selecteer hoe deze workflow gestart moet worden',
     entityEvent: 'Entiteitsgebeurtenis',
     entityEventDesc: 'Starten wanneer een record wordt aangemaakt, bijgewerkt of verwijderd',
+    integrationEvent: 'Integratiegebeurtenis',
+    integrationEventDesc: 'Starten wanneer een verbonden app een gebeurtenis stuurt',
     schedule: 'Schema',
     scheduleDesc: 'Starten op een terugkerend of eenmalig schema',
+    workflowComplete: 'Workflow voltooid',
+    workflowCompleteDesc: 'Starten wanneer een andere workflow is voltooid',
     webhook: 'Webhook',
     webhookDesc: 'Starten wanneer een HTTP-verzoek wordt ontvangen',
     manual: 'Handmatig',
     manualDesc: 'Alleen starten wanneer handmatig geactiveerd',
+    api: 'API',
+    apiDesc: 'Starten via een WeldConnect API-aanroep',
   },
 
   // Workflows client — dynamische lijststrings
@@ -2064,6 +2151,7 @@ export const weldconnect = {
   integrations: {
     title: 'Integraties',
     breadcrumb: 'Integraties',
+    subtitle: 'Verbind OAuth-apps zodat workflows berichten kunnen sturen, sheets kunnen lezen en op externe gebeurtenissen kunnen reageren.',
     availableCount: 'beschikbaar',
     connectedCount: 'verbonden',
     categories: 'Categorieën',
@@ -2072,6 +2160,7 @@ export const weldconnect = {
     noResults: 'Geen integraties gevonden',
     noResultsHint: 'Probeer uw zoekopdracht of categorie aan te passen',
     loadError: 'Laden van integraties mislukt. Vernieuw de pagina en probeer opnieuw.',
+    permissionDenied: 'Je hebt geen toestemming om integraties te bekijken.',
     connect: 'Verbinden',
     connecting: 'Verbinden...',
     disconnect: 'Verbreken',
@@ -2108,7 +2197,8 @@ export const weldconnect = {
 
   // Veelgebruikte breadcrumblabels
   breadcrumbs: {
-    task: 'Taak',
+    connect: 'WeldConnect',
+    task: 'WeldConnect',
     actions: 'Acties',
     triggers: 'Triggers',
     executions: 'Uitvoeringen',
@@ -2117,7 +2207,9 @@ export const weldconnect = {
     analytics: 'Analyses',
     workflows: 'Workflows',
     templates: 'Sjablonen',
-    automation: 'Automatisering',
+    automation: 'WeldConnect',
     integrations: 'Integraties',
+    editor: 'Editor',
+    settings: 'Instellingen',
   },
 };

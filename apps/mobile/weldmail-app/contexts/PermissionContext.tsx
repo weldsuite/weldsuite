@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { hasPermission } from '@weldsuite/permissions';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 
 interface PermissionContextValue {
   /** Effective permission strings for the active workspace (e.g. `accounts:create`). */

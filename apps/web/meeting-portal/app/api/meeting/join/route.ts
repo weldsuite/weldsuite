@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
         .where(eq(meetingSessions.id, meeting.activeSessionId))
         .limit(1);
       const hostPresent = !!activeSession?.participants?.some?.(
-        (p: any) => p.userId === meeting.organizerId,
+        (p: { userId?: string }) => p.userId === meeting.organizerId,
       );
       if (!hostPresent) {
         return NextResponse.json({

@@ -45,7 +45,8 @@ export function Tag({
   variant = 'medium',
   color = valueColorMap[children] ?? 'emerald',
 }: {
-  children: keyof typeof valueColorMap & (string | {})
+  // `valueColorMap` is a Record<string, …>, so its keys are already `string`.
+  children: string
   variant?: keyof typeof variantStyles
   color?: keyof typeof colorStyles
 }) {

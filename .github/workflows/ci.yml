@@ -10,9 +10,13 @@ name: CI
 # are EXCLUDED from the public export (see .claude/export/public-export-exclude.txt)
 # and run only in the private repo / deployment overlay.
 #
-# Job names here match the ones pr-checks.yml used ("Unit · app-api",
-# "Unit · platform", "Type Check · app-api") so they can be reused verbatim as
-# required status checks in the public repo's branch protection.
+# Job names are reused verbatim as required status checks in the public repo's
+# branch protection: "Build", "Lint", "Type Check · app-api",
+# "Type Check · platform", "Unit · app-api", "Unit · platform". Renaming one
+# without updating branch protection in the same change leaves a required check
+# permanently pending and blocks every PR.
+#
+# Every job in this file now blocks. There are no informational jobs left.
 
 on:
   workflow_dispatch:
@@ -29,17 +33,22 @@ permissions:
 
 jobs:
   # ────────────────────────────────────────────
-  # Lint + platform type-check surface pre-existing failures on the default
-  # branch (ESLint v9 migration in @weldsuite/db; ~1300 platform type errors
-  # from the ongoing schema/refactor work). They run as informational jobs so
-  # contributors see NEW regressions without a red wall on day one. Flip
-  # `continue-on-error` to `false` once each is clean.
+  # Lint and platform type-check were informational while pre-existing failures
+  # were worked down (ESLint v9 migration in @weldsuite/db; the platform type
+  # errors from the schema/refactor work). Both are clean now, so both block.
+  #
+  # Note on lint: only the three design packages run `--max-warnings 0`, so this
+  # job blocks on ERRORS. Warnings elsewhere still pass — notably the remaining
+  # react-hooks/exhaustive-deps ones in the mobile apps.
+  #
+  # The job NAMES are reused verbatim as required status checks in branch
+  # protection, so don't rename them without updating that in the same change:
+  # a renamed required check sits pending forever and blocks every PR.
   # ────────────────────────────────────────────
   lint:
-    name: Lint (informational)
+    name: Lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
@@ -64,12 +73,11 @@ jobs:
         run: pnpm type-check
 
   type-check-platform:
-    name: Type Check · platform (informational)
+    name: Type Check · platform
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # ~1300 pre-existing platform type errors. Surfaces them on every PR but
-    # doesn't block. Flip `continue-on-error` to `false` once the count is low.
-    continue-on-error: true
+    # Was informational while ~1300 pre-existing errors were worked down.
+    # `tsc --noEmit` is clean as of this change, so it blocks.
     env:
       NODE_OPTIONS: --max-old-space-size=8192
     steps:
@@ -133,16 +141,17 @@ jobs:
 
   # ────────────────────────────────────────────
   # Cold build — the "does it even build from a clean checkout" signal (plan
-  # Phase 4). Informational until it's verified green on a from-scratch clone;
-  # turbo build is env-independent for types (esbuild strips them) but some app
-  # builds may want VITE_*/EXPO_* values that aren't present in a secret-free
-  # run. Promote to blocking once a cold clone builds clean.
+  # Phase 4). Blocking as of #66: verified green twice from a from-scratch
+  # clone (6m51s and 7m34s), which was the bar its old comment set. The
+  # secret-free run turned out to be fine — turbo build is env-independent for
+  # types, and no app build actually needs a VITE_*/EXPO_* value to compile.
+  #
+  # 25min timeout is deliberate: a cold run has no turbo cache to hit.
   # ────────────────────────────────────────────
   build:
-    name: Build (informational)
+    name: Build
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    continue-on-error: true
     env:
       NODE_OPTIONS: --max-old-space-size=8192
     steps:

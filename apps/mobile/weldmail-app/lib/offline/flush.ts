@@ -8,7 +8,7 @@
  * its request resolves).
  */
 
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 import { isNetworkError } from '@weldsuite/api-client/client';
 import { flushOutbox, type FlushResult, type OpRunner } from './outbox';
 

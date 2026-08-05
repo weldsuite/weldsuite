@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData } from '../types';
 import React from "react";
 import { motion } from "framer-motion";
 import { cn } from "@weldsuite/ui/lib/utils";
@@ -16,7 +17,7 @@ interface HeroVideoTextOverlayBlockProps {
   paddingBottom?: number;
   className?: string;
   mode?: 'live' | 'edit';
-  store?: any;
+  store?: StoreData;
 }
 
 export function HeroVideoTextOverlayBlock({

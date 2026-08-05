@@ -2,15 +2,47 @@
 
 import { useState, useCallback } from "react"
 
+/** A command the assistant asks the host app to run, with a free-form payload. */
+export interface AiAction {
+  type: string
+  /** Action arguments, e.g. `{ model: 'Customer' }`. */
+  params?: Record<string, string | undefined>
+  [key: string]: unknown
+}
+
+/** A record an action returned, as far as the chat formatting cares. */
+export interface AiActionRecord {
+  name?: string
+  [key: string]: unknown
+}
+
+/** One frame of an assistant response stream. */
+export interface AiStreamChunk {
+  type: "chunk" | "action" | "done" | "error"
+  content?: string
+  action?: AiAction
+  error?: string
+}
+
+/** What the host app returns after running an AiAction. */
+export interface AiActionResult {
+  success?: boolean
+  /** Result kind, e.g. `'count'` / `'list'` / `'found'`. */
+  type?: string
+  message?: string
+  data?: AiActionRecord | AiActionRecord[] | string | number | null
+  [key: string]: unknown
+}
+
 interface StreamChunk {
   type: "chunk" | "action" | "done" | "error"
   content?: string
-  action?: any
+  action?: AiAction
   fullResponse?: string
 }
 
 interface UseAiStreamOptions {
-  onAction?: (action: any) => void
+  onAction?: (action: AiAction) => void
   onError?: (error: string) => void
   onComplete?: (fullResponse: string) => void
 }
@@ -20,9 +52,9 @@ export function useAiStream(options?: UseAiStreamOptions) {
   const [currentMessage, setCurrentMessage] = useState("")
   
   const streamMessage = useCallback(async (
-    sendMessage: (message: string, context?: any) => AsyncGenerator<StreamChunk>,
+    sendMessage: (message: string, context?: unknown) => AsyncGenerator<StreamChunk>,
     message: string,
-    context?: any
+    context?: unknown
   ) => {
     setIsStreaming(true)
     setCurrentMessage("")
@@ -37,7 +69,7 @@ export function useAiStream(options?: UseAiStreamOptions) {
             break
             
           case "action":
-            if (options?.onAction) {
+            if (options?.onAction && chunk.action) {
               options.onAction(chunk.action)
             }
             break

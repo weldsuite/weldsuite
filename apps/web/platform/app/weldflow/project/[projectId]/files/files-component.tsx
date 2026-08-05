@@ -5,6 +5,8 @@ import { format, isToday, isYesterday, isThisWeek, isThisMonth, subMonths, isAft
 import "./files-table.css";
 import { useProjectPermissions } from "@/app/weldflow/contexts/project-permission-context";
 import { Button } from "@weldsuite/ui/components/button";
+import { Input } from "@weldsuite/ui/components/input";
+import { Label } from "@weldsuite/ui/components/label";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,11 +36,24 @@ import {
   FileArchive,
   Loader2,
   X,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  Pencil,
+  FolderInput,
+  ChevronRight,
+  Home,
 } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { filesApi } from "@/app/weldflow/lib/api-client";
 import type { FileResponse } from "@/lib/api/legacy-types";
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from "@/components/entity-list";
+import {
+  findFileNameConflict,
+  type NameConflictChoice,
+  type NamedFolderEntry,
+} from "./file-name-conflict";
 
 interface FilesComponentProps {
   projectId: string;
@@ -56,7 +71,8 @@ const getFileIcon = (contentType: string | undefined | null) => {
   return File;
 };
 
-const getFileType = (contentType: string | undefined | null): string => {
+const getFileType = (contentType: string | undefined | null, isFolder?: boolean): string => {
+  if (isFolder) return 'folder';
   if (!contentType) return 'other';
   if (contentType.startsWith('image/')) return 'image';
   if (contentType.startsWith('video/')) return 'video';
@@ -81,22 +97,25 @@ const formatDate = (dateString: string): string => {
   return format(date, 'MMM d, yyyy');
 };
 
-// Extended file type with computed properties
 interface ExtendedFile extends FileResponse {
   fileType: string;
+  isFolder: boolean;
+  parentId: string | null;
 }
 
-// `/project-files` rows may carry either the legacy `FileResponse` shape
-// (contentType/size) or the raw `project_files` row shape (mimeType/fileSize)
-// — see the matching note on `filesApi.list` in `app/weldflow/lib/api-client.ts`.
 function normalizeFile(raw: Record<string, unknown>): ExtendedFile {
-  const contentType = (raw.contentType as string | undefined) ?? (raw.mimeType as string | undefined) ?? '';
+  const isFolder = Boolean(raw.isFolder) || raw.fileType === 'folder';
+  const contentType = isFolder
+    ? 'inode/directory'
+    : ((raw.contentType as string | undefined) ?? (raw.mimeType as string | undefined) ?? '');
   const size = (raw.size as number | undefined) ?? (raw.fileSize as number | undefined) ?? 0;
   return {
     ...raw,
     contentType,
     size,
-    fileType: getFileType(contentType),
+    isFolder,
+    parentId: (raw.parentId as string | null | undefined) ?? null,
+    fileType: getFileType(contentType, isFolder),
   } as ExtendedFile;
 }
 
@@ -104,20 +123,42 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
   const { t } = useI18n();
   const { canWrite } = useProjectPermissions();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileRequestSequence = useRef(0);
+  const folderRequestSequence = useRef(0);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [breadcrumb, setBreadcrumb] = useState<{ id: string; name: string }[]>([]);
   const [files, setFiles] = useState<ExtendedFile[]>(
     initialFiles.map((f) => normalizeFile(f as unknown as Record<string, unknown>))
   );
+  const [allFolders, setAllFolders] = useState<ExtendedFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
   const [isDragging, setIsDragging] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [fileToDelete, setFileToDelete] = useState<FileResponse | null>(null);
-  const [previewFile, setPreviewFile] = useState<FileResponse | null>(null);
+  const [fileToDelete, setFileToDelete] = useState<ExtendedFile | null>(null);
+  const [previewFile, setPreviewFile] = useState<ExtendedFile | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
-  // Close preview on Escape
+  const [createFolderOpen, setCreateFolderOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [creatingFolder, setCreatingFolder] = useState(false);
+
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<ExtendedFile | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [renaming, setRenaming] = useState(false);
+
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [moveTarget, setMoveTarget] = useState<ExtendedFile | null>(null);
+  const [moveSelectedId, setMoveSelectedId] = useState<string | null>(null);
+  const [moving, setMoving] = useState(false);
+
+  const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
+  const [conflictFileName, setConflictFileName] = useState<string | null>(null);
+  const conflictResolverRef = useRef<((choice: NameConflictChoice) => void) | null>(null);
+
   useEffect(() => {
     if (!previewFile) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -127,29 +168,104 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [previewFile]);
 
-  // Load files
-  const loadFiles = useCallback(async () => {
+  const loadFiles = useCallback(async (folderId: string | null = currentFolderId) => {
+    const requestSequence = ++fileRequestSequence.current;
     try {
       const result = await filesApi.list(projectId, {
-        page: 1,
         limit: 500,
+        parentId: folderId,
       });
 
-      if (result.success && result.data) {
+      if (result.success && result.data && requestSequence === fileRequestSequence.current) {
         const rows: Record<string, unknown>[] = Array.isArray(result.data) ? result.data : (result.data.items ?? []);
         setFiles(rows.map(normalizeFile));
       }
     } catch (error) {
       console.error('Failed to load files:', error);
     }
+  }, [projectId, currentFolderId]);
+
+  const loadAllFolders = useCallback(async () => {
+    const requestSequence = ++folderRequestSequence.current;
+    try {
+      const result = await filesApi.list(projectId, {
+        limit: 500,
+        all: true,
+        foldersOnly: true,
+      });
+      if (result.success && result.data && requestSequence === folderRequestSequence.current) {
+        const rows: Record<string, unknown>[] = Array.isArray(result.data) ? result.data : (result.data.items ?? []);
+        setAllFolders(rows.map(normalizeFile).filter((f) => f.isFolder));
+      }
+    } catch (error) {
+      console.error('Failed to load folders:', error);
+    }
   }, [projectId]);
 
-  // Handle file upload using presigned URLs
+  // Initial load scoped to root (page may have passed a flat legacy list).
+  useEffect(() => {
+    setCurrentFolderId(null);
+    setBreadcrumb([]);
+    void loadFiles(null);
+    void loadAllFolders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- remount navigation when project changes
+  }, [projectId]);
+
+  const navigateToFolder = useCallback(async (folder: ExtendedFile | null) => {
+    if (!folder) {
+      setCurrentFolderId(null);
+      setBreadcrumb([]);
+      await loadFiles(null);
+      return;
+    }
+    setCurrentFolderId(folder.id);
+    setBreadcrumb((prev) => {
+      const idx = prev.findIndex((b) => b.id === folder.id);
+      if (idx >= 0) return prev.slice(0, idx + 1);
+      return [...prev, { id: folder.id, name: folder.fileName }];
+    });
+    await loadFiles(folder.id);
+  }, [loadFiles]);
+
+  const navigateToBreadcrumb = useCallback(async (index: number) => {
+    if (index < 0) {
+      await navigateToFolder(null);
+      return;
+    }
+    const crumb = breadcrumb[index];
+    if (!crumb) return;
+    setCurrentFolderId(crumb.id);
+    setBreadcrumb((prev) => prev.slice(0, index + 1));
+    await loadFiles(crumb.id);
+  }, [breadcrumb, loadFiles, navigateToFolder]);
+
+  const askNameConflict = useCallback((fileName: string): Promise<NameConflictChoice> => {
+    return new Promise((resolve) => {
+      conflictResolverRef.current = resolve;
+      setConflictFileName(fileName);
+      setConflictDialogOpen(true);
+    });
+  }, []);
+
+  const resolveNameConflict = useCallback((choice: NameConflictChoice) => {
+    setConflictDialogOpen(false);
+    setConflictFileName(null);
+    const resolve = conflictResolverRef.current;
+    conflictResolverRef.current = null;
+    resolve?.(choice);
+  }, []);
+
   const handleFileUpload = async (selectedFiles: FileList | null) => {
     if (!selectedFiles || selectedFiles.length === 0) return;
 
     setUploading(true);
     const uploadedFiles: string[] = [];
+    // Track names in this folder across the batch so later files see earlier uploads.
+    const folderEntries: NamedFolderEntry[] = files.map((f) => ({
+      id: f.id,
+      fileName: f.fileName,
+      isFolder: f.isFolder,
+    }));
 
     try {
       for (let i = 0; i < selectedFiles.length; i++) {
@@ -157,6 +273,19 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
         const fileId = `${file.name}-${Date.now()}`;
 
         try {
+          const existing = findFileNameConflict(file.name, folderEntries);
+          let replaceFileId: string | undefined;
+
+          if (existing) {
+            const choice = await askNameConflict(file.name);
+            if (choice === 'cancel') {
+              continue;
+            }
+            if (choice === 'replace') {
+              replaceFileId = existing.id;
+            }
+          }
+
           const urlResult = await filesApi.generateUploadUrl(projectId, {
             fileName: file.name,
             contentType: file.type,
@@ -201,6 +330,8 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
             uploadToken,
             fileKey,
             etag: etag || undefined,
+            parentId: currentFolderId,
+            replaceFileId,
           });
 
           if (!confirmResult.success) {
@@ -209,7 +340,22 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
           }
 
           uploadedFiles.push(file.name);
-          toast.success(t.projects.files.fileUploadedSuccessfully.replace('{name}', file.name));
+          toast.success(
+            (replaceFileId
+              ? t.projects.files.fileReplacedSuccessfully
+              : t.projects.files.fileUploadedSuccessfully
+            ).replace('{name}', file.name),
+          );
+
+          if (replaceFileId) {
+            // Name unchanged; keep the same id in the local conflict set.
+          } else {
+            folderEntries.push({
+              id: (confirmResult.data as { id?: string } | undefined)?.id ?? `pending-${fileId}`,
+              fileName: file.name,
+              isFolder: false,
+            });
+          }
 
           setUploadProgress(prev => {
             const newProgress = { ...prev };
@@ -228,7 +374,7 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
       }
 
       if (uploadedFiles.length > 0) {
-        await loadFiles();
+        await loadFiles(currentFolderId);
       }
     } catch (error) {
       console.error('Failed to upload files:', error);
@@ -242,7 +388,6 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
     }
   };
 
-  // Drag and drop handlers
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -268,8 +413,7 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
     await handleFileUpload(droppedFiles);
   };
 
-  // Handle file download
-  const handleDownload = useCallback(async (file: FileResponse) => {
+  const handleDownload = useCallback(async (file: ExtendedFile) => {
     try {
       const result = await filesApi.get(projectId, file.id);
       if (result.success && result.data?.url) {
@@ -284,8 +428,7 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
     }
   }, [projectId, t]);
 
-  // Handle file preview
-  const handlePreview = useCallback(async (file: FileResponse) => {
+  const handlePreview = useCallback(async (file: ExtendedFile) => {
     setPreviewFile(file);
     setPreviewUrl(null);
     setPreviewLoading(true);
@@ -316,7 +459,6 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
     );
   };
 
-  // Handle file delete
   const handleDelete = async () => {
     if (!fileToDelete) return;
     setDeleting(true);
@@ -324,10 +466,17 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
     try {
       const result = await filesApi.delete(projectId, fileToDelete.id);
       if (result.success) {
-        toast.success(t.projects.files.fileDeletedSuccessfully);
+        toast.success(
+          fileToDelete.isFolder
+            ? t.projects.files.folderDeletedSuccessfully
+            : t.projects.files.fileDeletedSuccessfully,
+        );
         setDeleteDialogOpen(false);
         setFileToDelete(null);
         setFiles(prev => prev.filter(f => f.id !== fileToDelete.id));
+        if (fileToDelete.isFolder) {
+          void loadAllFolders();
+        }
       } else {
         toast.error(result.error || t.projects.files.failedToDeleteFile);
       }
@@ -339,12 +488,135 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
     }
   };
 
-  // Filter configs
+  const handleCreateFolder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFolderName.trim()) return;
+    setCreatingFolder(true);
+    try {
+      const result = await filesApi.createFolder(projectId, {
+        name: newFolderName.trim(),
+        parentId: currentFolderId,
+      });
+      if (result.success) {
+        toast.success(t.projects.files.folderCreated);
+        setCreateFolderOpen(false);
+        setNewFolderName('');
+        await loadFiles(currentFolderId);
+        await loadAllFolders();
+      } else {
+        toast.error(result.error || t.projects.files.failedToCreateFolder);
+      }
+    } catch (error) {
+      console.error('Failed to create folder:', error);
+      toast.error(t.projects.files.failedToCreateFolder);
+    } finally {
+      setCreatingFolder(false);
+    }
+  };
+
+  const handleRename = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!renameTarget || !renameValue.trim()) return;
+    setRenaming(true);
+    try {
+      const result = await filesApi.update(projectId, renameTarget.id, {
+        fileName: renameValue.trim(),
+      });
+      if (result.success) {
+        toast.success(t.projects.files.renamedSuccessfully);
+        setRenameOpen(false);
+        setRenameTarget(null);
+        await loadFiles(currentFolderId);
+        if (renameTarget.isFolder) {
+          setBreadcrumb((prev) =>
+            prev.map((b) => (b.id === renameTarget.id ? { ...b, name: renameValue.trim() } : b)),
+          );
+          await loadAllFolders();
+        }
+      } else {
+        toast.error(result.error || t.projects.files.failedToRename);
+      }
+    } catch (error) {
+      console.error('Failed to rename:', error);
+      toast.error(t.projects.files.failedToRename);
+    } finally {
+      setRenaming(false);
+    }
+  };
+
+  const handleMove = async () => {
+    if (!moveTarget) return;
+    setMoving(true);
+    try {
+      const result = await filesApi.update(projectId, moveTarget.id, {
+        parentId: moveSelectedId,
+      });
+      if (result.success) {
+        toast.success(t.projects.files.movedSuccessfully);
+        setMoveOpen(false);
+        setMoveTarget(null);
+        await loadFiles(currentFolderId);
+        if (moveTarget.isFolder) await loadAllFolders();
+      } else {
+        toast.error(result.error || t.projects.files.failedToMove);
+      }
+    } catch (error) {
+      console.error('Failed to move:', error);
+      toast.error(t.projects.files.failedToMove);
+    } finally {
+      setMoving(false);
+    }
+  };
+
+  /** Folders eligible as move destinations (exclude self + descendants). */
+  const moveDestinations = useMemo(() => {
+    if (!moveTarget) return allFolders;
+    if (!moveTarget.isFolder) return allFolders;
+    const blocked = new Set<string>([moveTarget.id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const f of allFolders) {
+        if (f.parentId && blocked.has(f.parentId) && !blocked.has(f.id)) {
+          blocked.add(f.id);
+          grew = true;
+        }
+      }
+    }
+    return allFolders.filter((f) => !blocked.has(f.id));
+  }, [allFolders, moveTarget]);
+
+  const folderPathLabel = useCallback((folder: ExtendedFile) => {
+    const byId = new Map(allFolders.map((f) => [f.id, f]));
+    const parts: string[] = [folder.fileName];
+    let current = folder.parentId;
+    const seen = new Set<string>([folder.id]);
+    while (current && !seen.has(current)) {
+      seen.add(current);
+      const parent = byId.get(current);
+      if (!parent) break;
+      parts.unshift(parent.fileName);
+      current = parent.parentId;
+    }
+    return parts.join(t.projects.files.folderPathSeparator);
+  }, [allFolders, t]);
+
+  const activateRow = useCallback((file: ExtendedFile) => {
+    if (file.isFolder) {
+      void navigateToFolder(file);
+    } else if (canPreview(file.contentType)) {
+      void handlePreview(file);
+    } else {
+      void handleDownload(file);
+    }
+  }, [handleDownload, handlePreview, navigateToFolder]);
+
   const filterConfigs: FilterConfig[] = useMemo(() => [
     {
       field: 'fileType',
       label: t.projects.files.filterType,
       options: [
+        { value: 'folder', label: t.projects.files.groupFolders },
         { value: 'image', label: t.projects.files.filterImages },
         { value: 'video', label: t.projects.files.filterVideos },
         { value: 'audio', label: t.projects.files.filterAudio },
@@ -357,7 +629,6 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
     },
   ], [t]);
 
-  // Group files by upload date
   const groupConfigs: GroupConfig<ExtendedFile>[] = useMemo(() => {
     const now = new Date();
     const oneMonthAgo = subMonths(now, 1);
@@ -365,21 +636,28 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
 
     return [
       {
+        id: 'folders',
+        label: t.projects.files.groupFolders,
+        filter: (f) => f.isFolder,
+        sortOrder: -1,
+      },
+      {
         id: 'today',
         label: t.projects.files.groupToday,
-        filter: (f) => isToday(new Date(f.createdAt)),
+        filter: (f) => !f.isFolder && isToday(new Date(f.createdAt)),
         sortOrder: 0,
       },
       {
         id: 'yesterday',
         label: t.projects.files.groupYesterday,
-        filter: (f) => isYesterday(new Date(f.createdAt)),
+        filter: (f) => !f.isFolder && isYesterday(new Date(f.createdAt)),
         sortOrder: 1,
       },
       {
         id: 'this-week',
         label: t.projects.files.groupThisWeek,
         filter: (f) => {
+          if (f.isFolder) return false;
           const d = new Date(f.createdAt);
           return isThisWeek(d, { weekStartsOn: 1 }) && !isToday(d) && !isYesterday(d);
         },
@@ -389,6 +667,7 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
         id: 'this-month',
         label: t.projects.files.groupThisMonth,
         filter: (f) => {
+          if (f.isFolder) return false;
           const d = new Date(f.createdAt);
           return isThisMonth(d) && !isThisWeek(d, { weekStartsOn: 1 });
         },
@@ -398,6 +677,7 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
         id: 'last-month',
         label: t.projects.files.groupLastMonth,
         filter: (f) => {
+          if (f.isFolder) return false;
           const d = new Date(f.createdAt);
           return !isThisMonth(d) && isAfter(d, oneMonthAgo);
         },
@@ -407,6 +687,7 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
         id: 'last-3-months',
         label: t.projects.files.groupLast3Months,
         filter: (f) => {
+          if (f.isFolder) return false;
           const d = new Date(f.createdAt);
           return !isAfter(d, oneMonthAgo) && isAfter(d, threeMonthsAgo);
         },
@@ -415,13 +696,12 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
       {
         id: 'older',
         label: t.projects.files.groupOlder,
-        filter: (f) => !isAfter(new Date(f.createdAt), threeMonthsAgo),
+        filter: (f) => !f.isFolder && !isAfter(new Date(f.createdAt), threeMonthsAgo),
         sortOrder: 6,
       },
     ];
   }, [t]);
 
-  // Apply filters
   const applyFilters = useCallback((items: ExtendedFile[], filters: ActiveFilter[]) => {
     let result = items;
     filters.forEach(filter => {
@@ -435,27 +715,48 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
     return result;
   }, []);
 
-  // Header columns
   const headerColumns: HeaderColumn[] = useMemo(() => [
     { id: 'name', header: t.projects.files.columnName, width: 'flex-1 min-w-[250px]' },
     { id: 'size', header: t.projects.files.columnSize, width: 'w-[100px]' },
     { id: 'uploaded', header: t.projects.files.columnUploaded, width: 'w-[120px]' },
   ], [t]);
 
-  // Render row
+  const openRename = (file: ExtendedFile) => {
+    setRenameTarget(file);
+    setRenameValue(file.fileName);
+    setRenameOpen(true);
+  };
+
+  const openMove = (file: ExtendedFile) => {
+    setMoveTarget(file);
+    setMoveSelectedId(file.parentId);
+    setMoveOpen(true);
+    void loadAllFolders();
+  };
+
   const renderRow = useCallback((file: ExtendedFile) => {
-    const Icon = getFileIcon(file.contentType);
+    const Icon = file.isFolder ? Folder : getFileIcon(file.contentType);
 
     return (
       <div
         key={file.id}
+        role="button"
+        tabIndex={0}
         className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
-        onClick={() => canPreview(file.contentType) ? handlePreview(file) : handleDownload(file)}
+        onKeyDown={(e) => {
+          if (e.currentTarget !== e.target) return;
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          activateRow(file);
+        }}
+        onClick={() => activateRow(file)}
       >
-        {/* File Icon & Name */}
         <div className="flex-1 min-w-[250px] flex items-center gap-3">
-          <div className="flex-shrink-0 flex items-center justify-center h-9 w-9 rounded-lg bg-gray-100 dark:bg-secondary">
-            <Icon className="h-4 w-4 text-gray-500" />
+          <div className={cn(
+            "flex-shrink-0 flex items-center justify-center h-9 w-9 rounded-lg",
+            file.isFolder ? "bg-amber-50 dark:bg-amber-500/10" : "bg-gray-100 dark:bg-secondary",
+          )}>
+            <Icon className={cn("h-4 w-4", file.isFolder ? "text-amber-600 dark:text-amber-400" : "text-gray-500")} />
           </div>
           <div className="min-w-0">
             <p className="text-sm font-medium text-gray-900 dark:text-foreground truncate">{file.fileName}</p>
@@ -465,39 +766,55 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
           </div>
         </div>
 
-        {/* Size */}
         <div className="w-[100px]">
-          <span className="text-sm text-gray-500">{formatFileSize(file.size)}</span>
+          <span className="text-sm text-gray-500">
+            {file.isFolder ? t.projects.files.folderSizePlaceholder : formatFileSize(file.size)}
+          </span>
         </div>
 
-        {/* Uploaded */}
         <div className="w-[120px]">
           <span className="text-sm text-gray-500">{formatDate(file.createdAt)}</span>
         </div>
 
-        {/* Actions */}
         <div className="w-[80px] flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100"
-            onClick={() => handleDownload(file)}
-          >
-            <Download className="h-4 w-4" />
-          </Button>
+          {!file.isFolder && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100"
+              onClick={() => handleDownload(file)}
+            >
+              <Download className="h-4 w-4" />
+            </Button>
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
                 <EllipsisVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-40">
-              <DropdownMenuItem onClick={() => handleDownload(file)}>
-                <Download className="h-3.5 w-3.5 mr-2" />
-                {t.projects.files.downloadMenuItem}
-              </DropdownMenuItem>
+            <DropdownMenuContent align="end" className="w-44">
+              {file.isFolder ? (
+                <DropdownMenuItem onClick={() => void navigateToFolder(file)}>
+                  <FolderOpen className="h-3.5 w-3.5 mr-2" />
+                  {t.projects.files.openFolder}
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem onClick={() => handleDownload(file)}>
+                  <Download className="h-3.5 w-3.5 mr-2" />
+                  {t.projects.files.downloadMenuItem}
+                </DropdownMenuItem>
+              )}
               {canWrite && (
                 <>
+                  <DropdownMenuItem onClick={() => openRename(file)}>
+                    <Pencil className="h-3.5 w-3.5 mr-2" />
+                    {t.projects.files.renameMenuItem}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => openMove(file)}>
+                    <FolderInput className="h-3.5 w-3.5 mr-2" />
+                    {t.projects.files.moveMenuItem}
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     className="text-red-600"
@@ -516,7 +833,9 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
         </div>
       </div>
     );
-  }, [canWrite, handleDownload, handlePreview, t]);
+  }, [activateRow, canWrite, handleDownload, navigateToFolder, t]);
+
+  const isInFolder = currentFolderId !== null;
 
   return (
     <div
@@ -526,7 +845,6 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Drag overlay */}
       {isDragging && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
           <div className="rounded-xl border-2 border-dashed border-primary/40 bg-background p-12 shadow-lg flex flex-col items-center gap-3">
@@ -539,7 +857,6 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
         </div>
       )}
 
-      {/* Upload Progress */}
       {Object.keys(uploadProgress).length > 0 && (
         <div className="border-b">
           <div className="px-4 py-3 space-y-3">
@@ -573,7 +890,36 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
         </div>
       )}
 
-      {/* Hidden file input */}
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-1 px-4 pt-2 text-sm text-muted-foreground min-h-[28px]">
+        <button
+          type="button"
+          className={cn(
+            "inline-flex items-center gap-1 hover:text-foreground transition-colors",
+            breadcrumb.length === 0 && "text-foreground font-medium",
+          )}
+          onClick={() => void navigateToBreadcrumb(-1)}
+        >
+          <Home className="h-3.5 w-3.5" />
+          {t.projects.files.breadcrumbRoot}
+        </button>
+        {breadcrumb.map((crumb, index) => (
+          <span key={crumb.id} className="inline-flex items-center gap-1 min-w-0">
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-50" />
+            <button
+              type="button"
+              className={cn(
+                "truncate hover:text-foreground transition-colors max-w-[160px]",
+                index === breadcrumb.length - 1 && "text-foreground font-medium",
+              )}
+              onClick={() => void navigateToBreadcrumb(index)}
+            >
+              {crumb.name}
+            </button>
+          </span>
+        ))}
+      </div>
+
       <input
         ref={fileInputRef}
         type="file"
@@ -596,6 +942,17 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
         searchFields={['fileName', 'description']}
         topBarClassName="pt-2 pb-2"
         emptyStateClassName="min-h-[calc(100dvh-350px)]"
+        actionButtons={canWrite ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5"
+            onClick={() => setCreateFolderOpen(true)}
+          >
+            <FolderPlus className="h-3.5 w-3.5" />
+            <span className="hidden md:inline">{t.projects.files.newFolderBtn}</span>
+          </Button>
+        ) : undefined}
         createButton={canWrite ? {
           label: uploading ? t.projects.files.uploadingBtn : t.projects.files.uploadFileBtn,
           onClick: () => fileInputRef.current?.click(),
@@ -604,20 +961,23 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
           icon: (
             <EmptyStateIllustration>
               <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-                {/* Folder fill */}
                 <path d="M20 30C20 27.8 21.8 26 24 26H48L54 34H96C98.2 34 100 35.8 100 38V92C100 94.2 98.2 96 96 96H24C21.8 96 20 94.2 20 92V30Z" className="fill-white dark:fill-white/[0.03]" />
-                {/* Tab highlight */}
                 <path d="M20 30C20 27.8 21.8 26 24 26H48L54 34H20V30Z" className="fill-gray-50 dark:fill-white/[0.06]" />
-                {/* Folder border (on top) */}
                 <path d="M20 30C20 27.8 21.8 26 24 26H48L54 34H96C98.2 34 100 35.8 100 38V92C100 94.2 98.2 96 96 96H24C21.8 96 20 94.2 20 92V30Z" className="stroke-gray-200 dark:stroke-white/15" strokeWidth="1" />
               </svg>
             </EmptyStateIllustration>
           ),
-          title: t.projects.files.noFilesTitle,
-          description: canWrite ? t.projects.files.noFilesDescCanWrite : t.projects.files.noFilesDescViewer,
+          title: isInFolder ? t.projects.files.emptyFolderTitle : t.projects.files.noFilesTitle,
+          description: isInFolder
+            ? (canWrite ? t.projects.files.emptyFolderDescCanWrite : t.projects.files.emptyFolderDescViewer)
+            : (canWrite ? t.projects.files.noFilesDescCanWrite : t.projects.files.noFilesDescViewer),
           action: canWrite ? {
             label: t.projects.files.uploadFileBtn,
             onClick: () => fileInputRef.current?.click(),
+          } : undefined,
+          secondaryAction: canWrite ? {
+            label: t.projects.files.newFolderBtn,
+            onClick: () => setCreateFolderOpen(true),
           } : undefined,
         }}
         noResultsState={{
@@ -626,10 +986,8 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
         }}
       />
 
-      {/* File Preview Overlay */}
       {previewFile && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => { setPreviewFile(null); setPreviewUrl(null); }}>
-          {/* Header bar */}
           <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 py-3 z-10">
             <div className="flex items-center gap-3 min-w-0">
               <div className="flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-lg bg-white/10">
@@ -660,7 +1018,6 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
             </div>
           </div>
 
-          {/* Content */}
           <div className="max-w-[90vw] max-h-[85vh] flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
             {previewLoading ? (
               <div className="flex flex-col items-center gap-3">
@@ -704,13 +1061,153 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
         </div>
       )}
 
-      {/* Delete Confirmation Dialog */}
+      {/* Create folder */}
+      <Dialog open={createFolderOpen} onOpenChange={setCreateFolderOpen}>
+        <DialogContent className="sm:max-w-md">
+          <form onSubmit={handleCreateFolder}>
+            <DialogHeader>
+              <DialogTitle>{t.projects.files.createFolderTitle}</DialogTitle>
+            </DialogHeader>
+            <div className="py-4">
+              <Label htmlFor="folder-name">{t.projects.files.folderNameLabel}</Label>
+              <Input
+                id="folder-name"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                placeholder={t.projects.files.folderNamePlaceholder}
+                autoFocus
+                className="mt-1.5"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setCreateFolderOpen(false)} disabled={creatingFolder}>
+                {t.projects.files.cancel}
+              </Button>
+              <Button type="submit" disabled={!newFolderName.trim() || creatingFolder}>
+                {creatingFolder ? t.projects.files.creatingFolder : t.projects.files.createFolder}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename */}
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent className="sm:max-w-md">
+          <form onSubmit={handleRename}>
+            <DialogHeader>
+              <DialogTitle>{t.projects.files.renameTitle}</DialogTitle>
+            </DialogHeader>
+            <div className="py-4">
+              <Label htmlFor="rename-name">{t.projects.files.renameLabel}</Label>
+              <Input
+                id="rename-name"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                autoFocus
+                className="mt-1.5"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setRenameOpen(false)} disabled={renaming}>
+                {t.projects.files.cancel}
+              </Button>
+              <Button type="submit" disabled={!renameValue.trim() || renaming}>
+                {renaming ? t.projects.files.renaming : t.projects.files.renameSave}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Move */}
+      <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle>
+              {t.projects.files.moveTitle.replace('{name}', moveTarget?.fileName ?? '')}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <p className="text-sm text-muted-foreground mb-3">{t.projects.files.moveSelectDestination}</p>
+            <div className="border rounded-md max-h-[280px] overflow-y-auto">
+              <Button
+                variant="ghost"
+                onClick={() => setMoveSelectedId(null)}
+                className={cn(
+                  'w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors h-auto justify-start rounded-none',
+                  moveSelectedId === null
+                    ? 'bg-accent text-accent-foreground'
+                    : 'hover:bg-muted',
+                )}
+              >
+                <Home className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="font-medium">{t.projects.files.moveRoot}</span>
+                {moveTarget?.parentId === null && (
+                  <span className="text-xs text-muted-foreground ml-auto">{t.projects.files.moveCurrent}</span>
+                )}
+              </Button>
+
+              {moveDestinations.map((folder) => (
+                <Button
+                  key={folder.id}
+                  variant="ghost"
+                  onClick={() => setMoveSelectedId(folder.id)}
+                  className={cn(
+                    'w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors h-auto justify-start rounded-none',
+                    moveSelectedId === folder.id
+                      ? 'bg-accent text-accent-foreground'
+                      : 'hover:bg-muted',
+                  )}
+                >
+                  {moveSelectedId === folder.id ? (
+                    <FolderOpen className="h-4 w-4 text-amber-500 shrink-0" />
+                  ) : (
+                    <Folder className="h-4 w-4 text-amber-500 shrink-0" />
+                  )}
+                  <span className="truncate">{folderPathLabel(folder)}</span>
+                  {moveTarget?.parentId === folder.id && (
+                    <span className="text-xs text-muted-foreground ml-auto">{t.projects.files.moveCurrent}</span>
+                  )}
+                </Button>
+              ))}
+
+              {moveDestinations.length === 0 && (
+                <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                  {t.projects.files.moveNoFolders}
+                </div>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMoveOpen(false)} disabled={moving}>
+              {t.projects.files.cancel}
+            </Button>
+            <Button
+              onClick={() => void handleMove()}
+              disabled={moving || moveSelectedId === (moveTarget?.parentId ?? null)}
+            >
+              {moving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+              {t.projects.files.moveHere}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t.projects.files.deleteFileTitle}</DialogTitle>
+            <DialogTitle>
+              {fileToDelete?.isFolder
+                ? t.projects.files.deleteFolderTitle
+                : t.projects.files.deleteFileTitle}
+            </DialogTitle>
             <DialogDescription>
-              {t.projects.files.deleteFileConfirm.replace('{name}', fileToDelete?.fileName ?? '')}
+              {(fileToDelete?.isFolder
+                ? t.projects.files.deleteFolderConfirm
+                : t.projects.files.deleteFileConfirm
+              ).replace('{name}', fileToDelete?.fileName ?? '')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -726,6 +1223,39 @@ export default function FilesComponent({ projectId, initialFiles }: FilesCompone
               ) : (
                 t.projects.files.deleteMenuItem
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Duplicate name on upload */}
+      <Dialog
+        open={conflictDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && conflictResolverRef.current) {
+            resolveNameConflict('cancel');
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t.projects.files.duplicateFileTitle}</DialogTitle>
+            <DialogDescription>
+              {t.projects.files.duplicateFileConfirm.replace(
+                '{name}',
+                conflictFileName ?? '',
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col-reverse sm:flex-row sm:justify-end gap-2">
+            <Button variant="outline" onClick={() => resolveNameConflict('cancel')}>
+              {t.projects.files.cancel}
+            </Button>
+            <Button variant="secondary" onClick={() => resolveNameConflict('new')}>
+              {t.projects.files.uploadAsNew}
+            </Button>
+            <Button onClick={() => resolveNameConflict('replace')}>
+              {t.projects.files.replaceExisting}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -7,7 +7,7 @@ import { Textarea } from '../../textarea';
 import { Button } from '../../button';
 import { Variable } from 'lucide-react';
 import { cn } from '../../../lib/utils';
-import { VariablePicker, buildAllVariables, type VariableGroup } from './variable-picker';
+import { VariablePicker, buildAllVariables, type VariableGroup, type VariablePickerProps } from './variable-picker';
 
 interface VariableInputProps {
   value: string;
@@ -31,6 +31,8 @@ interface VariableInputProps {
   excludeGroups?: string[];
   /** i18n label for the "Insert" button. */
   insertButtonLabel?: string;
+  /** i18n labels for the variable picker popover. */
+  labels?: VariablePickerProps['labels'];
 }
 
 export function VariableInput({
@@ -47,10 +49,12 @@ export function VariableInput({
   extraVariableGroups,
   excludeGroups,
   insertButtonLabel,
+  labels: pickerLabels,
   inputRef: externalRef,
 }: VariableInputProps & { inputRef?: React.RefObject<HTMLInputElement | HTMLTextAreaElement | null> }) {
   const internalRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
-  const inputRef = externalRef || internalRef;
+  // Memoised so the hooks below can list it without re-running every render.
+  const inputRef = useMemo(() => externalRef ?? internalRef, [externalRef]);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [autocomplete, setAutocomplete] = useState<{
     open: boolean;
@@ -60,8 +64,8 @@ export function VariableInput({
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   const allVariables = useMemo(
-    () => buildAllVariables({ triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups }),
-    [triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups]
+    () => buildAllVariables({ triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups, labels: pickerLabels }),
+    [triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups, pickerLabels],
   );
 
   const filteredVariables = useMemo(() => {
@@ -94,7 +98,7 @@ export function VariableInput({
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
-  }, [autocomplete.open]);
+  }, [autocomplete.open, inputRef]);
 
   const handleInputChange = useCallback(
     (newValue: string) => {
@@ -119,7 +123,7 @@ export function VariableInput({
         setAutocomplete({ open: true, query: between, startPos: lastOpen });
       }, 0);
     },
-    [onChange]
+    [onChange, inputRef]
   );
 
   const handleAutocompleteSelect = useCallback(
@@ -140,7 +144,7 @@ export function VariableInput({
         }
       }, 0);
     },
-    [autocomplete, value, onChange]
+    [autocomplete, value, onChange, inputRef]
   );
 
   const handleVariableSelect = useCallback(
@@ -163,7 +167,7 @@ export function VariableInput({
         }
       }, 0);
     },
-    [value, onChange]
+    [value, onChange, inputRef]
   );
 
   const handleKeyDown = useCallback(
@@ -190,6 +194,7 @@ export function VariableInput({
   );
 
   const hasVariables = value.includes('{{') && value.includes('}}');
+  const resolvedInsertLabel = insertButtonLabel ?? pickerLabels?.insertButton ?? 'Insert';
 
   const InputComponent = multiline ? Textarea : Input;
 
@@ -211,7 +216,7 @@ export function VariableInput({
   return (
     <div className="relative">
       <InputComponent
-        ref={inputRef as any}
+        ref={inputRef as React.RefObject<HTMLInputElement & HTMLTextAreaElement>}
         value={value}
         onChange={(e) => handleInputChange(e.target.value)}
         onKeyDown={handleKeyDown}
@@ -228,7 +233,10 @@ export function VariableInput({
           extraVariableGroups={extraVariableGroups}
           excludeGroups={excludeGroups}
           onSelect={handleVariableSelect}
-          labels={{ insertButton: insertButtonLabel }}
+          labels={{
+            ...pickerLabels,
+            insertButton: resolvedInsertLabel,
+          }}
           trigger={
             <Button
               type="button"
@@ -238,7 +246,7 @@ export function VariableInput({
               disabled={disabled}
             >
               <Variable className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{insertButtonLabel || 'Insert'}</span>
+              <span className="hidden sm:inline">{resolvedInsertLabel}</span>
             </Button>
           }
         />

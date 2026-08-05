@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Search,
   Link2Off,
+  Link as LinkIcon,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -33,8 +34,10 @@ import {
 import { Separator } from '@weldsuite/ui/components/separator';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
+import { usePermissions } from '@weldsuite/permissions/react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { Link } from '@/lib/router';
 import {
   useCreateNangoConnectSession,
   useDisconnectNangoConnection,
@@ -196,9 +199,10 @@ interface ConnectorCardProps {
   onConnect: (providerConfigKey: string) => void;
   onOpenDetails: (connection: NangoConnection) => void;
   isConnecting: boolean;
+  canConnect: boolean;
 }
 
-function ConnectorCard({ connector, onConnect, onOpenDetails, isConnecting }: ConnectorCardProps) {
+function ConnectorCard({ connector, onConnect, onOpenDetails, isConnecting, canConnect }: ConnectorCardProps) {
   const { t, language } = useI18n();
   const tc = t.weldconnect.connectors;
   const Icon = getIcon(connector.icon);
@@ -255,7 +259,7 @@ function ConnectorCard({ connector, onConnect, onOpenDetails, isConnecting }: Co
         <Button
           size="sm"
           variant={connection?.isConnected ? 'ghost' : 'default'}
-          disabled={isConnecting}
+          disabled={isConnecting || !canConnect}
           onClick={() => onConnect(connector.providerConfigKey)}
         >
           {isConnecting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
@@ -444,6 +448,10 @@ function ConnectionDetails({ connectionId, onOpenChange, onDisconnect }: Connect
 export function ConnectorsClient() {
   const { t, format } = useI18n();
   const tc = t.weldconnect.connectors;
+  const { canAny, isLoading: permissionsLoading } = usePermissions();
+  const canView = canAny('integrations:read', 'weldconnect:integrations:read');
+  const canConnect = canAny('integrations:create', 'weldconnect:integrations:create');
+  const canManage = canAny('integrations:update', 'weldconnect:integrations:update');
 
   const [search, setSearch] = useState('');
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -472,6 +480,9 @@ export function ConnectorsClient() {
         connector.provider.toLowerCase().includes(query),
     );
   }, [connectors, search]);
+
+  const isSearchEmpty = connectors.length > 0 && filtered.length === 0;
+  const isCatalogEmpty = !isLoading && connectors.length === 0;
 
   const handleConnect = async (providerConfigKey: string) => {
     const result = await connect(providerConfigKey, async () => {
@@ -505,41 +516,64 @@ export function ConnectorsClient() {
   };
 
   return (
-    <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{tc.title}</h1>
-        <p className="text-muted-foreground mt-1 text-sm">{tc.description}</p>
-      </div>
-
-      <div className="relative max-w-sm">
-        <Search className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
-        <Input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder={tc.searchPlaceholder}
-          className="pl-9"
-        />
-      </div>
-
-      {isLoading ? (
-        <div className="flex justify-center py-16">
-          <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto max-w-[1600px] space-y-6 px-4 py-6 md:space-y-8 md:p-8">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight md:text-3xl">{tc.title}</h1>
+          <p className="text-muted-foreground mt-1 text-sm md:text-base">{tc.description}</p>
         </div>
-      ) : filtered.length === 0 ? (
-        <p className="text-muted-foreground py-16 text-center text-sm">{tc.empty}</p>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((connector) => (
-            <ConnectorCard
-              key={connector.providerConfigKey}
-              connector={connector}
-              onConnect={handleConnect}
-              onOpenDetails={(connection) => setDetailId(connection.id)}
-              isConnecting={connecting === connector.providerConfigKey}
-            />
-          ))}
-        </div>
-      )}
+
+        {!permissionsLoading && !canView ? (
+          <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/10">
+            <AlertCircle className="h-5 w-5 shrink-0 text-amber-600" />
+            <p className="text-sm text-amber-800 dark:text-amber-200">{t.weldconnect.integrations.permissionDenied}</p>
+          </div>
+        ) : (
+          <>
+            <div className="relative max-w-sm">
+              <Search className="text-muted-foreground absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={tc.searchPlaceholder}
+                className="pl-9"
+              />
+            </div>
+
+            {isLoading ? (
+              <div className="flex justify-center py-16">
+                <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
+              </div>
+            ) : isCatalogEmpty ? (
+              <div className="flex flex-col items-center rounded-lg border border-dashed py-16 text-center">
+                <Database className="text-muted-foreground/40 mb-4 h-12 w-12" />
+                <p className="max-w-md text-sm font-medium">{tc.emptyCatalog}</p>
+                <p className="text-muted-foreground mt-2 max-w-md text-xs">{tc.emptyCatalogHint}</p>
+                <Button variant="outline" size="sm" className="mt-4" asChild>
+                  <Link href="/weldconnect/integrations">
+                    <LinkIcon className="mr-1.5 h-3.5 w-3.5" />
+                    {t.weldconnect.breadcrumbs.integrations}
+                  </Link>
+                </Button>
+              </div>
+            ) : isSearchEmpty ? (
+              <p className="text-muted-foreground py-16 text-center text-sm">{tc.empty}</p>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {filtered.map((connector) => (
+                  <ConnectorCard
+                    key={connector.providerConfigKey}
+                    connector={connector}
+                    onConnect={handleConnect}
+                    onOpenDetails={(connection) => setDetailId(connection.id)}
+                    isConnecting={connecting === connector.providerConfigKey}
+                    canConnect={canConnect}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
 
       <ConnectionDetails
         connectionId={detailId}
@@ -557,6 +591,7 @@ export function ConnectorsClient() {
         loading={disconnect.isPending}
         onConfirm={handleDisconnect}
       />
+      </div>
     </div>
   );
 }

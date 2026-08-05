@@ -17,7 +17,7 @@
     "@weldsuite/credits": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.12.27",
+    "hono": "^4.12.34",
     "nanoid": "^5.1.5",
     "postgres": "^3.4.7"
   },

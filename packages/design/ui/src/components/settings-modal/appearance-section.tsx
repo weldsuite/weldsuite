@@ -29,7 +29,7 @@ export function AppearanceSection({
           <CardDescription>Select your preferred theme for the application</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <RadioGroup value={theme} onValueChange={(v: any) => onThemeChange(v)}>
+          <RadioGroup value={theme} onValueChange={(v) => onThemeChange(v as typeof theme)}>
             <div className="grid grid-cols-3 gap-4">
               <label className={cn(
                 "flex flex-col items-center justify-center rounded-lg border-2 p-4 cursor-pointer hover:bg-accent",

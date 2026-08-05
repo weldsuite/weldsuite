@@ -12,7 +12,7 @@ interface VideoTextProps {
   style?: React.CSSProperties;
 }
 
-export function VideoText({ src, children, className, fontFamily = "sans-serif", fontSize = "200px", style }: VideoTextProps) {
+export function VideoText({ src, children, className, fontFamily = "sans-serif", style }: VideoTextProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isVideoReady, setIsVideoReady] = useState(false);

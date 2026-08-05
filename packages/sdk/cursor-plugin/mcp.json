@@ -1,0 +1,6 @@
+{
+  "weldsuite": {
+    "url": "https://mcp.weldsuite.org/mcp",
+    "transport": "http"
+  }
+}

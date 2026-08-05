@@ -19,6 +19,8 @@ import {
   Users,
   FileText,
   Globe,
+  Plug,
+  GitMerge,
   type LucideIcon,
 } from 'lucide-react';
 import type { TriggerType } from '@/hooks/queries/use-automation-queries';
@@ -37,15 +39,18 @@ interface DisplayTriggerType extends TriggerType {
 
 interface TriggersClientProps {
   triggerTypes: DisplayTriggerType[];
-  entityEvents: Array<{ entityType: string; events: EventTypeDefinition[] }>;
+  entityEvents: Array<{ entityType: string; label?: string; events: EventTypeDefinition[] }>;
 }
 
 const TRIGGER_ICONS: Record<string, LucideIcon> = {
   schedule: Clock,
   entity_event: Database,
+  integration_event: Plug,
+  workflow_complete: GitMerge,
   webhook: Webhook,
   manual: Play,
   api: Globe,
+  integration: Plug,
 };
 
 const ENTITY_ICONS: Record<string, LucideIcon> = {
@@ -60,7 +65,7 @@ const ENTITY_ICONS: Record<string, LucideIcon> = {
 export function TriggersClient({ triggerTypes, entityEvents }: TriggersClientProps) {
   const { t } = useI18n();
   useBreadcrumbs([
-    { label: t.weldconnect.breadcrumbs.task, href: '/weldconnect' },
+    { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },
     { label: t.weldconnect.breadcrumbs.triggers },
   ]);
 
@@ -104,6 +109,12 @@ export function TriggersClient({ triggerTypes, entityEvents }: TriggersClientPro
         return 'bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-300';
       case 'api':
         return 'bg-pink-50 text-pink-700 dark:bg-pink-900/20 dark:text-pink-300';
+      case 'integration_event':
+        return 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-300';
+      case 'workflow_complete':
+        return 'bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-300';
+      case 'integration':
+        return 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-300';
       default:
         return 'bg-gray-50 text-gray-700 dark:bg-background/20 dark:text-muted-foreground';
     }
@@ -168,7 +179,9 @@ export function TriggersClient({ triggerTypes, entityEvents }: TriggersClientPro
             <TabsTrigger value="all" className="text-xs md:text-sm whitespace-nowrap">{t.weldconnect.triggers.tabs.all}</TabsTrigger>
             <TabsTrigger value="schedule" className="text-xs md:text-sm whitespace-nowrap">{t.weldconnect.triggers.tabs.schedule}</TabsTrigger>
             <TabsTrigger value="entity_event" className="text-xs md:text-sm whitespace-nowrap">{t.weldconnect.triggers.tabs.entityEvent}</TabsTrigger>
+            <TabsTrigger value="integration" className="text-xs md:text-sm whitespace-nowrap">{t.weldconnect.triggers.tabs.integration}</TabsTrigger>
             <TabsTrigger value="webhook" className="text-xs md:text-sm whitespace-nowrap">{t.weldconnect.triggers.tabs.webhook}</TabsTrigger>
+            <TabsTrigger value="manual" className="text-xs md:text-sm whitespace-nowrap">{t.weldconnect.triggers.tabs.manual}</TabsTrigger>
           </TabsList>
         </div>
 
@@ -267,13 +280,15 @@ export function TriggersClient({ triggerTypes, entityEvents }: TriggersClientPro
 
           <TabsContent value="entity_event" className="space-y-6">
             <div className="space-y-6">
-              {entityEvents.map(({ entityType, events }) => {
+              {entityEvents.map(({ entityType, label, events }) => {
                 const EntityIcon = ENTITY_ICONS[entityType] || Database;
                 return (
                   <div key={entityType} className="space-y-4">
                     <div className="flex items-center gap-2">
                       <EntityIcon className="h-5 w-5" />
-                      <h3 className="text-lg font-semibold capitalize">{t.weldconnect.triggersClient.entityEventsHeading.replace('{entityType}', entityType)}</h3>
+                      <h3 className="text-lg font-semibold capitalize">
+                        {label ?? t.weldconnect.triggersClient.entityEventsHeading.replace('{entityType}', entityType)}
+                      </h3>
                       <Badge variant="secondary">{events.length}</Badge>
                     </div>
 
@@ -310,6 +325,46 @@ export function TriggersClient({ triggerTypes, entityEvents }: TriggersClientPro
                     <div className="flex items-center gap-3">
                       <div className={`p-2 rounded-lg ${getCategoryColor('webhook')}`}>
                         <Webhook className="h-5 w-5" />
+                      </div>
+                      <CardTitle className="text-base">{trigger.name}</CardTitle>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <CardDescription className="text-sm">{trigger.description}</CardDescription>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="integration" className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {(triggersByCategory.integration ?? []).map((trigger) => (
+                <Card key={trigger.id} className="hover:shadow-md transition-shadow">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2 rounded-lg ${getCategoryColor('integration')}`}>
+                        <Plug className="h-5 w-5" />
+                      </div>
+                      <CardTitle className="text-base">{trigger.name}</CardTitle>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <CardDescription className="text-sm">{trigger.description}</CardDescription>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="manual" className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {(triggersByCategory.manual ?? []).map((trigger) => (
+                <Card key={trigger.id} className="hover:shadow-md transition-shadow">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2 rounded-lg ${getCategoryColor('manual')}`}>
+                        <Play className="h-5 w-5" />
                       </div>
                       <CardTitle className="text-base">{trigger.name}</CardTitle>
                     </div>

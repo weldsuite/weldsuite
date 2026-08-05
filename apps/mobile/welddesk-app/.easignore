@@ -31,7 +31,6 @@ apps/web/helpcenter
 apps/web/parcel-tracking-portal
 apps/web/parcel-return-portal
 apps/tools/migrate-databases
-apps/mobile/weldsuite-app
 apps/mobile/weldbooks-app
 apps/mobile/weldchat-app
 apps/mobile/weldcrm-app

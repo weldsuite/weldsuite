@@ -1,80 +1,28 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
 import {
   Settings,
   Users,
   Building2,
-  Lock,
   Key,
   Database,
-  Server,
-  Globe,
   Shield,
-  AlertCircle,
   CreditCard,
-  TrendingUp,
-  FileText,
   Bell,
-  UserCheck,
-  HelpCircle,
-  Home,
   Search,
   Palette,
-  Languages,
-  FileDown,
-  Trash2,
-  Moon,
-  Sun,
-  Monitor,
-  Check,
-  ChevronRight,
-  Volume2,
-  VolumeX,
   Mail,
-  Smartphone,
-  Wifi,
-  WifiOff,
-  Eye,
-  EyeOff,
   Download,
-  Upload,
   RefreshCw,
   Save,
-  X,
-  Laptop,
-  Cloud,
   Zap,
   Activity,
-  Archive,
-  BarChart3,
-  Calendar,
   Clock,
-  Cpu,
-  HardDrive,
-  Headphones,
   Info,
-  Layers,
   Link,
-  LogOut,
   MessageSquare,
-  Mic,
-  Package,
-  Paperclip,
-  Play,
-  Power,
-  Printer,
-  Radio,
-  Rss,
-  Share2,
-  Sliders,
-  Tag,
-  Terminal,
   Trash,
-  User,
-  Video,
-  Webhook,
   Wrench,
   Plus,
   Edit,
@@ -82,20 +30,13 @@ import {
   Copy,
   Filter,
   UserPlus,
-  Building,
-  DollarSign,
   History,
   GitBranch,
-  Code,
-  FileCode,
-  Hash,
-  ExternalLink,
   Crown,
   UserX,
   CheckCircle,
   XCircle,
   AlertTriangle,
-  PauseCircle,
 } from "lucide-react"
 
 import { Dialog } from "./dialog"
@@ -103,19 +44,15 @@ import { DialogContentWide } from "./dialog-wide"
 import { Button } from "./button"
 import { Switch } from "./switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./select"
-import { Slider } from "./slider"
 import { Label } from "./label"
 import { Input } from "./input"
-import { Textarea } from "./textarea"
 import { Badge } from "./badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card"
 import { Separator } from "./separator"
 import { ScrollArea } from "./scroll-area"
-import { RadioGroup, RadioGroupItem } from "./radio-group"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./table"
-import { Avatar, AvatarFallback, AvatarImage } from "./avatar"
+import { Avatar, AvatarFallback } from "./avatar"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "./dropdown-menu"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./tabs"
 import { Progress } from "./progress"
 import { cn } from "../lib/utils"
 import { toast } from "sonner"
@@ -239,37 +176,6 @@ const tabs = [
   },
 ]
 
-// Settings state management
-const useSettingsState = () => {
-  const loadSetting = (key: string, defaultValue: any) => {
-    if (typeof window === 'undefined') return defaultValue
-    const stored = localStorage.getItem(key)
-    if (stored) {
-      try {
-        return JSON.parse(stored)
-      } catch {
-        return defaultValue
-      }
-    }
-    return defaultValue
-  }
-
-  const [theme, setTheme] = React.useState<"light" | "dark" | "system">(() => 
-    loadSetting('theme', 'system')
-  )
-  
-  const saveSetting = (key: string, value: any) => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(key, JSON.stringify(value))
-    }
-  }
-
-  React.useEffect(() => { saveSetting('theme', theme) }, [theme])
-
-  return {
-    theme, setTheme,
-  }
-}
 
 export function SettingsDialogFull({
   open = false,
@@ -279,7 +185,6 @@ export function SettingsDialogFull({
   const [searchQuery, setSearchQuery] = React.useState("")
   const [hasChanges, setHasChanges] = React.useState(false)
   const [selectedUsers, setSelectedUsers] = React.useState<number[]>([])
-  const state = useSettingsState()
 
   const filteredTabs = tabs.filter(tab => 
     tab.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -762,7 +667,7 @@ export function SettingsDialogFull({
                       <Card>
                         <CardHeader>
                           <CardTitle>Current Plan</CardTitle>
-                          <CardDescription>You're currently on the Pro plan</CardDescription>
+                          <CardDescription>You&apos;re currently on the Pro plan</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
                           <div className="flex items-center justify-between p-4 border rounded-lg">

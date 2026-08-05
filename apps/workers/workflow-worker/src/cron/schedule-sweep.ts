@@ -151,7 +151,7 @@ export async function sweepDueSchedules(
             scheduleId: row.schedule_id,
             cronExpression: row.cron_expression,
           },
-          source: row.source === 'helpdesk' ? 'helpdesk' : 'task',
+          source: row.source === 'helpdesk' ? 'helpdesk' : 'weldconnect',
         },
       });
       console.log(`[ScheduleSweep] Dispatched workflow ${row.workflow_id} for schedule ${row.schedule_id}`);

@@ -247,5 +247,7 @@ export const social = {
       postApproved: 'Post approved',
       postRejected: 'Post rejected',
       invalidScheduleTime: 'That schedule time could not be read — check the date and timezone',
+      instagramNeedsMedia:
+        'Instagram does not allow text-only posts. Add an image or video, or remove {accounts}.',
     },
   };

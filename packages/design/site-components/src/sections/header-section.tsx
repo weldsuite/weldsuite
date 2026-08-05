@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData, SectionSettings } from '../types';
 import { Button } from "@weldsuite/ui/components/button";
 import { ShoppingCart, Menu } from "lucide-react";
 import Image from "next/image";
@@ -7,8 +8,8 @@ import Image from "next/image";
 interface HeaderSectionProps {
   title?: string;
   links?: string[];
-  store?: any;
-  settings?: any;
+  store?: StoreData;
+  settings?: SectionSettings;
 }
 
 export default function HeaderSection({ 

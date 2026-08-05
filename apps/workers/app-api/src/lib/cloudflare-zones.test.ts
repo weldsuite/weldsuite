@@ -239,6 +239,92 @@ describe('DNS records', () => {
     expect(calls[0]!.body).toMatchObject({ type: 'MX', content: 'mx.example.com', priority: 10 });
   });
 
+  // Cloudflare prefers RFC 1035 quoted character-strings for TXT. Unquoted
+  // content still works but surfaces a dashboard warning — wrap on write.
+  it('quotes TXT content when sending to Cloudflare', async () => {
+    const calls = withResponses([
+      { body: created({ type: 'TXT', content: '"v=spf1 include:_spf.google.com ~all"' }) },
+    ]);
+
+    const result = await createDnsRecordInZone('tok', 'zone_1', {
+      type: 'TXT',
+      name: 'example.com',
+      content: 'v=spf1 include:_spf.google.com ~all',
+    });
+
+    expect(calls[0]!.body).toMatchObject({
+      type: 'TXT',
+      content: '"v=spf1 include:_spf.google.com ~all"',
+    });
+    // Response is unwrapped so local storage / UI stay quote-free.
+    expect(result.record).toMatchObject({
+      content: 'v=spf1 include:_spf.google.com ~all',
+    });
+  });
+
+  it('does not double-quote TXT content that is already quoted', async () => {
+    const calls = withResponses([
+      { body: created({ type: 'TXT', content: '"already-quoted"' }) },
+    ]);
+
+    await createDnsRecordInZone('tok', 'zone_1', {
+      type: 'TXT',
+      name: 'example.com',
+      content: '"already-quoted"',
+    });
+
+    expect(calls[0]!.body.content).toBe('"already-quoted"');
+  });
+
+  it('escapes embedded quotes inside TXT content', async () => {
+    const calls = withResponses([
+      { body: created({ type: 'TXT', content: '"say \\"hello\\""' }) },
+    ]);
+
+    await createDnsRecordInZone('tok', 'zone_1', {
+      type: 'TXT',
+      name: 'example.com',
+      content: 'say "hello"',
+    });
+
+    expect(calls[0]!.body.content).toBe('"say \\"hello\\""');
+  });
+
+  it('preserves leading and trailing spaces in TXT content', async () => {
+    const calls = withResponses([
+      { body: created({ type: 'TXT', content: '" value "' }) },
+    ]);
+
+    const result = await createDnsRecordInZone('tok', 'zone_1', {
+      type: 'TXT',
+      name: 'example.com',
+      content: ' value ',
+    });
+
+    expect(calls[0]!.body.content).toBe('" value "');
+    expect(result.record).toMatchObject({ content: ' value ' });
+  });
+
+  it('unwraps multi-string TXT content when reading back', async () => {
+    withResponses([
+      {
+        body: ok([
+          {
+            id: 'rec_txt',
+            type: 'TXT',
+            name: 'example.com',
+            content: '"chunk-one" "chunk-two"',
+            ttl: 3600,
+          },
+        ]),
+      },
+    ]);
+
+    const records = await listDnsRecordsInZone('tok', 'zone_1');
+
+    expect(records[0]!.content).toBe('chunk-onechunk-two');
+  });
+
   // The migration's headline fix — Cloudflare rejects `content` on SRV.
   it('converts SRV content into the structured data object', async () => {
     const calls = withResponses([{ body: created({ type: 'SRV' }) }]);

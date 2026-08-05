@@ -6,3 +6,5 @@ expo-env.d.ts
 .env
 .env.local
 # @end expo-cli
+# Expo
+.expo/

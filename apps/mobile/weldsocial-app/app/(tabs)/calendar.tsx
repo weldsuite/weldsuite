@@ -8,7 +8,7 @@ import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { Spinner } from '@weldsuite/mobile-ui/components/Spinner';
 import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 import type { SocialAccount, SocialPost } from '@weldsuite/app-api-client/domains/social';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
 import { PostCard } from '@/components/PostCard';
 import { toDayKey } from '@/lib/social';

@@ -42,8 +42,8 @@ const FALLBACK_CATALOG: Record<string, AppDefinition> = {
     code: 'weldconnect',
     name: 'WeldConnect',
     description:
-      'Personal task management for tracking to-dos, deadlines, and daily productivity',
-    icon: 'CheckSquare',
+      'Workspace workflow automation — triggers, actions, integrations, and execution monitoring',
+    icon: 'Zap',
     category: 'Productivity',
     path: '/weldconnect',
   },

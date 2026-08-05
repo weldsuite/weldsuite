@@ -12,7 +12,7 @@ interface TierProgressProps {
     badgeIcon?: string | null;
     badgeColor: string;
     description?: string | null;
-    benefits?: any;
+    benefits?: string[] | null;
   } | null;
   nextTier?: {
     name: string;
@@ -21,7 +21,7 @@ interface TierProgressProps {
     badgeIcon?: string | null;
     badgeColor: string;
     description?: string | null;
-    benefits?: any;
+    benefits?: string[] | null;
   } | null;
   totalPoints: number;
   className?: string;

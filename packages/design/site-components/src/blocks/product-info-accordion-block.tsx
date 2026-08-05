@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData } from '../types';
 import React, { useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 
@@ -14,10 +15,7 @@ export interface ProductInfoAccordionBlockProps {
   textColor?: string;
   borderColor?: string;
   mode?: 'live' | 'edit' | 'preview';
-  store?: {
-    selectedProduct?: any;
-    [key: string]: any;
-  };
+  store?: StoreData;
 }
 
 const DEFAULT_ITEMS: AccordionItem[] = [
@@ -53,7 +51,9 @@ export function ProductInfoAccordionBlock({
 
   // Use product info from store if available
   const productInfo = store?.selectedProduct?.info;
-  const displayItems = productInfo && productInfo.length > 0 ? productInfo : items;
+  const displayItems: AccordionItem[] = productInfo && productInfo.length > 0
+    ? productInfo.map((row, i) => ({ id: String(i), title: row.title ?? '', content: row.content ?? '' }))
+    : items;
 
   const toggleItem = (id: string) => {
     setOpenItem(prev => prev === id ? null : id);

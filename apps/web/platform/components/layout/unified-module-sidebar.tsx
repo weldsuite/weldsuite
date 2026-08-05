@@ -34,6 +34,7 @@ import { useWeldchatSidebarItems } from '@/app/weldchat/hooks/use-weldchat-sideb
 import { useCalendarSidebarItems } from '@/app/weldcalendar/hooks/use-calendar-sidebar-items';
 import { useHomeSidebarItems } from '@/app/use-home-sidebar-items';
 import { useAgentsSidebarItems } from '@/app/agents/hooks/use-agents-sidebar-items';
+import { useWeldconnectSidebarItems } from '@/app/weldconnect/hooks/use-weldconnect-sidebar-items';
 import { useHelpdeskFolderCounts, type HelpdeskFolderCounts } from '@/hooks/queries/use-helpdesk-queries';
 
 interface UnifiedModuleSidebarProps {
@@ -134,6 +135,7 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
   const calendarItems = useCalendarSidebarItems(moduleKey === 'weldcalendar');
   const homeItems = useHomeSidebarItems(moduleKey === 'home');
   const agentsItems = useAgentsSidebarItems(moduleKey === 'agents');
+  const weldconnectItems = useWeldconnectSidebarItems(moduleKey === 'weldconnect');
   const { data: folderCounts } = useHelpdeskFolderCounts();
 
   const config = moduleKey ? MODULE_CONFIGS[moduleKey] : null;
@@ -176,6 +178,9 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
       break;
     case 'agents':
       menuItems = agentsItems.menuGroups;
+      break;
+    case 'weldconnect':
+      menuItems = weldconnectItems.menuGroups;
       break;
     default:
       menuItems = staticItems;

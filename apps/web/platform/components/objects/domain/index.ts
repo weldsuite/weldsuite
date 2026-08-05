@@ -1,3 +1,12 @@
+/**
+ * Domain object panel registration.
+ *
+ * The panel is a first-class `EntityDetailView` panel (see `domain-panel.tsx`),
+ * matching the task / person / company panels. It used to delegate to a
+ * bespoke `components/weldhost/domain-detail-panel.tsx`, which has been
+ * deleted.
+ */
+
 import { lazy } from 'react';
 import { registerObjectPanel } from '@/components/object-panel';
 

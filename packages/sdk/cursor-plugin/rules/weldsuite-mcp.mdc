@@ -1,0 +1,14 @@
+---
+description: Use WeldSuite MCP as the source of truth for WeldFlow tasks and never invent task state.
+alwaysApply: true
+---
+
+# WeldSuite MCP
+
+When the user mentions a WeldFlow / WeldSuite task, task id (`tsk_…`), task URL, or asks to fix / claim / list / close work:
+
+1. Use the **weldsuite** MCP server tools (`get_task`, `search_tasks`, `update_task`, `search_projects`, etc.).
+2. Treat WeldSuite as the system of record — do not invent task titles, status, assignees, or acceptance criteria.
+3. Prefer the plugin skills (`fix-task`, `list-tasks`, `claim-task`, `done-task`, `enrich-task`) over ad-hoc workflows.
+4. After meaningful progress or completion, update the task via MCP (comment + status) so the board stays in sync.
+5. If MCP auth fails or tools are unavailable, tell the user to open **Cursor Settings → MCP / Plugins**, enable **WeldSuite**, and complete the OAuth sign-in for `mcp.weldsuite.org`.

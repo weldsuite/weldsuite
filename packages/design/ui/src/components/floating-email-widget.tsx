@@ -17,7 +17,6 @@ import {
 } from 'lucide-react';
 import { Button } from './button';
 import { Input } from './input';
-import { cn } from '../lib/utils';
 import { usePinnedEmail } from '../contexts/pinned-email-context';
 import { toast } from 'sonner';
 import {

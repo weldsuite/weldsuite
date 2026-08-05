@@ -38,19 +38,18 @@ export function AchievementNotification({
     return () => clearTimeout(timer);
   }, []);
 
-  React.useEffect(() => {
-    const timer = setTimeout(() => {
-      handleClose();
-    }, 8000); // Auto-dismiss after 8 seconds
-    return () => clearTimeout(timer);
-  }, []);
-
-  const handleClose = () => {
+  const handleClose = React.useCallback(() => {
     setIsExiting(true);
     setTimeout(() => {
       onClose?.(id);
     }, 300);
-  };
+  }, [id, onClose]);
+
+  React.useEffect(() => {
+    // Auto-dismiss after 8 seconds
+    const timer = setTimeout(() => handleClose(), 8000);
+    return () => clearTimeout(timer);
+  }, [handleClose]);
 
   return (
     <div
@@ -124,11 +123,29 @@ export function AchievementNotification({
   );
 }
 
+/** The milestone a notification is announcing. */
+export interface MilestoneSummary {
+  name: string;
+  description?: string;
+  badgeIcon?: string;
+  badgeColor?: string;
+  points: number;
+  isPhysical?: boolean;
+  physicalReward?: string | null;
+}
+
+/** The achievement record that unlocked the milestone. */
+export interface AchievementSummary {
+  id: string;
+  name?: string;
+  unlockedAt?: string;
+}
+
 interface NotificationContainerProps {
   notifications: Array<{
     id: string;
-    achievement: any;
-    milestone: any;
+    achievement: AchievementSummary;
+    milestone: MilestoneSummary;
   }>;
   onClose: (id: string) => void;
   onViewDetails?: (id: string) => void;
@@ -152,8 +169,8 @@ export function AchievementNotificationContainer({
           <AchievementNotification
             id={notification.id}
             name={notification.milestone.name}
-            description={notification.milestone.description}
-            icon={notification.milestone.badgeIcon}
+            description={notification.milestone.description ?? ''}
+            icon={notification.milestone.badgeIcon ?? undefined}
             color={notification.milestone.badgeColor}
             points={notification.milestone.points}
             isPhysical={notification.milestone.isPhysical}

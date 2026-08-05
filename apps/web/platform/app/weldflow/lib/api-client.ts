@@ -262,6 +262,8 @@ export interface ApiProjectFile {
   updatedAt: string;
   deletedAt: string | null;
   projectId: string | null;
+  /** null = project root. */
+  parentId: string | null;
   fileName: string;
   originalName: string | null;
   mimeType: string;
@@ -964,16 +966,46 @@ export const filesApi = {
   // in `hooks/queries/use-projects-queries.ts`'s `useProjectFiles`.
   list: (
     projectId: string,
-    params?: { page?: number; limit?: number; search?: string; fileType?: string },
+    params?: {
+      limit?: number;
+      fileType?: string;
+      /** `null`/`'root'` = project root; omit + all=true for flat list. */
+      parentId?: string | null;
+      all?: boolean;
+      foldersOnly?: boolean;
+    },
   ) => {
     const searchParams = new URLSearchParams();
     searchParams.set('projectId', projectId);
     if (params?.limit) searchParams.set('limit', String(params.limit));
+    if (params?.all) {
+      searchParams.set('all', 'true');
+    } else if (params && 'parentId' in params) {
+      searchParams.set('parentId', params.parentId ?? 'root');
+    }
+    if (params?.foldersOnly) searchParams.set('foldersOnly', 'true');
+    if (params?.fileType) searchParams.set('fileType', params.fileType);
     return appApiGet<Record<string, unknown>[] | { items: Record<string, unknown>[]; total?: number }>(`/project-files?${searchParams}`);
   },
 
   get: (_projectId: string, fileId: string) =>
     appApiGet<ApiProjectFile>(`/project-files/${fileId}`),
+
+  createFolder: (
+    projectId: string,
+    data: { name: string; parentId?: string | null },
+  ) =>
+    appApiPost<ApiProjectFile>('/project-files/folders', {
+      projectId,
+      name: data.name,
+      parentId: data.parentId ?? null,
+    }),
+
+  update: (
+    _projectId: string,
+    fileId: string,
+    data: { fileName?: string; parentId?: string | null },
+  ) => appApiPatch<{ id: string }>(`/project-files/${fileId}`, data),
 
   // The app-api storage flow is workspace-scoped; entityType+entityId tag the
   // upload so a follow-up confirmUpload can find it. Same shape as the
@@ -1045,7 +1077,14 @@ export const filesApi = {
   // that unwrap the standard `{ data }` envelope.
   confirmUpload: async (
     projectId: string,
-    data: { uploadToken: string; fileKey: string; etag?: string },
+    data: {
+      uploadToken: string;
+      fileKey: string;
+      etag?: string;
+      parentId?: string | null;
+      /** When set, update this existing project_files row instead of creating a new one. */
+      replaceFileId?: string;
+    },
   ) => {
     try {
       const token = await getAuthToken();
@@ -1077,7 +1116,7 @@ export const filesApi = {
         return { success: false, error: message } as ApiResponse<ApiProjectFile>;
       }
       const f = body.file;
-      return appApiPost<ApiProjectFile>('/project-files', {
+      const filePayload = {
         projectId,
         fileName: f.fileName,
         originalName: f.fileName,
@@ -1088,7 +1127,16 @@ export const filesApi = {
         url: f.url,
         storageProvider: 'r2',
         isPublic: f.isPublic,
-      });
+        // On replace, omit parentId unless the caller set it explicitly so we
+        // don't accidentally move the file to project root (null).
+        ...(!data.replaceFileId || data.parentId !== undefined
+          ? { parentId: data.parentId ?? null }
+          : {}),
+      };
+      if (data.replaceFileId) {
+        return appApiPatch<ApiProjectFile>(`/project-files/${data.replaceFileId}`, filePayload);
+      }
+      return appApiPost<ApiProjectFile>('/project-files', filePayload);
     } catch (err) {
       return {
         success: false,

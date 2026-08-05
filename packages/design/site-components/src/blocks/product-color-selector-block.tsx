@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData } from '../types';
 import React, { useState } from 'react';
 import { cn } from '@weldsuite/ui/lib/utils';
 
@@ -8,10 +9,7 @@ export interface ProductColorSelectorBlockProps {
   textColor?: string;
   borderRadius?: number;
   mode?: 'live' | 'edit' | 'preview';
-  store?: {
-    selectedProduct?: any;
-    [key: string]: any;
-  };
+  store?: StoreData;
 }
 
 export function ProductColorSelectorBlock({
@@ -29,8 +27,8 @@ export function ProductColorSelectorBlock({
 }: ProductColorSelectorBlockProps) {
   // Extract colors from product variants if available
   const productColors = store?.selectedProduct?.variants
-    ?.filter((v: any) => v.color)
-    .map((v: any) => ({ name: v.color, color: v.colorHex || '#000000' })) || [];
+    ?.filter((v) => v.color)
+    .map((v) => ({ name: v.color as string, color: v.colorHex || '#000000' })) || [];
 
   const displayColors = productColors.length > 0 ? productColors : availableColors;
   const [selectedColor, setSelectedColor] = useState(displayColors[0]?.name || 'Black');
@@ -41,7 +39,7 @@ export function ProductColorSelectorBlock({
         Color: <span className="font-normal">{selectedColor}</span>
       </p>
       <div className="flex gap-2">
-        {displayColors.map((colorOption: any) => (
+        {displayColors.map((colorOption) => (
           <button
             key={colorOption.name}
             onClick={() => setSelectedColor(colorOption.name)}

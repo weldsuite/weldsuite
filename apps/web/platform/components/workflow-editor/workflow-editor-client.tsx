@@ -61,6 +61,7 @@ import {
   ArrowUpRight,
   Sparkles,
   Tags,
+  Plug,
 } from 'lucide-react';
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { Link, useRouter, useSearchParams } from '@/lib/router';
@@ -76,7 +77,7 @@ import {
   getMissingRequiredFields,
   isStepConfigured,
 } from '@weldsuite/ui/components/workflow-canvas';
-import type { WorkflowStep, TriggerConfig, WorkflowCanvasLabels } from '@weldsuite/ui/components/workflow-canvas';
+import type { WorkflowStep, TriggerConfig, WorkflowCanvasLabels, ConditionStepConfig } from '@weldsuite/ui/components/workflow-canvas';
 import { buildAllVariables } from '@weldsuite/ui/components/workflow-canvas/parts/variable-picker';
 import { WorkflowTemplateDialog } from '@/app/weldconnect/components/workflow-template-dialog';
 import { TriggerEmptyState } from './components/trigger-empty-state';
@@ -92,6 +93,7 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { RadioGroup, RadioGroupItem } from '@weldsuite/ui/components/radio-group';
+import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@weldsuite/ui/components/dialog';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -159,9 +161,20 @@ export interface EditorWorkflow {
   steps?: WorkflowStepBag[];
 }
 
-// The entity-events endpoint reports each object's events as bare type
-// strings (e.g. "created"); give each one a display name until the API
-// carries richer metadata. Mirrors app/weldconnect/triggers/page.tsx.
+// Entity-events API entries may carry bare strings or { id, name, description } objects.
+type EntityEventDetail = string | { id: string; name: string; description?: string };
+
+function getEntityEventId(event: EntityEventDetail): string {
+  return typeof event === 'string' ? event : event.id;
+}
+
+function getEntityEventLabel(event: EntityEventDetail): string {
+  if (typeof event === 'string') return humanizeEventType(event);
+  return event.name || humanizeEventType(event.id);
+}
+
+// The entity-events endpoint may report bare type strings (e.g. "created") or
+// richer objects with name/description from the dashboard catalog.
 function humanizeEventType(eventType: string): string {
   return eventType.charAt(0).toUpperCase() + eventType.slice(1).replace(/_/g, ' ');
 }
@@ -283,6 +296,14 @@ function getTriggerWarningMessage(trigger: TriggerBag | null | undefined, trigge
       if (!(config.sourceWorkflowId || trigger.sourceWorkflowId)) return 'Missing source workflow';
       return null;
     }
+    case 'integration_event': {
+      const config = trigger.config || trigger;
+      const provider = trigger.provider || config.provider;
+      const event = trigger.event || config.event;
+      if (!provider || !event) return 'Missing integration provider and event';
+      return null;
+    }
+    case 'api':
     case 'manual':
       return null;
     default:
@@ -348,12 +369,22 @@ const HELPDESK_ACTION_TYPES: SidebarActionType[] = [
 // Trigger type static metadata (icons/colors only — names resolved from i18n at runtime)
 const TRIGGER_TYPE_META: Record<string, { icon: LucideIcon; color: string }> = {
   entity_event: { icon: Zap, color: 'bg-purple-500' },
+  integration_event: { icon: Plug, color: 'bg-indigo-500' },
   schedule: { icon: Calendar, color: 'bg-blue-500' },
   workflow_complete: { icon: GitMerge, color: 'bg-orange-500' },
   webhook: { icon: Webhook, color: 'bg-pink-500' },
   manual: { icon: MousePointerClick, color: 'bg-gray-500' },
+  api: { icon: Code, color: 'bg-teal-500' },
 };
-const TRIGGER_TYPE_IDS = ['entity_event', 'schedule', 'workflow_complete', 'webhook', 'manual'] as const;
+const TRIGGER_TYPE_IDS = [
+  'entity_event',
+  'integration_event',
+  'schedule',
+  'workflow_complete',
+  'webhook',
+  'manual',
+  'api',
+] as const;
 
 // Helpdesk flat routing triggers (single-click selection)
 const HELPDESK_ROUTING_TRIGGERS = [
@@ -430,10 +461,13 @@ function getConfigSummary(actionType: string, config: Record<string, unknown>): 
 
 export function WorkflowEditorClient({
   workflow: initialWorkflow,
+  actionTypes,
+  triggerTypes,
   entityEvents,
   emailAccounts = [],
   workspaceMembers = [],
   workflowVariables = [],
+  workflowsForChaining = [],
   webhookData,
   basePath = '/weldconnect/workflows',
   parentLabel = 'Task',
@@ -577,6 +611,11 @@ export function WorkflowEditorClient({
     return TRIGGER_TYPES;
   }, [module, TRIGGER_TYPES]);
 
+  const integrationTriggers = useMemo(
+    () => (triggerTypes ?? []).filter((t) => t.category === 'integration'),
+    [triggerTypes],
+  );
+
   // Filter entity events based on module
   const filteredEntityEvents = useMemo(() => {
     if (module === 'helpdesk') {
@@ -607,8 +646,14 @@ export function WorkflowEditorClient({
 
   // Build flat variable list for canvas inline autocomplete
   const canvasVariableItems = useMemo(
-    () => extraVariableGroups ? buildAllVariables({ triggerType: initialWorkflow.triggers?.[0]?.type, workflowVariables, extraVariableGroups, excludeGroups: excludeVariableGroups }) : undefined,
-    [initialWorkflow.triggers, workflowVariables, extraVariableGroups, excludeVariableGroups]
+    () => extraVariableGroups ? buildAllVariables({
+      triggerType: initialWorkflow.triggers?.[0]?.type,
+      workflowVariables,
+      extraVariableGroups,
+      excludeGroups: excludeVariableGroups,
+      labels: t.weldconnect.variablePicker,
+    }) : undefined,
+    [initialWorkflow.triggers, workflowVariables, extraVariableGroups, excludeVariableGroups, t.weldconnect.variablePicker],
   );
 
   const router = useRouter();
@@ -677,13 +722,19 @@ export function WorkflowEditorClient({
   const [triggerType, setTriggerType] = useState<string>(workflow.triggers?.[0]?.type || 'entity_event');
   const [triggerEntityType, setTriggerEntityType] = useState((workflow.triggers?.[0]?.entityType as string | undefined) || '');
   const [triggerEventType, setTriggerEventType] = useState((workflow.triggers?.[0]?.eventType as string | undefined) || '');
-
-  // Schedule trigger state
+  const [integrationTriggerEventId, setIntegrationTriggerEventId] = useState(
+    () => (workflow.triggers?.[0]?.event as string | undefined) || '',
+  );
   const [scheduleType, setScheduleType] = useState<'one_time' | 'recurring'>('recurring');
   const [scheduleCronPreset, setScheduleCronPreset] = useState('every_day_9am');
   const [scheduleCustomCron, setScheduleCustomCron] = useState('0 9 * * *');
   const [scheduleTimezone, setScheduleTimezone] = useState('Europe/Amsterdam');
   const [scheduleExecuteAt, setScheduleExecuteAt] = useState('');
+
+  // Integration / workflow-complete trigger state
+  const [sourceWorkflowId, setSourceWorkflowId] = useState('');
+  const [workflowCompleteTriggerOn, setWorkflowCompleteTriggerOn] = useState<'success' | 'failure' | 'both'>('success');
+  const [workflowCompletePassOutput, setWorkflowCompletePassOutput] = useState(false);
 
   // Webhook trigger state
   const [showWebhookSecret, setShowWebhookSecret] = useState(false);
@@ -1035,7 +1086,7 @@ export function WorkflowEditorClient({
     function collectDeletions(id: string, type: string, config?: unknown) {
       idsToDelete.add(id);
       if (type === 'condition') {
-        const branchIds = getConditionBranchIds({ id, config });
+        const branchIds = getConditionBranchIds({ id, config: config as ConditionStepConfig | undefined });
         branchIds.forEach((branchId) => {
           workflow.steps.forEach((s) => {
             if (s.parentBranchId === branchId) {
@@ -1064,6 +1115,36 @@ export function WorkflowEditorClient({
       setTriggerEntityType((trigger.entityType as string | undefined) || '');
       setTriggerEventType((trigger.eventType as string | undefined) || '');
 
+      if (trigger.type === 'integration_event') {
+        const eventId = (trigger.event as string | undefined) || (trigger.config as { event?: string } | undefined)?.event || '';
+        setIntegrationTriggerEventId(eventId);
+      } else {
+        setIntegrationTriggerEventId('');
+      }
+
+      if (trigger.type === 'workflow_complete') {
+        const cfg = (trigger.config as Record<string, unknown> | undefined) ?? {};
+        setSourceWorkflowId(
+          (trigger.sourceWorkflowId as string | undefined)
+            || (cfg.sourceWorkflowId as string | undefined)
+            || '',
+        );
+        setWorkflowCompleteTriggerOn(
+          (trigger.triggerOn as 'success' | 'failure' | 'both' | undefined)
+            || (cfg.triggerOn as 'success' | 'failure' | 'both' | undefined)
+            || 'success',
+        );
+        setWorkflowCompletePassOutput(
+          trigger.passOutput !== undefined
+            ? Boolean(trigger.passOutput)
+            : Boolean(cfg.passOutput),
+        );
+      } else {
+        setSourceWorkflowId('');
+        setWorkflowCompleteTriggerOn('success');
+        setWorkflowCompletePassOutput(false);
+      }
+
       // Load schedule settings if it's a schedule trigger
       if (trigger.type === 'schedule') {
         setScheduleType((trigger.scheduleType as 'recurring' | 'one_time' | undefined) || 'recurring');
@@ -1089,6 +1170,10 @@ export function WorkflowEditorClient({
       setScheduleCustomCron('0 9 * * *');
       setScheduleTimezone('Europe/Amsterdam');
       setScheduleExecuteAt('');
+      setIntegrationTriggerEventId('');
+      setSourceWorkflowId('');
+      setWorkflowCompleteTriggerOn('success');
+      setWorkflowCompletePassOutput(false);
     }
     setShowTriggerPanel(true);
     setShowRunsPanel(false);
@@ -1698,7 +1783,7 @@ export function WorkflowEditorClient({
                                 <SelectLabel>{group.category}</SelectLabel>
                                 {group.entities.map((entity) => (
                                   <SelectItem key={entity.entityType} value={entity.entityType}>
-                                    {entity.label}
+                                    {entity.label ?? entity.entityType}
                                   </SelectItem>
                                 ))}
                               </SelectGroup>
@@ -1723,11 +1808,14 @@ export function WorkflowEditorClient({
                               <SelectValue placeholder={tec.triggerPanel.selectEventPlaceholder} />
                             </SelectTrigger>
                             <SelectContent>
-                              {filteredEntityEvents.find((e) => e.entityType === triggerEntityType)?.events.map((eventType) => (
-                                <SelectItem key={eventType} value={eventType}>
-                                  {humanizeEventType(eventType)}
-                                </SelectItem>
-                              ))}
+                              {filteredEntityEvents.find((e) => e.entityType === triggerEntityType)?.events.map((event) => {
+                                const eventId = getEntityEventId(event as EntityEventDetail);
+                                return (
+                                  <SelectItem key={eventId} value={eventId}>
+                                    {getEntityEventLabel(event as EntityEventDetail)}
+                                  </SelectItem>
+                                );
+                              })}
                             </SelectContent>
                           </Select>
                         </div>
@@ -1916,6 +2004,156 @@ export function WorkflowEditorClient({
                     </div>
                   )}
 
+                  {triggerType === 'integration_event' && (
+                    <div className="space-y-3 pt-3 border-t">
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium">{tcd.integrationEvent.eventLabel}</Label>
+                        <Select
+                          value={integrationTriggerEventId}
+                          onValueChange={(v) => {
+                            setIntegrationTriggerEventId(v);
+                            const selected = integrationTriggers.find((t) => t.id === v);
+                            const provider =
+                              (selected as { provider?: string } | undefined)?.provider ??
+                              v.split('.')[0];
+                            const triggerData: WorkflowTriggerBag = {
+                              type: 'integration_event',
+                              provider,
+                              event: v,
+                            };
+                            if (workflow.triggers.length > 0) {
+                              setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
+                            } else {
+                              setWorkflow({ ...workflow, triggers: [{ id: `trigger-${Date.now()}`, ...triggerData }] });
+                            }
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder={tcd.integrationEvent.eventPlaceholder} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {integrationTriggers.map((trigger) => (
+                              <SelectItem key={trigger.id} value={trigger.id}>
+                                {trigger.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {integrationTriggers.length === 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            {tcd.integrationEvent.noEvents}{' '}
+                            <Link href="/weldconnect/integrations" className="text-primary underline-offset-2 hover:underline">
+                              {t.weldconnect.breadcrumbs.integrations}
+                            </Link>
+                          </p>
+                        )}
+                        {integrationTriggerEventId && (
+                          <p className="text-xs text-muted-foreground">
+                            {integrationTriggers.find((t) => t.id === integrationTriggerEventId)?.description}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {triggerType === 'workflow_complete' && (
+                    <div className="space-y-4 pt-3 border-t">
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium">{tcd.workflowComplete.sourceWorkflowLabel}</Label>
+                        <Select
+                          value={sourceWorkflowId}
+                          onValueChange={(v) => {
+                            setSourceWorkflowId(v);
+                            const triggerData: WorkflowTriggerBag = {
+                              type: 'workflow_complete',
+                              sourceWorkflowId: v,
+                              triggerOn: workflowCompleteTriggerOn,
+                              passOutput: workflowCompletePassOutput,
+                            };
+                            if (workflow.triggers.length > 0) {
+                              setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
+                            } else {
+                              setWorkflow({ ...workflow, triggers: [{ id: `trigger-${Date.now()}`, ...triggerData }] });
+                            }
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder={tcd.workflowComplete.sourceWorkflowPlaceholder} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(workflowsForChaining).map((wf) => (
+                              <SelectItem key={wf.id} value={wf.id}>
+                                {wf.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {workflowsForChaining.length === 0 && (
+                          <p className="text-xs text-muted-foreground">{tcd.workflowComplete.noOtherWorkflows}</p>
+                        )}
+                        <p className="text-xs text-muted-foreground">{tcd.workflowComplete.sourceWorkflowHint}</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium">{tcd.workflowComplete.triggerOnLabel}</Label>
+                        <RadioGroup
+                          value={workflowCompleteTriggerOn}
+                          onValueChange={(v) => {
+                            const triggerOn = v as 'success' | 'failure' | 'both';
+                            setWorkflowCompleteTriggerOn(triggerOn);
+                            const triggerData: WorkflowTriggerBag = {
+                              type: 'workflow_complete',
+                              sourceWorkflowId,
+                              triggerOn,
+                              passOutput: workflowCompletePassOutput,
+                            };
+                            if (workflow.triggers.length > 0) {
+                              setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
+                            } else {
+                              setWorkflow({ ...workflow, triggers: [{ id: `trigger-${Date.now()}`, ...triggerData }] });
+                            }
+                          }}
+                          className="flex flex-col gap-2"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="success" id="wc_success" />
+                            <Label htmlFor="wc_success" className="text-sm cursor-pointer">{tcd.workflowComplete.successOnly}</Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="failure" id="wc_failure" />
+                            <Label htmlFor="wc_failure" className="text-sm cursor-pointer">{tcd.workflowComplete.failureOnly}</Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="both" id="wc_both" />
+                            <Label htmlFor="wc_both" className="text-sm cursor-pointer">{tcd.workflowComplete.both}</Label>
+                          </div>
+                        </RadioGroup>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <p className="text-sm font-medium">{tcd.workflowComplete.passOutputLabel}</p>
+                          <p className="text-xs text-muted-foreground">{tcd.workflowComplete.passOutputHint}</p>
+                        </div>
+                        <Switch
+                          checked={workflowCompletePassOutput}
+                          onCheckedChange={(checked) => {
+                            setWorkflowCompletePassOutput(checked);
+                            const triggerData: WorkflowTriggerBag = {
+                              type: 'workflow_complete',
+                              sourceWorkflowId,
+                              triggerOn: workflowCompleteTriggerOn,
+                              passOutput: checked,
+                            };
+                            if (workflow.triggers.length > 0) {
+                              setWorkflow({ ...workflow, triggers: [{ ...workflow.triggers[0], ...triggerData }] });
+                            } else {
+                              setWorkflow({ ...workflow, triggers: [{ id: `trigger-${Date.now()}`, ...triggerData }] });
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   {triggerType === 'webhook' && (
                     <div className="pt-3 border-t space-y-4">
                       {webhookData ? (
@@ -2011,6 +2249,16 @@ export function WorkflowEditorClient({
                       <div className="p-3 bg-muted/50 rounded-lg">
                         <p className="text-xs text-muted-foreground">
                           {tec.triggerPanel.manualHint}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {triggerType === 'api' && (
+                    <div className="pt-3 border-t">
+                      <div className="p-3 bg-muted/50 rounded-lg">
+                        <p className="text-xs text-muted-foreground">
+                          {tcd.api.hint}
                         </p>
                       </div>
                     </div>

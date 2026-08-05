@@ -162,7 +162,7 @@ app.post('/:webhookId', async (c) => {
           sourceIp,
           receivedAt: new Date().toISOString(),
         },
-        source: 'task',
+        source: 'weldconnect',
       },
     });
 

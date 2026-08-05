@@ -217,7 +217,7 @@ export const userWorkspaces = pgTable('user_workspaces', {
 
   // Foreign keys
   userId: varchar('user_id', { length: 255 }).notNull().references(() => users.id),
-  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id),
+  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
 
   // Clerk sync tracking
   clerkMembershipId: varchar('clerk_membership_id', { length: 255 }), // For matching webhook events
@@ -261,7 +261,7 @@ export const widgetRegistry = pgTable('widget_registry', {
   widgetId: varchar('widget_id', { length: 50 }).notNull().unique(),
 
   // Reference to workspace
-  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id),
+  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
 
   // Widget name (for admin reference)
   widgetName: varchar('widget_name', { length: 255 }),
@@ -295,7 +295,7 @@ export const mailAccountRegistry = pgTable('mail_account_registry', {
   email: varchar('email', { length: 255 }).notNull().unique(),
 
   // Reference to workspace
-  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id),
+  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
 
   // Reference to mail account in tenant DB (for correlation)
   accountId: varchar('account_id', { length: 30 }).notNull(),
@@ -333,7 +333,7 @@ export const apiKeyRegistry = pgTable('api_key_registry', {
   keyType: varchar('key_type', { length: 20 }).notNull(),
 
   // Reference to workspace
-  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id),
+  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
 
   // ID of the key in the workspace's tenant database
   tenantKeyId: varchar('tenant_key_id', { length: 30 }).notNull(),
@@ -580,7 +580,7 @@ export const billingInvoices = pgTable('billing_invoices', {
   id: varchar('id', { length: 30 }).primaryKey(),
 
   // Workspace reference
-  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id),
+  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
 
   // Stripe identifiers
   stripeInvoiceId: varchar('stripe_invoice_id', { length: 255 }).notNull().unique(),
@@ -633,10 +633,13 @@ export const billingPayments = pgTable('billing_payments', {
   id: varchar('id', { length: 30 }).primaryKey(),
 
   // Workspace reference
-  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id),
+  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
 
-  // Invoice reference (nullable — not all payments are invoice-linked)
-  invoiceId: varchar('invoice_id', { length: 30 }).references(() => billingInvoices.id),
+  // Invoice reference (nullable — not all payments are invoice-linked).
+  // Cascades too: a workspace delete tears down billing_invoices and
+  // billing_payments in an unspecified order, so without this the invoice
+  // cascade can trip over a not-yet-deleted payment row.
+  invoiceId: varchar('invoice_id', { length: 30 }).references(() => billingInvoices.id, { onDelete: 'cascade' }),
 
   // Stripe identifiers
   stripePaymentIntentId: varchar('stripe_payment_intent_id', { length: 255 }).unique(),
@@ -686,7 +689,7 @@ export const workspaceCredits = pgTable('workspace_credits', {
   id: varchar('id', { length: 30 }).primaryKey(),
 
   // Workspace reference
-  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id),
+  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
 
   // Current balance
   currentBalance: integer('current_balance').notNull().default(0),
@@ -786,7 +789,7 @@ export const creditTransactions = pgTable('credit_transactions', {
   id: varchar('id', { length: 30 }).primaryKey(),
 
   // Workspace reference
-  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id),
+  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
 
   // Transaction type
   type: varchar('type', { length: 30 }).notNull(),
@@ -885,7 +888,7 @@ export const workspaceUsage = pgTable('workspace_usage', {
   id: varchar('id', { length: 30 }).primaryKey(),
 
   // Workspace reference
-  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id),
+  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
 
   // Task execution tracking
   taskExecutionsThisMonth: integer('task_executions_this_month').notNull().default(0),
@@ -921,7 +924,7 @@ export const digestSchedules = pgTable('digest_schedules', {
   id: varchar('id', { length: 30 }).primaryKey(),
 
   // Workspace reference
-  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id),
+  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
 
   // Schedule config (synced from tenant DB on settings save)
   enabled: boolean('enabled').notNull().default(true),
@@ -954,7 +957,7 @@ export const helpcenterDomainRegistry = pgTable('helpcenter_domain_registry', {
   domainType: varchar('domain_type', { length: 20 }).notNull(), // 'subdomain' | 'custom'
 
   // Reference to workspace
-  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id),
+  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
 
   // Verification
   isVerified: integer('is_verified').notNull().default(1),

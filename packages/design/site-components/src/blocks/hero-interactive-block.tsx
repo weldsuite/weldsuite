@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData } from '../types';
 import React, { useRef } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
@@ -23,7 +24,7 @@ interface HeroInteractiveBlockProps {
   headingFont?: string;
   className?: string;
   mode?: 'live' | 'edit';
-  store?: any;
+  store?: StoreData;
 }
 
 export function HeroInteractiveBlock({

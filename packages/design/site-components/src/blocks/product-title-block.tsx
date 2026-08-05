@@ -1,15 +1,13 @@
 "use client";
 
+import type { StoreData } from '../types';
 import React from 'react';
 
 export interface ProductTitleBlockProps {
   productName?: string;
   textColor?: string;
   mode?: 'live' | 'edit' | 'preview';
-  store?: {
-    selectedProduct?: any;
-    [key: string]: any;
-  };
+  store?: StoreData;
 }
 
 export function ProductTitleBlock({

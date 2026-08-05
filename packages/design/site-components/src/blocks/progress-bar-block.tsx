@@ -61,7 +61,7 @@ export function ProgressBarBlock({
           }}
         />
       </div>
-      <style jsx>{`
+      <style>{`
         @keyframes progress-stripes {
           0% {
             background-position: 1rem 0;

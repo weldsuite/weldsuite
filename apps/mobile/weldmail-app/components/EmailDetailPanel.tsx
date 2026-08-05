@@ -36,10 +36,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmailHtmlView from '@/components/EmailHtmlView';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 import { isApiError } from '@weldsuite/api-client/client';
 import { useMailOutbox } from '@/hooks/useMailOutbox';
-import { useMail } from '@/contexts/MailContext';
 import { useComposeOverlay } from '@/contexts/ComposeOverlayContext';
 import SnoozePickerModal from '@/components/SnoozePickerModal';
 import LabelPickerModal from '@/components/LabelPickerModal';
@@ -76,7 +75,7 @@ function getInitialColor(name: string): string {
   return colors[Math.abs(hash) % colors.length];
 }
 
-function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReplyAll, onForward, router }: {
+function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReplyAll, onForward, _router }: {
   message: any;
   colors: any;
   isExpanded: boolean;
@@ -87,7 +86,7 @@ function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReply
   router: any;
 }) {
   const senderName = getSenderName(message.from);
-  const senderEmail = getSenderEmail(message.from);
+  const _senderEmail = getSenderEmail(message.from);
   const avatarColor = getInitialColor(senderName);
 
   const toStr = typeof message.to === 'string' ? message.to : formatRecipients(message.to);
@@ -203,7 +202,6 @@ export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchi
   const isDark = theme === 'dark';
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { accounts } = useMail();
   const outbox = useMailOutbox();
   const { openCompose: openComposeOverlay } = useComposeOverlay();
 

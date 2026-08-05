@@ -107,7 +107,7 @@ export function ExecutionsClient({ initialExecutions }: ExecutionsClientProps) {
   const st = useTranslations();
 
   useBreadcrumbs([
-    { label: t.weldconnect.breadcrumbs.task, href: '/weldconnect' },
+    { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },
     { label: t.weldconnect.breadcrumbs.executions },
   ]);
 

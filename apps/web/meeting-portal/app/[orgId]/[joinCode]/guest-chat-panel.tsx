@@ -24,6 +24,34 @@ import {
 // Types
 // ============================================================================
 
+/** A chat message as the meeting API returns it. */
+interface ApiChatMessage {
+  id: string;
+  authorId?: string;
+  authorName?: string;
+  authorAvatar?: string | null;
+  body?: string;
+  content?: string;
+  htmlContent?: string | null;
+  type?: string;
+  createdAt?: string;
+  pinnedAt?: string | null;
+  attachments?: ApiChatAttachment[];
+}
+
+/** Attachment payload shared by the API and the realtime publishers. */
+interface ApiChatAttachment {
+  id: string;
+  name?: string;
+  fileName?: string;
+  size?: number;
+  fileSize?: number;
+  type?: string;
+  contentType?: string;
+  mimeType?: string;
+  url?: string;
+}
+
 interface GuestChatPanelProps {
   meetingId: string;
   orgId: string;
@@ -77,7 +105,7 @@ export function GuestChatPanel({
         const list: ChatMessage[] = (json.data?.messages ?? [])
           .slice()
           .reverse()
-          .map((m: any) => ({
+          .map((m: ApiChatMessage) => ({
             id: m.id,
             authorId: m.authorId,
             authorName: m.authorName,
@@ -164,7 +192,7 @@ export function GuestChatPanel({
               // shape (host + portal publishers agree on this); map to the
               // shared ChatMessageAttachment shape the panel renders.
               attachments: Array.isArray(msg.attachments)
-                ? msg.attachments.map((a: any) => ({
+                ? msg.attachments.map((a: ApiChatAttachment) => ({
                     id: a.id,
                     fileName: a.name ?? a.fileName,
                     fileSize: a.size ?? a.fileSize,

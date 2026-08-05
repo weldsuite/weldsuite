@@ -9,6 +9,7 @@
 export type TriggerCategory =
   | 'schedule'
   | 'entity_event'
+  | 'integration_event'
   | 'webhook'
   | 'manual'
   | 'api'
@@ -91,8 +92,10 @@ export const DEFAULT_CANVAS_LABELS: Required<WorkflowCanvasLabels> = {
   triggerLabels: {
     schedule: 'Scheduled Trigger',
     entity_event: 'Entity Event',
+    integration_event: 'Integration Event',
     webhook: 'Webhook Trigger',
     manual: 'Manual Trigger',
+    api: 'API Trigger',
     workflow_complete: 'On Workflow Complete',
   },
   actionLabels: {

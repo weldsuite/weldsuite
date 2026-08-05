@@ -17,7 +17,7 @@ function row(overrides: Partial<ScheduleIndexRow> = {}): ScheduleIndexRow {
     end_date: null,
     next_run_at: NOW - 60_000, // due a minute ago by default
     last_run_at: null,
-    source: 'task',
+    source: 'weldconnect',
     is_enabled: 1,
     updated_at: NOW,
     ...overrides,
@@ -64,7 +64,7 @@ describe('sweepDueSchedules', () => {
         userId: 'system',
         workflowId: 'wfl_dispatch_me',
         triggerType: 'schedule',
-        source: 'task',
+        source: 'weldconnect',
       }),
     });
     const r = store.rows.get('sched_1')!;

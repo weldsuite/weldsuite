@@ -96,7 +96,9 @@ export async function getWorkflowVariables(db: Database, workflowId: string) {
 export async function createVariable(db: Database, data: Record<string, unknown>, userId: string) {
   const id = generateId('var');
   const now = new Date();
-  const scope = (data.scope as string) || (data.workflowId ? 'workflow' : 'global');
+  const scope =
+    (data.scope as string | undefined) ??
+    (data.isGlobal === true ? 'global' : data.workflowId ? 'workflow' : 'global');
   await db.insert(workflowVariables).values({
     id,
     name: String(data.name),

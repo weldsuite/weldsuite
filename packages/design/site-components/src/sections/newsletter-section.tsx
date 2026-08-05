@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData, SectionSettings } from '../types';
 import { Button } from "@weldsuite/ui/components/button";
 import { Input } from "@weldsuite/ui/components/input";
 
@@ -8,8 +9,8 @@ interface NewsletterSectionProps {
   description?: string;
   buttonText?: string;
   placeholder?: string;
-  store?: any;
-  settings?: any;
+  store?: StoreData;
+  settings?: SectionSettings;
 }
 
 export default function NewsletterSection({

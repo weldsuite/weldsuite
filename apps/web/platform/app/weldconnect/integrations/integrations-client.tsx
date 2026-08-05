@@ -37,6 +37,7 @@ import {
 } from '@weldsuite/ui/components/card';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
+import { usePermissions } from '@weldsuite/permissions/react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
@@ -144,6 +145,8 @@ interface IntegrationCardProps {
   isConnecting: boolean;
   isDisconnecting: boolean;
   isTesting: boolean;
+  canConnect: boolean;
+  canManage: boolean;
 }
 
 function IntegrationCard({
@@ -155,6 +158,8 @@ function IntegrationCard({
   isConnecting,
   isDisconnecting,
   isTesting,
+  canConnect,
+  canManage,
 }: IntegrationCardProps) {
   const { t } = useI18n();
   const ti = t.weldconnect.integrations;
@@ -228,7 +233,7 @@ function IntegrationCard({
               variant="outline"
               size="sm"
               className="h-8 flex-1 text-xs"
-              disabled={isTesting}
+              disabled={isTesting || !canManage}
               onClick={() => onTest(connection.id)}
             >
               {isTesting ? (
@@ -242,7 +247,7 @@ function IntegrationCard({
               variant="outline"
               size="sm"
               className="h-8 flex-1 text-xs text-destructive hover:text-destructive"
-              disabled={isDisconnecting}
+              disabled={isDisconnecting || !canManage}
               onClick={() => onDisconnect(connection.id)}
             >
               {isDisconnecting ? (
@@ -257,7 +262,7 @@ function IntegrationCard({
           <Button
             size="sm"
             className="h-8 w-full text-xs"
-            disabled={isConnecting}
+            disabled={isConnecting || !canConnect}
             onClick={() => onConnect(def.type)}
           >
             {isConnecting ? (
@@ -285,9 +290,13 @@ function IntegrationCard({
 export function IntegrationsClient() {
   const { t } = useI18n();
   const ti = t.weldconnect.integrations;
+  const { canAny, isLoading: permissionsLoading } = usePermissions();
+  const canView = canAny('integrations:read', 'weldconnect:integrations:read');
+  const canConnect = canAny('integrations:create', 'weldconnect:integrations:create');
+  const canManage = canAny('integrations:update', 'weldconnect:integrations:update');
 
   useBreadcrumbs([
-    { label: t.weldconnect.breadcrumbs.task, href: '/weldconnect' },
+    { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },
     { label: ti.breadcrumb },
   ]);
 
@@ -426,6 +435,7 @@ export function IntegrationsClient() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h1 className="text-2xl md:text-3xl font-bold tracking-tight">{ti.title}</h1>
+              <p className="text-muted-foreground mt-1 text-sm">{ti.subtitle}</p>
               <div className="flex flex-wrap items-center gap-2 md:gap-6 mt-2">
                 <span className="flex items-center gap-1 text-xs md:text-sm">
                   <Plug className="h-3.5 w-3.5 md:h-4 md:w-4 text-blue-600" />
@@ -446,8 +456,15 @@ export function IntegrationsClient() {
             </div>
           </div>
 
-          {/* Error state */}
-          {catalogError && (
+          {/* Permission / error state */}
+          {!permissionsLoading && !canView && (
+            <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/10 dark:border-amber-800 p-4">
+              <AlertCircle className="h-5 w-5 text-amber-600 shrink-0" />
+              <p className="text-sm text-amber-800 dark:text-amber-200">{ti.permissionDenied}</p>
+            </div>
+          )}
+
+          {catalogError && canView && (
             <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/10 dark:border-red-800 p-4">
               <AlertCircle className="h-5 w-5 text-red-600 shrink-0" />
               <p className="text-sm text-red-700 dark:text-red-300">{ti.loadError}</p>
@@ -517,14 +534,14 @@ export function IntegrationsClient() {
               </div>
 
               {/* Loading */}
-              {(isCatalogLoading || isConnectionsLoading) && (
+              {(isCatalogLoading || isConnectionsLoading) && canView && (
                 <div className="flex items-center justify-center py-16">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               )}
 
               {/* Empty search */}
-              {!isCatalogLoading && !isConnectionsLoading && filtered.length === 0 && (
+              {!isCatalogLoading && !isConnectionsLoading && filtered.length === 0 && canView && (
                 <div className="text-center py-12">
                   <Plug className="h-12 w-12 mx-auto text-muted-foreground/30 mb-4" />
                   <p className="text-lg font-medium">{ti.noResults}</p>
@@ -535,6 +552,7 @@ export function IntegrationsClient() {
               {/* Grouped catalog */}
               {!isCatalogLoading &&
                 !isConnectionsLoading &&
+                canView &&
                 Object.entries(grouped).map(([category, defs]) => (
                   <div key={category}>
                     {selectedCategory === 'all' && (
@@ -562,6 +580,8 @@ export function IntegrationsClient() {
                               disconnectMutation.isPending
                             }
                             isTesting={testingId === connection?.id && testMutation.isPending}
+                            canConnect={canConnect}
+                            canManage={canManage}
                           />
                         );
                       })}

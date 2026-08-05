@@ -70,7 +70,7 @@ export function useUpdateGate(): boolean {
 
     return () => clearTimeout(timer);
     // Intentionally run once on mount (cold start only).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   return checking;

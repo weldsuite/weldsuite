@@ -1,4 +1,4 @@
-import { pgTable, varchar, text, jsonb, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, jsonb, timestamp } from 'drizzle-orm/pg-core';
 import { projects } from './projects';
 
 // Project goals - stores mission and goals canvas data per project

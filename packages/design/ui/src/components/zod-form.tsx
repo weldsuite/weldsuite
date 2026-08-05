@@ -74,12 +74,12 @@ export function ZodForm<T extends ZodSchema>({
 
 // Form Context
 interface FormContextValue {
-  values: Record<string, any>;
+  values: Record<string, unknown>;
   errors: Record<string, string>;
   touched: Record<string, boolean>;
-  handleChange: (name: string) => (e: React.ChangeEvent<any>) => void;
+  handleChange: (name: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
   handleBlur: (name: string) => () => void;
-  setFieldValue: (name: string, value: any) => void;
+  setFieldValue: (name: string, value: unknown) => void;
 }
 
 const FormContext = React.createContext<FormContextValue | undefined>(undefined);
@@ -126,7 +126,7 @@ export function ZodInput({
       id={name}
       name={name}
       type={type}
-      value={values[name] || ""}
+      value={String(values[name] ?? "")}
       onChange={handleChange(name)}
       onBlur={handleBlur(name)}
       error={errors[name]}
@@ -151,7 +151,7 @@ export function ZodTextarea({
     <FormTextarea
       id={name}
       name={name}
-      value={values[name] || ""}
+      value={String(values[name] ?? "")}
       onChange={handleChange(name)}
       onBlur={handleBlur(name)}
       error={errors[name]}
@@ -181,7 +181,7 @@ export function ZodSelect({
     <FormSelect
       id={name}
       name={name}
-      value={values[name] || ""}
+      value={String(values[name] ?? "")}
       onChange={handleChange(name)}
       onBlur={handleBlur(name)}
       error={errors[name]}
@@ -205,7 +205,7 @@ export function ZodCheckbox({
     <FormCheckbox
       id={name}
       name={name}
-      checked={values[name] || false}
+      checked={Boolean(values[name])}
       onChange={handleChange(name)}
       onBlur={handleBlur(name)}
       error={errors[name]}

@@ -13,7 +13,7 @@ import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 import { Sheet } from '@weldsuite/mobile-ui/components/Sheet';
 import { Input } from '@weldsuite/mobile-ui/components/Input';
 import { Textarea } from '@weldsuite/mobile-ui/components/Textarea';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
 import { CAMPAIGN_STATUS_META, formatDateTime } from '@/lib/social';
 

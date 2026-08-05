@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 WeldSuite is a pnpm + Turborepo monorepo containing the WeldSuite business platform and its surrounding apps. The main user-facing platform is a **Vite + React 19 SPA** with **TanStack Router** (file-based routing) and **Clerk** auth. Backend services run as **Hono on Cloudflare Workers**, talking to a multi-tenant **Neon Postgres** through Drizzle ORM. Node 20+, pnpm 10.4.1.
 
-Module names use the `weld*` family: **WeldCRM, WeldCommerce, WeldDesk** (helpdesk), **WeldMail, WeldFlow** (projects), **WeldConnect** (personal tasks), **WeldStash** (WMS), **WeldHost** (domains), **WeldBooks** (accounting), **WeldMeet** (meetings), **WeldChat** (team chat), **WeldAgent** (AI), **WeldApps** (user-created apps). Some legacy code still uses the old names (`task`, `accounting`, `wms`, `host`); a shim in `use-installed-apps.ts` bridges them.
+Module names use the `weld*` family: **WeldCRM, WeldCommerce, WeldDesk** (helpdesk), **WeldMail, WeldFlow** (projects and personal/my tasks), **WeldConnect** (workspace workflow automation), **WeldStash** (WMS), **WeldHost** (domains), **WeldBooks** (accounting), **WeldMeet** (meetings), **WeldChat** (team chat), **WeldAgent** (AI), **WeldApps** (user-created apps). Some legacy code still uses the old names (`task`, `accounting`, `wms`, `host`); a shim in `use-installed-apps.ts` bridges them.
 
 ### WeldApps, user-created apps
 
@@ -58,7 +58,8 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - `discord-bot`, Discord bot process (companion to `discord-bot-worker`)
 
 **`apps/mobile/`**, Expo / RN 0.81, Expo 54:
-- `weldsuite-app` (main) + per-module standalone apps: `welddesk-app`, `weldmail-app`, `weldchat-app`, `weldbooks-app`, `weldcrm-app`, `weldflow-app`, `weldmeet-app`, `weldsocial-app`
+- Per-module standalone apps: `welddesk-app`, `weldmail-app`, `weldchat-app`, `weldbooks-app`, `weldcrm-app`, `weldflow-app`, `weldmeet-app`, `weldsocial-app`
+- The combined `weldsuite-app` was retired; the per-module apps replaced it
 - `_template`, Scaffold for new mobile apps (see root script `create:mobile-app`)
 
 **`apps/desktop/`**, Desktop app shell (lone top-level app).

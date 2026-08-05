@@ -6,6 +6,9 @@
 
 // In-memory AsyncStorage that actually persists, supports getAllKeys/multiRemove.
 // Prefixed `mock*` so jest allows the mock factory to reference it (hoisting rule).
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { mailCache, scopeKey, readEntry, writeEntry, clearOrgCache } from '../cache';
+
 const mockStore = new Map<string, string>();
 jest.mock('@react-native-async-storage/async-storage', () => ({
   getItem: jest.fn((k: string) => Promise.resolve(mockStore.has(k) ? mockStore.get(k)! : null)),
@@ -23,9 +26,6 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
     return Promise.resolve();
   }),
 }));
-
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { mailCache, scopeKey, readEntry, writeEntry, clearOrgCache } from '../cache';
 
 beforeEach(() => {
   mockStore.clear();

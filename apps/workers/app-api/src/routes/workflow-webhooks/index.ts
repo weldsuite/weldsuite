@@ -49,7 +49,7 @@ const updateWebhookSchema = z.object({
   isEnabled: z.boolean().optional(),
 });
 
-app.get('/', requirePermission('tasks:read'), async (c) => {
+app.get('/', requirePermission('workflow-webhooks:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
@@ -84,7 +84,7 @@ app.get('/', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.get('/workflow/:workflowId', requirePermission('tasks:read'), async (c) => {
+app.get('/workflow/:workflowId', requirePermission('workflow-webhooks:read'), async (c) => {
   const db = c.get('tenantDb');
   const workflowId = c.req.param('workflowId');
   try {
@@ -113,7 +113,7 @@ app.get('/workflow/:workflowId', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.get('/:id', requirePermission('tasks:read'), async (c) => {
+app.get('/:id', requirePermission('workflow-webhooks:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
@@ -132,7 +132,7 @@ app.get('/:id', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.get('/:id/events', requirePermission('tasks:read'), async (c) => {
+app.get('/:id/events', requirePermission('workflow-webhooks:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
@@ -164,7 +164,7 @@ async function verifyWorkflow(db: any, workflowId: string) {
   return row ?? null;
 }
 
-app.post('/', requirePermission('tasks:create'), zValidator('json', createWebhookSchema), async (c) => {
+app.post('/', requirePermission('workflow-webhooks:create'), zValidator('json', createWebhookSchema), async (c) => {
   const db = c.get('tenantDb');
   const data = c.req.valid('json');
   try {
@@ -207,7 +207,7 @@ app.post('/', requirePermission('tasks:create'), zValidator('json', createWebhoo
 
 app.post(
   '/create-trigger',
-  requirePermission('tasks:create'),
+  requirePermission('workflow-webhooks:create'),
   zValidator('json', z.object({ workflowId: z.string() })),
   async (c) => {
     const db = c.get('tenantDb');
@@ -263,7 +263,7 @@ app.post(
 );
 
 for (const method of ['put', 'patch'] as const) {
-  app[method]('/:id', requirePermission('tasks:update'), zValidator('json', updateWebhookSchema), async (c) => {
+  app[method]('/:id', requirePermission('workflow-webhooks:update'), zValidator('json', updateWebhookSchema), async (c) => {
     const db = c.get('tenantDb');
     const id = c.req.param('id');
     const data = c.req.valid('json');
@@ -293,7 +293,7 @@ for (const method of ['put', 'patch'] as const) {
   });
 }
 
-app.patch('/:id/rotate-secret', requirePermission('tasks:update'), async (c) => {
+app.patch('/:id/rotate-secret', requirePermission('workflow-webhooks:update'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
@@ -317,7 +317,7 @@ app.patch('/:id/rotate-secret', requirePermission('tasks:update'), async (c) => 
   }
 });
 
-app.delete('/:id', requirePermission('tasks:delete'), async (c) => {
+app.delete('/:id', requirePermission('workflow-webhooks:delete'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {

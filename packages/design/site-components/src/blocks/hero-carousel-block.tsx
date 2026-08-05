@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData } from '../types';
 import React, { useEffect, useState } from "react";
 import Autoplay from "embla-carousel-autoplay";
 import { motion } from "framer-motion";
@@ -37,7 +38,7 @@ interface HeroCarouselBlockProps {
   paddingBottom?: number;
   className?: string;
   mode?: 'live' | 'edit';
-  store?: any;
+  store?: StoreData;
 }
 
 const DEFAULT_SLIDES: SlideItem[] = [

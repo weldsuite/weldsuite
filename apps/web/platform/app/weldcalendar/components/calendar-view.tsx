@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from '@tanstack/react-router';
 import { getTranslations } from '@/lib/i18n';
 import {
@@ -84,7 +85,7 @@ import { usePeople, type Person } from '@/components/objects/person/use-person-d
 import { useCreateTask, type Task } from '@/hooks/use-crm-tasks';
 import { useWorkspaceMembers, useWorkingHours, type WorkingHours, type DayHours } from '@/hooks/queries/use-settings-queries';
 import { EventDialog } from './event-dialog';
-import { useEntitySheet } from '@/components/entity-sheet';
+import { useObjectPanel } from '@/components/object-panel';
 import { WeekDayHeader, TimeLabelColumn, TODAY_BLUE } from './calendar-shared';
 import { getActiveCalendarIds } from './calendar-sidebar-section';
 import { useSlotDrag } from '../hooks/use-slot-drag';
@@ -189,7 +190,7 @@ export function CalendarView() {
   const unpinEvent = useUnpinCalendarEvent();
   const { data: workingHoursData } = useWorkingHours();
   const navigate = useNavigate();
-  const entitySheet = useEntitySheet();
+  const { open: openObjectPanel, closeAll: closeObjectPanels } = useObjectPanel();
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
@@ -372,6 +373,7 @@ export function CalendarView() {
 
   // Quick-create inline card state
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
+  const [eventPreviewOpen, setEventPreviewOpen] = useState(false);
   // While the user is dragging the preview event card to reschedule it, the
   // popover hides (so it doesn't follow / occlude). The TimeSlotPreview itself
   // stays visible because it's gated on `quickCreateOpen` only.
@@ -430,6 +432,8 @@ export function CalendarView() {
     setDefaultStart(s);
     setDefaultEnd(e);
     setDefaultEventType(type || 'event');
+    setEventPreviewOpen(false);
+    closeObjectPanels();
 
     if (mouseEvent) {
       const cell = (mouseEvent.target as HTMLElement).closest('[data-calendar-cell]') as HTMLElement;
@@ -554,7 +558,7 @@ export function CalendarView() {
       }
     }
     setQuickCreateOpen(true);
-  }, [currentView]);
+  }, [currentView, closeObjectPanels]);
 
   // Drag the unsaved preview card to reschedule. While dragging, the popover
   // hides; on release, defaultStart/defaultEnd are updated and the popover
@@ -816,42 +820,32 @@ export function CalendarView() {
     setPendingDrop(null);
   }, []);
 
-  const [eventPreviewOpen, setEventPreviewOpen] = useState(false);
-  const EVENT_PANEL_WIDTH = 480;
-
-  // Notify the calendar layout to shrink content while the event panel is open,
-  // mirroring how TaskDetailPanel announces itself. The layout listens for
-  // 'task-detail-panel' to allocate horizontal space — sharing the same event
-  // is fine since only one slide-in panel is ever open at a time.
-  useLayoutEffect(() => {
-    window.dispatchEvent(new CustomEvent('task-detail-panel', {
-      detail: { isOpen: eventPreviewOpen, width: eventPreviewOpen ? EVENT_PANEL_WIDTH : 0 },
-    }));
-    return () => {
-      window.dispatchEvent(new CustomEvent('task-detail-panel', {
-        detail: { isOpen: false, width: 0 },
-      }));
-    };
-  }, [eventPreviewOpen]);
+  // Match object-panel / FloatingDrawer default width so the calendar event
+  // panel sits in the same ModuleContent row slot at the same size.
+  const EVENT_PANEL_WIDTH = 400;
 
   const handleSelectEvent = useCallback((event: CalendarEvent) => {
-    // Task-backed events open the standard task detail panel (same one used in
-    // my-tasks, project boards, customer detail, etc.) so behavior matches
-    // every other surface where tasks appear.
+    // Task-backed events open the standard task object panel (same in-flow
+    // right panel used in WeldFlow / WeldCRM) so behavior matches every other
+    // surface where tasks appear.
     if (event.sourceType === 'task' && event.sourceId) {
       setEventPreviewOpen(false);
       setQuickCreateOpen(false);
       setSelectedEvent(null);
-      entitySheet.open('task', event.sourceId);
+      openObjectPanel({ type: 'task', id: event.sourceId });
       return;
     }
 
+    // Native calendar events use the module-owned event panel (portaled into
+    // ModuleContent's aside slot). Close any open object panel first so the
+    // two never fight for the right-side row.
+    closeObjectPanels();
     setSelectedEvent(event);
     setDefaultStart(undefined);
     setDefaultEnd(undefined);
     setQuickCreateOpen(false);
     setEventPreviewOpen(true);
-  }, [entitySheet]);
+  }, [openObjectPanel, closeObjectPanels]);
 
   // Escape key to close cards
   useEffect(() => {
@@ -3332,11 +3326,10 @@ function WeldMeetIcon({ className }: { className?: string }) {
 }
 
 // ============================================================================
-// Event Detail Panel — slide-in panel matching TaskDetailPanel design.
-// Same shell as <TaskDetailPanel>: fixed-right 480px, top-3 right-3 absolute
-// header buttons (3-dots menu + close), editable title, description, then
-// field rows using the icon + w-32 muted label + value-with-hover-ring pattern
-// from TaskDetailContent.
+// Event Detail Panel — in-flow right panel matching ObjectPanelHost /
+// FloatingDrawer. Portaled into `#weldcalendar-event-panel-slot` (ModuleContent
+// aside) so it sits as a flex-row sibling of the calendar content card —
+// same layout CRM/Flow object panels use.
 // ============================================================================
 
 function EventDetailPanel({
@@ -3361,6 +3354,14 @@ function EventDetailPanel({
   const updateEvent = useUpdateCalendarEvent();
   const { createMeetingAndGetUrl, isPending: isCreatingMeeting } = useAutoCreateWeldMeeting();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+
+  // Resolve the ModuleContent aside portal target. Layout mounts first, so
+  // this is usually available on the first layout effect; we still re-check
+  // when opening in case the slot wasn't ready yet.
+  const [panelSlot, setPanelSlot] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    setPanelSlot(document.getElementById('weldcalendar-event-panel-slot'));
+  }, [isOpen]);
 
   // Local mirror of the title — we want optimistic updates and to keep the
   // editable cell stable while the API request is in-flight. The prop-sync
@@ -3452,20 +3453,10 @@ function EventDetailPanel({
     updateEvent.mutate({ id: event.id, data: { description: next } });
   }, [event, descriptionDraft, updateEvent]);
 
-  if (!event) {
-    return (
-      <div
-        className={cn(
-          'fixed bg-background z-50 flex flex-col border-l border-border',
-          'inset-0 md:inset-auto md:right-0 md:top-[60px] md:bottom-0',
-          'transition-transform duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1)]',
-          isOpen ? 'translate-x-0' : 'translate-x-full',
-          !isOpen && 'pointer-events-none',
-        )}
-        style={{ width }}
-      />
-    );
-  }
+  // Closed / no event / no portal target → render nothing (in-flow panels
+  // don't keep an off-screen translate-x shell; ObjectPanelHost / FloatingDrawer
+  // work the same way).
+  if (!isOpen || !event || !panelSlot) return null;
 
   const color = getEventColor(event, calendarColorMap);
   const calendar = calendars.find((c) => c.id === event.calendarId);
@@ -3478,17 +3469,20 @@ function EventDetailPanel({
     }
   };
 
-  return (
+  const panel = (
     <div
       className={cn(
-        'fixed bg-background z-50 flex flex-col border-l border-border overflow-x-hidden',
-        'inset-0 w-full',
-        'md:inset-auto md:right-0 md:top-[60px] md:bottom-0 md:w-[var(--event-panel-width)]',
-        'transition-transform duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1)]',
-        isOpen ? 'translate-x-0' : 'translate-x-full',
-        !isOpen && 'pointer-events-none',
+        'flex flex-col overflow-hidden bg-background border border-border',
+        // Desktop: in-flow rounded card sibling in ModuleContent's content row
+        // (same shell as FloatingDrawer / EntityDetailView panel mode).
+        'md:h-full md:shrink-0 md:rounded-xl',
+        // Mobile: full-screen sheet below the mobile header.
+        'max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:top-[56px] max-md:z-50 max-md:!w-full',
+        'animate-in slide-in-from-right fade-in-50 duration-200',
       )}
-      style={{ '--event-panel-width': `${width}px` } as React.CSSProperties}
+      style={{ width }}
+      role="dialog"
+      aria-modal="false"
     >
       <EventNotificationDialog
         open={showDeleteDialog}
@@ -3831,6 +3825,8 @@ function EventDetailPanel({
       </div>
     </div>
   );
+
+  return createPortal(panel, panelSlot);
 }
 
 // ============================================================================

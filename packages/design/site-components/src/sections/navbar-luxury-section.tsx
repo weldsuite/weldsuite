@@ -1,5 +1,6 @@
 "use client";
 
+import type { StoreData } from '../types';
 import React from 'react';
 import { Search, ShoppingBag, User, ChevronDown, X, Menu } from 'lucide-react';
 
@@ -53,7 +54,7 @@ interface NavbarLuxurySectionProps {
   showNavBorder?: boolean;
   navBorderColor?: string;
 
-  store?: any;
+  store?: StoreData;
   mode?: string;
 }
 

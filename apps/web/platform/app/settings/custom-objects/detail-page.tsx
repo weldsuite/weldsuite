@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { ArrowLeft, Box, Plus, Trash2, GripVertical, Link2 } from 'lucide-react';
+import { ArrowLeft, Box, Plus, Trash2, GripVertical } from 'lucide-react';
 import { useParams, useRouter } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';

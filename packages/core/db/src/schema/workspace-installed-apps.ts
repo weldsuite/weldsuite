@@ -20,7 +20,7 @@ export const workspaceInstalledApps = pgTable(
     grantedScopes: jsonb('granted_scopes').$type<string[]>(),
 
     // App-specific settings (JSON)
-    settings: jsonb('settings').$type<Record<string, any>>(),
+    settings: jsonb('settings').$type<Record<string, unknown>>(),
 
     // Installation metadata
     installedAt: timestamp('installed_at', { withTimezone: true }).defaultNow(),

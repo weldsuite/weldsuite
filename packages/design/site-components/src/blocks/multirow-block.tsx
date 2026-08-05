@@ -1,11 +1,21 @@
 "use client";
 
+import type { StoreData } from '../types';
 import React from 'react';
 
 interface Block {
   id: string;
   type: string;
-  settings: any;
+  settings: {
+    blocks?: Block[];
+    image?: string;
+    heading?: string;
+    headingSize?: string;
+    text?: string;
+    buttonLabel?: string;
+    buttonLink?: string;
+    buttonStyle?: string;
+  };
 }
 
 export interface MultirowBlockProps {
@@ -27,7 +37,7 @@ export interface MultirowBlockProps {
   selectedBlockId?: string;
 
   // Store context
-  store?: any;
+  store?: StoreData;
 }
 
 export function MultirowBlock({

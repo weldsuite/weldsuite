@@ -31,7 +31,7 @@ import {
 } from 'date-fns';
 import { atom, useAtom } from 'jotai';
 import throttle from 'lodash.throttle';
-import { EyeIcon, PencilIcon, PlusIcon, TrashIcon } from 'lucide-react';
+import { PencilIcon, PlusIcon, TrashIcon } from 'lucide-react';
 import type {
   CSSProperties,
   FC,
@@ -51,7 +51,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Card } from './card';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -1177,9 +1176,6 @@ export type GanttSubtaskConnectorProps = {
 export const GanttSubtaskConnector: FC<GanttSubtaskConnectorProps> = ({
   feature,
   parentFeature,
-  isLastChild,
-  isFirstChild,
-  rowsFromParent,
 }) => {
   const gantt = useContext(GanttContext);
   const timelineStartDate = useMemo(
@@ -1200,18 +1196,6 @@ export const GanttSubtaskConnector: FC<GanttSubtaskConnectorProps> = ({
 
   // Position the vertical line 12px after the parent task ends
   const verticalLineX = parentEndX + 12;
-  const rowHeight = gantt.rowHeight;
-
-  // Calculate the vertical line height - it needs to extend from the parent row to this row
-  const verticalHeight = isFirstChild
-    ? rowHeight / 2 // First child: only from middle of parent row to middle of this row
-    : (isLastChild ? rowHeight / 2 : rowHeight); // Last child: only half, middle: full height
-
-  // Vertical offset - first child starts from top of current row (connecting from parent above)
-  const verticalTop = isFirstChild ? `-${(rowsFromParent - 0.5) * rowHeight}px` : (isLastChild ? '0' : '0');
-  const actualVerticalHeight = isFirstChild
-    ? (rowsFromParent * rowHeight) - (rowHeight / 2) + (rowHeight / 2)
-    : verticalHeight;
 
   return (
     <>
@@ -1481,8 +1465,8 @@ export const GanttProvider: FC<GanttProviderProps> = ({
   }, []);
 
   // Fix the useCallback to include all dependencies
-  const handleScroll = useCallback(
-    throttle(() => {
+  const handleScroll = useMemo(
+    () => throttle(() => {
       const scrollElement = scrollRef.current;
       if (!scrollElement) {
         return;
@@ -1546,7 +1530,7 @@ export const GanttProvider: FC<GanttProviderProps> = ({
         setScrollX(scrollElement.scrollLeft);
       }
     }, 100),
-    []
+    [timelineData, setScrollX]
   );
 
   useEffect(() => {

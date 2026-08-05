@@ -7,7 +7,6 @@ import { cn } from "../lib/utils"
 export function DialogContentWide({
   className,
   children,
-  showCloseButton = true,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean

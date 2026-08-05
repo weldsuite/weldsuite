@@ -19,7 +19,7 @@ import { useOrganization, useOrganizationList, useUser } from '@clerk/expo';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import type { ColorScheme } from '@/constants/colors';
-import appApi from '@/services/app-api';
+import { appApi } from '@/services/app-api';
 import { useChatUserEvents } from '@/hooks/useChatUserEvents';
 import { getEntityTypeInfo, listEntityTypes, FallbackEntityIcon } from '@/lib/entity-channels/registry';
 
@@ -181,7 +181,7 @@ export default function HomeTab() {
     const regular = channels.filter(
       (ch) => ch.type !== 'dm' && ch.type !== 'entity' && matches(ch),
     );
-    const groups: Array<{ id: string; name: string; channels: Channel[] }> = sections.map((s) => ({
+    const groups: { id: string; name: string; channels: Channel[] }[] = sections.map((s) => ({
       id: s.id,
       name: s.name,
       channels: regular.filter((ch) => ch.sectionId === s.id),

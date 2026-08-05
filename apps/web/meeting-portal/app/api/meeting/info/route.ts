@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
       .limit(1);
     if (organizer?.name) organizerName = organizer.name;
 
-    const attendeesList = (meeting.attendees ?? []).map((a: any) => ({
+    const attendeesList = (meeting.attendees ?? []).map((a: { name?: string; avatar?: string | null; email?: string; role?: string }) => ({
       name: a.name,
       avatar: a.avatar,
       role: a.role,

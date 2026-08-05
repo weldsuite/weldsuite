@@ -1,0 +1,24 @@
+{
+  "name": "weldsuite",
+  "owner": {
+    "name": "WeldSuite",
+    "email": "support@weldsuite.org"
+  },
+  "metadata": {
+    "description": "Official WeldSuite Cursor plugins — connect MCP and run agents against WeldFlow tasks.",
+    "version": "0.1.0",
+    "pluginRoot": "packages/sdk"
+  },
+  "plugins": [
+    {
+      "name": "weldsuite",
+      "source": "cursor-plugin",
+      "description": "Connect Cursor to WeldSuite MCP and run agents that fix, claim, and close WeldFlow tasks.",
+      "version": "0.1.0",
+      "keywords": ["weldsuite", "weldflow", "mcp", "tasks", "project-management"],
+      "logo": "packages/sdk/cursor-plugin/assets/logo.svg",
+      "category": "Project Management",
+      "tags": ["weldflow", "tasks", "mcp"]
+    }
+  ]
+}

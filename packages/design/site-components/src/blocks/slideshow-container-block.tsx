@@ -1,5 +1,6 @@
 "use client";
 
+import type { SectionSettings } from '../types';
 import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
 
@@ -13,7 +14,7 @@ export interface SlideshowContainerBlockProps {
   transitionStyle?: 'fade' | 'slide' | 'zoom';
   mode?: 'live' | 'edit' | 'preview';
   children?: React.ReactNode;
-  settings?: any;
+  settings?: SectionSettings;
 }
 
 export function SlideshowContainerBlock({

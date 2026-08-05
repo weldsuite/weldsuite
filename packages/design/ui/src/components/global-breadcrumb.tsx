@@ -1,4 +1,5 @@
 "use client"
+import type { AiAction, AiStreamChunk } from '../hooks/use-ai-stream';
 
 import * as React from "react"
 import {
@@ -65,11 +66,11 @@ export interface GlobalBreadcrumbProps {
     title: string
     href?: string
   }>
-  onAiAction?: (action: any) => void
+  onAiAction?: (action: AiAction) => void
   onAiSendMessage?: (message: string) => Promise<string>
   onStartStream?: (message: string) => Promise<{ streamId: string }>
   onGetChunks?: (streamId: string, lastIndex: number) => Promise<{
-    chunks: any[]
+    chunks: AiStreamChunk[]
     isComplete: boolean
     error?: string
   }>

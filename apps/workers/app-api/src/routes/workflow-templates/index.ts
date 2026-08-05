@@ -1,7 +1,9 @@
 /**
  * Workflow template routes — flat /api/workflow-templates/* surface.
  *
- * Permissions: tasks:read | tasks:create | tasks:update | tasks:delete.
+ * Permissions: workflow-templates:read | workflow-templates:create |
+ * workflow-templates:update | workflow-templates:delete. POST /:id/use also
+ * requires workflows:create.
  */
 
 import { Hono } from 'hono';
@@ -11,14 +13,14 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   createTemplateSchema,
   updateTemplateSchema,
-} from '@weldsuite/core-api-client/schemas/weldconnect';
+} from '@weldsuite/app-api-client/schemas/weldconnect';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import * as templates from '../../services/workflow-templates';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-app.get('/', requirePermission('tasks:read'), async (c) => {
+app.get('/', requirePermission('workflow-templates:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   try {
@@ -36,7 +38,7 @@ app.get('/', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.get('/categories', requirePermission('tasks:read'), async (c) => {
+app.get('/categories', requirePermission('workflow-templates:read'), async (c) => {
   const db = c.get('tenantDb');
   try {
     return success(c, await templates.getTemplateCategories(db));
@@ -46,7 +48,7 @@ app.get('/categories', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.get('/:id', requirePermission('tasks:read'), async (c) => {
+app.get('/:id', requirePermission('workflow-templates:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
@@ -59,7 +61,7 @@ app.get('/:id', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.post('/', requirePermission('tasks:create'), zValidator('json', createTemplateSchema), async (c) => {
+app.post('/', requirePermission('workflow-templates:create'), zValidator('json', createTemplateSchema), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const data = c.req.valid('json');
@@ -79,7 +81,7 @@ app.post('/', requirePermission('tasks:create'), zValidator('json', createTempla
   }
 });
 
-app.post('/from-workflow/:workflowId', requirePermission('tasks:create'), async (c) => {
+app.post('/from-workflow/:workflowId', requirePermission('workflow-templates:create'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const workflowId = c.req.param('workflowId');
@@ -101,30 +103,35 @@ app.post('/from-workflow/:workflowId', requirePermission('tasks:create'), async 
   }
 });
 
-app.post('/:id/use', requirePermission('tasks:create'), async (c) => {
-  const db = c.get('tenantDb');
-  const userId = c.get('userId');
-  const id = c.req.param('id');
-  const body = await c.req.json().catch(() => ({} as { name?: string; description?: string; activate?: boolean }));
-  try {
-    const result = await templates.useTemplate(db, id, userId, body);
-    if (!result) return error.notFound(c, 'Workflow template', id);
-    publishEntityEvent({
-      c,
-      entityType: 'workflow',
-      entityId: result.id,
-      action: 'created',
-      data: { id: result.id, name: result.name, status: body?.activate ? 'active' : 'draft' },
-    });
-    return success(c, result, 201);
-  } catch (err) {
-    console.error('[app-api/workflow-templates] use failed:', err);
-    return error.internal(c, 'Failed to use template');
-  }
-});
+app.post(
+  '/:id/use',
+  requirePermission('workflow-templates:create'),
+  requirePermission('workflows:create'),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const userId = c.get('userId');
+    const id = c.req.param('id');
+    const body = await c.req.json().catch(() => ({} as { name?: string; description?: string; activate?: boolean }));
+    try {
+      const result = await templates.useTemplate(db, id, userId, body);
+      if (!result) return error.notFound(c, 'Workflow template', id);
+      publishEntityEvent({
+        c,
+        entityType: 'workflow',
+        entityId: result.id,
+        action: 'created',
+        data: { id: result.id, name: result.name, status: body?.activate ? 'active' : 'draft' },
+      });
+      return success(c, result, 201);
+    } catch (err) {
+      console.error('[app-api/workflow-templates] use failed:', err);
+      return error.internal(c, 'Failed to use template');
+    }
+  },
+);
 
 for (const method of ['put', 'patch'] as const) {
-  app[method]('/:id', requirePermission('tasks:update'), zValidator('json', updateTemplateSchema), async (c) => {
+  app[method]('/:id', requirePermission('workflow-templates:update'), zValidator('json', updateTemplateSchema), async (c) => {
     const db = c.get('tenantDb');
     const id = c.req.param('id');
     const data = c.req.valid('json');
@@ -146,7 +153,7 @@ for (const method of ['put', 'patch'] as const) {
   });
 }
 
-app.delete('/:id', requirePermission('tasks:delete'), async (c) => {
+app.delete('/:id', requirePermission('workflow-templates:delete'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {

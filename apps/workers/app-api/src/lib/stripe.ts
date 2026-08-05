@@ -98,6 +98,8 @@ export interface StripeSubscription {
   status?: string;
   items?: { data?: Array<{ id: string; quantity?: number }> };
   latest_invoice?: string | { id: string } | null;
+  /** Overrides the customer-level default when set — see `setSubscriptionDefaultPaymentMethod`. */
+  default_payment_method?: string | { id: string } | null;
 }
 
 /** Minimal Stripe invoice shape used by the billing routes. */
@@ -110,6 +112,42 @@ export interface StripeInvoice {
 /** Minimal Stripe customer shape used by the billing routes. */
 export interface StripeCustomer {
   id: string;
+  /** Customer-level fallback default. Subscription-level defaults win over it. */
+  invoice_settings?: {
+    default_payment_method?: string | { id: string } | null;
+  } | null;
+}
+
+/**
+ * Minimal Stripe PaymentMethod shape. Only the branches the billing UI renders
+ * are modelled — card, SEPA Direct Debit, and the two redirect methods that
+ * set up a SEPA mandate (iDEAL, Bancontact).
+ */
+export interface StripePaymentMethod {
+  id: string;
+  type: string;
+  created?: number;
+  billing_details?: { name?: string | null; email?: string | null } | null;
+  card?: {
+    brand?: string;
+    last4?: string;
+    exp_month?: number;
+    exp_year?: number;
+    country?: string | null;
+  } | null;
+  sepa_debit?: {
+    last4?: string;
+    bank_code?: string | null;
+    country?: string | null;
+  } | null;
+}
+
+/** Minimal Stripe SetupIntent shape — the client secret drives Stripe Elements. */
+export interface StripeSetupIntent {
+  id: string;
+  client_secret: string | null;
+  status?: string;
+  payment_method?: string | { id: string } | null;
 }
 
 /** Minimal Stripe Checkout Session shape used by the billing routes. */
@@ -351,4 +389,118 @@ export async function deleteCustomerTaxId(
     'DELETE',
     `/v1/customers/${customerId}/tax_ids/${taxIdId}`,
   )) as { id: string; deleted: boolean };
+}
+
+// ============================================================================
+// Payment methods (settings → billing → "Payment methods")
+// ============================================================================
+
+/**
+ * Reusable payment methods offered when adding a card. iDEAL and Bancontact
+ * are redirect methods: confirming a SetupIntent with either one produces a
+ * reusable `sepa_debit` PaymentMethod, so all four end up chargeable
+ * off-session for subscription renewals.
+ */
+export const SETUP_PAYMENT_METHOD_TYPES = ['card', 'sepa_debit', 'ideal', 'bancontact'] as const;
+
+/** Retrieve a Stripe customer (used to read `invoice_settings`). */
+export async function retrieveStripeCustomer(
+  secretKey: string,
+  customerId: string,
+): Promise<StripeCustomer> {
+  return (await stripeRequest(secretKey, 'GET', `/v1/customers/${customerId}`)) as StripeCustomer;
+}
+
+/**
+ * List a customer's saved payment methods. `type` is deliberately omitted so
+ * Stripe returns every type at once (cards and SEPA mandates alike).
+ */
+export async function listPaymentMethods(
+  secretKey: string,
+  customerId: string,
+): Promise<{ data: StripePaymentMethod[] }> {
+  return (await stripeRequest(
+    secretKey,
+    'GET',
+    `/v1/payment_methods?customer=${encodeURIComponent(customerId)}&limit=100`,
+  )) as { data: StripePaymentMethod[] };
+}
+
+/** Retrieve a single payment method — used to verify customer ownership. */
+export async function retrievePaymentMethod(
+  secretKey: string,
+  paymentMethodId: string,
+): Promise<StripePaymentMethod & { customer?: string | { id: string } | null }> {
+  return (await stripeRequest(
+    secretKey,
+    'GET',
+    `/v1/payment_methods/${paymentMethodId}`,
+  )) as StripePaymentMethod & { customer?: string | { id: string } | null };
+}
+
+/**
+ * Create a SetupIntent so the browser can collect and save a payment method
+ * with Stripe Elements. `usage: off_session` is required for the method to be
+ * chargeable later on subscription renewals without the user present.
+ */
+export async function createSetupIntent(
+  secretKey: string,
+  params: { customerId: string; metadata?: Record<string, string> },
+): Promise<StripeSetupIntent> {
+  const body: Record<string, string> = {
+    customer: params.customerId,
+    usage: 'off_session',
+  };
+
+  SETUP_PAYMENT_METHOD_TYPES.forEach((type, i) => {
+    body[`payment_method_types[${i}]`] = type;
+  });
+
+  if (params.metadata) {
+    for (const [k, v] of Object.entries(params.metadata)) {
+      body[`metadata[${k}]`] = v;
+    }
+  }
+
+  return (await stripeRequest(secretKey, 'POST', '/v1/setup_intents', body)) as StripeSetupIntent;
+}
+
+/** Detach a payment method from its customer (removes it from the account). */
+export async function detachPaymentMethod(
+  secretKey: string,
+  paymentMethodId: string,
+): Promise<StripePaymentMethod> {
+  return (await stripeRequest(
+    secretKey,
+    'POST',
+    `/v1/payment_methods/${paymentMethodId}/detach`,
+  )) as StripePaymentMethod;
+}
+
+/** Set the customer-level default payment method for future invoices. */
+export async function setCustomerDefaultPaymentMethod(
+  secretKey: string,
+  customerId: string,
+  paymentMethodId: string,
+): Promise<StripeCustomer> {
+  return (await stripeRequest(secretKey, 'POST', `/v1/customers/${customerId}`, {
+    'invoice_settings[default_payment_method]': paymentMethodId,
+  })) as StripeCustomer;
+}
+
+/**
+ * Set a subscription's own default payment method.
+ *
+ * Subscriptions created through Checkout carry a `default_payment_method` that
+ * OVERRIDES the customer-level default, so marking a method as primary has to
+ * write both — otherwise the change silently fails to apply on renewal.
+ */
+export async function setSubscriptionDefaultPaymentMethod(
+  secretKey: string,
+  subscriptionId: string,
+  paymentMethodId: string,
+): Promise<StripeSubscription> {
+  return (await stripeRequest(secretKey, 'POST', `/v1/subscriptions/${subscriptionId}`, {
+    default_payment_method: paymentMethodId,
+  })) as StripeSubscription;
 }
