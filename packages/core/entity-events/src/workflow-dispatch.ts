@@ -17,6 +17,7 @@ interface TriggerFilter {
 }
 
 interface TriggerConfig {
+  id?: string;
   type: string;
   isEnabled?: boolean;
   entityType?: string;
@@ -248,7 +249,7 @@ export async function matchAndDispatchWorkflowTriggers(
     const matches = indexRows.filter(
       (row) =>
         (!row.eventType || eventTypes.includes(row.eventType)) &&
-        evalFilters(row.filters ?? undefined, data),
+        evalFilters((row.filters as TriggerFilter[] | null | undefined) ?? undefined, data),
     );
     await dispatchEntityMatches(env, matches, dispatchBase);
     return;
@@ -268,7 +269,7 @@ export async function matchAndDispatchWorkflowTriggers(
       matches.push({
         workflowId: workflow.id,
         workflowName: workflow.name,
-        triggerId: typeof (trigger as { id?: string }).id === 'string' ? (trigger as { id: string }).id : undefined,
+        triggerId: typeof trigger.id === 'string' ? trigger.id : undefined,
       });
     }
   }
@@ -373,7 +374,7 @@ export async function matchAndDispatchIntegrationTriggers(
     const matches = indexRows.filter(
       (row) =>
         !(row.integrationId && integrationId && row.integrationId !== integrationId) &&
-        evalFilters(row.filters ?? undefined, data),
+        evalFilters((row.filters as TriggerFilter[] | null | undefined) ?? undefined, data),
     );
 
     for (const row of matches) {
@@ -394,7 +395,7 @@ export async function matchAndDispatchIntegrationTriggers(
       await dispatchOne(
         workflow.id,
         workflow.name,
-        typeof (trigger as { id?: string }).id === 'string' ? (trigger as { id: string }).id : undefined,
+        typeof trigger.id === 'string' ? trigger.id : undefined,
       );
     }
   }

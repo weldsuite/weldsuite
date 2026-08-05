@@ -442,7 +442,7 @@ export function useWebhookEvents(webhookId: string, enabled = true) {
 // The two differ only in the mount path and the query keys they invalidate.
 
 // 1. Create Workflow
-export function useCreateWorkflow(apiBasePath = WELDCONNECT_API.workflows) {
+export function useCreateWorkflow(apiBasePath: string = WELDCONNECT_API.workflows) {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   const isHelpdesk = apiBasePath.startsWith('/helpdesk');
@@ -467,7 +467,7 @@ export function useCreateWorkflow(apiBasePath = WELDCONNECT_API.workflows) {
 }
 
 // 2. Update Workflow
-export function useUpdateWorkflow(apiBasePath = WELDCONNECT_API.workflows) {
+export function useUpdateWorkflow(apiBasePath: string = WELDCONNECT_API.workflows) {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   const isHelpdesk = apiBasePath.startsWith('/helpdesk');
@@ -500,7 +500,7 @@ export function useUpdateWorkflow(apiBasePath = WELDCONNECT_API.workflows) {
 }
 
 // 3. Delete Workflow
-export function useDeleteWorkflow(apiBasePath = WELDCONNECT_API.workflows) {
+export function useDeleteWorkflow(apiBasePath: string = WELDCONNECT_API.workflows) {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   const isHelpdesk = apiBasePath.startsWith('/helpdesk');
@@ -517,7 +517,7 @@ export function useDeleteWorkflow(apiBasePath = WELDCONNECT_API.workflows) {
 }
 
 // 4. Update Workflow Status
-export function useUpdateWorkflowStatus(apiBasePath = WELDCONNECT_API.workflows) {
+export function useUpdateWorkflowStatus(apiBasePath: string = WELDCONNECT_API.workflows) {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   const isHelpdesk = apiBasePath.startsWith('/helpdesk');
@@ -578,7 +578,7 @@ export function useGenerateWorkflow() {
 }
 
 // 5. Duplicate Workflow
-export function useDuplicateWorkflow(apiBasePath = WELDCONNECT_API.workflows) {
+export function useDuplicateWorkflow(apiBasePath: string = WELDCONNECT_API.workflows) {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   const isHelpdesk = apiBasePath.startsWith('/helpdesk');
