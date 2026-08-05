@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_2" data-name="Layer 2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 580">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #34d399;
+      }
+
+      .cls-2 {
+        fill: #f6b13f;
+      }
+    </style>
+  </defs>
+  <g id="Layer_1-2" data-name="Layer 1">
+    <!-- Left ledger page -->
+    <path class="cls-1" d="M400,70
+      L100,30
+      C52,24 24,54 24,104
+      L24,476
+      C24,526 52,554 100,548
+      L400,510
+      Z"/>
+    <!-- Right ledger page -->
+    <path class="cls-1" d="M400,70
+      L700,30
+      C748,24 776,54 776,104
+      L776,476
+      C776,526 748,554 700,548
+      L400,510
+      Z"/>
+    <!-- Amber binding spine -->
+    <rect class="cls-2" x="366" y="78" width="68" height="424" rx="16" ry="16"/>
+  </g>
+</svg>
