@@ -1,6 +1,9 @@
 /**
  * Sync denormalized `workflow_trigger_index` rows from embedded
- * `workflows.triggers` JSONB. Called after create/update/status/delete.
+ * `workflows.triggers` JSONB.
+ *
+ * Callers that also mutate the workflow row should pass those statements via
+ * `withStatements` so workflow + index writes commit as one batch.
  */
 
 import { eq } from 'drizzle-orm';
@@ -63,41 +66,68 @@ function buildIndexRows(workflowId: string, triggers: unknown) {
     });
 }
 
+function buildIndexStatements(
+  handle: Database,
+  workflowId: string,
+  triggers: unknown,
+  opts: { workflowActive: boolean },
+): unknown[] {
+  const rows = opts.workflowActive ? buildIndexRows(workflowId, triggers) : [];
+  const statements: unknown[] = [
+    handle.delete(workflowTriggerIndex).where(eq(workflowTriggerIndex.workflowId, workflowId)),
+  ];
+  if (rows.length > 0) {
+    statements.push(handle.insert(workflowTriggerIndex).values(rows));
+  }
+  return statements;
+}
+
 export async function syncWorkflowTriggerIndex(
   db: Database,
   workflowId: string,
   triggers: unknown,
-  opts: { workflowActive: boolean },
+  opts: {
+    workflowActive: boolean;
+    /** Workflow (or other) statements to run in the same atomic batch. */
+    withStatements?: (handle: Database) => unknown[];
+  },
 ): Promise<void> {
-  try {
-    const rows = opts.workflowActive ? buildIndexRows(workflowId, triggers) : [];
+  const preceding = opts.withStatements;
 
-    await atomically(db, (handle) => {
-      const statements: unknown[] = [
-        handle.delete(workflowTriggerIndex).where(eq(workflowTriggerIndex.workflowId, workflowId)),
-      ];
-      if (rows.length > 0) {
-        statements.push(handle.insert(workflowTriggerIndex).values(rows));
-      }
-      return statements;
-    });
+  try {
+    await atomically(db, (handle) => [
+      ...(preceding ? preceding(handle) : []),
+      ...buildIndexStatements(handle, workflowId, triggers, opts),
+    ]);
   } catch (err) {
-    if (isMissingTable(err)) {
-      console.warn('[workflow-trigger-index] sync skipped: table not migrated yet');
-      return;
+    if (!isMissingTable(err)) throw err;
+    console.warn('[workflow-trigger-index] sync skipped: table not migrated yet');
+    // Migration not applied — persist the workflow write alone so CRUD still works.
+    if (preceding) {
+      await atomically(db, (handle) => preceding(handle));
     }
-    throw err;
   }
 }
 
-export async function clearWorkflowTriggerIndex(db: Database, workflowId: string): Promise<void> {
+export async function clearWorkflowTriggerIndex(
+  db: Database,
+  workflowId: string,
+  opts?: {
+    withStatements?: (handle: Database) => unknown[];
+  },
+): Promise<void> {
+  const preceding = opts?.withStatements;
+
   try {
-    await db.delete(workflowTriggerIndex).where(eq(workflowTriggerIndex.workflowId, workflowId));
+    await atomically(db, (handle) => [
+      ...(preceding ? preceding(handle) : []),
+      handle.delete(workflowTriggerIndex).where(eq(workflowTriggerIndex.workflowId, workflowId)),
+    ]);
   } catch (err) {
-    if (isMissingTable(err)) {
-      console.warn('[workflow-trigger-index] clear skipped: table not migrated yet');
-      return;
+    if (!isMissingTable(err)) throw err;
+    console.warn('[workflow-trigger-index] clear skipped: table not migrated yet');
+    if (preceding) {
+      await atomically(db, (handle) => preceding(handle));
     }
-    throw err;
   }
 }

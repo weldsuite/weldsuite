@@ -98,26 +98,29 @@ export async function createWorkflow(
   const status = data.status || 'draft';
   const triggers = data.triggers ?? [];
 
-  await db.insert(workflows).values({
-    id,
-    name: data.name,
-    description: data.description ?? null,
-    status,
-    triggers: triggers as any,
-    steps: (data.steps ?? []) as any,
-    settings: (data.settings ?? {}) as any,
-    tags: data.tags ?? [],
-    folderId: data.folderId,
-    createdBy: userId,
-    version: 1,
-    executionCount: 0,
-    successCount: 0,
-    failureCount: 0,
-    createdAt: now,
-    updatedAt: now,
+  await syncWorkflowTriggerIndex(db, id, triggers, {
+    workflowActive: status === 'active',
+    withStatements: (handle) => [
+      handle.insert(workflows).values({
+        id,
+        name: data.name,
+        description: data.description ?? null,
+        status,
+        triggers: triggers as any,
+        steps: (data.steps ?? []) as any,
+        settings: (data.settings ?? {}) as any,
+        tags: data.tags ?? [],
+        folderId: data.folderId,
+        createdBy: userId,
+        version: 1,
+        executionCount: 0,
+        successCount: 0,
+        failureCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    ],
   });
-
-  await syncWorkflowTriggerIndex(db, id, triggers, { workflowActive: status === 'active' });
 
   return { id };
 }
@@ -139,11 +142,14 @@ export async function updateWorkflow(
     if (data[k] !== undefined) update[k] = data[k];
   }
 
-  await db.update(workflows).set(update).where(eq(workflows.id, id));
-
   const nextStatus = (update.status as string | undefined) ?? existing.status;
   const nextTriggers = update.triggers !== undefined ? update.triggers : existing.triggers;
-  await syncWorkflowTriggerIndex(db, id, nextTriggers, { workflowActive: nextStatus === 'active' });
+  await syncWorkflowTriggerIndex(db, id, nextTriggers, {
+    workflowActive: nextStatus === 'active',
+    withStatements: (handle) => [
+      handle.update(workflows).set(update).where(eq(workflows.id, id)),
+    ],
+  });
 
   return { id };
 }
@@ -156,8 +162,12 @@ export async function updateWorkflowStatus(db: Database, id: string, status: str
     .limit(1);
   if (!existing) return null;
 
-  await db.update(workflows).set({ status, updatedAt: new Date() }).where(eq(workflows.id, id));
-  await syncWorkflowTriggerIndex(db, id, existing.triggers, { workflowActive: status === 'active' });
+  await syncWorkflowTriggerIndex(db, id, existing.triggers, {
+    workflowActive: status === 'active',
+    withStatements: (handle) => [
+      handle.update(workflows).set({ status, updatedAt: new Date() }).where(eq(workflows.id, id)),
+    ],
+  });
   return { id, status };
 }
 
@@ -177,37 +187,43 @@ export async function duplicateWorkflow(
   const newId = generateId('wf');
   const now = new Date();
 
-  await db.insert(workflows).values({
-    id: newId,
-    name: name || `${original.name} (Copy)`,
-    description: original.description,
-    status: 'draft',
-    triggers: (original.triggers ?? []) as any,
-    steps: (original.steps ?? []) as any,
-    settings: (original.settings ?? {}) as any,
-    tags: original.tags ?? [],
-    folderId: original.folderId,
-    createdBy: userId,
-    version: 1,
-    executionCount: 0,
-    successCount: 0,
-    failureCount: 0,
-    createdAt: now,
-    updatedAt: now,
-  });
-
   // Duplicates start as draft — no active trigger index rows.
-  await syncWorkflowTriggerIndex(db, newId, original.triggers, { workflowActive: false });
+  await syncWorkflowTriggerIndex(db, newId, original.triggers, {
+    workflowActive: false,
+    withStatements: (handle) => [
+      handle.insert(workflows).values({
+        id: newId,
+        name: name || `${original.name} (Copy)`,
+        description: original.description,
+        status: 'draft',
+        triggers: (original.triggers ?? []) as any,
+        steps: (original.steps ?? []) as any,
+        settings: (original.settings ?? {}) as any,
+        tags: original.tags ?? [],
+        folderId: original.folderId,
+        createdBy: userId,
+        version: 1,
+        executionCount: 0,
+        successCount: 0,
+        failureCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    ],
+  });
 
   return { id: newId };
 }
 
 export async function deleteWorkflow(db: Database, id: string) {
-  await db
-    .update(workflows)
-    .set({ deletedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(workflows.id, id), isNull(workflows.deletedAt)));
-  await clearWorkflowTriggerIndex(db, id);
+  await clearWorkflowTriggerIndex(db, id, {
+    withStatements: (handle) => [
+      handle
+        .update(workflows)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(workflows.id, id), isNull(workflows.deletedAt))),
+    ],
+  });
 }
 
 export async function getWorkflowStats(db: Database) {

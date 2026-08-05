@@ -194,6 +194,7 @@ export function VariableInput({
   );
 
   const hasVariables = value.includes('{{') && value.includes('}}');
+  const resolvedInsertLabel = insertButtonLabel ?? pickerLabels?.insertButton ?? 'Insert';
 
   const InputComponent = multiline ? Textarea : Input;
 
@@ -234,7 +235,7 @@ export function VariableInput({
           onSelect={handleVariableSelect}
           labels={{
             ...pickerLabels,
-            insertButton: insertButtonLabel ?? pickerLabels?.insertButton,
+            insertButton: resolvedInsertLabel,
           }}
           trigger={
             <Button
@@ -245,7 +246,7 @@ export function VariableInput({
               disabled={disabled}
             >
               <Variable className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{insertButtonLabel || 'Insert'}</span>
+              <span className="hidden sm:inline">{resolvedInsertLabel}</span>
             </Button>
           }
         />
