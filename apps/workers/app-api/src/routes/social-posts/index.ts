@@ -18,6 +18,7 @@ import { schema } from '../../db';
 import {
   publishPost,
   cancelPost,
+  cancelDeliveryBeforeDelete,
   PostPeerNotConfiguredError,
   SocialPublishConflictError,
   SocialInsufficientCreditsError,
@@ -290,10 +291,14 @@ app.patch('/:id', requirePermission('posts:update'), zValidator('json', updateSo
 
 app.delete('/:id', requirePermission('posts:delete'), async (c) => {
   const db = c.get('tenantDb');
+  const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Social post', id);
+    // Stop the PostPeer delivery first — a soft delete alone leaves a scheduled
+    // post live upstream, so it still fires on the real account.
+    await cancelDeliveryBeforeDelete(db, socialContext(c.env), workspaceId, id);
     await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));
     publishEntityEvent({
       c,
