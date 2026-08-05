@@ -151,8 +151,17 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
       iconDark: '/assets/images/welddata/logo-dark.svg',
     },
   },
+  // WeldBooks. Icon-only logo like weldcommerce/weldknow — wordmark variants
+  // need the brand typeface and can be added later.
   weldbooks: {
     lucideIcon: Calculator,
+    shortName: 'Accounting',
+    icon: '/assets/images/weldbooks/icon.svg',
+    logo: {
+      iconLight: '/assets/images/weldbooks/logo-light.svg',
+      iconDark: '/assets/images/weldbooks/logo-dark.svg',
+    },
+    sidebarIconClass: 'h-6 w-6 object-contain',
   },
   // WeldCommerce. Icon-only logo like welddata/weldknow — wordmark variants
   // need the brand typeface and can be added later.
