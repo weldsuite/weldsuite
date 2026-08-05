@@ -2755,6 +2755,10 @@ export const accounting = {
     // WeldBooks-layout
     layout: {
       appNotInstalled: 'App niet geïnstalleerd',
+      noEntityTitle: 'Stel je eerste entiteit in',
+      noEntityDescription:
+        'Maak een juridische entiteit aan om WeldBooks te gebruiken. Het rekeningschema en de belastingtarieven voor de gekozen jurisdictie worden automatisch ingesteld.',
+      createFirstEntity: 'Entiteit aanmaken',
     },
 
     // WeldBooks-breadcrumb-koptekst segmentlabels

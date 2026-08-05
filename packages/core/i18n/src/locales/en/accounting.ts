@@ -2721,6 +2721,10 @@ export const accounting = {
     // WeldBooks layout
     layout: {
       appNotInstalled: 'App not installed',
+      noEntityTitle: 'Set up your first entity',
+      noEntityDescription:
+        'Create a legal entity to start using WeldBooks. Chart of accounts and tax rates for the selected jurisdiction are set up automatically.',
+      createFirstEntity: 'Create entity',
     },
 
     // WeldBooks breadcrumb header segment labels

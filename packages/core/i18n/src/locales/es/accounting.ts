@@ -2522,6 +2522,10 @@ export const accounting = {
 
     layout: {
       appNotInstalled: 'Aplicación no instalada',
+      noEntityTitle: 'Configura tu primera entidad',
+      noEntityDescription:
+        'Crea una entidad legal para empezar a usar WeldBooks. El plan de cuentas y las tasas fiscales de la jurisdicción seleccionada se configuran automáticamente.',
+      createFirstEntity: 'Crear entidad',
     },
 
     header: {
