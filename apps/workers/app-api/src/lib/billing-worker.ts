@@ -29,6 +29,21 @@ export function billingWorkerUrl(env: Pick<Env, 'ENVIRONMENT'>): string {
     : 'http://localhost:8788';
 }
 
+/**
+ * Whether it is safe to forward a bearer token to `baseUrl`.
+ *
+ * Only HTTPS (production / preview / any TLS endpoint) gets the caller's
+ * Authorization header. The local wrangler URL is plain HTTP — never send
+ * Clerk JWTs over cleartext, even on loopback (CWE-319).
+ */
+export function canForwardAuthorization(baseUrl: string): boolean {
+  try {
+    return new URL(baseUrl).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 export type FetchBillingWorkerInit = {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
@@ -50,16 +65,21 @@ export async function fetchBillingWorker(
   const method = init.method ?? (init.body !== undefined ? 'POST' : 'GET');
   const timeoutMs = init.timeoutMs ?? BILLING_WORKER_TIMEOUT_MS;
   const fetchImpl = init.fetchImpl ?? fetch;
+  const baseUrl = billingWorkerUrl(env);
+  const forwardAuth =
+    Boolean(init.authorization) && canForwardAuthorization(baseUrl);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    return await fetchImpl(`${billingWorkerUrl(env)}${path}`, {
+    return await fetchImpl(`${baseUrl}${path}`, {
       method,
       headers: {
         'Content-Type': 'application/json',
-        ...(init.authorization ? { Authorization: init.authorization } : {}),
+        ...(forwardAuth && init.authorization
+          ? { Authorization: init.authorization }
+          : {}),
       },
       body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
       signal: controller.signal,
@@ -78,8 +98,9 @@ export type CallBillingWorkerInit = {
 };
 
 /**
- * Forward a request to billing-worker, preserving the caller's Clerk
- * Authorization header so billing-worker re-verifies the JWT (not M2M).
+ * Forward a request to billing-worker. On HTTPS targets the caller's Clerk
+ * Authorization header is preserved so billing-worker re-verifies the JWT
+ * (not M2M). Cleartext local URLs never receive the bearer token.
  *
  * `path` is the full worker path, e.g. `/api/billing/phone/subscription`.
  */

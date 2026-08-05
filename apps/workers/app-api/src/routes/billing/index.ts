@@ -393,6 +393,8 @@ app.get('/phone-subscription', canReadBilling, async (c) => {
     return error.internal(c, result.error.message);
   }
 
+  // Caller-specific Stripe pricing — never let intermediaries or the browser cache it.
+  c.header('Cache-Control', 'no-store');
   return success(c, result.data);
 });
 

@@ -59,10 +59,11 @@ describe('creditTopupCheckoutSchema', () => {
 });
 
 describe('GET /api/billing/phone-subscription', () => {
-  it('returns { data } from billing-worker on success', async () => {
+  it('returns { data } from billing-worker on success with no-store cache', async () => {
     mockUpstream(200, { exists: true, totalMonthly: 1500 });
     const { request } = createTestApp('/api/billing', billingRoutes, {
       context: { permissions: permissions('billing:read') },
+      env: { ENVIRONMENT: 'production' },
     });
 
     const res = await request('/api/billing/phone-subscription', {
@@ -70,15 +71,32 @@ describe('GET /api/billing/phone-subscription', () => {
     });
 
     expect(res.status).toBe(200);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
     const body = (await res.json()) as { data: { exists: boolean; totalMonthly: number } };
     expect(body.data).toEqual({ exists: true, totalMonthly: 1500 });
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      'http://localhost:8788/api/billing/phone/subscription',
+      'https://billing-worker.weldsuite.org/api/billing/phone/subscription',
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({ Authorization: 'Bearer test' }),
       }),
     );
+  });
+
+  it('does not forward Authorization when billing-worker URL is cleartext local', async () => {
+    mockUpstream(200, { exists: false });
+    const { request } = createTestApp('/api/billing', billingRoutes, {
+      context: { permissions: permissions('billing:read') },
+      // harness default ENVIRONMENT is 'test' → http://localhost:8788
+    });
+
+    const res = await request('/api/billing/phone-subscription', {
+      headers: { Authorization: 'Bearer test' },
+    });
+    expect(res.status).toBe(200);
+    const headers = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      .headers as Record<string, string>;
+    expect(headers.Authorization).toBeUndefined();
   });
 
   it('denies callers without billing:read', async () => {
@@ -138,6 +156,7 @@ describe('POST /api/credits/checkout', () => {
     mockUpstream(200, { url: 'https://checkout.stripe.com/c/pay_test' });
     const { request } = createTestApp('/api/credits', creditsRoutes, {
       context: { permissions: permissions('billing:manage') },
+      env: { ENVIRONMENT: 'production' },
     });
 
     const res = await request('/api/credits/checkout', {
@@ -156,6 +175,12 @@ describe('POST /api/credits/checkout', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: { url: string } };
     expect(body.data.url).toBe('https://checkout.stripe.com/c/pay_test');
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      'https://billing-worker.weldsuite.org/api/billing/credits/checkout',
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer test' }),
+      }),
+    );
   });
 
   it('denies callers without billing:manage', async () => {

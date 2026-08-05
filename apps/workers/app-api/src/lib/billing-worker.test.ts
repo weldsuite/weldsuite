@@ -5,6 +5,7 @@ import {
   BILLING_WORKER_TIMEOUT_MS,
   billingWorkerUrl,
   callBillingWorker,
+  canForwardAuthorization,
   fetchBillingWorker,
 } from './billing-worker';
 
@@ -22,12 +23,20 @@ describe('billingWorkerUrl', () => {
   });
 });
 
+describe('canForwardAuthorization', () => {
+  it('allows HTTPS targets only', () => {
+    expect(canForwardAuthorization(BILLING_WORKER_PRODUCTION_URL)).toBe(true);
+    expect(canForwardAuthorization('http://localhost:8788')).toBe(false);
+    expect(canForwardAuthorization('http://billing.example')).toBe(false);
+  });
+});
+
 describe('fetchBillingWorker', () => {
-  it('forwards Authorization and JSON body with an AbortSignal', async () => {
+  it('forwards Authorization on HTTPS production URLs', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
 
     await fetchBillingWorker(
-      { ENVIRONMENT: 'development' },
+      { ENVIRONMENT: 'production' },
       '/api/billing/credits/checkout',
       {
         method: 'POST',
@@ -38,7 +47,7 @@ describe('fetchBillingWorker', () => {
     );
 
     expect(fetchImpl).toHaveBeenCalledWith(
-      'http://localhost:8788/api/billing/credits/checkout',
+      `${BILLING_WORKER_PRODUCTION_URL}/api/billing/credits/checkout`,
       expect.objectContaining({
         method: 'POST',
         headers: {
@@ -49,6 +58,30 @@ describe('fetchBillingWorker', () => {
         signal: expect.any(AbortSignal),
       }),
     );
+  });
+
+  it('does not forward Authorization to the cleartext local wrangler URL', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+
+    await fetchBillingWorker(
+      { ENVIRONMENT: 'development' },
+      '/api/billing/phone/subscription',
+      {
+        authorization: 'Bearer tok',
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      },
+    );
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://localhost:8788/api/billing/phone/subscription',
+      expect.objectContaining({
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
+    );
+    const headers = (fetchImpl.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
+    expect(headers.Authorization).toBeUndefined();
   });
 
   it('aborts when the upstream exceeds the timeout', async () => {
@@ -102,9 +135,9 @@ describe('callBillingWorker', () => {
     globalThis.fetch = originalFetch;
   });
 
-  function fakeContext(auth?: string) {
+  function fakeContext(auth?: string, environment: string = 'development') {
     return {
-      env: { ENVIRONMENT: 'development' } as Env,
+      env: { ENVIRONMENT: environment } as Env,
       req: {
         header: (name: string) => (name === 'Authorization' ? auth : undefined),
       },
@@ -120,6 +153,17 @@ describe('callBillingWorker', () => {
         method: 'GET',
         body: undefined,
         signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
+  it('forwards Authorization only for HTTPS environments', async () => {
+    await callBillingWorker(fakeContext('Bearer tok', 'production'), '/api/billing/phone/subscription');
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      `${BILLING_WORKER_PRODUCTION_URL}/api/billing/phone/subscription`,
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer tok' }),
       }),
     );
   });
