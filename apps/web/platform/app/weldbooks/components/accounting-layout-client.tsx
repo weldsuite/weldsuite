@@ -27,7 +27,9 @@ export function AccountingLayoutClient({ children }: { children: React.ReactNode
   const {
     data: entities,
     isLoading,
-    isError,
+    // Only gate on the initial load failure — a background refetch error keeps
+    // cached entities so we don't replace the module with the full error view.
+    isLoadingError,
     refetch,
     isFetching,
   } = useQuery<EntityRow[]>({
@@ -43,7 +45,7 @@ export function AccountingLayoutClient({ children }: { children: React.ReactNode
   let content: React.ReactNode;
   if (isLoading) {
     content = <PageLoader fullScreen={false} />;
-  } else if (isError) {
+  } else if (isLoadingError) {
     content = (
       <div
         className="flex flex-col items-center justify-center gap-3 text-center px-4 min-h-[calc(100vh-120px)]"

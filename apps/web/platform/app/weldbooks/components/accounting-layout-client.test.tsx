@@ -48,7 +48,10 @@ function renderWithClient(ui: React.ReactElement) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  return {
+    client,
+    ...render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>),
+  };
 }
 
 describe('AccountingLayoutClient', () => {
@@ -109,5 +112,29 @@ describe('AccountingLayoutClient', () => {
     await waitFor(() => {
       expect(screen.getByTestId('page-content')).toBeInTheDocument();
     });
+  });
+
+  it('keeps cached content when a background refetch fails', async () => {
+    getMock.mockResolvedValueOnce({ data: [{ id: 'ent_1' }] });
+
+    const { client } = renderWithClient(
+      <AccountingLayoutClient>
+        <div data-testid="page-content">Dashboard</div>
+      </AccountingLayoutClient>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('page-content')).toBeInTheDocument();
+    });
+
+    getMock.mockRejectedValueOnce(new Error('refetch failed'));
+    await client.refetchQueries({ queryKey: ['accounting', 'entities'] });
+
+    await waitFor(() => {
+      expect(getMock).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.getByTestId('page-content')).toBeInTheDocument();
+    expect(screen.queryByTestId('weldbooks-entities-load-error')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('entity-empty-state')).not.toBeInTheDocument();
   });
 });
