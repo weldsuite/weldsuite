@@ -1,7 +1,9 @@
 /**
  * Workflow template routes — flat /api/workflow-templates/* surface.
  *
- * Permissions: tasks:read | tasks:create | tasks:update | tasks:delete.
+ * Permissions: workflow-templates:read | workflow-templates:create |
+ * workflow-templates:update | workflow-templates:delete. POST /:id/use also
+ * requires workflows:create.
  */
 
 import { Hono } from 'hono';
@@ -101,27 +103,32 @@ app.post('/from-workflow/:workflowId', requirePermission('workflow-templates:cre
   }
 });
 
-app.post('/:id/use', requirePermission('workflow-templates:create'), async (c) => {
-  const db = c.get('tenantDb');
-  const userId = c.get('userId');
-  const id = c.req.param('id');
-  const body = await c.req.json().catch(() => ({} as { name?: string; description?: string; activate?: boolean }));
-  try {
-    const result = await templates.useTemplate(db, id, userId, body);
-    if (!result) return error.notFound(c, 'Workflow template', id);
-    publishEntityEvent({
-      c,
-      entityType: 'workflow',
-      entityId: result.id,
-      action: 'created',
-      data: { id: result.id, name: result.name, status: body?.activate ? 'active' : 'draft' },
-    });
-    return success(c, result, 201);
-  } catch (err) {
-    console.error('[app-api/workflow-templates] use failed:', err);
-    return error.internal(c, 'Failed to use template');
-  }
-});
+app.post(
+  '/:id/use',
+  requirePermission('workflow-templates:create'),
+  requirePermission('workflows:create'),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const userId = c.get('userId');
+    const id = c.req.param('id');
+    const body = await c.req.json().catch(() => ({} as { name?: string; description?: string; activate?: boolean }));
+    try {
+      const result = await templates.useTemplate(db, id, userId, body);
+      if (!result) return error.notFound(c, 'Workflow template', id);
+      publishEntityEvent({
+        c,
+        entityType: 'workflow',
+        entityId: result.id,
+        action: 'created',
+        data: { id: result.id, name: result.name, status: body?.activate ? 'active' : 'draft' },
+      });
+      return success(c, result, 201);
+    } catch (err) {
+      console.error('[app-api/workflow-templates] use failed:', err);
+      return error.internal(c, 'Failed to use template');
+    }
+  },
+);
 
 for (const method of ['put', 'patch'] as const) {
   app[method]('/:id', requirePermission('workflow-templates:update'), zValidator('json', updateTemplateSchema), async (c) => {

@@ -20,6 +20,7 @@ import { z } from 'zod';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
+import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   createBuilderDraftInput,
   finalizeBuilderDraftInput,
@@ -37,6 +38,13 @@ app.post('/drafts', requirePermission('workflows:create'), zValidator('json', cr
   const userId = c.get('userId');
   try {
     const draft = await builder.createBuilderDraft(db, userId);
+    publishEntityEvent({
+      c,
+      entityType: 'workflow',
+      entityId: draft.id,
+      action: 'created',
+      data: { id: draft.id, name: draft.name, status: draft.status },
+    });
     return success(c, draft, 201);
   } catch (err) {
     console.error('[app-api/workflow-builder] createDraft failed:', err);
@@ -72,6 +80,13 @@ app.post(
     try {
       const draft = await builder.finalizeBuilderDraft(db, id, data);
       if (!draft) return error.notFound(c, 'Workflow draft', id);
+      publishEntityEvent({
+        c,
+        entityType: 'workflow',
+        entityId: draft.id,
+        action: 'updated',
+        data: { id: draft.id, name: draft.name },
+      });
       return success(c, { id: draft.id });
     } catch (err) {
       console.error('[app-api/workflow-builder] finalize failed:', err);

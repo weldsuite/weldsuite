@@ -86,8 +86,18 @@ export async function fireWorkflowCompleteTriggers(
     ]);
 
     const candidates: WorkflowCandidate[] = [
-      ...(taskWorkflows as any[]).map((w) => ({ ...w, _source: 'weldconnect' as const })),
-      ...(helpdeskList as any[]).map((w) => ({ ...w, _source: 'helpdesk' as const })),
+      ...taskWorkflows.map((w) => ({
+        id: w.id,
+        name: w.name,
+        triggers: w.triggers as WorkflowCandidate['triggers'],
+        _source: 'weldconnect' as const,
+      })),
+      ...helpdeskList.map((w) => ({
+        id: w.id,
+        name: w.name,
+        triggers: w.triggers as WorkflowCandidate['triggers'],
+        _source: 'helpdesk' as const,
+      })),
     ];
 
     const dispatches = matchWorkflowCompleteTriggers(candidates, completedWorkflowId, succeeded);

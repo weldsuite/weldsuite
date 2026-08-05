@@ -210,8 +210,16 @@ export async function matchAndDispatchWorkflowTriggers(
   const eventTypes = deriveEventTypes(action, changes);
   const dispatchBase = { workspaceId, userId, entityType, entityId, action, data, changes };
 
+  let indexRows: Array<{
+    workflowId: string;
+    triggerId: string;
+    eventType: string | null;
+    filters: unknown;
+    workflowName: string | null;
+  }>;
+  let indexUnavailable = false;
   try {
-    const indexRows = await db
+    indexRows = await db
       .select({
         workflowId: workflowTriggerIndex.workflowId,
         triggerId: workflowTriggerIndex.triggerId,
@@ -230,7 +238,13 @@ export async function matchAndDispatchWorkflowTriggers(
           isNull(workflows.deletedAt),
         ),
       );
+  } catch (err) {
+    console.warn('[TriggerMatcher] trigger index unavailable, falling back to JSONB scan:', err);
+    indexUnavailable = true;
+    indexRows = [];
+  }
 
+  if (!indexUnavailable) {
     const matches = indexRows.filter(
       (row) =>
         (!row.eventType || eventTypes.includes(row.eventType)) &&
@@ -238,8 +252,6 @@ export async function matchAndDispatchWorkflowTriggers(
     );
     await dispatchEntityMatches(env, matches, dispatchBase);
     return;
-  } catch (err) {
-    console.warn('[TriggerMatcher] trigger index unavailable, falling back to JSONB scan:', err);
   }
 
   // Fallback: scan embedded workflows.triggers when index table is missing.
@@ -322,8 +334,16 @@ export async function matchAndDispatchIntegrationTriggers(
     }
   };
 
+  let indexRows: Array<{
+    workflowId: string;
+    triggerId: string;
+    integrationId: string | null;
+    filters: unknown;
+    workflowName: string | null;
+  }>;
+  let indexUnavailable = false;
   try {
-    const indexRows = await db
+    indexRows = await db
       .select({
         workflowId: workflowTriggerIndex.workflowId,
         triggerId: workflowTriggerIndex.triggerId,
@@ -343,7 +363,13 @@ export async function matchAndDispatchIntegrationTriggers(
           isNull(workflows.deletedAt),
         ),
       );
+  } catch (err) {
+    console.warn('[TriggerMatcher] trigger index unavailable, falling back to JSONB scan:', err);
+    indexUnavailable = true;
+    indexRows = [];
+  }
 
+  if (!indexUnavailable) {
     const matches = indexRows.filter(
       (row) =>
         !(row.integrationId && integrationId && row.integrationId !== integrationId) &&
@@ -354,8 +380,6 @@ export async function matchAndDispatchIntegrationTriggers(
       await dispatchOne(row.workflowId, row.workflowName, row.triggerId);
     }
     return;
-  } catch (err) {
-    console.warn('[TriggerMatcher] trigger index unavailable, falling back to JSONB scan:', err);
   }
 
   const activeWorkflows = await db

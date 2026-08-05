@@ -47,6 +47,8 @@ const BUILTIN_ACTION_TYPES = [
  *  third-party integrations (Slack, Google Sheets, …) from the catalog package. */
 export const ACTION_TYPES = [...BUILTIN_ACTION_TYPES, ...deriveActionTypes()];
 
+/** Built-in trigger types. `id` is the stable i18n key (manual, schedule, …);
+ *  `name` / `description` are legacy display strings for API consumers. */
 const BUILTIN_TRIGGER_TYPES = [
   { id: 'entity_event', name: 'Entity Event', description: 'Trigger when a WeldSuite record changes', category: 'entity_event', icon: 'zap' },
   { id: 'integration_event', name: 'Integration Event', description: 'Trigger from connected apps (Slack, Google Sheets, …)', category: 'integration_event', icon: 'plug' },

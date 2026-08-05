@@ -1,7 +1,7 @@
 /**
  * Workflow trigger routes — flat /api/workflow-triggers/* surface.
  *
- * Permissions: tasks:read | tasks:create | tasks:update | tasks:delete.
+ * Permissions: workflows:read | workflows:create | workflows:update | workflows:delete.
  */
 
 import { z } from 'zod';
@@ -199,6 +199,9 @@ app.post(
       const triggerId = generateId('trg');
       const scheduleId = generateId('sched');
       const now = new Date();
+
+      // TODO: route schedule creation through workflow-schedules service so
+      // D1 index sync and nextRunAt calculation stay consistent with POST /api/workflow-schedules.
 
       await db.insert(t).values({
         id: triggerId,

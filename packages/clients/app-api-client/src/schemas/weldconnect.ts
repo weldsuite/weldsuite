@@ -268,6 +268,7 @@ export const createVariableSchema = z.object({
   value: z.string(),
   isSecret: z.boolean().default(false),
   isGlobal: z.boolean().default(false),
+  scope: z.enum(['global', 'workflow', 'execution']).optional(),
   workflowId: z.string().nullish(),
 });
 

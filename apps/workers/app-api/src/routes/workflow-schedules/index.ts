@@ -5,7 +5,7 @@
  * the canonical /api/workflow-schedules/:id endpoint — they were always the
  * same DB ops; the cron sweep in api-worker is what actually fires them.
  *
- * Permissions: tasks:read | tasks:create | tasks:update | tasks:delete.
+ * Permissions: workflows:read | workflows:create | workflows:update | workflows:delete.
  */
 
 import { z } from 'zod';
