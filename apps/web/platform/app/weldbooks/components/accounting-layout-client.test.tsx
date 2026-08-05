@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const getMock = vi.fn();
@@ -8,6 +9,19 @@ vi.mock('@/lib/api/weldbooks-client', () => ({
   weldbooksApi: {
     get: (...args: unknown[]) => getMock(...args),
   },
+}));
+
+vi.mock('@/lib/i18n/provider', () => ({
+  useI18n: () => ({
+    t: {
+      accounting: {
+        layout: {
+          loadError: 'Failed to load accounting entities. Please try again.',
+          retry: 'Retry',
+        },
+      },
+    },
+  }),
 }));
 
 vi.mock('./weldbooks-header', () => ({
@@ -71,5 +85,29 @@ describe('AccountingLayoutClient', () => {
       expect(screen.getByTestId('page-content')).toBeInTheDocument();
     });
     expect(screen.queryByTestId('entity-empty-state')).not.toBeInTheDocument();
+  });
+
+  it('shows retryable error UI instead of empty state when the entities request fails', async () => {
+    getMock.mockRejectedValue(new Error('network down'));
+
+    renderWithClient(
+      <AccountingLayoutClient>
+        <div data-testid="page-content">Dashboard</div>
+      </AccountingLayoutClient>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('weldbooks-entities-load-error')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Failed to load accounting entities/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('entity-empty-state')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('page-content')).not.toBeInTheDocument();
+
+    getMock.mockResolvedValue({ data: [{ id: 'ent_1' }] });
+    await userEvent.click(screen.getByRole('button', { name: /Retry/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('page-content')).toBeInTheDocument();
+    });
   });
 });

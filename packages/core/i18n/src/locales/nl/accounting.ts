@@ -2759,6 +2759,8 @@ export const accounting = {
       noEntityDescription:
         'Maak een juridische entiteit aan om WeldBooks te gebruiken. Het rekeningschema en de belastingtarieven voor de gekozen jurisdictie worden automatisch ingesteld.',
       createFirstEntity: 'Entiteit aanmaken',
+      loadError: 'Kon boekhoudkundige entiteiten niet laden. Probeer het opnieuw.',
+      retry: 'Opnieuw proberen',
     },
 
     // WeldBooks-breadcrumb-koptekst segmentlabels
