@@ -11,8 +11,11 @@
  */
 
 import { grantCredits, getOrCreateWorkspaceCredits, type CreditsDb } from '@weldsuite/credits';
+import type { CreditTopupCheckoutInput } from '@weldsuite/app-api-client/schemas/credits';
 import { eq } from 'drizzle-orm';
 import { masterSchema } from '../db';
+import type { Env } from '../types';
+import { fetchBillingWorker } from '../lib/billing-worker';
 
 const { workspaceCredits } = masterSchema;
 
@@ -112,3 +115,68 @@ export async function updateSubscriptionCredits(
     periodReset: resetPeriod || false,
   };
 }
+
+// ============================================================================
+// Billing-worker proxy (prepaid credit topup Checkout)
+// ============================================================================
+
+export type CreditCheckoutProxyFailure =
+  | { kind: 'bad_request'; message: string }
+  | { kind: 'not_found'; message: string }
+  | { kind: 'upstream'; message: string };
+
+export type CreditCheckoutProxyResult =
+  | { ok: true; url: string }
+  | { ok: false; error: CreditCheckoutProxyFailure };
+
+/**
+ * Create a Stripe Checkout session for a prepaid credit package via
+ * billing-worker. Credits are granted by the webhook after payment — this
+ * only returns the hosted Checkout URL.
+ */
+export async function createCreditTopupCheckout(params: {
+  env: Pick<Env, 'ENVIRONMENT'>;
+  authorization?: string | null;
+  body: CreditTopupCheckoutInput;
+  fetchImpl?: typeof fetch;
+}): Promise<CreditCheckoutProxyResult> {
+  try {
+    const resp = await fetchBillingWorker(params.env, '/api/billing/credits/checkout', {
+      method: 'POST',
+      authorization: params.authorization,
+      body: params.body,
+      fetchImpl: params.fetchImpl,
+    });
+    const payload = (await resp.json().catch(() => null)) as Record<string, unknown> | null;
+
+    if (!resp.ok) {
+      const message =
+        (payload && typeof payload.error === 'string' && payload.error) ||
+        'Failed to start credit checkout';
+      if (resp.status === 400) return { ok: false, error: { kind: 'bad_request', message } };
+      if (resp.status === 404) return { ok: false, error: { kind: 'not_found', message } };
+      return { ok: false, error: { kind: 'upstream', message } };
+    }
+
+    const url = payload && typeof payload.url === 'string' ? payload.url : null;
+    if (!url) {
+      return {
+        ok: false,
+        error: { kind: 'upstream', message: 'Billing worker returned no checkout URL' },
+      };
+    }
+
+    return { ok: true, url };
+  } catch (err) {
+    const aborted =
+      (err instanceof Error && err.name === 'AbortError') ||
+      (typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'AbortError');
+    const message = aborted
+      ? 'Billing worker timed out'
+      : err instanceof Error
+        ? err.message
+        : 'Failed to start credit checkout';
+    return { ok: false, error: { kind: 'upstream', message } };
+  }
+}
+

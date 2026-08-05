@@ -79,5 +79,8 @@ export * from './domains/chat-agent';
 // Notifications — flat /api/notifications/* surface (list / unread-count / read).
 export * from './domains/notifications';
 
+// Credits — prepaid wallet topup checkout contract.
+export * from './schemas/credits';
+
 // Dashboard — read-only workspace-home reads (installed apps for the WeldChat layout).
 export * from './domains/dashboard';

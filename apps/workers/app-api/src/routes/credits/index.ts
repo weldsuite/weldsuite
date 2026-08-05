@@ -35,9 +35,9 @@ import {
 import type { PlanFeatures } from '@weldsuite/db/schema/plans';
 import type { Env, Variables } from '../../types';
 import { getMasterDb, masterSchema, type MasterDatabase } from '../../db';
-import { getOrCreateWorkspaceCredits, updateSubscriptionCredits } from '../../services/credits';
-import { callBillingWorker } from '../../lib/billing-worker';
+import { getOrCreateWorkspaceCredits, updateSubscriptionCredits, createCreditTopupCheckout } from '../../services/credits';
 import { success, error as apiError } from '../../lib/response';
+import { creditTopupCheckoutSchema } from '@weldsuite/app-api-client/schemas/credits';
 
 const { workspaceCredits, creditTransactions, creditPackages, workspaces, plans } = masterSchema;
 
@@ -612,12 +612,6 @@ app.post('/adjust', requirePermission('billing:manage'), zValidator('json', adju
 // POST /checkout — Stripe Checkout for a prepaid credit package (proxied)
 // ============================================================================
 
-const checkoutSchema = z.object({
-  packageId: z.string().min(1),
-  successUrl: z.string().url().optional(),
-  cancelUrl: z.string().url().optional(),
-});
-
 /**
  * Start a prepaid credit topup. Forwards to billing-worker, which creates the
  * Stripe Checkout session; credits are granted by the checkout.session.completed
@@ -626,41 +620,28 @@ const checkoutSchema = z.object({
 app.post(
   '/checkout',
   requirePermission('billing:manage'),
-  zValidator('json', checkoutSchema),
+  zValidator('json', creditTopupCheckoutSchema),
   async (c) => {
     const orgId = c.get('orgId');
     if (!orgId) return apiError.orgRequired(c);
 
     const body = c.req.valid('json');
 
-    try {
-      const resp = await callBillingWorker(c, '/api/billing/credits/checkout', {
-        method: 'POST',
-        body,
-      });
-      const payload = (await resp.json().catch(() => null)) as Record<string, unknown> | null;
+    const result = await createCreditTopupCheckout({
+      env: c.env,
+      authorization: c.req.header('Authorization'),
+      body,
+    });
 
-      if (!resp.ok) {
-        const message =
-          (payload && typeof payload.error === 'string' && payload.error) ||
-          'Failed to start credit checkout';
-        if (resp.status === 400) return apiError.badRequest(c, message);
-        if (resp.status === 404) return apiError.notFound(c, 'Credit package');
-        console.error('[app-api/credits] checkout proxy failed:', resp.status, payload);
-        return apiError.internal(c, message);
-      }
-
-      const url = payload && typeof payload.url === 'string' ? payload.url : null;
-      if (!url) {
-        return apiError.internal(c, 'Billing worker returned no checkout URL');
-      }
-
-      // Match /api/billing/checkout envelope so platform hooks can unwrap `{ data: { url } }`.
-      return success(c, { url });
-    } catch (err) {
-      console.error('[app-api/credits] checkout proxy error:', err);
-      return apiError.internal(c, 'Failed to start credit checkout');
+    if (!result.ok) {
+      if (result.error.kind === 'bad_request') return apiError.badRequest(c, result.error.message);
+      if (result.error.kind === 'not_found') return apiError.notFound(c, 'Credit package');
+      console.error('[app-api/credits] checkout proxy failed:', result.error.message);
+      return apiError.internal(c, result.error.message);
     }
+
+    // Match /api/billing/checkout envelope so platform hooks can unwrap `{ data: { url } }`.
+    return success(c, { url: result.url });
   },
 );
 

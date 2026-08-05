@@ -68,6 +68,7 @@
     "./schemas/push-tokens": "./src/schemas/push-tokens.ts",
     "./schemas/weldagent": "./src/schemas/weldagent.ts",
     "./schemas/app-catalog": "./src/schemas/app-catalog.ts",
+    "./schemas/credits": "./src/schemas/credits.ts",
     "./domains/ai": "./src/domains/ai.ts",
     "./domains/account": "./src/domains/account.ts",
     "./domains/workspace-settings": "./src/domains/workspace-settings.ts",

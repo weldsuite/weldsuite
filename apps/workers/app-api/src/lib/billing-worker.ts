@@ -16,6 +16,9 @@ import type { Env, Variables } from '../types';
 /** Production custom domain from apps/workers/billing-worker/wrangler.toml. */
 export const BILLING_WORKER_PRODUCTION_URL = 'https://billing-worker.weldsuite.org';
 
+/** Bound how long app-api waits on billing-worker before aborting. */
+export const BILLING_WORKER_TIMEOUT_MS = 10_000;
+
 /**
  * Resolve the billing-worker base URL for the current environment.
  * Production host matches wrangler.toml (`billing-worker.weldsuite.org`).
@@ -26,11 +29,52 @@ export function billingWorkerUrl(env: Pick<Env, 'ENVIRONMENT'>): string {
     : 'http://localhost:8788';
 }
 
+export type FetchBillingWorkerInit = {
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  body?: unknown;
+  authorization?: string | null;
+  timeoutMs?: number;
+  /** Injectable for tests. Defaults to global `fetch`. */
+  fetchImpl?: typeof fetch;
+};
+
+/**
+ * Forward a request to billing-worker without a Hono context.
+ * Uses AbortController so a stalled upstream cannot hold the Worker open.
+ */
+export async function fetchBillingWorker(
+  env: Pick<Env, 'ENVIRONMENT'>,
+  path: string,
+  init: FetchBillingWorkerInit = {},
+): Promise<Response> {
+  const method = init.method ?? (init.body !== undefined ? 'POST' : 'GET');
+  const timeoutMs = init.timeoutMs ?? BILLING_WORKER_TIMEOUT_MS;
+  const fetchImpl = init.fetchImpl ?? fetch;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetchImpl(`${billingWorkerUrl(env)}${path}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init.authorization ? { Authorization: init.authorization } : {}),
+      },
+      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 export type CallBillingWorkerInit = {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
+  timeoutMs?: number;
 };
 
 /**
@@ -44,15 +88,10 @@ export async function callBillingWorker(
   path: string,
   init: CallBillingWorkerInit = {},
 ): Promise<Response> {
-  const authHeader = c.req.header('Authorization');
-  const method = init.method ?? (init.body !== undefined ? 'POST' : 'GET');
-
-  return fetch(`${billingWorkerUrl(c.env)}${path}`, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(authHeader ? { Authorization: authHeader } : {}),
-    },
-    body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+  return fetchBillingWorker(c.env, path, {
+    method: init.method,
+    body: init.body,
+    authorization: c.req.header('Authorization'),
+    timeoutMs: init.timeoutMs,
   });
 }

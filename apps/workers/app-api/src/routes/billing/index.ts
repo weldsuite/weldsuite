@@ -88,9 +88,9 @@ import {
   getPlanById,
   mapSubscription,
   renderEnterpriseInquiryEmail,
+  fetchPhoneSubscription,
 } from '../../services/billing';
 import { sendInternalTransactionalEmail } from '../../services/internal-email';
-import { callBillingWorker } from '../../lib/billing-worker';
 
 const { workspaces, plans, billingInvoices, billingPayments } = masterSchema;
 
@@ -381,25 +381,19 @@ app.get('/phone-subscription', canReadBilling, async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
 
-  try {
-    const resp = await callBillingWorker(c, '/api/billing/phone/subscription');
-    const body = (await resp.json().catch(() => null)) as Record<string, unknown> | null;
+  const result = await fetchPhoneSubscription({
+    env: c.env,
+    authorization: c.req.header('Authorization'),
+  });
 
-    if (!resp.ok) {
-      const message =
-        (body && typeof body.error === 'string' && body.error) ||
-        'Failed to fetch phone subscription';
-      if (resp.status === 400) return error.badRequest(c, message);
-      if (resp.status === 404) return error.notFound(c, 'Phone subscription');
-      console.error('[Billing] phone-subscription proxy failed:', resp.status, body);
-      return success(c, { exists: false });
-    }
-
-    return success(c, body ?? { exists: false });
-  } catch (err) {
-    console.error('[Billing] phone-subscription proxy error:', err);
-    return success(c, { exists: false });
+  if (!result.ok) {
+    if (result.error.kind === 'bad_request') return error.badRequest(c, result.error.message);
+    if (result.error.kind === 'not_found') return error.notFound(c, 'Phone subscription');
+    console.error('[Billing] phone-subscription proxy failed:', result.error.message);
+    return error.internal(c, result.error.message);
   }
+
+  return success(c, result.data);
 });
 
 // ============================================================================
