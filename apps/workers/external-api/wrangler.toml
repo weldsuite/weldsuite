@@ -70,14 +70,12 @@ namespace_id = "13"
   period = 60
 
 # Entity-event sinks (dev). Fed by publishEntityEvent so public-API mutations
-# reach the same audit / workflow / analytics / realtime systems as app-api.
+# reach the same audit / analytics / realtime systems as app-api. Workflow
+# triggers are dispatched inline by the publisher (matchAndDispatchWorkflowTriggers
+# → EXECUTE_WORKFLOW), not through a queue.
 [[queues.producers]]
 binding = "AUDIT_EVENTS"
 queue = "audit-events-dev"
-
-[[queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events-dev"
 
 [[queues.producers]]
 binding = "ANALYTICS_EVENTS"
@@ -150,10 +148,6 @@ id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 [[env.production.queues.producers]]
 binding = "AUDIT_EVENTS"
 queue = "audit-events"
-
-[[env.production.queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events"
 
 [[env.production.queues.producers]]
 binding = "ANALYTICS_EVENTS"

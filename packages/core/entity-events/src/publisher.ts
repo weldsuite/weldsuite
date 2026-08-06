@@ -3,18 +3,19 @@
  *
  * Fans out a single entity mutation to:
  *   1. AUDIT_EVENTS queue (audit-log-worker)
- *   2. WORKFLOW_EVENTS queue (helpdesk-workflow-worker)
- *   3. ANALYTICS_EVENTS queue (analytics-worker)
- *   4. SEARCH_EVENTS queue (app-api's own queue() consumer — semantic index)
- *   5. REALTIME service binding → WorkspaceHub DO (@weldsuite/realtime)
- *   6. Cloudflare Workflow dispatch via env.EXECUTE_WORKFLOW
+ *   2. ANALYTICS_EVENTS queue (analytics-worker)
+ *   3. SEARCH_EVENTS queue (app-api's own queue() consumer — semantic index)
+ *   4. REALTIME service binding → WorkspaceHub DO (@weldsuite/realtime)
+ *   5. Outbound customer webhooks (external_webhooks, straight off the tenant db)
+ *   6. Workflow triggers, matched inline against the tenant `workflows` table and
+ *      dispatched as Cloudflare Workflow instances via env.EXECUTE_WORKFLOW
+ *
+ * Sinks 5 and 6 each cost a tenant-DB read per event, on the write path. Moving
+ * them behind the queue is phase 2 of `.claude/entity-events-plan.md`.
  *
  * Each sink is independently optional — a missing binding logs a warning
  * and the rest still fire. Wrapped in `executionCtx.waitUntil(...)` so the
  * HTTP response is never blocked.
- *
- * Note: app-api emits only via the DO realtime system. Legacy entity-event publishing lives in
- * api-worker only; everything app-api owns is on the DO realtime system.
  */
 
 import type { Context } from 'hono';
@@ -37,7 +38,6 @@ import type { TenantDb } from './internal-types';
 
 export interface EntityEventPublisherEnv extends WorkflowDispatchEnv {
   AUDIT_EVENTS?: Queue<EntityEventMessage>;
-  WORKFLOW_EVENTS?: Queue<EntityEventMessage>;
   ANALYTICS_EVENTS?: Queue<EntityEventMessage>;
   SEARCH_EVENTS?: Queue<EntityEventMessage>;
   REALTIME?: Fetcher;
@@ -146,16 +146,7 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
     );
   }
 
-  // 2. Workflow queue
-  if (env.WORKFLOW_EVENTS) {
-    tasks.push(
-      env.WORKFLOW_EVENTS.send(message)
-        .then(() => console.log(`[EntityEvents] Published workflow event ${message.eventType} for ${entityId}`))
-        .catch((err: unknown) => console.error('[EntityEvents] Failed to publish workflow event:', err)),
-    );
-  }
-
-  // 3. Analytics queue
+  // 2. Analytics queue
   if (env.ANALYTICS_EVENTS) {
     tasks.push(
       env.ANALYTICS_EVENTS.send(message)
@@ -164,7 +155,7 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
     );
   }
 
-  // 4. Semantic search index queue. The consumer re-reads the record rather
+  // 3. Semantic search index queue. The consumer re-reads the record rather
   // than trusting `data`, so a dropped or reordered message costs freshness,
   // never correctness.
   if (env.SEARCH_EVENTS) {
@@ -175,7 +166,7 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
     );
   }
 
-  // 5. Cloudflare DO realtime
+  // 4. Cloudflare DO realtime
   if (workspaceId && env.REALTIME) {
     tasks.push(
       (async () => {
@@ -192,17 +183,11 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
     );
   }
 
-  if (
-    !env.AUDIT_EVENTS &&
-    !env.WORKFLOW_EVENTS &&
-    !env.ANALYTICS_EVENTS &&
-    !env.SEARCH_EVENTS &&
-    !env.REALTIME
-  ) {
+  if (!env.AUDIT_EVENTS && !env.ANALYTICS_EVENTS && !env.SEARCH_EVENTS && !env.REALTIME) {
     console.warn('[EntityEvents] No queue or realtime bindings available — skipping publish');
   }
 
-  // 6. Outbound customer webhooks (external_webhooks subscriptions). No binding
+  // 5. Outbound customer webhooks (external_webhooks subscriptions). No binding
   // required — reads straight off the tenant `db`, so this always runs; it's a
   // cheap no-op when no active webhook is subscribed to this event.
   if (workspaceId) {
@@ -218,7 +203,7 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
     );
   }
 
-  // 7. Inline workflow trigger matching (CF Workflows binding)
+  // 6. Inline workflow trigger matching (CF Workflows binding)
   if (workspaceId && env.EXECUTE_WORKFLOW) {
     tasks.push(
       matchAndDispatchWorkflowTriggers({

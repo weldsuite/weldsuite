@@ -74,7 +74,6 @@ export interface Env {
   // Entity-event sinks (publishEntityEventRaw). Optional — the publisher
   // no-ops + warns when a binding is absent.
   AUDIT_EVENTS?: Queue;
-  WORKFLOW_EVENTS?: Queue;
   ANALYTICS_EVENTS?: Queue;
   REALTIME?: Fetcher;
 }

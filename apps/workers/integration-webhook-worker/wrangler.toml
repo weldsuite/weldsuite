@@ -47,10 +47,6 @@ binding = "AUDIT_EVENTS"
 queue = "audit-events-dev"
 
 [[queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events-dev"
-
-[[queues.producers]]
 binding = "ANALYTICS_EVENTS"
 queue = "analytics-events-dev"
 
@@ -103,10 +99,6 @@ service = "weldsuite-realtime-production"
 [[env.production.queues.producers]]
 binding = "AUDIT_EVENTS"
 queue = "audit-events"
-
-[[env.production.queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events"
 
 [[env.production.queues.producers]]
 binding = "ANALYTICS_EVENTS"

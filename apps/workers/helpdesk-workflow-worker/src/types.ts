@@ -6,7 +6,6 @@
  */
 
 import type { HelpdeskWorkflowStep as WorkflowStepDef, HelpdeskTriggerConfig as TriggerConfig } from '@weldsuite/db/schema/helpdesk-workflow-types';
-import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { Database } from './db';
 
 export type { WorkflowStepDef };
@@ -38,9 +37,6 @@ export interface Env {
   // KV
   WORKSPACE_CACHE: KVNamespace;
   DEDUP_KV: KVNamespace;
-
-  // Queues
-  ENTITY_EVENTS: Queue<EntityEventMessage>;
 
   // Storage
   STORAGE: R2Bucket;

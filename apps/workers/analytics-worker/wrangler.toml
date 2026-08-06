@@ -15,10 +15,16 @@ head_sampling_rate = 1
 [vars]
 ENVIRONMENT = "development"
 
+# dead_letter_queue is not optional: without one, Cloudflare DELETES a message
+# once max_retries is exhausted, so an event that persistently fails to
+# transform would drop out of analytics with only a console log to notice it.
+#   wrangler queues create analytics-events-dlq-dev
 [[queues.consumers]]
 queue = "analytics-events-dev"
 max_batch_size = 25
 max_batch_timeout = 5
+max_retries = 3
+dead_letter_queue = "analytics-events-dlq-dev"
 
 [[pipelines]]
 pipeline = "REPLACE_WITH_PIPELINE_ID"
@@ -32,10 +38,13 @@ name = "weldsuite-analytics"
 [env.production.vars]
 ENVIRONMENT = "production"
 
+#   wrangler queues create analytics-events-dlq
 [[env.production.queues.consumers]]
 queue = "analytics-events"
 max_batch_size = 25
 max_batch_timeout = 5
+max_retries = 3
+dead_letter_queue = "analytics-events-dlq"
 
 [[env.production.pipelines]]
 pipeline = "REPLACE_WITH_PIPELINE_ID"

@@ -122,8 +122,6 @@ export interface Env {
   // --- Entity-event publishing -------------------------------------------
   /** Audit-log queue consumer — fed by publishEntityEvent. */
   AUDIT_EVENTS?: Queue<EntityEventMessage>;
-  /** Workflow-event queue consumer — fed by publishEntityEvent. */
-  WORKFLOW_EVENTS?: Queue<EntityEventMessage>;
   /** Analytics queue consumer — fed by publishEntityEvent. */
   ANALYTICS_EVENTS?: Queue<EntityEventMessage>;
   /** Semantic search indexing. Produced here, consumed by this worker's queue(). */

@@ -48,6 +48,18 @@ class_name = "RateLimiter"
 tag = "v1"
 new_sqlite_classes = ["RateLimiter"]
 
+# Entity-event sinks (dev). These mirror the production block below — without
+# them `wrangler dev` leaves every binding undefined and publishEntityEvent
+# silently skips all its queue sinks, so MCP-originated mutations look like they
+# publish while producing nothing.
+[[queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events-dev"
+
+[[queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events-dev"
+
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 name = "weldsuite-mcp-server"
@@ -74,15 +86,11 @@ binding = "HYPERDRIVE_MASTER"
 id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 
 # Entity-event sinks. Mutations made through MCP publish to the same queues as
-# every other surface so audit/workflow/analytics stay complete. Each binding is
-# optional at runtime — a missing one logs a warning and the others still fire.
+# every other surface so audit/analytics stay complete. Each binding is optional
+# at runtime — a missing one logs a warning and the others still fire.
 [[env.production.queues.producers]]
 binding = "AUDIT_EVENTS"
 queue = "audit-events"
-
-[[env.production.queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events"
 
 [[env.production.queues.producers]]
 binding = "ANALYTICS_EVENTS"

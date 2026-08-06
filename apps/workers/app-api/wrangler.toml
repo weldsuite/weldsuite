@@ -188,10 +188,6 @@ binding = "AUDIT_EVENTS"
 queue = "audit-events-dev"
 
 [[queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events-dev"
-
-[[queues.producers]]
 binding = "ANALYTICS_EVENTS"
 queue = "analytics-events-dev"
 
@@ -362,10 +358,6 @@ bucket_name = "weldsuite-storage"
 [[env.production.queues.producers]]
 binding = "AUDIT_EVENTS"
 queue = "audit-events"
-
-[[env.production.queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events"
 
 [[env.production.queues.producers]]
 binding = "ANALYTICS_EVENTS"

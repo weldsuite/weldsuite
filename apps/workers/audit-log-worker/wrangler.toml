@@ -24,11 +24,18 @@ ENVIRONMENT = "development"
 binding = "WORKSPACE_CACHE"
 id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 
-# Queue: this worker consumes audit events
+# Queue: this worker consumes audit events.
+#
+# dead_letter_queue is not optional: without one, Cloudflare DELETES a message
+# once max_retries is exhausted. A mutation that persistently fails to write
+# would vanish from the audit trail with only a console log to notice it.
+#   wrangler queues create audit-events-dlq-dev
 [[queues.consumers]]
 queue = "audit-events-dev"
 max_batch_size = 10
 max_batch_timeout = 1
+max_retries = 3
+dead_letter_queue = "audit-events-dlq-dev"
 
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
@@ -42,10 +49,13 @@ ENVIRONMENT = "production"
 binding = "WORKSPACE_CACHE"
 id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 
+#   wrangler queues create audit-events-dlq
 [[env.production.queues.consumers]]
 queue = "audit-events"
 max_batch_size = 10
 max_batch_timeout = 1
+max_retries = 3
+dead_letter_queue = "audit-events-dlq"
 
 [env.production.observability]
 enabled = true

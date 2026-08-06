@@ -234,7 +234,7 @@ Key files:
 - `apps/workers/app-api/src/lib/response.ts`, `success()`, `error.*`, `list()`, `cursorPagination()`
 - `apps/workers/app-api/src/middleware/`, `clerk.ts`, `workspace-db.ts`, `request-id.ts`
 
-**Entity events**, every mutation route must publish an entity event so audit logging, workflows, analytics, realtime, and AI agents stay wired:
+**Entity events**, every mutation route must publish an entity event so audit logging, analytics, semantic search, realtime, outbound customer webhooks, and workflow triggers stay wired. See `packages/core/entity-events/README.md` for the full contract and `.claude/entity-events-plan.md` for where this is heading:
 
 ```ts
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -281,7 +281,7 @@ AI runs through the **`@weldsuite/ai`** package (Vercel AI SDK via the Cloudflar
 - **Hyperdrive**, Neon pooling
 - **KV**, Workspace cache + config
 - **R2**, Files / attachments
-- **Queues**, `audit-events`, `workflow-events`, `analytics-events`
+- **Queues**, `audit-events`, `analytics-events`, `search-index` (each with a `-dlq` companion)
 - **Service Bindings**, Cross-worker calls (e.g. helpdesk widget → workflow worker, integration workers → `app-api`)
 - **Realtime**, `@weldsuite/realtime` (Cloudflare Durable Objects + WebSocket; notifications, live chat); token via `/api/realtime/token`
 
