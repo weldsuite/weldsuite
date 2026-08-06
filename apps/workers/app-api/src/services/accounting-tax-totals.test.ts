@@ -109,4 +109,44 @@ describe('calculateLineTaxTotals', () => {
       'tax_input_sgst',
     ]);
   });
+
+  it('keeps processedItems tax consistent with breakdown for fractional-cent GST', () => {
+    const result = calculateLineTaxTotals(
+      [
+        {
+          quantity: '1',
+          unitPrice: '0.03',
+          discountPercent: '0',
+          taxRate: '18',
+          taxRateId: 'txr_gst18',
+          taxRateName: 'GST 18%',
+          jurisdictionMetadata: {
+            gstSlab: '18',
+            components: {
+              intrastate: [
+                { code: 'cgst', rate: '9.00', accountRole: 'tax_output_cgst' },
+                { code: 'sgst', rate: '9.00', accountRole: 'tax_output_sgst' },
+              ],
+              interstate: [
+                { code: 'igst', rate: '18.00', accountRole: 'tax_output_igst' },
+              ],
+            },
+          },
+        },
+      ],
+      {
+        jurisdictionCode: 'IN',
+        sellerStateCode: '27',
+        buyerStateCode: '27',
+        buyerCountry: 'IN',
+      },
+    );
+    const processedTax = result.processedItems.reduce((s, p) => s + parseFloat(p.taxAmount), 0);
+    const breakdownTax = result.taxBreakdown.reduce((s, r) => s + r.taxAmount, 0);
+    expect(result.taxTotal).toBe(processedTax.toFixed(2));
+    expect(parseFloat(result.taxTotal)).toBeCloseTo(breakdownTax, 2);
+    expect(result.total).toBe(
+      (parseFloat(result.subtotal) + parseFloat(result.taxTotal)).toFixed(2),
+    );
+  });
 });

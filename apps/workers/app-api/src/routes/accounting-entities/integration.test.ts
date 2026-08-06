@@ -146,6 +146,21 @@ describe('/api/accounting-entities · pglite integration', () => {
     });
     expect(badPatch.status).toBe(400);
 
+    const emptyPatch = await request(`/api/accounting-entities/${created.data.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vatNumber: '' }),
+    });
+    expect(emptyPatch.status).toBe(400);
+
+    const [unchanged] = await db
+      .select()
+      .from(schema.entities)
+      .where(eq(schema.entities.id, created.data.id))
+      .limit(1);
+    expect(unchanged?.taxIdentifiers?.vatNumber).toBe('27AABCU9603R1ZM');
+    expect((unchanged?.jurisdictionSettings as { stateCode?: string } | null)?.stateCode).toBe('27');
+
     const goodPatch = await request(`/api/accounting-entities/${created.data.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -157,6 +172,32 @@ describe('/api/accounting-entities · pglite integration', () => {
     };
     expect(body.data.taxIdentifiers?.vatNumber).toBe('29AABCU9603R1ZM');
     expect(body.data.jurisdictionSettings?.stateCode).toBe('29');
+  });
+
+  it('POST / defaults baseCurrency to INR for India when omitted', async () => {
+    const { request } = createTestApp('/api/accounting-entities', accountingEntitiesRoutes, {
+      context: { permissions: permissions('entities:create'), tenantDb: db },
+    });
+
+    const res = await request('/api/accounting-entities', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'INR Default Co',
+        jurisdictionCode: 'IN',
+        seedDefaults: false,
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { data: { id: string } };
+    const [row] = await db
+      .select()
+      .from(schema.entities)
+      .where(eq(schema.entities.id, body.data.id))
+      .limit(1);
+    expect(row?.baseCurrency).toBe('INR');
+    expect(row?.timezone).toBe('Asia/Kolkata');
   });
 
   it('GET /jurisdictions includes IN and NL', async () => {

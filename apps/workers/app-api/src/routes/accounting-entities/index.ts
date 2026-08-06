@@ -62,7 +62,8 @@ function applyIndiaTaxIdentifiers(opts: {
   const taxIdentifiers = opts.taxIdentifiers ? { ...opts.taxIdentifiers } : undefined;
   const timezone = opts.timezone ?? 'Asia/Kolkata';
   const gstin = taxIdentifiers?.vatNumber;
-  if (gstin) {
+  // Field presence (including '') must be validated — empty GSTIN would leave a stale stateCode
+  if (gstin !== undefined) {
     const check = validateGstin(gstin);
     if (!check.valid) {
       return { error: check.error ?? 'Invalid GSTIN' };
@@ -128,7 +129,7 @@ const createEntitySchema = z.object({
   jurisdiction: z.string().min(2).max(5).optional(),
   /** Top-level convenience alias — merged into taxIdentifiers.vatNumber. */
   vatNumber: z.string().max(50).optional(),
-  baseCurrency: z.string().length(3).default('EUR'),
+  baseCurrency: z.string().length(3).optional(),
   locale: z.string().max(10).optional(),
   timezone: z.string().max(50).optional(),
   taxIdentifiers: taxIdentifiersSchema.optional(),
@@ -201,9 +202,10 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
   }
 
   const adapter = getAdapter(jurisdictionCode);
-  const mergedTaxIdentifiers = data.vatNumber
-    ? { ...(data.taxIdentifiers ?? {}), vatNumber: data.taxIdentifiers?.vatNumber ?? data.vatNumber }
-    : data.taxIdentifiers;
+  const mergedTaxIdentifiers =
+    data.vatNumber !== undefined
+      ? { ...(data.taxIdentifiers ?? {}), vatNumber: data.taxIdentifiers?.vatNumber ?? data.vatNumber }
+      : data.taxIdentifiers;
 
   const india = applyIndiaTaxIdentifiers({
     jurisdictionCode,
@@ -219,7 +221,7 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
   const jurisdictionSettings = india.jurisdictionSettings;
   const timezone = india.timezone;
   const locale = data.locale ?? adapter.defaultLocale;
-  const baseCurrency = data.baseCurrency;
+  const baseCurrency = data.baseCurrency ?? adapter.defaultCurrency;
 
   try {
     const now = new Date();
@@ -372,11 +374,12 @@ app.patch('/:id', requirePermission('entities:update'), zValidator('json', updat
       existing.jurisdictionCode
     ).toUpperCase();
 
-    const mergedTaxIdentifiers = vatAlias
-      ? { ...(existing.taxIdentifiers ?? {}), ...(data.taxIdentifiers ?? {}), vatNumber: vatAlias }
-      : data.taxIdentifiers
-        ? { ...(existing.taxIdentifiers ?? {}), ...data.taxIdentifiers }
-        : existing.taxIdentifiers;
+    const mergedTaxIdentifiers =
+      vatAlias !== undefined
+        ? { ...(existing.taxIdentifiers ?? {}), ...(data.taxIdentifiers ?? {}), vatNumber: vatAlias }
+        : data.taxIdentifiers
+          ? { ...(existing.taxIdentifiers ?? {}), ...data.taxIdentifiers }
+          : existing.taxIdentifiers;
 
     const india = applyIndiaTaxIdentifiers({
       jurisdictionCode: nextJurisdiction,
@@ -395,7 +398,7 @@ app.patch('/:id', requirePermission('entities:update'), zValidator('json', updat
     if (data.jurisdictionCode || jurisdictionAlias) {
       patch.jurisdictionCode = nextJurisdiction;
     }
-    if (vatAlias || data.taxIdentifiers) {
+    if (vatAlias !== undefined || data.taxIdentifiers) {
       patch.taxIdentifiers = india.taxIdentifiers;
     }
     if (nextJurisdiction === 'IN') {

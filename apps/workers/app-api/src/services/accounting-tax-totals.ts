@@ -39,6 +39,33 @@ function parseAmount(raw: string | undefined, fallback = 0): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function roundMoney(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * Round each component to 2 decimals and absorb any remainder into the last
+ * row so the component sum equals `targetTax` (also 2-decimal).
+ */
+function allocateRoundedTax(
+  rows: TaxBreakdownRow[],
+  targetTax: number,
+): TaxBreakdownRow[] {
+  if (rows.length === 0) return rows;
+  const rounded = rows.map((r) => ({
+    ...r,
+    taxableAmount: roundMoney(r.taxableAmount),
+    taxAmount: roundMoney(r.taxAmount),
+  }));
+  const sum = rounded.reduce((s, r) => s + r.taxAmount, 0);
+  const remainder = roundMoney(targetTax - sum);
+  if (Math.abs(remainder) >= 0.01) {
+    const last = rounded[rounded.length - 1];
+    last.taxAmount = roundMoney(last.taxAmount + remainder);
+  }
+  return rounded;
+}
+
 /**
  * Compute line totals + tax breakdown. For India (IN) entities with GST slab
  * metadata, expands each line into CGST+SGST or IGST rows based on place of supply.
@@ -69,9 +96,9 @@ export function calculateLineTaxTotals(
 
     const lineGross = qty * price;
     const lineDiscount = lineGross * (discount / 100);
-    const lineTotal = lineGross - lineDiscount;
+    const lineTotal = roundMoney(lineGross - lineDiscount);
+    const targetTax = roundMoney(lineTotal * (rate / 100));
 
-    let lineTax = lineTotal * (rate / 100);
     let rows: TaxBreakdownRow[];
 
     if (
@@ -79,18 +106,20 @@ export function calculateLineTaxTotals(
       item.jurisdictionMetadata &&
       (item.jurisdictionMetadata as { components?: unknown }).components
     ) {
-      rows = expandGstTaxBreakdown({
-        taxableAmount: lineTotal,
-        taxRateId: item.taxRateId ?? '',
-        taxRateName: item.taxRateName ?? `${rate}%`,
-        slabRate: rate,
-        jurisdictionMetadata: item.jurisdictionMetadata,
-        sellerStateCode: place.sellerStateCode,
-        buyerStateCode: place.buyerStateCode,
-        buyerCountry: place.buyerCountry,
-        direction: place.direction ?? 'sales',
-      });
-      lineTax = rows.reduce((sum, r) => sum + r.taxAmount, 0);
+      rows = allocateRoundedTax(
+        expandGstTaxBreakdown({
+          taxableAmount: lineTotal,
+          taxRateId: item.taxRateId ?? '',
+          taxRateName: item.taxRateName ?? `${rate}%`,
+          slabRate: rate,
+          jurisdictionMetadata: item.jurisdictionMetadata,
+          sellerStateCode: place.sellerStateCode,
+          buyerStateCode: place.buyerStateCode,
+          buyerCountry: place.buyerCountry,
+          direction: place.direction ?? 'sales',
+        }),
+        targetTax,
+      );
     } else {
       rows = [
         {
@@ -98,51 +127,46 @@ export function calculateLineTaxTotals(
           taxRateName: item.taxRateName ?? `${rate}%`,
           taxRate: rate,
           taxableAmount: lineTotal,
-          taxAmount: lineTax,
+          taxAmount: targetTax,
         },
       ];
     }
+
+    const lineTax = roundMoney(rows.reduce((sum, r) => sum + r.taxAmount, 0));
 
     for (const row of rows) {
       const key = `${row.taxRateId}:${row.taxRateName}:${row.taxRate}:${row.component ?? ''}`;
       const existing = breakdownMap.get(key);
       if (existing) {
-        existing.taxableAmount += row.taxableAmount;
-        existing.taxAmount += row.taxAmount;
+        existing.taxableAmount = roundMoney(existing.taxableAmount + row.taxableAmount);
+        existing.taxAmount = roundMoney(existing.taxAmount + row.taxAmount);
       } else {
         breakdownMap.set(key, { ...row });
       }
     }
 
-    subtotal += lineTotal;
-    discountTotal += lineDiscount;
-    taxTotal += lineTax;
+    subtotal = roundMoney(subtotal + lineTotal);
+    discountTotal = roundMoney(discountTotal + lineDiscount);
+    taxTotal = roundMoney(taxTotal + lineTax);
 
     return {
       lineTotal: lineTotal.toFixed(2),
-      lineTotalWithTax: (lineTotal + lineTax).toFixed(2),
+      lineTotalWithTax: roundMoney(lineTotal + lineTax).toFixed(2),
       taxAmount: lineTax.toFixed(2),
     };
   });
 
-  const total = subtotal + taxTotal;
-  const taxBreakdown = Array.from(breakdownMap.values()).map((r) => ({
-    ...r,
-    taxableAmount: Math.round(r.taxableAmount * 100) / 100,
-    taxAmount: Math.round(r.taxAmount * 100) / 100,
-  }));
-
-  // Keep header taxTotal consistent with rounded breakdown rows
-  const breakdownTaxSum = taxBreakdown.reduce((sum, r) => sum + r.taxAmount, 0);
-  const reconciledTaxTotal =
-    taxBreakdown.length > 0 ? breakdownTaxSum : Math.round(taxTotal * 100) / 100;
+  const taxBreakdown = Array.from(breakdownMap.values());
+  const breakdownTaxSum = roundMoney(taxBreakdown.reduce((sum, r) => sum + r.taxAmount, 0));
+  // Header must match both processed line taxes and breakdown (already allocated per line)
+  const reconciledTaxTotal = taxBreakdown.length > 0 ? breakdownTaxSum : taxTotal;
 
   return {
     subtotal: subtotal.toFixed(2),
     discountTotal: discountTotal.toFixed(2),
     taxTotal: reconciledTaxTotal.toFixed(2),
-    total: (subtotal + reconciledTaxTotal).toFixed(2),
-    balanceDue: (subtotal + reconciledTaxTotal).toFixed(2),
+    total: roundMoney(subtotal + reconciledTaxTotal).toFixed(2),
+    balanceDue: roundMoney(subtotal + reconciledTaxTotal).toFixed(2),
     taxBreakdown,
     processedItems,
   };
