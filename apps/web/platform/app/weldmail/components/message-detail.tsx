@@ -4,6 +4,7 @@ import { useRouter } from '@/lib/router';
 import { formatAiBody } from '@/app/weldmail/lib/format-ai-body';
 import {
   Reply,
+  ReplyAll,
   Forward,
   Star,
   Trash,
@@ -71,6 +72,7 @@ import {
   useGenerateAutoDraft,
   useGenerateAIReply,
   useMailAttachments,
+  useMailAccounts,
 } from '@/hooks/queries/use-mail-queries';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import { CustomerDetailPanel } from './customer-detail-panel';
@@ -131,6 +133,36 @@ function addressToEmail(addr: string | MailTypes.EmailAddress | undefined): stri
 
 function addressListToEmails(list?: string[] | MailTypes.EmailAddress[]): string[] {
   return (list || []).map((item) => addressToEmail(item));
+}
+
+// Recipients for a reply. A plain reply goes to the original sender only; a
+// reply-all adds everyone else who was on the To/Cc lines, minus the mailbox
+// we're replying from (replying to yourself is never what's wanted).
+// `replyAndPersist` on the server derives the same set from the stored message,
+// so what we show here matches what actually gets sent.
+function buildReplyRecipients(
+  msg: EmailMessage,
+  { all, selfEmail }: { all: boolean; selfEmail?: string },
+): string[] {
+  const self = selfEmail?.trim().toLowerCase();
+  const seen = new Set<string>();
+  const recipients: string[] = [];
+  const add = (email: string, { allowSelf = false } = {}) => {
+    const trimmed = email.trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key) || (!allowSelf && key === self)) return;
+    seen.add(key);
+    recipients.push(trimmed);
+  };
+  // The sender stays even when it's our own address — replying to a message
+  // you sent yourself should still address it to that thread.
+  add(msg.fromEmail || addressToEmail(msg.from), { allowSelf: true });
+  if (all) {
+    addressListToEmails(msg.to).forEach((email) => add(email));
+    addressListToEmails(msg.cc).forEach((email) => add(email));
+  }
+  return recipients;
 }
 
 // Generate consistent label color based on label name
@@ -417,6 +449,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const generateAIReplyMutation = useGenerateAIReply();
   const handleAiCreditsError = useAiCreditsToast();
   const [isReplying, setIsReplying] = useState(false);
+  const [isReplyingAll, setIsReplyingAll] = useState(false);
   const [isForwarding, setIsForwarding] = useState(false);
   const [replyToMessageId, setReplyToMessageId] = useState<string | null>(null);
   const [composeData, setComposeData] = useState({ to: '', subject: '', body: '' });
@@ -519,6 +552,20 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     };
   }, [message, localThread]);
 
+  // Our own address on this mailbox — excluded from reply-all recipients.
+  const { data: accountsData } = useMailAccounts();
+  const accountEmail = useMemo(
+    () => (accountsData?.data ?? []).find((a) => a.id === accountId)?.email,
+    [accountsData, accountId],
+  );
+
+  // "Reply all" only earns its place when there is somebody else to include.
+  const replyAllRecipients = useMemo(
+    () => (newestMessage ? buildReplyRecipients(newestMessage, { all: true, selfEmail: accountEmail }) : []),
+    [newestMessage, accountEmail],
+  );
+  const canReplyAll = replyAllRecipients.length > 1;
+
   // The api-worker mail list / thread routes resolve sender avatars from the
   // shared `contacts` table and project them onto `from.avatarUrl` for every
   // message, so we just read them off the message object — no extra fetch.
@@ -567,24 +614,24 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
       if (detail?.messageId && detail.messageId !== message.id && detail.messageId !== newestMessage.id) return;
       const action = detail?.action;
       if (action === 'reply' || action === 'replyAll') {
+        const allRecipients = action === 'replyAll';
         setIsReplying(true);
+        setIsReplyingAll(allRecipients);
         setIsForwarding(false);
         setReplyToMessageId(newestMessage.id);
-        const allRecipients = action === 'replyAll';
-        const to = allRecipients
-          ? [newestMessage.fromEmail || addressToEmail(newestMessage.from), ...addressListToEmails(newestMessage.cc)].filter(Boolean).join(', ')
-          : newestMessage.fromEmail || addressToEmail(newestMessage.from);
+        const to = buildReplyRecipients(newestMessage, { all: allRecipients, selfEmail: accountEmail }).join(', ');
         setComposeData({ to, subject: `Re: ${message.subject}`, body: '' });
       } else if (action === 'forward' || action === 'forwardAttachment') {
         setIsForwarding(true);
         setIsReplying(false);
+        setIsReplyingAll(false);
         setReplyToMessageId(newestMessage.id);
         setComposeData({ to: '', subject: `Fwd: ${message.subject}`, body: '' });
       }
     };
     window.addEventListener('mail:action', handleMailAction);
     return () => window.removeEventListener('mail:action', handleMailAction);
-  }, [message.id, message.subject, newestMessage]);
+  }, [message.id, message.subject, newestMessage, accountEmail]);
 
   const { main: mainContent, quoted: quotedContent } = parseMainContent(newestMessage.bodyHtml, newestMessage.bodyText);
   const isHtml = !!newestMessage.bodyHtml;
@@ -645,16 +692,16 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     }
     setIsSending(true);
     try {
-      const toAddresses = composeData.to.split(/[,;]/).map((e: string) => e.trim()).filter((e: string) => e.length > 0);
       const result = await mailApi.messages.reply(accountId, message.id, {
         body: textContent,
         htmlBody: htmlContent,
-        replyAll: toAddresses.length > 1,
+        replyAll: isReplyingAll,
       });
       if (result.success) {
         toast.success(t.mail.messageDetail.replySent);
         addOptimisticMessage(textContent, composeData.to, htmlContent);
         setIsReplying(false);
+        setIsReplyingAll(false);
         setReplyToMessageId(null);
         setComposeData({ to: '', subject: '', body: '' });
         if (editorRef.current) editorRef.current.innerHTML = '';
@@ -894,6 +941,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     const placeholder = isReply ? t.mail.messageDetail.replyPlaceholder : t.mail.messageDetail.forwardMessagePlaceholder;
     const onCancel = () => {
       setIsReplying(false);
+      setIsReplyingAll(false);
       setIsForwarding(false);
       setReplyToMessageId(null);
       setComposeData({ to: '', subject: '', body: '' });
@@ -1839,6 +1887,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                   if (result.success && result.draft) {
                     const wasAlreadyReplying = isReplying && replyToMessageId === newestMessage.id;
                     setIsReplying(true);
+                    setIsReplyingAll(false);
                     setIsForwarding(false);
                     setReplyToMessageId(newestMessage.id);
                     setComposeData({
@@ -1882,12 +1931,17 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             <Button
               variant="ghost"
               onClick={() => {
-                const wasReplying = isReplying && replyToMessageId === newestMessage.id;
+                const wasReplying = isReplying && !isReplyingAll && replyToMessageId === newestMessage.id;
                 setIsReplying(!wasReplying);
+                setIsReplyingAll(false);
                 setIsForwarding(false);
                 setReplyToMessageId(!wasReplying ? newestMessage.id : null);
                 if (!wasReplying) {
-                  setComposeData({ to: newestMessage.fromEmail || addressToEmail(newestMessage.from), subject: `Re: ${message.subject}`, body: '' });
+                  setComposeData({
+                    to: buildReplyRecipients(newestMessage, { all: false, selfEmail: accountEmail }).join(', '),
+                    subject: `Re: ${message.subject}`,
+                    body: '',
+                  });
                 }
               }}
               className="flex-1 md:flex-initial px-3 py-2 md:py-1.5 border border-gray-200 dark:border-border text-gray-600 dark:text-muted-foreground rounded-lg hover:bg-gray-50 dark:hover:bg-secondary transition-colors flex items-center justify-center gap-2"
@@ -1895,12 +1949,32 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
               <Reply className="h-4 w-4" />
               <span className="text-sm">{t.mail.compose.reply}</span>
             </Button>
+            {canReplyAll && (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  const wasReplyingAll = isReplying && isReplyingAll && replyToMessageId === newestMessage.id;
+                  setIsReplying(!wasReplyingAll);
+                  setIsReplyingAll(!wasReplyingAll);
+                  setIsForwarding(false);
+                  setReplyToMessageId(!wasReplyingAll ? newestMessage.id : null);
+                  if (!wasReplyingAll) {
+                    setComposeData({ to: replyAllRecipients.join(', '), subject: `Re: ${message.subject}`, body: '' });
+                  }
+                }}
+                className="flex-1 md:flex-initial px-3 py-2 md:py-1.5 border border-gray-200 dark:border-border text-gray-600 dark:text-muted-foreground rounded-lg hover:bg-gray-50 dark:hover:bg-secondary transition-colors flex items-center justify-center gap-2"
+              >
+                <ReplyAll className="h-4 w-4" />
+                <span className="text-sm">{t.mail.compose.replyAll}</span>
+              </Button>
+            )}
             <Button
               variant="ghost"
               onClick={() => {
                 const wasForwarding = isForwarding && replyToMessageId === newestMessage.id;
                 setIsForwarding(!wasForwarding);
                 setIsReplying(false);
+                setIsReplyingAll(false);
                 setReplyToMessageId(!wasForwarding ? newestMessage.id : null);
                 if (!wasForwarding) {
                   setComposeData({ to: '', subject: `Fwd: ${message.subject}`, body: '' });
@@ -1921,6 +1995,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
               {olderMessages.map((threadMsg) => {
                 const isExpanded = expandedThreadIds.has(threadMsg.id);
                 const isSentMessage = threadMsg.folder?.toLowerCase() === 'sent';
+                const threadReplyAllRecipients = buildReplyRecipients(threadMsg, { all: true, selfEmail: accountEmail });
                 return (
                   <React.Fragment key={threadMsg.id}>
                     {/* Reply/Forward compose - above this thread message */}
@@ -2043,15 +2118,41 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                         onClick={(e) => {
                           e.stopPropagation();
                           setIsReplying(true);
+                          setIsReplyingAll(false);
                           setIsForwarding(false);
                           setReplyToMessageId(threadMsg.id);
-                          setComposeData({ to: threadMsg.fromEmail || addressToEmail(threadMsg.from), subject: `Re: ${threadMsg.subject || message.subject}`, body: '' });
+                          setComposeData({
+                            to: buildReplyRecipients(threadMsg, { all: false, selfEmail: accountEmail }).join(', '),
+                            subject: `Re: ${threadMsg.subject || message.subject}`,
+                            body: '',
+                          });
                         }}
                         className="p-1.5 bg-white dark:bg-card border border-border rounded-md hover:bg-muted transition-colors"
                         title={t.mail.compose.reply}
                       >
                         <Reply className="h-3.5 w-3.5 text-muted-foreground" />
                       </Button>
+                      {threadReplyAllRecipients.length > 1 && (
+                        <Button
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIsReplying(true);
+                            setIsReplyingAll(true);
+                            setIsForwarding(false);
+                            setReplyToMessageId(threadMsg.id);
+                            setComposeData({
+                              to: threadReplyAllRecipients.join(', '),
+                              subject: `Re: ${threadMsg.subject || message.subject}`,
+                              body: '',
+                            });
+                          }}
+                          className="p-1.5 bg-white dark:bg-card border border-border rounded-md hover:bg-muted transition-colors"
+                          title={t.mail.compose.replyAll}
+                        >
+                          <ReplyAll className="h-3.5 w-3.5 text-muted-foreground" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         onClick={(e) => {
@@ -2085,6 +2186,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           onCompose={(email) => {
             customerPanel.closePanel();
             setIsReplying(true);
+            setIsReplyingAll(false);
             setComposeData({ to: email, subject: `Re: ${message.subject}`, body: '' });
           }}
           topOffset="117px"

@@ -509,12 +509,17 @@ export async function replyAndPersist(
   const originalFrom = original.from as { email?: string; name?: string } | null;
   const toAddresses: string[] = [];
   if (originalFrom?.email) toAddresses.push(originalFrom.email);
-  if (data.replyAll && original.to) {
-    const origTo = original.to as { email?: string }[];
-    for (const addr of origTo) {
-      if (addr.email && addr.email !== account.email && !toAddresses.includes(addr.email)) {
-        toAddresses.push(addr.email);
-      }
+  // Reply-all keeps everyone who was on the original To/Cc lines — Cc
+  // recipients stay on Cc — minus this mailbox, which is already the sender.
+  const ccAddresses: string[] = [];
+  if (data.replyAll) {
+    const isNew = (email: string | undefined): email is string =>
+      !!email && email !== account.email && !toAddresses.includes(email) && !ccAddresses.includes(email);
+    for (const addr of (original.to as { email?: string }[] | null) ?? []) {
+      if (isNew(addr.email)) toAddresses.push(addr.email);
+    }
+    for (const addr of (original.cc as { email?: string }[] | null) ?? []) {
+      if (isNew(addr.email)) ccAddresses.push(addr.email);
     }
   }
 
@@ -530,6 +535,7 @@ export async function replyAndPersist(
     original.accountId,
     {
       to: toAddresses,
+      cc: ccAddresses.length ? ccAddresses : undefined,
       subject: `Re: ${(original.subject || '').replace(/^Re:\s*/i, '')}`,
       body: data.body,
       htmlBody: data.htmlBody,
