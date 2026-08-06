@@ -191,7 +191,10 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
     const billNumber = data.billNumber ?? (await nextEntityNumber(db, entityId, 'bill')).formatted;
 
     const place = await loadPlaceOfSupply(db, entityId);
-    const totals = await buildTaxTotalsWithRates(db, data.items, place);
+    const totals = await buildTaxTotalsWithRates(db, data.items, {
+      ...place,
+      direction: 'purchase',
+    });
     const { processedItems, taxBreakdown, ...billTotals } = totals;
     const billId = generateId('bil');
 

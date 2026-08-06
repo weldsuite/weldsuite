@@ -55,4 +55,58 @@ describe('calculateLineTaxTotals', () => {
     expect(result.taxBreakdown).toHaveLength(2);
     expect(result.taxBreakdown.map((r) => r.component).sort()).toEqual(['cgst', 'sgst']);
   });
+
+  it('treats quantity 0 as zero, not one', () => {
+    const result = calculateLineTaxTotals(
+      [
+        {
+          quantity: '0',
+          unitPrice: '100',
+          discountPercent: '0',
+          taxRate: '18',
+        },
+      ],
+      { jurisdictionCode: 'NL' },
+    );
+    expect(result.subtotal).toBe('0.00');
+    expect(result.taxTotal).toBe('0.00');
+  });
+
+  it('uses tax_input_* roles for purchase direction', () => {
+    const result = calculateLineTaxTotals(
+      [
+        {
+          quantity: '1',
+          unitPrice: '1000',
+          discountPercent: '0',
+          taxRate: '18',
+          taxRateId: 'txr_gst18',
+          taxRateName: 'GST 18%',
+          jurisdictionMetadata: {
+            gstSlab: '18',
+            components: {
+              intrastate: [
+                { code: 'cgst', rate: '9.00', accountRole: 'tax_output_cgst' },
+                { code: 'sgst', rate: '9.00', accountRole: 'tax_output_sgst' },
+              ],
+              interstate: [
+                { code: 'igst', rate: '18.00', accountRole: 'tax_output_igst' },
+              ],
+            },
+          },
+        },
+      ],
+      {
+        jurisdictionCode: 'IN',
+        sellerStateCode: '27',
+        buyerStateCode: '27',
+        buyerCountry: 'IN',
+        direction: 'purchase',
+      },
+    );
+    expect(result.taxBreakdown.map((r) => r.accountRole).sort()).toEqual([
+      'tax_input_cgst',
+      'tax_input_sgst',
+    ]);
+  });
 });

@@ -21,8 +21,11 @@ function gstSlabMeta(
 
 /**
  * Standard Indian GST rates seeded on IN entity creation.
- * Display rates are GST slabs; `jurisdictionMetadata.components` drives
- * CGST+SGST (intra-state) vs IGST (inter-state) expansion at posting time.
+ * Display names are English to match the entity default locale (`en-IN`),
+ * mirroring how the NL adapter seeds Dutch names for `nl-NL`.
+ * `jurisdictionMetadata.components` drives CGST+SGST (intra-state) vs IGST
+ * (inter-state) expansion at posting time. Seeded roles are tax_output_*;
+ * purchase expansion remaps to tax_input_*.
  */
 export const inTaxCategories: TaxCategoryTemplate[] = [
   {
@@ -53,6 +56,13 @@ export const inTaxCategories: TaxCategoryTemplate[] = [
     type: 'both',
     taxCategoryCode: 'standard',
     jurisdictionMetadata: gstSlabMeta('28', '14.00', '28.00') as unknown as Record<string, unknown>,
+  },
+  {
+    name: 'GST 40%',
+    rate: '40.00',
+    type: 'both',
+    taxCategoryCode: 'standard',
+    jurisdictionMetadata: gstSlabMeta('40', '20.00', '40.00') as unknown as Record<string, unknown>,
   },
   {
     name: 'GST 0%',

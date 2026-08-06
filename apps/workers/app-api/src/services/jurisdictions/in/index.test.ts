@@ -62,16 +62,27 @@ describe('India place-of-supply tax resolution', () => {
     expect(decision.reasoning).toMatch(/Inter-state/i);
   });
 
-  it('returns export 0% for non-India buyer', () => {
+  it('fails closed without components when place of supply is unknown', () => {
     const decision = inAdapter.resolveTaxRate({
       isB2B: true,
-      buyerCountry: 'US',
-      sellerStateCode: '27',
+      buyerCountry: 'IN',
       gstSlab: '18',
     });
-    expect(decision.taxCategoryCode).toBe('export_goods');
-    expect(decision.rate).toBe('0.00');
+    expect(decision.rate).toBe('18.00');
     expect(decision.components).toBeUndefined();
+    expect(decision.reasoning).toMatch(/place of supply unknown/i);
+  });
+
+  it('rejects an unsupported GST slab instead of falling back to 18%', () => {
+    const decision = inAdapter.resolveTaxRate({
+      isB2B: true,
+      buyerCountry: 'IN',
+      sellerStateCode: '27',
+      buyerStateCode: '27',
+      gstSlab: '15',
+    });
+    expect(decision.rate).toBe('0.00');
+    expect(decision.reasoning).toMatch(/Unsupported GST slab/i);
   });
 });
 
@@ -120,6 +131,38 @@ describe('expandGstTaxBreakdown', () => {
     expect(rows[0].component).toBe('igst');
     expect(rows[0].taxAmount).toBe(180);
   });
+
+  it('fails closed to a single slab row when states are missing', () => {
+    const rows = expandGstTaxBreakdown({
+      taxableAmount: 1000,
+      taxRateId: 'txr_1',
+      taxRateName: 'GST 18%',
+      slabRate: 18,
+      jurisdictionMetadata: meta as unknown as Record<string, unknown>,
+      buyerCountry: 'IN',
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].component).toBeUndefined();
+    expect(rows[0].taxAmount).toBe(180);
+  });
+
+  it('maps purchase direction to tax_input_* roles', () => {
+    const rows = expandGstTaxBreakdown({
+      taxableAmount: 1000,
+      taxRateId: 'txr_1',
+      taxRateName: 'GST 18%',
+      slabRate: 18,
+      jurisdictionMetadata: meta as unknown as Record<string, unknown>,
+      sellerStateCode: '27',
+      buyerStateCode: '27',
+      buyerCountry: 'IN',
+      direction: 'purchase',
+    });
+    expect(rows.map((r) => r.accountRole).sort()).toEqual([
+      'tax_input_cgst',
+      'tax_input_sgst',
+    ]);
+  });
 });
 
 describe('IN adapter registration', () => {
@@ -142,5 +185,6 @@ describe('IN adapter registration', () => {
     const taxes = inAdapter.getStandardTaxCategories();
     expect(taxes.some((t) => t.isDefault && t.rate === '18.00')).toBe(true);
     expect(taxes.some((t) => t.name.includes('GST 5%'))).toBe(true);
+    expect(taxes.some((t) => t.rate === '40.00')).toBe(true);
   });
 });

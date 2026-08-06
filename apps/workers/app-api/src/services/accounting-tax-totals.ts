@@ -25,7 +25,19 @@ export type PlaceOfSupplyContext = {
   sellerStateCode?: string;
   buyerStateCode?: string;
   buyerCountry?: string;
+  /** sales (invoices) use tax_output_*; purchase (bills) use tax_input_* */
+  direction?: 'sales' | 'purchase';
 };
+
+function parseQuantity(raw: string | undefined): number {
+  const parsed = parseFloat(raw ?? '');
+  return Number.isFinite(parsed) ? parsed : 1;
+}
+
+function parseAmount(raw: string | undefined, fallback = 0): number {
+  const parsed = parseFloat(raw ?? '');
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
 
 /**
  * Compute line totals + tax breakdown. For India (IN) entities with GST slab
@@ -50,10 +62,10 @@ export function calculateLineTaxTotals(
   const breakdownMap = new Map<string, TaxBreakdownRow>();
 
   const processedItems = items.map((item) => {
-    const qty = parseFloat(item.quantity) || 1;
-    const price = parseFloat(item.unitPrice) || 0;
-    const discount = parseFloat(item.discountPercent) || 0;
-    const rate = parseFloat(item.taxRate || '0');
+    const qty = parseQuantity(item.quantity);
+    const price = parseAmount(item.unitPrice, 0);
+    const discount = parseAmount(item.discountPercent, 0);
+    const rate = parseAmount(item.taxRate ?? undefined, 0);
 
     const lineGross = qty * price;
     const lineDiscount = lineGross * (discount / 100);
@@ -76,6 +88,7 @@ export function calculateLineTaxTotals(
         sellerStateCode: place.sellerStateCode,
         buyerStateCode: place.buyerStateCode,
         buyerCountry: place.buyerCountry,
+        direction: place.direction ?? 'sales',
       });
       lineTax = rows.reduce((sum, r) => sum + r.taxAmount, 0);
     } else {
@@ -91,7 +104,7 @@ export function calculateLineTaxTotals(
     }
 
     for (const row of rows) {
-      const key = `${row.taxRateName}:${row.taxRate}:${row.component ?? ''}`;
+      const key = `${row.taxRateId}:${row.taxRateName}:${row.taxRate}:${row.component ?? ''}`;
       const existing = breakdownMap.get(key);
       if (existing) {
         existing.taxableAmount += row.taxableAmount;
@@ -119,12 +132,17 @@ export function calculateLineTaxTotals(
     taxAmount: Math.round(r.taxAmount * 100) / 100,
   }));
 
+  // Keep header taxTotal consistent with rounded breakdown rows
+  const breakdownTaxSum = taxBreakdown.reduce((sum, r) => sum + r.taxAmount, 0);
+  const reconciledTaxTotal =
+    taxBreakdown.length > 0 ? breakdownTaxSum : Math.round(taxTotal * 100) / 100;
+
   return {
     subtotal: subtotal.toFixed(2),
     discountTotal: discountTotal.toFixed(2),
-    taxTotal: taxTotal.toFixed(2),
-    total: total.toFixed(2),
-    balanceDue: total.toFixed(2),
+    taxTotal: reconciledTaxTotal.toFixed(2),
+    total: (subtotal + reconciledTaxTotal).toFixed(2),
+    balanceDue: (subtotal + reconciledTaxTotal).toFixed(2),
     taxBreakdown,
     processedItems,
   };
@@ -136,12 +154,14 @@ export function getEntityStateCode(entity: {
   jurisdictionSettings?: Record<string, unknown> | null;
 }): string | undefined {
   const fromSettings = entity.jurisdictionSettings?.stateCode;
-  if (typeof fromSettings === 'string' && fromSettings.length >= 2) {
-    return fromSettings.slice(0, 2);
+  if (typeof fromSettings === 'string' && /^[0-9]{2}$/.test(fromSettings.trim())) {
+    return fromSettings.trim();
   }
   const gstin = entity.taxIdentifiers?.vatNumber;
-  if (gstin && gstin.length >= 2) {
-    return gstin.replace(/[\s-]/g, '').toUpperCase().slice(0, 2);
+  if (gstin) {
+    const normalized = gstin.replace(/[\s-]/g, '').toUpperCase();
+    const match = normalized.match(/^[0-9]{2}/);
+    return match?.[0];
   }
   return undefined;
 }

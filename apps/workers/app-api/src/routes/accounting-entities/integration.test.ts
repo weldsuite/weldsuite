@@ -117,6 +117,48 @@ describe('/api/accounting-entities · pglite integration', () => {
     expect(res.status).toBe(400);
   });
 
+  it('PATCH / validates GSTIN and refreshes stateCode', async () => {
+    const { request } = createTestApp('/api/accounting-entities', accountingEntitiesRoutes, {
+      context: {
+        permissions: permissions('entities:create', 'entities:update'),
+        tenantDb: db,
+      },
+    });
+
+    const createRes = await request('/api/accounting-entities', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Patch GSTIN Co',
+        jurisdictionCode: 'IN',
+        baseCurrency: 'INR',
+        vatNumber: '27AABCU9603R1ZM',
+        seedDefaults: false,
+      }),
+    });
+    expect(createRes.status).toBe(201);
+    const created = (await createRes.json()) as { data: { id: string } };
+
+    const badPatch = await request(`/api/accounting-entities/${created.data.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vatNumber: 'BAD' }),
+    });
+    expect(badPatch.status).toBe(400);
+
+    const goodPatch = await request(`/api/accounting-entities/${created.data.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vatNumber: '29AABCU9603R1ZM' }),
+    });
+    expect(goodPatch.status).toBe(200);
+    const body = (await goodPatch.json()) as {
+      data: { taxIdentifiers?: { vatNumber?: string }; jurisdictionSettings?: { stateCode?: string } };
+    };
+    expect(body.data.taxIdentifiers?.vatNumber).toBe('29AABCU9603R1ZM');
+    expect(body.data.jurisdictionSettings?.stateCode).toBe('29');
+  });
+
   it('GET /jurisdictions includes IN and NL', async () => {
     const { request } = createTestApp('/api/accounting-entities', accountingEntitiesRoutes, {
       context: { permissions: permissions('entities:read'), tenantDb: db },

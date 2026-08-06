@@ -28,6 +28,58 @@ import {
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+type TaxIdentifiers = {
+  vatNumber?: string;
+  registrationNumber?: string;
+  einOrSsn?: string;
+  other?: Record<string, string>;
+};
+
+/**
+ * Validate/normalize India GSTIN and derive jurisdictionSettings.stateCode.
+ * Returns an error message when GSTIN is present but invalid.
+ */
+function applyIndiaTaxIdentifiers(opts: {
+  jurisdictionCode: string;
+  taxIdentifiers?: TaxIdentifiers | null;
+  jurisdictionSettings?: Record<string, unknown> | null;
+  timezone?: string | null;
+}): {
+  error?: string;
+  taxIdentifiers?: TaxIdentifiers;
+  jurisdictionSettings?: Record<string, unknown>;
+  timezone?: string;
+} {
+  if (opts.jurisdictionCode.toUpperCase() !== 'IN') {
+    return {
+      taxIdentifiers: opts.taxIdentifiers ?? undefined,
+      jurisdictionSettings: opts.jurisdictionSettings ?? undefined,
+      timezone: opts.timezone ?? undefined,
+    };
+  }
+
+  let jurisdictionSettings = opts.jurisdictionSettings ? { ...opts.jurisdictionSettings } : {};
+  const taxIdentifiers = opts.taxIdentifiers ? { ...opts.taxIdentifiers } : undefined;
+  const timezone = opts.timezone ?? 'Asia/Kolkata';
+  const gstin = taxIdentifiers?.vatNumber;
+  if (gstin) {
+    const check = validateGstin(gstin);
+    if (!check.valid) {
+      return { error: check.error ?? 'Invalid GSTIN' };
+    }
+    taxIdentifiers!.vatNumber = check.formatted;
+    const stateCode = extractStateCodeFromGstin(check.formatted!);
+    if (stateCode) {
+      jurisdictionSettings = { ...jurisdictionSettings, stateCode };
+    }
+  }
+  return {
+    taxIdentifiers,
+    jurisdictionSettings: Object.keys(jurisdictionSettings).length > 0 ? jurisdictionSettings : undefined,
+    timezone,
+  };
+}
+
 const addressSchema = z.object({
   street: z.string().optional(),
   houseNumber: z.string().optional(),
@@ -149,31 +201,25 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
   }
 
   const adapter = getAdapter(jurisdictionCode);
-  const taxIdentifiers = data.vatNumber
+  const mergedTaxIdentifiers = data.vatNumber
     ? { ...(data.taxIdentifiers ?? {}), vatNumber: data.taxIdentifiers?.vatNumber ?? data.vatNumber }
     : data.taxIdentifiers;
 
-  // Validate GSTIN / derive state for India
-  let jurisdictionSettings = data.jurisdictionSettings ? { ...data.jurisdictionSettings } : {};
-  let timezone = data.timezone;
+  const india = applyIndiaTaxIdentifiers({
+    jurisdictionCode,
+    taxIdentifiers: mergedTaxIdentifiers,
+    jurisdictionSettings: data.jurisdictionSettings,
+    timezone: data.timezone,
+  });
+  if (india.error) {
+    return error.badRequest(c, india.error);
+  }
+
+  const taxIdentifiers = india.taxIdentifiers;
+  const jurisdictionSettings = india.jurisdictionSettings;
+  const timezone = india.timezone;
   const locale = data.locale ?? adapter.defaultLocale;
   const baseCurrency = data.baseCurrency;
-
-  if (jurisdictionCode.toUpperCase() === 'IN') {
-    timezone = timezone ?? 'Asia/Kolkata';
-    const gstin = taxIdentifiers?.vatNumber;
-    if (gstin) {
-      const check = validateGstin(gstin);
-      if (!check.valid) {
-        return error.badRequest(c, check.error ?? 'Invalid GSTIN');
-      }
-      taxIdentifiers!.vatNumber = check.formatted;
-      const stateCode = extractStateCodeFromGstin(check.formatted!);
-      if (stateCode && !jurisdictionSettings.stateCode) {
-        jurisdictionSettings = { ...jurisdictionSettings, stateCode };
-      }
-    }
-  }
 
   try {
     const now = new Date();
@@ -193,7 +239,7 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
       contact: data.contact,
       bankDetails: data.bankDetails,
       branding: data.branding,
-      jurisdictionSettings: Object.keys(jurisdictionSettings).length > 0 ? jurisdictionSettings : data.jurisdictionSettings,
+      jurisdictionSettings,
       fiscalYearStart: data.fiscalYearStart ?? 1,
       isDefault: data.isDefault ?? false,
       isActive: true,
@@ -310,7 +356,7 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
 app.patch('/:id', requirePermission('entities:update'), zValidator('json', updateEntitySchema), async (c) => {
   const db = c.get('tenantDb');
   // `jurisdiction`/`vatNumber` are request-shape aliases, not columns.
-  const { jurisdiction: _alias, vatNumber: _vat, ...data } = c.req.valid('json');
+  const { jurisdiction: jurisdictionAlias, vatNumber: vatAlias, ...data } = c.req.valid('json');
   const id = c.req.param('id');
   try {
     const [existing] = await db
@@ -320,9 +366,50 @@ app.patch('/:id', requirePermission('entities:update'), zValidator('json', updat
       .limit(1);
     if (!existing) return error.notFound(c, 'Entity', id);
 
+    const nextJurisdiction = (
+      data.jurisdictionCode ??
+      jurisdictionAlias ??
+      existing.jurisdictionCode
+    ).toUpperCase();
+
+    const mergedTaxIdentifiers = vatAlias
+      ? { ...(existing.taxIdentifiers ?? {}), ...(data.taxIdentifiers ?? {}), vatNumber: vatAlias }
+      : data.taxIdentifiers
+        ? { ...(existing.taxIdentifiers ?? {}), ...data.taxIdentifiers }
+        : existing.taxIdentifiers;
+
+    const india = applyIndiaTaxIdentifiers({
+      jurisdictionCode: nextJurisdiction,
+      taxIdentifiers: mergedTaxIdentifiers,
+      jurisdictionSettings: data.jurisdictionSettings ?? existing.jurisdictionSettings,
+      timezone: data.timezone ?? existing.timezone,
+    });
+    if (india.error) {
+      return error.badRequest(c, india.error);
+    }
+
+    const patch: Record<string, unknown> = {
+      ...data,
+      updatedAt: new Date(),
+    };
+    if (data.jurisdictionCode || jurisdictionAlias) {
+      patch.jurisdictionCode = nextJurisdiction;
+    }
+    if (vatAlias || data.taxIdentifiers) {
+      patch.taxIdentifiers = india.taxIdentifiers;
+    }
+    if (nextJurisdiction === 'IN') {
+      patch.jurisdictionSettings = india.jurisdictionSettings ?? existing.jurisdictionSettings;
+      if (!data.timezone && !existing.timezone) {
+        patch.timezone = india.timezone;
+      } else if (india.timezone && data.timezone === undefined && nextJurisdiction === 'IN') {
+        // keep existing timezone unless explicitly patched
+      }
+    }
+
     await db
       .update(schema.entities)
-      .set({ ...data, updatedAt: new Date() })
+      .set(patch)
       .where(and(eq(schema.entities.id, id), isNull(schema.entities.deletedAt)));
     const [updated] = await db
       .select()
@@ -336,8 +423,8 @@ app.patch('/:id', requirePermission('entities:update'), zValidator('json', updat
       entityId: id,
       action: 'updated',
       changes: Object.fromEntries(
-        Object.entries(data)
-          .filter(([, v]) => v !== undefined)
+        Object.entries(patch)
+          .filter(([k, v]) => k !== 'updatedAt' && v !== undefined)
           .map(([k, v]) => [k, { old: (existing as Record<string, unknown>)[k], new: v }]),
       ),
     });

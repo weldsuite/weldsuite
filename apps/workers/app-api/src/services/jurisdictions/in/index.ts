@@ -22,8 +22,8 @@ export function normalizeGstin(value: string): string {
 
 export function extractStateCodeFromGstin(gstin: string): string | undefined {
   const normalized = normalizeGstin(gstin);
-  if (normalized.length < 2) return undefined;
-  return normalized.slice(0, 2);
+  const match = normalized.match(/^[0-9]{2}/);
+  return match?.[0];
 }
 
 export function extractPanFromGstin(gstin: string): string | undefined {
@@ -56,7 +56,15 @@ function parseSlabMetadata(
 ): GstSlabMetadata | null {
   if (!meta || typeof meta.gstSlab !== 'string') return null;
   const components = meta.components as GstSlabMetadata['components'] | undefined;
-  if (!components?.intrastate || !components?.interstate) return null;
+  if (
+    !components ||
+    !Array.isArray(components.intrastate) ||
+    !Array.isArray(components.interstate) ||
+    components.intrastate.length === 0 ||
+    components.interstate.length === 0
+  ) {
+    return null;
+  }
   return meta as unknown as GstSlabMetadata;
 }
 
@@ -140,20 +148,29 @@ export const inAdapter: JurisdictionAdapter = {
       };
     }
 
-    const sellerState = ctx.sellerStateCode;
-    const buyerState =
+    const sellerState = normalizeStateCode(ctx.sellerStateCode);
+    const buyerState = normalizeStateCode(
       ctx.buyerStateCode ??
-      (ctx.buyerGstin ? extractStateCodeFromGstin(ctx.buyerGstin) : undefined);
+        (ctx.buyerGstin ? extractStateCodeFromGstin(ctx.buyerGstin) : undefined),
+    );
 
     const slab = (ctx.gstSlab ?? '18').replace(/\.00$/, '');
-    const category = findSlabCategory(slab) ?? findSlabCategory('18');
-    const meta = parseSlabMetadata(category?.jurisdictionMetadata);
+    const category = findSlabCategory(slab);
+    if (!category && ctx.gstSlab) {
+      return {
+        taxCategoryCode: 'standard',
+        rate: '0.00',
+        reasoning: `Unsupported GST slab '${ctx.gstSlab}' — choose a seeded rate (5/12/18/28/40)`,
+      };
+    }
+    const resolved = category ?? findSlabCategory('18');
+    const meta = parseSlabMetadata(resolved?.jurisdictionMetadata);
 
     if (!meta || slab === '0' || slab === 'exempt' || slab === 'export' || slab === 'rcm') {
-      const code = category?.taxCategoryCode ?? 'zero';
+      const code = resolved?.taxCategoryCode ?? 'zero';
       return {
         taxCategoryCode: code,
-        rate: category?.rate ?? '0.00',
+        rate: resolved?.rate ?? '0.00',
         reasoning:
           code === 'exempt'
             ? 'GST exempt supply'
@@ -163,14 +180,17 @@ export const inAdapter: JurisdictionAdapter = {
       };
     }
 
-    // Without state info, default to IGST (safer for inter-state until states are set)
-    const place = componentsForPlaceOfSupply(
-      meta,
-      sellerState ?? ctx.sellerStateCode,
-      buyerState,
-      buyerCountry ?? 'IN',
-    );
+    // Fail closed: no component split until both state codes are known
+    if (!sellerState || !buyerState) {
+      return {
+        taxCategoryCode: resolved?.taxCategoryCode ?? 'standard',
+        rate: resolved?.rate ?? `${meta.gstSlab}.00`,
+        reasoning:
+          'GST slab applied without CGST/SGST/IGST split — place of supply unknown (set seller and buyer state)',
+      };
+    }
 
+    const place = componentsForPlaceOfSupply(meta, sellerState, buyerState, buyerCountry ?? 'IN');
     if (!place) {
       return {
         taxCategoryCode: 'export_goods',
@@ -179,35 +199,32 @@ export const inAdapter: JurisdictionAdapter = {
       };
     }
 
-    // If neither state is known, still return interstate IGST components for the slab
-    if (!ctx.sellerStateCode && !buyerState) {
-      const interstate = meta.components.interstate;
-      return {
-        taxCategoryCode: category?.taxCategoryCode ?? 'standard',
-        rate: category?.rate ?? `${meta.gstSlab}.00`,
-        reasoning: 'GST slab applied (place of supply unknown — defaulting to IGST)',
-        components: interstate.map((c) => ({
-          taxCategoryCode: category?.taxCategoryCode ?? 'standard',
-          rate: c.rate,
-          component: c.code,
-          accountRole: c.accountRole,
-          jurisdictionMetadata: { gstComponent: c.code, gstSlab: meta.gstSlab },
-        })),
-      };
-    }
-
     return {
-      taxCategoryCode: category?.taxCategoryCode ?? place.taxCategoryCode,
-      rate: category?.rate ?? place.rate,
+      taxCategoryCode: resolved?.taxCategoryCode ?? place.taxCategoryCode,
+      rate: resolved?.rate ?? place.rate,
       reasoning: place.reasoning,
       components: place.components,
     };
   },
 };
 
+function normalizeStateCode(value?: string): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!/^[0-9]{2}$/.test(trimmed)) return undefined;
+  return trimmed;
+}
+
+const OUTPUT_TO_INPUT_ROLE: Record<string, string> = {
+  tax_output_cgst: 'tax_input_cgst',
+  tax_output_sgst: 'tax_input_sgst',
+  tax_output_igst: 'tax_input_igst',
+};
+
 /**
  * Expand a seeded GST slab rate's metadata into tax-breakdown rows
  * for a given taxable amount and place of supply.
+ * Fails closed (single slab row, no components) when seller/buyer state is unknown.
  */
 export function expandGstTaxBreakdown(opts: {
   taxableAmount: number;
@@ -218,6 +235,8 @@ export function expandGstTaxBreakdown(opts: {
   sellerStateCode?: string;
   buyerStateCode?: string;
   buyerCountry?: string;
+  /** sales → tax_output_*; purchase → tax_input_* */
+  direction?: 'sales' | 'purchase';
 }): Array<{
   taxRateId: string;
   taxRateName: string;
@@ -227,8 +246,7 @@ export function expandGstTaxBreakdown(opts: {
   component?: string;
   accountRole?: string;
 }> {
-  const meta = parseSlabMetadata(opts.jurisdictionMetadata ?? undefined);
-  if (!meta) {
+  const singleSlab = () => {
     const taxAmount = opts.taxableAmount * (opts.slabRate / 100);
     return [
       {
@@ -239,7 +257,10 @@ export function expandGstTaxBreakdown(opts: {
         taxAmount,
       },
     ];
-  }
+  };
+
+  const meta = parseSlabMetadata(opts.jurisdictionMetadata ?? undefined);
+  if (!meta) return singleSlab();
 
   const buyerCountry = opts.buyerCountry?.toUpperCase();
   if (buyerCountry && buyerCountry !== 'IN') {
@@ -255,10 +276,16 @@ export function expandGstTaxBreakdown(opts: {
     ];
   }
 
-  const seller = opts.sellerStateCode?.padStart(2, '0');
-  const buyer = opts.buyerStateCode?.padStart(2, '0');
-  const intrastate = Boolean(seller && buyer && seller === buyer);
+  const seller = normalizeStateCode(opts.sellerStateCode);
+  const buyer = normalizeStateCode(opts.buyerStateCode);
+  if (!seller || !buyer) {
+    // Fail closed — do not assume IGST
+    return singleSlab();
+  }
+
+  const intrastate = seller === buyer;
   const list = intrastate ? meta.components.intrastate : meta.components.interstate;
+  const direction = opts.direction ?? 'sales';
 
   return list.map((c) => {
     const rate = parseFloat(c.rate);
@@ -269,6 +296,11 @@ export function expandGstTaxBreakdown(opts: {
         : c.code === 'sgst'
           ? `SGST ${rate}%`
           : `IGST ${rate}%`;
+    const outputRole = c.accountRole;
+    const accountRole =
+      direction === 'purchase'
+        ? (OUTPUT_TO_INPUT_ROLE[outputRole] ?? outputRole)
+        : outputRole;
     return {
       taxRateId: opts.taxRateId,
       taxRateName: label,
@@ -276,7 +308,7 @@ export function expandGstTaxBreakdown(opts: {
       taxableAmount: opts.taxableAmount,
       taxAmount,
       component: c.code,
-      accountRole: c.accountRole,
+      accountRole,
     };
   });
 }

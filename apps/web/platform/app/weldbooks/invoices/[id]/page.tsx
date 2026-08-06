@@ -32,7 +32,7 @@ import { SendInvoiceDialog } from '../components/send-invoice-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 
-const formatCurrency = (value: string | null | undefined, currency?: string | null) =>
+const formatCurrency = (value: string | number | null | undefined, currency?: string | null) =>
   new Intl.NumberFormat('nl-NL', {
     style: 'currency',
     currency: currency || 'EUR',

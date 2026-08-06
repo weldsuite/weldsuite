@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -82,13 +82,24 @@ export default function VatReturnsPage() {
       return Array.isArray(res) ? res : res.data ?? [];
     },
   });
-  const currentJurisdiction =
-    entities.find((e) => e.id === entityId)?.jurisdictionCode ?? 'NL';
+  const matchedEntity = entityId ? entities.find((e) => e.id === entityId) : undefined;
+  const currentJurisdiction = matchedEntity?.jurisdictionCode;
+  // Only treat as NL when the selected entity is known and NL — never default unresolved → NL
   const isNlEntity = currentJurisdiction === 'NL';
 
+  useEffect(() => {
+    if (!isNlEntity && dialogMode === 'icp') {
+      setShowDialog(false);
+      setDialogMode('vat');
+      setPeriodStart('');
+      setPeriodEnd('');
+      setPeriodLabel('');
+    }
+  }, [isNlEntity, dialogMode]);
+
   const { data: icpData } = useQuery({
-    queryKey: ['accounting', 'icp-declarations'],
-    enabled: isNlEntity,
+    queryKey: ['accounting', 'icp-declarations', entityId],
+    enabled: isNlEntity && Boolean(entityId),
     queryFn: () => accountingApi.listIcpDeclarations(),
   });
 
@@ -120,6 +131,10 @@ export default function VatReturnsPage() {
 
   const handleCalculate = () => {
     if (!periodStart || !periodEnd) return;
+    if (dialogMode === 'icp' && !isNlEntity) {
+      toast.error(st('sweep.weldbooks.vat.icpFilingFailed'));
+      return;
+    }
     const payload = {
       periodType,
       periodStart,

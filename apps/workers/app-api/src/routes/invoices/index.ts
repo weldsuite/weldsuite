@@ -774,6 +774,16 @@ app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
       return error.badRequest(c, 'System accounts not found. Please run seed first.');
     }
 
+    // Client-supplied revenueAccountId must belong to this entity (prevent cross-entity posting)
+    let resolvedRevenueAccountId = revenueAccount.id;
+    if (invoice.revenueAccountId) {
+      const owned = entityAccounts.find((a) => a.id === invoice.revenueAccountId);
+      if (!owned) {
+        return error.badRequest(c, 'revenueAccountId does not belong to this accounting entity');
+      }
+      resolvedRevenueAccountId = owned.id;
+    }
+
     const total = parseFloat(invoice.total || '0');
     const taxTotal = parseFloat(invoice.taxTotal || '0');
     const subtotal = total - taxTotal;
@@ -817,7 +827,7 @@ app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
         id: generateId('jl'),
         entityId: invoice.entityId,
         journalEntryId,
-        accountId: invoice.revenueAccountId || revenueAccount.id,
+        accountId: resolvedRevenueAccountId,
         description: `Revenue ${invoice.invoiceNumber}`,
         debit: '0',
         credit: subtotal.toFixed(2),
@@ -839,17 +849,26 @@ app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
 
     if (componentRows.length > 0) {
       let sortOrder = 2;
+      let postedTax = 0;
+      const componentLines: typeof lines = [];
       for (const row of componentRows) {
         const taxAccount = byRole(row.accountRole!) ?? taxPayableAccount;
-        if (!taxAccount) continue;
-        lines.push({
+        if (!taxAccount) {
+          return error.badRequest(
+            c,
+            `No account found for tax component role '${row.accountRole}'. Please run seed first.`,
+          );
+        }
+        const amount = Number(row.taxAmount);
+        postedTax += amount;
+        componentLines.push({
           id: generateId('jl'),
           entityId: invoice.entityId,
           journalEntryId,
           accountId: taxAccount.id,
           description: `${row.taxRateName ?? 'GST'} ${invoice.invoiceNumber}`,
           debit: '0',
-          credit: Number(row.taxAmount).toFixed(2),
+          credit: amount.toFixed(2),
           contactId: invoice.contactId,
           sortOrder,
           createdAt: new Date(),
@@ -857,6 +876,14 @@ app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
         });
         sortOrder += 1;
       }
+
+      // Absorb rounding remainder into the last component so credits match taxTotal
+      const remainder = Math.round((taxTotal - postedTax) * 100) / 100;
+      const last = componentLines[componentLines.length - 1];
+      if (last && Math.abs(remainder) >= 0.01) {
+        last.credit = (Number(last.credit) + remainder).toFixed(2);
+      }
+      lines.push(...componentLines);
     } else if (taxTotal > 0 && taxPayableAccount) {
       lines.push({
         id: generateId('jl'),
@@ -871,6 +898,8 @@ app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
         createdAt: new Date(),
         updatedAt: new Date(),
       });
+    } else if (taxTotal > 0 && !taxPayableAccount) {
+      return error.badRequest(c, 'Tax payable account not found. Please run seed first.');
     }
 
     await db.insert(journalLines).values(lines);
@@ -1255,7 +1284,9 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
 
     const place = await loadPlaceOfSupply(db, entityId, {
       buyerCountry: order.billingAddress?.country ?? order.shippingAddress?.country,
-      billingProvince: order.billingAddress?.province ?? order.shippingAddress?.province,
+      billingProvince:
+        order.billingAddress?.state ??
+        order.shippingAddress?.state,
     });
     const totals = await buildTaxTotalsWithRates(db, lineInputs, place);
     const { formatted: invoiceNumber } = await nextEntityNumber(db, entityId, 'invoice');

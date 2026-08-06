@@ -2,6 +2,8 @@ import type { ChartOfAccountsTemplateRow } from '../types';
 
 /**
  * Indian chart of accounts seeded when an IN entity is created.
+ * Account names are English to match the entity default locale (`en-IN`),
+ * mirroring how the NL adapter seeds Dutch names for `nl-NL`.
  * GST control accounts use CGST/SGST/IGST system roles for place-of-supply posting.
  * AR (1300) / AP (1600) / revenue (8000) codes align with the shared finalize path.
  */
