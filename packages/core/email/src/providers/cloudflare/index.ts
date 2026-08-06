@@ -4,8 +4,12 @@
  * Each consuming worker calls one of:
  *
  *   import { registerCloudflareSend } from '@weldsuite/email/providers/cloudflare';
+ *   import { EmailMessage } from 'cloudflare:email';
  *
- *   registerCloudflareSend({ sendEmail: env.SEND_EMAIL });
+ *   registerCloudflareSend({
+ *     sendEmail: env.SEND_EMAIL,
+ *     EmailMessage,
+ *   });
  *
  * Workers that don't have a `[[send_email]]` binding (mail-inbound-worker,
  * workspace-worker) should only call the receive / domain registration

@@ -12,6 +12,7 @@
  * and centralises the secret checks so route handlers stay readable.
  */
 
+import { EmailMessage } from 'cloudflare:email';
 import {
   CloudflareDomainProvider,
   CloudflareSendProvider,
@@ -46,13 +47,15 @@ export interface SendEmailResponse {
 /**
  * Send an email via the Cloudflare `send_email` binding.
  *
- * One message goes to everyone: the whole to/cc/bcc set is handed to the
- * binding in a single structured call, so all recipients share one Message-ID
- * and see the same To/Cc headers. That is what makes a reply-all arrive as one
- * message addressed to the group rather than as one private message each.
+ * One message goes to everyone: the provider builds a single RFC-5322 payload
+ * whose To/Cc headers name the whole recipient set, then hands that same
+ * payload to one envelope per address (the binding takes a single envelope
+ * recipient at a time). All copies share one Message-ID, which is what makes a
+ * reply-all arrive as one message addressed to the group rather than as one
+ * private message each.
  *
  * `pendingVerification` comes back true when a recipient hasn't yet verified
- * through Cloudflare's destination-address flow.
+ * through Cloudflare's destination-address flow; the rest are still delivered.
  */
 export async function sendEmail(
   env: Env,
@@ -82,8 +85,11 @@ export async function sendEmail(
       references: params.references,
       attachments: params.attachments,
     });
-    return { messageId: result.messageId, pendingVerification: false };
+    const pending = (result.metadata as { pendingRecipients?: string[] } | undefined)
+      ?.pendingRecipients;
+    return { messageId: result.messageId, pendingVerification: !!pending?.length };
   } catch (err: unknown) {
+    // Nothing went out at all — every recipient needs verifying.
     if (err instanceof PendingVerificationError) {
       return { messageId: err.recipient, pendingVerification: true };
     }
@@ -131,7 +137,10 @@ function makeSendProvider(env: Env): CloudflareSendProvider {
   if (!env.SEND_EMAIL) {
     throw new Error('SEND_EMAIL binding missing — wrangler [[send_email]] not configured');
   }
-  return new CloudflareSendProvider({ sendEmail: env.SEND_EMAIL });
+  return new CloudflareSendProvider({
+    sendEmail: env.SEND_EMAIL,
+    EmailMessage,
+  });
 }
 
 function makeDomainProvider(env: Env): CloudflareDomainProvider {
