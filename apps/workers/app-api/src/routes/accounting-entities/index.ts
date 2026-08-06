@@ -21,6 +21,10 @@ import { generateId } from '../../lib/id';
 import { schema } from '../../db';
 import { getAdapter, hasAdapter, listJurisdictions } from '../../services/jurisdictions/registry';
 import { writeAccountingAudit } from '../../services/accounting-guards';
+import {
+  extractStateCodeFromGstin,
+  validateGstin,
+} from '../../services/jurisdictions/in';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -149,6 +153,28 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
     ? { ...(data.taxIdentifiers ?? {}), vatNumber: data.taxIdentifiers?.vatNumber ?? data.vatNumber }
     : data.taxIdentifiers;
 
+  // Validate GSTIN / derive state for India
+  let jurisdictionSettings = data.jurisdictionSettings ? { ...data.jurisdictionSettings } : {};
+  let timezone = data.timezone;
+  const locale = data.locale ?? adapter.defaultLocale;
+  const baseCurrency = data.baseCurrency;
+
+  if (jurisdictionCode.toUpperCase() === 'IN') {
+    timezone = timezone ?? 'Asia/Kolkata';
+    const gstin = taxIdentifiers?.vatNumber;
+    if (gstin) {
+      const check = validateGstin(gstin);
+      if (!check.valid) {
+        return error.badRequest(c, check.error ?? 'Invalid GSTIN');
+      }
+      taxIdentifiers!.vatNumber = check.formatted;
+      const stateCode = extractStateCodeFromGstin(check.formatted!);
+      if (stateCode && !jurisdictionSettings.stateCode) {
+        jurisdictionSettings = { ...jurisdictionSettings, stateCode };
+      }
+    }
+  }
+
   try {
     const now = new Date();
     const entityId = generateId('ent');
@@ -159,14 +185,15 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
       legalName: data.legalName,
       entityType: data.entityType,
       jurisdictionCode: jurisdictionCode.toUpperCase(),
-      baseCurrency: data.baseCurrency,
-      locale: data.locale ?? adapter.defaultLocale,
-      timezone: data.timezone,
+      baseCurrency,
+      locale,
+      timezone,
       taxIdentifiers,
       address: data.address,
       contact: data.contact,
       bankDetails: data.bankDetails,
       branding: data.branding,
+      jurisdictionSettings: Object.keys(jurisdictionSettings).length > 0 ? jurisdictionSettings : data.jurisdictionSettings,
       fiscalYearStart: data.fiscalYearStart ?? 1,
       isDefault: data.isDefault ?? false,
       isActive: true,

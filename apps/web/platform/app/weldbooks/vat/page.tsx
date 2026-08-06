@@ -35,6 +35,8 @@ import {
 import { Plus } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
+import { weldbooksApi } from '@/lib/api/weldbooks-client';
 
 interface VatReturnRow {
   id: string;
@@ -44,6 +46,11 @@ interface VatReturnRow {
   periodLabel: string | null;
   status: string;
   rubrieken?: Record<string, number> | null;
+}
+
+interface EntityRow {
+  id: string;
+  jurisdictionCode: string;
 }
 
 function fmt(value: number | string | null | undefined): string {
@@ -58,6 +65,7 @@ export default function VatReturnsPage() {
   const st = useTranslations();
   const tv = t.accounting.vat;
   const tslVat = { ...t.accounting.vat.statuses, ...t.accounting.statusLabels.vatReturn };
+  const { entityId } = useCurrentAccountingEntity();
   const [showDialog, setShowDialog] = useState(false);
   const [dialogMode, setDialogMode] = useState<'vat' | 'icp'>('vat');
   const [periodType, setPeriodType] = useState('quarterly');
@@ -66,8 +74,21 @@ export default function VatReturnsPage() {
   const [periodLabel, setPeriodLabel] = useState('');
 
   const qc = useQueryClient();
+
+  const { data: entities = [] } = useQuery<EntityRow[]>({
+    queryKey: ['accounting', 'entities'],
+    queryFn: async () => {
+      const res = await weldbooksApi.get<{ data: EntityRow[] } | EntityRow[]>('/accounting-entities');
+      return Array.isArray(res) ? res : res.data ?? [];
+    },
+  });
+  const currentJurisdiction =
+    entities.find((e) => e.id === entityId)?.jurisdictionCode ?? 'NL';
+  const isNlEntity = currentJurisdiction === 'NL';
+
   const { data: icpData } = useQuery({
     queryKey: ['accounting', 'icp-declarations'],
+    enabled: isNlEntity,
     queryFn: () => accountingApi.listIcpDeclarations(),
   });
 
@@ -192,7 +213,8 @@ export default function VatReturnsPage() {
         </CardContent>
       </Card>
 
-      {/* Opgaaf ICP */}
+      {/* Opgaaf ICP — Netherlands only */}
+      {isNlEntity ? (
       <Card>
         <CardHeader className="flex flex-row items-start justify-between space-y-0">
           <div>
@@ -252,6 +274,7 @@ export default function VatReturnsPage() {
           </Table>
         </CardContent>
       </Card>
+      ) : null}
 
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
         <DialogContent>
