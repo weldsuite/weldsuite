@@ -18,12 +18,14 @@
 
 import { validateRegistry, type EntityEventConsumer } from '@weldsuite/entity-events/consumers';
 import type { Env } from '../env';
+import { auditConsumer } from './audit';
 import { analyticsConsumer } from './analytics';
 import { webhooksConsumer } from './webhooks';
 import { workflowTriggersConsumer } from './workflow-triggers';
 import { searchIndexConsumer } from './search-index';
 
 export const CONSUMERS: readonly EntityEventConsumer<Env>[] = [
+  auditConsumer,
   analyticsConsumer,
   webhooksConsumer,
   workflowTriggersConsumer,

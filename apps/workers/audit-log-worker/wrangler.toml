@@ -1,5 +1,13 @@
-# WeldSuite Audit Log Worker
-# Dedicated queue consumer for AUDIT_EVENTS — writes audit logs to tenant databases.
+# WeldSuite Audit Log Worker — RETIRED, pending removal.
+#
+# Audit logging is now the `audit` consumer in entity-events-worker, which is
+# idempotent on audit_logs.event_id and batches its inserts. Nothing produces to
+# `audit-events` anymore, so this worker sits idle.
+#
+# It is kept deployable only because the deploy matrix lives in the private
+# overlay repo and removing a worker from this side alone would break it. Delete
+# the directory (and the Cloudflare worker + the audit-events queues) once the
+# overlay's worker list drops it.
 
 name = "weldsuite-audit-log"
 main = "src/index.ts"

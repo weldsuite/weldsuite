@@ -153,11 +153,9 @@ plan.
 
 ## Part 2 — Adding a consumer
 
-Four consumers are registered today — `analytics`, `webhooks`,
-`workflow-triggers` and `search-index`. Audit is the one sink still on its own
-queue, pending a migration (phase 2 step 1 of
-[the plan](../../../.claude/entity-events-plan.md)). Anything new belongs here,
-not as another publisher sink.
+Five consumers are registered today — `audit`, `analytics`, `webhooks`,
+`workflow-triggers` and `search-index`. Anything new belongs here, not as
+another publisher sink; the publisher has no sinks left to add one to.
 
 ### The shape
 
@@ -168,10 +166,10 @@ declarative registry.
 ```
 publishEntityEvent()
   ├─ ENTITY_EVENTS.send(message)     ← one queue
-  ├─ AUDIT_EVENTS.send(message)      ← last hold-out, needs a migration
   └─ REALTIME.fetch(...)             ← stays inline, latency-critical
 
 entity-events → entity-events-worker
+                  ├─ audit
                   ├─ analytics
                   ├─ webhooks
                   ├─ workflow-triggers
@@ -334,13 +332,13 @@ the message shape — it is dependency-free and avoids pulling in Drizzle and
 
 ### Current state vs the plan
 
-Phases 0 and 1 are done, and four of phase 2's five sinks have moved. A mutation
-now costs two queue sends and one service-binding fetch — no tenant-DB reads on
-the write path at all, where outbound webhooks and workflow triggers each cost
-one per event before.
+Phases 0, 1 and 2 are done. The publisher has exactly the two sinks the plan
+targeted, and a mutation costs one queue send plus one service-binding fetch —
+where it used to cost four queue sends and two tenant-DB reads on the write path.
 
-Audit is the last sink still on its own queue. Moving it needs a unique
-`event_id` on `audit_logs`, because the dispatcher re-runs every matched consumer
-when any one of them fails and duplicate audit rows are not acceptable. See
+Still open: phase 3 (fold in `helpdesk-widget-api`, which still has its own
+publisher, so widget mutations reach only the registry and never audit),
+phase 4 (Zod validation at the dispatcher boundary, a DLQ table with replay,
+per-consumer metrics), and phase 5 (catalog cleanup). See
 [`.claude/entity-events-plan.md`](../../../.claude/entity-events-plan.md) for the
 full gap analysis and the remaining phases.

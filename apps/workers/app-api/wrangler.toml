@@ -192,10 +192,6 @@ bucket_name = "weldsuite-storage"
 binding = "ENTITY_EVENTS"
 queue = "entity-events-dev"
 
-# Audit is the last sink still on its own queue; moving it needs a migration.
-[[queues.producers]]
-binding = "AUDIT_EVENTS"
-queue = "audit-events-dev"
 
 # Semantic search indexing. app-api no longer PRODUCES to this queue — the
 # dispatcher does, via its `search-index` consumer — but it is still the
@@ -364,9 +360,6 @@ bucket_name = "weldsuite-storage"
 binding = "ENTITY_EVENTS"
 queue = "entity-events"
 
-[[env.production.queues.producers]]
-binding = "AUDIT_EVENTS"
-queue = "audit-events"
 
 # Semantic search indexing — consumed here, produced by the dispatcher.
 #   wrangler queues create search-index

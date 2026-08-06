@@ -46,9 +46,6 @@ service = "weldsuite-realtime"
 binding = "ENTITY_EVENTS"
 queue = "entity-events-dev"
 
-[[queues.producers]]
-binding = "AUDIT_EVENTS"
-queue = "audit-events-dev"
 
 
 # CRM sync engine — Cloudflare Workflow owned by this worker.
@@ -101,9 +98,6 @@ service = "weldsuite-realtime-production"
 binding = "ENTITY_EVENTS"
 queue = "entity-events"
 
-[[env.production.queues.producers]]
-binding = "AUDIT_EVENTS"
-queue = "audit-events"
 
 
 [[env.production.workflows]]

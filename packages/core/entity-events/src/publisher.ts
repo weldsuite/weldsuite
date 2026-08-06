@@ -1,27 +1,23 @@
 /**
  * publishEntityEvent — the orchestrator.
  *
- * Fans out a single entity mutation to:
+ * Fans out a single entity mutation to exactly two places:
  *   1. ENTITY_EVENTS queue → entity-events-worker, which dispatches to every
- *      registered consumer: analytics, outbound webhooks, workflow triggers,
- *      and semantic search
- *   2. AUDIT_EVENTS queue → audit-log-worker
- *   3. REALTIME service binding → WorkspaceHub DO (@weldsuite/realtime)
- *
- * Audit is the last sink still on its own queue. Moving it needs a unique
- * `event_id` on `audit_logs` so the consumer can be idempotent, and that needs
- * a migration — see phase 2 step 1 of `.claude/entity-events-plan.md`.
+ *      registered consumer: audit, analytics, outbound webhooks, workflow
+ *      triggers, and semantic search
+ *   2. REALTIME service binding → WorkspaceHub DO (@weldsuite/realtime)
  *
  * Realtime is the deliberate permanent exception: its latency is directly
  * visible in the UI, and it is a service-binding fetch rather than a queue, so
- * it costs nothing on the write path. Everything else belongs behind the queue.
+ * it costs nothing on the write path. Everything else lives behind the queue,
+ * and adding another consumer never touches this file.
  *
- * Note what is no longer here. Outbound webhooks and workflow triggers each used
- * to open a tenant-DB read inside `waitUntil` on every single mutation; both are
- * now consumers, so a mutation costs at most two queue sends and one fetch.
+ * Note what is no longer here. This used to be six sinks, four of them separate
+ * queue sends, two of them tenant-DB reads opened inside `waitUntil` on every
+ * single mutation. A mutation now costs one queue send and one fetch.
  *
- * Each sink is independently optional — a missing binding logs a warning
- * and the rest still fire. Wrapped in `executionCtx.waitUntil(...)` so the
+ * Both sinks are independently optional — a missing binding logs a warning
+ * and the other still fires. Wrapped in `executionCtx.waitUntil(...)` so the
  * HTTP response is never blocked.
  */
 
@@ -44,7 +40,6 @@ import type { TenantDb } from './internal-types';
 export interface EntityEventPublisherEnv {
   /** The dispatcher queue — entity-events-worker fans this out to consumers. */
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
-  AUDIT_EVENTS?: Queue<EntityEventMessage>;
   REALTIME?: Fetcher;
 }
 
@@ -148,8 +143,8 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
 
   const tasks: Promise<unknown>[] = [];
 
-  // 1. Dispatcher queue — analytics, webhooks, workflow triggers and search all
-  // hang off this one message now, via the registry in entity-events-worker.
+  // 1. Dispatcher queue — audit, analytics, webhooks, workflow triggers and
+  // search all hang off this one message, via entity-events-worker's registry.
   if (env.ENTITY_EVENTS) {
     tasks.push(
       env.ENTITY_EVENTS.send(message)
@@ -158,17 +153,7 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
     );
   }
 
-  // 2. Audit queue. The last sink still on its own queue — moving it needs a
-  // unique event_id on audit_logs for idempotency, which needs a migration.
-  if (env.AUDIT_EVENTS) {
-    tasks.push(
-      env.AUDIT_EVENTS.send(message)
-        .then(() => console.log(`[EntityEvents] Published audit event ${message.eventType} for ${entityId}`))
-        .catch((err: unknown) => console.error('[EntityEvents] Failed to publish audit event:', err)),
-    );
-  }
-
-  // 3. Cloudflare DO realtime
+  // 2. Cloudflare DO realtime
   if (workspaceId && env.REALTIME) {
     tasks.push(
       (async () => {
@@ -185,7 +170,7 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
     );
   }
 
-  if (!env.ENTITY_EVENTS && !env.AUDIT_EVENTS && !env.REALTIME) {
+  if (!env.ENTITY_EVENTS && !env.REALTIME) {
     console.warn('[EntityEvents] No queue or realtime bindings available — skipping publish');
   }
 

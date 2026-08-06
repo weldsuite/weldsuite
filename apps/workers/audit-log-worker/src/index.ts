@@ -1,8 +1,12 @@
 /**
- * Audit Log Worker
+ * Audit Log Worker — RETIRED, superseded by the `audit` consumer in
+ * entity-events-worker.
  *
- * Dedicated Cloudflare Worker that consumes the AUDIT_EVENTS queue.
- * Writes an audit log to the tenant database for every entity mutation.
+ * Nothing produces to `audit-events` anymore. The description builders this
+ * used now live at entity-events-worker/src/audit/describe.ts; the consumer
+ * there batches its inserts and is idempotent on audit_logs.event_id, neither
+ * of which this worker was. It stays only until the private overlay's deploy
+ * matrix drops it.
  */
 
 import { Hono } from 'hono';

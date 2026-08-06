@@ -56,8 +56,6 @@ export interface Env {
   // optional — a missing binding logs a warning and the rest still fire.
   /** Dispatcher queue — entity-events-worker fans this out to its registry. */
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
-  /** Audit-log queue consumer. */
-  AUDIT_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
   /** R2 bucket for user-app bundles (shared with app-api's STORAGE binding). */

@@ -238,14 +238,14 @@ against audit-log-worker's, confirm the workspace spread looks sane, and check
 `entity-events-dlq` is empty. Nothing depends on this queue yet, so it is free
 to be wrong here.
 
-### Phase 2 — migrate sinks — 4 of 5 done 2026-08-06
+### Phase 2 — migrate sinks — ✅ DONE 2026-08-06
 
-1. **audit** — ⛔ **BLOCKED on a migration.** Needs a unique `event_id` on
-   `audit_logs` before the consumer can be idempotent, and idempotency is not
-   optional here: the dispatcher re-runs every matched consumer when any one of
-   them fails, so without it a webhook failure would duplicate audit rows.
-   Audit therefore stays on `AUDIT_EVENTS`, and `audit-log-worker` stays live.
-   Unblock by approving the schema change + migration.
+1. ✅ **audit** — consumer inserts the whole slice in one statement, resolves
+   actor names once per batch instead of once per event, and lets failures
+   propagate so the batch retries (the old writer swallowed them and acked, so
+   a failed insert silently lost the row). Idempotent via a new unique
+   `audit_logs.event_id`; migration `0178_great_gamma_corps.sql`.
+   `audit-log-worker` retired.
 2. ✅ **analytics** — consumer writes the whole matched slice to the pipeline in
    one `send()` instead of one call per message. `analytics-worker` retired.
 3. ✅ **webhooks** — `dispatchWebhookDeliveries` moved off the write path. First
@@ -256,8 +256,10 @@ to be wrong here.
    `SEARCH_EVENTS` queue. app-api keeps the embedder, its concurrency ceiling
    and its DLQ; it just no longer produces to its own queue.
 
-The publisher is down to three sinks: `ENTITY_EVENTS`, `AUDIT_EVENTS`, and
-`REALTIME`. Step 1 takes it to two.
+**The publisher is down to two sinks: `ENTITY_EVENTS` and `REALTIME`** — the
+target architecture in section 2. Adding a consumer from here is one file plus
+one registry line: no publisher change, no wrangler change, no new queue, no new
+worker.
 
 Also folded in along the way:
 
@@ -273,6 +275,19 @@ Also folded in along the way:
   so a queue caller retries instead of silently losing a trigger.
 - `EventSource` gained `'widget'`, which widget events have always carried on
   the wire.
+
+**Deploy order matters.** The tenant migration
+(`0178_great_gamma_corps.sql`, adds `audit_logs.event_id`) must be applied
+**before** entity-events-worker deploys — the audit consumer writes that column,
+so a worker running against un-migrated tenants fails every batch into the DLQ.
+The repo's own pipeline already does Migrations → Workers Deploy in that order;
+just don't hand-deploy the worker ahead of it.
+
+Note the index build is `CREATE UNIQUE INDEX`, not `CONCURRENTLY` — Drizzle runs
+each migration in a transaction, which forbids the concurrent form. It takes a
+write lock on `audit_logs` for the length of one seq scan per tenant. Audit
+writes are queued, so the lock costs retries rather than user-facing errors, but
+on a very large tenant it is worth running at a quiet hour.
 
 **Watch after deploying:** workflow-trigger latency. Triggers used to fire in
 the mutation's own invocation and now wait for the batch window, so roughly a

@@ -77,9 +77,6 @@ namespace_id = "13"
 binding = "ENTITY_EVENTS"
 queue = "entity-events-dev"
 
-[[queues.producers]]
-binding = "AUDIT_EVENTS"
-queue = "audit-events-dev"
 
 
 [[services]]
@@ -150,9 +147,6 @@ id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 binding = "ENTITY_EVENTS"
 queue = "entity-events"
 
-[[env.production.queues.producers]]
-binding = "AUDIT_EVENTS"
-queue = "audit-events"
 
 
 [[env.production.services]]
