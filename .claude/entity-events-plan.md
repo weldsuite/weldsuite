@@ -294,13 +294,45 @@ the mutation's own invocation and now wait for the batch window, so roughly a
 second end to end. If some automation needs better, move that one consumer back
 inline — the rest of the design does not depend on it.
 
-### Phase 3 — fold in helpdesk-widget-api
+### Phase 3 — fold in helpdesk-widget-api — ⏸️ DEFERRED (Gert, 2026-08-06)
 
-Delete `apps/workers/helpdesk-widget-api/src/lib/entity-events.ts`, bind
-`ENTITY_EVENTS`, call the shared publisher. Widget mutations start reaching
-audit, search, webhooks, and workflow triggers for the first time — expect a
-step change in audit-log volume and verify the widget's anonymous/end-user
-`userId` is something the audit writer handles.
+Deferred until the wider WeldDesk refactor, which will subsume it. Do not pick
+this up standalone.
+
+**Its functional half already landed in phase 2 anyway.** The widget was
+repointed from the (retired) analytics queue to `ENTITY_EVENTS` so that
+retiring `analytics-worker` would not silently kill widget analytics. Because
+every consumer subscribes to `'*'`, widget events now reach all five — including
+audit, which they never did before. What is left for phase 3 is only deleting
+the duplicate publisher at
+[helpdesk-widget-api/src/lib/entity-events.ts](../apps/workers/helpdesk-widget-api/src/lib/entity-events.ts)
+and its narrower `EntityAction` union. That is code duplication, not a gap in
+behaviour.
+
+**So expect these on the next deploy**, for the four types the widget emits
+(`helpdesk_conversation`, `helpdesk_conversation_message`, `helpdesk_attachment`,
+`helpdesk_review`):
+
+- **Audit rows for widget activity, attributed to "System".** The widget sets
+  `userId` to the widget id (or `widget-customer`), which matches no
+  `workspace_members` row, so the name lookup misses and the description falls
+  back to "System". Nothing breaks — `performed_by` still records the raw id —
+  but audit-log volume steps up and the actor column will look odd. This is the
+  volume change the phase was always going to cause.
+- **Outbound customer webhooks now fire for widget events.** Any
+  `external_webhooks` subscription on `helpdesk_conversation.created` and
+  friends starts delivering.
+- **WeldConnect workflow triggers now match widget events.** An `entity_event`
+  trigger on those types fires where it previously never did. Arguably what a
+  user setting up that automation would expect, but on a busy widget it is a lot
+  of new runs. This is separate from the widget's own inline helpdesk workflows
+  (`/internal/trigger-inline` → `CONVERSATION_WORKFLOW`), which are a different
+  engine and a different table — nothing is double-firing.
+
+If any of that is unwanted before the refactor, the narrow fix is to drop the
+`ENTITY_EVENTS` producer from `helpdesk-widget-api/wrangler.toml`; widget events
+then reach nothing, as they effectively did before, and widget analytics is the
+only thing lost.
 
 ### Phase 4 — hardening
 

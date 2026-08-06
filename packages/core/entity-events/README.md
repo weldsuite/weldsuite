@@ -336,9 +336,11 @@ Phases 0, 1 and 2 are done. The publisher has exactly the two sinks the plan
 targeted, and a mutation costs one queue send plus one service-binding fetch —
 where it used to cost four queue sends and two tenant-DB reads on the write path.
 
-Still open: phase 3 (fold in `helpdesk-widget-api`, which still has its own
-publisher, so widget mutations reach only the registry and never audit),
-phase 4 (Zod validation at the dispatcher boundary, a DLQ table with replay,
-per-consumer metrics), and phase 5 (catalog cleanup). See
+`helpdesk-widget-api` still has its own copy of the publisher, so widget events
+carry a narrower action union — but they go to the same `entity-events` queue
+and reach all five consumers. Deleting that duplicate is deferred to the WeldDesk
+refactor. Still open otherwise: phase 4 (Zod validation at the dispatcher
+boundary, a DLQ table with replay, per-consumer metrics) and phase 5 (catalog
+cleanup). See
 [`.claude/entity-events-plan.md`](../../../.claude/entity-events-plan.md) for the
 full gap analysis and the remaining phases.
