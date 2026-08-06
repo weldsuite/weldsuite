@@ -18,7 +18,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#10B981"
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.weldsuite.weldbooks",

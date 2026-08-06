@@ -1,15 +1,13 @@
-import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  SafeAreaView,
-} from 'react-native';
+/**
+ * Everything that doesn't earn a tab. Section grouping and accent colours match
+ * the platform's WeldBooks sidebar so the same feature sits under the same
+ * label and colour on both surfaces.
+ */
+
+import React, { useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import {
   Landmark,
   GitMerge,
@@ -21,46 +19,46 @@ import {
   ChevronRight,
 } from 'lucide-react-native';
 
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { Card } from '@weldsuite/mobile-ui/components/Card';
+import { Divider } from '@weldsuite/mobile-ui/components/Divider';
+
+import { ACCENTS } from '@/lib/brand';
+import { Screen, ScreenHeader } from '@/components/screen';
+import { IconTile } from '@/components/detail';
+import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
+
 type MenuItem = {
   title: string;
   subtitle: string;
   icon: React.ComponentType<{ size: number; color: string }>;
-  iconColor: string;
-  iconBg: string;
+  color: string;
   route: string;
 };
 
-type MenuSection = {
-  title: string;
-  items: MenuItem[];
-};
-
-const SECTIONS: MenuSection[] = [
+const SECTIONS: { title: string; items: MenuItem[] }[] = [
   {
     title: 'Financial',
     items: [
       {
-        title: 'Bank Accounts',
-        subtitle: 'Manage connected bank accounts',
+        title: 'Bank accounts',
+        subtitle: 'Balances and transactions',
         icon: Landmark,
-        iconColor: '#3B82F6',
-        iconBg: 'rgba(59,130,246,0.12)',
+        color: ACCENTS.banking,
         route: '/bank',
       },
       {
         title: 'Reconciliation',
         subtitle: 'Match bank transactions',
         icon: GitMerge,
-        iconColor: '#8B5CF6',
-        iconBg: 'rgba(139,92,246,0.12)',
+        color: ACCENTS.reconciliation,
         route: '/reconciliation',
       },
       {
-        title: 'VAT Returns',
-        subtitle: 'View and submit VAT filings',
+        title: 'VAT returns',
+        subtitle: 'Review and file',
         icon: FileCheck,
-        iconColor: '#10B981',
-        iconBg: 'rgba(16,185,129,0.12)',
+        color: ACCENTS.vat,
         route: '/vat',
       },
     ],
@@ -69,19 +67,17 @@ const SECTIONS: MenuSection[] = [
     title: 'Reports',
     items: [
       {
-        title: 'Profit & Loss',
+        title: 'Profit & loss',
         subtitle: 'Revenue and expense overview',
         icon: TrendingUp,
-        iconColor: '#F59E0B',
-        iconBg: 'rgba(245,158,11,0.12)',
+        color: ACCENTS.profitLoss,
         route: '/reports/profit-loss',
       },
       {
-        title: 'Balance Sheet',
-        subtitle: 'Assets, liabilities, and equity',
+        title: 'Balance sheet',
+        subtitle: 'Assets, liabilities and equity',
         icon: Scale,
-        iconColor: '#EC4899',
-        iconBg: 'rgba(236,72,153,0.12)',
+        color: ACCENTS.balanceSheet,
         route: '/reports/balance-sheet',
       },
     ],
@@ -91,18 +87,16 @@ const SECTIONS: MenuSection[] = [
     items: [
       {
         title: 'Contacts',
-        subtitle: 'Customers and vendors',
+        subtitle: 'Customers and suppliers',
         icon: Users,
-        iconColor: '#06B6D4',
-        iconBg: 'rgba(6,182,212,0.12)',
+        color: ACCENTS.contacts,
         route: '/contacts',
       },
       {
         title: 'Settings',
-        subtitle: 'App and workspace preferences',
+        subtitle: 'App and company preferences',
         icon: Settings,
-        iconColor: '#6B7280',
-        iconBg: 'rgba(107,114,128,0.12)',
+        color: ACCENTS.settings,
         route: '/settings',
       },
     ],
@@ -110,125 +104,68 @@ const SECTIONS: MenuSection[] = [
 ];
 
 export default function MoreScreen() {
-  const router = useRouter();
   const { colors } = useTheme();
+  const router = useRouter();
+  const { activeEntity } = useAccountingEntity();
 
-  const handlePress = (route: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push(route as any);
-  };
+  const open = useCallback(
+    (route: string) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      router.push(route as never);
+    },
+    [router],
+  );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.header}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>More</Text>
-      </View>
-
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+    <Screen header={<ScreenHeader title="More" subtitle={activeEntity?.name ?? undefined} />}>
+      <ScrollView contentContainerStyle={styles.content}>
         {SECTIONS.map((section) => (
-          <View key={section.title} style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: colors.muted }]}>
+          <View key={section.title}>
+            <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>
               {section.title.toUpperCase()}
             </Text>
-            <View style={[styles.sectionCard, { backgroundColor: colors.cardBackground }]}>
-              {section.items.map((item, index) => {
-                const Icon = item.icon;
-                const isLast = index === section.items.length - 1;
-                return (
-                  <React.Fragment key={item.route}>
-                    <TouchableOpacity
-                      style={styles.menuItem}
-                      onPress={() => handlePress(item.route)}
-                      activeOpacity={0.6}
-                    >
-                      <View style={[styles.iconCircle, { backgroundColor: item.iconBg }]}>
-                        <Icon size={20} color={item.iconColor} />
-                      </View>
-                      <View style={styles.menuItemContent}>
-                        <Text style={[styles.menuItemTitle, { color: colors.text }]}>
-                          {item.title}
-                        </Text>
-                        <Text style={[styles.menuItemSubtitle, { color: colors.muted }]}>
-                          {item.subtitle}
-                        </Text>
-                      </View>
-                      <ChevronRight size={18} color={colors.muted} />
-                    </TouchableOpacity>
-                    {!isLast && (
-                      <View style={[styles.divider, { backgroundColor: colors.divider }]} />
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </View>
+            <Card style={styles.card}>
+              {section.items.map((item, index) => (
+                <React.Fragment key={item.route}>
+                  {index > 0 ? <Divider inset={62} /> : null}
+                  <Pressable
+                    onPress={() => open(item.route)}
+                    accessibilityRole="button"
+                    accessibilityLabel={item.title}
+                    style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.pressed }]}
+                  >
+                    <IconTile icon={item.icon} color={item.color} />
+                    <View style={styles.rowText}>
+                      <Text style={[styles.rowTitle, { color: colors.text }]}>{item.title}</Text>
+                      <Text style={[styles.rowSubtitle, { color: colors.mutedForeground }]}>
+                        {item.subtitle}
+                      </Text>
+                    </View>
+                    <ChevronRight size={18} color={colors.mutedForeground} />
+                  </Pressable>
+                </React.Fragment>
+              ))}
+            </Card>
           </View>
         ))}
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 12,
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: '700',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 32,
-  },
-  section: {
-    marginBottom: 24,
-  },
+  content: { paddingBottom: 32 },
   sectionTitle: {
     fontSize: 12,
     fontWeight: '600',
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
+    marginTop: 24,
     marginBottom: 8,
-    marginLeft: 4,
-  },
-  sectionCard: {
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 12,
   },
-  iconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  menuItemContent: {
-    flex: 1,
-  },
-  menuItemTitle: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  menuItemSubtitle: {
-    fontSize: 13,
-    marginTop: 2,
-  },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    marginLeft: 68,
-  },
+  card: { marginHorizontal: 12, overflow: 'hidden' },
+  row: { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 12 },
+  rowText: { flex: 1 },
+  rowTitle: { fontSize: 15, fontWeight: '600' },
+  rowSubtitle: { fontSize: 13, marginTop: 2 },
 });

@@ -1,692 +1,399 @@
+/**
+ * Invoice detail.
+ *
+ * Actions map onto app-api's dedicated endpoints. Note what is deliberately
+ * absent: there is no edit. app-api has no `PUT /invoices/:id` because an issued
+ * document is immutable — a draft can be deleted and re-created, and an issued
+ * invoice is corrected with a credit note.
+ */
+
 import { useCallback, useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
-  Alert,
-  StyleSheet,
-  Platform,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { View, Text, ScrollView, StyleSheet, Alert, RefreshControl } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import {
-  ArrowLeft,
-  Send,
-  CheckCircle2,
-  MoreHorizontal,
-  User,
-  Mail,
-  Calendar,
-  AlertCircle,
-} from 'lucide-react-native';
+import { MoreHorizontal, FileText, Send, CreditCard, Lock } from 'lucide-react-native';
 
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
+import { Button } from '@weldsuite/mobile-ui/components/Button';
+import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
+import { Divider } from '@weldsuite/mobile-ui/components/Divider';
+import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
+
 import api from '@/services/api';
-import { formatCurrency } from '@/lib/currency';
-import type { Invoice, InvoiceItem, Payment } from '@/types/accounting';
+import { formatCurrency, toNumber } from '@/lib/currency';
+import { formatDate, daysUntil } from '@/lib/date';
+import { BRAND } from '@/lib/brand';
+import { Screen, ScreenHeader } from '@/components/screen';
+import { SectionCard, DetailRow, TotalsBlock } from '@/components/detail';
+import { DetailSkeleton, ErrorState } from '@/components/data-states';
+import { InvoiceStatusBadge } from '@/components/status-badge';
+import { RecordPaymentSheet } from '@/components/record-payment-sheet';
+import type { Invoice } from '@/types/accounting';
 
-const STATUS_COLORS: Record<string, string> = {
-  draft: '#F59E0B',
-  sent: '#3B82F6',
-  paid: '#10B981',
-  overdue: '#EF4444',
-  cancelled: '#6B7280',
-  viewed: '#8B5CF6',
-  refunded: '#6B7280',
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  draft: 'Draft',
-  sent: 'Sent',
-  paid: 'Paid',
-  overdue: 'Overdue',
-  cancelled: 'Cancelled',
-  viewed: 'Viewed',
-  refunded: 'Refunded',
-};
+type Confirm = 'delete' | 'cancel' | 'creditNote' | null;
 
 export default function InvoiceDetailScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const toast = useToast();
 
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [confirm, setConfirm] = useState<Confirm>(null);
 
-  const fetchInvoice = useCallback(async () => {
+  const load = useCallback(async () => {
     if (!id) return;
     try {
-      setError(null);
-      const response = await api.getInvoice(id);
-      if (response.data) {
-        setInvoice(response.data);
-      }
-    } catch {
-      setError('Failed to load invoice');
+      setError(false);
+      setInvoice(await api.getInvoice(id));
+    } catch (err) {
+      console.error('Failed to load invoice:', err);
+      setError(true);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [id]);
 
   useEffect(() => {
-    fetchInvoice();
-  }, [fetchInvoice]);
+    load();
+  }, [load]);
 
-  const handleStatusChange = useCallback(
-    async (newStatus: string) => {
-      if (!id || actionLoading) return;
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-      setActionLoading(true);
+  /** Runs a mutation, then refreshes so derived fields (balance, status) are current. */
+  const run = useCallback(
+    async (action: () => Promise<unknown>, successMessage: string) => {
+      setBusy(true);
       try {
-        await api.updateInvoiceStatus(id, newStatus);
-        await fetchInvoice();
-      } catch {
-        Alert.alert('Error', 'Failed to update invoice status');
+        await action();
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        toast.success(successMessage);
+        await load();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Action failed');
       } finally {
-        setActionLoading(false);
+        setBusy(false);
       }
     },
-    [id, actionLoading, fetchInvoice],
+    [load, toast],
   );
 
-  const handleSendInvoice = useCallback(() => {
-    Alert.alert('Send Invoice', 'Are you sure you want to send this invoice?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Send', onPress: () => handleStatusChange('sent') },
-    ]);
-  }, [handleStatusChange]);
-
-  const handleMarkAsPaid = useCallback(() => {
-    Alert.alert('Mark as Paid', 'Mark this invoice as paid?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Confirm', onPress: () => handleStatusChange('paid') },
-    ]);
-  }, [handleStatusChange]);
-
-  const handleMoreOptions = useCallback(() => {
+  const handleMore = useCallback(() => {
+    if (!invoice) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    Alert.alert('More Actions', undefined, [
-      {
-        text: 'Mark as Overdue',
-        onPress: () => handleStatusChange('overdue'),
-      },
-      {
-        text: 'Cancel Invoice',
-        style: 'destructive',
-        onPress: () => {
-          Alert.alert('Cancel Invoice', 'This action cannot be undone.', [
-            { text: 'Keep', style: 'cancel' },
-            { text: 'Cancel Invoice', style: 'destructive', onPress: () => handleStatusChange('cancelled') },
-          ]);
-        },
-      },
-      { text: 'Dismiss', style: 'cancel' },
-    ]);
-  }, [handleStatusChange]);
 
-  const formatDate = (dateStr: string) => {
-    try {
-      const date = new Date(dateStr);
-      return date.toLocaleDateString('en-GB', {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-      });
-    } catch {
-      return dateStr;
+    const options: { text: string; style?: 'destructive' | 'cancel'; onPress?: () => void }[] = [
+      {
+        text: 'Duplicate',
+        onPress: () =>
+          run(async () => {
+            const copy = await api.duplicateInvoice(invoice.id);
+            router.replace(`/invoice/${copy.id}`);
+          }, 'Invoice duplicated'),
+      },
+    ];
+
+    if (invoice.status !== 'draft' && invoice.status !== 'cancelled') {
+      options.push({ text: 'Create credit note', onPress: () => setConfirm('creditNote') });
+      options.push({ text: 'Cancel invoice', style: 'destructive', onPress: () => setConfirm('cancel') });
     }
-  };
+    if (invoice.status === 'draft') {
+      options.push({ text: 'Delete draft', style: 'destructive', onPress: () => setConfirm('delete') });
+    }
+    options.push({ text: 'Dismiss', style: 'cancel' });
+
+    Alert.alert('Invoice actions', undefined, options);
+  }, [invoice, run, router]);
+
+  const header = (
+    <ScreenHeader
+      title={invoice?.invoiceNumber || 'Invoice'}
+      subtitle={invoice?.contactName}
+      showBack
+      actions={
+        invoice ? (
+          <>
+            <IconButton
+              icon={<FileText size={20} color={colors.text} />}
+              accessibilityLabel="View document"
+              onPress={() => router.push(`/invoice/document?id=${invoice.id}` as never)}
+            />
+            <IconButton
+              icon={<MoreHorizontal size={22} color={colors.text} />}
+              accessibilityLabel="More actions"
+              onPress={handleMore}
+            />
+          </>
+        ) : null
+      }
+    />
+  );
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#10B981" />
-        </View>
-      </SafeAreaView>
+      <Screen header={header}>
+        <DetailSkeleton />
+      </Screen>
     );
   }
 
   if (error || !invoice) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.headerBar}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <ArrowLeft size={24} color={colors.text} />
-          </TouchableOpacity>
-          <Text style={[styles.headerBarTitle, { color: colors.text }]}>Invoice</Text>
-          <View style={styles.headerBarRight} />
-        </View>
-        <View style={styles.centered}>
-          <AlertCircle size={48} color={colors.muted} />
-          <Text style={[styles.errorText, { color: colors.text }]}>
-            {error ?? 'Invoice not found'}
-          </Text>
-          <TouchableOpacity
-            style={styles.retryButton}
-            onPress={() => {
-              setLoading(true);
-              fetchInvoice();
-            }}
-          >
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+      <Screen header={header}>
+        <ErrorState
+          message="Couldn't load this invoice."
+          onRetry={() => {
+            setLoading(true);
+            load();
+          }}
+        />
+      </Screen>
     );
   }
 
-  const statusColor = STATUS_COLORS[invoice.status] ?? colors.muted;
-  const items: InvoiceItem[] = invoice.items ?? [];
-  const payments: Payment[] = invoice.payments ?? [];
-  const canSend = invoice.status === 'draft';
-  const canMarkPaid = invoice.status === 'sent' || invoice.status === 'overdue' || invoice.status === 'viewed';
+  const currency = invoice.currency || 'EUR';
+  const balanceDue = toNumber(invoice.balanceDue);
+  const amountPaid = toNumber(invoice.amountPaid);
+  const due = daysUntil(invoice.dueDate);
+  const isSettled =
+    invoice.status === 'paid' || invoice.status === 'cancelled' || invoice.status === 'uncollectible';
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
-      <View style={styles.headerBar}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <ArrowLeft size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerBarTitle, { color: colors.text }]} numberOfLines={1}>
-          Invoice {invoice.invoiceNumber}
-        </Text>
-        <View style={styles.headerBarRight} />
-      </View>
-
+    <Screen header={header}>
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              load();
+            }}
+            tintColor={BRAND}
+          />
+        }
       >
-        {/* Status Badge */}
-        <View style={styles.statusSection}>
-          <View style={[styles.statusBadgeLarge, { backgroundColor: statusColor + '18' }]}>
-            <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-            <Text style={[styles.statusBadgeLargeText, { color: statusColor }]}>
-              {STATUS_LABELS[invoice.status] ?? invoice.status}
-            </Text>
-          </View>
-          <Text style={[styles.totalAmount, { color: colors.text }]}>
-            {formatCurrency(invoice.total, invoice.currency)}
-          </Text>
-        </View>
-
-        {/* Contact Info */}
-        <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
-          <Text style={[styles.cardTitle, { color: colors.text }]}>Contact</Text>
-          <View style={styles.infoRow}>
-            <User size={16} color={colors.muted} />
-            <Text style={[styles.infoText, { color: colors.text }]}>{invoice.contactName}</Text>
-          </View>
-          {invoice.contactEmail ? (
-            <View style={styles.infoRow}>
-              <Mail size={16} color={colors.muted} />
-              <Text style={[styles.infoText, { color: colors.muted }]}>
-                {invoice.contactEmail}
+        <SectionCard>
+          <View style={styles.summary}>
+            <View>
+              <Text style={[styles.summaryLabel, { color: colors.mutedForeground }]}>
+                {balanceDue > 0 ? 'Balance due' : 'Total'}
+              </Text>
+              <Text style={[styles.summaryValue, { color: colors.text }]}>
+                {formatCurrency(balanceDue > 0 ? balanceDue : invoice.total, currency)}
               </Text>
             </View>
+            <InvoiceStatusBadge
+              status={invoice.status}
+              dueDate={invoice.dueDate}
+              balanceDue={invoice.balanceDue}
+              size="md"
+            />
+          </View>
+          {balanceDue > 0 && due !== null ? (
+            <Text
+              style={[
+                styles.dueHint,
+                { color: due < 0 ? colors.destructive : colors.mutedForeground },
+              ]}
+            >
+              {due < 0
+                ? `Overdue by ${Math.abs(due)} day${Math.abs(due) === 1 ? '' : 's'}`
+                : due === 0
+                  ? 'Due today'
+                  : `Due in ${due} day${due === 1 ? '' : 's'}`}
+            </Text>
           ) : null}
-        </View>
+        </SectionCard>
 
-        {/* Dates */}
-        <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
-          <Text style={[styles.cardTitle, { color: colors.text }]}>Dates</Text>
-          <View style={styles.dateRow}>
-            <View style={styles.dateItem}>
-              <Calendar size={14} color={colors.muted} />
-              <Text style={[styles.dateLabel, { color: colors.muted }]}>Issue Date</Text>
-            </View>
-            <Text style={[styles.dateValue, { color: colors.text }]}>
-              {formatDate(invoice.issueDate)}
-            </Text>
-          </View>
-          <View style={[styles.dateDivider, { backgroundColor: colors.divider }]} />
-          <View style={styles.dateRow}>
-            <View style={styles.dateItem}>
-              <Calendar size={14} color={colors.muted} />
-              <Text style={[styles.dateLabel, { color: colors.muted }]}>Due Date</Text>
-            </View>
-            <Text style={[styles.dateValue, { color: colors.text }]}>
-              {formatDate(invoice.dueDate)}
-            </Text>
-          </View>
-        </View>
+        <SectionCard title="Details">
+          <DetailRow label="Customer" value={invoice.contactName} />
+          {invoice.contactEmail ? <DetailRow label="Email" value={invoice.contactEmail} /> : null}
+          <DetailRow label="Issue date" value={formatDate(invoice.issueDate)} />
+          <DetailRow label="Due date" value={formatDate(invoice.dueDate)} />
+          {invoice.reference ? <DetailRow label="Reference" value={invoice.reference} /> : null}
+        </SectionCard>
 
-        {/* Line Items */}
-        {items.length > 0 && (
-          <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
-            <Text style={[styles.cardTitle, { color: colors.text }]}>Line Items</Text>
-            {/* Table Header */}
-            <View style={styles.tableHeader}>
-              <Text style={[styles.tableHeaderCell, styles.descriptionCol, { color: colors.muted }]}>
-                Description
-              </Text>
-              <Text style={[styles.tableHeaderCell, styles.qtyCol, { color: colors.muted }]}>
-                Qty
-              </Text>
-              <Text style={[styles.tableHeaderCell, styles.priceCol, { color: colors.muted }]}>
-                Price
-              </Text>
-              <Text style={[styles.tableHeaderCell, styles.amountCol, { color: colors.muted }]}>
-                Amount
-              </Text>
-            </View>
-            {items.map((item, index) => (
-              <View key={item.id || index}>
-                {index > 0 && (
-                  <View style={[styles.tableDivider, { backgroundColor: colors.divider }]} />
-                )}
-                <View style={styles.tableRow}>
-                  <Text
-                    style={[styles.tableCell, styles.descriptionCol, { color: colors.text }]}
-                    numberOfLines={2}
-                  >
-                    {item.description}
+        {invoice.items?.length ? (
+          <SectionCard title="Line items">
+            {invoice.items.map((item, index) => (
+              <View key={item.id ?? index}>
+                {index > 0 ? <Divider style={styles.itemDivider} /> : null}
+                <Text style={[styles.itemDescription, { color: colors.text }]}>
+                  {item.description}
+                </Text>
+                <View style={styles.itemMeta}>
+                  <Text style={[styles.itemQty, { color: colors.mutedForeground }]}>
+                    {toNumber(item.quantity)} × {formatCurrency(item.unitPrice, currency)}
+                    {toNumber(item.taxRate) > 0 ? `  ·  ${toNumber(item.taxRate)}% VAT` : ''}
                   </Text>
-                  <Text style={[styles.tableCell, styles.qtyCol, { color: colors.text }]}>
-                    {item.quantity}
-                  </Text>
-                  <Text style={[styles.tableCell, styles.priceCol, { color: colors.text }]}>
-                    {formatCurrency(item.unitPrice, invoice.currency)}
-                  </Text>
-                  <Text style={[styles.tableCell, styles.amountCol, { color: colors.text }]}>
-                    {formatCurrency(item.amount, invoice.currency)}
+                  <Text style={[styles.itemTotal, { color: colors.text }]}>
+                    {formatCurrency(item.lineTotal, currency)}
                   </Text>
                 </View>
               </View>
             ))}
-          </View>
-        )}
+          </SectionCard>
+        ) : null}
 
-        {/* Totals */}
-        <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
-          <View style={styles.totalRow}>
-            <Text style={[styles.totalLabel, { color: colors.muted }]}>Subtotal</Text>
-            <Text style={[styles.totalValue, { color: colors.text }]}>
-              {formatCurrency(invoice.subtotal, invoice.currency)}
-            </Text>
-          </View>
-          <View style={styles.totalRow}>
-            <Text style={[styles.totalLabel, { color: colors.muted }]}>Tax</Text>
-            <Text style={[styles.totalValue, { color: colors.text }]}>
-              {formatCurrency(invoice.taxTotal, invoice.currency)}
-            </Text>
-          </View>
-          <View style={[styles.totalDivider, { backgroundColor: colors.divider }]} />
-          <View style={styles.totalRow}>
-            <Text style={[styles.totalLabelBold, { color: colors.text }]}>Total</Text>
-            <Text style={[styles.totalValueBold, { color: colors.text }]}>
-              {formatCurrency(invoice.total, invoice.currency)}
-            </Text>
-          </View>
-          <View style={styles.totalRow}>
-            <Text style={[styles.totalLabelBold, { color: '#10B981' }]}>Balance Due</Text>
-            <Text style={[styles.totalValueBold, { color: '#10B981' }]}>
-              {formatCurrency(invoice.balanceDue, invoice.currency)}
-            </Text>
-          </View>
-        </View>
+        <SectionCard title="Totals">
+          <TotalsBlock
+            rows={[
+              { label: 'Subtotal', value: formatCurrency(invoice.subtotal, currency) },
+              { label: 'VAT', value: formatCurrency(invoice.taxTotal, currency) },
+              ...(amountPaid > 0
+                ? [{ label: 'Paid', value: `−${formatCurrency(amountPaid, currency)}` }]
+                : []),
+            ]}
+            total={{
+              label: balanceDue > 0 && amountPaid > 0 ? 'Balance due' : 'Total',
+              value: formatCurrency(balanceDue > 0 && amountPaid > 0 ? balanceDue : invoice.total, currency),
+            }}
+          />
+        </SectionCard>
 
-        {/* Payments */}
-        {payments.length > 0 && (
-          <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
-            <Text style={[styles.cardTitle, { color: colors.text }]}>Payments</Text>
-            {payments.map((payment, index) => (
-              <View key={payment.id || index}>
-                {index > 0 && (
-                  <View style={[styles.tableDivider, { backgroundColor: colors.divider }]} />
-                )}
-                <View style={styles.paymentRow}>
-                  <View>
-                    <Text style={[styles.paymentDate, { color: colors.text }]}>
-                      {formatDate(payment.date)}
-                    </Text>
-                    {payment.method && (
-                      <Text style={[styles.paymentMethod, { color: colors.muted }]}>
-                        {payment.method}
-                      </Text>
-                    )}
-                  </View>
-                  <Text style={[styles.paymentAmount, { color: '#10B981' }]}>
-                    {formatCurrency(payment.amount, invoice.currency)}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
-
-        {/* Notes */}
         {invoice.notes ? (
-          <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
-            <Text style={[styles.cardTitle, { color: colors.text }]}>Notes</Text>
-            <Text style={[styles.notesText, { color: colors.muted }]}>{invoice.notes}</Text>
-          </View>
+          <SectionCard title="Notes">
+            <Text style={[styles.notes, { color: colors.mutedForeground }]}>{invoice.notes}</Text>
+          </SectionCard>
         ) : null}
 
-        {/* Reference */}
-        {invoice.reference ? (
-          <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
-            <Text style={[styles.cardTitle, { color: colors.text }]}>Reference</Text>
-            <Text style={[styles.notesText, { color: colors.muted }]}>{invoice.reference}</Text>
-          </View>
-        ) : null}
+        <View style={styles.actions}>
+          {invoice.status === 'draft' ? (
+            <Button
+              title="Finalise invoice"
+              leftIcon={<Lock size={18} color={colors.primaryForeground} />}
+              onPress={() => run(() => api.finalizeInvoice(invoice.id), 'Invoice finalised')}
+              loading={busy}
+              fullWidth
+            />
+          ) : null}
 
-        {/* Spacer for bottom actions */}
-        <View style={{ height: 100 }} />
+          {invoice.status !== 'draft' && !isSettled ? (
+            <Button
+              title="Send invoice"
+              variant="outline"
+              leftIcon={<Send size={18} color={colors.text} />}
+              onPress={() => run(() => api.sendInvoice(invoice.id), 'Invoice sent')}
+              loading={busy}
+              fullWidth
+            />
+          ) : null}
+
+          {balanceDue > 0 && invoice.status !== 'draft' && invoice.status !== 'cancelled' ? (
+            <Button
+              title="Record payment"
+              leftIcon={<CreditCard size={18} color={colors.primaryForeground} />}
+              onPress={() => setPaymentOpen(true)}
+              disabled={busy}
+              fullWidth
+            />
+          ) : null}
+
+          <Button
+            title="View document"
+            variant="ghost"
+            leftIcon={<FileText size={18} color={colors.text} />}
+            onPress={() => router.push(`/invoice/document?id=${invoice.id}` as never)}
+            fullWidth
+          />
+        </View>
       </ScrollView>
 
-      {/* Bottom Action Buttons */}
-      {(canSend || canMarkPaid) && (
-        <View style={[styles.bottomBar, { backgroundColor: colors.background, borderTopColor: colors.divider }]}>
-          {canSend && (
-            <TouchableOpacity
-              style={[styles.actionButton, styles.sendButton]}
-              onPress={handleSendInvoice}
-              disabled={actionLoading}
-              activeOpacity={0.8}
-            >
-              {actionLoading ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Send size={18} color="#fff" />
-                  <Text style={styles.actionButtonText}>Send Invoice</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          )}
-          {canMarkPaid && (
-            <TouchableOpacity
-              style={[styles.actionButton, styles.paidButton]}
-              onPress={handleMarkAsPaid}
-              disabled={actionLoading}
-              activeOpacity={0.8}
-            >
-              {actionLoading ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <CheckCircle2 size={18} color="#fff" />
-                  <Text style={styles.actionButtonText}>Mark as Paid</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity
-            style={[styles.moreButton, { backgroundColor: colors.cardBackground }]}
-            onPress={handleMoreOptions}
-            activeOpacity={0.7}
-          >
-            <MoreHorizontal size={22} color={colors.text} />
-          </TouchableOpacity>
-        </View>
-      )}
-    </SafeAreaView>
+      <RecordPaymentSheet
+        visible={paymentOpen}
+        onClose={() => setPaymentOpen(false)}
+        balanceDue={balanceDue}
+        currency={currency}
+        submitting={busy}
+        onSubmit={async (payment) => {
+          await run(
+            () => api.recordInvoicePayment(invoice.id, payment),
+            'Payment recorded',
+          );
+          setPaymentOpen(false);
+        }}
+      />
+
+      <ConfirmModal
+        visible={confirm === 'delete'}
+        title="Delete this draft?"
+        message="The draft invoice will be removed. This cannot be undone."
+        confirmText="Delete"
+        variant="destructive"
+        loading={busy}
+        onCancel={() => setConfirm(null)}
+        onConfirm={async () => {
+          setConfirm(null);
+          setBusy(true);
+          try {
+            await api.deleteInvoice(invoice.id);
+            toast.success('Draft deleted');
+            router.back();
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : 'Could not delete the draft');
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+
+      <ConfirmModal
+        visible={confirm === 'cancel'}
+        title="Cancel this invoice?"
+        message="It stays in your books for the audit trail but is no longer collectable."
+        confirmText="Cancel invoice"
+        cancelText="Keep"
+        variant="destructive"
+        loading={busy}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          setConfirm(null);
+          run(() => api.setInvoiceStatus(invoice.id, 'cancelled'), 'Invoice cancelled');
+        }}
+      />
+
+      <ConfirmModal
+        visible={confirm === 'creditNote'}
+        title="Create a credit note?"
+        message="This issues a document reversing the invoice — the correct way to correct an issued invoice."
+        confirmText="Create"
+        loading={busy}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() => {
+          setConfirm(null);
+          run(async () => {
+            const note = await api.createCreditNote(invoice.id);
+            router.replace(`/invoice/${note.id}`);
+          }, 'Credit note created');
+        }}
+      />
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 32,
-  },
-  headerBar: {
+  content: { paddingBottom: 40, paddingTop: 4 },
+  summary: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  summaryLabel: { fontSize: 13, fontWeight: '500' },
+  summaryValue: { fontSize: 30, fontWeight: '700', marginTop: 2, letterSpacing: -0.8 },
+  dueHint: { fontSize: 13, marginTop: 8 },
+  itemDivider: { marginVertical: 12 },
+  itemDescription: { fontSize: 14, fontWeight: '500' },
+  itemMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 4,
-  },
-  headerBarTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  headerBarRight: {
-    width: 44,
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-  },
-  statusSection: {
-    alignItems: 'center',
-    paddingVertical: 20,
+    justifyContent: 'space-between',
+    marginTop: 4,
     gap: 12,
   },
-  statusBadgeLarge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    gap: 8,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  statusBadgeLargeText: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  totalAmount: {
-    fontSize: 32,
-    fontWeight: '700',
-  },
-  card: {
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.06,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  cardTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    marginBottom: 12,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 8,
-  },
-  infoText: {
-    fontSize: 14,
-    flex: 1,
-  },
-  dateRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 6,
-  },
-  dateItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  dateLabel: {
-    fontSize: 14,
-  },
-  dateValue: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  dateDivider: {
-    height: 1,
-    marginVertical: 4,
-  },
-  tableHeader: {
-    flexDirection: 'row',
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: 'transparent',
-  },
-  tableHeaderCell: {
-    fontSize: 11,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  tableRow: {
-    flexDirection: 'row',
-    paddingVertical: 10,
-    alignItems: 'flex-start',
-  },
-  tableCell: {
-    fontSize: 13,
-  },
-  descriptionCol: {
-    flex: 3,
-    paddingRight: 8,
-  },
-  qtyCol: {
-    flex: 1,
-    textAlign: 'center',
-  },
-  priceCol: {
-    flex: 2,
-    textAlign: 'right',
-    paddingRight: 8,
-  },
-  amountCol: {
-    flex: 2,
-    textAlign: 'right',
-  },
-  tableDivider: {
-    height: 1,
-  },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 6,
-  },
-  totalLabel: {
-    fontSize: 14,
-  },
-  totalValue: {
-    fontSize: 14,
-  },
-  totalLabelBold: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  totalValueBold: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  totalDivider: {
-    height: 1,
-    marginVertical: 6,
-  },
-  paymentRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  paymentDate: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  paymentMethod: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-  paymentAmount: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  notesText: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  bottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    paddingBottom: Platform.OS === 'ios' ? 32 : 16,
-    borderTopWidth: 1,
-    gap: 10,
-  },
-  actionButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 12,
-    gap: 8,
-  },
-  sendButton: {
-    backgroundColor: '#3B82F6',
-  },
-  paidButton: {
-    backgroundColor: '#10B981',
-  },
-  actionButtonText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  moreButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  errorText: {
-    marginTop: 12,
-    fontSize: 16,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  retryButton: {
-    marginTop: 16,
-    paddingHorizontal: 24,
-    paddingVertical: 10,
-    backgroundColor: '#10B981',
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  itemQty: { fontSize: 13, flexShrink: 1 },
+  itemTotal: { fontSize: 14, fontWeight: '600' },
+  notes: { fontSize: 14, lineHeight: 20 },
+  actions: { padding: 12, paddingTop: 20, gap: 8 },
 });
