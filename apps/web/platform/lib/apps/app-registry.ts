@@ -1,6 +1,5 @@
 import {
   Users,
-  CheckSquare,
   BookOpen,
   Headphones,
   Mail,
@@ -19,6 +18,7 @@ import {
   Truck,
   Bot,
   Database,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 import type { AppLogo } from '@/components/app-sidebar-layout';
@@ -85,12 +85,11 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     sidebarIconClass: 'h-7 w-7',
   },
   weldconnect: {
-    lucideIcon: CheckSquare,
+    lucideIcon: Zap,
     shortName: 'Automations',
     icon: '/assets/images/weldconnect/icon.svg',
     logo: makeLogo('weldconnect'),
     sidebarIconClass: 'h-[27px] w-[27px]',
-    hideFromOnboarding: true,
   },
   weldhost: {
     lucideIcon: Globe,
@@ -152,8 +151,17 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
       iconDark: '/assets/images/welddata/logo-dark.svg',
     },
   },
+  // WeldBooks. Icon-only logo like weldcommerce/weldknow — wordmark variants
+  // need the brand typeface and can be added later.
   weldbooks: {
     lucideIcon: Calculator,
+    shortName: 'Accounting',
+    icon: '/assets/images/weldbooks/icon.svg',
+    logo: {
+      iconLight: '/assets/images/weldbooks/logo-light.svg',
+      iconDark: '/assets/images/weldbooks/logo-dark.svg',
+    },
+    sidebarIconClass: 'h-6 w-6 object-contain',
   },
   // WeldCommerce. Icon-only logo like welddata/weldknow — wordmark variants
   // need the brand typeface and can be added later.

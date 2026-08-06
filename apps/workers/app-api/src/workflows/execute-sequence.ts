@@ -21,6 +21,8 @@ import { generateId } from '../lib/id';
 import { RealtimePublisher } from '@weldsuite/realtime/server';
 import { resolveInputs } from './execute-workflow/resolve-inputs';
 import { evaluateCondition } from './execute-workflow/evaluate-condition';
+// TODO(weldconnect-rebuild): fold execute-workflow helpers into workflow-worker engine;
+// kept here because CRM sequence execution still imports this legacy executor copy.
 import { executeAction, isWaitingForInput, type ActionContext } from './execute-workflow/action-handlers';
 import type { PlanFeatures } from '@weldsuite/db/schema/plans';
 

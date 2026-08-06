@@ -53,7 +53,7 @@ export default function WorkflowsPage() {
       category="workflow"
       entityLabel={t.weldconnect.workflows.workflow}
       entityLabelPlural={t.weldconnect.workflows.title}
-      parentLabel={t.weldconnect.breadcrumbs.task}
+      parentLabel={t.weldconnect.breadcrumbs.connect}
     />
   );
 }

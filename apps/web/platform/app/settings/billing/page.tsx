@@ -55,6 +55,7 @@ import {
 import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { PaymentMethodsSection } from './payment-methods-section';
 
 interface WorkspaceBusinessSettings {
   email?: string;
@@ -665,6 +666,9 @@ export default function BillingSettingsPage() {
 
         <DomainsTable domains={domains} />
       </div>
+
+      {/* Payment Methods */}
+      <PaymentMethodsSection canManage={canManageBilling} />
 
       {/* Billing Details */}
       <div>

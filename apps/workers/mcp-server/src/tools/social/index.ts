@@ -58,7 +58,10 @@ export const socialTools: ToolDefinition[] = [
   {
     name: 'delete_social_post',
     scope: 'social_posts:write',
-    description: 'Delete a social post.',
+    description:
+      'Delete a social post. If it was scheduled, the pending delivery is cancelled too, so it ' +
+      'will not still go out — use cancel_social_post instead to call off the schedule but keep ' +
+      'the post. A post that has already been published cannot be recalled; only the record is removed.',
     inputSchema: { id: z.string().describe('The social post — its name, or the id from an earlier search') },
     method: 'DELETE',
     path: '/v1/social-posts/:id',
@@ -96,6 +99,19 @@ export const socialTools: ToolDefinition[] = [
     },
     method: 'POST',
     path: '/v1/social-posts/:id/schedule',
+    pathParams: { id: 'id' },
+  },
+  {
+    name: 'cancel_social_post',
+    scope: 'social_posts:write',
+    description:
+      'Cancel a scheduled social post so it will not go out, keeping the post itself. Required to ' +
+      'actually call off a schedule — the scheduled time is held upstream, so setting the status ' +
+      'via update_social_post does not stop the delivery. Credits charged when it was scheduled are ' +
+      'refunded. A post that is already published cannot be cancelled.',
+    inputSchema: { id: z.string().describe('The social post — its name, or the id from an earlier search') },
+    method: 'POST',
+    path: '/v1/social-posts/:id/cancel',
     pathParams: { id: 'id' },
   },
 

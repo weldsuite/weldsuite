@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { useCreateWorkflow } from '@/hooks/queries/use-automation-queries';
 import {
   EntityList,
+  EmptyStateIllustration,
   type FilterConfig,
   type GroupConfig,
   type ActiveFilter,
@@ -37,7 +38,7 @@ export function TemplatesClient() {
   const CATEGORIES = useLocalizedCategories();
 
   useBreadcrumbs([
-    { label: t.weldconnect.breadcrumbs.task, href: '/weldconnect' },
+    { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },
     { label: t.weldconnect.breadcrumbs.templates },
   ]);
 
@@ -224,6 +225,16 @@ export function TemplatesClient() {
         searchPlaceholder={t.weldconnect.templates.searchPlaceholder}
         searchFields={['name', 'description']}
         noResultsState={{
+          icon: (
+            <EmptyStateIllustration>
+              <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="30" y="28" width="60" height="64" rx="6" className="fill-white dark:fill-secondary stroke-gray-200 dark:stroke-border" strokeWidth="1" />
+                <rect x="40" y="40" width="40" height="4" rx="2" className="fill-gray-200 dark:fill-border" />
+                <rect x="40" y="50" width="32" height="3" rx="1.5" className="fill-gray-200 dark:fill-border" opacity="0.6" />
+                <rect x="40" y="58" width="36" height="3" rx="1.5" className="fill-gray-200 dark:fill-border" opacity="0.4" />
+              </svg>
+            </EmptyStateIllustration>
+          ),
           title: t.weldconnect.templates.noTemplates,
           description: t.weldconnect.templates.noTemplatesDescription,
         }}

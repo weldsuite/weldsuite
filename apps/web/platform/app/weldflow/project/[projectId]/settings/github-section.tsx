@@ -328,8 +328,8 @@ export function GithubSection({ projectId, isAdmin }: GithubSectionProps) {
   const gp = t.integrations.github.projects;
 
   const router = useRouter();
-  const { can } = usePermissions();
-  const canManage = can('weldconnect:integrations:github:manage') && isAdmin;
+  const { canAny } = usePermissions();
+  const canManage = canAny('integrations:github:manage', 'weldconnect:integrations:github:manage') && isAdmin;
 
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [unlinkTarget, setUnlinkTarget] = useState<string | null>(null);

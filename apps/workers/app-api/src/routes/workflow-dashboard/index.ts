@@ -4,7 +4,7 @@
  * Dashboard / analytics / search endpoints, plus the static action / trigger
  * / entity-event catalogs the visual editor's pickers render.
  *
- * Permissions: tasks:read for queries, tasks:update for acknowledge.
+ * Permissions: workflows:read for queries, workflows:update for acknowledge.
  */
 
 import { z } from 'zod';
@@ -19,7 +19,7 @@ import { ACTION_TYPES, TRIGGER_TYPES, ENTITY_EVENTS } from './static-catalogs';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-app.get('/stats', requirePermission('tasks:read'), async (c) => {
+app.get('/stats', requirePermission('workflows:read'), async (c) => {
   const db = c.get('tenantDb');
   try {
     const { workflows, workflowExecutions, workflowSchedules, workflowWebhooks } = schema;
@@ -71,7 +71,7 @@ app.get('/stats', requirePermission('tasks:read'), async (c) => {
 
 app.get(
   '/search',
-  requirePermission('tasks:read'),
+  requirePermission('workflows:read'),
   zValidator('query', z.object({ q: z.string().optional(), limit: z.coerce.number().max(50).default(15) })),
   async (c) => {
     const db = c.get('tenantDb');
@@ -160,7 +160,7 @@ app.get(
 
 app.get(
   '/performance',
-  requirePermission('tasks:read'),
+  requirePermission('workflows:read'),
   zValidator('query', z.object({ workflowId: z.string().optional() })),
   async (c) => {
     const db = c.get('tenantDb');
@@ -191,7 +191,7 @@ app.get(
 
 app.get(
   '/errors',
-  requirePermission('tasks:read'),
+  requirePermission('workflows:read'),
   zValidator(
     'query',
     z.object({
@@ -236,7 +236,7 @@ app.get(
   },
 );
 
-app.patch('/errors/:id/acknowledge', requirePermission('tasks:update'), async (c) => {
+app.patch('/errors/:id/acknowledge', requirePermission('workflows:update'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const id = c.req.param('id');
@@ -255,7 +255,7 @@ app.patch('/errors/:id/acknowledge', requirePermission('tasks:update'), async (c
   }
 });
 
-app.get('/resource-usage', requirePermission('tasks:read'), async (c) => {
+app.get('/resource-usage', requirePermission('workflows:read'), async (c) => {
   const db = c.get('tenantDb');
   try {
     const { workflows, workflowExecutions, workflowSchedules, workflowWebhooks } = schema;
@@ -302,7 +302,7 @@ app.get('/resource-usage', requirePermission('tasks:read'), async (c) => {
 
 app.get(
   '/action-types',
-  requirePermission('tasks:read'),
+  requirePermission('workflows:read'),
   zValidator('query', z.object({ category: z.string().optional(), search: z.string().optional() })),
   async (c) => {
     const { category, search } = c.req.valid('query');
@@ -318,7 +318,7 @@ app.get(
 
 app.get(
   '/trigger-types',
-  requirePermission('tasks:read'),
+  requirePermission('workflows:read'),
   zValidator('query', z.object({ category: z.string().optional(), search: z.string().optional() })),
   async (c) => {
     const { category, search } = c.req.valid('query');
@@ -332,6 +332,6 @@ app.get(
   },
 );
 
-app.get('/entity-events', requirePermission('tasks:read'), (c) => success(c, ENTITY_EVENTS));
+app.get('/entity-events', requirePermission('workflows:read'), (c) => success(c, ENTITY_EVENTS));
 
 export const workflowDashboardRoutes = app;

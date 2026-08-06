@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Briefcase,
   Bookmark,
+  Building,
   ChevronRight,
   EllipsisVertical,
   ExternalLink,
@@ -68,6 +69,8 @@ import { FilesTab } from '@/components/objects/_shared/files-tab';
 import { AuditTab } from '@/components/objects/_shared/audit-tab';
 import { EmailsTab } from '@/components/objects/_shared/emails-tab';
 import { CustomFieldsSidebarSection } from '@/components/custom-fields/custom-fields-sidebar-section';
+import { EntityList } from '@/components/entity-list';
+import { useUnlinkPersonFromCompany } from '@/hooks/queries/use-person-companies-queries';
 import {
   usePerson,
   usePersonCompanies,
@@ -76,6 +79,7 @@ import {
   useAddPersonToCrm,
   usePersonChannel,
 } from './use-person-data';
+import { LinkCompanyPopover } from './link-company-popover';
 import { PersonChat } from './person-chat';
 import { PERSON_TABS, type PersonTab } from './person-tabs';
 import type { Person } from '@weldsuite/core-api-client/schemas/people';
@@ -469,58 +473,116 @@ function companyInitial(c: PersonCompanyRow['company']): string {
   return (c.displayName?.[0] || '?').toUpperCase();
 }
 
+// Search-friendly row: flattens nested company fields so EntityList's
+// `searchFields` can match on name / industry without a custom applyFilters.
+type PersonCompanyListItem = PersonCompanyRow & {
+  name: string;
+  industry: string;
+};
+
 function PersonCompaniesTab({
+  personId,
   employments,
   onOpenCompany,
 }: {
+  personId: string;
   employments: PersonCompanyRow[];
   onOpenCompany: (companyId: string) => void;
 }) {
   const st = useTranslations();
-  if (employments.length === 0) {
-    return (
-      <div className="p-6 text-sm text-muted-foreground text-center">
-        {st('sweep.entities.notAffiliatedWithCompany')}
-      </div>
-    );
-  }
+  const unlinkMut = useUnlinkPersonFromCompany();
+  const linkedIds = useMemo(
+    () => new Set(employments.map((e) => e.companyId)),
+    [employments],
+  );
+
+  const items = useMemo<PersonCompanyListItem[]>(
+    () =>
+      employments.map((pc) => ({
+        ...pc,
+        name: pc.company?.displayName ?? '',
+        industry: pc.company?.industry ?? '',
+      })),
+    [employments],
+  );
+
+  const renderRow = useCallback(
+    (pc: PersonCompanyListItem) => {
+      const name = pc.company?.displayName ?? st('sweep.entities.deletedCompany');
+      return (
+        <div key={pc.id} className="group/row flex items-center gap-1 px-2 py-0.5">
+          <Button
+            variant="ghost"
+            onClick={() => onOpenCompany(pc.companyId)}
+            className="flex-1 text-left text-sm flex items-center justify-between gap-2 hover:bg-muted/50 rounded-md px-2 py-1.5 transition-colors min-w-0 h-auto"
+          >
+            <span className="flex items-center gap-2 min-w-0">
+              <Avatar className="h-7 w-7 rounded-md flex-shrink-0">
+                <AvatarImage src={pc.company?.avatarUrl ?? undefined} className="rounded-md object-cover" />
+                <AvatarFallback className="rounded-md text-[10px]">
+                  {companyInitial(pc.company)}
+                </AvatarFallback>
+              </Avatar>
+              <span className="flex flex-col min-w-0">
+                <span className="text-sm text-foreground truncate">{name}</span>
+                {pc.role || pc.company?.industry ? (
+                  <span className="text-xs text-muted-foreground truncate">
+                    {pc.role ? pc.role : pc.company?.industry}
+                    {pc.role && pc.company?.industry ? ` · ${pc.company.industry}` : ''}
+                  </span>
+                ) : null}
+              </span>
+            </span>
+            <span className="flex items-center gap-1 flex-shrink-0">
+              {pc.endedAt && <Badge variant="outline" className="text-[10px]">{st('sweep.entities.past')}</Badge>}
+              {pc.isPrimary && <Badge variant="default" className="text-[10px]">{st('sweep.entities.primary')}</Badge>}
+            </span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              unlinkMut.mutate(
+                { id: pc.id, personId, companyId: pc.companyId },
+                { onSuccess: () => toast.success(st('sweep.entities.unlinked')) },
+              );
+            }}
+            disabled={unlinkMut.isPending}
+            className="opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 p-1.5 hover:bg-muted rounded-md text-muted-foreground hover:text-foreground transition-[opacity,color,background-color]"
+            aria-label={st('sweep.entities.unlink')}
+            title={st('sweep.entities.unlinkFromPerson')}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      );
+    },
+    [onOpenCompany, personId, unlinkMut, st],
+  );
+
   return (
-    <ul className="p-2 space-y-0.5">
-      {employments.map((pc) => {
-        const name = pc.company?.displayName ?? st('sweep.entities.deletedCompany');
-        return (
-          <li key={pc.id}>
-            <Button
-              variant="ghost"
-              onClick={() => onOpenCompany(pc.companyId)}
-              className="w-full text-left text-sm flex items-center justify-between gap-2 hover:bg-muted/50 rounded-md px-2 py-1.5 transition-colors"
-            >
-              <span className="flex items-center gap-2 min-w-0">
-                <Avatar className="h-7 w-7 rounded-md flex-shrink-0">
-                  <AvatarImage src={pc.company?.avatarUrl ?? undefined} className="rounded-md object-cover" />
-                  <AvatarFallback className="rounded-md text-[10px]">
-                    {companyInitial(pc.company)}
-                  </AvatarFallback>
-                </Avatar>
-                <span className="flex flex-col min-w-0">
-                  <span className="text-sm text-foreground truncate">{name}</span>
-                  {pc.role || pc.company?.industry ? (
-                    <span className="text-xs text-muted-foreground truncate">
-                      {pc.role ? pc.role : pc.company?.industry}
-                      {pc.role && pc.company?.industry ? ` · ${pc.company.industry}` : ''}
-                    </span>
-                  ) : null}
-                </span>
-              </span>
-              <span className="flex items-center gap-1 flex-shrink-0">
-                {pc.endedAt && <Badge variant="outline" className="text-[10px]">{st('sweep.entities.past')}</Badge>}
-                {pc.isPrimary && <Badge variant="default" className="text-[10px]">{st('sweep.entities.primary')}</Badge>}
-              </span>
-            </Button>
-          </li>
-        );
-      })}
-    </ul>
+    <EntityList<PersonCompanyListItem>
+      items={items}
+      isLoading={false}
+      error={null}
+      filters={[]}
+      renderRow={renderRow}
+      searchPlaceholder={st('sweep.entities.searchCompaniesPlaceholder')}
+      searchFields={['name', 'industry', 'role']}
+      actionButtons={
+        <LinkCompanyPopover personId={personId} linkedCompanyIds={linkedIds} />
+      }
+      itemsClassName="py-1.5"
+      emptyState={{
+        icon: <Building className="h-8 w-8 text-muted-foreground/60 mb-3" />,
+        title: st('sweep.entities.noCompaniesYetTitle'),
+        description: st('sweep.entities.noCompaniesYetDescription'),
+      }}
+      noResultsState={{
+        title: st('sweep.entities.noCompaniesFoundTitle'),
+        description: st('sweep.entities.noCompaniesFoundDescription'),
+      }}
+    />
   );
 }
 
@@ -619,6 +681,7 @@ export function PersonPanel(props: ObjectPanelComponentProps) {
       )}
       {person && activeTab === 'companies' && (
         <PersonCompaniesTab
+          personId={person.id}
           employments={employments}
           onOpenCompany={(companyId) => openPanel({ type: 'company', id: companyId, stack: true })}
         />

@@ -256,7 +256,13 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   objectPermissions('email',         'Email Forwarding'),
   objectPermissions('transfers',     'Domain Transfers'),
 
-  // ── Integrations (WeldConnect) ────────────────────────────────────────
+  // ── WeldConnect (workspace automation) ────────────────────────────────
+  // Prefixed where needed so mail `templates` / shared objects don't collide.
+  objectPermissions('workflows', 'Workflows'),
+  objectPermissions('workflow-executions', 'Workflow Executions', ['read', 'update']),
+  objectPermissions('workflow-templates', 'Workflow Templates'),
+  objectPermissions('workflow-variables', 'Workflow Variables'),
+  objectPermissions('workflow-webhooks', 'Workflow Webhooks'),
   // 'integrations' uses non-standard sub-keyed actions like
   // 'integrations:github:manage'. We surface the single known one;
   // future integrations should add new entries here.
@@ -268,6 +274,10 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
         key: 'integrations:github:manage',
         label: 'Manage GitHub integration (install, disconnect, configure sync)',
       },
+      { key: 'integrations:read', label: 'View integrations' },
+      { key: 'integrations:create', label: 'Connect integrations' },
+      { key: 'integrations:update', label: 'Edit integrations' },
+      { key: 'integrations:delete', label: 'Disconnect integrations' },
     ],
   },
 
@@ -465,8 +475,13 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   'weldmeet:meetings:read', 'weldmeet:meetings:create', 'weldmeet:meetings:update',
   'weldmeet:sessions:read', 'weldmeet:sessions:create',
   'weldmeet:recordings:read',
-  // WeldConnect
-  'weldconnect:tasks:read', 'weldconnect:tasks:create', 'weldconnect:tasks:update', 'weldconnect:tasks:delete',
+  // WeldConnect (workspace automation)
+  'weldconnect:workflows:read', 'weldconnect:workflows:create', 'weldconnect:workflows:update', 'weldconnect:workflows:delete',
+  'weldconnect:workflow-executions:read', 'weldconnect:workflow-executions:update',
+  'weldconnect:workflow-templates:read', 'weldconnect:workflow-templates:create', 'weldconnect:workflow-templates:update',
+  'weldconnect:workflow-variables:read', 'weldconnect:workflow-variables:create', 'weldconnect:workflow-variables:update',
+  'weldconnect:workflow-webhooks:read', 'weldconnect:workflow-webhooks:create', 'weldconnect:workflow-webhooks:update',
+  'weldconnect:integrations:read', 'weldconnect:integrations:create', 'weldconnect:integrations:update',
   // WeldDrive
   'welddrive:files:read', 'welddrive:files:create', 'welddrive:files:update',
   'welddrive:folders:read', 'welddrive:folders:create', 'welddrive:folders:update',

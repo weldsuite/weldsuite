@@ -9,13 +9,13 @@ const wfcTrigger = (sourceWorkflowId: string, triggerOn: string, opts: { enabled
 
 describe('matchWorkflowCompleteTriggers', () => {
   const candidates: WorkflowCandidate[] = [
-    { id: 'wfl_a', _source: 'task', triggers: [wfcTrigger('wfl_a', 'success')] }, // self → excluded
-    { id: 'wfl_b', _source: 'task', triggers: [wfcTrigger('wfl_a', 'success')] }, // match on success
-    { id: 'wfl_c', _source: 'task', triggers: [wfcTrigger('wfl_a', 'failure')] }, // no match on success
+    { id: 'wfl_a', _source: 'weldconnect', triggers: [wfcTrigger('wfl_a', 'success')] }, // self → excluded
+    { id: 'wfl_b', _source: 'weldconnect', triggers: [wfcTrigger('wfl_a', 'success')] }, // match on success
+    { id: 'wfl_c', _source: 'weldconnect', triggers: [wfcTrigger('wfl_a', 'failure')] }, // no match on success
     { id: 'wfl_d', _source: 'helpdesk', triggers: [wfcTrigger('wfl_a', 'both', { passOutput: true })] }, // match
-    { id: 'wfl_e', _source: 'task', triggers: [wfcTrigger('wfl_a', 'success', { enabled: false })] }, // disabled
-    { id: 'wfl_f', _source: 'task', triggers: [wfcTrigger('wfl_other', 'success')] }, // wrong source id
-    { id: 'wfl_g', _source: 'task', triggers: [{ type: 'manual', isEnabled: true }] }, // not a wfc trigger
+    { id: 'wfl_e', _source: 'weldconnect', triggers: [wfcTrigger('wfl_a', 'success', { enabled: false })] }, // disabled
+    { id: 'wfl_f', _source: 'weldconnect', triggers: [wfcTrigger('wfl_other', 'success')] }, // wrong source id
+    { id: 'wfl_g', _source: 'weldconnect', triggers: [{ type: 'manual', isEnabled: true }] }, // not a wfc trigger
   ];
 
   it('matches enabled workflow_complete triggers pointing at the completed workflow on success', () => {

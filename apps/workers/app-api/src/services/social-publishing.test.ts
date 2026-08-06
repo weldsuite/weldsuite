@@ -15,9 +15,11 @@ import {
   publishPost,
   syncAccounts,
   cancelPost,
+  cancelDeliveryBeforeDelete,
   SocialPublishConflictError,
   type SocialPublishingContext,
 } from '@weldsuite/social-publishing';
+import type { SocialPlatformContent } from '@weldsuite/db/schema/social-posts';
 
 let db: Database;
 let available = false;
@@ -47,8 +49,17 @@ const ctx = {
   masterDb: () => masterDb,
 } as unknown as SocialPublishingContext;
 
-/** Stub fetch; record (method, path, body) and return canned PostPeer responses. */
-function stubPostPeer(): Array<{ method: string; path: string; body?: unknown }> {
+/**
+ * Stub fetch; record (method, path, body) and return canned PostPeer responses.
+ *
+ * `platformResults` overrides what the create-post call reports per channel.
+ * The default mirrors a well-formed publish-now response; tests that care about
+ * the schedule path pass their own, because PostPeer does NOT echo `accountId`
+ * back there.
+ */
+function stubPostPeer(
+  platformResults?: Array<Record<string, unknown>>,
+): Array<{ method: string; path: string; body?: unknown }> {
   const calls: Array<{ method: string; path: string; body?: unknown }> = [];
   vi.stubGlobal(
     'fetch',
@@ -64,7 +75,7 @@ function stubPostPeer(): Array<{ method: string; path: string; body?: unknown }>
           ? {
               postId: 'new_pp',
               status: 'scheduled',
-              platforms: [
+              platforms: platformResults ?? [
                 { platform: 'twitter', accountId: 'intg_1', success: true, platformPostUrl: 'https://x/1' },
               ],
             }
@@ -92,13 +103,36 @@ async function seedAccount() {
     .onConflictDoNothing();
 }
 
-async function seedPost(id: string, status: string, postpeerPostId: string | null) {
+/** A second twitter account, for tests pinning the exact-accountId match order. */
+async function seedSecondAccount() {
+  await db
+    .insert(schema.socialAccounts)
+    .values({
+      id: 'sac_2',
+      platform: 'twitter',
+      platformAccountId: 'pa2',
+      name: 'X acct 2',
+      postpeerIntegrationId: 'intg_2',
+      status: 'active',
+      connectedByUserId: 'u1',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as typeof schema.socialAccounts.$inferInsert)
+    .onConflictDoNothing();
+}
+
+async function seedPost(
+  id: string,
+  status: string,
+  postpeerPostId: string | null,
+  targetAccountIds: string[] = ['sac_1'],
+) {
   await db.insert(schema.socialPosts).values({
     id,
     content: 'hello world',
     postType: 'post',
     status: status as never,
-    targetAccountIds: ['sac_1'],
+    targetAccountIds,
     postpeerPostId,
     timezone: 'UTC',
     createdByUserId: 'u1',
@@ -223,6 +257,177 @@ describe('social publishing · double-post guards', () => {
       .from(schema.socialPosts)
       .where(eq(schema.socialPosts.id, 'spo_pub_cancel'));
     expect(row.status).toBe('published');
+  });
+});
+
+describe('social publishing · platform content', () => {
+  it('a scheduled post is pending per platform and carries our own account id', async () => {
+    if (!available) return;
+    await seedAccount();
+    await seedPost('spo_sched_pc', 'draft', null);
+    // PostPeer does not echo `accountId` back on the schedule path — deriving
+    // platformContent from the response is what used to leave it empty.
+    const calls = stubPostPeer([{ platform: 'twitter', success: true }]);
+
+    const res = await publishPost(db, ctx, 'org_1', 'spo_sched_pc', {
+      now: false,
+      scheduledAt: '2030-01-01T00:00:00.000Z',
+    });
+
+    expect(calls.some((c) => c.method === 'POST' && c.path.endsWith('/posts'))).toBe(true);
+    expect(res.status).toBe('scheduled');
+    expect(res.platformContent).toHaveLength(1);
+
+    const [pc] = res.platformContent;
+    // Resolved from our own target, not from the response.
+    expect(pc.accountId).toBe('sac_1');
+    expect(pc.platform).toBe('twitter');
+    // Queued is not delivered: nothing may claim it published, and nothing may
+    // stamp a publish time.
+    expect(pc.status).toBe('pending');
+    expect(pc.publishedAt).toBeUndefined();
+
+    const [row] = await db
+      .select()
+      .from(schema.socialPosts)
+      .where(eq(schema.socialPosts.id, 'spo_sched_pc'));
+    // The row and its platform content agree — no post reads as published
+    // while the row itself says scheduled.
+    expect(row.status).toBe('scheduled');
+    expect(row.publishedAt).toBeNull();
+    const stored = row.platformContent as SocialPlatformContent[];
+    expect(stored[0].status).toBe('pending');
+    expect(stored[0].accountId).toBe('sac_1');
+  });
+
+  it('publish-now marks the platform published and still resolves our account id', async () => {
+    if (!available) return;
+    await seedAccount();
+    await seedPost('spo_now_pc', 'draft', null);
+    stubPostPeer([{ platform: 'twitter', success: true, platformPostUrl: 'https://x/9' }]);
+
+    const res = await publishPost(db, ctx, 'org_1', 'spo_now_pc', { now: true });
+
+    expect(res.status).toBe('published');
+    const [pc] = res.platformContent;
+    expect(pc.accountId).toBe('sac_1');
+    expect(pc.status).toBe('published');
+    expect(pc.publishedUrl).toBe('https://x/9');
+    expect(pc.publishedAt).toBeDefined();
+  });
+
+  it('a channel PostPeer rejected is failed on the schedule path too', async () => {
+    if (!available) return;
+    await seedAccount();
+    await seedPost('spo_sched_fail', 'draft', null);
+    stubPostPeer([{ platform: 'twitter', success: false, error: 'channel revoked' }]);
+
+    const res = await publishPost(db, ctx, 'org_1', 'spo_sched_fail', {
+      now: false,
+      scheduledAt: '2030-01-01T00:00:00.000Z',
+    });
+
+    const [pc] = res.platformContent;
+    expect(pc.status).toBe('failed');
+    expect(pc.error).toBe('channel revoked');
+    // The account id has to survive a failure — the refund idempotency key is
+    // built from it, and colliding keys silently drop refunds.
+    expect(pc.accountId).toBe('sac_1');
+  });
+
+  it('an exact accountId match is claimed by its own target, not stolen by an earlier platform fallback', async () => {
+    if (!available) return;
+    await seedAccount();
+    await seedSecondAccount();
+    // Two twitter accounts on one post. Only ONE result comes back, naming
+    // sac_2's integration explicitly. A single pass that resolves targets in
+    // order would let sac_1 grab this result via the platform fallback before
+    // sac_2 ever gets a chance at its own exact match — attributing sac_2's
+    // failure to sac_1 instead.
+    await seedPost('spo_multi_acct', 'draft', null, ['sac_1', 'sac_2']);
+    stubPostPeer([{ platform: 'twitter', accountId: 'intg_2', success: false, error: 'revoked' }]);
+
+    const res = await publishPost(db, ctx, 'org_1', 'spo_multi_acct', { now: true });
+
+    expect(res.platformContent).toHaveLength(2);
+    const bySac1 = res.platformContent.find((p) => p.accountId === 'sac_1');
+    const bySac2 = res.platformContent.find((p) => p.accountId === 'sac_2');
+    expect(bySac1).toBeDefined();
+    expect(bySac2).toBeDefined();
+
+    // The named account gets the failure...
+    expect(bySac2!.status).toBe('failed');
+    expect(bySac2!.error).toBe('revoked');
+    // ...and the other stays unclaimed rather than wrongly inheriting it.
+    expect(bySac1!.status).toBe('pending');
+    expect(bySac1!.error).toBeUndefined();
+  });
+});
+
+describe('social publishing · delete cancels the pending delivery', () => {
+  it('cancels the upstream scheduled post so a deleted post cannot still fire', async () => {
+    if (!available) return;
+    await seedAccount();
+    await seedPost('spo_del', 'scheduled', 'pp_del');
+    const calls = stubPostPeer();
+
+    await cancelDeliveryBeforeDelete(db, ctx, 'org_1', 'spo_del');
+
+    expect(calls).toContainEqual({ method: 'DELETE', path: '/v1/posts/pp_del' });
+    const [row] = await db
+      .select()
+      .from(schema.socialPosts)
+      .where(eq(schema.socialPosts.id, 'spo_del'));
+    expect(row.status).toBe('cancelled');
+  });
+
+  it('stays quiet for an already-published post so the record is still deletable', async () => {
+    if (!available) return;
+    await seedAccount();
+    await seedPost('spo_del_pub', 'published', 'pp_del_pub');
+    const calls = stubPostPeer();
+
+    // A published post cannot be recalled, and that must not block the delete.
+    await expect(cancelDeliveryBeforeDelete(db, ctx, 'org_1', 'spo_del_pub')).resolves.toBeUndefined();
+
+    expect(calls).toHaveLength(0);
+    const [row] = await db
+      .select()
+      .from(schema.socialPosts)
+      .where(eq(schema.socialPosts.id, 'spo_del_pub'));
+    expect(row.status).toBe('published');
+  });
+
+  it('propagates a non-conflict cancellation failure so the route cannot delete the row', async () => {
+    if (!available) return;
+    await seedAccount();
+    await seedPost('spo_del_err', 'scheduled', 'pp_del_err');
+    stubPostPeer();
+
+    // Only SocialPublishConflictError ("already live, can't be recalled") may
+    // be swallowed. Everything else — PostPeer unreachable, a DB error — must
+    // surface, or a delete route that ignores it would remove the row while
+    // the schedule might still be live upstream. Force a DB-level failure in
+    // the cancel claim itself (distinct from the published/publishing check,
+    // which runs before this and would throw SocialPublishConflictError) to
+    // simulate that "unexpected error" case.
+    const originalUpdate = db.update.bind(db);
+    db.update = (() => {
+      throw new Error('boom: simulated DB failure');
+    }) as typeof db.update;
+
+    try {
+      await expect(cancelDeliveryBeforeDelete(db, ctx, 'org_1', 'spo_del_err')).rejects.toThrow('boom');
+    } finally {
+      db.update = originalUpdate;
+    }
+
+    // Nothing rewrote the row — it is exactly as it was before the failed cancel.
+    const [row] = await db
+      .select()
+      .from(schema.socialPosts)
+      .where(eq(schema.socialPosts.id, 'spo_del_err'));
+    expect(row.status).toBe('scheduled');
   });
 });
 

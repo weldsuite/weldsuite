@@ -402,8 +402,8 @@ export default function GithubSettingsPage() {
   const github = t.integrations.github;
 
   const searchParams = useSearchParams();
-  const { can } = usePermissions();
-  const canManage = can('weldconnect:integrations:github:manage');
+  const { canAny } = usePermissions();
+  const canManage = canAny('integrations:github:manage', 'weldconnect:integrations:github:manage');
 
   const [showDisconnect, setShowDisconnect] = React.useState(false);
   const [recoverDialogOpen, setRecoverDialogOpen] = React.useState(false);

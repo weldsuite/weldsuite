@@ -1,5 +1,5 @@
 /**
- * WeldFlow + WeldConnect (personal tasks) entity events.
+ * WeldFlow project and personal/my-task entity events.
  */
 export const PROJECTS_ENTITY_EVENTS = {
   analytics_report: ['created', 'updated', 'deleted'],

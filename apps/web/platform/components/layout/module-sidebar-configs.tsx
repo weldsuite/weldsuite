@@ -168,23 +168,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
     appName: 'WeldConnect',
     appIcon: Zap,
     appLogo: getAppLogoConfig('weldconnect'),
-    getMenuItems: (t) => [
-      {
-        group: t.navigation.moduleSidebar.groups.general,
-        items: [
-          { title: t.navigation.moduleSidebar.weldconnect.overview, href: '/weldconnect', icon: Home },
-          { title: t.navigation.moduleSidebar.weldconnect.workflows, href: '/weldconnect/workflows', icon: Workflow },
-          { title: t.navigation.moduleSidebar.weldconnect.templates, href: '/weldconnect/templates', icon: BookOpen },
-        ],
-      },
-      {
-        group: t.navigation.moduleSidebar.groups.execution,
-        items: [
-          { title: t.navigation.moduleSidebar.weldconnect.executions, href: '/weldconnect/executions', icon: History },
-          { title: t.navigation.moduleSidebar.weldconnect.connectors, href: '/weldconnect/connectors', icon: Plug },
-        ],
-      },
-    ],
+    getMenuItems: () => [],
   },
   welddesk: {
     appName: 'WeldDesk',

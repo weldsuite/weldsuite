@@ -779,7 +779,7 @@ async function handleManualStep(inputs: Record<string, unknown>, ctx: ActionCont
     id: notificationId, userId: targetUserId, title,
     body: inputs.description ? String(inputs.description) : 'A workflow step requires your action.',
     category: 'task', notificationType: 'manual_step', entityType: 'workflow_execution',
-    entityId: ctx.executionId, actionUrl: `/task/workflows/executions/${ctx.executionId}`,
+    entityId: ctx.executionId, actionUrl: `/weldconnect/executions/${ctx.executionId}`,
     severity: 'info', data: { stepConfig: inputs }, isRead: false,
     deliveredInApp: true, deliveredEmail: false, deliveredPush: false, createdAt: new Date(),
   });

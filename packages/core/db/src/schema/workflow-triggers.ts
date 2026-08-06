@@ -1,3 +1,8 @@
+/**
+ * @deprecated Legacy dual-CRUD trigger rows. Canonical triggers live in
+ * `workflows.triggers` JSONB; matching uses `workflow_trigger_index`.
+ * Kept for greenfield migration drop — do not write new rows here.
+ */
 import {
   pgTable,
   varchar,
@@ -41,7 +46,7 @@ export const workflowTriggers = pgTable('workflow_triggers', {
   successfulRuns: integer('successful_runs').default(0),
   failedRuns: integer('failed_runs').default(0),
 
-  // External References
+  /** @deprecated Trigger.dev leftover — unused */
   triggerDevScheduleId: varchar('trigger_dev_schedule_id', { length: 255 }),
 }, (table) => [
   index('workflow_triggers_workflow_idx').on(table.workflowId),

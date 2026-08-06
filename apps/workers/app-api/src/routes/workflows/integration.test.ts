@@ -1,8 +1,7 @@
 /**
  * DB-backed integration tests for /api/workflows.
  *
- * Workflows use the `tasks:*` permission set (legacy naming — the
- * Workflows module sat under WeldConnect/Task historically).
+ * Workflows use the `workflows:*` permission set (WeldConnect automation).
  */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
@@ -32,7 +31,7 @@ describe('/api/workflows · pglite integration', () => {
   it('POST / writes a workflow and publishes workflow.created', async () => {
     mockedPublish.mockClear();
     const { request } = createTestApp('/api/workflows', workflowsRoutes, {
-      context: { permissions: permissions('tasks:create'), tenantDb: db },
+      context: { permissions: permissions('workflows:create'), tenantDb: db },
     });
 
     const res = await request('/api/workflows', {
@@ -57,7 +56,7 @@ describe('/api/workflows · pglite integration', () => {
 
   it('GET /:id returns 404 for a missing workflow', async () => {
     const { request } = createTestApp('/api/workflows', workflowsRoutes, {
-      context: { permissions: permissions('tasks:read'), tenantDb: db },
+      context: { permissions: permissions('workflows:read'), tenantDb: db },
     });
     const res = await request('/api/workflows/wf_missing_123');
     expect(res.status).toBe(404);

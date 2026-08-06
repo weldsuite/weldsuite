@@ -11,7 +11,7 @@ function deriveScope(v: WorkflowVariable): 'global' | 'workflow' | 'execution' {
 }
 
 export default function VariablesPage() {
-  const { data: variablesResult } = useVariables();
+  const { data: variablesResult, isLoading } = useVariables();
 
   const variables = variablesResult?.data ?? [];
 
@@ -28,5 +28,5 @@ export default function VariablesPage() {
     createdAt: v.createdAt,
   }));
 
-  return <VariablesClient initialVariables={mappedVariables} />;
+  return <VariablesClient initialVariables={mappedVariables} isLoading={isLoading} />;
 }

@@ -66,17 +66,28 @@ describe('triggerMatchesEvent', () => {
 });
 
 describe('matchAndDispatchWorkflowTriggers', () => {
-  function fakeDb(workflows: unknown[]) {
+  function fakeDb(indexRows: unknown[]) {
     return {
-      select: () => ({ from: () => ({ where: async () => workflows }) }),
+      select: () => ({
+        from: () => ({
+          innerJoin: () => ({
+            where: async () => indexRows,
+          }),
+        }),
+      }),
     } as any;
   }
 
   it('dispatches a CF Workflow for each matching trigger', async () => {
     const create = vi.fn(async () => undefined);
     const db = fakeDb([
-      { id: 'wf_1', name: 'A', triggers: [{ type: 'entity_event', entityType: 'company', eventType: 'created' }] },
-      { id: 'wf_2', name: 'B', triggers: [{ type: 'entity_event', entityType: 'person', eventType: 'created' }] },
+      {
+        workflowId: 'wf_1',
+        triggerId: 'trg_1',
+        eventType: 'created',
+        filters: null,
+        workflowName: 'A',
+      },
     ]);
 
     await matchAndDispatchWorkflowTriggers({
@@ -93,9 +104,66 @@ describe('matchAndDispatchWorkflowTriggers', () => {
     expect(create).toHaveBeenCalledOnce();
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
-        params: expect.objectContaining({ workflowId: 'wf_1', triggerType: 'entity_event', source: 'task' }),
+        params: expect.objectContaining({
+          workflowId: 'wf_1',
+          triggerId: 'trg_1',
+          triggerType: 'entity_event',
+          source: 'weldconnect',
+        }),
       }),
     );
+  });
+
+  it('skips index rows whose eventType does not match', async () => {
+    const create = vi.fn(async () => undefined);
+    const db = fakeDb([
+      {
+        workflowId: 'wf_1',
+        triggerId: 'trg_1',
+        eventType: 'updated',
+        filters: null,
+        workflowName: 'A',
+      },
+    ]);
+
+    await matchAndDispatchWorkflowTriggers({
+      env: { EXECUTE_WORKFLOW: { create } },
+      db,
+      workspaceId: 'ws_1',
+      userId: 'u1',
+      entityType: 'company',
+      entityId: 'company_1',
+      action: 'created',
+      data: {},
+    });
+
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('applies index-row filters before dispatching', async () => {
+    const create = vi.fn(async () => undefined);
+    const db = fakeDb([
+      {
+        workflowId: 'wf_1',
+        triggerId: 'trg_1',
+        eventType: 'created',
+        filters: [{ field: 'country', operator: 'eq', value: 'BE' }],
+        workflowName: 'A',
+      },
+    ]);
+
+    await matchAndDispatchWorkflowTriggers({
+      env: { EXECUTE_WORKFLOW: { create } },
+      db,
+      workspaceId: 'ws_1',
+      userId: 'u1',
+      entityType: 'company',
+      entityId: 'company_1',
+      action: 'created',
+      data: { country: 'NL' },
+    });
+
+    expect(create).not.toHaveBeenCalled();
   });
 
   it('no-ops when the EXECUTE_WORKFLOW binding is absent', async () => {
@@ -116,13 +184,17 @@ describe('matchAndDispatchWorkflowTriggers', () => {
   // The queue path retries a whole batch when any consumer fails, so the same
   // event can arrive at this function more than once.
   describe('idempotency (queue callers)', () => {
-    const matching = [
-      { id: 'wf_1', name: 'A', triggers: [{ type: 'entity_event', entityType: 'company', eventType: 'created' }] },
-    ];
+    const indexRow = (workflowId: string, workflowName: string) => ({
+      workflowId,
+      triggerId: `trg_${workflowId}`,
+      eventType: 'created',
+      filters: null,
+      workflowName,
+    });
 
     const input = (env: unknown, eventId?: string) => ({
       env: env as never,
-      db: fakeDb(matching),
+      db: fakeDb([indexRow('wf_1', 'A')]),
       workspaceId: 'ws_1',
       userId: 'u1',
       entityType: 'company',
@@ -169,10 +241,7 @@ describe('matchAndDispatchWorkflowTriggers', () => {
         if (init.params.workflowId === 'wf_1') throw new Error('boom');
         return undefined;
       });
-      const db = fakeDb([
-        matching[0],
-        { id: 'wf_2', name: 'B', triggers: [{ type: 'entity_event', entityType: 'company', eventType: 'created' }] },
-      ]);
+      const db = fakeDb([indexRow('wf_1', 'A'), indexRow('wf_2', 'B')]);
 
       await expect(
         matchAndDispatchWorkflowTriggers({
@@ -237,15 +306,28 @@ describe('integrationTriggerMatches', () => {
 });
 
 describe('matchAndDispatchIntegrationTriggers', () => {
-  function fakeDb(workflows: unknown[]) {
-    return { select: () => ({ from: () => ({ where: async () => workflows }) }) } as any;
+  function fakeDb(indexRows: unknown[]) {
+    return {
+      select: () => ({
+        from: () => ({
+          innerJoin: () => ({
+            where: async () => indexRows,
+          }),
+        }),
+      }),
+    } as any;
   }
 
   it('dispatches a CF Workflow for each matching integration trigger', async () => {
     const create = vi.fn(async () => undefined);
     const db = fakeDb([
-      { id: 'wf_1', name: 'A', triggers: [{ type: 'integration_event', provider: 'slack', event: 'slack.message' }] },
-      { id: 'wf_2', name: 'B', triggers: [{ type: 'integration_event', provider: 'google_sheets', event: 'google_sheets.new_row' }] },
+      {
+        workflowId: 'wf_1',
+        triggerId: 'trg_1',
+        integrationId: null,
+        filters: null,
+        workflowName: 'A',
+      },
     ]);
 
     await matchAndDispatchIntegrationTriggers({
@@ -264,11 +346,38 @@ describe('matchAndDispatchIntegrationTriggers', () => {
       expect.objectContaining({
         params: expect.objectContaining({
           workflowId: 'wf_1',
+          triggerId: 'trg_1',
           triggerType: 'integration_event',
           source: 'integration',
         }),
       }),
     );
+  });
+
+  it('skips rows pinned to a different integrationId', async () => {
+    const create = vi.fn(async () => undefined);
+    const db = fakeDb([
+      {
+        workflowId: 'wf_1',
+        triggerId: 'trg_1',
+        integrationId: 'int_other',
+        filters: null,
+        workflowName: 'A',
+      },
+    ]);
+
+    await matchAndDispatchIntegrationTriggers({
+      env: { EXECUTE_WORKFLOW: { create } },
+      db,
+      workspaceId: 'ws_1',
+      userId: 'system',
+      provider: 'slack',
+      event: 'slack.message',
+      integrationId: 'int_1',
+      data: {},
+    });
+
+    expect(create).not.toHaveBeenCalled();
   });
 
   it('no-ops when the EXECUTE_WORKFLOW binding is absent', async () => {

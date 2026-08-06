@@ -31,6 +31,7 @@ import {
   ClosedPeriodError,
   writeAccountingAudit,
 } from '../../services/accounting-guards';
+import { buildTaxTotalsWithRates, loadPlaceOfSupply } from '../../services/accounting-tax-resolve';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -66,43 +67,6 @@ const createBillSchema = z.object({
 });
 
 const updateBillSchema = createBillSchema.partial();
-
-function calculateBillTotals(
-  items: Array<{ quantity: string; unitPrice: string; discountPercent: string; taxRate?: string | null }>,
-) {
-  let subtotal = 0;
-  let discountTotal = 0;
-  let taxTotal = 0;
-
-  const processedItems = items.map((item) => {
-    const qty = parseFloat(item.quantity) || 1;
-    const price = parseFloat(item.unitPrice) || 0;
-    const discount = parseFloat(item.discountPercent) || 0;
-    const rate = parseFloat(item.taxRate || '0');
-    const lineGross = qty * price;
-    const lineDiscount = lineGross * (discount / 100);
-    const lineTotal = lineGross - lineDiscount;
-    const lineTax = lineTotal * (rate / 100);
-    subtotal += lineTotal;
-    discountTotal += lineDiscount;
-    taxTotal += lineTax;
-    return {
-      lineTotal: lineTotal.toFixed(2),
-      lineTotalWithTax: (lineTotal + lineTax).toFixed(2),
-      taxAmount: lineTax.toFixed(2),
-    };
-  });
-
-  const total = subtotal + taxTotal;
-  return {
-    subtotal: subtotal.toFixed(2),
-    discountTotal: discountTotal.toFixed(2),
-    taxTotal: taxTotal.toFixed(2),
-    total: total.toFixed(2),
-    balanceDue: total.toFixed(2),
-    processedItems,
-  };
-}
 
 /**
  * Auto-promote a contact's `role` when it gets its first bill.
@@ -226,15 +190,12 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
     }
     const billNumber = data.billNumber ?? (await nextEntityNumber(db, entityId, 'bill')).formatted;
 
-    const totals = calculateBillTotals(
-      data.items.map((i) => ({
-        quantity: i.quantity || '1',
-        unitPrice: i.unitPrice,
-        discountPercent: i.discountPercent || '0',
-        taxRate: i.taxRate,
-      })),
-    );
-    const { processedItems, ...billTotals } = totals;
+    const place = await loadPlaceOfSupply(db, entityId);
+    const totals = await buildTaxTotalsWithRates(db, data.items, {
+      ...place,
+      direction: 'purchase',
+    });
+    const { processedItems, taxBreakdown, ...billTotals } = totals;
     const billId = generateId('bil');
 
     const newBill = {
@@ -249,6 +210,7 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
       dueDate: new Date(data.dueDate),
       currency: data.currency || 'EUR',
       ...billTotals,
+      taxBreakdown,
       amountPaid: '0',
       externalReference: data.externalReference || null,
       reference: data.reference || null,

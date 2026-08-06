@@ -21,17 +21,45 @@ export type {
 } from '@weldsuite/core-api-client/schemas/weldconnect';export type WorkflowWebhook = Record<string, unknown>;
 export type WorkflowErrorLog = Record<string, unknown>;
 export type ActionType = { id: string; name: string; description: string; category: string; icon?: string };
-export type TriggerType = { id: string; name: string; description: string; category: string; icon?: string };
+export type TriggerType = {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  icon?: string;
+  provider?: string;
+};
 export type EntityEvent = {
   entityType: string;
-  // Bare type strings (e.g. "created") — see the comment in
-  // app/weldconnect/triggers/page.tsx for how these get a display name.
-  events: string[];
   category?: string;
   label?: string;
+  events: Array<string | { id: string; name: string; description?: string }>;
 };export type PaginationMeta = { page: number; pageSize: number; totalCount: number; totalPages: number; hasMore: boolean };
 /** app-api list envelope pagination — opaque cursor, no page/totalPages. */
-export type CursorPaginationMeta = { totalCount: number; hasMore: boolean; cursor: string | null };// =============================================================================
+export type CursorPaginationMeta = { totalCount: number; hasMore: boolean; cursor: string | null };
+
+/**
+ * Object-based WeldConnect API paths on app-api (not module-prefixed).
+ * SPA routes stay under `/weldconnect/*`; API mirrors other platform objects.
+ */
+export const WELDCONNECT_API = {
+  workflows: '/workflows',
+  executions: '/workflow-executions',
+  templates: '/workflow-templates',
+  variables: '/workflow-variables',
+  webhooks: '/workflow-webhooks',
+  dashboard: '/workflow-dashboard',
+  integrations: '/workflow-integrations',
+  builder: '/workflow-builder',
+} as const;
+
+export interface ConnectDashboardStats {
+  workflows: { total: number; active: number; draft: number; paused: number; archived: number };
+  executions: { total: number; running: number; completed: number; failed: number; queued: number };
+  triggers: { schedules: number; webhooks: number };
+}
+
+// =============================================================================
 // Query Keys
 // =============================================================================
 
@@ -102,11 +130,11 @@ export function useWorkflows(filters?: Record<string, unknown>) {
     queryFn: async () => {
       const client = await getClient();
       const query = buildQueryString(filters || {});
-      return client.get<{ data: Workflow[]; pagination: PaginationMeta }>(`/workflows${query}`);
+      return client.get<{ data: Workflow[]; pagination: PaginationMeta }>(`${WELDCONNECT_API.workflows}${query}`);
     },
   });
 }
-// 6. Workflow Stats
+// 6. Workflow Stats (workflows aggregate — home dashboard cards)
 export function useWorkflowStats() {
   const { getClient } = useAppApiClient();
   return useQuery({
@@ -122,7 +150,19 @@ export function useWorkflowStats() {
         successfulExecutions: number;
         failedExecutions: number;
         pendingExecutions: number;
-      } }>('/workflows/stats');
+      } }>(`${WELDCONNECT_API.workflows}/stats`);
+    },
+  });
+}
+
+// 6a. Connect dashboard stats — `/workflow-dashboard/stats` (analytics overview)
+export function useConnectDashboardStats() {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: automationKeys.dashboard(),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: ConnectDashboardStats }>(`${WELDCONNECT_API.dashboard}/stats`);
     },
   });
 }
@@ -167,7 +207,7 @@ export function useExecutions(filters?: Record<string, unknown>) {
     queryFn: async () => {
       const client = await getClient();
       const query = buildQueryString(filters || {});
-      return client.get<{ data: WorkflowExecution[]; pagination: PaginationMeta }>(`/workflow-executions${query}`);
+      return client.get<{ data: WorkflowExecution[]; pagination: PaginationMeta }>(`${WELDCONNECT_API.executions}${query}`);
     },
   });
 }
@@ -179,7 +219,7 @@ export function useExecution(id: string, enabled = true) {
     queryKey: automationKeys.execution(id),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: WorkflowExecution }>(`/workflow-executions/${id}`);
+      return client.get<{ data: WorkflowExecution }>(`${WELDCONNECT_API.executions}/${id}`);
     },
     enabled: !!id && enabled,
   });
@@ -192,7 +232,7 @@ export function useRecentExecutions(limit = 10) {
     queryKey: automationKeys.recentExecutions(limit),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: WorkflowExecution[] }>(`/workflow-executions/recent?limit=${limit}`);
+      return client.get<{ data: WorkflowExecution[] }>(`${WELDCONNECT_API.executions}/recent?limit=${limit}`);
     },
   });
 }
@@ -204,7 +244,7 @@ export function useExecutionSteps(executionId: string, enabled = true) {
     queryKey: automationKeys.executionSteps(executionId),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: ExecutionStep[] }>(`/workflow-executions/${executionId}/steps`);
+      return client.get<{ data: ExecutionStep[] }>(`${WELDCONNECT_API.executions}/${executionId}/steps`);
     },
     enabled: !!executionId && enabled,
   });
@@ -217,7 +257,7 @@ export function useExecutionLogs(executionId: string, enabled = true) {
     queryKey: automationKeys.executionLogs(executionId),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: ExecutionLogEntry[] }>(`/workflow-executions/${executionId}/logs`);
+      return client.get<{ data: ExecutionLogEntry[] }>(`${WELDCONNECT_API.executions}/${executionId}/logs`);
     },
     enabled: !!executionId && enabled,
   });
@@ -233,7 +273,7 @@ export function useExecutionTrends(period?: string) {
       const query = period ? `?period=${period}` : '';
       return client.get<{ data: {
         trends: Array<{ date: string; total: number; success: number; failure: number }>;
-      } }>(`/workflow-executions/trends${query}`);
+      } }>(`${WELDCONNECT_API.executions}/trends${query}`);
     },
   });
 }
@@ -245,7 +285,7 @@ export function useSlowExecutions(limit = 10) {
     queryKey: automationKeys.slowExecutions(limit),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: WorkflowExecution[] }>(`/workflow-executions/slow?limit=${limit}`);
+      return client.get<{ data: WorkflowExecution[] }>(`${WELDCONNECT_API.executions}/slow?limit=${limit}`);
     },
   });
 }
@@ -258,7 +298,7 @@ export function useActionTypes(params?: { category?: string; search?: string }) 
     queryFn: async () => {
       const client = await getClient();
       const query = buildQueryString(params || {});
-      return client.get<{ success: boolean; data: ActionType[] }>(`/workflow-dashboard/action-types${query}`);
+      return client.get<{ success: boolean; data: ActionType[] }>(`${WELDCONNECT_API.dashboard}/action-types${query}`);
     },
   });
 }
@@ -271,7 +311,7 @@ export function useTriggerTypes(params?: { category?: string; search?: string })
     queryFn: async () => {
       const client = await getClient();
       const query = buildQueryString(params || {});
-      return client.get<{ success: boolean; data: TriggerType[] }>(`/workflow-dashboard/trigger-types${query}`);
+      return client.get<{ success: boolean; data: TriggerType[] }>(`${WELDCONNECT_API.dashboard}/trigger-types${query}`);
     },
   });
 }
@@ -283,7 +323,7 @@ export function useEntityEvents() {
     queryKey: automationKeys.entityEvents(),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ success: boolean; data: EntityEvent[] }>('/workflow-dashboard/entity-events');
+      return client.get<{ success: boolean; data: EntityEvent[] }>(`${WELDCONNECT_API.dashboard}/entity-events`);
     },
   });
 }
@@ -302,7 +342,7 @@ export function usePerformanceMetrics(workflowId?: string) {
         averageDuration: number;
         minDuration: number;
         maxDuration: number;
-      } }>(`/workflow-dashboard/performance${query}`);
+      } }>(`${WELDCONNECT_API.dashboard}/performance${query}`);
     },
   });
 }
@@ -322,7 +362,7 @@ export function useErrorStats(params?: { workflowId?: string; page?: number; lim
         items: WorkflowErrorLog[];
         page: number;
         limit: number;
-      } }>(`/workflow-dashboard/errors${query}`);
+      } }>(`${WELDCONNECT_API.dashboard}/errors${query}`);
     },
   });
 }// 23. Template (single)
@@ -332,7 +372,7 @@ export function useTemplate(id: string, enabled = true) {
     queryKey: automationKeys.template(id),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: WorkflowTemplate }>(`/workflow-templates/${id}`);
+      return client.get<{ data: WorkflowTemplate }>(`${WELDCONNECT_API.templates}/${id}`);
     },
     enabled: !!id && enabled,
   });
@@ -344,7 +384,7 @@ export function useVariables(filters?: Record<string, unknown>) {
     queryFn: async () => {
       const client = await getClient();
       const query = buildQueryString(filters || {});
-      return client.get<{ data: WorkflowVariable[]; pagination: PaginationMeta }>(`/workflow-variables${query}`);
+      return client.get<{ data: WorkflowVariable[]; pagination: PaginationMeta }>(`${WELDCONNECT_API.variables}${query}`);
     },
   });
 }// 33. Webhooks (list)
@@ -355,7 +395,7 @@ export function useWebhooks(filters?: Record<string, unknown>) {
     queryFn: async () => {
       const client = await getClient();
       const query = buildQueryString(filters || {});
-      return client.get<{ success: boolean; data: WorkflowWebhook[]; pagination: PaginationMeta }>(`/workflow-webhooks${query}`);
+      return client.get<{ success: boolean; data: WorkflowWebhook[]; pagination: PaginationMeta }>(`${WELDCONNECT_API.webhooks}${query}`);
     },
   });
 }
@@ -367,7 +407,7 @@ export function useWebhook(id: string, enabled = true) {
     queryKey: automationKeys.webhook(id),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ success: boolean; data: WorkflowWebhook }>(`/workflow-webhooks/${id}`);
+      return client.get<{ success: boolean; data: WorkflowWebhook }>(`${WELDCONNECT_API.webhooks}/${id}`);
     },
     enabled: !!id && enabled,
   });
@@ -385,7 +425,7 @@ export function useWebhookEvents(webhookId: string, enabled = true) {
         timestamp: string;
         status: string;
         sourceIp?: string;
-      }> }>(`/workflow-webhooks/${webhookId}/events`);
+      }> }>(`${WELDCONNECT_API.webhooks}/${webhookId}/events`);
     },
     enabled: !!webhookId && enabled,
   });
@@ -397,12 +437,12 @@ export function useWebhookEvents(webhookId: string, enabled = true) {
 // ---- Workflows ----
 
 // `apiBasePath` lets the same hook back two different surfaces, both on app-api:
-//   `/workflows`           — WeldConnect automation (default)
-//   `/helpdesk-workflows`  — WeldDesk helpdesk workflows
+//   `/workflows` — WeldConnect automation (default)
+//   `/helpdesk-workflows`    — WeldDesk helpdesk workflows
 // The two differ only in the mount path and the query keys they invalidate.
 
 // 1. Create Workflow
-export function useCreateWorkflow(apiBasePath = '/workflows') {
+export function useCreateWorkflow(apiBasePath: string = WELDCONNECT_API.workflows) {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   const isHelpdesk = apiBasePath.startsWith('/helpdesk');
@@ -427,7 +467,7 @@ export function useCreateWorkflow(apiBasePath = '/workflows') {
 }
 
 // 2. Update Workflow
-export function useUpdateWorkflow(apiBasePath = '/workflows') {
+export function useUpdateWorkflow(apiBasePath: string = WELDCONNECT_API.workflows) {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   const isHelpdesk = apiBasePath.startsWith('/helpdesk');
@@ -460,7 +500,7 @@ export function useUpdateWorkflow(apiBasePath = '/workflows') {
 }
 
 // 3. Delete Workflow
-export function useDeleteWorkflow(apiBasePath = '/workflows') {
+export function useDeleteWorkflow(apiBasePath: string = WELDCONNECT_API.workflows) {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   const isHelpdesk = apiBasePath.startsWith('/helpdesk');
@@ -477,7 +517,7 @@ export function useDeleteWorkflow(apiBasePath = '/workflows') {
 }
 
 // 4. Update Workflow Status
-export function useUpdateWorkflowStatus(apiBasePath = '/workflows') {
+export function useUpdateWorkflowStatus(apiBasePath: string = WELDCONNECT_API.workflows) {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   const isHelpdesk = apiBasePath.startsWith('/helpdesk');
@@ -530,7 +570,7 @@ export function useGenerateWorkflow() {
     mutationFn: async (prompt: string) => {
       const client = await getClient();
       return client.post<{ data: { workflow: GeneratedWorkflowDraft; warnings: string[] } }>(
-        '/workflows/generate',
+        `${WELDCONNECT_API.workflows}/generate`,
         { prompt },
       );
     },
@@ -538,7 +578,7 @@ export function useGenerateWorkflow() {
 }
 
 // 5. Duplicate Workflow
-export function useDuplicateWorkflow(apiBasePath = '/workflows') {
+export function useDuplicateWorkflow(apiBasePath: string = WELDCONNECT_API.workflows) {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   const isHelpdesk = apiBasePath.startsWith('/helpdesk');
@@ -558,7 +598,7 @@ export function useTestWorkflow() {
   return useMutation({
     mutationFn: async ({ id, testData }: { id: string; testData?: Record<string, unknown> }) => {
       const client = await getClient();
-      return client.post<{ data: { executionId: string; instanceId: string } }>(`/workflows/${id}/test`, { testData });
+      return client.post<{ data: { executionId: string; instanceId: string } }>(`${WELDCONNECT_API.workflows}/${id}/test`, { testData });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: automationKeys.executions() });
@@ -574,7 +614,7 @@ export function useCancelExecution() {
   return useMutation({
     mutationFn: async (id: string) => {
       const client = await getClient();
-      return client.patch<{ data: { id: string; status: string } }>(`/workflow-executions/${id}/cancel`, {});
+      return client.patch<{ data: { id: string; status: string } }>(`${WELDCONNECT_API.executions}/${id}/cancel`, {});
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: automationKeys.executions() });
@@ -589,7 +629,7 @@ export function useRetryExecution() {
   return useMutation({
     mutationFn: async (id: string) => {
       const client = await getClient();
-      return client.post<{ data: { id: string; instanceId: string; retryOf: string } }>(`/workflow-executions/${id}/retry`, {});
+      return client.post<{ data: { id: string; instanceId: string; retryOf: string } }>(`${WELDCONNECT_API.executions}/${id}/retry`, {});
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: automationKeys.executions() });
@@ -613,7 +653,7 @@ export function useUpdateTemplate() {
       isPremium?: boolean;
     } }) => {
       const client = await getClient();
-      return client.put<{ data: WorkflowTemplate }>(`/workflow-templates/${id}`, data);
+      return client.put<{ data: WorkflowTemplate }>(`${WELDCONNECT_API.templates}/${id}`, data);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: automationKeys.templates() });
@@ -636,7 +676,7 @@ export function useCreateVariable() {
       workflowId?: string;
     }) => {
       const client = await getClient();
-      return client.post<{ data: WorkflowVariable }>('/workflow-variables', data);
+      return client.post<{ data: WorkflowVariable }>(WELDCONNECT_API.variables, data);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: automationKeys.variables() });
@@ -656,7 +696,7 @@ export function useUpdateVariable() {
       value?: string;
     } }) => {
       const client = await getClient();
-      return client.put<{ data: WorkflowVariable }>(`/workflow-variables/${id}`, data);
+      return client.put<{ data: WorkflowVariable }>(`${WELDCONNECT_API.variables}/${id}`, data);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: automationKeys.variables() });
@@ -671,7 +711,7 @@ export function useDeleteVariable() {
   return useMutation({
     mutationFn: async (id: string) => {
       const client = await getClient();
-      return client.delete<{ success: boolean }>(`/workflow-variables/${id}`);
+      return client.delete<{ success: boolean }>(`${WELDCONNECT_API.variables}/${id}`);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: automationKeys.variables() });
@@ -695,7 +735,7 @@ export function useCreateWebhook() {
       ipWhitelist?: string[];
     }) => {
       const client = await getClient();
-      return client.post<{ success: boolean; data: WorkflowWebhook & { webhookUrl: string } }>('/workflow-webhooks', data);
+      return client.post<{ success: boolean; data: WorkflowWebhook & { webhookUrl: string } }>(WELDCONNECT_API.webhooks, data);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: automationKeys.webhooks() });
@@ -709,7 +749,7 @@ export function useDeleteWebhook() {
   return useMutation({
     mutationFn: async (id: string) => {
       const client = await getClient();
-      return client.delete<{ success: boolean }>(`/workflow-webhooks/${id}`);
+      return client.delete<{ success: boolean }>(`${WELDCONNECT_API.webhooks}/${id}`);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: automationKeys.webhooks() });
@@ -724,7 +764,7 @@ export function useRotateWebhookSecret() {
   return useMutation({
     mutationFn: async (id: string) => {
       const client = await getClient();
-      return client.patch<{ success: boolean; data: WorkflowWebhook }>(`/workflow-webhooks/${id}/rotate-secret`, {});
+      return client.patch<{ success: boolean; data: WorkflowWebhook }>(`${WELDCONNECT_API.webhooks}/${id}/rotate-secret`, {});
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: automationKeys.webhooks() });

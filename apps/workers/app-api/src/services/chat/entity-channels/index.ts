@@ -9,6 +9,7 @@
 import './providers/task';
 import './providers/project';
 import './providers/contact';
+import './providers/domain';
 
 export * from './registry';
 export * from './get-or-create-channel';

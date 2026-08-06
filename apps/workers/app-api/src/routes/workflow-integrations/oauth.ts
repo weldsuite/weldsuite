@@ -10,7 +10,7 @@
  * `slack_team:<teamId>` → { workspaceId, integrationId } are written so the
  * inbound webhook worker can resolve the workspace from an event.
  *
- * Permissions: tasks:update.
+ * Permissions: integrations:update.
  */
 
 import { z } from 'zod';
@@ -53,7 +53,7 @@ async function enc(value: string | undefined, keyring: EncryptionKeyring): Promi
 /** Begin an OAuth flow — returns the provider authorize URL the client opens. */
 app.post(
   '/:provider/authorize',
-  requirePermission('tasks:update'),
+  requirePermission('integrations:update'),
   zValidator('json', z.object({ integrationId: z.string().optional() }).optional()),
   async (c) => {
     const provider = c.req.param('provider');
@@ -95,7 +95,7 @@ app.post(
 /** Finish an OAuth flow — exchange the code, encrypt + persist tokens. */
 app.post(
   '/:provider/callback',
-  requirePermission('tasks:update'),
+  requirePermission('integrations:update'),
   zValidator('json', z.object({ code: z.string().min(1), state: z.string().min(1) })),
   async (c) => {
     const provider = c.req.param('provider');
@@ -211,7 +211,7 @@ app.post(
 /** Connect an API-key based integration (no OAuth) by storing encrypted creds. */
 app.post(
   '/:provider/apikey',
-  requirePermission('tasks:update'),
+  requirePermission('integrations:update'),
   zValidator('json', z.object({ credentials: z.record(z.string()) })),
   async (c) => {
     const provider = c.req.param('provider');

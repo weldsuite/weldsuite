@@ -28,7 +28,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
     "@weldsuite/typescript-config": "workspace:*",
-    "hono": "^4.12.27",
+    "hono": "^4.12.34",
     "typescript": "^5.9.2",
     "vitest": "^3.2.6"
   }
