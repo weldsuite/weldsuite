@@ -10,7 +10,11 @@
  * recipients and that error surfaces as a TransientProviderError.
  */
 
-import { ProviderConfigError, TransientProviderError } from '../../core/errors';
+import {
+  PendingVerificationError,
+  ProviderConfigError,
+  TransientProviderError,
+} from '../../core/errors';
 import type {
   IEmailSendProvider,
   SendCapabilities,
@@ -97,10 +101,31 @@ export class CloudflareSendProvider implements IEmailSendProvider {
       });
       return { messageId: result.messageId };
     } catch (err) {
+      // A recipient outside the account's allowed destination list is a
+      // "needs verifying" state the caller can surface to the user, not a
+      // transport blip worth retrying — keep it distinguishable.
+      if (bindingErrorCode(err) === 'E_RECIPIENT_NOT_ALLOWED') {
+        // The binding rejects the whole send without naming which address was
+        // the problem, so report the full set rather than guessing.
+        const recipients = [...options.to, ...(options.cc ?? []), ...(options.bcc ?? [])]
+          .map((a) => a.email)
+          .join(', ');
+        throw new PendingVerificationError(recipients, PROVIDER);
+      }
       const msg = err instanceof Error ? err.message : String(err);
       throw new TransientProviderError(`send_email failed: ${msg}`, PROVIDER, err);
     }
   }
+}
+
+/**
+ * Cloudflare throws plain `Error`s carrying a `code` (`E_RECIPIENT_NOT_ALLOWED`,
+ * `E_HEADER_NOT_ALLOWED`, `E_RATE_LIMIT_EXCEEDED`, ...).
+ */
+function bindingErrorCode(err: unknown): string | undefined {
+  if (typeof err !== 'object' || err === null) return undefined;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
 }
 
 function toBindingAddress(addr: EmailAddress): EmailBindingAddress {

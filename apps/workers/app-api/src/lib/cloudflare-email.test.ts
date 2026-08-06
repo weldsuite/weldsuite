@@ -148,9 +148,39 @@ describe('cfEmail.sendEmail — real transmit wiring', () => {
     ).rejects.toThrow(/SEND_EMAIL binding missing/i);
   });
 
-  it('surfaces a transport failure from the binding (unverified recipient, etc.)', async () => {
-    const send = vi.fn().mockRejectedValue(new Error('550 recipient not verified'));
+  it('surfaces a transport failure from the binding', async () => {
+    const send = vi.fn().mockRejectedValue(new Error('550 relay error'));
     const env = { SEND_EMAIL: { send } } as unknown as Env;
+    await expect(
+      sendEmail(env, { from: FROM, to: ['a@x.test'], subject: 's', text: 'x' }),
+    ).rejects.toThrow(/send_email failed/i);
+  });
+
+  it('reports a recipient outside the allowed list as pending verification', async () => {
+    // Cloudflare rejects unallowed destinations with a coded Error. That's a
+    // state the user can act on (verify the address), not a failed send.
+    const err = Object.assign(new Error('recipient not allowed'), {
+      code: 'E_RECIPIENT_NOT_ALLOWED',
+    });
+    const { env } = envWithSpy(vi.fn().mockRejectedValue(err));
+
+    const result = await sendEmail(env, {
+      from: FROM,
+      to: ['a@x.test'],
+      cc: ['b@x.test'],
+      subject: 's',
+      text: 'x',
+    });
+
+    expect(result.pendingVerification).toBe(true);
+    expect(result.messageId).toContain('a@x.test');
+    expect(result.messageId).toContain('b@x.test');
+  });
+
+  it('still fails loudly on other coded binding errors', async () => {
+    const err = Object.assign(new Error('rate limited'), { code: 'E_RATE_LIMIT_EXCEEDED' });
+    const { env } = envWithSpy(vi.fn().mockRejectedValue(err));
+
     await expect(
       sendEmail(env, { from: FROM, to: ['a@x.test'], subject: 's', text: 'x' }),
     ).rejects.toThrow(/send_email failed/i);
