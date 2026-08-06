@@ -53,6 +53,10 @@ new_sqlite_classes = ["RateLimiter"]
 # silently skips all its queue sinks, so MCP-originated mutations look like they
 # publish while producing nothing.
 [[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
+[[queues.producers]]
 binding = "AUDIT_EVENTS"
 queue = "audit-events-dev"
 
@@ -88,6 +92,10 @@ id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 # Entity-event sinks. Mutations made through MCP publish to the same queues as
 # every other surface so audit/analytics stay complete. Each binding is optional
 # at runtime — a missing one logs a warning and the others still fire.
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
+
 [[env.production.queues.producers]]
 binding = "AUDIT_EVENTS"
 queue = "audit-events"

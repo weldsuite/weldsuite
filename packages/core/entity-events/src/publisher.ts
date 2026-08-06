@@ -2,6 +2,7 @@
  * publishEntityEvent — the orchestrator.
  *
  * Fans out a single entity mutation to:
+ *   0. ENTITY_EVENTS queue (entity-events-worker — the dispatcher)
  *   1. AUDIT_EVENTS queue (audit-log-worker)
  *   2. ANALYTICS_EVENTS queue (analytics-worker)
  *   3. SEARCH_EVENTS queue (app-api's own queue() consumer — semantic index)
@@ -10,8 +11,19 @@
  *   6. Workflow triggers, matched inline against the tenant `workflows` table and
  *      dispatched as Cloudflare Workflow instances via env.EXECUTE_WORKFLOW
  *
- * Sinks 5 and 6 each cost a tenant-DB read per event, on the write path. Moving
- * them behind the queue is phase 2 of `.claude/entity-events-plan.md`.
+ * Sink 0 is the destination all the others are being folded into: one queue,
+ * many registered consumers. It runs today with an empty registry — every
+ * message is acked and nothing acts on it — so the traffic can be watched
+ * before anything depends on it. Phase 2 of `.claude/entity-events-plan.md`
+ * moves sinks 1-3, 5 and 6 onto it one at a time, leaving the publisher with
+ * exactly two: ENTITY_EVENTS and REALTIME.
+ *
+ * Sinks 5 and 6 each cost a tenant-DB read per event, on the write path. That
+ * is the main thing moving them behind the queue buys.
+ *
+ * Realtime is the deliberate exception and stays inline: its latency is
+ * directly visible in the UI, and it is a service-binding fetch rather than a
+ * queue, so it costs nothing on the write path.
  *
  * Each sink is independently optional — a missing binding logs a warning
  * and the rest still fire. Wrapped in `executionCtx.waitUntil(...)` so the
@@ -37,6 +49,8 @@ import type { TenantDb } from './internal-types';
 // ---------------------------------------------------------------------------
 
 export interface EntityEventPublisherEnv extends WorkflowDispatchEnv {
+  /** The dispatcher queue — entity-events-worker fans this out to consumers. */
+  ENTITY_EVENTS?: Queue<EntityEventMessage>;
   AUDIT_EVENTS?: Queue<EntityEventMessage>;
   ANALYTICS_EVENTS?: Queue<EntityEventMessage>;
   SEARCH_EVENTS?: Queue<EntityEventMessage>;
@@ -137,6 +151,15 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
 
   const tasks: Promise<unknown>[] = [];
 
+  // 0. Dispatcher queue. Every other queue sink is migrating onto this one.
+  if (env.ENTITY_EVENTS) {
+    tasks.push(
+      env.ENTITY_EVENTS.send(message)
+        .then(() => console.log(`[EntityEvents] Dispatched ${message.eventType} for ${entityId}`))
+        .catch((err: unknown) => console.error('[EntityEvents] Failed to dispatch event:', err)),
+    );
+  }
+
   // 1. Audit queue
   if (env.AUDIT_EVENTS) {
     tasks.push(
@@ -183,7 +206,13 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
     );
   }
 
-  if (!env.AUDIT_EVENTS && !env.ANALYTICS_EVENTS && !env.SEARCH_EVENTS && !env.REALTIME) {
+  if (
+    !env.ENTITY_EVENTS &&
+    !env.AUDIT_EVENTS &&
+    !env.ANALYTICS_EVENTS &&
+    !env.SEARCH_EVENTS &&
+    !env.REALTIME
+  ) {
     console.warn('[EntityEvents] No queue or realtime bindings available — skipping publish');
   }
 

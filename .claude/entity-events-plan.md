@@ -1,7 +1,7 @@
 # Entity events — consolidation plan
 
-Status: proposed, nothing built yet.
-Owner: Gert. Written 2026-08-03.
+Status: phases 0 and 1 shipped; phase 2 (migrating the sinks) is next.
+Owner: Gert. Written 2026-08-06.
 
 Goal: one mutation → one queue message → many consumers, where adding a consumer
 is a single file plus a single registry line, with no wrangler edits and no new
@@ -9,7 +9,11 @@ queue.
 
 ---
 
-## 1. Where we are today
+## 1. Where we were (pre-phase-0 baseline)
+
+> Kept as written, as the record of what phases 0 and 1 were fixing. For the
+> current state see the phase markers in section 3 and
+> [`packages/core/entity-events/README.md`](../packages/core/entity-events/README.md).
 
 `publishEntityEvent()` ([publisher.ts:119](../packages/core/entity-events/src/publisher.ts#L119))
 is one hardcoded `fanOutEntityEvent()` that pushes the same message into seven
@@ -159,7 +163,7 @@ until a consumer proves it cannot be made idempotent.
 
 Each phase is independently shippable and independently revertable.
 
-### Phase 0 — quick wins (no new architecture) — ✅ DONE 2026-08-03
+### Phase 0 — quick wins (no new architecture) — ✅ DONE 2026-08-06
 
 - ✅ Added `max_retries = 3` + `dead_letter_queue` to `audit-log-worker` and
   `analytics-worker` consumer blocks, dev and prod.
@@ -191,20 +195,48 @@ The old `workflow-events` / `workflow-events-dev` / `entity-events` /
 `entity-events-dev` queues can be deleted once any backlog in them is confirmed
 worthless — nothing has ever read them.
 
-### Phase 1 — build the dispatcher, zero behaviour change
+### Phase 1 — build the dispatcher, zero behaviour change — ✅ DONE 2026-08-06
 
-- New `packages/core/entity-events/src/consumers/`: `types.ts`, `registry.ts`
+- ✅ New `packages/core/entity-events/src/consumers/`: `types.ts`, `registry.ts`
   (registration + catalog validation), `match.ts` (filter matching),
   `dispatch.ts` (batch grouping, tenant-DB caching, per-consumer isolation).
-- New `apps/workers/entity-events-worker/` — a thin worker whose `queue()` is
-  `dispatch(batch, CONSUMERS, env)` and nothing else.
-- Create the `entity-events` / `entity-events-dev` queues + DLQs. Consumer block
-  on the new worker: `max_batch_size = 25`, `max_batch_timeout = 1`,
+  Exported as `@weldsuite/entity-events/consumers`. 26 tests.
+- ✅ New `apps/workers/entity-events-worker/` — a thin worker whose `queue()` is
+  `dispatch(batch, …)` and nothing else, plus the registry in `src/consumers/`.
+- ✅ Consumer block: `max_batch_size = 25`, `max_batch_timeout = 1`,
   `max_retries = 3`, `dead_letter_queue = entity-events-dlq`.
-- Add the `ENTITY_EVENTS` producer binding to the four producer workers.
-- Publisher sends to `ENTITY_EVENTS` **in addition to** every existing sink, with
-  the registry **empty**. Pure shadow traffic — verify volume, shape, and
-  workspace distribution in logs before anything is migrated onto it.
+- ✅ Added the `ENTITY_EVENTS` producer binding to all four producer workers,
+  dev and prod, and to their `Env` types.
+- ✅ Publisher sends to `ENTITY_EVENTS` **in addition to** every existing sink,
+  with the registry **empty**. Pure shadow traffic.
+
+Two deviations from the design above, both deliberate:
+
+- **Consumers live in the worker, not the package.** `defineConsumer` /
+  `dispatch` are the package; the consumers themselves and the `CONSUMERS` array
+  sit in `apps/workers/entity-events-worker/src/consumers/`, because a consumer
+  needs the dispatcher's bindings. The package stays free of worker specifics —
+  `dispatch()` takes `resolveTenantDb` as a callback rather than importing Neon
+  and KV, which is also what makes it testable without a database.
+- **`EntityEventConsumer` is a discriminated union**, not one interface with
+  everything optional. `transport: 'queue'` requires `queueBinding` and has no
+  `handle`; inline consumers require `handle`. Misuse fails to compile instead of
+  at 3am.
+
+**Before deploying, create the queues:**
+
+```bash
+wrangler queues create entity-events
+wrangler queues create entity-events-dlq
+wrangler queues create entity-events-dev
+wrangler queues create entity-events-dlq-dev
+```
+
+**Then watch, before phase 2.** The dispatcher logs
+`no consumers registered — acking N message(s)` per batch. Compare that volume
+against audit-log-worker's, confirm the workspace spread looks sane, and check
+`entity-events-dlq` is empty. Nothing depends on this queue yet, so it is free
+to be wrong here.
 
 ### Phase 2 — migrate sinks, one per PR
 

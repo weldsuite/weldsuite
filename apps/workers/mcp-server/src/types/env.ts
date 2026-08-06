@@ -54,6 +54,8 @@ export interface Env {
   // Fed by `publishEntityEvent` so mutations made through MCP reach the same
   // audit / analytics / realtime sinks as every other surface. Each sink is
   // optional — a missing binding logs a warning and the rest still fire.
+  /** Dispatcher queue — entity-events-worker fans this out to its registry. */
+  ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** Audit-log queue consumer. */
   AUDIT_EVENTS?: Queue<EntityEventMessage>;
   /** Analytics queue consumer. */

@@ -44,7 +44,8 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - `helpdesk-widget-api`, Widget backend (`@weldsuite/realtime`)
 - `helpdesk-workflow-worker`, Helpdesk automation engine
 - `mail-inbound-worker`, Inbound email (Svix webhooks, postal-mime)
-- `analytics-worker`, `audit-log-worker`, Event streams
+- `entity-events-worker`, Entity-event dispatcher — consumes the single `entity-events` queue and fans out to consumers registered in `src/consumers/index.ts`. Adding a consumer is one file plus one line there; see `packages/core/entity-events/README.md`
+- `analytics-worker`, `audit-log-worker`, Event streams (folding into `entity-events-worker`, phase 2)
 - `integration-webhook-worker`, `integration-sync-worker`, Third-party integrations
 - `discord-bot-worker`, Discord integration worker (`discord-bot` bot process is under `tools/`)
 - `test-email-worker`, Email testing harness
@@ -281,7 +282,7 @@ AI runs through the **`@weldsuite/ai`** package (Vercel AI SDK via the Cloudflar
 - **Hyperdrive**, Neon pooling
 - **KV**, Workspace cache + config
 - **R2**, Files / attachments
-- **Queues**, `audit-events`, `analytics-events`, `search-index` (each with a `-dlq` companion)
+- **Queues**, `entity-events` (the dispatcher), `audit-events`, `analytics-events`, `search-index` (each with a `-dlq` companion)
 - **Service Bindings**, Cross-worker calls (e.g. helpdesk widget → workflow worker, integration workers → `app-api`)
 - **Realtime**, `@weldsuite/realtime` (Cloudflare Durable Objects + WebSocket; notifications, live chat); token via `/api/realtime/token`
 

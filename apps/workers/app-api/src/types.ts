@@ -120,6 +120,8 @@ export interface Env {
   EXTERNAL_API_URL?: string;
 
   // --- Entity-event publishing -------------------------------------------
+  /** Dispatcher queue — entity-events-worker fans this out to its registry. */
+  ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** Audit-log queue consumer — fed by publishEntityEvent. */
   AUDIT_EVENTS?: Queue<EntityEventMessage>;
   /** Analytics queue consumer — fed by publishEntityEvent. */

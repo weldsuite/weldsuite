@@ -8,7 +8,8 @@
     ".": "./src/index.ts",
     "./types": "./src/types.ts",
     "./events": "./src/events/index.ts",
-    "./custom-objects": "./src/custom-objects.ts"
+    "./custom-objects": "./src/custom-objects.ts",
+    "./consumers": "./src/consumers/index.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

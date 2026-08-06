@@ -163,6 +163,14 @@ export const manifest: Record<string, SecretEntry[]> = {
     "NEON_API_KEY",
     "DATABASE_ENCRYPTION_KEY",
   ],
+
+  // The entity-event dispatcher. Same three as audit-log-worker: it resolves a
+  // workspace's tenant DB for any consumer that asks for one.
+  "entity-events-worker": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+  ],
 };
 
 // ── Helpers ──────────────────────────────────────────────────

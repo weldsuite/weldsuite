@@ -74,6 +74,10 @@ namespace_id = "13"
 # triggers are dispatched inline by the publisher (matchAndDispatchWorkflowTriggers
 # → EXECUTE_WORKFLOW), not through a queue.
 [[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
+[[queues.producers]]
 binding = "AUDIT_EVENTS"
 queue = "audit-events-dev"
 
@@ -145,6 +149,10 @@ binding = "API_CACHE"
 id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 
 # Entity-event sinks (production)
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
+
 [[env.production.queues.producers]]
 binding = "AUDIT_EVENTS"
 queue = "audit-events"

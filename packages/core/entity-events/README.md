@@ -151,11 +151,12 @@ plan.
 
 ---
 
-## Part 2 — Adding a consumer *(target design — not built yet)*
+## Part 2 — Adding a consumer
 
-Today, adding a consumer means editing the publisher, four workers'
-`wrangler.toml` files across dev and prod, and hand-writing a `queue()` handler.
-The target replaces all of that with one file and one registry line.
+The dispatcher is built and deployed. Its registry is **empty** — the existing
+sinks are still on their own queues and move over one at a time (phase 2 of
+[the plan](../../../.claude/entity-events-plan.md)). Anything new should be
+written as a consumer rather than as another sink.
 
 ### The shape
 
@@ -178,11 +179,15 @@ entity-events → entity-events-worker
 
 ### Writing one
 
-```ts
-// packages/core/entity-events/src/consumers/handlers/search-index.ts
-import { defineConsumer } from '../registry';
+Consumers live in the dispatcher worker, next to the registry, because they need
+its bindings:
 
-export const searchIndexConsumer = defineConsumer({
+```ts
+// apps/workers/entity-events-worker/src/consumers/search-index.ts
+import { defineConsumer } from '@weldsuite/entity-events/consumers';
+import type { Env } from '../env';
+
+export const searchIndexConsumer = defineConsumer<Env>({
   name: 'search-index',
   subscribes: ['customer:*', 'contact:*', 'ticket:created', 'ticket:updated'],
   needsTenantDb: true,
@@ -192,16 +197,17 @@ export const searchIndexConsumer = defineConsumer({
     // already grouped to this one workspace.
     const unique = new Map(events.map((e) => [`${e.entityType}:${e.entityId}`, e]));
     for (const event of unique.values()) {
-      await reindex(db, workspaceId, event.entityType, event.entityId);
+      await reindex(db!, workspaceId, event.entityType, event.entityId);
     }
   },
 });
 ```
 
-Then one line in `consumers/index.ts`:
+Then one line in
+[`src/consumers/index.ts`](../../../apps/workers/entity-events-worker/src/consumers/index.ts):
 
 ```ts
-export const CONSUMERS = [auditConsumer, analyticsConsumer, searchIndexConsumer];
+export const CONSUMERS: readonly EntityEventConsumer<Env>[] = [searchIndexConsumer];
 ```
 
 That is the whole change. No queue to create, no wrangler edit, no new worker, no
@@ -214,10 +220,16 @@ producer change.
 | `'customer:created'` | exactly that event |
 | `'customer:*'` | every action on customers |
 | `'*:deleted'` | deletes on every entity type |
-| `'*'` | everything (what `audit` uses) |
+| `'co_*'` | any WeldObjects custom object, any action |
+| `'*'` | everything (what `audit` will use) |
+
+Dotted form (`customer.created`) works too; it is normalised to wire form on
+registration.
 
 Filters are validated against the catalog at registration, so `custmer:created`
-throws at module load instead of quietly matching nothing.
+throws at module load — i.e. fails the deploy — instead of quietly matching
+nothing. `co_*` entity types are exempt from the catalog check, since workspace
+admins define them at runtime.
 
 ### Rules
 
@@ -253,8 +265,31 @@ defineConsumer({
 });
 ```
 
+`queueBinding` must name a `Queue` binding on the dispatcher's env — that one
+does need a `wrangler.toml` entry on `entity-events-worker`. If the binding is
+missing the dispatcher throws rather than dropping the slice, so the events
+retry and land in the dead-letter queue where the misconfiguration is visible.
+
 Rule of thumb: inline if it is a DB write or a cheap HTTP call, dedicated queue if
 it calls a model, does heavy CPU work, or needs its own concurrency ceiling.
+
+### Failure semantics
+
+A message is acked only once **every** consumer that matched it succeeded. If one
+of three fails, the message retries and all three run again — hence the
+idempotency rule above. After `max_retries` (3) it lands in `entity-events-dlq`.
+
+| Situation | What the dispatcher does |
+|---|---|
+| Consumer returns | ack (for that consumer) |
+| Consumer throws | retry every message it matched |
+| No consumer matches the event | ack — nothing to do is not a failure |
+| Message has no `workspaceId` / `eventType` | ack + log; a retry cannot add one |
+| Tenant DB will not resolve | retry the workspace's whole slice → DLQ |
+| `transport: 'queue'` binding missing | retry → DLQ, loudly |
+
+Consumers are isolated from each other via `Promise.allSettled`, so one throwing
+never stops the others in the same batch.
 
 ---
 
@@ -269,6 +304,8 @@ it calls a model, does heavy CPU work, or needs its own concurrency ceiling.
 | `ENTITY_EVENTS`, `EntityType`, `ActionFor` | The catalog and its derived types |
 | `isKnownEntityType`, `isValidSubscription`, `parseEventName` | Runtime catalog validation for user-supplied strings |
 | `EntityEventMessage` | The wire format (also at `@weldsuite/entity-events/types`) |
+| `defineConsumer`, `validateRegistry` | Register a consumer; catalog-validated at module load |
+| `dispatch` | The batch → consumers fan-out (also at `@weldsuite/entity-events/consumers`) |
 
 Import from `@weldsuite/entity-events/types` in consumer workers that only need
 the message shape — it is dependency-free and avoids pulling in Drizzle and
@@ -296,10 +333,15 @@ the message shape — it is dependency-free and avoids pulling in Drizzle and
 
 ### Current state vs the plan
 
-The architecture described in Part 2 does not exist yet. Today the publisher
-fans out to six hardcoded sinks, two of which (outbound webhooks and workflow
-triggers) query the tenant DB on every mutation, on the write path. Phase 0 of
-the plan is done — the dead `workflow-events` queue is gone and every live
-consumer now has retries plus a dead-letter queue. See
+Phases 0 and 1 are done: the dead `workflow-events` queue is gone, every live
+consumer has retries plus a dead-letter queue, and the dispatcher in Part 2 is
+built, deployed and receiving every event.
+
+What is left is phase 2 — moving the existing sinks onto it. Until then the
+publisher still fans out to seven places: the new `ENTITY_EVENTS` queue plus the
+six original sinks, two of which (outbound webhooks and workflow triggers) query
+the tenant DB on every mutation, on the write path. The dispatcher's registry is
+empty, so its copy of each event is acked and discarded — shadow traffic, by
+design, so volume and shape can be watched before anything depends on it. See
 [`.claude/entity-events-plan.md`](../../../.claude/entity-events-plan.md) for the
 full gap analysis and the remaining phases.

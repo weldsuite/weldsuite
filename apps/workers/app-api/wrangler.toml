@@ -182,7 +182,17 @@ database_id = "REPLACE_WITH_D1_DATABASE_ID"
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
-# Cloudflare Queues for entity mutation events (mirrors api-worker producers).
+# Cloudflare Queues for entity mutation events.
+#
+# ENTITY_EVENTS is the dispatcher queue (entity-events-worker), which the three
+# below are being folded into — one queue, many registered consumers. It runs
+# with an empty registry today, so it is shadow traffic. See
+# .claude/entity-events-plan.md.
+#   wrangler queues create entity-events-dev
+[[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
 [[queues.producers]]
 binding = "AUDIT_EVENTS"
 queue = "audit-events-dev"
@@ -354,6 +364,11 @@ database_id = "REPLACE_WITH_D1_DATABASE_ID"
 [[env.production.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
+
+#   wrangler queues create entity-events
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
 
 [[env.production.queues.producers]]
 binding = "AUDIT_EVENTS"

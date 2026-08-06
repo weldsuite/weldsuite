@@ -43,6 +43,10 @@ service = "weldsuite-realtime"
 
 # Entity-event queues (publishEntityEventRaw sinks)
 [[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
+[[queues.producers]]
 binding = "AUDIT_EVENTS"
 queue = "audit-events-dev"
 
@@ -95,6 +99,10 @@ service = "weldsuite-app-api"
 [[env.production.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-production"
+
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
 
 [[env.production.queues.producers]]
 binding = "AUDIT_EVENTS"
