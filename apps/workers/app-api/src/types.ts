@@ -3,6 +3,7 @@ import type { ResolvedPermissions } from '@weldsuite/permissions/types';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { FlagContext, FlagshipBinding } from '@weldsuite/feature-flags/server';
 import type { CustomObjectRow } from './services/custom-objects';
+import type { SendEmail as WeldSendEmailBinding } from '@weldsuite/email/providers/cloudflare';
 
 /**
  * App API worker — Cloudflare bindings.
@@ -230,8 +231,13 @@ export interface Env {
   INTERNAL_API_SECRET?: string;
 
   // --- WeldMail (Cloudflare Email Routing + Email Sending) ----------------
-  /** Cloudflare `[[send_email]]` binding for outbound mail. */
-  SEND_EMAIL?: SendEmail;
+  /** Cloudflare `[[send_email]]` binding for outbound mail.
+   *
+   *  Typed from `@weldsuite/email` rather than the ambient workers-types
+   *  `SendEmail`, which only declares the legacy `send(EmailMessage)` overload.
+   *  The same binding also accepts the structured multi-recipient request that
+   *  the send path uses. */
+  SEND_EMAIL?: WeldSendEmailBinding;
   /** Worker name the customer's zone catch-all rule routes inbound mail to.
    *  Defaults to `weldsuite-mail-inbound` when unset. */
   MAIL_INBOUND_WORKER_NAME?: string;
