@@ -28,11 +28,17 @@ interface Jurisdiction {
   name: string;
 }
 
-const JURISDICTION_DEFAULTS: Record<string, { locale: string; baseCurrency: string; vatHint: string }> = {
-  NL: { locale: 'nl-NL', baseCurrency: 'EUR', vatHint: 'NL123456789B01' },
+const JURISDICTION_DEFAULTS: Record<string, { locale: string; baseCurrency: string; vatHint: string; timezone: string }> = {
+  NL: { locale: 'nl-NL', baseCurrency: 'EUR', vatHint: 'NL123456789B01', timezone: 'Europe/Amsterdam' },
+  IN: { locale: 'en-IN', baseCurrency: 'INR', vatHint: '27AABCU9603R1ZM', timezone: 'Asia/Kolkata' },
 };
 
-const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'SEK', 'DKK', 'NOK', 'PLN'];
+const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'SEK', 'DKK', 'NOK', 'PLN', 'INR'];
+
+const FALLBACK_JURISDICTIONS = [
+  { code: 'NL', name: 'Netherlands' },
+  { code: 'IN', name: 'India' },
+];
 
 interface CreateEntityDialogProps {
   open: boolean;
@@ -73,12 +79,14 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: CreateEn
         locale: 'en-US',
         baseCurrency,
         vatHint: '',
+        timezone: 'UTC',
       };
       return weldbooksApi.post<{ data: { id: string } } | { id: string }>('/accounting-entities', {
         name,
         jurisdictionCode,
         baseCurrency,
         locale: defaults.locale,
+        timezone: defaults.timezone,
         taxIdentifiers: vatNumber ? { vatNumber } : undefined,
         isDefault: true,
         seedDefaults: true,
@@ -95,7 +103,8 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: CreateEn
   });
 
   const vatHint = JURISDICTION_DEFAULTS[jurisdictionCode]?.vatHint ?? '';
-
+  const isIndia = jurisdictionCode === 'IN';
+  const jurisdictionOptions = jurisdictions.length > 0 ? jurisdictions : FALLBACK_JURISDICTIONS;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -135,15 +144,15 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: CreateEn
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {jurisdictions.length === 0 ? (
-                    <SelectItem value="NL">{t('sweep.weldbooks.createEntity.netherlandsOption')}</SelectItem>
-                  ) : (
-                    jurisdictions.map((j) => (
-                      <SelectItem key={j.code} value={j.code}>
-                        {j.name} ({j.code})
-                      </SelectItem>
-                    ))
-                  )}
+                  {jurisdictionOptions.map((j) => (
+                    <SelectItem key={j.code} value={j.code}>
+                      {j.code === 'NL'
+                        ? t('sweep.weldbooks.createEntity.netherlandsOption')
+                        : j.code === 'IN'
+                          ? t('sweep.weldbooks.createEntity.indiaOption')
+                          : `${j.name} (${j.code})`}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -159,12 +168,22 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: CreateEn
           </div>
 
           <div>
-            <Label htmlFor="entity-vat">{t('sweep.weldbooks.createEntity.vatLabel')} <span className="text-muted-foreground">({t('sweep.weldbooks.createEntity.optional')})</span></Label>
+            <Label htmlFor="entity-vat">
+              {isIndia
+                ? t('sweep.weldbooks.createEntity.gstinLabel')
+                : t('sweep.weldbooks.createEntity.vatLabel')}{' '}
+              <span className="text-muted-foreground">({t('sweep.weldbooks.createEntity.optional')})</span>
+            </Label>
             <Input
               id="entity-vat"
               value={vatNumber}
               onChange={(e) => setVatNumber(e.target.value)}
-              placeholder={vatHint || t('sweep.weldbooks.createEntity.vatPlaceholder')}
+              placeholder={
+                vatHint ||
+                (isIndia
+                  ? t('sweep.weldbooks.createEntity.gstinPlaceholder')
+                  : t('sweep.weldbooks.createEntity.vatPlaceholder'))
+              }
             />
           </div>
         </div>

@@ -110,6 +110,15 @@ export interface Invoice {
   notes: string | null;
   internalNotes: string | null;
   createdAt: string;
+  taxBreakdown?: Array<{
+    taxRateId: string;
+    taxRateName: string;
+    taxRate: number;
+    taxableAmount: number;
+    taxAmount: number;
+    component?: string;
+    accountRole?: string;
+  }> | null;
 }
 
 export interface InvoiceDetail extends Invoice {

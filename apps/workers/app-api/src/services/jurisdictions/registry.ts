@@ -1,8 +1,10 @@
 import type { JurisdictionAdapter } from './types';
 import { nlAdapter } from './nl';
+import { inAdapter } from './in';
 
 const adapters: Record<string, JurisdictionAdapter> = {
   NL: nlAdapter,
+  IN: inAdapter,
 };
 
 export function getAdapter(code: string): JurisdictionAdapter {

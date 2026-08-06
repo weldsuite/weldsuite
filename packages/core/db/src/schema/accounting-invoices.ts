@@ -75,6 +75,10 @@ export const invoices = pgTable('invoices', {
     taxRate: number;
     taxableAmount: number;
     taxAmount: number;
+    /** GST component when expanded (cgst / sgst / igst). */
+    component?: string;
+    /** System account role for journal posting. */
+    accountRole?: string;
   }>>(),
 
   paymentLink: varchar('payment_link', { length: 500 }),
