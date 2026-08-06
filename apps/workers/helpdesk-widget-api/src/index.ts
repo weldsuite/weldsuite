@@ -49,9 +49,8 @@ export interface Env {
   DATABASE_ENCRYPTION_KEY_V2?: string;
   // Firebase service account JSON for FCM v1 push (set via wrangler secret put)
   FIREBASE_SERVICE_ACCOUNT?: string;
-  // Cloudflare Queues for entity mutation events
-  ENTITY_EVENTS: Queue<import('./lib/entity-events').EntityEventMessage>;
-  ANALYTICS_EVENTS?: Queue<import('./lib/entity-events').EntityEventMessage>;
+  // Entity mutation events → the dispatcher queue (entity-events-worker).
+  ENTITY_EVENTS?: Queue<import('./lib/entity-events').EntityEventMessage>;
   // Cloudflare AI Gateway
   CF_ACCOUNT_ID?: string;
   CF_AIG_TOKEN?: string;

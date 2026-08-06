@@ -1,5 +1,13 @@
-# WeldSuite Analytics Worker
-# Queue consumer for ANALYTICS_EVENTS — writes records to Cloudflare Pipeline (→ R2 Iceberg).
+# WeldSuite Analytics Worker — RETIRED, pending removal.
+#
+# The analytics sink is now the `analytics` consumer in entity-events-worker,
+# which writes to the same pipeline. Nothing produces to `analytics-events`
+# anymore, so this worker sits idle.
+#
+# It is kept deployable only because the deploy matrix lives in the private
+# overlay repo and removing a worker from this side alone would break it. Delete
+# the directory (and the Cloudflare worker + the analytics-events queues) once
+# the overlay's worker list drops it.
 
 name = "weldsuite-analytics"
 main = "src/index.ts"
@@ -15,10 +23,16 @@ head_sampling_rate = 1
 [vars]
 ENVIRONMENT = "development"
 
+# dead_letter_queue is not optional: without one, Cloudflare DELETES a message
+# once max_retries is exhausted, so an event that persistently fails to
+# transform would drop out of analytics with only a console log to notice it.
+#   wrangler queues create analytics-events-dlq-dev
 [[queues.consumers]]
 queue = "analytics-events-dev"
 max_batch_size = 25
 max_batch_timeout = 5
+max_retries = 3
+dead_letter_queue = "analytics-events-dlq-dev"
 
 [[pipelines]]
 pipeline = "REPLACE_WITH_PIPELINE_ID"
@@ -32,10 +46,13 @@ name = "weldsuite-analytics"
 [env.production.vars]
 ENVIRONMENT = "production"
 
+#   wrangler queues create analytics-events-dlq
 [[env.production.queues.consumers]]
 queue = "analytics-events"
 max_batch_size = 25
 max_batch_timeout = 5
+max_retries = 3
+dead_letter_queue = "analytics-events-dlq"
 
 [[env.production.pipelines]]
 pipeline = "REPLACE_WITH_PIPELINE_ID"

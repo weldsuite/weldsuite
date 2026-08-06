@@ -1,0 +1,105 @@
+# WeldSuite Entity Events Worker — the dispatcher.
+#
+# Consumes the single `entity-events` queue and fans each batch out to the
+# consumers registered in src/consumers/index.ts. Adding a consumer does NOT
+# touch this file: no new queue, no new binding, no new worker.
+#
+# Create the queues before the first deploy:
+#   wrangler queues create entity-events-dev
+#   wrangler queues create entity-events-dlq-dev
+#   wrangler queues create entity-events
+#   wrangler queues create entity-events-dlq
+
+name = "weldsuite-entity-events"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ LOCAL DEVELOPMENT ============
+# Required secrets (add via wrangler secret put):
+# - DATABASE_URL_MASTER: Neon master database connection string
+# - NEON_API_KEY: Neon database API key
+# - DATABASE_ENCRYPTION_KEY: 64-char hex key for AES-256-GCM encryption (optional)
+
+[vars]
+ENVIRONMENT = "development"
+
+# Workspace URL caching — shared with the other consumer workers.
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+# Analytics pipeline (→ R2 Iceberg) — the `analytics` consumer. Same pipeline
+# analytics-worker wrote to; use its id, not a new one.
+[[pipelines]]
+pipeline = "REPLACE_WITH_PIPELINE_ID"
+binding = "ANALYTICS_STREAM"
+
+# Semantic search — the `search-index` consumer forwards here rather than
+# embedding inline, so the model calls keep their own isolate and concurrency
+# ceiling in app-api.
+[[queues.producers]]
+binding = "SEARCH_EVENTS"
+queue = "search-index-dev"
+
+# WeldConnect engine — the `workflow-triggers` consumer starts instances here.
+[[workflows]]
+name = "execute-workflow-dev"
+binding = "EXECUTE_WORKFLOW"
+class_name = "ExecuteWorkflowWorkflow"
+script_name = "weldsuite-workflow"
+
+# max_batch_timeout is 1s, not the 30s default. Two sinks that phase 2 moves
+# onto this queue (outbound webhooks, workflow triggers) run inline on the write
+# path today, so the batch window is what their latency becomes. The "queues add
+# 7-9s" note that used to sit in helpdesk-widget-api was measuring the default,
+# not a property of Queues.
+[[queues.consumers]]
+queue = "entity-events-dev"
+max_batch_size = 25
+max_batch_timeout = 1
+max_retries = 3
+max_concurrency = 4
+dead_letter_queue = "entity-events-dlq-dev"
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-entity-events"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[[env.production.pipelines]]
+pipeline = "REPLACE_WITH_PIPELINE_ID"
+binding = "ANALYTICS_STREAM"
+
+[[env.production.queues.producers]]
+binding = "SEARCH_EVENTS"
+queue = "search-index"
+
+[[env.production.workflows]]
+name = "execute-workflow"
+binding = "EXECUTE_WORKFLOW"
+class_name = "ExecuteWorkflowWorkflow"
+script_name = "weldsuite-workflow"
+
+[[env.production.queues.consumers]]
+queue = "entity-events"
+max_batch_size = 25
+max_batch_timeout = 1
+max_retries = 3
+max_concurrency = 8
+dead_letter_queue = "entity-events-dlq"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

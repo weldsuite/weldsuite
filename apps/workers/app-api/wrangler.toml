@@ -182,27 +182,23 @@ database_id = "REPLACE_WITH_D1_DATABASE_ID"
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
-# Cloudflare Queues for entity mutation events (mirrors api-worker producers).
+# Cloudflare Queues for entity mutation events.
+#
+# ENTITY_EVENTS is the dispatcher queue (entity-events-worker). Analytics,
+# outbound webhooks, workflow triggers and search all hang off this one message
+# now — see .claude/entity-events-plan.md.
+#   wrangler queues create entity-events-dev
 [[queues.producers]]
-binding = "AUDIT_EVENTS"
-queue = "audit-events-dev"
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
 
-[[queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events-dev"
 
-[[queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events-dev"
-
-# Semantic search indexing. Unlike the three queues above, app-api is BOTH the
-# producer and the consumer — the indexer needs a tenant DB handle plus the AI
-# gateway, which this worker already has. Create the queue before deploying:
+# Semantic search indexing. app-api no longer PRODUCES to this queue — the
+# dispatcher does, via its `search-index` consumer — but it is still the
+# consumer, because the indexer needs a tenant DB handle plus the AI gateway,
+# which this worker already has.
 #   wrangler queues create search-index-dev
-[[queues.producers]]
-binding = "SEARCH_EVENTS"
-queue = "search-index-dev"
-
+#
 # max_batch_size is deliberately modest: each message can cost an embedding
 # call, and the consumer coalesces per record, so a large batch mostly buys
 # a longer worst-case invocation rather than more throughput.
@@ -359,24 +355,14 @@ database_id = "REPLACE_WITH_D1_DATABASE_ID"
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
+#   wrangler queues create entity-events
 [[env.production.queues.producers]]
-binding = "AUDIT_EVENTS"
-queue = "audit-events"
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
 
-[[env.production.queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events"
 
-[[env.production.queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events"
-
-# Semantic search indexing — produced and consumed by this worker.
+# Semantic search indexing — consumed here, produced by the dispatcher.
 #   wrangler queues create search-index
-[[env.production.queues.producers]]
-binding = "SEARCH_EVENTS"
-queue = "search-index"
-
 #   wrangler queues create search-index-dlq
 [[env.production.queues.consumers]]
 queue = "search-index"

@@ -120,14 +120,8 @@ export interface Env {
   EXTERNAL_API_URL?: string;
 
   // --- Entity-event publishing -------------------------------------------
-  /** Audit-log queue consumer — fed by publishEntityEvent. */
-  AUDIT_EVENTS?: Queue<EntityEventMessage>;
-  /** Workflow-event queue consumer — fed by publishEntityEvent. */
-  WORKFLOW_EVENTS?: Queue<EntityEventMessage>;
-  /** Analytics queue consumer — fed by publishEntityEvent. */
-  ANALYTICS_EVENTS?: Queue<EntityEventMessage>;
-  /** Semantic search indexing. Produced here, consumed by this worker's queue(). */
-  SEARCH_EVENTS?: Queue<EntityEventMessage>;
+  /** Dispatcher queue — entity-events-worker fans this out to its registry. */
+  ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
   /**

@@ -1,20 +1,24 @@
 /**
  * publishEntityEvent — the orchestrator.
  *
- * Fans out a single entity mutation to:
- *   1. AUDIT_EVENTS queue (audit-log-worker)
- *   2. WORKFLOW_EVENTS queue (helpdesk-workflow-worker)
- *   3. ANALYTICS_EVENTS queue (analytics-worker)
- *   4. SEARCH_EVENTS queue (app-api's own queue() consumer — semantic index)
- *   5. REALTIME service binding → WorkspaceHub DO (@weldsuite/realtime)
- *   6. Cloudflare Workflow dispatch via env.EXECUTE_WORKFLOW
+ * Fans out a single entity mutation to exactly two places:
+ *   1. ENTITY_EVENTS queue → entity-events-worker, which dispatches to every
+ *      registered consumer: audit, analytics, outbound webhooks, workflow
+ *      triggers, and semantic search
+ *   2. REALTIME service binding → WorkspaceHub DO (@weldsuite/realtime)
  *
- * Each sink is independently optional — a missing binding logs a warning
- * and the rest still fire. Wrapped in `executionCtx.waitUntil(...)` so the
+ * Realtime is the deliberate permanent exception: its latency is directly
+ * visible in the UI, and it is a service-binding fetch rather than a queue, so
+ * it costs nothing on the write path. Everything else lives behind the queue,
+ * and adding another consumer never touches this file.
+ *
+ * Note what is no longer here. This used to be six sinks, four of them separate
+ * queue sends, two of them tenant-DB reads opened inside `waitUntil` on every
+ * single mutation. A mutation now costs one queue send and one fetch.
+ *
+ * Both sinks are independently optional — a missing binding logs a warning
+ * and the other still fires. Wrapped in `executionCtx.waitUntil(...)` so the
  * HTTP response is never blocked.
- *
- * Note: app-api emits only via the DO realtime system. Legacy entity-event publishing lives in
- * api-worker only; everything app-api owns is on the DO realtime system.
  */
 
 import type { Context } from 'hono';
@@ -26,8 +30,6 @@ import type {
 } from './types';
 import type { EntityType } from './events';
 import type { DataFor } from './events/data';
-import { matchAndDispatchWorkflowTriggers, type WorkflowDispatchEnv } from './workflow-dispatch';
-import { dispatchWebhookDeliveries } from './webhook-delivery';
 import type { TenantDb } from './internal-types';
 
 // ---------------------------------------------------------------------------
@@ -35,18 +37,22 @@ import type { TenantDb } from './internal-types';
 // extend this naturally)
 // ---------------------------------------------------------------------------
 
-export interface EntityEventPublisherEnv extends WorkflowDispatchEnv {
-  AUDIT_EVENTS?: Queue<EntityEventMessage>;
-  WORKFLOW_EVENTS?: Queue<EntityEventMessage>;
-  ANALYTICS_EVENTS?: Queue<EntityEventMessage>;
-  SEARCH_EVENTS?: Queue<EntityEventMessage>;
+export interface EntityEventPublisherEnv {
+  /** The dispatcher queue — entity-events-worker fans this out to consumers. */
+  ENTITY_EVENTS?: Queue<EntityEventMessage>;
   REALTIME?: Fetcher;
 }
 
 export interface EntityEventPublisherVariables {
   workspaceId: string;
   userId: string;
-  tenantDb: TenantDb;
+  /**
+   * No longer read by the publisher — the consumers that needed a tenant DB
+   * moved to the dispatcher, which resolves its own. Kept because route
+   * handlers set it for their own use and removing it from the contract would
+   * churn every call site for nothing.
+   */
+  tenantDb?: TenantDb;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,7 +105,6 @@ export interface PublishEntityEventParams<
 
 interface FanOutParams {
   env: EntityEventPublisherEnv;
-  db: TenantDb;
   workspaceId: string;
   userId: string;
   entityType: EntityType;
@@ -117,7 +122,8 @@ interface FanOutParams {
  * raw context). Never throws — each sink swallows its own errors.
  */
 function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<unknown>[] {
-  const { env, db, workspaceId, userId, entityType, action, entityId, data, changes, accessUserIds } = params;
+  const { env, workspaceId, userId, entityType, action, entityId, data, changes, accessUserIds } =
+    params;
 
   const message: EntityEventMessage = {
     id: generateEventId(),
@@ -137,45 +143,17 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
 
   const tasks: Promise<unknown>[] = [];
 
-  // 1. Audit queue
-  if (env.AUDIT_EVENTS) {
+  // 1. Dispatcher queue — audit, analytics, webhooks, workflow triggers and
+  // search all hang off this one message, via entity-events-worker's registry.
+  if (env.ENTITY_EVENTS) {
     tasks.push(
-      env.AUDIT_EVENTS.send(message)
-        .then(() => console.log(`[EntityEvents] Published audit event ${message.eventType} for ${entityId}`))
-        .catch((err: unknown) => console.error('[EntityEvents] Failed to publish audit event:', err)),
+      env.ENTITY_EVENTS.send(message)
+        .then(() => console.log(`[EntityEvents] Dispatched ${message.eventType} for ${entityId}`))
+        .catch((err: unknown) => console.error('[EntityEvents] Failed to dispatch event:', err)),
     );
   }
 
-  // 2. Workflow queue
-  if (env.WORKFLOW_EVENTS) {
-    tasks.push(
-      env.WORKFLOW_EVENTS.send(message)
-        .then(() => console.log(`[EntityEvents] Published workflow event ${message.eventType} for ${entityId}`))
-        .catch((err: unknown) => console.error('[EntityEvents] Failed to publish workflow event:', err)),
-    );
-  }
-
-  // 3. Analytics queue
-  if (env.ANALYTICS_EVENTS) {
-    tasks.push(
-      env.ANALYTICS_EVENTS.send(message)
-        .then(() => console.log(`[EntityEvents] Published analytics event ${message.eventType} for ${entityId}`))
-        .catch((err: unknown) => console.error('[EntityEvents] Failed to publish analytics event:', err)),
-    );
-  }
-
-  // 4. Semantic search index queue. The consumer re-reads the record rather
-  // than trusting `data`, so a dropped or reordered message costs freshness,
-  // never correctness.
-  if (env.SEARCH_EVENTS) {
-    tasks.push(
-      env.SEARCH_EVENTS.send(message)
-        .then(() => console.log(`[EntityEvents] Published search event ${message.eventType} for ${entityId}`))
-        .catch((err: unknown) => console.error('[EntityEvents] Failed to publish search event:', err)),
-    );
-  }
-
-  // 5. Cloudflare DO realtime
+  // 2. Cloudflare DO realtime
   if (workspaceId && env.REALTIME) {
     tasks.push(
       (async () => {
@@ -192,47 +170,8 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
     );
   }
 
-  if (
-    !env.AUDIT_EVENTS &&
-    !env.WORKFLOW_EVENTS &&
-    !env.ANALYTICS_EVENTS &&
-    !env.SEARCH_EVENTS &&
-    !env.REALTIME
-  ) {
+  if (!env.ENTITY_EVENTS && !env.REALTIME) {
     console.warn('[EntityEvents] No queue or realtime bindings available — skipping publish');
-  }
-
-  // 6. Outbound customer webhooks (external_webhooks subscriptions). No binding
-  // required — reads straight off the tenant `db`, so this always runs; it's a
-  // cheap no-op when no active webhook is subscribed to this event.
-  if (workspaceId) {
-    tasks.push(
-      dispatchWebhookDeliveries({
-        db,
-        workspaceId,
-        entityType,
-        action,
-        eventId: message.id,
-        data,
-      }).catch((err: unknown) => console.error('[EntityEvents] Failed to dispatch webhook deliveries:', err)),
-    );
-  }
-
-  // 7. Inline workflow trigger matching (CF Workflows binding)
-  if (workspaceId && env.EXECUTE_WORKFLOW) {
-    tasks.push(
-      matchAndDispatchWorkflowTriggers({
-        env,
-        db,
-        workspaceId,
-        userId,
-        entityType,
-        entityId,
-        action,
-        data,
-        changes: changes ?? undefined,
-      }).catch((err) => console.error('[EntityEvents] Failed to match workflow triggers:', err)),
-    );
   }
 
   return tasks;
@@ -252,7 +191,6 @@ export function publishEntityEvent<
   const tasks = fanOutEntityEvent(
     {
       env: c.env,
-      db: c.get('tenantDb'),
       workspaceId: c.get('workspaceId') ?? '',
       userId: c.get('userId'),
       entityType,
@@ -279,7 +217,12 @@ export function publishEntityEvent<
 
 export interface PublishEntityEventRawParams {
   env: EntityEventPublisherEnv;
-  db: TenantDb;
+  /**
+   * No longer used — the sinks that needed it are dispatcher consumers now,
+   * and the dispatcher resolves its own tenant DB. Still accepted so the eight
+   * existing call sites keep compiling; drop it when convenient.
+   */
+  db?: TenantDb;
   workspaceId: string;
   userId: string;
   entityType: EntityType;
@@ -294,11 +237,11 @@ export interface PublishEntityEventRawParams {
 
 /**
  * Context-free entity event publisher. Same fan-out as `publishEntityEvent`
- * but takes plain `{ env, db }` instead of a Hono `Context`, and awaits every
- * sink (safe to call inside a Workflow `step.do` or a webhook handler).
+ * but takes a plain `env` instead of a Hono `Context`, and awaits every sink
+ * (safe to call inside a Workflow `step.do` or a webhook handler).
  */
 export async function publishEntityEventRaw(params: PublishEntityEventRawParams): Promise<void> {
-  const { source = 'system', ...rest } = params;
+  const { source = 'system', db: _db, ...rest } = params;
   const tasks = fanOutEntityEvent(rest, source);
   await Promise.allSettled(tasks);
 }

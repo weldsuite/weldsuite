@@ -73,6 +73,22 @@ export {
   type PublishCustomObjectEventRawParams,
 } from './custom-objects';
 
+// Consumer runtime (dispatcher). Consumer workers should import the narrower
+// `@weldsuite/entity-events/consumers` surface instead of this barrel.
+export {
+  defineConsumer,
+  dispatch,
+  isQueueConsumer,
+  matches,
+  validateRegistry,
+  type ConsumerContext,
+  type ConsumerSubscription,
+  type DispatchOptions,
+  type EntityEventConsumer,
+  type InlineConsumer,
+  type QueueConsumer,
+} from './consumers';
+
 // Outbound customer webhooks (external_webhooks subscriptions)
 export {
   deliverWebhookEvent,

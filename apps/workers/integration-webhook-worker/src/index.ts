@@ -73,9 +73,7 @@ export interface Env {
   HUBSPOT_CLIENT_SECRET?: string;
   // Entity-event sinks (publishEntityEventRaw). Optional — the publisher
   // no-ops + warns when a binding is absent.
-  AUDIT_EVENTS?: Queue;
-  WORKFLOW_EVENTS?: Queue;
-  ANALYTICS_EVENTS?: Queue;
+  ENTITY_EVENTS?: Queue;
   REALTIME?: Fetcher;
 }
 

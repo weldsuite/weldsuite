@@ -33,14 +33,10 @@ export interface Env {
 
   // --- Entity-event publishing -------------------------------------------
   // Fed by `publishEntityEvent` so mutations through the public API reach the
-  // same audit / workflow / analytics / realtime sinks as app-api. Each sink
-  // is optional — a missing binding logs a warning and the rest still fire.
-  /** Audit-log queue consumer. */
-  AUDIT_EVENTS?: Queue<EntityEventMessage>;
-  /** Workflow-event queue consumer. */
-  WORKFLOW_EVENTS?: Queue<EntityEventMessage>;
-  /** Analytics queue consumer. */
-  ANALYTICS_EVENTS?: Queue<EntityEventMessage>;
+  // same audit / analytics / realtime sinks as app-api. Each sink is optional —
+  // a missing binding logs a warning and the rest still fire.
+  /** Dispatcher queue — entity-events-worker fans this out to its registry. */
+  ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
   /** R2 bucket for user-app bundles (shared with app-api's STORAGE binding). */

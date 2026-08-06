@@ -43,16 +43,10 @@ service = "weldsuite-realtime"
 
 # Entity-event queues (publishEntityEventRaw sinks)
 [[queues.producers]]
-binding = "AUDIT_EVENTS"
-queue = "audit-events-dev"
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
 
-[[queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events-dev"
 
-[[queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events-dev"
 
 # CRM sync engine — Cloudflare Workflow owned by this worker.
 # Distinct name from api-worker's "crm-sync-dev" during the transition.
@@ -101,16 +95,10 @@ binding = "REALTIME"
 service = "weldsuite-realtime-production"
 
 [[env.production.queues.producers]]
-binding = "AUDIT_EVENTS"
-queue = "audit-events"
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
 
-[[env.production.queues.producers]]
-binding = "WORKFLOW_EVENTS"
-queue = "workflow-events"
 
-[[env.production.queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events"
 
 [[env.production.workflows]]
 name = "crm-sync-int"

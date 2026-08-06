@@ -5,11 +5,26 @@ import {
   text,
   jsonb,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 export const auditLogs = pgTable('audit_logs', {
   id: varchar('id', { length: 30 }).primaryKey(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
+
+  /**
+   * The entity event that produced this row (`evt_…`).
+   *
+   * Idempotency key for the dispatcher's `audit` consumer: a queue batch is
+   * retried whenever any of its consumers fails, so the audit consumer can be
+   * asked to write the same event more than once. The unique index below turns
+   * the second write into a no-op.
+   *
+   * Nullable because every row written before the consumer existed has no event
+   * id — Postgres permits any number of NULLs in a unique index, so those rows
+   * neither conflict with each other nor block new ones.
+   */
+  eventId: varchar('event_id', { length: 30 }),
 
   // What changed
   entityType: varchar('entity_type', { length: 50 }).notNull(),
@@ -36,6 +51,7 @@ export const auditLogs = pgTable('audit_logs', {
   index('audit_logs_entity_idx').on(table.entityType, table.entityId),
   index('audit_logs_created_at_idx').on(table.createdAt),
   index('audit_logs_performed_by_idx').on(table.performedBy),
+  uniqueIndex('audit_logs_event_id_idx').on(table.eventId),
 ]);
 
 export type AuditLog = typeof auditLogs.$inferSelect;

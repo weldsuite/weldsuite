@@ -1,3 +1,11 @@
+/**
+ * RETIRED — superseded by the `analytics` consumer in entity-events-worker.
+ *
+ * Nothing produces to `analytics-events` anymore. The transformer this used to
+ * call now lives at entity-events-worker/src/analytics/transform.ts; this copy
+ * stays only until the private overlay's deploy matrix drops the worker.
+ */
+
 import { Hono } from 'hono';
 import type { Env } from './env';
 import type { EntityEventMessage } from './lib/entity-events';

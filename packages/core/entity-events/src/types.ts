@@ -28,7 +28,12 @@ export type EntityAction =
   // by a handful of routes today.
   | (string & {});
 
-export type EventSource = 'web' | 'mobile' | 'api' | 'system';
+/**
+ * Where the mutation came from. `widget` is the embedded helpdesk chat widget,
+ * whose events have always carried this value on the wire — the union simply
+ * caught up when helpdesk-widget-api started publishing to the shared queue.
+ */
+export type EventSource = 'web' | 'mobile' | 'api' | 'system' | 'widget';
 
 export interface EntityEventMessage<T = Record<string, unknown>> {
   /** Unique event id (evt_…). */

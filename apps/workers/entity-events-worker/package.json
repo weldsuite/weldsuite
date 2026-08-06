@@ -1,0 +1,27 @@
+{
+  "name": "entity-events-worker",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy:production": "wrangler deploy --env production",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.1",
+    "@weldsuite/db": "workspace:*",
+    "@weldsuite/entity-events": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.12.27"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@types/node": "^20",
+    "typescript": "^5.7",
+    "vitest": "^3.2.6",
+    "wrangler": "^4.0.0"
+  }
+}

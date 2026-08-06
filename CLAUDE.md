@@ -44,7 +44,8 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - `helpdesk-widget-api`, Widget backend (`@weldsuite/realtime`)
 - `helpdesk-workflow-worker`, Helpdesk automation engine
 - `mail-inbound-worker`, Inbound email (Svix webhooks, postal-mime)
-- `analytics-worker`, `audit-log-worker`, Event streams
+- `entity-events-worker`, Entity-event dispatcher — consumes the single `entity-events` queue and fans out to the consumers registered in `src/consumers/index.ts` (audit, analytics, outbound webhooks, workflow triggers, search). Adding a consumer is one file plus one line there; see `packages/core/entity-events/README.md`
+- `audit-log-worker`, `analytics-worker`, **Retired.** Both superseded by dispatcher consumers; kept deployable only until the private overlay's deploy matrix drops them
 - `integration-webhook-worker`, `integration-sync-worker`, Third-party integrations
 - `discord-bot-worker`, Discord integration worker (`discord-bot` bot process is under `tools/`)
 - `test-email-worker`, Email testing harness
@@ -234,7 +235,7 @@ Key files:
 - `apps/workers/app-api/src/lib/response.ts`, `success()`, `error.*`, `list()`, `cursorPagination()`
 - `apps/workers/app-api/src/middleware/`, `clerk.ts`, `workspace-db.ts`, `request-id.ts`
 
-**Entity events**, every mutation route must publish an entity event so audit logging, workflows, analytics, realtime, and AI agents stay wired:
+**Entity events**, every mutation route must publish an entity event so audit logging, analytics, semantic search, realtime, outbound customer webhooks, and workflow triggers stay wired. See `packages/core/entity-events/README.md` for the full contract and `.claude/entity-events-plan.md` for where this is heading:
 
 ```ts
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -281,7 +282,7 @@ AI runs through the **`@weldsuite/ai`** package (Vercel AI SDK via the Cloudflar
 - **Hyperdrive**, Neon pooling
 - **KV**, Workspace cache + config
 - **R2**, Files / attachments
-- **Queues**, `audit-events`, `workflow-events`, `analytics-events`
+- **Queues**, `entity-events` (the dispatcher — one message, many consumers) and `search-index`, each with a `-dlq` companion. `audit-events` and `analytics-events` are retired and have no producers
 - **Service Bindings**, Cross-worker calls (e.g. helpdesk widget → workflow worker, integration workers → `app-api`)
 - **Realtime**, `@weldsuite/realtime` (Cloudflare Durable Objects + WebSocket; notifications, live chat); token via `/api/realtime/token`
 

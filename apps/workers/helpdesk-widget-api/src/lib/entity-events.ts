@@ -57,11 +57,17 @@ interface PublishParams {
 }
 
 /**
- * Fire-and-forget: enqueue an entity event on the Cloudflare Queue.
+ * Fire-and-forget: publish a widget entity event to the dispatcher + realtime.
  *
- * - Silently no-ops when the queue binding is absent (local dev without miniflare queues).
- * - Wrapped in try/catch so a queue failure never breaks the API response.
+ * - Each sink is independently optional; a missing binding skips just that sink.
+ * - Wrapped in try/catch so a sink failure never breaks the API response.
  * - Uses `c.executionCtx.waitUntil()` so the response isn't delayed.
+ *
+ * This is still a widget-local reimplementation of `@weldsuite/entity-events`
+ * with a narrower action union, so widget mutations reach only what the
+ * dispatcher's registry covers — not audit, which is still its own queue.
+ * Folding this into the shared publisher is phase 3 of
+ * `.claude/entity-events-plan.md`.
  */
 export function publishEntityEvent({
   c,
@@ -71,15 +77,6 @@ export function publishEntityEvent({
   data,
   changes,
 }: PublishParams): void {
-  const queue = (c.env as Env).ENTITY_EVENTS;
-  if (!queue) {
-    console.warn(
-      `[EntityEvents] ENTITY_EVENTS queue binding not available — event ${entityType}:${action} for ${entityId} will not be processed. ` +
-      'AI agent auto-reply and workflow triggers will NOT fire. Configure miniflare queues or deploy to enable.'
-    );
-    return;
-  }
-
   const message: EntityEventMessage = {
     id: generateId('evt'),
     eventType: `${entityType}:${action}`,
@@ -96,33 +93,20 @@ export function publishEntityEvent({
     },
   };
 
-  const promise = queue
-    .send(message)
-    .then(() => {
-      console.log(`[EntityEvents] Published ${message.eventType} for ${entityId}`);
-    })
-    .catch((err: unknown) => {
-      console.error('[EntityEvents] Failed to publish event:', err);
-    });
-
-  c.executionCtx.waitUntil(promise);
-
   // Workflow execution is triggered inline via /internal/trigger-inline (see conversations.ts).
-  // Skip WORKFLOW_EVENTS queue for widget events — inline execution is instant, queue adds 7-9s latency.
-  // Non-widget entity events (from api-worker) still use the queue path.
 
-  // Also publish to analytics queue
-  const analyticsQueue = (c.env as Env).ANALYTICS_EVENTS;
-  if (analyticsQueue) {
-    const analyticsPromise = analyticsQueue
+  // Publish to the dispatcher queue — analytics and anything else registered.
+  const queue = (c.env as Env).ENTITY_EVENTS;
+  if (queue) {
+    const promise = queue
       .send(message)
       .then(() => {
-        console.log(`[EntityEvents] Published analytics ${message.eventType} for ${entityId}`);
+        console.log(`[EntityEvents] Dispatched ${message.eventType} for ${entityId}`);
       })
       .catch((err: unknown) => {
-        console.error('[EntityEvents] Failed to publish analytics event:', err);
+        console.error('[EntityEvents] Failed to dispatch event:', err);
       });
-    c.executionCtx.waitUntil(analyticsPromise);
+    c.executionCtx.waitUntil(promise);
   }
 
   // Publish to realtime workspace channel for real-time client sync
