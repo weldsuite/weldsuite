@@ -1,13 +1,19 @@
 /**
  * Cloudflare `send_email` binding → IEmailSendProvider.
  *
- * Sends straight through Cloudflare's Email Service binding. Recipients are
- * not auto-registered as Email Routing destination addresses — that pattern
+ * Sends straight through Cloudflare's Email Routing send binding. Recipients
+ * are not auto-registered as Email Routing destination addresses — that pattern
  * polluted the account's destination list and emailed customers a confusing
  * "Verify this Email Routing address" notice instead of the actual message.
  * Sending to arbitrary recipients requires the Cloudflare account to be on
  * Workers Paid (Email Service) — without it the binding rejects unverified
- * recipients and that error surfaces as a TransientProviderError.
+ * recipients and that error surfaces as a PendingVerificationError.
+ *
+ * Cloudflare's newer Email Service exposes a structured
+ * `send({to, cc, bcc, ...})` on the same binding name, which would replace the
+ * envelope fan-out below with one call. It is NOT available to this account's
+ * binding — calling it throws inside the binding and every send 500s — so we
+ * stay on the `EmailMessage` form. Revisit only with a live send to prove it.
  */
 
 import {
@@ -15,27 +21,27 @@ import {
   ProviderConfigError,
   TransientProviderError,
 } from '../../core/errors';
+import { buildRfc5322 } from '../../core/mime';
 import type {
   IEmailSendProvider,
   SendCapabilities,
   SendOptions,
   SendResult,
 } from '../../core/types';
-import type {
-  EmailBindingAddress,
-  EmailBindingAttachment,
-  SendEmail,
-} from './send-binding';
-import type { EmailAddress, EmailAttachment } from '../../core/types';
+import { formatEmailAddress } from '../../core/types';
+import type { EmailMessageCtor, SendEmail } from './send-binding';
 
 const PROVIDER = 'cloudflare';
 
-/** Cloudflare's cap on `to` + `cc` + `bcc` for a single send. */
+/** Cloudflare's cap on `to` + `cc` + `bcc` for a single message. */
 const MAX_RECIPIENTS = 50;
 
 export interface CloudflareSendProviderOptions {
   /** The Worker `[[send_email]]` binding. */
   sendEmail: SendEmail;
+  /** The `EmailMessage` class from `cloudflare:email`. Workers must pass it
+   *  in (we can't import the runtime module from a generic shared package). */
+  EmailMessage: EmailMessageCtor;
 }
 
 export class CloudflareSendProvider implements IEmailSendProvider {
@@ -49,96 +55,96 @@ export class CloudflareSendProvider implements IEmailSendProvider {
 
   constructor(private readonly opts: CloudflareSendProviderOptions) {
     if (!opts.sendEmail) throw new ProviderConfigError(PROVIDER, 'sendEmail');
+    if (!opts.EmailMessage) throw new ProviderConfigError(PROVIDER, 'EmailMessage');
   }
 
   /**
-   * One message to the whole recipient set, in a single binding call.
+   * One message, N envelope recipients.
    *
-   * The structured request hands Cloudflare the full to/cc/bcc lists and lets
-   * it build the MIME: every recipient gets the same Message-ID and sees the
-   * same To/Cc headers, so their client shows one message addressed to the
-   * group and reply-all works. (Bcc recipients are delivered but stay out of
-   * the headers.) The alternative — building a raw message per recipient and
-   * calling the binding once each — turns a three-recipient reply-all into
-   * three separate one-to-one messages.
+   * The binding takes a single envelope recipient per `EmailMessage`, so the
+   * send is fanned out — but the RFC-5322 payload is built ONCE and reused for
+   * every envelope. That distinction is the whole point: all copies share one
+   * Message-ID and carry the same To/Cc headers, so recipients see a single
+   * message addressed to the group and their clients thread it as one. Build
+   * per recipient instead and a reply-all lands as N separate messages, each
+   * appearing to be addressed to one person.
    *
-   * `Message-ID` is platform-generated and returned, so `options.messageId` is
-   * not honoured; callers should persist the returned id.
+   * Bcc recipients get an envelope but are absent from the headers (see
+   * `buildRfc5322`), so the blind list stays blind.
    */
   async send(options: SendOptions): Promise<SendResult> {
-    const total =
-      options.to.length + (options.cc?.length ?? 0) + (options.bcc?.length ?? 0);
-    if (total === 0) {
+    const envelopeRecipients = [...options.to, ...(options.cc ?? []), ...(options.bcc ?? [])];
+    if (envelopeRecipients.length === 0) {
       throw new ProviderConfigError(PROVIDER, 'send() called with no recipients');
     }
-    if (total > MAX_RECIPIENTS) {
+    if (envelopeRecipients.length > MAX_RECIPIENTS) {
       throw new ProviderConfigError(
         PROVIDER,
-        `send() called with ${total} recipients; the binding accepts at most ${MAX_RECIPIENTS} across to/cc/bcc`,
+        `send() called with ${envelopeRecipients.length} recipients; at most ${MAX_RECIPIENTS} across to/cc/bcc`,
       );
     }
 
-    // In-Reply-To / References are on Cloudflare's header allowlist, and are
-    // the reason a reply lands inside the recipient's existing thread.
-    const headers: Record<string, string> = { ...options.headers };
-    if (options.inReplyTo) headers['In-Reply-To'] = options.inReplyTo;
-    if (options.references?.length) headers['References'] = options.references.join(' ');
+    const { raw, messageId } = buildRfc5322(options);
+    const from = formatEmailAddress(options.from);
 
-    try {
-      const result = await this.opts.sendEmail.send({
-        from: toBindingAddress(options.from),
-        to: options.to.map(toBindingAddress),
-        cc: options.cc?.length ? options.cc.map(toBindingAddress) : undefined,
-        bcc: options.bcc?.length ? options.bcc.map(toBindingAddress) : undefined,
-        subject: options.subject,
-        text: options.text,
-        html: options.html,
-        replyTo: options.replyTo ? toBindingAddress(options.replyTo) : undefined,
-        headers: Object.keys(headers).length ? headers : undefined,
-        attachments: options.attachments?.length
-          ? options.attachments.map(toBindingAttachment)
-          : undefined,
-      });
-      return { messageId: result.messageId };
-    } catch (err) {
-      // A recipient outside the account's allowed destination list is a
-      // "needs verifying" state the caller can surface to the user, not a
-      // transport blip worth retrying — keep it distinguishable.
-      if (bindingErrorCode(err) === 'E_RECIPIENT_NOT_ALLOWED') {
-        // The binding rejects the whole send without naming which address was
-        // the problem, so report the full set rather than guessing.
-        const recipients = [...options.to, ...(options.cc ?? []), ...(options.bcc ?? [])]
-          .map((a) => a.email)
-          .join(', ');
-        throw new PendingVerificationError(recipients, PROVIDER);
+    const pendingRecipients: string[] = [];
+    for (const rcpt of envelopeRecipients) {
+      const message = new this.opts.EmailMessage(from, rcpt.email, raw);
+      try {
+        await this.opts.sendEmail.send(message);
+      } catch (err) {
+        // A recipient outside the account's allowed destination list is a
+        // "needs verifying" state the caller can surface to the user, not a
+        // transport blip — and it shouldn't sink delivery to everybody else.
+        if (isRecipientNotAllowed(err)) {
+          pendingRecipients.push(rcpt.email);
+          continue;
+        }
+        throw new TransientProviderError(
+          `send_email failed for ${rcpt.email}: ${describeError(err)}`,
+          PROVIDER,
+          err,
+        );
       }
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new TransientProviderError(`send_email failed: ${msg}`, PROVIDER, err);
     }
+
+    return {
+      messageId,
+      metadata: pendingRecipients.length ? { pendingRecipients } : undefined,
+    };
   }
 }
 
 /**
- * Cloudflare throws plain `Error`s carrying a `code` (`E_RECIPIENT_NOT_ALLOWED`,
- * `E_HEADER_NOT_ALLOWED`, `E_RATE_LIMIT_EXCEEDED`, ...).
+ * Cloudflare signals an unallowed destination either as a coded Error
+ * (`E_RECIPIENT_NOT_ALLOWED`, Email Service) or as our own
+ * `PendingVerificationError` if a future binding throws one directly.
  */
-function bindingErrorCode(err: unknown): string | undefined {
-  if (typeof err !== 'object' || err === null) return undefined;
-  const code = (err as { code?: unknown }).code;
-  return typeof code === 'string' ? code : undefined;
+function isRecipientNotAllowed(err: unknown): boolean {
+  if (err instanceof PendingVerificationError) return true;
+  if (typeof err !== 'object' || err === null) return false;
+  return (err as { code?: unknown }).code === 'E_RECIPIENT_NOT_ALLOWED';
 }
 
-function toBindingAddress(addr: EmailAddress): EmailBindingAddress {
-  return addr.name ? { email: addr.email, name: addr.name } : { email: addr.email };
-}
-
-function toBindingAttachment(att: EmailAttachment): EmailBindingAttachment {
-  return {
-    content: att.content,
-    filename: att.filename,
-    type: att.contentType ?? 'application/octet-stream',
-    // A `cid` means the body references it with `cid:` — that's an inline part.
-    disposition: att.cid ? 'inline' : 'attachment',
-    contentId: att.cid,
-  };
+/**
+ * Binding failures have reached us with an empty `message`, which produced a
+ * bare "send_email failed:" in the logs and told us nothing. Fall back through
+ * whatever identifying fields the thrown value actually carries.
+ */
+function describeError(err: unknown): string {
+  if (err instanceof Error) {
+    const code = (err as { code?: unknown }).code;
+    const parts = [err.name, typeof code === 'string' ? `(${code})` : '', err.message]
+      .filter(Boolean)
+      .join(' ');
+    return parts.trim() || 'unknown error';
+  }
+  if (typeof err === 'object' && err !== null) {
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return String(err);
+    }
+  }
+  return String(err) || 'unknown error';
 }
