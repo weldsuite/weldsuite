@@ -27,9 +27,11 @@ export function buildRfc5322(options: SendOptions): BuiltEmail {
     name: options.from.name,
   });
 
+  // To/Cc go in the headers; Bcc deliberately does not. Blind recipients are
+  // addressed at the envelope level by the transport, and a `Bcc:` header in a
+  // transmitted message discloses the blind list to everyone who receives it.
   msg.setRecipients(options.to.map(addrToMimetext), { type: 'To' });
   if (options.cc?.length) msg.setRecipients(options.cc.map(addrToMimetext), { type: 'Cc' });
-  if (options.bcc?.length) msg.setRecipients(options.bcc.map(addrToMimetext), { type: 'Bcc' });
   if (options.replyTo) {
     msg.setHeader('Reply-To', formatEmailAddress(options.replyTo));
   }
