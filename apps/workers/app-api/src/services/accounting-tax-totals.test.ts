@@ -149,4 +149,42 @@ describe('calculateLineTaxTotals', () => {
       (parseFloat(result.subtotal) + parseFloat(result.taxTotal)).toFixed(2),
     );
   });
+
+  it('keeps export GST at zero even when slab rate is nonzero', () => {
+    const result = calculateLineTaxTotals(
+      [
+        {
+          quantity: '1',
+          unitPrice: '100',
+          discountPercent: '0',
+          taxRate: '18',
+          taxRateId: 'txr_gst18',
+          taxRateName: 'GST 18%',
+          jurisdictionMetadata: {
+            gstSlab: '18',
+            components: {
+              intrastate: [
+                { code: 'cgst', rate: '9.00', accountRole: 'tax_output_cgst' },
+                { code: 'sgst', rate: '9.00', accountRole: 'tax_output_sgst' },
+              ],
+              interstate: [
+                { code: 'igst', rate: '18.00', accountRole: 'tax_output_igst' },
+              ],
+            },
+          },
+        },
+      ],
+      {
+        jurisdictionCode: 'IN',
+        sellerStateCode: '27',
+        buyerStateCode: '27',
+        buyerCountry: 'US',
+      },
+    );
+    expect(result.taxTotal).toBe('0.00');
+    expect(result.total).toBe('100.00');
+    expect(result.taxBreakdown).toHaveLength(1);
+    expect(result.taxBreakdown[0].component).toBe('export');
+    expect(result.taxBreakdown[0].taxAmount).toBe(0);
+  });
 });

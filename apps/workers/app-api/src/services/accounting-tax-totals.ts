@@ -106,8 +106,7 @@ export function calculateLineTaxTotals(
       item.jurisdictionMetadata &&
       (item.jurisdictionMetadata as { components?: unknown }).components
     ) {
-      rows = allocateRoundedTax(
-        expandGstTaxBreakdown({
+      const expandedRows = expandGstTaxBreakdown({
           taxableAmount: lineTotal,
           taxRateId: item.taxRateId ?? '',
           taxRateName: item.taxRateName ?? `${rate}%`,
@@ -117,9 +116,13 @@ export function calculateLineTaxTotals(
           buyerStateCode: place.buyerStateCode,
           buyerCountry: place.buyerCountry,
           direction: place.direction ?? 'sales',
-        }),
-        targetTax,
-      );
+      });
+      const allocationTarget =
+        expandedRows.length > 0 &&
+        expandedRows.every((r) => r.component === 'export')
+          ? 0
+          : targetTax;
+      rows = allocateRoundedTax(expandedRows, allocationTarget);
     } else {
       rows = [
         {
