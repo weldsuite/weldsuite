@@ -33,6 +33,26 @@ ENVIRONMENT = "development"
 binding = "WORKSPACE_CACHE"
 id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 
+# Analytics pipeline (→ R2 Iceberg) — the `analytics` consumer. Same pipeline
+# analytics-worker wrote to; use its id, not a new one.
+[[pipelines]]
+pipeline = "REPLACE_WITH_PIPELINE_ID"
+binding = "ANALYTICS_STREAM"
+
+# Semantic search — the `search-index` consumer forwards here rather than
+# embedding inline, so the model calls keep their own isolate and concurrency
+# ceiling in app-api.
+[[queues.producers]]
+binding = "SEARCH_EVENTS"
+queue = "search-index-dev"
+
+# WeldConnect engine — the `workflow-triggers` consumer starts instances here.
+[[workflows]]
+name = "execute-workflow-dev"
+binding = "EXECUTE_WORKFLOW"
+class_name = "ExecuteWorkflowWorkflow"
+script_name = "weldsuite-workflow"
+
 # max_batch_timeout is 1s, not the 30s default. Two sinks that phase 2 moves
 # onto this queue (outbound webhooks, workflow triggers) run inline on the write
 # path today, so the batch window is what their latency becomes. The "queues add
@@ -57,6 +77,20 @@ ENVIRONMENT = "production"
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[[env.production.pipelines]]
+pipeline = "REPLACE_WITH_PIPELINE_ID"
+binding = "ANALYTICS_STREAM"
+
+[[env.production.queues.producers]]
+binding = "SEARCH_EVENTS"
+queue = "search-index"
+
+[[env.production.workflows]]
+name = "execute-workflow"
+binding = "EXECUTE_WORKFLOW"
+class_name = "ExecuteWorkflowWorkflow"
+script_name = "weldsuite-workflow"
 
 [[env.production.queues.consumers]]
 queue = "entity-events"

@@ -7,14 +7,9 @@
  *
  *   import { auditConsumer } from './audit';
  *
- *   export const CONSUMERS = [
+ *   export const CONSUMERS: readonly EntityEventConsumer<Env>[] = [
  *     auditConsumer,
- *   ] as const satisfies readonly EntityEventConsumer<Env>[];
- *
- * Empty on purpose. Phase 1 runs the dispatcher on shadow traffic so the
- * volume and shape can be watched before anything depends on it; phase 2
- * migrates the existing sinks here one per PR. See
- * `.claude/entity-events-plan.md`.
+ *   ];
  *
  * `validateRegistry` runs at module load, so a duplicate name fails the deploy
  * rather than a request. Each consumer's own `defineConsumer` call has already
@@ -23,7 +18,16 @@
 
 import { validateRegistry, type EntityEventConsumer } from '@weldsuite/entity-events/consumers';
 import type { Env } from '../env';
+import { analyticsConsumer } from './analytics';
+import { webhooksConsumer } from './webhooks';
+import { workflowTriggersConsumer } from './workflow-triggers';
+import { searchIndexConsumer } from './search-index';
 
-export const CONSUMERS: readonly EntityEventConsumer<Env>[] = [];
+export const CONSUMERS: readonly EntityEventConsumer<Env>[] = [
+  analyticsConsumer,
+  webhooksConsumer,
+  workflowTriggersConsumer,
+  searchIndexConsumer,
+];
 
 validateRegistry(CONSUMERS);

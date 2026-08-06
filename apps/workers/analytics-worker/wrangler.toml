@@ -1,5 +1,13 @@
-# WeldSuite Analytics Worker
-# Queue consumer for ANALYTICS_EVENTS — writes records to Cloudflare Pipeline (→ R2 Iceberg).
+# WeldSuite Analytics Worker — RETIRED, pending removal.
+#
+# The analytics sink is now the `analytics` consumer in entity-events-worker,
+# which writes to the same pipeline. Nothing produces to `analytics-events`
+# anymore, so this worker sits idle.
+#
+# It is kept deployable only because the deploy matrix lives in the private
+# overlay repo and removing a worker from this side alone would break it. Delete
+# the directory (and the Cloudflare worker + the analytics-events queues) once
+# the overlay's worker list drops it.
 
 name = "weldsuite-analytics"
 main = "src/index.ts"

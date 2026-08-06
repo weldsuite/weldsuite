@@ -153,10 +153,11 @@ plan.
 
 ## Part 2 — Adding a consumer
 
-The dispatcher is built and deployed. Its registry is **empty** — the existing
-sinks are still on their own queues and move over one at a time (phase 2 of
-[the plan](../../../.claude/entity-events-plan.md)). Anything new should be
-written as a consumer rather than as another sink.
+Four consumers are registered today — `analytics`, `webhooks`,
+`workflow-triggers` and `search-index`. Audit is the one sink still on its own
+queue, pending a migration (phase 2 step 1 of
+[the plan](../../../.claude/entity-events-plan.md)). Anything new belongs here,
+not as another publisher sink.
 
 ### The shape
 
@@ -167,14 +168,14 @@ declarative registry.
 ```
 publishEntityEvent()
   ├─ ENTITY_EVENTS.send(message)     ← one queue
+  ├─ AUDIT_EVENTS.send(message)      ← last hold-out, needs a migration
   └─ REALTIME.fetch(...)             ← stays inline, latency-critical
 
 entity-events → entity-events-worker
-                  ├─ audit
                   ├─ analytics
                   ├─ webhooks
-                  ├─ workflows
-                  └─ search  (forwarded to its own queue)
+                  ├─ workflow-triggers
+                  └─ search-index  (forwarded to SEARCH_EVENTS)
 ```
 
 ### Writing one
@@ -333,15 +334,13 @@ the message shape — it is dependency-free and avoids pulling in Drizzle and
 
 ### Current state vs the plan
 
-Phases 0 and 1 are done: the dead `workflow-events` queue is gone, every live
-consumer has retries plus a dead-letter queue, and the dispatcher in Part 2 is
-built, deployed and receiving every event.
+Phases 0 and 1 are done, and four of phase 2's five sinks have moved. A mutation
+now costs two queue sends and one service-binding fetch — no tenant-DB reads on
+the write path at all, where outbound webhooks and workflow triggers each cost
+one per event before.
 
-What is left is phase 2 — moving the existing sinks onto it. Until then the
-publisher still fans out to seven places: the new `ENTITY_EVENTS` queue plus the
-six original sinks, two of which (outbound webhooks and workflow triggers) query
-the tenant DB on every mutation, on the write path. The dispatcher's registry is
-empty, so its copy of each event is acked and discarded — shadow traffic, by
-design, so volume and shape can be watched before anything depends on it. See
+Audit is the last sink still on its own queue. Moving it needs a unique
+`event_id` on `audit_logs`, because the dispatcher re-runs every matched consumer
+when any one of them fails and duplicate audit rows are not acceptable. See
 [`.claude/entity-events-plan.md`](../../../.claude/entity-events-plan.md) for the
 full gap analysis and the remaining phases.

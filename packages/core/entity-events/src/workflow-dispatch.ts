@@ -74,7 +74,7 @@ export function evalFilters(
  */
 export interface WorkflowDispatchEnv {
   EXECUTE_WORKFLOW?: {
-    create: (init: { params: Record<string, unknown> }) => Promise<unknown>;
+    create: (init: { id?: string; params: Record<string, unknown> }) => Promise<unknown>;
   };
 }
 
@@ -88,6 +88,32 @@ export interface MatchAndDispatchInput {
   action: string;
   data: Record<string, unknown>;
   changes?: Record<string, { old: unknown; new: unknown }>;
+  /**
+   * The entity event id. When supplied, each dispatched run gets a
+   * deterministic instance id derived from it, so replaying the same event
+   * cannot start the same workflow twice — Cloudflare rejects the duplicate id
+   * and we treat that rejection as success.
+   *
+   * Required in practice for queue-based callers, where a sibling consumer's
+   * failure retries the whole message. Omit it only from inline callers, where
+   * an event is dispatched exactly once.
+   */
+  eventId?: string;
+}
+
+/** Cloudflare rejects a `create()` whose instance id already exists. */
+function isDuplicateInstanceError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /already exists|instance\.already|duplicate/i.test(message);
+}
+
+/**
+ * Build a Workflow instance id that is stable for one (event, workflow) pair.
+ * Cloudflare caps instance ids at 64 chars and accepts only word characters,
+ * `-` and `_`.
+ */
+function workflowInstanceId(eventId: string, workflowId: string): string {
+  return `${eventId}-${workflowId}`.replace(/[^\w-]/g, '').slice(0, 64);
 }
 
 /**
@@ -161,7 +187,8 @@ export function integrationTriggerMatches(
 export async function matchAndDispatchWorkflowTriggers(
   input: MatchAndDispatchInput,
 ): Promise<void> {
-  const { env, db, workspaceId, userId, entityType, entityId, action, data, changes } = input;
+  const { env, db, workspaceId, userId, entityType, entityId, action, data, changes, eventId } =
+    input;
 
   if (!workspaceId || !env.EXECUTE_WORKFLOW) return;
 
@@ -172,6 +199,11 @@ export async function matchAndDispatchWorkflowTriggers(
     .from(workflows)
     .where(and(eq(workflows.status, 'active'), isNull(workflows.deletedAt)));
 
+  // One workflow failing to start must not stop the others, so failures are
+  // collected and rethrown once at the end. Queue callers turn that into a
+  // retry; the inline publisher catches and logs it, as it always has.
+  const failures: unknown[] = [];
+
   for (const workflow of activeWorkflows) {
     const triggers = (workflow.triggers as TriggerConfig[]) || [];
 
@@ -180,6 +212,7 @@ export async function matchAndDispatchWorkflowTriggers(
 
       try {
         await env.EXECUTE_WORKFLOW.create({
+          ...(eventId ? { id: workflowInstanceId(eventId, workflow.id) } : {}),
           params: {
             workspaceId,
             userId,
@@ -200,9 +233,25 @@ export async function matchAndDispatchWorkflowTriggers(
           `[TriggerMatcher] Dispatched workflow "${workflow.name}" for ${entityType}:${action}`,
         );
       } catch (err) {
+        // A duplicate id means this exact event already started this workflow —
+        // a retried batch, not a failure.
+        if (eventId && isDuplicateInstanceError(err)) {
+          console.log(
+            `[TriggerMatcher] Workflow "${workflow.name}" already dispatched for event ${eventId} — skipping`,
+          );
+          continue;
+        }
         console.error(`[TriggerMatcher] Failed to dispatch workflow ${workflow.id}:`, err);
+        failures.push(err);
       }
     }
+  }
+
+  if (failures.length > 0) {
+    throw new Error(
+      `[TriggerMatcher] ${failures.length} workflow dispatch(es) failed for ${entityType}:${action}; ` +
+        `first: ${failures[0] instanceof Error ? failures[0].message : String(failures[0])}`,
+    );
   }
 }
 

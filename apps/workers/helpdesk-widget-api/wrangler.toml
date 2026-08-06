@@ -38,10 +38,12 @@ id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
-# Cloudflare Queues for entity mutation events
+# Entity mutation events → the dispatcher (entity-events-worker), same queue as
+# every other surface. Widget events still skip audit / search / webhooks
+# because this worker has its own publisher; folding that in is phase 3.
 [[queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events-dev"
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
 
 # Service binding to centralized workflow worker (direct DO calls, no queue delay)
 [[services]]
@@ -75,8 +77,8 @@ binding = "WORKSPACE_CACHE"
 id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 
 [[env.production.queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events"
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
 
 [[env.production.services]]
 binding = "WORKFLOW_WORKER"

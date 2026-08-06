@@ -57,16 +57,17 @@ interface PublishParams {
 }
 
 /**
- * Fire-and-forget: publish a widget entity event to analytics + realtime.
+ * Fire-and-forget: publish a widget entity event to the dispatcher + realtime.
  *
  * - Each sink is independently optional; a missing binding skips just that sink.
  * - Wrapped in try/catch so a sink failure never breaks the API response.
  * - Uses `c.executionCtx.waitUntil()` so the response isn't delayed.
  *
- * This is a widget-local reimplementation of `@weldsuite/entity-events` with a
- * narrower action union and only two sinks, so widget mutations never reach
- * audit, semantic search, or outbound customer webhooks. Folding it into the
- * shared publisher is phase 3 of `.claude/entity-events-plan.md`.
+ * This is still a widget-local reimplementation of `@weldsuite/entity-events`
+ * with a narrower action union, so widget mutations reach only what the
+ * dispatcher's registry covers — not audit, which is still its own queue.
+ * Folding this into the shared publisher is phase 3 of
+ * `.claude/entity-events-plan.md`.
  */
 export function publishEntityEvent({
   c,
@@ -94,18 +95,18 @@ export function publishEntityEvent({
 
   // Workflow execution is triggered inline via /internal/trigger-inline (see conversations.ts).
 
-  // Publish to analytics queue
-  const analyticsQueue = (c.env as Env).ANALYTICS_EVENTS;
-  if (analyticsQueue) {
-    const analyticsPromise = analyticsQueue
+  // Publish to the dispatcher queue — analytics and anything else registered.
+  const queue = (c.env as Env).ENTITY_EVENTS;
+  if (queue) {
+    const promise = queue
       .send(message)
       .then(() => {
-        console.log(`[EntityEvents] Published analytics ${message.eventType} for ${entityId}`);
+        console.log(`[EntityEvents] Dispatched ${message.eventType} for ${entityId}`);
       })
       .catch((err: unknown) => {
-        console.error('[EntityEvents] Failed to publish analytics event:', err);
+        console.error('[EntityEvents] Failed to dispatch event:', err);
       });
-    c.executionCtx.waitUntil(analyticsPromise);
+    c.executionCtx.waitUntil(promise);
   }
 
   // Publish to realtime workspace channel for real-time client sync

@@ -50,9 +50,6 @@ queue = "entity-events-dev"
 binding = "AUDIT_EVENTS"
 queue = "audit-events-dev"
 
-[[queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events-dev"
 
 # CRM sync engine — Cloudflare Workflow owned by this worker.
 # Distinct name from api-worker's "crm-sync-dev" during the transition.
@@ -108,9 +105,6 @@ queue = "entity-events"
 binding = "AUDIT_EVENTS"
 queue = "audit-events"
 
-[[env.production.queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events"
 
 [[env.production.workflows]]
 name = "crm-sync-int"

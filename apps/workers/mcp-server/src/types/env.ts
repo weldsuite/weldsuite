@@ -58,8 +58,6 @@ export interface Env {
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** Audit-log queue consumer. */
   AUDIT_EVENTS?: Queue<EntityEventMessage>;
-  /** Analytics queue consumer. */
-  ANALYTICS_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
   /** R2 bucket for user-app bundles (shared with app-api's STORAGE binding). */

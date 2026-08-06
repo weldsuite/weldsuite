@@ -238,24 +238,46 @@ against audit-log-worker's, confirm the workspace spread looks sane, and check
 `entity-events-dlq` is empty. Nothing depends on this queue yet, so it is free
 to be wrong here.
 
-### Phase 2 — migrate sinks, one per PR
+### Phase 2 — migrate sinks — 4 of 5 done 2026-08-06
 
-In this order, each PR moving exactly one sink and deleting its old path:
+1. **audit** — ⛔ **BLOCKED on a migration.** Needs a unique `event_id` on
+   `audit_logs` before the consumer can be idempotent, and idempotency is not
+   optional here: the dispatcher re-runs every matched consumer when any one of
+   them fails, so without it a webhook failure would duplicate audit rows.
+   Audit therefore stays on `AUDIT_EVENTS`, and `audit-log-worker` stays live.
+   Unblock by approving the schema change + migration.
+2. ✅ **analytics** — consumer writes the whole matched slice to the pipeline in
+   one `send()` instead of one call per message. `analytics-worker` retired.
+3. ✅ **webhooks** — `dispatchWebhookDeliveries` moved off the write path. First
+   hot-path tenant-DB read eliminated.
+4. ✅ **workflow triggers** — `matchAndDispatchWorkflowTriggers` moved off the
+   write path. Second hot-path read eliminated.
+5. ✅ **search** — registered as `transport: 'queue'`, forwarding to the existing
+   `SEARCH_EVENTS` queue. app-api keeps the embedder, its concurrency ceiling
+   and its DLQ; it just no longer produces to its own queue.
 
-1. **audit** — register the consumer, delete sink 1, retire `audit-log-worker`.
-   Add a unique `event_id` column to `audit_logs` for idempotency (schema change,
-   needs your approval per CLAUDE.md).
-2. **analytics** — same shape; retire `analytics-worker`.
-3. **webhooks** — move `dispatchWebhookDeliveries` out of inline sink 6 into a
-   consumer with `needsTenantDb: true`. First hot-path DB read eliminated.
-4. **workflow triggers** — move `matchAndDispatchWorkflowTriggers` out of inline
-   sink 7. Second hot-path DB read eliminated. Watch p50 trigger latency here;
-   this is the phase most likely to need the batch timeout tuned.
-5. **search** — register as `transport: 'queue'`, forwarding to the existing
-   `SEARCH_EVENTS` queue. The heavy embedder work and its concurrency limits stay
-   in app-api's own isolate, unchanged.
+The publisher is down to three sinks: `ENTITY_EVENTS`, `AUDIT_EVENTS`, and
+`REALTIME`. Step 1 takes it to two.
 
-After step 5 the publisher has exactly two sinks: `ENTITY_EVENTS` and `REALTIME`.
+Also folded in along the way:
+
+- `helpdesk-widget-api` now produces to `ENTITY_EVENTS` instead of the
+  analytics queue, so widget events reach the registry like everything else.
+  It still has its own publisher — that is phase 3 — so widget mutations still
+  miss audit.
+- `matchAndDispatchWorkflowTriggers` gained an optional `eventId`. When set,
+  each dispatched run gets a deterministic Workflow instance id, so a replayed
+  batch cannot start the same automation twice; Cloudflare rejects the
+  duplicate id and that rejection is treated as success. It also now collects
+  per-workflow failures and throws once at the end rather than swallowing them,
+  so a queue caller retries instead of silently losing a trigger.
+- `EventSource` gained `'widget'`, which widget events have always carried on
+  the wire.
+
+**Watch after deploying:** workflow-trigger latency. Triggers used to fire in
+the mutation's own invocation and now wait for the batch window, so roughly a
+second end to end. If some automation needs better, move that one consumer back
+inline — the rest of the design does not depend on it.
 
 ### Phase 3 — fold in helpdesk-widget-api
 

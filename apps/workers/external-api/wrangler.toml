@@ -81,9 +81,6 @@ queue = "entity-events-dev"
 binding = "AUDIT_EVENTS"
 queue = "audit-events-dev"
 
-[[queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events-dev"
 
 [[services]]
 binding = "REALTIME"
@@ -157,9 +154,6 @@ queue = "entity-events"
 binding = "AUDIT_EVENTS"
 queue = "audit-events"
 
-[[env.production.queues.producers]]
-binding = "ANALYTICS_EVENTS"
-queue = "analytics-events"
 
 [[env.production.services]]
 binding = "REALTIME"

@@ -112,6 +112,78 @@ describe('matchAndDispatchWorkflowTriggers', () => {
       }),
     ).resolves.toBeUndefined();
   });
+
+  // The queue path retries a whole batch when any consumer fails, so the same
+  // event can arrive at this function more than once.
+  describe('idempotency (queue callers)', () => {
+    const matching = [
+      { id: 'wf_1', name: 'A', triggers: [{ type: 'entity_event', entityType: 'company', eventType: 'created' }] },
+    ];
+
+    const input = (env: unknown, eventId?: string) => ({
+      env: env as never,
+      db: fakeDb(matching),
+      workspaceId: 'ws_1',
+      userId: 'u1',
+      entityType: 'company',
+      entityId: 'company_1',
+      action: 'created',
+      data: {},
+      ...(eventId ? { eventId } : {}),
+    });
+
+    it('derives a deterministic instance id from the event id', async () => {
+      const create = vi.fn(async () => undefined);
+      await matchAndDispatchWorkflowTriggers(input({ EXECUTE_WORKFLOW: { create } }, 'evt_abc123'));
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'evt_abc123-wf_1' }),
+      );
+    });
+
+    it('sends no instance id when the caller is inline (no eventId)', async () => {
+      const create = vi.fn(async (_init: { id?: string; params: Record<string, unknown> }) => undefined);
+      await matchAndDispatchWorkflowTriggers(input({ EXECUTE_WORKFLOW: { create } }));
+      expect(create.mock.calls[0]![0]).not.toHaveProperty('id');
+    });
+
+    it('treats a duplicate instance as already dispatched, not a failure', async () => {
+      const create = vi.fn(async () => {
+        throw new Error('instance.already_exists: an instance with that id already exists');
+      });
+      await expect(
+        matchAndDispatchWorkflowTriggers(input({ EXECUTE_WORKFLOW: { create } }, 'evt_abc123')),
+      ).resolves.toBeUndefined();
+    });
+
+    it('rethrows a real dispatch failure so the caller can retry', async () => {
+      const create = vi.fn(async () => {
+        throw new Error('workflow engine unavailable');
+      });
+      await expect(
+        matchAndDispatchWorkflowTriggers(input({ EXECUTE_WORKFLOW: { create } }, 'evt_abc123')),
+      ).rejects.toThrow(/1 workflow dispatch\(es\) failed/);
+    });
+
+    it('still attempts every workflow when one fails', async () => {
+      const create = vi.fn(async (init: { params: Record<string, unknown> }) => {
+        if (init.params.workflowId === 'wf_1') throw new Error('boom');
+        return undefined;
+      });
+      const db = fakeDb([
+        matching[0],
+        { id: 'wf_2', name: 'B', triggers: [{ type: 'entity_event', entityType: 'company', eventType: 'created' }] },
+      ]);
+
+      await expect(
+        matchAndDispatchWorkflowTriggers({
+          ...input({ EXECUTE_WORKFLOW: { create } }, 'evt_abc123'),
+          db,
+        }),
+      ).rejects.toThrow(/failed/);
+
+      expect(create).toHaveBeenCalledTimes(2);
+    });
+  });
 });
 
 describe('evalFilters', () => {
