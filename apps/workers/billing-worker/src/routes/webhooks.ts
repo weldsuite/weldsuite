@@ -1731,6 +1731,9 @@ async function handleDomainRegistrationCheckout(
     console.warn('[Domain Registration] Could not retrieve payment intent:', err);
   }
 
+  let registeredCount = 0;
+  let failedCount = 0;
+
   for (const domainId of registrationIds) {
     // Fetch the pending row
     const [domainRow] = await tenantDb
@@ -1750,8 +1753,9 @@ async function handleDomainRegistrationCheckout(
       continue;
     }
 
-    // Mark as pending_registration before calling RTR (so Stripe retries don't double-register)
-    await tenantDb
+    // Atomically claim the row. Only the delivery that transitions
+    // pending_payment → pending_registration may call rtr.register.
+    const [claimedDomain] = await tenantDb
       .update(tenantSchema.hostDomains)
       .set({
         registrationStatus: 'pending_registration',
@@ -1762,7 +1766,13 @@ async function handleDomainRegistrationCheckout(
           eq(tenantSchema.hostDomains.id, domainId),
           eq(tenantSchema.hostDomains.registrationStatus, 'pending_payment'),
         ),
-      );
+      )
+      .returning({ id: tenantSchema.hostDomains.id });
+
+    if (!claimedDomain) {
+      console.log(`[Domain Registration] Domain ${domainId} was already claimed, skipping`);
+      continue;
+    }
 
     try {
       // 1) Ensure registrant contact handle at RTR
@@ -1878,6 +1888,7 @@ async function handleDomainRegistrationCheckout(
           })
           .where(eq(tenantSchema.hostDomains.id, domainId));
 
+        registeredCount += 1;
         console.log(`[Domain Registration] Registered ${domainRow.fullDomain} (id=${domainId}) → active`);
       } else if (result.status === 'failed') {
         throw new Error(
@@ -1896,6 +1907,8 @@ async function handleDomainRegistrationCheckout(
           .where(eq(tenantSchema.hostDomains.id, domainId));
 
         // Map process → workspace so the app-api RTR webhook can finish the row.
+        // Status poller can still complete via rtrProcessId on the domain row if
+        // this KV write fails.
         try {
           await env.WORKSPACE_CACHE.put(
             `rtr:process:${result.processId}`,
@@ -1910,6 +1923,9 @@ async function handleDomainRegistrationCheckout(
           console.warn('[Domain Registration] Failed to write RTR process cache:', cacheErr);
         }
 
+        // Async acceptance counts as a successful registrar submission —
+        // do not refund the session for a pending workflow.
+        registeredCount += 1;
         console.log(
           `[Domain Registration] ${domainRow.fullDomain} pending RTR process: ${result.processId}`,
         );
@@ -1919,6 +1935,7 @@ async function handleDomainRegistrationCheckout(
       const errMsg = rtrError?.message ?? (regErr instanceof Error ? regErr.message : String(regErr));
 
       console.error(`[Domain Registration] RTR registration failed for ${domainRow.fullDomain}:`, errMsg);
+      failedCount += 1;
 
       await tenantDb
         .update(tenantSchema.hostDomains)
@@ -1929,17 +1946,24 @@ async function handleDomainRegistrationCheckout(
           updatedAt: new Date(),
         })
         .where(eq(tenantSchema.hostDomains.id, domainId));
-
-      // Attempt to refund the Stripe payment
-      if (paymentIntentId) {
-        try {
-          await issueRefund(env, paymentIntentId);
-          console.log(`[Domain Registration] Refund issued for payment ${paymentIntentId}`);
-        } catch (refundErr) {
-          console.error('[Domain Registration] Refund failed:', refundErr);
-        }
-      }
     }
+  }
+
+  // Refund the whole Checkout payment intent only when every domain failed.
+  // Partial success must not refund a live registration.
+  if (failedCount > 0 && registeredCount === 0 && paymentIntentId) {
+    try {
+      await issueRefund(env, paymentIntentId);
+      console.log(
+        `[Domain Registration] Refund issued for payment ${paymentIntentId} (${failedCount} failed, 0 registered)`,
+      );
+    } catch (refundErr) {
+      console.error('[Domain Registration] Refund failed:', refundErr);
+    }
+  } else if (failedCount > 0 && registeredCount > 0) {
+    console.error(
+      `[Domain Registration] Partial failure for session ${sessionId}: ${registeredCount} registered, ${failedCount} failed — manual refund review required`,
+    );
   }
 }
 

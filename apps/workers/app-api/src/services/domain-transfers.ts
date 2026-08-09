@@ -235,21 +235,23 @@ export async function syncTransferFromRegistrar(
   // completed
   const remote = await rtr.getDomain(transfer.domainName).catch(() => null);
   if (transfer.domainId) {
-    await db
-      .update(hostDomains)
-      .set({
-        status: 'active',
-        registrationStatus: 'transferred',
-        registrar: 'realtimeregister',
-        externalRegistrarId: remote?.id ?? transfer.domainName,
-        registrarStatus: remote?.status.join(',') ?? null,
-        expiresAt: remote?.expiresAt ? new Date(remote.expiresAt) : null,
-        locked: remote?.locked ?? true,
-        autoRenew: remote?.autoRenew ?? true,
-        registrarSyncedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(hostDomains.id, transfer.domainId));
+    const patch: Partial<typeof hostDomains.$inferInsert> = {
+      status: 'active',
+      registrationStatus: 'transferred',
+      registrar: 'realtimeregister',
+      externalRegistrarId: remote?.id ?? transfer.domainName,
+      registrarSyncedAt: new Date(),
+      updatedAt: new Date(),
+    };
+    // Only overwrite registrar-derived fields when the lookup succeeded —
+    // a transient getDomain failure must not null out expiresAt / lock state.
+    if (remote) {
+      patch.registrarStatus = remote.status.join(',');
+      if (remote.expiresAt) patch.expiresAt = new Date(remote.expiresAt);
+      patch.locked = remote.locked;
+      patch.autoRenew = remote.autoRenew;
+    }
+    await db.update(hostDomains).set(patch).where(eq(hostDomains.id, transfer.domainId));
   }
   return completeDomainTransfer(db, transferId);
 }

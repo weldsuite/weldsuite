@@ -167,6 +167,13 @@ app.patch('/:id/sync', requirePermission('transfers:update'), async (c) => {
   try {
     const row = await transfersService.syncTransferFromRegistrar(c.get('tenantDb'), rtr, id);
     if (!row) return error.notFound(c, 'Domain transfer', id);
+    publishEntityEvent({
+      c,
+      entityType: 'domain_transfer',
+      entityId: row.id,
+      action: 'updated',
+      data: { id: row.id, domainName: row.domainName, type: row.type, status: row.status },
+    });
     return success(c, row);
   } catch (err) {
     console.error('[app-api/domain-transfers] sync failed:', err);

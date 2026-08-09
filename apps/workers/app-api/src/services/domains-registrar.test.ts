@@ -119,6 +119,18 @@ describe('RealtimeRegistrar.register', () => {
     });
     expect(result).toMatchObject({ status: 'pending', processId: 42 });
   });
+
+  it('fails when async response has no process id', async () => {
+    const { rtr } = withResponse(202, {
+      domainName: 'async.example',
+      status: ['PENDING_VALIDATION'],
+    });
+    const result = await rtr.register({
+      name: 'async.example',
+      registrant: 'ws-reg',
+    });
+    expect(result).toMatchObject({ status: 'failed', code: 'MISSING_PROCESS_ID' });
+  });
 });
 
 describe('RealtimeRegistrar.transfer', () => {
@@ -139,13 +151,28 @@ describe('RealtimeRegistrar.transfer', () => {
     expect(result.processId).toBe(99);
     expect(result.status).toBe('pending');
   });
+
+  it('throws when process id is missing', async () => {
+    const { rtr } = withResponse(202, {
+      domainName: 'move.example',
+      status: 'pending',
+      type: 'IN',
+    });
+    await expect(
+      rtr.transfer({ name: 'move.example', registrant: 'ws-reg', authCode: 'EPP' }),
+    ).rejects.toMatchObject({ code: 'MISSING_PROCESS_ID' });
+  });
 });
 
 describe('contact helpers', () => {
-  it('formats E164a phones', () => {
+  it('formats E164a phones using country calling codes', () => {
     expect(toE164a('+31.384530759')).toBe('+31.384530759');
     expect(toE164a('+1.2025551234')).toBe('+1.2025551234');
-    expect(toE164a('bad')).toBeNull();
+    expect(toE164a('+31384530759', 'NL')).toBe('+31.384530759');
+    expect(toE164a('0612345678', 'NL')).toBe('+31.612345678');
+    expect(toE164a('+12025551234', 'US')).toBe('+1.2025551234');
+    expect(toE164a('0384530759')).toBeNull(); // no country → refuse to guess
+    expect(toE164a('bad', 'NL')).toBeNull();
   });
 
   it('builds stable handles', () => {

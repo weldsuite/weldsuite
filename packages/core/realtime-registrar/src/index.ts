@@ -228,17 +228,48 @@ function mapDomain(data: {
 }
 
 /**
- * Normalise a loose phone string into RTR's E164a form (`+cc.number`).
- * Returns null when we cannot produce a valid value.
+ * ISO 3166-1 alpha-2 → ITU calling code. Used to format RTR E164a phones
+ * (`+cc.national`) without pulling in a full phone-number library.
+ * Cover the markets WeldHost targets; unknown countries return null.
  */
-export function toE164a(phone: string | undefined | null): string | null {
+const CALLING_CODES: Record<string, string> = {
+  US: '1', CA: '1',
+  NL: '31', BE: '32', DE: '49', FR: '33', GB: '44', IE: '353',
+  LU: '352', AT: '43', CH: '41', ES: '34', IT: '39', PT: '351',
+  SE: '46', NO: '47', DK: '45', FI: '358', PL: '48', CZ: '420',
+  AU: '61', NZ: '64', IN: '91', SG: '65', JP: '81', KR: '82',
+  BR: '55', MX: '52', ZA: '27', AE: '971',
+};
+
+/**
+ * Normalise a phone into RTR's E164a form (`+cc.nationalNumber`).
+ * Prefer an already-dotted E164a value; otherwise require `countryCode`
+ * (ISO alpha-2) so the calling code is not guessed from digit length.
+ */
+export function toE164a(
+  phone: string | undefined | null,
+  countryCode?: string | null,
+): string | null {
   if (!phone) return null;
   const trimmed = phone.trim();
   if (/^\+[0-9]{1,3}\.[0-9]{1,14}$/.test(trimmed)) return trimmed;
-  const digits = trimmed.replace(/[^\d+]/g, '');
-  const m = digits.match(/^\+?(\d{1,3})(\d{4,14})$/);
-  if (!m) return null;
-  return `+${m[1]}.${m[2]}`;
+
+  const cc = countryCode?.toUpperCase().slice(0, 2);
+  const calling = cc ? CALLING_CODES[cc] : undefined;
+  if (!calling) return null;
+
+  const digits = trimmed.replace(/\D/g, '');
+  if (!digits) return null;
+
+  // Strip a leading country calling code or a single trunk `0`.
+  let national = digits;
+  if (national.startsWith(calling)) {
+    national = national.slice(calling.length);
+  } else if (national.startsWith('0')) {
+    national = national.replace(/^0+/, '');
+  }
+  if (national.length < 4 || national.length > 14) return null;
+  return `+${calling}.${national}`;
 }
 
 /**
@@ -266,13 +297,14 @@ export function domainContactToCreateInput(
 ): CreateContactInput | null {
   const name = [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim();
   const address1 = (contact.address1 ?? '').trim();
-  const voice = toE164a(contact.phone);
+  const country = contact.country?.toUpperCase().slice(0, 2);
+  const voice = toE164a(contact.phone, country);
   if (
     !name ||
     !address1 ||
     !contact.postalCode ||
     !contact.city ||
-    !contact.country ||
+    !country ||
     !contact.email ||
     !voice
   ) {
@@ -286,12 +318,12 @@ export function domainContactToCreateInput(
     addressLine,
     postalCode: contact.postalCode,
     city: contact.city,
-    country: contact.country.toUpperCase().slice(0, 2),
+    country,
     email: contact.email.toLowerCase(),
     voice,
     organization: contact.organization,
     state: contact.state,
-    fax: toE164a(contact.fax) ?? undefined,
+    fax: toE164a(contact.fax, country) ?? undefined,
   };
 }
 
@@ -474,6 +506,43 @@ export class RealtimeRegistrar {
     return mapDomain(data);
   }
 
+  /**
+   * Fetch the EPP authcode for a domain we manage. Tries the domain get
+   * response first, then the registry info call with `type=AUTHCODE`
+   * (available on gateway accounts / registries that expose it).
+   */
+  async getAuthCode(name: string): Promise<string | null> {
+    const domain = await this.getDomain(name);
+    if (domain.authCode) return domain.authCode;
+    try {
+      const { data } = await this.request<{ authcode?: string }>(
+        'domain-info-authcode',
+        `domains/${encodeURIComponent(name)}/info`,
+        { method: 'GET', query: { type: 'AUTHCODE' } },
+      );
+      return data.authcode ?? null;
+    } catch (err) {
+      if (err instanceof RealtimeRegistrarError && (err.status === 404 || err.status === 400)) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  private requireProcessId(
+    processId: number | undefined,
+    endpoint: string,
+  ): ProcessResult | { ok: true; processId: number } {
+    if (processId !== undefined && Number.isFinite(processId) && processId > 0) {
+      return { ok: true, processId };
+    }
+    return {
+      status: 'failed',
+      code: 'MISSING_PROCESS_ID',
+      message: `Realtime Register returned an async response on ${endpoint} without an X-Process-Id`,
+    };
+  }
+
   async register(input: RegisterInput): Promise<ProcessResult> {
     const body = {
       customer: this.customer,
@@ -497,9 +566,11 @@ export class RealtimeRegistrar {
       });
 
       if (status === 202 || processId) {
+        const required = this.requireProcessId(processId, 'domain-register');
+        if ('status' in required) return required;
         return {
           status: 'pending',
-          processId: processId ?? 0,
+          processId: required.processId,
           pollAfter: 5000,
         };
       }
@@ -574,10 +645,19 @@ export class RealtimeRegistrar {
       method: 'POST',
       body: JSON.stringify(body),
     });
+    const resolvedId = data.processId ?? processId;
+    if (resolvedId === undefined || !Number.isFinite(resolvedId) || resolvedId <= 0) {
+      throw new RealtimeRegistrarError(
+        502,
+        'MISSING_PROCESS_ID',
+        'Realtime Register transfer response did not include a process id',
+        'domain-transfer',
+      );
+    }
     return {
       domainName: data.domainName ?? input.name,
       status: data.status,
-      processId: data.processId ?? processId ?? 0,
+      processId: resolvedId,
       type: data.type ?? 'IN',
       requestedDate: data.requestedDate,
       expiryDate: data.expiryDate,
@@ -602,7 +682,9 @@ export class RealtimeRegistrar {
       }),
     });
     if (status === 202 || (processId && status !== 200 && status !== 201)) {
-      return { status: 'pending', processId: processId ?? 0, pollAfter: 5000 };
+      const required = this.requireProcessId(processId, 'domain-renew');
+      if ('status' in required) return required;
+      return { status: 'pending', processId: required.processId, pollAfter: 5000 };
     }
     return {
       status: 'completed',
@@ -625,7 +707,9 @@ export class RealtimeRegistrar {
       },
     );
     if (status === 202 || processId) {
-      return { status: 'pending', processId: processId ?? 0, pollAfter: 5000 };
+      const required = this.requireProcessId(processId, 'domain-restore');
+      if ('status' in required) return required;
+      return { status: 'pending', processId: required.processId, pollAfter: 5000 };
     }
     const domain = await this.getDomain(name);
     return { status: 'completed', domain, processId };
@@ -649,7 +733,9 @@ export class RealtimeRegistrar {
       },
     );
     if (status === 202 || processId) {
-      return { status: 'pending', processId: processId ?? 0, pollAfter: 3000 };
+      const required = this.requireProcessId(processId, 'domain-update');
+      if ('status' in required) return required;
+      return { status: 'pending', processId: required.processId, pollAfter: 3000 };
     }
     const domain = await this.getDomain(name);
     return { status: 'completed', domain, processId };

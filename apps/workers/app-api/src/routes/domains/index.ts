@@ -466,8 +466,7 @@ app.post(
       });
       return success(c, updated);
     } catch (err) {
-      console.error('[app-api/domains] toggle-auto-renew failed:', err);
-      return error.internal(c, 'Failed to toggle auto-renew');
+      return registrarFailure(c, 'toggle-auto-renew', err, 'Failed to toggle auto-renew');
     }
   },
 );
@@ -495,8 +494,7 @@ app.post(
       });
       return success(c, updated);
     } catch (err) {
-      console.error('[app-api/domains] toggle-privacy failed:', err);
-      return error.internal(c, 'Failed to toggle privacy protection');
+      return registrarFailure(c, 'toggle-privacy', err, 'Failed to toggle privacy protection');
     }
   },
 );
@@ -524,8 +522,7 @@ app.post(
       });
       return success(c, updated);
     } catch (err) {
-      console.error('[app-api/domains] toggle-lock failed:', err);
-      return error.internal(c, 'Failed to toggle transfer lock');
+      return registrarFailure(c, 'toggle-lock', err, 'Failed to toggle transfer lock');
     }
   },
 );
@@ -722,7 +719,10 @@ app.post('/:id/auth-code', requirePermission('domains:read'), async (c) => {
       { rtr: getRealtimeRegistrar(c.env) },
       id,
     );
-    if (!result) return error.notFound(c, 'Domain', id);
+    if (!result.ok) {
+      if (result.reason === 'not_found') return error.notFound(c, 'Domain', id);
+      return error.badRequest(c, result.message);
+    }
     return c.json({
       success: true,
       authCode: result.authCode,

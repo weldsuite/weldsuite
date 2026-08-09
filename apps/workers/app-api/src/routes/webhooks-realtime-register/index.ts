@@ -45,6 +45,12 @@ function getRealtimeRegistrar(env: Env): RealtimeRegistrar | null {
 app.get('/', (c) => c.json({ ok: true, service: 'realtime-register-webhook' }));
 
 app.post('/', async (c) => {
+  // Fail closed: unlike some optional-token webhooks, this receiver can drive
+  // tenant DB writes and registrar API calls from guessable process ids.
+  if (!c.env.REALTIME_REGISTER_WEBHOOK_SECRET) {
+    console.error('[RTR Webhook] Rejected: REALTIME_REGISTER_WEBHOOK_SECRET is not configured');
+    return c.json({ error: 'unauthorized' }, 401);
+  }
   if (!verifyWebhookToken(c, c.env.REALTIME_REGISTER_WEBHOOK_SECRET)) {
     console.warn('[RTR Webhook] Rejected: missing/invalid token');
     return c.json({ error: 'unauthorized' }, 401);
