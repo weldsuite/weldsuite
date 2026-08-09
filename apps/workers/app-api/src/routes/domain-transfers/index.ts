@@ -14,24 +14,14 @@ import {
   createDomainTransferSchema,
   failDomainTransferSchema,
 } from '@weldsuite/core-api-client/schemas/domain-transfers';
-import { RealtimeRegistrar, RealtimeRegistrarError } from '@weldsuite/realtime-registrar';
+import { RealtimeRegistrarError } from '@weldsuite/realtime-registrar';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, success } from '../../lib/response';
+import { getRealtimeRegistrar } from '../../lib/realtime-registrar';
 import * as transfersService from '../../services/domain-transfers';
 import * as domainsService from '../../services/domains';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-function getRealtimeRegistrar(env: Env): RealtimeRegistrar | null {
-  const apiKey = env.REALTIME_REGISTER_API_KEY;
-  const customer = env.REALTIME_REGISTER_CUSTOMER;
-  if (!apiKey || !customer) return null;
-  return new RealtimeRegistrar({
-    apiKey,
-    customer,
-    ote: env.REALTIME_REGISTER_OTE === 'true',
-  });
-}
 
 app.get(
   '/',
@@ -54,10 +44,8 @@ app.get(
 app.get('/:id', requirePermission('transfers:read'), async (c) => {
   const id = c.req.param('id');
   try {
-    const rtr = getRealtimeRegistrar(c.env);
-    if (rtr) {
-      await transfersService.syncTransferFromRegistrar(c.get('tenantDb'), rtr, id);
-    }
+    // Reads stay local — registrar sync is PATCH /:id/sync so an RTR outage
+    // cannot break the detail page.
     const row = await transfersService.getDomainTransfer(c.get('tenantDb'), id);
     if (!row) return error.notFound(c, 'Domain transfer', id);
     return success(c, row);
@@ -128,10 +116,7 @@ app.post(
         return error.badRequest(c, err.message);
       }
       console.error('[app-api/domain-transfers] create failed:', err);
-      return error.internal(
-        c,
-        err instanceof Error ? err.message : 'Failed to create domain transfer',
-      );
+      return error.internal(c, 'Failed to create domain transfer');
     }
   },
 );

@@ -116,92 +116,114 @@ export async function createDomainTransfer(
   },
 ) {
   const id = generateId('txfr');
-  let status: typeof schema.hostDomainTransfers.$inferSelect['status'] = 'pending';
-  let externalTransferId: string | null = null;
-  let registrarResponse: Record<string, unknown> | null = null;
-  let toRegistrar = data.toRegistrar ?? (data.type === 'incoming' ? 'realtimeregister' : data.toRegistrar);
+  let toRegistrar =
+    data.toRegistrar ?? (data.type === 'incoming' ? 'realtimeregister' : data.toRegistrar);
   let domainId = data.domainId ?? null;
 
-  if (data.type === 'incoming' && opts?.rtr) {
-    const rtr = opts.rtr;
-    let registrant =
-      opts.registrantHandle ??
-      null;
-
-    if (!registrant && opts.registrantContact) {
-      registrant = await rtr.ensureRegistrantFromDomainContact(
-        opts.registrantContact as never,
-        'ws',
-      );
-    }
-    if (!registrant) {
-      registrant = opts.contactEnv?.REALTIME_REGISTER_CONTACT_ADMIN ?? null;
-    }
-    if (!registrant) {
-      throw new Error(
-        'Incoming transfer requires a registrant contact handle (set REALTIME_REGISTER_CONTACT_ADMIN or provide contact details)',
-      );
-    }
-
-    const contacts = roleContactsFromEnv(opts.contactEnv ?? {}, registrant);
-    const result = await rtr.transfer({
-      name: data.domainName.toLowerCase(),
-      registrant,
-      authCode: data.authCode,
-      contacts,
-      nameservers: opts.nameservers,
-      designatedAgent: 'NONE',
-      periodMonths: 12,
-    });
-
-    status = mapRtrTransferStatus(result.status);
-    externalTransferId = String(result.processId);
-    registrarResponse = result as unknown as Record<string, unknown>;
-    toRegistrar = 'realtimeregister';
-
-    // Ensure a domain row exists for the incoming transfer
-    if (!domainId) {
-      const parts = data.domainName.toLowerCase().split('.');
-      const name = parts[0]!;
-      const tld = parts.slice(1).join('.');
-      domainId = generateId('dom');
-      await db.insert(hostDomains).values({
-        id: domainId,
-        name,
-        tld,
-        fullDomain: data.domainName.toLowerCase(),
-        registrar: 'realtimeregister',
-        status: 'pending',
-        registrationStatus: 'pending_transfer',
-        rtrRegistrantHandle: registrant,
-        rtrProcessId: externalTransferId,
-        authCode: data.authCode,
-      });
-    } else {
-      await db
-        .update(hostDomains)
-        .set({
-          registrationStatus: 'pending_transfer',
-          rtrProcessId: externalTransferId,
-          rtrRegistrantHandle: registrant,
-          updatedAt: new Date(),
-        })
-        .where(eq(hostDomains.id, domainId));
-    }
-  }
-
+  // Persist the transfer row first so a registrar outage still leaves a
+  // reconcilable local record.
   await db.insert(hostDomainTransfers).values({
     id,
     domainId,
     domainName: data.domainName.toLowerCase(),
     type: data.type,
-    status,
+    status: 'pending',
     authCode: data.authCode,
     fromRegistrar: data.fromRegistrar,
     toRegistrar,
-    externalTransferId,
-    registrarResponse,
   });
+
+  if (data.type === 'incoming' && opts?.rtr) {
+    const rtr = opts.rtr;
+    let registrant = opts.registrantHandle ?? null;
+
+    try {
+      if (!registrant && opts.registrantContact) {
+        registrant = await rtr.ensureRegistrantFromDomainContact(
+          opts.registrantContact as never,
+          'ws',
+        );
+      }
+      if (!registrant) {
+        registrant = opts.contactEnv?.REALTIME_REGISTER_CONTACT_ADMIN ?? null;
+      }
+      if (!registrant) {
+        throw new Error(
+          'Incoming transfer requires a registrant contact handle (set REALTIME_REGISTER_CONTACT_ADMIN or provide contact details)',
+        );
+      }
+
+      const contacts = roleContactsFromEnv(opts.contactEnv ?? {}, registrant);
+      const result = await rtr.transfer({
+        name: data.domainName.toLowerCase(),
+        registrant,
+        authCode: data.authCode,
+        contacts,
+        nameservers: opts.nameservers,
+        designatedAgent: 'NONE',
+        periodMonths: 12,
+      });
+
+      const status = mapRtrTransferStatus(result.status);
+      const externalTransferId = String(result.processId);
+      const registrarResponse = result as unknown as Record<string, unknown>;
+      toRegistrar = 'realtimeregister';
+
+      // Ensure a domain row exists for the incoming transfer
+      if (!domainId) {
+        const parts = data.domainName.toLowerCase().split('.');
+        const name = parts[0]!;
+        const tld = parts.slice(1).join('.');
+        domainId = generateId('dom');
+        await db.insert(hostDomains).values({
+          id: domainId,
+          name,
+          tld,
+          fullDomain: data.domainName.toLowerCase(),
+          registrar: 'realtimeregister',
+          status: 'pending',
+          registrationStatus: 'pending_transfer',
+          rtrRegistrantHandle: registrant,
+          rtrProcessId: externalTransferId,
+          authCode: data.authCode,
+        });
+      } else {
+        await db
+          .update(hostDomains)
+          .set({
+            registrationStatus: 'pending_transfer',
+            rtrProcessId: externalTransferId,
+            rtrRegistrantHandle: registrant,
+            updatedAt: new Date(),
+          })
+          .where(eq(hostDomains.id, domainId));
+      }
+
+      await db
+        .update(hostDomainTransfers)
+        .set({
+          domainId,
+          status,
+          toRegistrar,
+          externalTransferId,
+          registrarResponse,
+          updatedAt: new Date(),
+        })
+        .where(eq(hostDomainTransfers.id, id));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await db
+        .update(hostDomainTransfers)
+        .set({
+          status: 'failed',
+          failureReason: message,
+          updatedAt: new Date(),
+        })
+        .where(eq(hostDomainTransfers.id, id));
+      throw err;
+    }
+  }
+
   const [row] = await db
     .select()
     .from(hostDomainTransfers)

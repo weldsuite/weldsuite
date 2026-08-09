@@ -12,7 +12,7 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
 import { verifyWebhookToken } from '../../lib/webhook-token';
-import { RealtimeRegistrar } from '@weldsuite/realtime-registrar';
+import { getRealtimeRegistrar } from '../../lib/realtime-registrar';
 import { getTenantDbForWorkspace } from '../../db';
 import * as domainsService from '../../services/domains';
 import * as transfersService from '../../services/domain-transfers';
@@ -29,17 +29,6 @@ export type RtrProcessCache = {
 
 export function rtrProcessCacheKey(processId: number | string): string {
   return `rtr:process:${processId}`;
-}
-
-function getRealtimeRegistrar(env: Env): RealtimeRegistrar | null {
-  const apiKey = env.REALTIME_REGISTER_API_KEY;
-  const customer = env.REALTIME_REGISTER_CUSTOMER;
-  if (!apiKey || !customer) return null;
-  return new RealtimeRegistrar({
-    apiKey,
-    customer,
-    ote: env.REALTIME_REGISTER_OTE === 'true',
-  });
 }
 
 app.get('/', (c) => c.json({ ok: true, service: 'realtime-register-webhook' }));
@@ -120,7 +109,9 @@ app.post('/', async (c) => {
       await c.env.WORKSPACE_CACHE.delete(rtrProcessCacheKey(processId));
     }
   } catch (err) {
+    // Return 5xx so Realtime Register retries; ack-on-failure loses the delivery.
     console.error('[RTR Webhook] tenant update failed:', err);
+    return c.json({ error: 'processing_failed', processId }, 500);
   }
 
   return c.json({ received: true, processId, mapped: true });

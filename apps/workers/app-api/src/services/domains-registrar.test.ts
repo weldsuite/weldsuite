@@ -10,7 +10,7 @@ import {
   contactHandleFrom,
   type RegistrarFetch,
 } from '@weldsuite/realtime-registrar';
-import { applyMarkup, applyMarkupFromMajorUnits } from './domains';
+import { applyMarkup } from './domains';
 
 type FetchCall = { url: string; init: RequestInit | undefined };
 
@@ -85,6 +85,43 @@ describe('RealtimeRegistrar.searchDomains', () => {
     const results = await rtr.searchDomains('acme', ['com', 'nl'], 10);
     expect(calls.length).toBe(2);
     expect(results.some((r) => r.name === 'acme.com' && r.available)).toBe(true);
+  });
+
+  it('marks rejected checks as check_failed, not unavailable', async () => {
+    const fetchStub: RegistrarFetch = async () => {
+      throw new Error('network down');
+    };
+    const rtr = new RealtimeRegistrar({
+      apiKey: 'key_test',
+      customer: 'weldsuite',
+      fetch: fetchStub,
+    });
+    const results = await rtr.searchDomains('acme', ['com'], 10);
+    expect(results).toEqual([
+      expect.objectContaining({
+        name: 'acme.com',
+        available: false,
+        reason: 'check_failed',
+      }),
+    ]);
+  });
+});
+
+describe('RealtimeRegistrar.pollProcess', () => {
+  it('maps documented terminal and in-flight statuses', async () => {
+    for (const [status, expected] of [
+      ['COMPLETED', 'completed'],
+      ['FAILED', 'failed'],
+      ['INVALID', 'failed'],
+      ['CANCELLED', 'failed'],
+      ['IN_DOUBT', 'failed'],
+      ['NEW', 'pending'],
+      ['RUNNING', 'pending'],
+      ['SCHEDULED', 'pending'],
+    ] as const) {
+      const { rtr } = withResponse(200, { id: 1, status });
+      await expect(rtr.pollProcess(1)).resolves.toBe(expected);
+    }
   });
 });
 
@@ -169,17 +206,37 @@ describe('contact helpers', () => {
     expect(toE164a('+31.384530759')).toBe('+31.384530759');
     expect(toE164a('+1.2025551234')).toBe('+1.2025551234');
     expect(toE164a('+31384530759', 'NL')).toBe('+31.384530759');
+    expect(toE164a('+31 38 453 0759', 'NL')).toBe('+31.384530759');
     expect(toE164a('0612345678', 'NL')).toBe('+31.612345678');
     expect(toE164a('+12025551234', 'US')).toBe('+1.2025551234');
+    expect(toE164a('+1 (202) 555-1234', 'US')).toBe('+1.2025551234');
     expect(toE164a('0384530759')).toBeNull(); // no country → refuse to guess
     expect(toE164a('bad', 'NL')).toBeNull();
   });
 
-  it('builds stable handles', () => {
-    const h = contactHandleFrom({ email: 'Ada.Lovelace@example.com', lastName: 'Lovelace', country: 'NL' });
-    expect(h.length).toBeGreaterThanOrEqual(3);
-    expect(h.length).toBeLessThanOrEqual(40);
-    expect(h).toMatch(/^[a-z0-9\-_.@]+$/);
+  it('builds stable handles that diverge for distinct contacts', () => {
+    const a = contactHandleFrom({
+      email: 'Ada.Lovelace@example.com',
+      lastName: 'Lovelace',
+      country: 'NL',
+      address1: 'Street 1',
+    });
+    const b = contactHandleFrom({
+      email: 'Ada.Lovelace@example.com',
+      lastName: 'Lovelace',
+      country: 'NL',
+      address1: 'Street 2',
+    });
+    expect(a.length).toBeGreaterThanOrEqual(3);
+    expect(a.length).toBeLessThanOrEqual(40);
+    expect(a).toMatch(/^[a-z0-9\-_.@]+$/);
+    expect(a).not.toBe(b);
+    expect(contactHandleFrom({
+      email: 'Ada.Lovelace@example.com',
+      lastName: 'Lovelace',
+      country: 'NL',
+      address1: 'Street 1',
+    })).toBe(a);
   });
 });
 
@@ -189,8 +246,19 @@ describe('applyMarkup', () => {
       markupAmount: 200,
       markupPercent: null,
       registrationPrice: '10.00',
+      currency: 'EUR',
     } as never;
-    expect(applyMarkup(1000, pricing)).toBe(1200);
+    expect(applyMarkup(1000, pricing, 'EUR')).toBe(1200);
+  });
+
+  it('applies markupPercent when flat markup is absent', () => {
+    const pricing = {
+      markupAmount: null,
+      markupPercent: '20',
+      registrationPrice: '10.00',
+      currency: 'EUR',
+    } as never;
+    expect(applyMarkup(1000, pricing, 'EUR')).toBe(1200);
   });
 
   it('falls back to pricing.registrationPrice major units', () => {
@@ -198,17 +266,30 @@ describe('applyMarkup', () => {
       markupAmount: null,
       markupPercent: null,
       registrationPrice: '12.50',
+      currency: 'EUR',
     } as never;
     expect(applyMarkup(null, pricing)).toBe(1250);
   });
 
-  it('applyMarkupFromMajorUnits converts then marks up', () => {
+  it('ignores wholesale cents when currency disagrees with pricing', () => {
+    const pricing = {
+      markupAmount: null,
+      markupPercent: null,
+      registrationPrice: '15.00',
+      currency: 'EUR',
+    } as never;
+    // 999 USD wholesale must not be mixed into EUR pricing.
+    expect(applyMarkup(999, pricing, 'USD')).toBe(1500);
+  });
+
+  it('converts major units via applyMarkup(cents)', () => {
     const pricing = {
       markupAmount: 100,
       markupPercent: null,
       registrationPrice: '10.00',
+      currency: 'EUR',
     } as never;
     // 10.00 EUR → 1000 cents + 100 markup
-    expect(applyMarkupFromMajorUnits(10, pricing)).toBe(1100);
+    expect(applyMarkup(Math.round(10 * 100), pricing, 'EUR')).toBe(1100);
   });
 });

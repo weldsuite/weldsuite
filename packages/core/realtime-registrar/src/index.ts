@@ -34,7 +34,11 @@ export type DomainUnavailableReason =
   | 'domain_unavailable'
   | 'extension_not_supported'
   | 'domain_premium'
+  | 'check_failed'
   | 'unknown';
+
+/** Default request timeout for Realtime Register HTTP calls. */
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 
 export interface DomainCheckResult {
   name: string;
@@ -272,22 +276,50 @@ export function toE164a(
   return `+${calling}.${national}`;
 }
 
+/** Deterministic short fingerprint so distinct contacts cannot collide on handle. */
+function contactFingerprint(input: DomainContactInput): string {
+  const payload = [
+    input.email,
+    input.firstName,
+    input.lastName,
+    input.organization,
+    input.phone,
+    input.address1,
+    input.address2,
+    input.city,
+    input.state,
+    input.postalCode,
+    input.country,
+  ]
+    .map((v) => (v ?? '').trim().toLowerCase())
+    .join('|');
+  let hash = 5381;
+  for (let i = 0; i < payload.length; i++) {
+    hash = ((hash << 5) + hash) ^ payload.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 /**
  * Build a stable contact handle from contact fields (max 40 chars, RTR charset).
+ * Includes a fingerprint of the full contact so matching email local-part +
+ * last name + country cannot overwrite another registrant.
  */
 export function contactHandleFrom(input: DomainContactInput, prefix = 'ws'): string {
+  const fingerprint = contactFingerprint(input);
   const raw = [
     prefix,
     (input.email ?? '').split('@')[0] ?? '',
     input.lastName ?? '',
     input.country ?? '',
+    fingerprint,
   ]
     .join('-')
     .toLowerCase()
     .replace(/[^a-z0-9\-_.@]/g, '')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
-  const base = raw.length >= 3 ? raw : `${prefix}-contact`;
+  const base = raw.length >= 3 ? raw : `${prefix}-contact-${fingerprint}`;
   return base.slice(0, 40);
 }
 
@@ -336,6 +368,7 @@ export class RealtimeRegistrar {
   private readonly customer: string;
   private readonly baseURL: string;
   private readonly fetchImpl: RegistrarFetch;
+  private readonly timeoutMs: number;
 
   constructor({
     apiKey,
@@ -343,12 +376,14 @@ export class RealtimeRegistrar {
     ote = false,
     baseURL,
     fetch: fetchImpl,
+    timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
   }: {
     apiKey: string;
     customer: string;
     ote?: boolean;
     baseURL?: string;
     fetch?: RegistrarFetch;
+    timeoutMs?: number;
   }) {
     this.apiKey = apiKey;
     this.customer = customer;
@@ -356,6 +391,7 @@ export class RealtimeRegistrar {
       baseURL ??
       (ote ? 'https://api.yoursrs-ote.com/v2/' : 'https://api.yoursrs.com/v2/');
     this.fetchImpl = fetchImpl ?? fetch;
+    this.timeoutMs = timeoutMs;
   }
 
   get customerHandle(): string {
@@ -389,12 +425,20 @@ export class RealtimeRegistrar {
     }
     let res: Response;
     try {
-      res = await this.fetchImpl(this.url(path, query), { ...rest, headers });
+      const signal =
+        rest.signal ??
+        (typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
+          ? AbortSignal.timeout(this.timeoutMs)
+          : undefined);
+      res = await this.fetchImpl(this.url(path, query), { ...rest, headers, signal });
     } catch (err) {
+      const aborted =
+        (err instanceof Error && err.name === 'AbortError') ||
+        (typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'TimeoutError');
       throw new RealtimeRegistrarError(
         0,
-        'NETWORK_ERROR',
-        `Realtime Register network error on ${endpoint}: ${err instanceof Error ? err.message : String(err)}`,
+        aborted ? 'TIMEOUT' : 'NETWORK_ERROR',
+        `Realtime Register ${aborted ? 'timeout' : 'network error'} on ${endpoint}: ${err instanceof Error ? err.message : String(err)}`,
         endpoint,
       );
     }
@@ -465,19 +509,25 @@ export class RealtimeRegistrar {
     }
 
     const slice = candidates.slice(0, limit);
-    const settled = await Promise.allSettled(slice.map((d) => this.checkDomain(d, { renewPrice: true })));
-    const out: DomainCheckResult[] = [];
-    for (let i = 0; i < settled.length; i++) {
-      const s = settled[i]!;
-      if (s.status === 'fulfilled') {
-        out.push(s.value);
-      } else {
-        out.push({
-          name: slice[i]!,
-          available: false,
-          premium: false,
-          reason: 'unknown',
-        });
+    // Bound concurrency so a large TLD fan-out cannot stampede the API.
+    const concurrency = 5;
+    const out: DomainCheckResult[] = new Array(slice.length);
+    for (let i = 0; i < slice.length; i += concurrency) {
+      const batch = slice.slice(i, i + concurrency);
+      const settled = await Promise.allSettled(
+        batch.map((d) => this.checkDomain(d, { renewPrice: true })),
+      );
+      for (let j = 0; j < settled.length; j++) {
+        const s = settled[j]!;
+        out[i + j] =
+          s.status === 'fulfilled'
+            ? s.value
+            : {
+                name: batch[j]!,
+                available: false,
+                premium: false,
+                reason: 'check_failed',
+              };
       }
     }
     // Available first, then name.
@@ -485,14 +535,27 @@ export class RealtimeRegistrar {
   }
 
   async checkDomains(domains: string[]): Promise<DomainCheckResult[]> {
-    const settled = await Promise.allSettled(
-      domains.map((d) => this.checkDomain(d.toLowerCase(), { renewPrice: true })),
-    );
-    return settled.map((s, i) =>
-      s.status === 'fulfilled'
-        ? s.value
-        : { name: domains[i]!, available: false, premium: false, reason: 'unknown' },
-    );
+    const concurrency = 5;
+    const out: DomainCheckResult[] = new Array(domains.length);
+    for (let i = 0; i < domains.length; i += concurrency) {
+      const batch = domains.slice(i, i + concurrency);
+      const settled = await Promise.allSettled(
+        batch.map((d) => this.checkDomain(d.toLowerCase(), { renewPrice: true })),
+      );
+      for (let j = 0; j < settled.length; j++) {
+        const s = settled[j]!;
+        out[i + j] =
+          s.status === 'fulfilled'
+            ? s.value
+            : {
+                name: batch[j]!,
+                available: false,
+                premium: false,
+                reason: 'check_failed',
+              };
+      }
+    }
+    return out;
   }
 
   // ---------- domains ----------
@@ -869,16 +932,27 @@ export class RealtimeRegistrar {
 
   /**
    * Map a process status into a coarse completed/pending/failed result.
+   *
+   * Documented RTR statuses: NEW, VALIDATED, RUNNING, COMPLETED, INVALID,
+   * CANCELLED, FAILED, IN_DOUBT, SCHEDULED, SUSPENDED.
    */
   async pollProcess(processId: number): Promise<'completed' | 'pending' | 'failed'> {
     const info = await this.getProcess(processId);
-    const s = (info.status ?? '').toLowerCase();
-    if (['completed', 'complete', 'success', 'succeeded', 'ok', 'done'].includes(s)) {
-      return 'completed';
-    }
-    if (['failed', 'error', 'cancelled', 'canceled', 'rejected', 'invalid'].includes(s)) {
+    const s = (info.status ?? '').toUpperCase();
+    if (s === 'COMPLETED') return 'completed';
+    if (s === 'FAILED' || s === 'INVALID' || s === 'CANCELLED' || s === 'IN_DOUBT') {
       return 'failed';
     }
+    if (
+      s === 'NEW' ||
+      s === 'VALIDATED' ||
+      s === 'RUNNING' ||
+      s === 'SCHEDULED' ||
+      s === 'SUSPENDED'
+    ) {
+      return 'pending';
+    }
+    console.warn(`[realtime-registrar] Unknown process status "${info.status}" for ${processId}`);
     return 'pending';
   }
 }

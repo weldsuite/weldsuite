@@ -27,7 +27,8 @@ import { createDomainCheckoutSession } from '../lib/stripe';
 const { hostDomains, hostDnsZones } = schema;
 
 export const DEFAULT_REGISTRAR = 'realtimeregister' as const;
-export type DomainRegistrar = 'realtimeregister' | 'cloudflare' | string;
+/** Known registrars keep autocomplete; arbitrary strings remain accepted. */
+export type DomainRegistrar = 'realtimeregister' | 'cloudflare' | (string & {});
 
 // ============================================================================
 // Shared output type — mirrors the legacy `TransformedDomainResult` shape
@@ -74,14 +75,24 @@ const ALLOW_REGISTRAR_MARKUP = true;
 /**
  * Apply markup to a wholesale price already expressed in **cents**.
  * Falls back to `pricing.registrationPrice` (major units) when wholesale
- * cents are missing. Returns null when neither source has a usable price.
+ * cents are missing or when wholesale currency disagrees with the pricing row.
+ * Returns null when neither source has a usable price.
  */
 export function applyMarkup(
   wholesaleCents: number | undefined | null,
   pricing: typeof masterSchema.hostDomainPricing.$inferSelect | undefined,
+  wholesaleCurrency?: string | null,
 ): number | null {
+  const pricingCurrency = pricing?.currency?.toLowerCase() ?? null;
+  const wholesaleCur = wholesaleCurrency?.toLowerCase() ?? null;
+  const currencyMismatch =
+    !!pricingCurrency && !!wholesaleCur && pricingCurrency !== wholesaleCur;
+
   let cents: number | null =
-    wholesaleCents !== undefined && wholesaleCents !== null && Number.isFinite(wholesaleCents)
+    !currencyMismatch &&
+    wholesaleCents !== undefined &&
+    wholesaleCents !== null &&
+    Number.isFinite(wholesaleCents)
       ? Math.round(wholesaleCents)
       : null;
 
@@ -102,17 +113,6 @@ export function applyMarkup(
   return cents;
 }
 
-/** @deprecated Prefer {@link applyMarkup} with cents. Kept for tests that pass major units. */
-export function applyMarkupFromMajorUnits(
-  majorUnits: number | undefined,
-  pricing: typeof masterSchema.hostDomainPricing.$inferSelect | undefined,
-): number | null {
-  if (majorUnits === undefined || majorUnits === null) {
-    return applyMarkup(null, pricing);
-  }
-  return applyMarkup(Math.round(majorUnits * 100), pricing);
-}
-
 // ============================================================================
 // Search / availability (Realtime Register)
 // ============================================================================
@@ -123,15 +123,16 @@ function transformResult(
 ): TransformedDomainResult {
   const tld = r.name.split('.').slice(1).join('.');
   const pricing = pricingMap.get(tld.toLowerCase());
+  const available = r.available && r.reason !== 'check_failed';
   return {
     domain_name: r.name,
     suffix: tld,
-    status: r.available ? 1 : 2,
+    status: available ? 1 : 2,
     premium: r.premium,
-    price: applyMarkup(r.priceCents, pricing),
-    currency: r.currency ?? pricing?.currency ?? 'EUR',
+    price: applyMarkup(r.priceCents, pricing, r.currency),
+    currency: pricing?.currency ?? r.currency ?? 'EUR',
     domain: r.name,
-    available: r.available,
+    available,
     reason: r.reason,
   };
 }
@@ -653,6 +654,17 @@ export async function syncDomainStatus(
     .limit(1);
   if (!domain) return null;
 
+  const inFlightStatuses = new Set([
+    'pending_payment',
+    'pending_registration',
+    'pending_workflow',
+    'pending_transfer',
+    'pending_renewal',
+  ]);
+  // Do not force registrationStatus=registered while a payment/register/
+  // transfer/renew workflow is still in flight.
+  const canMarkRegistered = !inFlightStatuses.has(domain.registrationStatus ?? '');
+
   if (domain.registrar === 'realtimeregister' && clients.rtr) {
     const remote = await clients.rtr.getDomain(domain.fullDomain);
     const [updated] = await db
@@ -668,7 +680,7 @@ export async function syncDomainStatus(
         status: remote.status.includes('OK') || remote.status.includes('ok')
           ? 'active'
           : domain.status,
-        registrationStatus: 'registered',
+        ...(canMarkRegistered ? { registrationStatus: 'registered' as const } : {}),
         registrarSyncedAt: new Date(),
         updatedAt: new Date(),
       })
@@ -688,7 +700,7 @@ export async function syncDomainStatus(
         autoRenew: cfDomain.autoRenew,
         expiresAt: cfDomain.expiresAt ? new Date(cfDomain.expiresAt) : domain.expiresAt,
         status: cfDomain.status === 'active' ? 'active' : domain.status,
-        registrationStatus: 'registered',
+        ...(canMarkRegistered ? { registrationStatus: 'registered' as const } : {}),
         registrarSyncedAt: new Date(),
         updatedAt: new Date(),
       })
@@ -735,7 +747,10 @@ export async function toggleAutoRenew(
 
 export async function togglePrivacy(
   db: Database,
-  clients: { rtr: RealtimeRegistrar | null },
+  clients: {
+    rtr: RealtimeRegistrar | null;
+    cf: CloudflareRegistrar | null;
+  },
   params: { domainId: string; enabled: boolean },
 ) {
   const [domain] = await db
@@ -748,6 +763,12 @@ export async function togglePrivacy(
   if (domain.registrar === 'realtimeregister' && domain.externalRegistrarId) {
     if (!clients.rtr) throw new Error('Realtime Register is not configured');
     await clients.rtr.updateDomain(domain.fullDomain, { privacyProtect: params.enabled });
+  } else if (domain.registrar === 'cloudflare' && domain.externalRegistrarId) {
+    // Cloudflare Registrar beta has no privacy toggle API.
+    void clients.cf;
+    throw new Error(
+      'Privacy protection cannot be changed for domains registered through Cloudflare Registrar',
+    );
   }
 
   const [updated] = await db
@@ -823,7 +844,10 @@ export type IssueAuthCodeResult =
  */
 export async function issueAuthCode(
   db: Database,
-  clients: { rtr: RealtimeRegistrar | null },
+  clients: {
+    rtr: RealtimeRegistrar | null;
+    cf: CloudflareRegistrar | null;
+  },
   domainId: string,
 ): Promise<IssueAuthCodeResult> {
   const [domain] = await db
@@ -833,6 +857,15 @@ export async function issueAuthCode(
     .limit(1);
   if (!domain) return { ok: false, reason: 'not_found' };
 
+  if (domain.registrar === 'cloudflare') {
+    void clients.cf;
+    return {
+      ok: false,
+      reason: 'unavailable',
+      message:
+        'Auth codes are not available via API for domains registered through Cloudflare Registrar.',
+    };
+  }
   if (domain.registrar !== 'realtimeregister') {
     return {
       ok: false,
@@ -922,12 +955,16 @@ export async function createCheckout(
     )
     .limit(1);
 
-  const unitAmountCents = applyMarkup(check.priceCents, pricingRow ?? undefined);
+  const unitAmountCents = applyMarkup(
+    check.priceCents,
+    pricingRow ?? undefined,
+    check.currency,
+  );
   if (unitAmountCents === null || unitAmountCents <= 0) {
     return { ok: false, reason: 'no_price', tld };
   }
 
-  const currency = (check.currency ?? pricingRow?.currency ?? 'eur').toLowerCase();
+  const currency = (pricingRow?.currency ?? check.currency ?? 'eur').toLowerCase();
 
   const [workspaceRow] = await masterDb
     .select({ stripeCustomerId: masterSchema.workspaces.stripeCustomerId })
@@ -996,12 +1033,25 @@ export async function pollRegistrationProcess(
     .from(hostDomains)
     .where(and(eq(hostDomains.id, domainId), isNull(hostDomains.deletedAt)))
     .limit(1);
+  // Renewal processes are tracked separately so they cannot hijack registration polling.
+  if (
+    domain.registrationStatus === 'pending_renewal' ||
+    domain.registrationStatus === 'renewed'
+  ) {
+    return domain;
+  }
   if (!domain?.rtrProcessId) return domain;
 
   const processId = Number.parseInt(domain.rtrProcessId, 10);
-  if (!Number.isFinite(processId)) return domain;
+  if (!Number.isFinite(processId) || processId <= 0) return domain;
 
-  const outcome = await rtr.pollProcess(processId);
+  let outcome: 'completed' | 'pending' | 'failed';
+  try {
+    outcome = await rtr.pollProcess(processId);
+  } catch (err) {
+    console.error('[domains.service] pollRegistrationProcess pollProcess failed:', err);
+    return domain;
+  }
   if (outcome === 'pending') return domain;
 
   if (outcome === 'failed') {
@@ -1045,7 +1095,10 @@ export async function pollRegistrationProcess(
 
 export async function renewDomain(
   db: Database,
-  rtr: RealtimeRegistrar,
+  clients: {
+    rtr: RealtimeRegistrar | null;
+    cf: CloudflareRegistrar | null;
+  },
   params: { domainId: string; periodMonths?: number },
 ) {
   const [domain] = await db
@@ -1054,23 +1107,35 @@ export async function renewDomain(
     .where(and(eq(hostDomains.id, params.domainId), isNull(hostDomains.deletedAt)))
     .limit(1);
   if (!domain) return null;
+  if (domain.registrar === 'cloudflare') {
+    void clients.cf;
+    throw new Error(
+      'Renewal is not available via API for domains registered through Cloudflare Registrar',
+    );
+  }
   if (domain.registrar !== 'realtimeregister') {
     throw new Error('Renewal is only supported for Realtime Register domains');
   }
+  if (!clients.rtr) throw new Error('Realtime Register is not configured');
 
-  const result = await rtr.renew(domain.fullDomain, params.periodMonths ?? 12);
+  const result = await clients.rtr.renew(domain.fullDomain, params.periodMonths ?? 12);
   if (result.status === 'failed') {
     throw new Error(result.message);
   }
 
   const patch: Partial<typeof hostDomains.$inferInsert> = {
     registrationStatus: result.status === 'pending' ? 'pending_renewal' : 'renewed',
-    renewedAt: new Date(),
     updatedAt: new Date(),
   };
   if (result.status === 'pending') {
-    patch.rtrProcessId = String(result.processId);
+    // Keep registration rtrProcessId intact; store renewal process under metadata.
+    const metadata = {
+      ...(domain.metadata ?? {}),
+      rtrRenewalProcessId: String(result.processId),
+    };
+    patch.metadata = metadata;
   } else if (result.status === 'completed') {
+    patch.renewedAt = new Date();
     patch.expiresAt = result.domain.expiresAt ? new Date(result.domain.expiresAt) : domain.expiresAt;
     patch.registrarStatus = result.domain.status.join(',');
     patch.registrarSyncedAt = new Date();

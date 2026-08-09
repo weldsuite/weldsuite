@@ -32,24 +32,14 @@ import { error, list, noContent, success } from '../../lib/response';
 import * as domainsService from '../../services/domains';
 import { getMasterDb } from '../../db';
 import { CloudflareApiError, CloudflareRegistrar } from '@weldsuite/cloudflare-registrar';
-import { RealtimeRegistrar, RealtimeRegistrarError } from '@weldsuite/realtime-registrar';
+import { RealtimeRegistrarError } from '@weldsuite/realtime-registrar';
+import { getRealtimeRegistrar } from '../../lib/realtime-registrar';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // ============================================================================
 // Registrar clients
 // ============================================================================
-
-function getRealtimeRegistrar(env: Env): RealtimeRegistrar | null {
-  const apiKey = env.REALTIME_REGISTER_API_KEY;
-  const customer = env.REALTIME_REGISTER_CUSTOMER;
-  if (!apiKey || !customer) return null;
-  return new RealtimeRegistrar({
-    apiKey,
-    customer,
-    ote: env.REALTIME_REGISTER_OTE === 'true',
-  });
-}
 
 /** Legacy Cloudflare Registrar — only for mutations on registrar=cloudflare rows. */
 function getCloudflareRegistrar(env: Env): CloudflareRegistrar | null {
@@ -481,7 +471,7 @@ app.post(
     try {
       const updated = await domainsService.togglePrivacy(
         c.get('tenantDb'),
-        { rtr: getRealtimeRegistrar(c.env) },
+        registrarClients(c.env),
         { domainId: id, enabled },
       );
       if (!updated) return error.notFound(c, 'Domain', id);
@@ -556,15 +546,19 @@ app.post('/:id/sync', requirePermission('domains:update'), async (c) => {
 
 app.post('/:id/renew', requirePermission('domains:update'), async (c) => {
   const id = c.req.param('id');
-  const rtr = getRealtimeRegistrar(c.env);
-  if (!rtr) {
+  const clients = registrarClients(c.env);
+  const existing = await domainsService.getDomain(c.get('tenantDb'), id);
+  if (!existing) return error.notFound(c, 'Domain', id);
+  if (existing.registrar === 'realtimeregister' && !clients.rtr) {
     return c.json(
       { error: { code: 'SERVICE_UNAVAILABLE', message: 'Realtime Register is not configured' } },
       503,
     );
   }
   try {
-    const updated = await domainsService.renewDomain(c.get('tenantDb'), rtr, { domainId: id });
+    const updated = await domainsService.renewDomain(c.get('tenantDb'), clients, {
+      domainId: id,
+    });
     if (!updated) return error.notFound(c, 'Domain', id);
     publishEntityEvent({
       c,
@@ -716,7 +710,7 @@ app.post('/:id/auth-code', requirePermission('domains:read'), async (c) => {
   try {
     const result = await domainsService.issueAuthCode(
       c.get('tenantDb'),
-      { rtr: getRealtimeRegistrar(c.env) },
+      registrarClients(c.env),
       id,
     );
     if (!result.ok) {
@@ -741,14 +735,25 @@ app.post('/:id/auth-code', requirePermission('domains:read'), async (c) => {
 app.get('/registrations/:id/status', requirePermission('domains:read'), async (c) => {
   const id = c.req.param('id');
   try {
+    const persisted = await domainsService.getRegistrationStatus(c.get('tenantDb'), id);
+    if (!persisted) return error.notFound(c, 'Domain registration', id);
+
     const rtr = getRealtimeRegistrar(c.env);
     if (rtr) {
-      // Drive pending RTR processes forward when the success page polls.
-      await domainsService.pollRegistrationProcess(c.get('tenantDb'), rtr, id);
+      try {
+        // Drive pending RTR processes forward; keep serving persisted status on
+        // transient registrar failures.
+        const polled = await domainsService.pollRegistrationProcess(
+          c.get('tenantDb'),
+          rtr,
+          id,
+        );
+        if (polled) return success(c, polled);
+      } catch (pollErr) {
+        console.error('[app-api/domains] registration poll failed:', pollErr);
+      }
     }
-    const row = await domainsService.getRegistrationStatus(c.get('tenantDb'), id);
-    if (!row) return error.notFound(c, 'Domain registration', id);
-    return success(c, row);
+    return success(c, persisted);
   } catch (err) {
     console.error('[app-api/domains] registration status failed:', err);
     return error.internal(c, 'Failed to fetch registration status');
