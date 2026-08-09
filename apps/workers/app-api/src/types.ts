@@ -92,12 +92,24 @@ export interface Env {
   /** Name of the R2 bucket that holds the Iceberg analytics catalog. */
   R2_ANALYTICS_BUCKET?: string;
 
-  // --- WeldHost (Cloudflare Registrar + Zones + Stripe checkout) ----------
-  /** Cloudflare API token with Zone/Registrar scopes — used by /api/domains. */
+  // --- WeldHost (Realtime Register + Cloudflare Zones + Stripe checkout) --
+  /** Cloudflare API token with Zone (+ legacy Registrar) scopes. */
   CLOUDFLARE_API_TOKEN?: string;
-  /** Cloudflare account that owns the registrar + zones surface. Preferred
-   *  over the legacy `CF_ACCOUNT_ID` name; both are accepted at runtime. */
+  /** Cloudflare account that owns zones (and legacy registrar domains).
+   *  Preferred over the legacy `CF_ACCOUNT_ID` name; both are accepted. */
   CLOUDFLARE_ACCOUNT_ID?: string;
+  /** Realtime Register API key (`Authorization: ApiKey …`). */
+  REALTIME_REGISTER_API_KEY?: string;
+  /** Realtime Register customer handle (single WeldSuite account). */
+  REALTIME_REGISTER_CUSTOMER?: string;
+  /** When `"true"`, use the RTR OTE (test) API base URL. */
+  REALTIME_REGISTER_OTE?: string;
+  /** Optional platform contact handles for ADMIN/TECH/BILLING roles. */
+  REALTIME_REGISTER_CONTACT_ADMIN?: string;
+  REALTIME_REGISTER_CONTACT_TECH?: string;
+  REALTIME_REGISTER_CONTACT_BILLING?: string;
+  /** Shared secret for `/public/webhooks/realtime-register` (`?token=`). */
+  REALTIME_REGISTER_WEBHOOK_SECRET?: string;
   /** Stripe secret key used to mint domain registration Checkout Sessions. */
   STRIPE_SECRET_KEY?: string;
 

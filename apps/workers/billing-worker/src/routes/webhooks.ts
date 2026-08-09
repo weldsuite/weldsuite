@@ -21,7 +21,16 @@ import {
 import { calculateEffectiveSeatLimit, syncClerkSeatLimit, getMemberCount } from '../lib/clerk';
 import { updateSubscriptionCredits } from '../services/credits';
 import { grantCredits } from '@weldsuite/credits';
-import { CloudflareRegistrar, CloudflareApiError } from '@weldsuite/cloudflare-registrar';
+import {
+  RealtimeRegistrar,
+  RealtimeRegistrarError,
+} from '@weldsuite/realtime-registrar';
+import {
+  createCloudflareZone,
+  findZoneIdByName,
+  getCloudflareZone,
+} from '@weldsuite/cloudflare-zones';
+import { generateId } from '../lib/id';
 import type {
   StripeEvent,
   StripeCheckoutSession,
@@ -1686,10 +1695,16 @@ async function handleDomainRegistrationCheckout(
 
   if (registrationIds.length === 0) return;
 
+  const rtrKey = env.REALTIME_REGISTER_API_KEY;
+  const rtrCustomer = env.REALTIME_REGISTER_CUSTOMER;
   const cfToken = env.CLOUDFLARE_API_TOKEN;
   const cfAccountId = env.CLOUDFLARE_ACCOUNT_ID;
+  if (!rtrKey || !rtrCustomer) {
+    console.error('[Domain Registration] REALTIME_REGISTER_API_KEY/CUSTOMER not configured');
+    return;
+  }
   if (!cfToken || !cfAccountId) {
-    console.error('[Domain Registration] CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID not configured');
+    console.error('[Domain Registration] CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID not configured (needed for DNS zone)');
     return;
   }
 
@@ -1697,9 +1712,10 @@ async function handleDomainRegistrationCheckout(
   const { getTenantDbForWorkspace, schema: tenantSchema } = await import('../lib/tenant-db');
   const tenantDb = await getTenantDbForWorkspace(env, workspaceId);
 
-  const cf = new CloudflareRegistrar({
-    accountId: cfAccountId,
-    apiToken: cfToken,
+  const rtr = new RealtimeRegistrar({
+    apiKey: rtrKey,
+    customer: rtrCustomer,
+    ote: env.REALTIME_REGISTER_OTE === 'true',
   });
 
   // Retrieve payment intent for potential refunds
@@ -1734,7 +1750,7 @@ async function handleDomainRegistrationCheckout(
       continue;
     }
 
-    // Mark as pending_registration before calling CF (so Stripe retries don't double-register)
+    // Mark as pending_registration before calling RTR (so Stripe retries don't double-register)
     await tenantDb
       .update(tenantSchema.hostDomains)
       .set({
@@ -1749,11 +1765,97 @@ async function handleDomainRegistrationCheckout(
       );
 
     try {
-      const result = await cf.register({
+      // 1) Ensure registrant contact handle at RTR
+      const contact = (domainRow.registrantContact ?? {}) as {
+        firstName?: string;
+        lastName?: string;
+        organization?: string;
+        email?: string;
+        phone?: string;
+        address1?: string;
+        address2?: string;
+        city?: string;
+        state?: string;
+        postalCode?: string;
+        country?: string;
+      };
+      let registrantHandle = domainRow.rtrRegistrantHandle ?? null;
+      if (!registrantHandle) {
+        registrantHandle = await rtr.ensureRegistrantFromDomainContact(contact, 'ws');
+      }
+      if (!registrantHandle) {
+        // Fall back to platform admin contact if registrant is incomplete
+        registrantHandle = env.REALTIME_REGISTER_CONTACT_ADMIN ?? null;
+      }
+      if (!registrantHandle) {
+        throw new Error(
+          'Registrant contact is incomplete and REALTIME_REGISTER_CONTACT_ADMIN is not set',
+        );
+      }
+
+      const contacts = [
+        { role: 'ADMIN' as const, handle: env.REALTIME_REGISTER_CONTACT_ADMIN || registrantHandle },
+        { role: 'TECH' as const, handle: env.REALTIME_REGISTER_CONTACT_TECH || registrantHandle },
+        { role: 'BILLING' as const, handle: env.REALTIME_REGISTER_CONTACT_BILLING || registrantHandle },
+      ];
+
+      // 2) Create Cloudflare DNS zone first so we can pass NS into RTR register
+      let nameservers: string[] = [];
+      let zoneId: string | null = null;
+      try {
+        const zone = await createCloudflareZone(cfToken, cfAccountId, domainRow.fullDomain);
+        zoneId = zone.zoneId;
+        nameservers = zone.nameservers;
+      } catch (zoneErr) {
+        // Zone may already exist (retry) — try to find it
+        const existingId = await findZoneIdByName(cfToken, domainRow.fullDomain);
+        if (existingId) {
+          zoneId = existingId;
+          const existing = await getCloudflareZone(cfToken, existingId);
+          nameservers = existing?.nameservers ?? [];
+        } else {
+          throw zoneErr;
+        }
+      }
+
+      // Persist zone row if we created/found one
+      if (zoneId) {
+        const existingZone = await tenantDb
+          .select()
+          .from(tenantSchema.hostDnsZones)
+          .where(eq(tenantSchema.hostDnsZones.domainId, domainId))
+          .limit(1);
+        if (!existingZone[0]) {
+          const dnsZoneId = generateId('zone');
+          await tenantDb.insert(tenantSchema.hostDnsZones).values({
+            id: dnsZoneId,
+            domainId,
+            name: domainRow.fullDomain,
+            provider: 'cloudflare',
+            externalZoneId: zoneId,
+            externalNameservers: nameservers,
+            status: 'pending',
+          });
+        }
+        await tenantDb
+          .update(tenantSchema.hostDomains)
+          .set({
+            nameservers,
+            rtrRegistrantHandle: registrantHandle,
+            updatedAt: new Date(),
+          })
+          .where(eq(tenantSchema.hostDomains.id, domainId));
+      }
+
+      // 3) Register at Realtime Register with CF nameservers
+      const result = await rtr.register({
         name: domainRow.fullDomain,
-        contact: (domainRow.registrantContact as Record<string, unknown> | null) ?? undefined,
+        registrant: registrantHandle,
+        contacts,
+        nameservers: nameservers.length ? nameservers : undefined,
         autoRenew: domainRow.autoRenew ?? true,
-        years: 1,
+        privacyProtect: domainRow.privacyProtection ?? false,
+        periodMonths: 12,
       });
 
       if (result.status === 'completed') {
@@ -1762,12 +1864,15 @@ async function handleDomainRegistrationCheckout(
           .set({
             status: 'active',
             registrationStatus: 'registered',
+            registrar: 'realtimeregister',
             externalRegistrarId: result.domain.id,
-            registrarStatus: result.domain.status,
+            registrarStatus: result.domain.status.join(','),
             registeredAt: new Date(),
             expiresAt: result.domain.expiresAt ? new Date(result.domain.expiresAt) : null,
             locked: result.domain.locked,
             autoRenew: result.domain.autoRenew,
+            privacyProtection: result.domain.privacyProtect,
+            rtrRegistrantHandle: registrantHandle,
             registrarSyncedAt: new Date(),
             updatedAt: new Date(),
           })
@@ -1775,40 +1880,52 @@ async function handleDomainRegistrationCheckout(
 
         console.log(`[Domain Registration] Registered ${domainRow.fullDomain} (id=${domainId}) → active`);
       } else if (result.status === 'failed') {
-        // Cloudflare accepted the call, then the registration workflow itself
-        // ended in failure. Same outcome for the customer as a rejected call,
-        // so take the same path below: mark it failed and refund.
         throw new Error(
-          `Cloudflare registration workflow failed (${result.code}): ${result.message}`,
+          `Realtime Register registration failed (${result.code}): ${result.message}`,
         );
       } else {
-        // Registration is always asynchronous — poll the workflow from here.
         await tenantDb
           .update(tenantSchema.hostDomains)
           .set({
             registrationStatus: 'pending_workflow',
-            workflowUrl: result.workflowUrl,
+            registrar: 'realtimeregister',
+            rtrProcessId: String(result.processId),
+            rtrRegistrantHandle: registrantHandle,
             updatedAt: new Date(),
           })
           .where(eq(tenantSchema.hostDomains.id, domainId));
 
+        // Map process → workspace so the app-api RTR webhook can finish the row.
+        try {
+          await env.WORKSPACE_CACHE.put(
+            `rtr:process:${result.processId}`,
+            JSON.stringify({
+              workspaceId,
+              domainId,
+              kind: 'registration',
+            }),
+            { expirationTtl: 60 * 60 * 24 * 14 },
+          );
+        } catch (cacheErr) {
+          console.warn('[Domain Registration] Failed to write RTR process cache:', cacheErr);
+        }
+
         console.log(
-          `[Domain Registration] ${domainRow.fullDomain} pending CF workflow: ${result.workflowUrl}` +
-            (result.actionRequired ? ' — ACTION REQUIRED, polling will not resolve this' : ''),
+          `[Domain Registration] ${domainRow.fullDomain} pending RTR process: ${result.processId}`,
         );
       }
-    } catch (cfErr) {
-      const cfError = cfErr instanceof CloudflareApiError ? cfErr : null;
-      const errMsg = cfError?.message ?? (cfErr instanceof Error ? cfErr.message : String(cfErr));
+    } catch (regErr) {
+      const rtrError = regErr instanceof RealtimeRegistrarError ? regErr : null;
+      const errMsg = rtrError?.message ?? (regErr instanceof Error ? regErr.message : String(regErr));
 
-      console.error(`[Domain Registration] CF registration failed for ${domainRow.fullDomain}:`, errMsg);
+      console.error(`[Domain Registration] RTR registration failed for ${domainRow.fullDomain}:`, errMsg);
 
       await tenantDb
         .update(tenantSchema.hostDomains)
         .set({
           status: 'cancelled',
           registrationStatus: 'registration_failed',
-          metadata: { error: errMsg, cfStatus: cfError?.status },
+          metadata: { error: errMsg, rtrStatus: rtrError?.status, rtrCode: rtrError?.code },
           updatedAt: new Date(),
         })
         .where(eq(tenantSchema.hostDomains.id, domainId));

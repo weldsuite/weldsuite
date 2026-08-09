@@ -381,7 +381,7 @@ export const hostDomainPricing = pgTable('domain_pricing', {
   promotionEndsAt: timestamp('promotion_ends_at'),
 
   // Registrar info
-  registrar: varchar('registrar', { length: 100 }).default('cloudflare'),
+  registrar: varchar('registrar', { length: 100 }).default('realtimeregister'),
 
   // Markup applied at Stripe checkout (one of these is used; the other is null)
   markupAmount: integer('markup_amount'), // flat markup in cents per registration

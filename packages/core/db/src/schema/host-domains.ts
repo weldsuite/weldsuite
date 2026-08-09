@@ -70,6 +70,10 @@ export const hostDomains = pgTable('domains', {
   // Cloudflare async workflow support — set when CF returns 202 on registration
   workflowUrl: text('workflow_url'),
 
+  // Realtime Register — registrant contact handle + async process id
+  rtrRegistrantHandle: varchar('rtr_registrant_handle', { length: 40 }),
+  rtrProcessId: varchar('rtr_process_id', { length: 64 }),
+
   // Important dates
   registeredAt: timestamp('registered_at'),
   expiresAt: timestamp('expires_at'),

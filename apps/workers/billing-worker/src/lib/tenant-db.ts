@@ -5,7 +5,7 @@
  * Used for post-checkout operations (e.g. updating host_domains rows).
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, or } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
 import { drizzle as drizzleNeonHttp, type NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import * as schema from '@weldsuite/db/schema';
@@ -26,14 +26,15 @@ function createNeonTenantDb(connectionUrl: string): NeonHttpDatabase<typeof sche
 }
 
 /**
- * Get a tenant-scoped Neon DB for the given workspace ID (master DB id).
- * Results are cached in KV for 5 minutes.
+ * Get a tenant-scoped Neon DB for the given workspace id **or** Clerk org id.
+ * Domain checkout metadata stores the Clerk org id (app-api `workspaceId`),
+ * while some other billing flows store the master `workspaces.id`. Accept both.
  */
 export async function getTenantDbForWorkspace(
   env: Env,
-  workspaceId: string,
+  workspaceIdOrOrgId: string,
 ): Promise<NeonHttpDatabase<typeof schema>> {
-  const cacheKey = `ws:id:${workspaceId}`;
+  const cacheKey = `ws:id:${workspaceIdOrOrgId}`;
   const cached = await env.WORKSPACE_CACHE.get(cacheKey, 'json') as CachedWorkspace | null;
   if (cached) return createNeonTenantDb(cached.databaseUrl);
 
@@ -48,12 +49,17 @@ export async function getTenantDbForWorkspace(
       databaseUrl: masterSchema.workspaces.databaseUrl,
     })
     .from(masterSchema.workspaces)
-    .where(eq(masterSchema.workspaces.id, workspaceId))
+    .where(
+      or(
+        eq(masterSchema.workspaces.id, workspaceIdOrOrgId),
+        eq(masterSchema.workspaces.clerkOrgId, workspaceIdOrOrgId),
+      ),
+    )
     .limit(1);
 
-  if (!workspace) throw new Error(`Workspace ${workspaceId} not found`);
+  if (!workspace) throw new Error(`Workspace ${workspaceIdOrOrgId} not found`);
   if (!workspace.neonProjectId || !workspace.neonBranchId || !workspace.neonRoleName) {
-    throw new Error(`No database configured for workspace: ${workspaceId}`);
+    throw new Error(`No database configured for workspace: ${workspaceIdOrOrgId}`);
   }
 
   const databaseUrl = await resolveDatabaseUrl(
@@ -62,9 +68,11 @@ export async function getTenantDbForWorkspace(
     { v1: env.DATABASE_ENCRYPTION_KEY, v2: env.DATABASE_ENCRYPTION_KEY_V2 },
   );
 
-  await env.WORKSPACE_CACHE.put(cacheKey, JSON.stringify({ id: workspaceId, databaseUrl }), {
-    expirationTtl: KV_TTL_SECONDS,
-  });
+  await env.WORKSPACE_CACHE.put(
+    cacheKey,
+    JSON.stringify({ id: workspace.id, databaseUrl }),
+    { expirationTtl: KV_TTL_SECONDS },
+  );
 
   return createNeonTenantDb(databaseUrl);
 }

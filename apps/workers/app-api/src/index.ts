@@ -283,6 +283,7 @@ import { telephonyRoutes } from './routes/telephony';
 import { telnyxWebhookRoutes } from './routes/webhooks-telnyx';
 import { webhooksCloudflareRealtimeRoutes } from './routes/webhooks-cloudflare-realtime';
 import { webhooksMeetingBotRoutes } from './routes/webhooks-meeting-bot';
+import { realtimeRegisterWebhookRoutes } from './routes/webhooks-realtime-register';
 import { workingHoursRoutes } from './routes/working-hours';
 import type { Env, Variables } from './types';
 
@@ -436,6 +437,11 @@ app.route('/api/internal', internalRoutes);
 // from Telnyx; Ed25519 signature enforcement applies when TELNYX_PUBLIC_KEY
 // is set. Must stay ABOVE the /api/* guard.
 app.route('/public/webhooks/telnyx', telnyxWebhookRoutes);
+
+// Realtime Register process/notification webhook — PUBLIC. Auth is the shared
+// `?token=` (REALTIME_REGISTER_WEBHOOK_SECRET). Advances pending_workflow
+// domain rows / transfers via the WORKSPACE_CACHE process mapping.
+app.route('/public/webhooks/realtime-register', realtimeRegisterWebhookRoutes);
 
 // External workflow trigger webhooks — PUBLIC. POST /:webhookId authenticates
 // per-webhook (HMAC signature / IP allowlist) inside the receiver service.
