@@ -18,6 +18,17 @@ export function redirectToCheckout(checkoutUrl: string): void {
 }
 
 /**
+ * Map checkout API failures to a toast. Billing-setup / missing Stripe
+ * customer is handled silently on the backend — never surface that
+ * message in the UI even if an older worker still returns it.
+ */
+export function checkoutErrorMessage(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : fallback;
+  if (/stripe customer|billing setup first/i.test(message)) return fallback;
+  return message || fallback;
+}
+
+/**
  * Poll multiple registration statuses simultaneously
  * @param registrationIds Array of registration IDs to poll
  * @param onStatusUpdate Callback called when any status updates

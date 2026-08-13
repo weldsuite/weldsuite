@@ -4,7 +4,7 @@ import { HostEntityFormLayout, type HostFormSection, type HostSummaryField } fro
 import { DomainAvailabilityChecker, type TransformedDomainResult } from '../../components/domain-availability-checker';
 import { Globe, Search, ArrowRight, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { redirectToCheckout } from '@/lib/host/domain-purchase-client';
+import { checkoutErrorMessage, redirectToCheckout } from '@/lib/host/domain-purchase-client';
 import { toast } from 'sonner';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { cn } from '@/lib/utils';
@@ -120,8 +120,7 @@ export function DomainRegistrationClient() {
         redirectToCheckout(checkoutUrl);
       }, 1000);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to create checkout session';
-      toast.error(errorMessage);
+      toast.error(checkoutErrorMessage(error, t.host.purchase.checkoutFailed));
       setIsPending(false);
     }
   };

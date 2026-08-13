@@ -284,27 +284,24 @@ app.post(
         if (result.reason === 'no_price') {
           return error.internal(c, `No price available for .${result.tld}`);
         }
-        if (result.reason === 'no_stripe_customer') {
-          return error.badRequest(c, 'Workspace has no Stripe customer — complete billing setup first');
-        }
-      } else {
-        publishEntityEvent({
-          c,
-          entityType: 'domain',
-          entityId: result.registrationIds[0]!,
-          action: 'created',
-          data: { id: result.registrationIds[0]!, name: c.req.valid('json').domain, status: 'pending' },
-        });
-        return success(
-          c,
-          {
-            checkoutSessionId: result.sessionId,
-            checkoutUrl: result.url,
-            registrationIds: result.registrationIds,
-          },
-          201,
-        );
+        return error.notFound(c, 'Workspace');
       }
+      publishEntityEvent({
+        c,
+        entityType: 'domain',
+        entityId: result.registrationIds[0]!,
+        action: 'created',
+        data: { id: result.registrationIds[0]!, name: c.req.valid('json').domain, status: 'pending' },
+      });
+      return success(
+        c,
+        {
+          checkoutSessionId: result.sessionId,
+          checkoutUrl: result.url,
+          registrationIds: result.registrationIds,
+        },
+        201,
+      );
     } catch (err) {
       return registrarFailure(c, 'checkout', err, 'Failed to initiate checkout');
     }

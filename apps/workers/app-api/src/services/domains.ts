@@ -22,7 +22,7 @@ import {
   getCloudflareZone,
 } from '@weldsuite/cloudflare-zones';
 import { lookupTxt } from '../lib/dns-lookup';
-import { createDomainCheckoutSession } from '../lib/stripe';
+import { createDomainCheckoutSession, createStripeCustomer } from '../lib/stripe';
 
 const { hostDomains, hostDnsZones } = schema;
 
@@ -913,7 +913,7 @@ export async function issueAuthCode(
 export type CheckoutResult =
   | { ok: false; reason: 'unavailable'; domain: string }
   | { ok: false; reason: 'no_price'; tld: string }
-  | { ok: false; reason: 'no_stripe_customer' }
+  | { ok: false; reason: 'workspace_not_found' }
   | { ok: true; sessionId: string; url: string; registrationIds: string[] };
 
 export async function createCheckout(
@@ -965,14 +965,43 @@ export async function createCheckout(
 
   const currency = (pricingRow?.currency ?? check.currency ?? 'usd').toLowerCase();
 
+  // `params.workspaceId` is the Clerk org id from app-api middleware
+  // (`c.set('workspaceId', orgId)`). Look up by either column so this
+  // still works if a caller ever passes the internal `workspaces.id`.
   const [workspaceRow] = await masterDb
-    .select({ stripeCustomerId: masterSchema.workspaces.stripeCustomerId })
+    .select({
+      id: masterSchema.workspaces.id,
+      name: masterSchema.workspaces.name,
+      clerkOrgId: masterSchema.workspaces.clerkOrgId,
+      stripeCustomerId: masterSchema.workspaces.stripeCustomerId,
+    })
     .from(masterSchema.workspaces)
-    .where(eq(masterSchema.workspaces.id, params.workspaceId))
+    .where(
+      or(
+        eq(masterSchema.workspaces.id, params.workspaceId),
+        eq(masterSchema.workspaces.clerkOrgId, params.workspaceId),
+      ),
+    )
     .limit(1);
 
-  if (!workspaceRow?.stripeCustomerId) {
-    return { ok: false, reason: 'no_stripe_customer' };
+  if (!workspaceRow) {
+    return { ok: false, reason: 'workspace_not_found' };
+  }
+
+  let customerId = workspaceRow.stripeCustomerId;
+  if (!customerId) {
+    const customer = await createStripeCustomer(params.stripeSecretKey, {
+      name: workspaceRow.name,
+      metadata: {
+        workspaceId: workspaceRow.id,
+        clerkOrgId: workspaceRow.clerkOrgId ?? params.workspaceId,
+      },
+    });
+    customerId = customer.id;
+    await masterDb
+      .update(masterSchema.workspaces)
+      .set({ stripeCustomerId: customerId, updatedAt: new Date() })
+      .where(eq(masterSchema.workspaces.id, workspaceRow.id));
   }
 
   const parts = params.input.domain.split('.');
@@ -999,7 +1028,7 @@ export async function createCheckout(
   const cancelUrl = `${params.origin}/weldhost/domains/purchase/cancel`;
 
   const session = await createDomainCheckoutSession(params.stripeSecretKey, {
-    customerId: workspaceRow.stripeCustomerId,
+    customerId,
     lineItems: [{ name: params.input.domain, unitAmountCents, currency }],
     successUrl,
     cancelUrl,
