@@ -7,6 +7,7 @@ import { getLabelDisplayName } from '../../lib/label-config';
 import type { ThreadSummary } from '../../lib/thread-utils';
 import { MailDetailWrapper } from '../../components/mail-detail-wrapper';
 import { MobileMailLayout } from '../../components/mobile-mail-layout';
+import { MailThreadListProvider } from '../../contexts/mail-thread-list-context';
 import { useI18n } from '@/lib/i18n/provider';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -133,11 +134,13 @@ export default function LabelLayout({
   const detailContent = <MailDetailWrapper>{children}</MailDetailWrapper>;
 
   return (
-    <MobileMailLayout
-      list={listContent}
-      detail={detailContent}
-      accountId={accountId}
-      labelSlug={labelSlug}
-    />
+    <MailThreadListProvider threads={threads} isUnified={false} folder={labelSlug} accountId={accountId}>
+      <MobileMailLayout
+        list={listContent}
+        detail={detailContent}
+        accountId={accountId}
+        labelSlug={labelSlug}
+      />
+    </MailThreadListProvider>
   );
 }

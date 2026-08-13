@@ -10,6 +10,7 @@ import type { ThreadSummary } from '../../lib/thread-utils';
 import { MailDetailWrapper } from '../../components/mail-detail-wrapper';
 import { MobileMailLayout } from '../../components/mobile-mail-layout';
 import { MessageList } from '../../components/message-list';
+import { MailThreadListProvider } from '../../contexts/mail-thread-list-context';
 import { useMailRealtime } from '../../hooks/useMailRealtime';
 import { UNIFIED_ACCOUNT } from '../../lib/mail-preferences';
 import {
@@ -182,11 +183,13 @@ export default function UnifiedLabelLayout({
   const detailContent = <MailDetailWrapper>{children}</MailDetailWrapper>;
 
   return (
-    <MobileMailLayout
-      list={listContent}
-      detail={detailContent}
-      accountId="unified"
-      labelSlug={labelSlug}
-    />
+    <MailThreadListProvider threads={threads} isUnified folder={labelSlug} accountId="unified">
+      <MobileMailLayout
+        list={listContent}
+        detail={detailContent}
+        accountId="unified"
+        labelSlug={labelSlug}
+      />
+    </MailThreadListProvider>
   );
 }
