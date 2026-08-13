@@ -1,6 +1,7 @@
 import {
   Building2,
   Coins,
+  Globe,
   Headphones,
   LayoutDashboard,
   ListTree,
@@ -62,6 +63,7 @@ export const NAV_AREAS: NavArea[] = [
           { title: 'App Catalog', href: '/apps', icon: Package },
           { title: 'Workspaces', href: '/workspaces', icon: Building2 },
           { title: 'AI Costs', href: '/ai-costs', icon: Coins },
+          { title: 'Domain Pricing', href: '/domain-pricing', icon: Globe },
         ],
       },
     ],
@@ -114,6 +116,18 @@ export const NAV_AREAS: NavArea[] = [
       {
         group: 'Spend',
         items: [{ title: 'Gateway Costs', href: '/ai-costs', icon: Receipt }],
+      },
+    ],
+  },
+  {
+    key: 'domain-pricing',
+    name: 'Domain Pricing',
+    icon: Globe,
+    href: '/domain-pricing',
+    groups: [
+      {
+        group: 'WeldHost',
+        items: [{ title: 'TLD Catalog', href: '/domain-pricing', icon: Globe }],
       },
     ],
   },

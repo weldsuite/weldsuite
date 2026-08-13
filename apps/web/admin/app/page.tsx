@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight, Building2, Coins, Headphones, Package } from 'lucide-react';
+import { ArrowRight, Building2, Coins, Globe, Headphones, Package } from 'lucide-react';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { requireAdmin } from '@/lib/auth';
 import { getAppStats } from '@/lib/apps-data';
@@ -40,6 +40,13 @@ export default async function DashboardPage() {
       icon: Coins,
       title: 'AI Costs',
       description: 'Gateway spend versus what we billed',
+      stat: null as string | null,
+    },
+    {
+      href: '/domain-pricing',
+      icon: Globe,
+      title: 'Domain Pricing',
+      description: 'TLD catalog backfilled from Realtime Register',
       stat: null as string | null,
     },
   ];

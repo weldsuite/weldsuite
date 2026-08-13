@@ -1664,6 +1664,9 @@ importers:
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime
+      '@weldsuite/realtime-registrar':
+        specifier: workspace:*
+        version: link:../../../packages/core/realtime-registrar
       '@weldsuite/transactional-email':
         specifier: workspace:*
         version: link:../../../packages/core/transactional-email

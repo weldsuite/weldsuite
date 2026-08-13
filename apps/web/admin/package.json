@@ -20,6 +20,7 @@
     "@tailwindcss/postcss": "^4.2.0",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
+    "@weldsuite/realtime-registrar": "workspace:*",
     "@weldsuite/transactional-email": "workspace:*",
     "@weldsuite/ui": "workspace:*",
     "class-variance-authority": "^0.7.1",
