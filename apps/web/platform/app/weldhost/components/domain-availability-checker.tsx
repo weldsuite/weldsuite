@@ -19,6 +19,7 @@ import { useAppApi } from '@/lib/api/use-app-api';
 import { isApiError, isNetworkError } from '@weldsuite/api-client';
 import type { DomainSearchResult } from '@weldsuite/core-api-client/schemas/domains';
 import { useI18n } from '@/lib/i18n/provider';
+import { cn } from '@/lib/utils';
 import { formatDomainPrice } from '../lib/format-domain-price';
 
 // Re-export under the legacy name so existing consumers (domain-search-client.tsx,
@@ -148,7 +149,7 @@ export function DomainAvailabilityChecker({
           value={searchTerm}
           onChange={(e) => handleSearch(e.target.value)}
           placeholder={ta.placeholder}
-          className="pl-10 h-12 text-lg bg-white rounded-lg"
+          className="pl-10 h-12 text-lg bg-background rounded-lg"
         />
       </div>
 
@@ -181,23 +182,23 @@ export function DomainAvailabilityChecker({
             if (!exactMatch) return null;
 
             return (
-              <div className="border border-red-200 rounded-lg">
-                <div className="bg-red-50 px-4 md:px-6 py-3 rounded-t-lg">
-                  <div className="flex items-center gap-2 text-red-700 text-base md:text-lg font-semibold">
+              <div className="border border-destructive/30 rounded-lg bg-card">
+                <div className="bg-destructive/10 px-4 md:px-6 py-3 rounded-t-lg">
+                  <div className="flex items-center gap-2 text-destructive text-base md:text-lg font-semibold">
                     <AlertCircle className="h-5 w-5 flex-shrink-0" />
                     <span>{ta.domainUnavailable}</span>
                   </div>
-                  <p className="text-sm text-red-600 mt-0.5">{ta.alreadyRegistered}</p>
+                  <p className="text-sm text-destructive/80 mt-0.5">{ta.alreadyRegistered}</p>
                 </div>
                 <div className="pt-4 md:pt-6 px-4 md:px-6 pb-4 md:pb-6">
-                  <div className="flex items-center justify-between p-3 md:p-4 border border-red-200 rounded-lg bg-red-50 gap-3">
+                  <div className="flex items-center justify-between p-3 md:p-4 border border-destructive/30 rounded-lg bg-destructive/10 gap-3">
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="h-10 w-10 md:h-12 md:w-12 rounded-full bg-red-100 flex items-center justify-center shrink-0">
-                        <X className="h-5 w-5 md:h-6 md:w-6 text-red-600" />
+                      <div className="h-10 w-10 md:h-12 md:w-12 rounded-full bg-destructive/15 flex items-center justify-center shrink-0">
+                        <X className="h-5 w-5 md:h-6 md:w-6 text-destructive" />
                       </div>
                       <div className="min-w-0">
-                        <p className="font-bold text-base md:text-xl truncate">{exactMatch.domain_name}</p>
-                        <p className="text-xs md:text-sm text-red-600 font-medium mt-0.5 md:mt-1">{ta.domainAlreadyRegistered}</p>
+                        <p className="font-bold text-base md:text-xl truncate text-foreground">{exactMatch.domain_name}</p>
+                        <p className="text-xs md:text-sm text-destructive font-medium mt-0.5 md:mt-1">{ta.domainAlreadyRegistered}</p>
                       </div>
                     </div>
                     <Badge variant="destructive" className="gap-1 flex-shrink-0">
@@ -212,7 +213,7 @@ export function DomainAvailabilityChecker({
 
           {/* Domain Matches */}
           {domainResults.length > 0 && (
-            <div className="bg-white rounded-lg border border-border">
+            <div className="bg-card rounded-lg border border-border">
               <div className="divide-y divide-border">
                 {domainResults.map((result) => {
                   const isUnavailable = result.status === 2;
@@ -225,11 +226,14 @@ export function DomainAvailabilityChecker({
                   return (
                     <div
                       key={result.domain_name}
-                      className="flex items-center justify-between px-3 py-3 hover:bg-gray-50 transition-colors gap-2"
+                      className="flex items-center justify-between px-3 py-3 hover:bg-muted/50 transition-colors gap-2"
                     >
                       <div className="flex-1 min-w-0">
                         <p
-                          className={`text-sm md:text-base font-medium truncate ${isUnavailable ? 'text-gray-400' : 'text-gray-900'}`}
+                          className={cn(
+                            'text-sm md:text-base font-medium truncate',
+                            isUnavailable ? 'text-muted-foreground' : 'text-foreground',
+                          )}
                         >
                           {result.domain_name}
                         </p>
@@ -238,7 +242,10 @@ export function DomainAvailabilityChecker({
                       <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
                         <div className="text-right min-w-[70px] md:min-w-[100px]">
                           <p
-                            className={`text-sm md:text-base font-medium ${isUnavailable ? 'text-gray-400' : 'text-gray-900'}`}
+                            className={cn(
+                              'text-sm md:text-base font-medium',
+                              isUnavailable ? 'text-muted-foreground' : 'text-foreground',
+                            )}
                           >
                             {priceLabel ?? (
                               <span className="text-muted-foreground text-xs md:text-sm">{ta.unavailable}</span>
@@ -253,15 +260,16 @@ export function DomainAvailabilityChecker({
                                 variant="ghost"
                                 size="icon"
                                 disabled={!hasPrice && !isUnavailable}
-                                className={`h-9 w-9 flex items-center justify-center border rounded-md transition-colors ${
+                                className={cn(
+                                  'h-9 w-9 flex items-center justify-center border rounded-md transition-colors',
                                   !hasPrice && !isUnavailable
-                                    ? 'border-input bg-gray-100 cursor-not-allowed opacity-50'
+                                    ? 'border-input bg-muted cursor-not-allowed opacity-50'
                                     : isUnavailable
-                                      ? 'border-input hover:bg-gray-50 cursor-not-allowed'
+                                      ? 'border-input hover:bg-muted/50 cursor-not-allowed'
                                       : isSelected
-                                        ? 'bg-black border-black'
-                                        : 'border-input hover:bg-gray-50'
-                                }`}
+                                        ? 'bg-primary border-primary hover:bg-primary/90'
+                                        : 'border-input hover:bg-muted/50',
+                                )}
                                 onClick={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
@@ -279,11 +287,11 @@ export function DomainAvailabilityChecker({
                                 }}
                               >
                                 {isUnavailable ? (
-                                  <ArrowLeftRight className="h-4 w-4 text-gray-300" />
+                                  <ArrowLeftRight className="h-4 w-4 text-muted-foreground/50" />
                                 ) : isSelected ? (
-                                  <Check className="h-4 w-4 text-white" />
+                                  <Check className="h-4 w-4 text-primary-foreground" />
                                 ) : (
-                                  <ShoppingCart className="h-4 w-4 text-gray-600" />
+                                  <ShoppingCart className="h-4 w-4 text-muted-foreground" />
                                 )}
                               </Button>
                             </TooltipTrigger>
