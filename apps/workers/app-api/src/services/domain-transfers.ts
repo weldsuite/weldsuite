@@ -9,8 +9,11 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { schema, type Database } from '../db';
 import { generateId } from '../lib/id';
-import type { RealtimeRegistrar } from '@weldsuite/realtime-registrar';
-import { roleContactsFromEnv } from './domains';
+import {
+  resolvePlatformRegistrarContacts,
+  WELDHOST_PRIVACY_PROTECT,
+  type RealtimeRegistrar,
+} from '@weldsuite/realtime-registrar';
 
 const { hostDomainTransfers, hostDomains } = schema;
 
@@ -111,7 +114,7 @@ export async function createDomainTransfer(
       REALTIME_REGISTER_CONTACT_BILLING?: string;
     };
     nameservers?: string[];
-    registrantHandle?: string;
+    /** Stored on the tenant domain row only — never sent to Realtime Register. */
     registrantContact?: Record<string, unknown> | null;
   },
 ) {
@@ -135,31 +138,23 @@ export async function createDomainTransfer(
 
   if (data.type === 'incoming' && opts?.rtr) {
     const rtr = opts.rtr;
-    let registrant = opts.registrantHandle ?? null;
 
     try {
-      if (!registrant && opts.registrantContact) {
-        registrant = await rtr.ensureRegistrantFromDomainContact(
-          opts.registrantContact as never,
-          'ws',
-        );
-      }
-      if (!registrant) {
-        registrant = opts.contactEnv?.REALTIME_REGISTER_CONTACT_ADMIN ?? null;
-      }
-      if (!registrant) {
-        throw new Error(
-          'Incoming transfer requires a registrant contact handle (set REALTIME_REGISTER_CONTACT_ADMIN or provide contact details)',
-        );
-      }
+      // Platform handles only — customer emails stay in the tenant DB so the
+      // registry / Realtime Register never mail the end user.
+      const platform = resolvePlatformRegistrarContacts({
+        admin: opts.contactEnv?.REALTIME_REGISTER_CONTACT_ADMIN,
+        tech: opts.contactEnv?.REALTIME_REGISTER_CONTACT_TECH,
+        billing: opts.contactEnv?.REALTIME_REGISTER_CONTACT_BILLING,
+      });
 
-      const contacts = roleContactsFromEnv(opts.contactEnv ?? {}, registrant);
       const result = await rtr.transfer({
         name: data.domainName.toLowerCase(),
-        registrant,
+        registrant: platform.registrant,
         authCode: data.authCode,
-        contacts,
+        contacts: platform.contacts,
         nameservers: opts.nameservers,
+        privacyProtect: WELDHOST_PRIVACY_PROTECT,
         designatedAgent: 'NONE',
         periodMonths: 12,
       });
@@ -183,9 +178,11 @@ export async function createDomainTransfer(
           registrar: 'realtimeregister',
           status: 'pending',
           registrationStatus: 'pending_transfer',
-          rtrRegistrantHandle: registrant,
+          privacyProtection: WELDHOST_PRIVACY_PROTECT,
+          rtrRegistrantHandle: platform.registrant,
           rtrProcessId: externalTransferId,
           authCode: data.authCode,
+          registrantContact: (opts.registrantContact as never) ?? null,
         });
       } else {
         await db
@@ -193,7 +190,11 @@ export async function createDomainTransfer(
           .set({
             registrationStatus: 'pending_transfer',
             rtrProcessId: externalTransferId,
-            rtrRegistrantHandle: registrant,
+            rtrRegistrantHandle: platform.registrant,
+            privacyProtection: WELDHOST_PRIVACY_PROTECT,
+            ...(opts.registrantContact
+              ? { registrantContact: opts.registrantContact as never }
+              : {}),
             updatedAt: new Date(),
           })
           .where(eq(hostDomains.id, domainId));

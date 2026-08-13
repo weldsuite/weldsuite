@@ -24,6 +24,8 @@ import { grantCredits } from '@weldsuite/credits';
 import {
   RealtimeRegistrar,
   RealtimeRegistrarError,
+  resolvePlatformRegistrarContacts,
+  WELDHOST_PRIVACY_PROTECT,
 } from '@weldsuite/realtime-registrar';
 import {
   createCloudflareZone,
@@ -1775,39 +1777,16 @@ async function handleDomainRegistrationCheckout(
     }
 
     try {
-      // 1) Ensure registrant contact handle at RTR
-      const contact = (domainRow.registrantContact ?? {}) as {
-        firstName?: string;
-        lastName?: string;
-        organization?: string;
-        email?: string;
-        phone?: string;
-        address1?: string;
-        address2?: string;
-        city?: string;
-        state?: string;
-        postalCode?: string;
-        country?: string;
-      };
-      let registrantHandle = domainRow.rtrRegistrantHandle ?? null;
-      if (!registrantHandle) {
-        registrantHandle = await rtr.ensureRegistrantFromDomainContact(contact, 'ws');
-      }
-      if (!registrantHandle) {
-        // Fall back to platform admin contact if registrant is incomplete
-        registrantHandle = env.REALTIME_REGISTER_CONTACT_ADMIN ?? null;
-      }
-      if (!registrantHandle) {
-        throw new Error(
-          'Registrant contact is incomplete and REALTIME_REGISTER_CONTACT_ADMIN is not set',
-        );
-      }
-
-      const contacts = [
-        { role: 'ADMIN' as const, handle: env.REALTIME_REGISTER_CONTACT_ADMIN || registrantHandle },
-        { role: 'TECH' as const, handle: env.REALTIME_REGISTER_CONTACT_TECH || registrantHandle },
-        { role: 'BILLING' as const, handle: env.REALTIME_REGISTER_CONTACT_BILLING || registrantHandle },
-      ];
+      // Platform handles only. Customer contact on the tenant row is never
+      // sent to Realtime Register — registry/registrar mail must land in
+      // WeldSuite's hostmaster inbox, not the customer's.
+      const platform = resolvePlatformRegistrarContacts({
+        admin: env.REALTIME_REGISTER_CONTACT_ADMIN,
+        tech: env.REALTIME_REGISTER_CONTACT_TECH,
+        billing: env.REALTIME_REGISTER_CONTACT_BILLING,
+      });
+      const registrantHandle = platform.registrant;
+      const contacts = platform.contacts;
 
       // 2) Create Cloudflare DNS zone first so we can pass NS into RTR register
       let nameservers: string[] = [];
@@ -1864,7 +1843,7 @@ async function handleDomainRegistrationCheckout(
         contacts,
         nameservers: nameservers.length ? nameservers : undefined,
         autoRenew: domainRow.autoRenew ?? true,
-        privacyProtect: domainRow.privacyProtection ?? false,
+        privacyProtect: WELDHOST_PRIVACY_PROTECT,
         periodMonths: 12,
       });
 
@@ -1902,6 +1881,7 @@ async function handleDomainRegistrationCheckout(
             registrar: 'realtimeregister',
             rtrProcessId: String(result.processId),
             rtrRegistrantHandle: registrantHandle,
+            privacyProtection: WELDHOST_PRIVACY_PROTECT,
             updatedAt: new Date(),
           })
           .where(eq(tenantSchema.hostDomains.id, domainId));

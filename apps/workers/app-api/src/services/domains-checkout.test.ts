@@ -138,7 +138,52 @@ describe('createCheckout · Stripe customer', () => {
     expect(row?.fullDomain).toBe('example.com');
     expect(row?.stripeSessionId).toBe('cs_test_1');
     expect(row?.registrationStatus).toBe('pending_payment');
+    expect(row?.privacyProtection).toBe(true);
   });
+
+  it('stores customer contact on the tenant row and still forces WHOIS privacy', async () => {
+    const masterDb = masterDbStub({
+      workspace: {
+        id: 'ws_internal',
+        name: 'Acme',
+        clerkOrgId: 'org_test_default',
+        stripeCustomerId: 'cus_existing',
+      },
+    });
+    const contact = {
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      email: 'ada@customer.example',
+      phone: '+44.2079460958',
+      address1: '1 Street',
+      city: 'London',
+      postalCode: 'SW1A 1AA',
+      country: 'GB',
+    };
+
+    const result = await createCheckout(db, availableRtr('privacy-force.com'), masterDb, {
+      ...checkoutParams,
+      input: {
+        domain: 'privacy-force.com',
+        autoRenew: true,
+        years: 1,
+        privacyProtection: false,
+        contact,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const [row] = await db
+      .select()
+      .from(schema.hostDomains)
+      .where(eq(schema.hostDomains.id, result.registrationIds[0]!))
+      .limit(1);
+    expect(row?.privacyProtection).toBe(true);
+    expect(row?.registrantContact).toMatchObject({ email: 'ada@customer.example' });
+    expect(row?.rtrRegistrantHandle).toBeNull();
+  });
+
 
   it('reuses an existing Stripe customer and does not create another', async () => {
     const masterDb = masterDbStub({

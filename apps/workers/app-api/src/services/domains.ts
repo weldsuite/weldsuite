@@ -13,6 +13,7 @@ import { generateId } from '../lib/id';
 import type { CloudflareRegistrar } from '@weldsuite/cloudflare-registrar';
 import {
   RealtimeRegistrar,
+  resolvePlatformRegistrarContacts,
   type DomainCheckResult,
   type DomainContactInput,
 } from '@weldsuite/realtime-registrar';
@@ -172,16 +173,17 @@ export async function checkDomains(
   return results.map((r) => transformResult(r, pricingMap));
 }
 
+/** WeldSuite-owned RTR handles used as admin/tech/billing. Registrant is always the admin handle. */
 export function roleContactsFromEnv(env: {
   REALTIME_REGISTER_CONTACT_ADMIN?: string;
   REALTIME_REGISTER_CONTACT_TECH?: string;
   REALTIME_REGISTER_CONTACT_BILLING?: string;
-}, registrantHandle: string): Array<{ role: 'ADMIN' | 'BILLING' | 'TECH'; handle: string }> {
-  return [
-    { role: 'ADMIN', handle: env.REALTIME_REGISTER_CONTACT_ADMIN || registrantHandle },
-    { role: 'TECH', handle: env.REALTIME_REGISTER_CONTACT_TECH || registrantHandle },
-    { role: 'BILLING', handle: env.REALTIME_REGISTER_CONTACT_BILLING || registrantHandle },
-  ];
+}): Array<{ role: 'ADMIN' | 'BILLING' | 'TECH'; handle: string }> {
+  return resolvePlatformRegistrarContacts({
+    admin: env.REALTIME_REGISTER_CONTACT_ADMIN,
+    tech: env.REALTIME_REGISTER_CONTACT_TECH,
+    billing: env.REALTIME_REGISTER_CONTACT_BILLING,
+  }).contacts;
 }
 
 // ============================================================================
@@ -1018,7 +1020,9 @@ export async function createCheckout(
     status: 'pending',
     registrationStatus: 'pending_payment',
     autoRenew: params.input.autoRenew ?? true,
-    privacyProtection: params.input.privacyProtection ?? false,
+    // Always on: public WHOIS must not expose platform staff. Customer
+    // contact (if provided) stays in this tenant row and is never sent to RTR.
+    privacyProtection: true,
     registrantContact: (params.input.contact as never) ?? null,
     createdAt: now,
     updatedAt: now,
