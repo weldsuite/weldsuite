@@ -1661,6 +1661,9 @@ importers:
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../../packages/core/db
+      '@weldsuite/i18n':
+        specifier: workspace:*
+        version: link:../../../packages/core/i18n
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime

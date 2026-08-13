@@ -1,3 +1,4 @@
+import { getTranslations } from '@weldsuite/i18n';
 import {
   Building2,
   Coins,
@@ -45,7 +46,9 @@ export interface NavArea {
   groups: NavGroup[];
 }
 
-export const NAV_AREAS: NavArea[] = [
+export function getNavAreas(): NavArea[] {
+  const pricing = getTranslations('host').adminPricing;
+  return [
   {
     key: 'overview',
     name: 'Overview',
@@ -63,7 +66,7 @@ export const NAV_AREAS: NavArea[] = [
           { title: 'App Catalog', href: '/apps', icon: Package },
           { title: 'Workspaces', href: '/workspaces', icon: Building2 },
           { title: 'AI Costs', href: '/ai-costs', icon: Coins },
-          { title: 'Domain Pricing', href: '/domain-pricing', icon: Globe },
+          { title: pricing.navJumpTo, href: '/domain-pricing', icon: Globe },
         ],
       },
     ],
@@ -121,25 +124,27 @@ export const NAV_AREAS: NavArea[] = [
   },
   {
     key: 'domain-pricing',
-    name: 'Domain Pricing',
+    name: pricing.navArea,
     icon: Globe,
     href: '/domain-pricing',
     groups: [
       {
-        group: 'WeldHost',
-        items: [{ title: 'TLD Catalog', href: '/domain-pricing', icon: Globe }],
+        group: pricing.navGroup,
+        items: [{ title: pricing.navCatalog, href: '/domain-pricing', icon: Globe }],
       },
     ],
   },
-];
+  ];
+}
 
 /** Resolve the area that owns `pathname`, falling back to Overview. */
 export function getActiveArea(pathname: string): NavArea {
-  const match = NAV_AREAS.filter((area) => area.href !== '/').find((area) => {
+  const areas = getNavAreas();
+  const match = areas.filter((area) => area.href !== '/').find((area) => {
     const prefixes = [area.href, ...(area.matches ?? [])];
     return prefixes.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   });
-  return match ?? NAV_AREAS[0]!;
+  return match ?? areas[0]!;
 }
 
 /**

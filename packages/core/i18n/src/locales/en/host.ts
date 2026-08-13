@@ -62,6 +62,49 @@ export const host = {
       continueWithCount: 'Continue ({count})',
     },
 
+    // Admin console — master domain_pricing catalog
+    adminPricing: {
+      navJumpTo: 'Domain Pricing',
+      navArea: 'Domain Pricing',
+      navGroup: 'WeldHost',
+      navCatalog: 'TLD Catalog',
+      cardTitle: 'Domain Pricing',
+      cardDescription: 'TLD catalog backfilled from Realtime Register',
+      title: 'Domain pricing',
+      description:
+        'Master catalog used by WeldHost search and checkout. Backfill missing TLDs from the Realtime Register pricelist — existing rows and markup are left alone.',
+      backfillButton: 'Backfill from Realtime Register',
+      catalog: 'Catalog',
+      active: 'Active',
+      popular: 'Popular',
+      filterTld: 'Filter TLD…',
+      filterTldLabel: 'Filter TLD',
+      emptyCatalog:
+        'No domain pricing yet. Backfill from Realtime Register to populate the catalog.',
+      emptyFilter: 'No TLDs match that filter.',
+      columnTld: 'TLD',
+      columnRegister: 'Register',
+      columnRenew: 'Renew',
+      columnTransfer: 'Transfer',
+      columnMarkup: 'Markup',
+      columnStatus: 'Status',
+      statusActive: 'active',
+      statusInactive: 'inactive',
+      statusPopular: 'popular',
+      confirmTitle: 'Backfill domain pricing?',
+      confirmDescription:
+        'This calls Realtime Register GET /v2/customers/…/pricelist (EUR) and inserts any TLDs that are not already in the master catalog. Existing rows, including markup, are not overwritten.',
+      confirmCancel: 'Cancel',
+      confirmFetch: 'Fetch pricelist',
+      backfillSuccess:
+        'Backfilled {inserted} TLD(s) from Realtime Register ({fetched} on pricelist, {skipped} already in catalog)',
+      backfillAlreadyComplete:
+        'Catalog already complete — {fetched} TLDs on the pricelist, none missing',
+      notConfigured:
+        'Realtime Register is not configured. Set REALTIME_REGISTER_API_KEY and REALTIME_REGISTER_CUSTOMER on the admin app.',
+      pricelistFailed: 'Realtime Register pricelist request failed',
+    },
+
     // Domain availability checker
     availability: {
       enterDomain: 'Enter a domain name to check availability',

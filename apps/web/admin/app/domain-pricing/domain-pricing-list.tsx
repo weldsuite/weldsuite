@@ -26,6 +26,7 @@ import {
 } from '@weldsuite/ui/components/table';
 import { PageBody, PageContent, PageHeading } from '@/components/shell/admin-shell';
 import { backfillDomainPricing } from '@/actions/domain-pricing';
+import { adminPricingCopy, fill } from '@/lib/i18n';
 import type { DomainPricingRow, DomainPricingStats } from '@/lib/domain-pricing-data';
 
 function formatMoney(amount: string, currency: string): string {
@@ -55,6 +56,7 @@ export function DomainPricingList({
   const [search, setSearch] = useState('');
   const [confirm, setConfirm] = useState(false);
   const [isMutating, startMutation] = useTransition();
+  const copy = adminPricingCopy();
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase().replace(/^\./, '');
@@ -69,8 +71,8 @@ export function DomainPricingList({
         const { inserted, skipped, fetched } = result.data;
         toast.success(
           inserted
-            ? `Backfilled ${inserted} TLD${inserted === 1 ? '' : 's'} from Realtime Register (${fetched} on pricelist, ${skipped} already in catalog)`
-            : `Catalog already complete — ${fetched} TLDs on the pricelist, none missing`,
+            ? fill(copy.backfillSuccess, { inserted, fetched, skipped })
+            : fill(copy.backfillAlreadyComplete, { fetched }),
         );
         setConfirm(false);
         router.refresh();
@@ -87,10 +89,10 @@ export function DomainPricingList({
           title={
             <span className="flex items-center gap-2">
               <Globe className="h-6 w-6 text-primary" />
-              Domain pricing
+              {copy.title}
             </span>
           }
-          description="Master catalog used by WeldHost search and checkout. Backfill missing TLDs from the Realtime Register pricelist — existing rows and markup are left alone."
+          description={copy.description}
           actions={
             <Button size="sm" onClick={() => setConfirm(true)} disabled={isMutating}>
               {isMutating ? (
@@ -98,7 +100,7 @@ export function DomainPricingList({
               ) : (
                 <RefreshCw className="h-4 w-4" />
               )}
-              Backfill from Realtime Register
+              {copy.backfillButton}
             </Button>
           }
         />
@@ -106,19 +108,19 @@ export function DomainPricingList({
         <div className="grid grid-cols-3 gap-3">
           <Card className="py-4">
             <CardContent className="px-4">
-              <p className="text-xs text-muted-foreground">Catalog</p>
+              <p className="text-xs text-muted-foreground">{copy.catalog}</p>
               <p className="mt-1 text-lg font-medium tabular-nums">{stats.total}</p>
             </CardContent>
           </Card>
           <Card className="py-4">
             <CardContent className="px-4">
-              <p className="text-xs text-muted-foreground">Active</p>
+              <p className="text-xs text-muted-foreground">{copy.active}</p>
               <p className="mt-1 text-lg font-medium tabular-nums">{stats.active}</p>
             </CardContent>
           </Card>
           <Card className="py-4">
             <CardContent className="px-4">
-              <p className="text-xs text-muted-foreground">Popular</p>
+              <p className="text-xs text-muted-foreground">{copy.popular}</p>
               <p className="mt-1 text-lg font-medium tabular-nums">{stats.popular}</p>
             </CardContent>
           </Card>
@@ -127,9 +129,11 @@ export function DomainPricingList({
         <div className="relative max-w-sm">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
+            id="domain-pricing-tld-filter"
+            aria-label={copy.filterTldLabel}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Filter TLD…"
+            placeholder={copy.filterTld}
             className="pl-9"
           />
         </div>
@@ -138,12 +142,12 @@ export function DomainPricingList({
           <Table>
             <TableHeader className="[&_tr]:border-border/70">
               <TableRow>
-                <TableHead className="text-[13.5px]">TLD</TableHead>
-                <TableHead className="text-right text-[13.5px]">Register</TableHead>
-                <TableHead className="text-right text-[13.5px]">Renew</TableHead>
-                <TableHead className="text-right text-[13.5px]">Transfer</TableHead>
-                <TableHead className="text-[13.5px]">Markup</TableHead>
-                <TableHead className="text-[13.5px]">Status</TableHead>
+                <TableHead className="text-[13.5px]">{copy.columnTld}</TableHead>
+                <TableHead className="text-right text-[13.5px]">{copy.columnRegister}</TableHead>
+                <TableHead className="text-right text-[13.5px]">{copy.columnRenew}</TableHead>
+                <TableHead className="text-right text-[13.5px]">{copy.columnTransfer}</TableHead>
+                <TableHead className="text-[13.5px]">{copy.columnMarkup}</TableHead>
+                <TableHead className="text-[13.5px]">{copy.columnStatus}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody className="[&_tr]:border-border/70">
@@ -151,8 +155,8 @@ export function DomainPricingList({
                 <TableRow>
                   <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
                     {rows.length === 0
-                      ? 'No domain pricing yet. Backfill from Realtime Register to populate the catalog.'
-                      : 'No TLDs match that filter.'}
+                      ? copy.emptyCatalog
+                      : copy.emptyFilter}
                   </TableCell>
                 </TableRow>
               )}
@@ -172,11 +176,11 @@ export function DomainPricingList({
                   <TableCell className="py-2">
                     <div className="flex flex-wrap gap-1">
                       {row.isActive ? (
-                        <Badge variant="secondary">active</Badge>
+                        <Badge variant="secondary">{copy.statusActive}</Badge>
                       ) : (
-                        <Badge variant="outline">inactive</Badge>
+                        <Badge variant="outline">{copy.statusInactive}</Badge>
                       )}
-                      {row.isPopular && <Badge variant="outline">popular</Badge>}
+                      {row.isPopular && <Badge variant="outline">{copy.statusPopular}</Badge>}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -189,20 +193,16 @@ export function DomainPricingList({
       <Dialog open={confirm} onOpenChange={setConfirm}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Backfill domain pricing?</DialogTitle>
-            <DialogDescription>
-              This calls Realtime Register <code>GET /v2/customers/…/pricelist</code> (EUR) and
-              inserts any TLDs that are not already in the master catalog. Existing rows, including
-              markup, are not overwritten.
-            </DialogDescription>
+            <DialogTitle>{copy.confirmTitle}</DialogTitle>
+            <DialogDescription>{copy.confirmDescription}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirm(false)} disabled={isMutating}>
-              Cancel
+              {copy.confirmCancel}
             </Button>
             <Button onClick={runBackfill} disabled={isMutating}>
               {isMutating && <Loader2 className="h-4 w-4 animate-spin" />}
-              Fetch pricelist
+              {copy.confirmFetch}
             </Button>
           </DialogFooter>
         </DialogContent>

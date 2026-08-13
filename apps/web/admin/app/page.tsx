@@ -3,6 +3,7 @@ import { ArrowRight, Building2, Coins, Globe, Headphones, Package } from 'lucide
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { requireAdmin } from '@/lib/auth';
 import { getAppStats } from '@/lib/apps-data';
+import { adminPricingCopy } from '@/lib/i18n';
 import { PageBody, PageContent, PageHeading } from '@/components/shell/admin-shell';
 
 export const dynamic = 'force-dynamic';
@@ -12,6 +13,7 @@ export default async function DashboardPage() {
   const appStats = await getAppStats();
 
   const greetingName = admin.name?.split(' ')[0] || admin.email.split('@')[0];
+  const pricing = adminPricingCopy();
 
   const cards = [
     {
@@ -45,8 +47,8 @@ export default async function DashboardPage() {
     {
       href: '/domain-pricing',
       icon: Globe,
-      title: 'Domain Pricing',
-      description: 'TLD catalog backfilled from Realtime Register',
+      title: pricing.cardTitle,
+      description: pricing.cardDescription,
       stat: null as string | null,
     },
   ];

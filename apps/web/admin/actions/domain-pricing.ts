@@ -7,6 +7,7 @@ import { getMasterDb, masterSchema } from '@/lib/db';
 import { generateId } from '@/lib/id';
 import { getAdminRealtimeRegistrar } from '@/lib/realtime-registrar';
 import { listExistingDomainTlds } from '@/lib/domain-pricing-data';
+import { adminPricingCopy } from '@/lib/i18n';
 
 const { hostDomainPricing } = masterSchema;
 
@@ -28,8 +29,7 @@ export async function backfillDomainPricing(): Promise<ActionResult<BackfillDoma
   if (!rtr) {
     return {
       ok: false,
-      error:
-        'Realtime Register is not configured. Set REALTIME_REGISTER_API_KEY and REALTIME_REGISTER_CUSTOMER on the admin app.',
+      error: adminPricingCopy().notConfigured,
     };
   }
 
@@ -42,7 +42,7 @@ export async function backfillDomainPricing(): Promise<ActionResult<BackfillDoma
         ? err.message
         : err instanceof Error
           ? err.message
-          : 'Realtime Register pricelist request failed';
+          : adminPricingCopy().pricelistFailed;
     return { ok: false, error: message };
   }
 

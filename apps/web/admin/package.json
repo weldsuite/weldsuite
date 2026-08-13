@@ -19,6 +19,7 @@
     "@radix-ui/react-tooltip": "^1.2.7",
     "@tailwindcss/postcss": "^4.2.0",
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/i18n": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
     "@weldsuite/realtime-registrar": "workspace:*",
     "@weldsuite/transactional-email": "workspace:*",
