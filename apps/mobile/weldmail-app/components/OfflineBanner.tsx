@@ -3,13 +3,9 @@
  *
  * Reads device connectivity from NetworkContext (NetInfo). Renders nothing
  * while online. Debounced so a momentary blip (tunnel, handoff) doesn't flash a
- * banner. Sits at the very top (safe-area inset), above the RealtimeStatusBanner
- * — which suppresses itself while offline so the two never stack (a dropped
- * socket is just a symptom of being offline; one message is enough).
- *
- * Visual language mirrors components/RealtimeStatusBanner.tsx (same theme
- * tokens) but uses an amber accent to distinguish "no internet" from the
- * neutral "reconnecting" socket state.
+ * banner. Sits at the very top (safe-area inset). A dropped realtime socket is
+ * not surfaced separately — mail still works over REST, so websocket lag is
+ * not worth a loading state.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -71,7 +67,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    zIndex: 1001, // above RealtimeStatusBanner (1000)
+    zIndex: 1001,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
