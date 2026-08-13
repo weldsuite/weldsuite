@@ -15,7 +15,7 @@ vi.mock('@/lib/router', () => ({
   ),
 }));
 
-function renderLayout() {
+function renderLayout(overrides?: { hideMobileSummary?: boolean }) {
   return render(
     <HostEntityFormLayout
       title="Register a New Domain"
@@ -34,7 +34,7 @@ function renderLayout() {
       summaryContent={<div>cart-items</div>}
       onSubmit={(event) => event.preventDefault()}
       submitText="Proceed to Payment"
-      hideMobileSummary
+      hideMobileSummary={overrides?.hideMobileSummary ?? true}
     />,
   );
 }
@@ -70,5 +70,22 @@ describe('HostEntityFormLayout', () => {
 
     expect(form).not.toBeNull();
     expect(form!.className).not.toMatch(/md:mr-\[420px\]/);
+  });
+
+  it('associates both submit buttons with the form via its unique id', () => {
+    const { container } = renderLayout({ hideMobileSummary: false });
+    const form = container.querySelector('form');
+
+    expect(form).not.toBeNull();
+    expect(form).toHaveAttribute('id');
+    const formId = form!.id;
+    expect(formId).toBeTruthy();
+
+    const submitButtons = screen.getAllByRole('button', { name: 'Proceed to Payment' });
+    expect(submitButtons).toHaveLength(2);
+    for (const button of submitButtons) {
+      expect(button).toHaveAttribute('type', 'submit');
+      expect(button).toHaveAttribute('form', formId);
+    }
   });
 });

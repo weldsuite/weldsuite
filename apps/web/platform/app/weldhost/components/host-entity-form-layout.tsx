@@ -1,5 +1,5 @@
 
-import { ReactNode } from "react";
+import { ReactNode, useId } from "react";
 import { useRouter, Link } from '@/lib/router';
 import { Button } from "@weldsuite/ui/components/button";
 import { LucideIcon, ChevronLeft } from "lucide-react";
@@ -91,6 +91,7 @@ export function HostEntityFormLayout({
 }: HostEntityFormLayoutProps) {
   const router = useRouter();
   const t = useTranslations();
+  const formId = `host-entity-form${useId()}`;
   const resolvedSubmitText = submitText ?? t('sweep.miscB.save');
   const resolvedCancelText = cancelText ?? t('sweep.miscB.cancel');
   const resolvedBackButtonText = backButtonText ?? t('sweep.miscB.back');
@@ -130,7 +131,7 @@ export function HostEntityFormLayout({
       {/* Main column scrolls independently inside the module content card. */}
       <div className="flex-1 min-w-0 min-h-0 overflow-y-auto custom-scrollbar bg-muted/30">
         <div className="container mx-auto px-4 md:px-6 py-6 md:py-8 max-w-[1600px] pb-20">
-          <form onSubmit={onSubmit} className="space-y-6 md:space-y-8" suppressHydrationWarning>
+          <form id={formId} onSubmit={onSubmit} className="space-y-6 md:space-y-8" suppressHydrationWarning>
             <div className="w-full">
               <div className="space-y-4">
                 <div className="mb-2">
@@ -238,11 +239,11 @@ export function HostEntityFormLayout({
               <div className="space-y-3 pt-2">
                 <Button
                   type="submit"
+                  form={formId}
                   disabled={isPending}
                   variant={submitVariant}
                   className="w-full shadow-none"
                   size="lg"
-                  onClick={onSubmit}
                 >
                   {resolvedSubmitText}
                 </Button>
@@ -345,11 +346,11 @@ export function HostEntityFormLayout({
           <div className="space-y-3">
             <Button
               type="submit"
+              form={formId}
               disabled={isPending}
               variant={submitVariant}
               className="w-full shadow-none"
               size="lg"
-              onClick={onSubmit}
             >
               {resolvedSubmitText}
             </Button>
