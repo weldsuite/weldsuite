@@ -1699,7 +1699,7 @@ async function handleDomainRegistrationCheckout(
   const rtrCustomer = env.REALTIME_REGISTER_CUSTOMER;
   const cfToken = env.CLOUDFLARE_API_TOKEN;
   const cfAccountId = env.CLOUDFLARE_ACCOUNT_ID;
-  if (!rtrKey || !rtrCustomer) {
+  if (!rtrKey?.trim() || !rtrCustomer?.trim()) {
     console.error('[Domain Registration] REALTIME_REGISTER_API_KEY/CUSTOMER not configured');
     return;
   }
@@ -1713,9 +1713,9 @@ async function handleDomainRegistrationCheckout(
   const tenantDb = await getTenantDbForWorkspace(env, workspaceId);
 
   const rtr = new RealtimeRegistrar({
-    apiKey: rtrKey,
-    customer: rtrCustomer,
-    ote: env.REALTIME_REGISTER_OTE === 'true',
+    apiKey: rtrKey.trim(),
+    customer: rtrCustomer.trim(),
+    ote: env.REALTIME_REGISTER_OTE?.trim().toLowerCase() === 'true',
   });
 
   // Retrieve payment intent for potential refunds

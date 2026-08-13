@@ -179,6 +179,38 @@ function isLocked(status: string[] | undefined): boolean {
   return (status ?? []).some((s) => TRANSFER_LOCK_STATUSES.has(s));
 }
 
+function reasonFromCheckFailure(err: unknown): DomainUnavailableReason {
+  if (err instanceof RealtimeRegistrarError) {
+    if (err.code === 'UnsupportedTld' || err.code === 'NoContractException') {
+      return 'extension_not_supported';
+    }
+  }
+  return 'check_failed';
+}
+
+function logCheckFailure(domain: string, err: unknown): void {
+  if (err instanceof RealtimeRegistrarError) {
+    console.error(
+      '[realtime-registrar] domain check failed',
+      JSON.stringify({
+        domain,
+        status: err.status,
+        code: err.code,
+        message: err.message,
+        endpoint: err.endpoint,
+      }),
+    );
+    return;
+  }
+  console.error(
+    '[realtime-registrar] domain check failed',
+    JSON.stringify({
+      domain,
+      message: err instanceof Error ? err.message : String(err),
+    }),
+  );
+}
+
 function mapCheck(name: string, data: {
   available?: boolean;
   reason?: string;
@@ -385,8 +417,12 @@ export class RealtimeRegistrar {
     fetch?: RegistrarFetch;
     timeoutMs?: number;
   }) {
-    this.apiKey = apiKey;
-    this.customer = customer;
+    // Dashboard / wrangler secret put often leaves a trailing newline that
+    // turns `Authorization: ApiKey …` into a 401. Curl with the same key
+    // typed by hand then succeeds while every Worker check returns
+    // `check_failed`.
+    this.apiKey = apiKey.trim();
+    this.customer = customer.trim();
     this.baseURL =
       baseURL ??
       (ote ? 'https://api.yoursrs-ote.com/v2/' : 'https://api.yoursrs.com/v2/');
@@ -509,51 +545,50 @@ export class RealtimeRegistrar {
     }
 
     const slice = candidates.slice(0, limit);
-    // Bound concurrency so a large TLD fan-out cannot stampede the API.
-    const concurrency = 5;
-    const out: DomainCheckResult[] = new Array(slice.length);
-    for (let i = 0; i < slice.length; i += concurrency) {
-      const batch = slice.slice(i, i + concurrency);
-      const settled = await Promise.allSettled(
-        batch.map((d) => this.checkDomain(d, { renewPrice: true })),
-      );
-      for (let j = 0; j < settled.length; j++) {
-        const s = settled[j]!;
-        out[i + j] =
-          s.status === 'fulfilled'
-            ? s.value
-            : {
-                name: batch[j]!,
-                available: false,
-                premium: false,
-                reason: 'check_failed',
-              };
-      }
-    }
+    const out = await this.checkMany(slice);
     // Available first, then name.
     return out.sort((a, b) => Number(b.available) - Number(a.available) || a.name.localeCompare(b.name));
   }
 
   async checkDomains(domains: string[]): Promise<DomainCheckResult[]> {
+    return this.checkMany(domains.map((d) => d.toLowerCase()));
+  }
+
+  /**
+   * Fan-out `checkDomain` with bounded concurrency. A single TLD/network
+   * failure must not look like "already registered"; if *every* check throws
+   * we rethrow so the caller can surface the real RTR error (401, no
+   * contract, OTE mismatch) instead of a list of `check_failed`.
+   */
+  private async checkMany(names: string[]): Promise<DomainCheckResult[]> {
     const concurrency = 5;
-    const out: DomainCheckResult[] = new Array(domains.length);
-    for (let i = 0; i < domains.length; i += concurrency) {
-      const batch = domains.slice(i, i + concurrency);
+    const out: DomainCheckResult[] = new Array(names.length);
+    let firstFailure: unknown;
+    let failureCount = 0;
+    for (let i = 0; i < names.length; i += concurrency) {
+      const batch = names.slice(i, i + concurrency);
       const settled = await Promise.allSettled(
-        batch.map((d) => this.checkDomain(d.toLowerCase(), { renewPrice: true })),
+        batch.map((d) => this.checkDomain(d, { renewPrice: true })),
       );
       for (let j = 0; j < settled.length; j++) {
         const s = settled[j]!;
-        out[i + j] =
-          s.status === 'fulfilled'
-            ? s.value
-            : {
-                name: batch[j]!,
-                available: false,
-                premium: false,
-                reason: 'check_failed',
-              };
+        if (s.status === 'fulfilled') {
+          out[i + j] = s.value;
+          continue;
+        }
+        failureCount++;
+        if (firstFailure === undefined) firstFailure = s.reason;
+        logCheckFailure(batch[j]!, s.reason);
+        out[i + j] = {
+          name: batch[j]!,
+          available: false,
+          premium: false,
+          reason: reasonFromCheckFailure(s.reason),
+        };
       }
+    }
+    if (names.length > 0 && failureCount === names.length && firstFailure !== undefined) {
+      throw firstFailure;
     }
     return out;
   }

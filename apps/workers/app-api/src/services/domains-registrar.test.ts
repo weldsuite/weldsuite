@@ -2,7 +2,7 @@
  * Contract tests for the Realtime Register client and markup helper.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   RealtimeRegistrar,
   RealtimeRegistrarError,
@@ -60,9 +60,35 @@ describe('RealtimeRegistrar.checkDomain', () => {
     const { rtr } = withResponse(401, { type: 'AuthenticationError', message: 'bad key' });
     await expect(rtr.checkDomain('x.com')).rejects.toBeInstanceOf(RealtimeRegistrarError);
   });
+
+  it('trims trailing whitespace from the API key', async () => {
+    const calls: FetchCall[] = [];
+    const fetchStub: RegistrarFetch = async (input, init) => {
+      calls.push({
+        url: String(input instanceof Request ? input.url : input),
+        init: init as RequestInit | undefined,
+      });
+      return new Response(JSON.stringify({ available: true, premium: false }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+    const padded = new RealtimeRegistrar({
+      apiKey: 'key_test\n',
+      customer: ' weldsuite ',
+      fetch: fetchStub,
+    });
+    await padded.checkDomain('example.com');
+    const auth = new Headers(calls[calls.length - 1]!.init?.headers).get('Authorization');
+    expect(auth).toBe('ApiKey key_test');
+  });
 });
 
 describe('RealtimeRegistrar.searchDomains', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('fans out checks across TLDs', async () => {
     const calls: FetchCall[] = [];
     const fetchStub: RegistrarFetch = async (input, init) => {
@@ -87,23 +113,74 @@ describe('RealtimeRegistrar.searchDomains', () => {
     expect(results.some((r) => r.name === 'acme.com' && r.available)).toBe(true);
   });
 
-  it('marks rejected checks as check_failed, not unavailable', async () => {
-    const fetchStub: RegistrarFetch = async () => {
-      throw new Error('network down');
+  it('marks a mixed failure as check_failed, not unavailable', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fetchStub: RegistrarFetch = async (input) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.includes('acme.nl')) throw new Error('network down');
+      return new Response(
+        JSON.stringify({ available: true, premium: false, currency: 'EUR' }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
     };
     const rtr = new RealtimeRegistrar({
       apiKey: 'key_test',
       customer: 'weldsuite',
       fetch: fetchStub,
     });
-    const results = await rtr.searchDomains('acme', ['com'], 10);
-    expect(results).toEqual([
-      expect.objectContaining({
-        name: 'acme.com',
-        available: false,
-        reason: 'check_failed',
-      }),
-    ]);
+    const results = await rtr.searchDomains('acme', ['com', 'nl'], 10);
+    expect(results.find((r) => r.name === 'acme.com')).toMatchObject({ available: true });
+    expect(results.find((r) => r.name === 'acme.nl')).toMatchObject({
+      available: false,
+      reason: 'check_failed',
+    });
+  });
+
+  it('maps an uncontracted TLD to extension_not_supported without failing the search', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fetchStub: RegistrarFetch = async (input) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.includes('acme.nl')) {
+        return new Response(
+          JSON.stringify({ type: 'NoContractException', message: 'No contract active for product' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return new Response(
+        JSON.stringify({ available: true, premium: false, currency: 'EUR' }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    };
+    const rtr = new RealtimeRegistrar({
+      apiKey: 'key_test',
+      customer: 'weldsuite',
+      fetch: fetchStub,
+    });
+    const results = await rtr.searchDomains('acme', ['com', 'nl'], 10);
+    expect(results.find((r) => r.name === 'acme.com')).toMatchObject({ available: true });
+    expect(results.find((r) => r.name === 'acme.nl')).toMatchObject({
+      available: false,
+      reason: 'extension_not_supported',
+    });
+  });
+
+  it('rethrows when every check fails so the route can surface the RTR error', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fetchStub: RegistrarFetch = async () =>
+      new Response(JSON.stringify({ type: 'AuthenticationError', message: 'bad key' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    const rtr = new RealtimeRegistrar({
+      apiKey: 'key_test',
+      customer: 'weldsuite',
+      fetch: fetchStub,
+    });
+    await expect(rtr.searchDomains('acme', ['com'], 10)).rejects.toMatchObject({
+      name: 'RealtimeRegistrarError',
+      status: 401,
+      code: 'AuthenticationError',
+    });
   });
 });
 

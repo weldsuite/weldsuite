@@ -6,12 +6,14 @@ import { RealtimeRegistrar } from '@weldsuite/realtime-registrar';
 import type { Env } from '../types';
 
 export function getRealtimeRegistrar(env: Env): RealtimeRegistrar | null {
-  const apiKey = env.REALTIME_REGISTER_API_KEY;
-  const customer = env.REALTIME_REGISTER_CUSTOMER;
+  const apiKey = env.REALTIME_REGISTER_API_KEY?.trim();
+  const customer = env.REALTIME_REGISTER_CUSTOMER?.trim();
   if (!apiKey || !customer) return null;
   return new RealtimeRegistrar({
     apiKey,
     customer,
-    ote: env.REALTIME_REGISTER_OTE === 'true',
+    // Dashboard secrets often pick up a trailing newline; "true\n" must still
+    // enable OTE, and anything else (including "false") is production.
+    ote: env.REALTIME_REGISTER_OTE?.trim().toLowerCase() === 'true',
   });
 }
