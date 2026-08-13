@@ -104,6 +104,14 @@ export interface Env {
   REALTIME_REGISTER_CUSTOMER?: string;
   /** When `"true"`, use the RTR OTE (test) API base URL. */
   REALTIME_REGISTER_OTE?: string;
+  /**
+   * ADAC (Advanced Domain Availability Checker) API key from the ADAC
+   * management panel. Different from `REALTIME_REGISTER_API_KEY`. Required
+   * for `/api/domains/search` and `/api/domains/check`.
+   */
+  REALTIME_REGISTER_ADAC_API_KEY?: string;
+  /** Optional ADAC TLD-set token. Omit to use the account default set. */
+  REALTIME_REGISTER_ADAC_TLD_SET_TOKEN?: string;
   /** Optional platform contact handles for ADMIN/TECH/BILLING roles. */
   REALTIME_REGISTER_CONTACT_ADMIN?: string;
   REALTIME_REGISTER_CONTACT_TECH?: string;
