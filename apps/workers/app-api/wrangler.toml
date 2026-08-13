@@ -26,8 +26,12 @@ head_sampling_rate = 1
 #   /api/onboard for the "create additional workspace" flow (test/preview/prod)
 # - NEON_API_KEY
 # - DATABASE_ENCRYPTION_KEY (optional)
-# - CLOUDFLARE_API_TOKEN (for /api/domains: Registrar + Zones)
-# - CLOUDFLARE_ACCOUNT_ID (for /api/domains: account that owns registrar + zones)
+# - CLOUDFLARE_API_TOKEN (for /api/domains: Zones + legacy CF registrar domains)
+# - CLOUDFLARE_ACCOUNT_ID (for /api/domains: account that owns zones)
+# - REALTIME_REGISTER_API_KEY / REALTIME_REGISTER_CUSTOMER (registrar REST)
+# - REALTIME_REGISTER_ADAC_API_KEY (domain search/check — ADAC panel key, NOT the registrar key)
+# - REALTIME_REGISTER_ADAC_TLD_SET_TOKEN (optional TLD set; omit for account default)
+# - REALTIME_REGISTER_OTE / REALTIME_REGISTER_CONTACT_* / REALTIME_REGISTER_WEBHOOK_SECRET
 # - STRIPE_SECRET_KEY (for /api/domains/checkout)
 # - LEMLIST_API_KEY (WeldData lead database — shared WeldSuite Lemlist key)
 # - TEST_FIXTURES_TOKEN (test + preview envs ONLY; gates /test-fixtures/*.

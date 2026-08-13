@@ -8,6 +8,11 @@ name: Dispatch deploy
 # Requires the repo secret OVERLAY_DISPATCH_TOKEN: a fine-grained PAT scoped to
 # ONLY weldsuite/deployment-overlay (see that repo's SECRETS.md). Until the
 # token exists this workflow no-ops with a clear error and nothing deploys.
+#
+# Path-gated: frontend / desktop / docs / CI-only pushes never wake the overlay.
+# Cloudflare Pages still ships the platform SPA on its own Git connection.
+# The overlay then path-filters again so only the workers (or migrations /
+# mobile OTA) that actually changed are released.
 
 on:
   push:
@@ -15,6 +20,38 @@ on:
     # resolves to production — listing `develop` here would mean that creating
     # that branch (it does not currently exist) silently deploys to production.
     branches: [main]
+    paths:
+      # Workers + the packages they bundle. A change under apps/web or
+      # apps/desktop is not listed, so those commits never dispatch.
+      - 'apps/workers/**'
+      - 'apps/mobile/**'
+      - 'apps/tools/migrate-databases/**'
+      - 'packages/clients/**'
+      - 'packages/core/ai/**'
+      - 'packages/core/cloudflare-realtime/**'
+      - 'packages/core/cloudflare-registrar/**'
+      - 'packages/core/cloudflare-zones/**'
+      - 'packages/core/credits/**'
+      - 'packages/core/db/**'
+      - 'packages/core/email/**'
+      - 'packages/core/entity-events/**'
+      - 'packages/core/feature-flags/**'
+      - 'packages/core/nango/**'
+      - 'packages/core/neon-provisioning/**'
+      - 'packages/core/notifications/**'
+      - 'packages/core/permissions/**'
+      - 'packages/core/realtime/**'
+      - 'packages/core/social-publishing/**'
+      - 'packages/core/transactional-email/**'
+      - 'packages/core/workflow-integrations/**'
+      - 'packages/design/mobile-ui/**'
+      - 'packages/config/typescript-config/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'package.json'
+      - 'turbo.json'
+      - '.npmrc'
+      - '.github/actions/**'
 
 # No repo write access needed; the PAT (not GITHUB_TOKEN) does the dispatch.
 permissions: {}

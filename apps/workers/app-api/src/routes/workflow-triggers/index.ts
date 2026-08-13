@@ -1,7 +1,7 @@
 /**
  * Workflow trigger routes — flat /api/workflow-triggers/* surface.
  *
- * Permissions: tasks:read | tasks:create | tasks:update | tasks:delete.
+ * Permissions: workflows:read | workflows:create | workflows:update | workflows:delete.
  */
 
 import { z } from 'zod';
@@ -37,7 +37,7 @@ const updateTriggerSchema = z.object({
   isEnabled: z.boolean().optional(),
 });
 
-app.get('/', requirePermission('tasks:read'), async (c) => {
+app.get('/', requirePermission('workflows:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
@@ -73,7 +73,7 @@ app.get('/', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.get('/:id', requirePermission('tasks:read'), async (c) => {
+app.get('/:id', requirePermission('workflows:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
@@ -96,7 +96,7 @@ async function verifyWorkflow(db: any, workflowId: string) {
   return row ?? null;
 }
 
-app.post('/', requirePermission('tasks:create'), zValidator('json', createTriggerSchema), async (c) => {
+app.post('/', requirePermission('workflows:create'), zValidator('json', createTriggerSchema), async (c) => {
   const db = c.get('tenantDb');
   const data = c.req.valid('json');
   try {
@@ -131,7 +131,7 @@ app.post('/', requirePermission('tasks:create'), zValidator('json', createTrigge
 
 app.post(
   '/entity',
-  requirePermission('tasks:create'),
+  requirePermission('workflows:create'),
   zValidator(
     'json',
     z.object({
@@ -178,7 +178,7 @@ app.post(
 
 app.post(
   '/schedule',
-  requirePermission('tasks:create'),
+  requirePermission('workflows:create'),
   zValidator(
     'json',
     z.object({
@@ -199,6 +199,9 @@ app.post(
       const triggerId = generateId('trg');
       const scheduleId = generateId('sched');
       const now = new Date();
+
+      // TODO: route schedule creation through workflow-schedules service so
+      // D1 index sync and nextRunAt calculation stay consistent with POST /api/workflow-schedules.
 
       await db.insert(t).values({
         id: triggerId,
@@ -246,7 +249,7 @@ app.post(
 );
 
 for (const method of ['put', 'patch'] as const) {
-  app[method]('/:id', requirePermission('tasks:update'), zValidator('json', updateTriggerSchema), async (c) => {
+  app[method]('/:id', requirePermission('workflows:update'), zValidator('json', updateTriggerSchema), async (c) => {
     const db = c.get('tenantDb');
     const id = c.req.param('id');
     const data = c.req.valid('json');
@@ -299,10 +302,10 @@ async function setEnabled(c: any, id: string, enabled: boolean) {
   }
 }
 
-app.patch('/:id/enable', requirePermission('tasks:update'), (c) => setEnabled(c, c.req.param('id'), true));
-app.patch('/:id/disable', requirePermission('tasks:update'), (c) => setEnabled(c, c.req.param('id'), false));
+app.patch('/:id/enable', requirePermission('workflows:update'), (c) => setEnabled(c, c.req.param('id'), true));
+app.patch('/:id/disable', requirePermission('workflows:update'), (c) => setEnabled(c, c.req.param('id'), false));
 
-app.delete('/:id', requirePermission('tasks:delete'), async (c) => {
+app.delete('/:id', requirePermission('workflows:delete'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {

@@ -25,11 +25,18 @@ export const manifest: Record<string, SecretEntry[]> = {
     "NEON_API_KEY",
     "DATABASE_ENCRYPTION_KEY",
     // Fulfils WeldHost domain purchases: the checkout.session.completed handler
-    // calls the Cloudflare Registrar directly to register the paid-for domain.
-    // Without these it bails before registering, leaving the customer charged
-    // and the domain row stuck in pending_payment.
+    // creates a Cloudflare DNS zone then registers via Realtime Register.
+    // CLOUDFLARE_* still needed for zone creation (DNS stays on CF).
+    // Without RTR credentials it bails before registering, leaving the customer
+    // charged and the domain row stuck in pending_payment.
     "CLOUDFLARE_API_TOKEN",
     "CLOUDFLARE_ACCOUNT_ID",
+    "REALTIME_REGISTER_API_KEY",
+    "REALTIME_REGISTER_CUSTOMER",
+    "REALTIME_REGISTER_OTE",
+    "REALTIME_REGISTER_CONTACT_ADMIN",
+    "REALTIME_REGISTER_CONTACT_TECH",
+    "REALTIME_REGISTER_CONTACT_BILLING",
     ["BETTERSTACK_TOKEN_BILLING_WORKER", "BETTERSTACK_TOKEN"],
   ],
 
@@ -132,14 +139,25 @@ export const manifest: Record<string, SecretEntry[]> = {
     // (integration-sync-worker, integration-webhook-worker) needs the SAME value
     // in the same env.
     "INTERNAL_API_SECRET",
-    // WeldHost domains. routes/domains/index.ts builds its Cloudflare Registrar
-    // client from CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID (falling back to
-    // the CF_ACCOUNT_ID var) and returns 503 on /search, /check and /checkout
-    // when either is missing. STRIPE_SECRET_KEY is checked separately by
-    // /checkout — app-api creates the Checkout Session itself, so billing-worker
-    // holding the key is not sufficient.
+    // WeldHost domains. New purchases use Realtime Register (search/check/
+    // checkout + transfers). CLOUDFLARE_* remains for DNS zones and for
+    // mutations on legacy registrar=cloudflare rows. STRIPE_SECRET_KEY is
+    // checked separately by /checkout — app-api creates the Checkout Session
+    // itself, so billing-worker holding the key is not sufficient.
     "CLOUDFLARE_API_TOKEN",
     "CLOUDFLARE_ACCOUNT_ID",
+    "REALTIME_REGISTER_API_KEY",
+    "REALTIME_REGISTER_CUSTOMER",
+    "REALTIME_REGISTER_OTE",
+    // ADAC availability checker — different key from the registrar REST key,
+    // minted in the ADAC management panel. Search/check use this; register
+    // still uses REALTIME_REGISTER_API_KEY.
+    "REALTIME_REGISTER_ADAC_API_KEY",
+    "REALTIME_REGISTER_ADAC_TLD_SET_TOKEN",
+    "REALTIME_REGISTER_CONTACT_ADMIN",
+    "REALTIME_REGISTER_CONTACT_TECH",
+    "REALTIME_REGISTER_CONTACT_BILLING",
+    "REALTIME_REGISTER_WEBHOOK_SECRET",
     "STRIPE_SECRET_KEY",
     // WeldConnect connectors (Nango). The secret key never leaves the worker —
     // browsers get a short-lived Connect session token. The webhook secret

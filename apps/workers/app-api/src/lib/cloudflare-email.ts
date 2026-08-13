@@ -45,22 +45,24 @@ export interface SendEmailResponse {
 }
 
 /**
- * Send an email via the Cloudflare `send_email` binding. Fans out to one
- * `EmailMessage.send()` per recipient (the binding takes a single envelope
- * recipient at a time).
+ * Send an email via the Cloudflare `send_email` binding.
  *
- * Throws `PendingVerificationError` when at least one recipient hasn't yet
- * verified through Cloudflare's destination-address flow. Callers that want
- * to surface a "pending verification" state on the sent message should catch
- * it and inspect `recipient`.
+ * One message goes to everyone: the provider builds a single RFC-5322 payload
+ * whose To/Cc headers name the whole recipient set, then hands that same
+ * payload to one envelope per address (the binding takes a single envelope
+ * recipient at a time). All copies share one Message-ID, which is what makes a
+ * reply-all arrive as one message addressed to the group rather than as one
+ * private message each.
+ *
+ * `pendingVerification` comes back true when a recipient hasn't yet verified
+ * through Cloudflare's destination-address flow; the rest are still delivered.
  */
 export async function sendEmail(
   env: Env,
   params: SendEmailParams,
 ): Promise<SendEmailResponse> {
   const provider = makeSendProvider(env);
-  const recipients = [...params.to, ...(params.cc ?? []), ...(params.bcc ?? [])];
-  if (recipients.length === 0) {
+  if (params.to.length + (params.cc?.length ?? 0) + (params.bcc?.length ?? 0) === 0) {
     throw new Error('sendEmail: no recipients');
   }
 
@@ -68,35 +70,31 @@ export async function sendEmail(
   const fromEmail = fromMatch ? fromMatch[2]!.trim() : params.from.trim();
   const fromName = fromMatch ? fromMatch[1]!.trim() || undefined : undefined;
 
-  let firstMessageId: string | undefined;
-  let pendingVerification = false;
-
-  for (const rcpt of recipients) {
-    try {
-      const result = await provider.send({
-        from: { email: fromEmail, name: fromName },
-        to: [{ email: rcpt }],
-        subject: params.subject,
-        text: params.text,
-        html: params.html,
-        replyTo: params.replyTo ? { email: params.replyTo } : undefined,
-        headers: params.headers,
-        inReplyTo: params.inReplyTo,
-        references: params.references,
-        attachments: params.attachments,
-      });
-      firstMessageId ??= result.messageId;
-    } catch (err: unknown) {
-      if (err instanceof PendingVerificationError) {
-        pendingVerification = true;
-        firstMessageId ??= err.recipient;
-        continue;
-      }
-      throw err;
+  try {
+    const result = await provider.send({
+      from: { email: fromEmail, name: fromName },
+      to: params.to.map((email) => ({ email })),
+      cc: params.cc?.map((email) => ({ email })),
+      bcc: params.bcc?.map((email) => ({ email })),
+      subject: params.subject,
+      text: params.text,
+      html: params.html,
+      replyTo: params.replyTo ? { email: params.replyTo } : undefined,
+      headers: params.headers,
+      inReplyTo: params.inReplyTo,
+      references: params.references,
+      attachments: params.attachments,
+    });
+    const pending = (result.metadata as { pendingRecipients?: string[] } | undefined)
+      ?.pendingRecipients;
+    return { messageId: result.messageId, pendingVerification: !!pending?.length };
+  } catch (err: unknown) {
+    // Nothing went out at all — every recipient needs verifying.
+    if (err instanceof PendingVerificationError) {
+      return { messageId: err.recipient, pendingVerification: true };
     }
+    throw err;
   }
-
-  return { messageId: firstMessageId ?? '', pendingVerification };
 }
 
 /**

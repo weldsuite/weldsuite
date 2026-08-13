@@ -22,11 +22,34 @@ export type SystemAccountRole =
   | 'tax_output_reduced'
   | 'tax_input'
   | 'tax_payable'
+  | 'tax_output_cgst'
+  | 'tax_output_sgst'
+  | 'tax_output_igst'
+  | 'tax_input_cgst'
+  | 'tax_input_sgst'
+  | 'tax_input_igst'
   | 'sales_revenue'
   | 'retained_earnings'
   | 'realized_fx_gain'
   | 'realized_fx_loss'
   | 'rounding';
+
+/** GST component code used in India tax expansion (CGST/SGST/IGST). */
+export type GstComponentCode = 'cgst' | 'sgst' | 'igst';
+
+export interface GstTaxComponentTemplate {
+  code: GstComponentCode;
+  rate: string;
+  accountRole: SystemAccountRole;
+}
+
+export interface GstSlabMetadata {
+  gstSlab: string;
+  components: {
+    intrastate: GstTaxComponentTemplate[];
+    interstate: GstTaxComponentTemplate[];
+  };
+}
 
 /**
  * A tax rate seeded at entity creation. Jurisdiction-specific codes
@@ -96,13 +119,38 @@ export interface TaxResolutionContext {
    * deductible while active.
    */
   sellerSmallBusinessScheme?: boolean;
+  /** Seller's Indian state code (2-digit GST state, e.g. "27" for Maharashtra). */
+  sellerStateCode?: string;
+  /** Buyer's Indian state code for place-of-supply resolution. */
+  buyerStateCode?: string;
+  /** Buyer's GSTIN when known (state can also be derived from it). */
+  buyerGstin?: string;
+  /**
+   * Preferred GST slab rate as a percentage string (e.g. "18.00").
+   * When omitted, the adapter defaults to the standard slab (18%).
+   */
+  gstSlab?: string;
+}
+
+export interface TaxRateComponentDecision {
+  taxCategoryCode: string;
+  rate: string;
+  component: GstComponentCode;
+  accountRole: SystemAccountRole;
+  jurisdictionMetadata?: Record<string, unknown>;
 }
 
 export interface TaxRateDecision {
   /** Generic category; the adapter's seeded rates should include one with this `taxCategoryCode`. */
   taxCategoryCode: string;
+  /** Combined / slab rate (e.g. "18.00" for GST 18%, or "21.00" for NL BTW). */
   rate: string;
   reasoning: string;
+  /**
+   * When present (India GST), the line must post each component separately
+   * (CGST+SGST or IGST). NL and other single-rate jurisdictions omit this.
+   */
+  components?: TaxRateComponentDecision[];
 }
 
 export interface TaxReturnLine {

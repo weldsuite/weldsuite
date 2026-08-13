@@ -46,9 +46,16 @@ export interface Env {
   DATABASE_ENCRYPTION_KEY_V2?: string;
   // KV namespace for workspace caching
   WORKSPACE_CACHE: KVNamespace;
-  // Cloudflare Registrar API — required for domain registration after checkout
+  // Cloudflare Zones — create DNS zone before RTR register (NS hand-off)
   CLOUDFLARE_API_TOKEN?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
+  // Realtime Register — fulfils domain_registration Checkout sessions
+  REALTIME_REGISTER_API_KEY?: string;
+  REALTIME_REGISTER_CUSTOMER?: string;
+  REALTIME_REGISTER_OTE?: string;
+  REALTIME_REGISTER_CONTACT_ADMIN?: string;
+  REALTIME_REGISTER_CONTACT_TECH?: string;
+  REALTIME_REGISTER_CONTACT_BILLING?: string;
 }
 
 const app = new Hono<{ Bindings: Env }>();

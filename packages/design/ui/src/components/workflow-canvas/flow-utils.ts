@@ -495,10 +495,16 @@ function getTriggerLabel(trigger: TriggerConfig, customLabels?: Record<string, s
       return customLabels?.schedule ?? 'Scheduled Trigger';
     case 'entity_event':
       return customLabels?.entity_event ?? 'Entity Event';
+    case 'integration_event':
+      return customLabels?.integration_event ?? 'Integration Event';
     case 'webhook':
       return customLabels?.webhook ?? 'Webhook Trigger';
     case 'manual':
       return customLabels?.manual ?? 'Manual Trigger';
+    case 'api':
+      return customLabels?.api ?? 'API Trigger';
+    case 'workflow_complete':
+      return customLabels?.workflow_complete ?? 'On Workflow Complete';
     default:
       return customLabels?.trigger ?? 'Trigger';
   }

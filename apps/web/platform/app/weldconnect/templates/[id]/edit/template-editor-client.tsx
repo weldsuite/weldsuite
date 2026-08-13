@@ -118,7 +118,7 @@ export function TemplateEditorClient({
   );
 
   useBreadcrumbs([
-    { label: t.weldconnect.breadcrumbs.task, href: '/weldconnect' },
+    { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },
     { label: t.weldconnect.breadcrumbs.templates, href: '/weldconnect/templates' },
     { label: initialTemplate.name },
   ]);

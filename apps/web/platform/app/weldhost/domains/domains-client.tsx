@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 import type { HostDomain } from "@/lib/api/domains/weldhost";
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { useObjectPanel, useObjectPanelStack } from '@/components/object-panel';
+import { useObjectPanel, useObjectPanelStack, useObjectPanelUrlSync } from '@/components/object-panel';
 import { useI18n } from '@/lib/i18n/provider';
 
 interface DomainsClientProps {
@@ -42,8 +42,11 @@ export function DomainsClient({ domains }: DomainsClientProps) {
   const tdl = t.host.domainsList;
   // The domain detail lives in the shared object panel (registered as type
   // 'domain'), rendered by the global <ObjectPanelHost /> that WeldHost's
-  // layout already mounts. Same shell as the WeldFlow task panel.
+  // layout already mounts. Same shell as WeldCRM companies/people.
   const { open: openPanel } = useObjectPanel();
+  // Two-way sync: open/expand writes `?stack=domain:<id>[:fullscreen][:tab=…]`
+  // onto `/weldhost/domains`, and landing on that URL reopens the panel.
+  useObjectPanelUrlSync('/weldhost/domains');
   const panelStack = useObjectPanelStack();
   // Match on `type` rather than reading the stack tail: a panel pushed on top
   // of the domain panel would otherwise clear the row highlight, or — if its
@@ -140,7 +143,7 @@ export function DomainsClient({ domains }: DomainsClientProps) {
     return (
       <div
         key={domain.id}
-        onClick={() => openPanel({ type: 'domain', id: domain.id })}
+        onClick={() => openPanel({ type: 'domain', id: domain.id, initialTab: 'dns' })}
         className={cn(
           'flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group',
           selectedDomainId === domain.id && 'bg-accent',

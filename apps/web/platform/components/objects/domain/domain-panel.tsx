@@ -75,7 +75,8 @@ import { DomainDnsTab } from './domain-dns-tab';
 import { getDomainTabs, type DomainTab } from './domain-tabs';
 import { useDeleteDomain } from './use-domain-data';
 
-const DOMAIN_PANEL_WIDTH = 400;
+/** Wide enough for a scannable DNS table (type · name · value · ttl). */
+const DOMAIN_PANEL_WIDTH = 480;
 
 const PILL = 'inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none';
 
@@ -692,9 +693,11 @@ export function DomainPanel(props: ObjectPanelComponentProps) {
     [td, records.length],
   );
 
+  // DNS is the primary management surface for a domain — open there unless
+  // the caller asked for a specific tab (e.g. settings from a deep link).
   const initial = useMemo<DomainTab['id']>(() => {
     const match = tabs.find((tab) => tab.id === initialTab);
-    return match?.id ?? 'overview';
+    return match?.id ?? 'dns';
   }, [initialTab, tabs]);
   const [activeTab, setActiveTab] = useState<DomainTab['id']>(initial);
 

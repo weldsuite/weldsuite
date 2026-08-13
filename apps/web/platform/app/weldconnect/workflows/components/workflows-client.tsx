@@ -115,7 +115,7 @@ export function WorkflowsClient({
   apiBasePath = '/workflows',
   entityLabel = 'Workflow',
   entityLabelPlural = 'Workflows',
-  parentLabel = 'Task',
+  parentLabel,
   parentHref = '/weldconnect',
   showTemplatesButton = true,
   showResetDefaults = false,
@@ -133,8 +133,9 @@ export function WorkflowsClient({
 }: WorkflowsClientProps) {
   const { t } = useI18n();
   const st = useTranslations();
+  const resolvedParentLabel = parentLabel ?? t.weldconnect.breadcrumbs.connect;
   useBreadcrumbs([
-    { label: parentLabel, href: parentHref },
+    { label: resolvedParentLabel, href: parentHref },
     { label: entityLabelPlural },
   ]);
 

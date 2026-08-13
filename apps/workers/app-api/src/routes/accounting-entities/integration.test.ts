@@ -51,6 +51,166 @@ describe('/api/accounting-entities · pglite integration', () => {
     expect(row?.baseCurrency).toBe('EUR');
   });
 
+  it('POST / creates an India entity, seeds GST CoA + rates, and stores stateCode from GSTIN', async () => {
+    const { request } = createTestApp('/api/accounting-entities', accountingEntitiesRoutes, {
+      context: { permissions: permissions('entities:create'), tenantDb: db },
+    });
+
+    const res = await request('/api/accounting-entities', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Weld India Pvt Ltd',
+        jurisdictionCode: 'IN',
+        baseCurrency: 'INR',
+        vatNumber: '27AABCU9603R1ZM',
+        seedDefaults: true,
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { data: { id: string; accountsCreated?: number; taxRatesCreated?: number } };
+    expect(body.data.id).toMatch(/^ent_/);
+
+    const [row] = await db
+      .select()
+      .from(schema.entities)
+      .where(eq(schema.entities.id, body.data.id))
+      .limit(1);
+    expect(row?.jurisdictionCode).toBe('IN');
+    expect(row?.baseCurrency).toBe('INR');
+    expect(row?.timezone).toBe('Asia/Kolkata');
+    expect(row?.taxIdentifiers?.vatNumber).toBe('27AABCU9603R1ZM');
+    expect((row?.jurisdictionSettings as { stateCode?: string } | null)?.stateCode).toBe('27');
+
+    const accounts = await db
+      .select()
+      .from(schema.accounts)
+      .where(eq(schema.accounts.entityId, body.data.id));
+    expect(accounts.length).toBeGreaterThan(10);
+    const roles = accounts.map((a) => (a.metadata as { systemRole?: string } | null)?.systemRole);
+    expect(roles).toContain('tax_output_cgst');
+    expect(roles).toContain('tax_output_igst');
+
+    const rates = await db
+      .select()
+      .from(schema.taxRates)
+      .where(eq(schema.taxRates.entityId, body.data.id));
+    expect(rates.some((r) => r.name === 'GST 18%' && r.isDefault)).toBe(true);
+    expect(rates.some((r) => (r.jurisdictionMetadata as { gstSlab?: string } | null)?.gstSlab === '18')).toBe(true);
+  });
+
+  it('POST / rejects invalid GSTIN for India', async () => {
+    const { request } = createTestApp('/api/accounting-entities', accountingEntitiesRoutes, {
+      context: { permissions: permissions('entities:create'), tenantDb: db },
+    });
+    const res = await request('/api/accounting-entities', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Bad GSTIN Co',
+        jurisdictionCode: 'IN',
+        baseCurrency: 'INR',
+        vatNumber: 'NOT-A-GSTIN',
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('PATCH / validates GSTIN and refreshes stateCode', async () => {
+    const { request } = createTestApp('/api/accounting-entities', accountingEntitiesRoutes, {
+      context: {
+        permissions: permissions('entities:create', 'entities:update'),
+        tenantDb: db,
+      },
+    });
+
+    const createRes = await request('/api/accounting-entities', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Patch GSTIN Co',
+        jurisdictionCode: 'IN',
+        baseCurrency: 'INR',
+        vatNumber: '27AABCU9603R1ZM',
+        seedDefaults: false,
+      }),
+    });
+    expect(createRes.status).toBe(201);
+    const created = (await createRes.json()) as { data: { id: string } };
+
+    const badPatch = await request(`/api/accounting-entities/${created.data.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vatNumber: 'BAD' }),
+    });
+    expect(badPatch.status).toBe(400);
+
+    const emptyPatch = await request(`/api/accounting-entities/${created.data.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vatNumber: '' }),
+    });
+    expect(emptyPatch.status).toBe(400);
+
+    const [unchanged] = await db
+      .select()
+      .from(schema.entities)
+      .where(eq(schema.entities.id, created.data.id))
+      .limit(1);
+    expect(unchanged?.taxIdentifiers?.vatNumber).toBe('27AABCU9603R1ZM');
+    expect((unchanged?.jurisdictionSettings as { stateCode?: string } | null)?.stateCode).toBe('27');
+
+    const goodPatch = await request(`/api/accounting-entities/${created.data.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vatNumber: '29AABCU9603R1ZM' }),
+    });
+    expect(goodPatch.status).toBe(200);
+    const body = (await goodPatch.json()) as {
+      data: { taxIdentifiers?: { vatNumber?: string }; jurisdictionSettings?: { stateCode?: string } };
+    };
+    expect(body.data.taxIdentifiers?.vatNumber).toBe('29AABCU9603R1ZM');
+    expect(body.data.jurisdictionSettings?.stateCode).toBe('29');
+  });
+
+  it('POST / defaults baseCurrency to INR for India when omitted', async () => {
+    const { request } = createTestApp('/api/accounting-entities', accountingEntitiesRoutes, {
+      context: { permissions: permissions('entities:create'), tenantDb: db },
+    });
+
+    const res = await request('/api/accounting-entities', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'INR Default Co',
+        jurisdictionCode: 'IN',
+        seedDefaults: false,
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { data: { id: string } };
+    const [row] = await db
+      .select()
+      .from(schema.entities)
+      .where(eq(schema.entities.id, body.data.id))
+      .limit(1);
+    expect(row?.baseCurrency).toBe('INR');
+    expect(row?.timezone).toBe('Asia/Kolkata');
+  });
+
+  it('GET /jurisdictions includes IN and NL', async () => {
+    const { request } = createTestApp('/api/accounting-entities', accountingEntitiesRoutes, {
+      context: { permissions: permissions('entities:read'), tenantDb: db },
+    });
+    const res = await request('/api/accounting-entities/jurisdictions');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ code: string }> };
+    const codes = body.data.map((j) => j.code).sort();
+    expect(codes).toEqual(['IN', 'NL']);
+  });
+
   it('POST / rejects empty name', async () => {
     const { request } = createTestApp('/api/accounting-entities', accountingEntitiesRoutes, {
       context: { permissions: permissions('entities:create'), tenantDb: db },

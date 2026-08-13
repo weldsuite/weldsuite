@@ -3,6 +3,7 @@ import { Workflow as WorkflowIcon } from 'lucide-react';
 import { Label } from '@weldsuite/ui/components/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { useWorkflows } from '@/hooks/queries/use-automation-queries';
+import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { WorkflowsCard, type WorkflowRow, type WorkflowStatus, type TriggerType } from '@/components/home/app-cards';
 import type { Workflow } from '@/lib/api/domains/weldconnect';
@@ -32,6 +33,7 @@ function mapWorkflow(api: Workflow): WorkflowRow {
   const success = api.successCount ?? 0;
   const successRate = executions > 0 ? Math.round((success / executions) * 100) : 0;
   return {
+    id: api.id,
     name: api.name,
     description: api.description ?? '',
     trigger: mapTrigger(api.triggers),
@@ -43,10 +45,19 @@ function mapWorkflow(api: Workflow): WorkflowRow {
 }
 
 function Render({ settings }: { settings: WeldconnectWorkflowsSettings }) {
+  const router = useRouter();
   const res = useWorkflows({ pageSize: settings.maxCount });
   const apiRows = ((res.data as { data?: Workflow[] } | undefined)?.data ?? []) as Workflow[];
   const rows = apiRows.map(mapWorkflow).slice(0, settings.maxCount);
-  return <WorkflowsCard rows={rows} isLoading={res.isLoading} />;
+  return (
+    <WorkflowsCard
+      rows={rows}
+      isLoading={res.isLoading}
+      onRowClick={(row) => {
+        if (row.id) router.push(`/weldconnect/workflows/${row.id}/edit`);
+      }}
+    />
+  );
 }
 
 function SettingsForm({ value, onChange }: { value: WeldconnectWorkflowsSettings; onChange: (next: WeldconnectWorkflowsSettings) => void }) {

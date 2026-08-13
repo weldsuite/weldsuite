@@ -13,13 +13,14 @@
  * draft or its chat history. The other endpoints are plain DB CRUD over the
  * draft row and are unaffected.
  *
- * Permissions: tasks:read | tasks:create | tasks:update.
+ * Permissions: workflows:read | workflows:create | workflows:update.
  */
 
 import { z } from 'zod';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
+import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   createBuilderDraftInput,
   finalizeBuilderDraftInput,
@@ -32,11 +33,18 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const chatBodySchema = z.object({ message: z.string().min(1).max(2000) });
 
-app.post('/drafts', requirePermission('tasks:create'), zValidator('json', createBuilderDraftInput), async (c) => {
+app.post('/drafts', requirePermission('workflows:create'), zValidator('json', createBuilderDraftInput), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   try {
     const draft = await builder.createBuilderDraft(db, userId);
+    publishEntityEvent({
+      c,
+      entityType: 'workflow',
+      entityId: draft.id,
+      action: 'created',
+      data: { id: draft.id, name: draft.name, status: draft.status },
+    });
     return success(c, draft, 201);
   } catch (err) {
     console.error('[app-api/workflow-builder] createDraft failed:', err);
@@ -44,7 +52,7 @@ app.post('/drafts', requirePermission('tasks:create'), zValidator('json', create
   }
 });
 
-app.get('/drafts/:id', requirePermission('tasks:read'), async (c) => {
+app.get('/drafts/:id', requirePermission('workflows:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
@@ -57,13 +65,13 @@ app.get('/drafts/:id', requirePermission('tasks:read'), async (c) => {
   }
 });
 
-app.post('/drafts/:id/chat', requirePermission('tasks:update'), zValidator('json', chatBodySchema), async (c) => {
+app.post('/drafts/:id/chat', requirePermission('workflows:update'), zValidator('json', chatBodySchema), async (c) => {
   return c.json({ error: { code: 'ai_unavailable', message: 'AI is currently unavailable' } }, 503);
 });
 
 app.post(
   '/drafts/:id/finalize',
-  requirePermission('tasks:update'),
+  requirePermission('workflows:update'),
   zValidator('json', finalizeBuilderDraftInput),
   async (c) => {
     const db = c.get('tenantDb');
@@ -72,6 +80,13 @@ app.post(
     try {
       const draft = await builder.finalizeBuilderDraft(db, id, data);
       if (!draft) return error.notFound(c, 'Workflow draft', id);
+      publishEntityEvent({
+        c,
+        entityType: 'workflow',
+        entityId: draft.id,
+        action: 'updated',
+        data: { id: draft.id, name: draft.name },
+      });
       return success(c, { id: draft.id });
     } catch (err) {
       console.error('[app-api/workflow-builder] finalize failed:', err);

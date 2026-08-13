@@ -10,7 +10,7 @@ import {
   TooltipTrigger,
 } from '@weldsuite/ui/components/tooltip';
 import { cn } from '@/lib/utils';
-import { NAV_AREAS, getActiveArea } from './nav-config';
+import { getNavAreas, getActiveArea } from './nav-config';
 
 /**
  * The far-left rail — the admin console's answer to the platform's app
@@ -32,7 +32,7 @@ export function AdminRail() {
           <Shield className="h-5 w-5" />
         </Link>
 
-        {NAV_AREAS.map((area) => {
+        {getNavAreas().map((area) => {
           const Icon = area.icon;
           const isActive = area.key === activeArea.key;
           return (

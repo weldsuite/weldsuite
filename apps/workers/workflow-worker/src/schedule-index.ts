@@ -44,13 +44,13 @@ export interface UpsertScheduleInput {
   timezone?: string | null;
   startDate?: number | null;
   endDate?: number | null;
-  source?: 'task' | 'helpdesk';
+  source?: 'weldconnect' | 'helpdesk';
   isEnabled: boolean;
 }
 
-/** `task` unless the workflow id carries the helpdesk (`hwf_`) prefix. */
-export function sourceForWorkflowId(workflowId: string): 'task' | 'helpdesk' {
-  return workflowId.startsWith('hwf_') ? 'helpdesk' : 'task';
+/** `weldconnect` unless the workflow id carries the helpdesk (`hwf_`) prefix. */
+export function sourceForWorkflowId(workflowId: string): 'weldconnect' | 'helpdesk' {
+  return workflowId.startsWith('hwf_') ? 'helpdesk' : 'weldconnect';
 }
 
 /**

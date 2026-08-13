@@ -32,7 +32,7 @@ import { SendInvoiceDialog } from '../components/send-invoice-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 
-const formatCurrency = (value: string | null | undefined, currency?: string | null) =>
+const formatCurrency = (value: string | number | null | undefined, currency?: string | null) =>
   new Intl.NumberFormat('nl-NL', {
     style: 'currency',
     currency: currency || 'EUR',
@@ -268,12 +268,19 @@ export default function InvoiceDetailPage() {
                 <span className="text-muted-foreground">{ti.subtotal}</span>
                 <span>{formatCurrency(invoice.subtotal, invoice.currency)}</span>
               </div>
-              {invoice.taxTotal && Number(invoice.taxTotal) !== 0 && (
+              {invoice.taxBreakdown && invoice.taxBreakdown.length > 0 ? (
+                invoice.taxBreakdown.map((row, idx) => (
+                  <div key={`${row.taxRateName}-${idx}`} className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">{row.taxRateName}</span>
+                    <span>{formatCurrency(row.taxAmount, invoice.currency)}</span>
+                  </div>
+                ))
+              ) : invoice.taxTotal && Number(invoice.taxTotal) !== 0 ? (
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">{ti.tax}</span>
                   <span>{formatCurrency(invoice.taxTotal, invoice.currency)}</span>
                 </div>
-              )}
+              ) : null}
               <div className="flex justify-between font-semibold border-t pt-2">
                 <span>{ti.total}</span>
                 <span>{formatCurrency(invoice.total, invoice.currency)}</span>

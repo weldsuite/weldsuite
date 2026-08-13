@@ -16,7 +16,7 @@
     "@weldsuite/workflow-integrations": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.12.27",
+    "hono": "^4.12.34",
     "postgres": "^3.4.7"
   },
   "devDependencies": {

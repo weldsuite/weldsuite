@@ -14,7 +14,7 @@
  * single test workspace, and a sibling's global reset would otherwise delete
  * another spec's in-flight rows and flake it. There is no `api.seedVariable()`,
  * so each test creates via the UI and captures the new id from the
- * `POST /workflow-variables` response, then deletes it scoped in afterEach.
+ * `POST /api/workflow-variables` response, then deletes it scoped in afterEach.
  */
 
 import { test, expect } from '../../fixtures';
@@ -67,7 +67,7 @@ test.describe('WeldConnect · Variables CRUD', () => {
     const [createRes] = await Promise.all([
       page.waitForResponse(
         (r) =>
-          r.url().endsWith('/workflow-variables') &&
+          r.url().includes('/workflow-variables') &&
           r.request().method() === 'POST' &&
           r.ok(),
       ),
@@ -106,7 +106,7 @@ test.describe('WeldConnect · Variables CRUD', () => {
     const [createRes] = await Promise.all([
       page.waitForResponse(
         (r) =>
-          r.url().endsWith('/workflow-variables') &&
+          r.url().includes('/workflow-variables') &&
           r.request().method() === 'POST' &&
           r.ok(),
       ),

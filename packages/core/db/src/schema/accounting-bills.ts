@@ -61,6 +61,10 @@ export const bills = pgTable('bills', {
     taxRate: number;
     taxableAmount: number;
     taxAmount: number;
+    /** GST component when expanded (cgst / sgst / igst). */
+    component?: string;
+    /** System account role for journal posting. */
+    accountRole?: string;
   }>>(),
 
   journalEntryId: varchar('journal_entry_id', { length: 30 }),

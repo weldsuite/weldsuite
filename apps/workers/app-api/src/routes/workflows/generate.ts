@@ -10,7 +10,7 @@
  * than mounted as its own sub-app, to keep this a single additive route on
  * the existing `/api/workflows` Hono instance.
  *
- * Permission: `tasks:create` — same as the other workflow-authoring routes
+ * Permission: `workflows:create` — same as the other workflow-authoring routes
  * in this file (POST /, POST /:id/duplicate).
  *
  * Credit metering: identical hard-gate + post-consume posture as
@@ -34,7 +34,7 @@ export const generateWorkflowSchema = z.object({
 export function registerGenerateWorkflowRoute(app: Hono<{ Bindings: Env; Variables: Variables }>): void {
   app.post(
     '/generate',
-    requirePermission('tasks:create'),
+    requirePermission('workflows:create'),
     zValidator('json', generateWorkflowSchema),
     async (c) => {
       const { prompt } = c.req.valid('json');

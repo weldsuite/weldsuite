@@ -7,7 +7,7 @@
  */
 
 import { and, eq, isNull } from 'drizzle-orm';
-import { workflows } from '@weldsuite/db/schema';
+import { workflows, workflowTriggerIndex } from '@weldsuite/db/schema';
 import type { TenantDb } from './internal-types';
 
 interface TriggerFilter {
@@ -17,6 +17,7 @@ interface TriggerFilter {
 }
 
 interface TriggerConfig {
+  id?: string;
   type: string;
   isEnabled?: boolean;
   entityType?: string;
@@ -158,6 +159,48 @@ export function integrationTriggerMatches(
   return evalFilters(trigger.filters ?? trigger.config?.filters, data);
 }
 
+async function dispatchEntityMatches(
+  env: WorkflowDispatchEnv,
+  matches: Array<{
+    workflowId: string;
+    workflowName: string | null;
+    triggerId?: string;
+  }>,
+  base: Omit<MatchAndDispatchInput, 'env' | 'db' | 'changes'> & {
+    action: string;
+    changes?: MatchAndDispatchInput['changes'];
+  },
+): Promise<void> {
+  const { workspaceId, userId, entityType, entityId, action, data, changes } = base;
+  for (const row of matches) {
+    try {
+      await env.EXECUTE_WORKFLOW!.create({
+        params: {
+          workspaceId,
+          userId,
+          workflowId: row.workflowId,
+          ...(row.triggerId ? { triggerId: row.triggerId } : {}),
+          triggerType: 'entity_event',
+          triggerData: {
+            eventType: `${entityType}:${action}`,
+            entityType,
+            entityId,
+            action,
+            data,
+            changes,
+          },
+          source: 'weldconnect',
+        },
+      });
+      console.log(
+        `[TriggerMatcher] Dispatched workflow "${row.workflowName}" for ${entityType}:${action}`,
+      );
+    } catch (err) {
+      console.error(`[TriggerMatcher] Failed to dispatch workflow ${row.workflowId}:`, err);
+    }
+  }
+}
+
 export async function matchAndDispatchWorkflowTriggers(
   input: MatchAndDispatchInput,
 ): Promise<void> {
@@ -166,44 +209,71 @@ export async function matchAndDispatchWorkflowTriggers(
   if (!workspaceId || !env.EXECUTE_WORKFLOW) return;
 
   const eventTypes = deriveEventTypes(action, changes);
+  const dispatchBase = { workspaceId, userId, entityType, entityId, action, data, changes };
 
+  let indexRows: Array<{
+    workflowId: string;
+    triggerId: string;
+    eventType: string | null;
+    filters: unknown;
+    workflowName: string | null;
+  }>;
+  let indexUnavailable = false;
+  try {
+    indexRows = await db
+      .select({
+        workflowId: workflowTriggerIndex.workflowId,
+        triggerId: workflowTriggerIndex.triggerId,
+        eventType: workflowTriggerIndex.eventType,
+        filters: workflowTriggerIndex.filters,
+        workflowName: workflows.name,
+      })
+      .from(workflowTriggerIndex)
+      .innerJoin(workflows, eq(workflowTriggerIndex.workflowId, workflows.id))
+      .where(
+        and(
+          eq(workflowTriggerIndex.category, 'entity_event'),
+          eq(workflowTriggerIndex.entityType, entityType),
+          eq(workflowTriggerIndex.isEnabled, true),
+          eq(workflows.status, 'active'),
+          isNull(workflows.deletedAt),
+        ),
+      );
+  } catch (err) {
+    console.warn('[TriggerMatcher] trigger index unavailable, falling back to JSONB scan:', err);
+    indexUnavailable = true;
+    indexRows = [];
+  }
+
+  if (!indexUnavailable) {
+    const matches = indexRows.filter(
+      (row) =>
+        (!row.eventType || eventTypes.includes(row.eventType)) &&
+        evalFilters((row.filters as TriggerFilter[] | null | undefined) ?? undefined, data),
+    );
+    await dispatchEntityMatches(env, matches, dispatchBase);
+    return;
+  }
+
+  // Fallback: scan embedded workflows.triggers when index table is missing.
   const activeWorkflows = await db
     .select({ id: workflows.id, name: workflows.name, triggers: workflows.triggers })
     .from(workflows)
     .where(and(eq(workflows.status, 'active'), isNull(workflows.deletedAt)));
 
+  const matches: Array<{ workflowId: string; workflowName: string | null; triggerId?: string }> = [];
   for (const workflow of activeWorkflows) {
     const triggers = (workflow.triggers as TriggerConfig[]) || [];
-
     for (const trigger of triggers) {
       if (!triggerMatchesEvent(trigger, entityType, eventTypes, data)) continue;
-
-      try {
-        await env.EXECUTE_WORKFLOW.create({
-          params: {
-            workspaceId,
-            userId,
-            workflowId: workflow.id,
-            triggerType: 'entity_event',
-            triggerData: {
-              eventType: `${entityType}:${action}`,
-              entityType,
-              entityId,
-              action,
-              data,
-              changes,
-            },
-            source: 'task',
-          },
-        });
-        console.log(
-          `[TriggerMatcher] Dispatched workflow "${workflow.name}" for ${entityType}:${action}`,
-        );
-      } catch (err) {
-        console.error(`[TriggerMatcher] Failed to dispatch workflow ${workflow.id}:`, err);
-      }
+      matches.push({
+        workflowId: workflow.id,
+        workflowName: workflow.name,
+        triggerId: typeof trigger.id === 'string' ? trigger.id : undefined,
+      });
     }
   }
+  await dispatchEntityMatches(env, matches, dispatchBase);
 }
 
 export interface MatchAndDispatchIntegrationInput {
@@ -234,6 +304,85 @@ export async function matchAndDispatchIntegrationTriggers(
 
   if (!workspaceId || !env.EXECUTE_WORKFLOW) return;
 
+  const dispatchOne = async (
+    workflowId: string,
+    workflowName: string | null,
+    triggerId?: string,
+  ) => {
+    try {
+      await env.EXECUTE_WORKFLOW!.create({
+        params: {
+          workspaceId,
+          userId,
+          workflowId,
+          ...(triggerId ? { triggerId } : {}),
+          triggerType: 'integration_event',
+          triggerData: {
+            eventType: event,
+            provider,
+            event,
+            integrationId,
+            data,
+          },
+          source: 'integration',
+        },
+      });
+      console.log(
+        `[TriggerMatcher] Dispatched workflow "${workflowName}" for ${provider}:${event}`,
+      );
+    } catch (err) {
+      console.error(`[TriggerMatcher] Failed to dispatch workflow ${workflowId}:`, err);
+    }
+  };
+
+  let indexRows: Array<{
+    workflowId: string;
+    triggerId: string;
+    integrationId: string | null;
+    filters: unknown;
+    workflowName: string | null;
+  }>;
+  let indexUnavailable = false;
+  try {
+    indexRows = await db
+      .select({
+        workflowId: workflowTriggerIndex.workflowId,
+        triggerId: workflowTriggerIndex.triggerId,
+        integrationId: workflowTriggerIndex.integrationId,
+        filters: workflowTriggerIndex.filters,
+        workflowName: workflows.name,
+      })
+      .from(workflowTriggerIndex)
+      .innerJoin(workflows, eq(workflowTriggerIndex.workflowId, workflows.id))
+      .where(
+        and(
+          eq(workflowTriggerIndex.category, 'integration_event'),
+          eq(workflowTriggerIndex.provider, provider),
+          eq(workflowTriggerIndex.integrationEvent, event),
+          eq(workflowTriggerIndex.isEnabled, true),
+          eq(workflows.status, 'active'),
+          isNull(workflows.deletedAt),
+        ),
+      );
+  } catch (err) {
+    console.warn('[TriggerMatcher] trigger index unavailable, falling back to JSONB scan:', err);
+    indexUnavailable = true;
+    indexRows = [];
+  }
+
+  if (!indexUnavailable) {
+    const matches = indexRows.filter(
+      (row) =>
+        !(row.integrationId && integrationId && row.integrationId !== integrationId) &&
+        evalFilters((row.filters as TriggerFilter[] | null | undefined) ?? undefined, data),
+    );
+
+    for (const row of matches) {
+      await dispatchOne(row.workflowId, row.workflowName, row.triggerId);
+    }
+    return;
+  }
+
   const activeWorkflows = await db
     .select({ id: workflows.id, name: workflows.name, triggers: workflows.triggers })
     .from(workflows)
@@ -241,33 +390,13 @@ export async function matchAndDispatchIntegrationTriggers(
 
   for (const workflow of activeWorkflows) {
     const triggers = (workflow.triggers as TriggerConfig[]) || [];
-
     for (const trigger of triggers) {
       if (!integrationTriggerMatches(trigger, provider, event, integrationId, data)) continue;
-
-      try {
-        await env.EXECUTE_WORKFLOW.create({
-          params: {
-            workspaceId,
-            userId,
-            workflowId: workflow.id,
-            triggerType: 'integration_event',
-            triggerData: {
-              eventType: event,
-              provider,
-              event,
-              integrationId,
-              data,
-            },
-            source: 'integration',
-          },
-        });
-        console.log(
-          `[TriggerMatcher] Dispatched workflow "${workflow.name}" for ${provider}:${event}`,
-        );
-      } catch (err) {
-        console.error(`[TriggerMatcher] Failed to dispatch workflow ${workflow.id}:`, err);
-      }
+      await dispatchOne(
+        workflow.id,
+        workflow.name,
+        typeof trigger.id === 'string' ? trigger.id : undefined,
+      );
     }
   }
 }

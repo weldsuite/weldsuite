@@ -133,7 +133,7 @@ export const handleManualStep: ActionHandler = async (inputs, ctx) => {
     notificationType: 'manual_step',
     entityType: 'workflow_execution',
     entityId: ctx.executionId,
-    actionUrl: `/weldconnect/workflows/executions/${ctx.executionId}`,
+    actionUrl: `/weldconnect/executions/${ctx.executionId}`,
     severity: 'info',
     data: { stepConfig: inputs },
     isRead: false,

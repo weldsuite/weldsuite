@@ -252,7 +252,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: ExecutionDetai
   const naLabel = st('sweep.weldconnect.executionDetail.notAvailable');
 
   useBreadcrumbs([
-    { label: t.weldconnect.breadcrumbs.task, href: '/weldconnect' },
+    { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },
     { label: t.weldconnect.breadcrumbs.executions, href: '/weldconnect/executions' },
     { label: execution.id?.slice(0, 8) || t.weldconnect.executionDetail.entityType },
   ]);

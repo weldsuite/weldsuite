@@ -124,6 +124,7 @@ const EXEMPT_ROUTES = new Set<string>([
   'webhooks-cloudflare-realtime',
   'webhooks-meeting-bot',
   'webhooks-telnyx',
+  'webhooks-realtime-register',
   // external-webhooks — user-managed outbound webhook subscriptions (integration
   // config); no `external_webhook` entity type in the events catalog.
   'external-webhooks',

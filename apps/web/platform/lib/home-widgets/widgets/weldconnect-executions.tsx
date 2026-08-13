@@ -3,6 +3,7 @@ import { ListTodo } from 'lucide-react';
 import { Label } from '@weldsuite/ui/components/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { useExecutions } from '@/hooks/queries/use-automation-queries';
+import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { ConnectCard, type ExecutionRow, type ExecStatus } from '@/components/home/app-cards';
 import type { WorkflowExecution } from '@/lib/api/domains/weldconnect';
@@ -52,10 +53,17 @@ function mapExec(api: WorkflowExecution): ExecutionRow {
 }
 
 function Render({ settings }: { settings: WeldconnectExecutionsSettings }) {
+  const router = useRouter();
   const res = useExecutions({ limit: settings.maxCount });
   const apiRows = ((res.data as { data?: WorkflowExecution[] } | undefined)?.data ?? []) as WorkflowExecution[];
   const rows = apiRows.map(mapExec).slice(0, settings.maxCount);
-  return <ConnectCard rows={rows} isLoading={res.isLoading} />;
+  return (
+    <ConnectCard
+      rows={rows}
+      isLoading={res.isLoading}
+      onRowClick={(row) => router.push(`/weldconnect/executions/${row.id}`)}
+    />
+  );
 }
 
 function SettingsForm({ value, onChange }: { value: WeldconnectExecutionsSettings; onChange: (next: WeldconnectExecutionsSettings) => void }) {

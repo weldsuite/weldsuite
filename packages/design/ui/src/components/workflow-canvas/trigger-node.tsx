@@ -3,17 +3,19 @@
 import * as React from 'react';
 import { memo, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Zap, Calendar, Webhook, MousePointerClick, GitMerge, Plus } from 'lucide-react';
+import { Zap, Calendar, Webhook, MousePointerClick, GitMerge, Plus, Plug, Code } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { TriggerNodeData } from './flow-utils';
 import type { TriggerConfig } from './types';
 
 const triggerIcons: Record<string, React.ElementType> = {
   entity_event: Zap,
+  integration_event: Plug,
   schedule: Calendar,
   workflow_complete: GitMerge,
   webhook: Webhook,
   manual: MousePointerClick,
+  api: Code,
 };
 
 // Labels injected via node data (passed through workflowToFlow options.labels)
@@ -28,6 +30,8 @@ interface TriggerNodeLabels {
     httpEndpoint?: string;
     manuallyTriggered?: string;
     sequenceAdded?: string;
+    integrationEvent?: string;
+    apiTriggered?: string;
   };
 }
 
@@ -48,6 +52,8 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
   const trigger = nodeData.trigger as TriggerConfig & {
     entityType?: string;
     eventType?: string;
+    provider?: string;
+    event?: string;
     scheduleType?: string;
     cronExpression?: string;
     executeAt?: string;
@@ -59,6 +65,8 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
       triggerOn?: string;
       entityType?: string;
       eventType?: string;
+      provider?: string;
+      event?: string;
     };
   };
     if (!trigger) return clickToConfigure;
@@ -67,6 +75,12 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
     switch (trigger.type) {
       case 'entity_event':
         return nodeData.entityEvent || clickToConfigure;
+      case 'integration_event': {
+        const provider = trigger.provider || trigger.config?.provider;
+        const event = trigger.event || trigger.config?.event;
+        if (provider && event) return `${provider}: ${event}`;
+        return desc?.integrationEvent ?? 'Connected app event';
+      }
       case 'schedule': {
         const scheduleType = trigger.scheduleType || trigger.config?.scheduleType;
         const cronExpression = trigger.cronExpression || trigger.config?.cronExpression;
@@ -85,6 +99,8 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
         return desc?.httpEndpoint ?? 'HTTP endpoint';
       case 'manual':
         return desc?.manuallyTriggered ?? 'Manually triggered';
+      case 'api':
+        return desc?.apiTriggered ?? 'Triggered via API';
       default:
         return clickToConfigure;
     }

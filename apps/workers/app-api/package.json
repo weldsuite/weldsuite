@@ -22,6 +22,7 @@
     "@weldsuite/cloudflare-realtime": "workspace:*",
     "@weldsuite/cloudflare-registrar": "workspace:*",
     "@weldsuite/cloudflare-zones": "workspace:*",
+    "@weldsuite/realtime-registrar": "workspace:*",
     "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/credits": "workspace:*",
     "@weldsuite/social-publishing": "workspace:*",
@@ -37,7 +38,7 @@
     "cloudflare": "^7.0.0",
     "drizzle-orm": "^0.45.2",
     "fflate": "^0.8.2",
-    "hono": "4.12.27",
+    "hono": "4.12.34",
     "nanoid": "^5.1.5",
     "zod": "^3.25.76"
   },

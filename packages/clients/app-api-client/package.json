@@ -67,6 +67,7 @@
     "./schemas/feature-flags": "./src/schemas/feature-flags.ts",
     "./schemas/push-tokens": "./src/schemas/push-tokens.ts",
     "./schemas/weldagent": "./src/schemas/weldagent.ts",
+    "./schemas/weldconnect": "./src/schemas/weldconnect.ts",
     "./schemas/app-catalog": "./src/schemas/app-catalog.ts",
     "./schemas/credits": "./src/schemas/credits.ts",
     "./domains/ai": "./src/domains/ai.ts",

@@ -64,6 +64,7 @@ export * from './domains/feature-flags';
 // WeldAgent — personal AI assistant conversations / messages / settings / mentions.
 export * from './schemas/weldagent';
 export * from './domains/weldagent';
+export * from './schemas/weldconnect';
 
 // WeldChat — channels / messages / sections / DMs / search / calls / members.
 // Pure typed domain wrappers over the flat /api/chat-* + /api/channels surface.

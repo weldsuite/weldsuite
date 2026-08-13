@@ -80,7 +80,7 @@ const cases: SweepCase[] = [
   { mount: '/api/stock-adjustments', router: stockAdjustmentsRoutes, permission: 'inventory:read' },
   { mount: '/api/conversations', router: conversationsRoutes, permission: 'conversations:read' },
   { mount: '/api/meetings', router: meetingsRoutes, permission: 'meetings:read' },
-  { mount: '/api/workflows', router: workflowsRoutes, permission: 'tasks:read' },
+  { mount: '/api/workflows', router: workflowsRoutes, permission: 'workflows:read' },
   { mount: '/api/orders', router: ordersRoutes, permission: 'orders:read' },
   { mount: '/api/categories', router: categoriesRoutes, permission: 'categories:read' },
   { mount: '/api/bills', router: billsRoutes, permission: 'bills:read' },
