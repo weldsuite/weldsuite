@@ -103,6 +103,26 @@ export const host = {
       notConfigured:
         'Realtime Register is not configured. Set REALTIME_REGISTER_API_KEY and REALTIME_REGISTER_CUSTOMER on the admin app.',
       pricelistFailed: 'Realtime Register pricelist request failed',
+      setMarginButton: 'Set margin',
+      columnCustomer: 'Customer',
+      markupEditAria: 'Edit margin for .{tld}',
+      markupDialogTitle: 'Set margin',
+      markupDialogTitleTld: 'Set margin for .{tld}',
+      markupDialogDescription:
+        'Added on top of wholesale. WeldHost search and checkout use this customer price.',
+      markupKindPercent: 'Percent',
+      markupKindAmount: 'Fixed amount',
+      markupKindNone: 'No margin',
+      markupPercentLabel: 'Margin percent',
+      markupAmountLabel: 'Margin amount ({currency})',
+      markupScopeAll: 'All TLDs',
+      markupScopeEmpty: 'Only TLDs without a margin',
+      markupSave: 'Save',
+      markupSaved: 'Margin updated',
+      markupSavedCount: 'Updated margin on {count} TLD(s)',
+      markupInvalid: 'Enter a valid non-negative number',
+      markupOutOfRange: 'Percent must be between 0 and 999.99',
+      markupNotFound: 'Pricing row not found',
     },
 
     // Domain availability checker

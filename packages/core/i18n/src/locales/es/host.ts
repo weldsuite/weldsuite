@@ -102,6 +102,26 @@ export const host = {
       notConfigured:
         'Realtime Register no está configurado. Define REALTIME_REGISTER_API_KEY y REALTIME_REGISTER_CUSTOMER en la app de administración.',
       pricelistFailed: 'La solicitud de lista de precios de Realtime Register falló',
+      setMarginButton: 'Establecer margen',
+      columnCustomer: 'Cliente',
+      markupEditAria: 'Editar margen de .{tld}',
+      markupDialogTitle: 'Establecer margen',
+      markupDialogTitleTld: 'Establecer margen de .{tld}',
+      markupDialogDescription:
+        'Se suma al precio mayorista. La búsqueda y el pago de WeldHost usan este precio de cliente.',
+      markupKindPercent: 'Porcentaje',
+      markupKindAmount: 'Importe fijo',
+      markupKindNone: 'Sin margen',
+      markupPercentLabel: 'Porcentaje de margen',
+      markupAmountLabel: 'Importe de margen ({currency})',
+      markupScopeAll: 'Todos los TLD',
+      markupScopeEmpty: 'Solo TLD sin margen',
+      markupSave: 'Guardar',
+      markupSaved: 'Margen actualizado',
+      markupSavedCount: 'Margen actualizado en {count} TLD(s)',
+      markupInvalid: 'Introduce un número válido mayor o igual que 0',
+      markupOutOfRange: 'El porcentaje debe estar entre 0 y 999.99',
+      markupNotFound: 'No se encontró la fila de precios',
     },
 
     // Domain availability checker
