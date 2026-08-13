@@ -8,13 +8,47 @@ name: Dispatch deploy
 # Requires the repo secret OVERLAY_DISPATCH_TOKEN: a fine-grained PAT scoped to
 # ONLY weldsuite/deployment-overlay (see that repo's SECRETS.md). Until the
 # token exists this workflow no-ops with a clear error and nothing deploys.
+#
+# Path filter: the overlay deploys workers, runs migrations, publishes the
+# widget SDK, and path-gates mobile OTA. Frontend (platform SPA, sites,
+# helpcenter, portals, widget Pages project) is deployed by Cloudflare Pages
+# on its own GitHub App connection. Dispatching the overlay on a CSS tweak
+# still redeploys every worker, so this workflow only fires when a path the
+# overlay actually ships has changed.
+#
+# Intentionally NOT Cloudflare Workers Builds: wrangler.toml in this repo is
+# a placeholder (REPLACE_WITH_*), real bindings live in the overlay, and
+# Neon migrations must run before any worker that consumes the new schema.
+# Cloudflare can own the static SPA; GitHub must keep orchestrating workers.
+#
+# `workflow_dispatch` bypasses the path filter for a manual full deploy.
 
 on:
+  workflow_dispatch:
   push:
     # `main` only. Production is the sole deploy environment, so any dispatch
     # resolves to production — listing `develop` here would mean that creating
     # that branch (it does not currently exist) silently deploys to production.
     branches: [main]
+    paths:
+      # Workers + the packages they import. A lockfile bump can change worker
+      # resolution even when no worker source moved, so the root lockfile and
+      # workspace config stay on the list (conservative: a frontend-only dep
+      # bump still dispatches).
+      - 'apps/workers/**'
+      - 'apps/tools/migrate-databases/**'
+      - 'packages/core/**'
+      - 'packages/clients/**'
+      - 'packages/sdk/**'
+      - 'packages/config/**'
+      - 'pnpm-lock.yaml'
+      - 'package.json'
+      - 'pnpm-workspace.yaml'
+      - 'turbo.json'
+      - '.npmrc'
+      # Mobile OTA is path-gated inside the overlay, but the overlay never
+      # sees the push unless we dispatch.
+      - 'apps/mobile/**'
 
 # No repo write access needed; the PAT (not GITHUB_TOKEN) does the dispatch.
 permissions: {}

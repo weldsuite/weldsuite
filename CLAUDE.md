@@ -327,17 +327,33 @@ read-only token. `dispatch-deploy.yml` is the sole exception:
 | `ci.yml` | PR + push to `main`/`develop` | `Type Check · app-api`, `Unit · app-api`, `Unit · platform` block. Lint, platform type-check and build run `continue-on-error: true` while pre-existing failures are worked down. |
 | `secret-scan.yml` | PR + push | yes |
 | `i18n-check.yml` | PR touching locales | yes |
-| `dispatch-deploy.yml` | push to `main` **only** | n/a — fires a `repository_dispatch` at the overlay repo |
+| `dispatch-deploy.yml` | push to `main` that touches workers / shared packages / mobile / lockfile (or `workflow_dispatch`) | n/a — fires a `repository_dispatch` at the overlay repo |
 
 `dispatch-deploy.yml` holds the **only** secret this repo uses,
 `OVERLAY_DISPATCH_TOKEN`, and it can do exactly one thing: trigger a `deploy`
 event on the overlay. No Cloudflare / Neon / Doppler / Expo credentials here.
+
+It is **path-gated**. Frontend-only merges (`apps/web/**`, `packages/design/**`,
+docs, `.claude`) do **not** dispatch the overlay — Cloudflare Pages already
+ships the SPA. A CSS-only merge used to redeploy every worker; that was
+accidental, not required. `workflow_dispatch` still forces a full overlay run.
 
 The actual deploy (`.github/workflows/deploy.yml` in the **overlay** repo) then
 checks out this repo at the dispatched SHA, overlays the real wrangler configs,
 and runs: **Prepare** (detects migration + SDK version changes) → **Migrations**
 (master DB, then all tenants) → **Workers Deploy** (11 workers in parallel) →
 **Mobile OTA** (path-gated) → **Widget SDK Publish** (on version change).
+
+Per-worker skip (deploy only `app-api` when only `app-api` changed) still
+belongs in the overlay. This public workflow only decides whether to wake the
+overlay at all. The payload already includes `sha` + `base_sha` for that diff.
+
+Do **not** move worker releases onto Cloudflare Workers Builds while the
+overlay exists. Public `wrangler.toml` files are placeholders
+(`REPLACE_WITH_*`); real Hyperdrive / KV / R2 / queue IDs live in the overlay;
+Neon migrations must run before any worker that consumes the new schema.
+Cloudflare already owns the static frontend. GitHub stays the orchestrator
+for anything that needs ordering or private config.
 
 Every one of those targets **production** — it is the only environment. A merge
 to `main` goes straight to production, so CI green is the only gate.
