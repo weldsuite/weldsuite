@@ -62,6 +62,49 @@ export const host = {
       continueWithCount: 'Doorgaan ({count})',
     },
 
+    // Admin console — master domain_pricing catalog
+    adminPricing: {
+      navJumpTo: 'Domeinprijzen',
+      navArea: 'Domeinprijzen',
+      navGroup: 'WeldHost',
+      navCatalog: 'TLD-catalogus',
+      cardTitle: 'Domeinprijzen',
+      cardDescription: 'TLD-catalogus aangevuld vanuit Realtime Register',
+      title: 'Domeinprijzen',
+      description:
+        'Hoofdcatalogus die WeldHost gebruikt voor zoeken en afrekenen. Vul ontbrekende TLD’s aan vanuit de Realtime Register-prijslijst — bestaande rijen en opslagen blijven ongewijzigd.',
+      backfillButton: 'Aanvullen vanuit Realtime Register',
+      catalog: 'Catalogus',
+      active: 'Actief',
+      popular: 'Populair',
+      filterTld: 'Filter TLD…',
+      filterTldLabel: 'Filter TLD',
+      emptyCatalog:
+        'Nog geen domeinprijzen. Vul aan vanuit Realtime Register om de catalogus te vullen.',
+      emptyFilter: 'Geen TLD’s komen overeen met dat filter.',
+      columnTld: 'TLD',
+      columnRegister: 'Registreren',
+      columnRenew: 'Verlengen',
+      columnTransfer: 'Verhuizen',
+      columnMarkup: 'Opslag',
+      columnStatus: 'Status',
+      statusActive: 'actief',
+      statusInactive: 'inactief',
+      statusPopular: 'populair',
+      confirmTitle: 'Domeinprijzen aanvullen?',
+      confirmDescription:
+        'Dit vraagt de Realtime Register-prijslijst op (GET /v2/customers/…/pricelist, EUR) en voegt TLD’s toe die nog niet in de hoofdcatalogus staan. Bestaande rijen, inclusief opslag, worden niet overschreven.',
+      confirmCancel: 'Annuleren',
+      confirmFetch: 'Prijslijst ophalen',
+      backfillSuccess:
+        '{inserted} TLD(’s) aangevuld vanuit Realtime Register ({fetched} op de prijslijst, {skipped} al in de catalogus)',
+      backfillAlreadyComplete:
+        'Catalogus is al compleet — {fetched} TLD’s op de prijslijst, geen ontbrekend',
+      notConfigured:
+        'Realtime Register is niet geconfigureerd. Stel REALTIME_REGISTER_API_KEY en REALTIME_REGISTER_CUSTOMER in op de admin-app.',
+      pricelistFailed: 'Realtime Register-prijslijstverzoek is mislukt',
+    },
+
     // Domain availability checker
     availability: {
       enterDomain: 'Voer een domeinnaam in om beschikbaarheid te controleren',

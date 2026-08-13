@@ -62,6 +62,48 @@ export const host = {
       continueWithCount: 'Continuar ({count})',
     },
 
+    adminPricing: {
+      navJumpTo: 'Precios de dominios',
+      navArea: 'Precios de dominios',
+      navGroup: 'WeldHost',
+      navCatalog: 'Catálogo de TLD',
+      cardTitle: 'Precios de dominios',
+      cardDescription: 'Catálogo de TLD rellenado desde Realtime Register',
+      title: 'Precios de dominios',
+      description:
+        'Catálogo maestro que WeldHost usa para búsqueda y pago. Completa los TLD que falten desde la lista de precios de Realtime Register; las filas y márgenes existentes no se modifican.',
+      backfillButton: 'Completar desde Realtime Register',
+      catalog: 'Catálogo',
+      active: 'Activos',
+      popular: 'Populares',
+      filterTld: 'Filtrar TLD…',
+      filterTldLabel: 'Filtrar TLD',
+      emptyCatalog:
+        'Aún no hay precios de dominio. Completa desde Realtime Register para llenar el catálogo.',
+      emptyFilter: 'Ningún TLD coincide con ese filtro.',
+      columnTld: 'TLD',
+      columnRegister: 'Registro',
+      columnRenew: 'Renovación',
+      columnTransfer: 'Transferencia',
+      columnMarkup: 'Margen',
+      columnStatus: 'Estado',
+      statusActive: 'activo',
+      statusInactive: 'inactivo',
+      statusPopular: 'popular',
+      confirmTitle: '¿Completar precios de dominio?',
+      confirmDescription:
+        'Esto llama a Realtime Register GET /v2/customers/…/pricelist (EUR) e inserta los TLD que aún no están en el catálogo maestro. Las filas existentes, incluido el margen, no se sobrescriben.',
+      confirmCancel: 'Cancelar',
+      confirmFetch: 'Obtener lista de precios',
+      backfillSuccess:
+        'Se completaron {inserted} TLD(s) desde Realtime Register ({fetched} en la lista, {skipped} ya en el catálogo)',
+      backfillAlreadyComplete:
+        'El catálogo ya está completo — {fetched} TLD en la lista de precios, ninguno faltante',
+      notConfigured:
+        'Realtime Register no está configurado. Define REALTIME_REGISTER_API_KEY y REALTIME_REGISTER_CUSTOMER en la app de administración.',
+      pricelistFailed: 'La solicitud de lista de precios de Realtime Register falló',
+    },
+
     // Domain availability checker
     availability: {
       enterDomain: 'Introduce un nombre de dominio para comprobar disponibilidad',

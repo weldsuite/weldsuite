@@ -62,7 +62,11 @@ async function loadPricingMap(
     .select()
     .from(masterSchema.hostDomainPricing)
     .where(eq(masterSchema.hostDomainPricing.isActive, true));
-  return new Map(rows.map((r) => [r.tld.toLowerCase(), r]));
+  return new Map(rows.map((r) => [r.tld.replace(/^\./, '').toLowerCase(), r]));
+}
+
+function tldOf(name: string): string {
+  return name.split('.').slice(1).join('.').replace(/^\./, '').toLowerCase();
 }
 
 /**
@@ -121,8 +125,8 @@ function transformResult(
   r: DomainCheckResult,
   pricingMap: Map<string, typeof masterSchema.hostDomainPricing.$inferSelect>,
 ): TransformedDomainResult {
-  const tld = r.name.split('.').slice(1).join('.');
-  const pricing = pricingMap.get(tld.toLowerCase());
+  const tld = tldOf(r.name);
+  const pricing = pricingMap.get(tld);
   const available = r.available && r.reason !== 'check_failed';
   return {
     domain_name: r.name,
@@ -148,7 +152,6 @@ export async function searchDomains(
     rtr.searchDomains(params.query, [], 50),
     loadPricingMap(masterDb),
   ]);
-  const tldOf = (name: string) => name.split('.').slice(1).join('.').toLowerCase();
   const priced = pricingMap.size
     ? results.filter((r) => pricingMap.has(tldOf(r.name)))
     : results;
@@ -936,13 +939,16 @@ export async function createCheckout(
     return { ok: false, reason: 'unavailable', domain: params.input.domain };
   }
 
-  const tld = params.input.domain.split('.').slice(1).join('.').toLowerCase();
+  const tld = tldOf(params.input.domain);
   const [pricingRow] = await masterDb
     .select()
     .from(masterSchema.hostDomainPricing)
     .where(
       and(
-        eq(masterSchema.hostDomainPricing.tld, tld),
+        or(
+          eq(masterSchema.hostDomainPricing.tld, tld),
+          eq(masterSchema.hostDomainPricing.tld, `.${tld}`),
+        ),
         eq(masterSchema.hostDomainPricing.isActive, true),
       ),
     )
