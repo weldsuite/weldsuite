@@ -13,7 +13,6 @@ import {
   Loader2,
   AlertCircle,
   ShoppingCart,
-  ArrowLeftRight,
 } from 'lucide-react';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { isApiError, isNetworkError } from '@weldsuite/api-client';
@@ -21,6 +20,7 @@ import type { DomainSearchResult } from '@weldsuite/core-api-client/schemas/doma
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import { formatDomainPrice } from '../lib/format-domain-price';
+import { findExactTakenMatch, isTakenDomainResult } from '../lib/domain-search-match';
 
 // Re-export under the legacy name so existing consumers (domain-search-client.tsx,
 // domain-registration-client.tsx) keep compiling without changes.
@@ -174,15 +174,12 @@ export function DomainAvailabilityChecker({
         <div className="mt-4 space-y-6 min-h-[200px]">
           {/* Exact Match — Unavailable (shown at the very top) */}
           {(() => {
-            const searchLower = searchTerm.toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '');
-            const exactMatch = domainResults.find(
-              (r) => r.status === 2 && r.domain_name.toLowerCase() === searchLower,
-            );
+            const exactMatch = findExactTakenMatch(searchTerm, domainResults);
 
             if (!exactMatch) return null;
 
             return (
-              <div className="border border-destructive/30 rounded-lg bg-card">
+              <div className="border border-destructive/30 rounded-lg bg-card" data-testid="exact-taken-match">
                 <div className="bg-destructive/10 px-4 md:px-6 py-3 rounded-t-lg">
                   <div className="flex items-center gap-2 text-destructive text-base md:text-lg font-semibold">
                     <AlertCircle className="h-5 w-5 flex-shrink-0" />
@@ -203,7 +200,7 @@ export function DomainAvailabilityChecker({
                     </div>
                     <Badge variant="destructive" className="gap-1 flex-shrink-0">
                       <AlertCircle className="h-3 w-3" />
-                      <span className="hidden md:inline">{ta.taken}</span>
+                      {ta.taken}
                     </Badge>
                   </div>
                 </div>
@@ -216,23 +213,26 @@ export function DomainAvailabilityChecker({
             <div className="bg-card rounded-lg border border-border">
               <div className="divide-y divide-border">
                 {domainResults.map((result) => {
-                  const isUnavailable = result.status === 2;
+                  const isTaken = isTakenDomainResult(result);
+                  const isUnavailable = result.status === 2 && !isTaken;
                   // `price` is in cents — formatDomainPrice divides. It returns
                   // null when there is nothing to show, which also gates the cart.
                   const priceLabel = formatDomainPrice(result.price, result.currency, language);
                   const hasPrice = priceLabel !== null;
                   const isSelected = selectedDomainNames.includes(result.domain_name);
+                  const canSelect = !isTaken && !isUnavailable && hasPrice;
 
                   return (
                     <div
                       key={result.domain_name}
+                      data-testid={`domain-result-${result.domain_name}`}
                       className="flex items-center justify-between px-3 py-3 hover:bg-muted/50 transition-colors gap-2"
                     >
                       <div className="flex-1 min-w-0">
                         <p
                           className={cn(
                             'text-sm md:text-base font-medium truncate',
-                            isUnavailable ? 'text-muted-foreground' : 'text-foreground',
+                            isTaken || isUnavailable ? 'text-muted-foreground' : 'text-foreground',
                           )}
                         >
                           {result.domain_name}
@@ -241,16 +241,23 @@ export function DomainAvailabilityChecker({
 
                       <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
                         <div className="text-right min-w-[70px] md:min-w-[100px]">
-                          <p
-                            className={cn(
-                              'text-sm md:text-base font-medium',
-                              isUnavailable ? 'text-muted-foreground' : 'text-foreground',
-                            )}
-                          >
-                            {priceLabel ?? (
-                              <span className="text-muted-foreground text-xs md:text-sm">{ta.unavailable}</span>
-                            )}
-                          </p>
+                          {isTaken ? (
+                            <Badge variant="destructive" className="gap-1" data-testid="domain-taken-badge">
+                              <AlertCircle className="h-3 w-3" />
+                              {ta.taken}
+                            </Badge>
+                          ) : (
+                            <p
+                              className={cn(
+                                'text-sm md:text-base font-medium',
+                                isUnavailable ? 'text-muted-foreground' : 'text-foreground',
+                              )}
+                            >
+                              {priceLabel ?? (
+                                <span className="text-muted-foreground text-xs md:text-sm">{ta.unavailable}</span>
+                              )}
+                            </p>
+                          )}
                         </div>
                         <TooltipProvider>
                           <Tooltip>
@@ -259,25 +266,20 @@ export function DomainAvailabilityChecker({
                                 type="button"
                                 variant="ghost"
                                 size="icon"
-                                disabled={!hasPrice && !isUnavailable}
+                                disabled={!canSelect}
                                 className={cn(
                                   'h-9 w-9 flex items-center justify-center border rounded-md transition-colors',
-                                  !hasPrice && !isUnavailable
+                                  !canSelect
                                     ? 'border-input bg-muted cursor-not-allowed opacity-50'
-                                    : isUnavailable
-                                      ? 'border-input hover:bg-muted/50 cursor-not-allowed'
-                                      : isSelected
-                                        ? 'bg-primary border-primary hover:bg-primary/90'
-                                        : 'border-input hover:bg-muted/50',
+                                    : isSelected
+                                      ? 'bg-primary border-primary hover:bg-primary/90'
+                                      : 'border-input hover:bg-muted/50',
                                 )}
                                 onClick={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
 
-                                  if (!hasPrice && !isUnavailable) return;
-                                  // Transfer-in is not supported — clicking an unavailable
-                                  // domain does nothing (button is styled non-interactively).
-                                  if (isUnavailable) return;
+                                  if (!canSelect) return;
 
                                   if (isSelected) {
                                     onDomainRemove?.(result.domain_name);
@@ -286,8 +288,8 @@ export function DomainAvailabilityChecker({
                                   }
                                 }}
                               >
-                                {isUnavailable ? (
-                                  <ArrowLeftRight className="h-4 w-4 text-muted-foreground/50" />
+                                {isTaken || isUnavailable ? (
+                                  <X className="h-4 w-4 text-muted-foreground/50" />
                                 ) : isSelected ? (
                                   <Check className="h-4 w-4 text-primary-foreground" />
                                 ) : (
@@ -295,14 +297,19 @@ export function DomainAvailabilityChecker({
                                 )}
                               </Button>
                             </TooltipTrigger>
-                            {(!hasPrice && !isUnavailable) && (
+                            {isTaken && (
+                              <TooltipContent>
+                                <p>{ta.domainAlreadyRegisteredTooltip}</p>
+                              </TooltipContent>
+                            )}
+                            {(!hasPrice && !isTaken && !isUnavailable) && (
                               <TooltipContent>
                                 <p>{ta.unavailable}</p>
                               </TooltipContent>
                             )}
                             {isUnavailable && (
                               <TooltipContent>
-                                <p>{ta.domainAlreadyRegisteredTooltip}</p>
+                                <p>{ta.unavailable}</p>
                               </TooltipContent>
                             )}
                           </Tooltip>

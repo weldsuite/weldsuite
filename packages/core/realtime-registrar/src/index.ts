@@ -13,10 +13,16 @@
 
 import { RealtimeRegistrarError } from './errors';
 import {
+  ADAC_DISABLE_SUGGESTION_HINTS,
   ADAC_REQUEST_TIMEOUT_MS,
   collapseAdacResults,
   postAdacAction,
 } from './adac';
+import {
+  isExactSldMatch,
+  normalizeDomainSearchQuery,
+  rankExactDomainSearchResults,
+} from './domain-search';
 import { parseDomainPricelist, PRICELIST_CURRENCY, type DomainWholesalePrice } from './pricelist';
 
 export type RegistrarFetch = typeof fetch;
@@ -31,6 +37,12 @@ export {
   type DomainWholesalePrice,
   type DomainPricingBackfillRow,
 } from './pricelist';
+export {
+  domainSearchSld,
+  isExactSldMatch,
+  normalizeDomainSearchQuery,
+  rankExactDomainSearchResults,
+} from './domain-search';
 
 // ============================================================================
 // Public types
@@ -549,16 +561,18 @@ export class RealtimeRegistrar {
   }
 
   /**
-   * ADAC `input` action — one POST returns TLD-set availability + suggestions.
+   * ADAC `input` action — one POST returns availability for the typed name
+   * across the TLD set. Suggestion tools are disabled; similar names are
+   * dropped. Taken domains stay in the list (not sorted behind available ones).
    * `tlds` is accepted for call-site compatibility and used only as a suffix
-   * filter when non-empty (ADAC already expands the query across its TLD set).
+   * filter when non-empty.
    */
   async searchDomains(
     query: string,
     tlds: string[] = [],
     limit = 20,
   ): Promise<DomainCheckResult[]> {
-    const cleaned = query.trim().toLowerCase().replace(/\.$/, '');
+    const cleaned = normalizeDomainSearchQuery(query);
     if (!cleaned) return [];
 
     const events = await postAdacAction(this.fetchImpl, {
@@ -567,8 +581,11 @@ export class RealtimeRegistrar {
       input: cleaned,
       tldSetToken: this.adacTldSetToken,
       timeoutMs: Math.max(this.timeoutMs, ADAC_REQUEST_TIMEOUT_MS),
+      hints: ADAC_DISABLE_SUGGESTION_HINTS,
     });
-    let results = collapseAdacResults(events).map(adacToCheckResult);
+    let results = collapseAdacResults(events)
+      .map(adacToCheckResult)
+      .filter((r) => isExactSldMatch(cleaned, r.name));
 
     const suffixes = new Set(
       tlds.map((t) => t.replace(/^\./, '').toLowerCase()).filter(Boolean),
@@ -577,9 +594,7 @@ export class RealtimeRegistrar {
       results = results.filter((r) => suffixes.has(r.name.split('.').slice(1).join('.')));
     }
 
-    return results
-      .slice(0, limit)
-      .sort((a, b) => Number(b.available) - Number(a.available) || a.name.localeCompare(b.name));
+    return rankExactDomainSearchResults(cleaned, results).slice(0, limit);
   }
 
   /**

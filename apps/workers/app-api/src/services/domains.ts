@@ -148,7 +148,7 @@ export async function searchDomains(
 ): Promise<TransformedDomainResult[]> {
   const limit = Math.min(params.limit ?? 20, 50);
   const [results, pricingMap] = await Promise.all([
-    // ADAC expands the query across its TLD set in one POST; don't pre-fan-out.
+    // ADAC expands the exact SLD across its TLD set in one POST; don't pre-fan-out.
     rtr.searchDomains(params.query, [], 50),
     loadPricingMap(masterDb),
   ]);
