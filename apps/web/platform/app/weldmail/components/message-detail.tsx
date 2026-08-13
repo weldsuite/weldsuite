@@ -62,6 +62,8 @@ import { usePinnedMessagesSafe } from '@/contexts/pinned-messages-context';
 import { useStarredMessagesSafe } from '@/contexts/starred-messages-context';
 import { useCustomerPanel } from '@/contexts/customer-panel-context';
 import { useComposeSafe } from '@/contexts/compose-context';
+import { useMailThreadListSafe } from '@/app/weldmail/contexts/mail-thread-list-context';
+import { getNextThreadHref } from '@/app/weldmail/lib/next-thread';
 import { mailApi } from '../lib/api-client';
 import { IsolatedHtmlContent } from './isolated-html-content';
 import {
@@ -479,11 +481,13 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
 
   // Compose context for floating panel
   const composeContext = useComposeSafe();
+  const threadList = useMailThreadListSafe();
 
   // Close the detail pane and stay in the current mailbox (unified or
   // per-account). Never jump to the conversation's own account inbox —
   // that would yank the user out of the unified view.
-  const listPath = pathname.startsWith('/weldmail/unified/')
+  const isUnifiedView = threadList?.isUnified ?? pathname.startsWith('/weldmail/unified/');
+  const listPath = isUnifiedView
     ? `/weldmail/unified/${folder}`
     : `/weldmail/${accountId}/${folder}`;
   const handleBackToList = () => {
@@ -841,6 +845,22 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
       toast.error(t.mail.messageDetail.failedToArchiveSingle);
       return false;
     }
+  };
+
+  // Capture the next conversation *before* archive refreshes the list, then
+  // open it in this same mailbox. Last item falls back to closing the pane.
+  const handleArchiveAndNext = async () => {
+    const nextHref = threadList
+      ? getNextThreadHref(
+          threadList.threads,
+          { messageId: message.id, threadId },
+          threadList,
+        )
+      : null;
+    const archived = await handleArchive();
+    if (!archived) return;
+    if (nextHref) router.push(nextHref);
+    else handleBackToList();
   };
 
   const handleMarkAsSpam = async () => {
@@ -1239,10 +1259,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
               <X className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
             </Button>
             <div className="w-px h-5 bg-border" />
-            <Button variant="ghost" size="icon" className="p-1.5 hover:bg-gray-100 dark:hover:bg-secondary transition-colors" onClick={async () => {
-              const archived = await handleArchive();
-              if (archived) handleBackToList();
-            }}>
+            <Button variant="ghost" size="icon" className="p-1.5 hover:bg-gray-100 dark:hover:bg-secondary transition-colors" onClick={handleArchiveAndNext}>
               <Check className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
             </Button>
           </div>
