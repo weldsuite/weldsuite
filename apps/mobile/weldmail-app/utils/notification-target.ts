@@ -37,3 +37,23 @@ export function parseNotificationTarget(data: unknown): NotificationTarget | nul
   if (!emailId && !accountId) return null;
   return { emailId, accountId };
 }
+
+/**
+ * Backoff (ms) used when a notification tap opens the app before the new
+ * message has shown up in the inbox list. First fetch is immediate (via
+ * refreshMail); these delays cover a couple of follow-up tries.
+ */
+export const NOTIFICATION_LIST_RETRY_DELAYS_MS = [400, 1000, 2000] as const;
+
+/** Delay for the next inbox re-fetch, or null once retries are exhausted. */
+export function nextNotificationListRetryMs(attempt: number): number | null {
+  return NOTIFICATION_LIST_RETRY_DELAYS_MS[attempt] ?? null;
+}
+
+/** Whether the inbox page we just loaded already contains this message. */
+export function listContainsEmailId(
+  messages: ReadonlyArray<{ id: string }>,
+  emailId: string,
+): boolean {
+  return messages.some((m) => m.id === emailId);
+}

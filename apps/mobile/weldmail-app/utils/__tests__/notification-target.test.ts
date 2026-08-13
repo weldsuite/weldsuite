@@ -1,4 +1,8 @@
-import { parseNotificationTarget } from '../notification-target';
+import {
+  parseNotificationTarget,
+  nextNotificationListRetryMs,
+  listContainsEmailId,
+} from '../notification-target';
 
 describe('parseNotificationTarget', () => {
   it('reads both ids out of a new-email payload', () => {
@@ -54,5 +58,22 @@ describe('parseNotificationTarget', () => {
 
   it('ignores non-string ids', () => {
     expect(parseNotificationTarget({ emailId: 42, emailAccountId: { id: 'x' } })).toBeNull();
+  });
+});
+
+describe('notification inbox retry helpers', () => {
+  it('returns increasing delays then null once retries are exhausted', () => {
+    expect(nextNotificationListRetryMs(0)).toBe(400);
+    expect(nextNotificationListRetryMs(1)).toBe(1000);
+    expect(nextNotificationListRetryMs(2)).toBe(2000);
+    expect(nextNotificationListRetryMs(3)).toBeNull();
+    expect(nextNotificationListRetryMs(-1)).toBeNull();
+  });
+
+  it('detects whether a list page already contains the notified email', () => {
+    const rows = [{ id: 'msg_01AAA' }, { id: 'msg_01BBB' }];
+    expect(listContainsEmailId(rows, 'msg_01BBB')).toBe(true);
+    expect(listContainsEmailId(rows, 'msg_01CCC')).toBe(false);
+    expect(listContainsEmailId([], 'msg_01AAA')).toBe(false);
   });
 });

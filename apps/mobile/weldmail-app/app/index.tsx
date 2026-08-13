@@ -41,6 +41,10 @@ import { filterDisplayLabels, getLabelColor } from '@/utils/label-utils';
 import { useIsTablet } from '@/utils/tablet';
 import MaterialSpinner from '@/components/MaterialSpinner';
 import type { EmailListItem } from '@/types/mail';
+import {
+  listContainsEmailId,
+  nextNotificationListRetryMs,
+} from '@/utils/notification-target';
 
 const EMAIL_LIST_WIDTH_TABLET = 400;
 
@@ -276,7 +280,18 @@ export default function MailScreen() {
   const params = useLocalSearchParams<{ draftSaved?: string; draftId?: string; draftAccountId?: string; draftTo?: string; draftCc?: string; draftBcc?: string; draftSubject?: string; draftBody?: string }>();
   const insets = useSafeAreaInsets();
   const { width: _windowWidth } = useWindowDimensions();
-  const { selectedLabel, labels, customLabels, selectedAccount, isUnifiedInbox, accounts, updateLabelCount, mailVersion } = useMail();
+  const {
+    selectedLabel,
+    labels,
+    customLabels,
+    selectedAccount,
+    isUnifiedInbox,
+    accounts,
+    updateLabelCount,
+    mailVersion,
+    pendingNotificationEmailId,
+    clearPendingNotificationEmail,
+  } = useMail();
   const cache = useMailCache();
   const outbox = useMailOutbox();
   const { organizationId } = useClerkAuth();
@@ -524,6 +539,42 @@ export default function MailScreen() {
   useEffect(() => {
     if (organizationId) fetchMessagesRef.current();
   }, [organizationId]);
+
+  // A notification tap can open the app before the new message is in the
+  // inbox list (stale cache, or the list fetch raced the insert). Keep
+  // re-fetching with a short backoff until the row appears or we give up.
+  useEffect(() => {
+    if (
+      pendingNotificationEmailId &&
+      listContainsEmailId(messages, pendingNotificationEmailId)
+    ) {
+      clearPendingNotificationEmail();
+    }
+  }, [pendingNotificationEmailId, messages, clearPendingNotificationEmail]);
+
+  useEffect(() => {
+    if (!pendingNotificationEmailId) return;
+    let cancelled = false;
+    let attempt = 0;
+
+    const tick = async () => {
+      while (!cancelled) {
+        const delay = nextNotificationListRetryMs(attempt);
+        if (delay == null) {
+          if (!cancelled) clearPendingNotificationEmail();
+          return;
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, delay));
+        if (cancelled) return;
+        attempt += 1;
+        await fetchMessagesRef.current();
+      }
+    };
+    tick();
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingNotificationEmailId, clearPendingNotificationEmail]);
 
 
   const handleRefresh = useCallback(() => {

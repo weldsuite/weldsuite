@@ -64,7 +64,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const { user, getCredentials, organizationId } = useClerkAuth();
   // Lets a notification tap move the mailbox to the account the email arrived
   // in — this provider therefore has to sit inside MailProvider (see _layout).
-  const { selectAccountById } = useMail();
+  const { selectAccountById, setSelectedLabel, refreshMail, expectNotificationEmail } = useMail();
   const router = useRouter();
   // Defined once the root navigator is mounted — `?.key` is our "safe to
   // navigate" signal. On a cold start the provider's effects run before the
@@ -107,13 +107,20 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     // account A must not leave the user sitting in account B. No-op when the
     // unified inbox is active or that account is already the selected one.
     if (pendingNav.accountId) selectAccountById(pendingNav.accountId);
+    // Always land on Inbox — a tap from Sent/Trash would otherwise leave the
+    // new row invisible in the list behind the detail screen. Then kick a
+    // list refresh and remember the id so the inbox can retry until the row
+    // actually appears (the first paint is often a stale cache).
+    setSelectedLabel('INBOX');
+    expectNotificationEmail(pendingNav.emailId);
+    refreshMail();
     if (pendingNav.emailId) {
       router.push({ pathname: '/[id]', params: { id: pendingNav.emailId } });
     } else {
       router.push('/');
     }
     setPendingNav(null);
-  }, [navReady, pendingNav, router, selectAccountById]);
+  }, [navReady, pendingNav, router, selectAccountById, setSelectedLabel, expectNotificationEmail, refreshMail]);
 
   // Register this device's push token with the backend. Shared by
   // requestPermissions (awaited) and the init effect (fire-and-forget).

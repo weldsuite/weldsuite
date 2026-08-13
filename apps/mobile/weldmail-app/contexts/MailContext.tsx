@@ -79,6 +79,14 @@ interface MailContextValue {
   // without relying on navigation focus events.
   mailVersion: number;
   refreshMail: () => void;
+  /**
+   * Message a notification tap wants the inbox to contain. The list retries
+   * until this id appears (or retries run out), then clears it. Null when
+   * nothing is pending.
+   */
+  pendingNotificationEmailId: string | null;
+  expectNotificationEmail: (emailId: string | undefined) => void;
+  clearPendingNotificationEmail: () => void;
 }
 
 const MailContext = createContext<MailContextValue | undefined>(undefined);
@@ -128,8 +136,18 @@ export function MailProvider({ children }: { children: React.ReactNode }) {
   // effect for requests that arrive after everything is already loaded.
   const pendingAccountIdRef = useRef<string | null>(null);
   const [accountRequestTick, setAccountRequestTick] = useState(0);
+  // Email a notification tap just opened. The inbox watches this and
+  // re-fetches until the row is in the list — the push can land before the
+  // list API has the new message, so the first paint is often a stale cache.
+  const [pendingNotificationEmailId, setPendingNotificationEmailId] = useState<string | null>(null);
 
   const refreshMail = useCallback(() => setMailVersion(v => v + 1), []);
+  const expectNotificationEmail = useCallback((emailId: string | undefined) => {
+    setPendingNotificationEmailId(emailId ?? null);
+  }, []);
+  const clearPendingNotificationEmail = useCallback(() => {
+    setPendingNotificationEmailId(null);
+  }, []);
 
   const mainLabels = useMemo(() =>
     MAIN_LABELS.map(l => ({ ...l, count: mainLabelCounts[l.slug] ?? l.count })),
@@ -369,6 +387,7 @@ export function MailProvider({ children }: { children: React.ReactNode }) {
     if (!user) {
       initializedRef.current = false;
       retryCountRef.current = 0;
+      setPendingNotificationEmailId(null);
       return;
     }
     if (!initializedRef.current) {
@@ -391,6 +410,7 @@ export function MailProvider({ children }: { children: React.ReactNode }) {
       retryCountRef.current = 0;
       // Any queued notification account belongs to the org we're leaving.
       pendingAccountIdRef.current = null;
+      setPendingNotificationEmailId(null);
       setAccounts([]);
       setSelectedAccount(null);
       setIsUnifiedInbox(true);
@@ -433,6 +453,9 @@ export function MailProvider({ children }: { children: React.ReactNode }) {
         updateLabelCount,
         mailVersion,
         refreshMail,
+        pendingNotificationEmailId,
+        expectNotificationEmail,
+        clearPendingNotificationEmail,
       }}
     >
       {children}

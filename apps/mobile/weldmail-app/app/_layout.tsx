@@ -43,7 +43,6 @@ import { NetworkProvider } from '@/contexts/NetworkContext';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { OutboxFlusher } from '@/components/OutboxFlusher';
 import { useMailRealtime } from '@/hooks/useMailRealtime';
-import { useUpdateGate } from '@/hooks/useUpdateGate';
 
 applyInterAsDefaultFont();
 
@@ -292,9 +291,11 @@ function AuthenticatedApp() {
 }
 
 export default function RootLayout() {
-  // First-launch OTA gate: check for and apply the latest update before the app
-  // renders, so first-time installers never see the stale embedded bundle.
-  const checkingUpdate = useUpdateGate();
+  // OTA updates stay on expo-updates' default: check/download in the
+  // background (see app.json `updates.checkAutomatically: ON_LOAD` +
+  // `fallbackToCacheTimeout: 0`) and apply on the next process start. Do not
+  // block launch on a custom check — that "Updating…" gate delayed cold
+  // starts, including notification taps.
 
   const [fontsLoaded, fontError] = useFonts({
     Inter_100Thin,
@@ -307,10 +308,6 @@ export default function RootLayout() {
     Inter_800ExtraBold,
     Inter_900Black,
   });
-
-  if (checkingUpdate) {
-    return <FullScreenLoader label="Updating…" />;
-  }
 
   // Hold render until fonts are ready. The native splash will auto-hide
   // when this component returns its real tree (no manual SplashScreen.* calls
