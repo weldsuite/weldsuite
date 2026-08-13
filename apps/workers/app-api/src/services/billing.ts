@@ -16,6 +16,8 @@
 
 import { eq } from 'drizzle-orm';
 import { masterSchema, type MasterDatabase } from '../db';
+import type { Env } from '../types';
+import { fetchBillingWorker } from '../lib/billing-worker';
 
 export { getAccurateMemberCount, syncUserWorkspacesFromClerk } from './member-count';
 export type { ClerkMembershipListItem } from './member-count';
@@ -239,3 +241,66 @@ export function mapSubscription(workspace: Workspace, plan: Plan | null, usedSea
     isLocked: workspace.scheduledDeletionAt != null,
   };
 }
+
+// ============================================================================
+// Billing-worker proxies (phone subscription pricing)
+// ============================================================================
+
+/** Discriminated result from a billing-worker proxy call. */
+export type BillingWorkerProxyFailure =
+  | { kind: 'bad_request'; message: string }
+  | { kind: 'not_found'; message: string }
+  | { kind: 'upstream'; message: string };
+
+export type PhoneSubscriptionProxyResult =
+  | { ok: true; data: Record<string, unknown> }
+  | { ok: false; error: BillingWorkerProxyFailure };
+
+function upstreamErrorMessage(
+  body: Record<string, unknown> | null,
+  fallback: string,
+): string {
+  return (body && typeof body.error === 'string' && body.error) || fallback;
+}
+
+/**
+ * Fetch Stripe phone-line subscription pricing from billing-worker.
+ * Pure of Hono — callers pass env + Authorization and map the result to HTTP.
+ *
+ * Upstream 5xx / network / timeout → `{ ok: false, error: { kind: 'upstream' } }`
+ * (never `{ exists: false }`, which would falsely claim "no subscription").
+ */
+export async function fetchPhoneSubscription(params: {
+  env: Pick<Env, 'ENVIRONMENT'>;
+  authorization?: string | null;
+  fetchImpl?: typeof fetch;
+}): Promise<PhoneSubscriptionProxyResult> {
+  try {
+    const resp = await fetchBillingWorker(params.env, '/api/billing/phone/subscription', {
+      method: 'GET',
+      authorization: params.authorization,
+      fetchImpl: params.fetchImpl,
+    });
+    const body = (await resp.json().catch(() => null)) as Record<string, unknown> | null;
+
+    if (!resp.ok) {
+      const message = upstreamErrorMessage(body, 'Failed to fetch phone subscription');
+      if (resp.status === 400) return { ok: false, error: { kind: 'bad_request', message } };
+      if (resp.status === 404) return { ok: false, error: { kind: 'not_found', message } };
+      return { ok: false, error: { kind: 'upstream', message } };
+    }
+
+    return { ok: true, data: body ?? { exists: false } };
+  } catch (err) {
+    const aborted =
+      (err instanceof Error && err.name === 'AbortError') ||
+      (typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'AbortError');
+    const message = aborted
+      ? 'Billing worker timed out'
+      : err instanceof Error
+        ? err.message
+        : 'Failed to fetch phone subscription';
+    return { ok: false, error: { kind: 'upstream', message } };
+  }
+}
+

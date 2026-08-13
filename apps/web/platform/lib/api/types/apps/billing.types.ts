@@ -4,8 +4,9 @@
  * This module contains all types specific to the Billing application.
  * All types are namespaced under 'Billing' to avoid conflicts with other modules.
  *
- * Billing is managed via billing-worker (Stripe). See actions/billing-actions.ts
- * for server actions and lib/api/billing-worker-client.ts for the worker client.
+ * Interactive billing UX runs on app-api (`/api/billing/*`, `/api/credits/*`).
+ * Stripe webhooks and phone/credit Checkout session creation live on
+ * billing-worker and are reached via app-api proxies where the browser needs them.
  */
 
 import { BaseEntity } from '../complete-api.types';
