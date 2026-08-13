@@ -358,7 +358,7 @@ export default function EmailDetailScreen() {
     return () => {
       cancelled = true;
     };
-  }, [id, cache, reloadTick, organizationId]);
+  }, [id, cache, reloadTick, organizationId, refreshMail, stub]);
 
   const retryLoad = useCallback(() => {
     setLoading(true);
@@ -395,14 +395,14 @@ export default function EmailDetailScreen() {
     togglePin(email.id);
   };
 
-  const handleDelete = async () => {
+  const handleDelete = useCallback(async () => {
     if (!email) return;
     // Queue the delete (replays on reconnect) and leave — the inbox overlay
     // hides it immediately, online or off.
     await outbox.remove(email.id);
     refreshMail();
     goBack();
-  };
+  }, [email, outbox, refreshMail, goBack]);
 
   const handleArchive = async () => {
     if (!email) return;
@@ -440,7 +440,7 @@ export default function EmailDetailScreen() {
       default:
         break;
     }
-  }, [email, goBack, handleMarkAsUnread, refreshMail, outbox]);
+  }, [email, goBack, handleMarkAsUnread, handleDelete, refreshMail, outbox]);
 
   const handleMoreMenu = () => {
     const options = ['Mark as unread', 'Delete', 'Mark as spam', 'Report phishing', 'Cancel'];

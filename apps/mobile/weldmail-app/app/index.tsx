@@ -354,27 +354,6 @@ export default function MailScreen() {
   const lastDraftIdRef = useRef<string | null>(null);
   const lastDraftDataRef = useRef<any>(null);
 
-  // Show snackbar when returning from compose with draft saved
-  useEffect(() => {
-    if (params.draftSaved === '1') {
-      // Cache draft info for undo/discard
-      if (params.draftId) {
-        lastDraftIdRef.current = params.draftId;
-        lastDraftDataRef.current = {
-          emailAccountId: params.draftAccountId || '',
-          to: params.draftTo || '',
-          cc: params.draftCc || '',
-          bcc: params.draftBcc || '',
-          subject: params.draftSubject || '',
-          body: params.draftBody || '',
-        };
-      }
-      router.setParams({ draftSaved: undefined, draftId: undefined, draftAccountId: undefined, draftTo: undefined, draftCc: undefined, draftBcc: undefined, draftSubject: undefined, draftBody: undefined } as any);
-
-      showSnackbar('Draft saved');
-    }
-  }, [params.draftSaved]);
-
   const currentLabelName = labels.find((l) => l.slug === selectedLabel)?.name || selectedLabel;
 
   const fetchMessages = useCallback(async (search?: string) => {
@@ -421,7 +400,7 @@ export default function MailScreen() {
         setRefreshing(false);
       }
     }
-  }, [selectedLabel, selectedAccount?.id, isUnifiedInbox, scopeId, cache, outbox]);
+  }, [selectedLabel, selectedAccount?.id, isUnifiedInbox, scopeId, cache, outbox, updateLabelCount]);
 
   // Always call the latest fetchMessages from effects/refs without re-subscribing.
   const fetchMessagesRef = useRef(fetchMessages);
@@ -648,6 +627,38 @@ export default function MailScreen() {
       Animated.timing(fabTranslateY, { toValue: 0, duration: 200, useNativeDriver: true }),
     ]).start(() => setSnackbar(null));
   }, [snackbarTranslateY, fabTranslateY]);
+
+  // Show snackbar when returning from compose with draft saved
+  useEffect(() => {
+    if (params.draftSaved === '1') {
+      // Cache draft info for undo/discard
+      if (params.draftId) {
+        lastDraftIdRef.current = params.draftId;
+        lastDraftDataRef.current = {
+          emailAccountId: params.draftAccountId || '',
+          to: params.draftTo || '',
+          cc: params.draftCc || '',
+          bcc: params.draftBcc || '',
+          subject: params.draftSubject || '',
+          body: params.draftBody || '',
+        };
+      }
+      router.setParams({ draftSaved: undefined, draftId: undefined, draftAccountId: undefined, draftTo: undefined, draftCc: undefined, draftBcc: undefined, draftSubject: undefined, draftBody: undefined } as any);
+
+      showSnackbar('Draft saved');
+    }
+  }, [
+    params.draftSaved,
+    params.draftId,
+    params.draftAccountId,
+    params.draftTo,
+    params.draftCc,
+    params.draftBcc,
+    params.draftSubject,
+    params.draftBody,
+    router,
+    showSnackbar,
+  ]);
 
   // Handle the compose overlay closing — caches the saved draft for undo and
   // surfaces the "Draft saved" snackbar (replaces the old route-param flow).
