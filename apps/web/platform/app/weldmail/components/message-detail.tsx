@@ -65,6 +65,7 @@ import { useComposeSafe } from '@/contexts/compose-context';
 import { useMailThreadListSafe } from '@/app/weldmail/contexts/mail-thread-list-context';
 import { getNextThreadHref } from '@/app/weldmail/lib/next-thread';
 import { mailApi } from '../lib/api-client';
+import { currentMailHref } from '../lib/mail-urls';
 import { IsolatedHtmlContent } from './isolated-html-content';
 import {
   useArchiveThread,
@@ -1023,7 +1024,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                   body: htmlContent || textContent,
                   inReplyTo: isReply ? getReplyToRfcMessageId() : undefined,
                   accountId,
-                }, window.location.pathname);
+                }, currentMailHref());
                 onCancel();
               }}
             >
@@ -1040,7 +1041,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                 const textContent = editorRef.current?.textContent || '';
                 const rfcMessageId = isReply ? getReplyToRfcMessageId() : undefined;
                 if (composeContext) {
-                  composeContext.setPreviousUrl(window.location.pathname);
+                  composeContext.setPreviousUrl(currentMailHref());
                   composeContext.updateComposeData({
                     to: composeData.to,
                     subject: composeData.subject || message.subject,
@@ -1052,7 +1053,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                 // Pass inReplyTo and returnUrl via URL params for reliability
                 const params = new URLSearchParams();
                 if (rfcMessageId) params.set('inReplyTo', rfcMessageId);
-                params.set('returnUrl', window.location.pathname);
+                    params.set('returnUrl', currentMailHref());
                 const qs = params.toString();
                 router.push(`/weldmail/${accountId}/${folder}/compose${qs ? `?${qs}` : ''}`);
               }}
@@ -1589,7 +1590,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             key={draft.id}
             className="mx-3 md:mx-4 mb-3 group relative border border-orange-200 rounded-lg bg-orange-50/50 cursor-pointer hover:bg-orange-50 transition-colors"
             onClick={() => {
-              router.push(`/weldmail/${accountId}/${folder}/compose?draftId=${draft.id}&returnUrl=${encodeURIComponent(window.location.pathname)}`);
+              router.push(`/weldmail/${accountId}/${folder}/compose?draftId=${draft.id}&returnUrl=${encodeURIComponent(currentMailHref())}`);
             }}
           >
             <div className="px-3 md:px-4 py-4 flex items-center justify-between">
@@ -2031,7 +2032,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                         key={draft.id}
                         className="group/draft relative border border-orange-200 rounded-lg bg-orange-50/50 cursor-pointer hover:bg-orange-50 transition-colors mb-2"
                         onClick={() => {
-                          router.push(`/weldmail/${accountId}/${folder}/compose?draftId=${draft.id}&returnUrl=${encodeURIComponent(window.location.pathname)}`);
+                          router.push(`/weldmail/${accountId}/${folder}/compose?draftId=${draft.id}&returnUrl=${encodeURIComponent(currentMailHref())}`);
                         }}
                       >
                         <div className="px-3 md:px-4 py-4 flex items-center justify-between">

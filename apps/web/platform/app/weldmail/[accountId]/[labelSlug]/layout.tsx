@@ -1,6 +1,7 @@
 
 import { useCallback, useMemo } from 'react';
-import { useParams, useSearchParams } from '@/lib/router';
+import { useParams } from '@/lib/router';
+import { useMailListPage } from '../../hooks/use-mail-list-page';
 import { LabelRealtimeWrapper } from './label-realtime-wrapper';
 import { useMailLabelThreads, useMailDrafts, mailKeys } from '@/hooks/queries/use-mail-queries';
 import { getLabelDisplayName } from '../../lib/label-config';
@@ -22,8 +23,7 @@ export default function LabelLayout({
   const params = useParams<{ accountId: string; labelSlug: string }>();
   const accountId = params.accountId;
   const labelSlug = decodeURIComponent(params.labelSlug);
-  const searchParams = useSearchParams();
-  const currentPage = Math.max(1, Number(searchParams?.get('page')) || 1);
+  const currentPage = useMailListPage();
   const queryClient = useQueryClient();
 
   const isDraftsView = labelSlug === 'drafts';

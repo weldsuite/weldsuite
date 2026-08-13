@@ -3,7 +3,8 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { ChevronUp } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { useI18n } from '@/lib/i18n/provider';
-import { useParams, useSearchParams } from '@/lib/router';
+import { useParams } from '@/lib/router';
+import { useMailListPage } from '../../hooks/use-mail-list-page';
 import { useMailLabelThreads } from '@/hooks/queries/use-mail-queries';
 import { getSystemLabelConfig } from '../../lib/label-config';
 import type { ThreadSummary } from '../../lib/thread-utils';
@@ -28,8 +29,7 @@ export default function UnifiedLabelLayout({
   const { t } = useI18n();
   const params = useParams<{ labelSlug: string }>();
   const labelSlug = decodeURIComponent(params.labelSlug);
-  const searchParams = useSearchParams();
-  const currentPage = Math.max(1, Number(searchParams?.get('page')) || 1);
+  const currentPage = useMailListPage();
 
   // Remember that the unified inbox was the last view opened (per-user).
   const { data: preferences } = useUserPreferences();
