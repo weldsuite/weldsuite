@@ -62,7 +62,25 @@ async function loadPricingMap(
     .select()
     .from(masterSchema.hostDomainPricing)
     .where(eq(masterSchema.hostDomainPricing.isActive, true));
-  return new Map(rows.map((r) => [r.tld.toLowerCase(), r]));
+  return new Map(rows.map((r) => [r.tld.replace(/^\./, '').toLowerCase(), r]));
+}
+
+function tldOf(name: string): string {
+  return name.split('.').slice(1).join('.').replace(/^\./, '').toLowerCase();
+}
+
+async function loadWholesaleMap(
+  rtr: RealtimeRegistrar,
+): Promise<Map<string, { createCents: number; currency: string }>> {
+  try {
+    return await rtr.getPricelist('EUR');
+  } catch (err) {
+    console.error(
+      '[app-api/domains] pricelist fetch failed:',
+      err instanceof Error ? err.message : err,
+    );
+    return new Map();
+  }
 }
 
 /**
@@ -120,17 +138,21 @@ export function applyMarkup(
 function transformResult(
   r: DomainCheckResult,
   pricingMap: Map<string, typeof masterSchema.hostDomainPricing.$inferSelect>,
+  wholesaleMap: Map<string, { createCents: number; currency: string }> = new Map(),
 ): TransformedDomainResult {
-  const tld = r.name.split('.').slice(1).join('.');
-  const pricing = pricingMap.get(tld.toLowerCase());
+  const tld = tldOf(r.name);
+  const pricing = pricingMap.get(tld);
+  const wholesale = wholesaleMap.get(tld);
   const available = r.available && r.reason !== 'check_failed';
+  const wholesaleCents = r.priceCents ?? wholesale?.createCents;
+  const wholesaleCurrency = r.currency ?? wholesale?.currency;
   return {
     domain_name: r.name,
     suffix: tld,
     status: available ? 1 : 2,
     premium: r.premium,
-    price: applyMarkup(r.priceCents, pricing, r.currency),
-    currency: pricing?.currency ?? r.currency ?? 'EUR',
+    price: applyMarkup(wholesaleCents, pricing, wholesaleCurrency),
+    currency: pricing?.currency ?? wholesaleCurrency ?? 'EUR',
     domain: r.name,
     available,
     reason: r.reason,
@@ -143,18 +165,20 @@ export async function searchDomains(
   params: { query: string; limit?: number },
 ): Promise<TransformedDomainResult[]> {
   const limit = Math.min(params.limit ?? 20, 50);
-  const [results, pricingMap] = await Promise.all([
+  const [results, pricingMap, wholesaleMap] = await Promise.all([
     // ADAC expands the query across its TLD set in one POST; don't pre-fan-out.
     rtr.searchDomains(params.query, [], 50),
     loadPricingMap(masterDb),
+    loadWholesaleMap(rtr),
   ]);
-  const tldOf = (name: string) => name.split('.').slice(1).join('.').toLowerCase();
-  const priced = pricingMap.size
-    ? results.filter((r) => pricingMap.has(tldOf(r.name)))
-    : results;
+  const canPrice = (name: string) => {
+    const tld = tldOf(name);
+    return pricingMap.has(tld) || wholesaleMap.has(tld);
+  };
+  const priced = results.filter((r) => canPrice(r.name));
   return (priced.length ? priced : results)
     .slice(0, limit)
-    .map((r) => transformResult(r, pricingMap));
+    .map((r) => transformResult(r, pricingMap, wholesaleMap));
 }
 
 export async function checkDomains(
@@ -162,11 +186,12 @@ export async function checkDomains(
   masterDb: MasterDatabase,
   params: { domains: string[] },
 ): Promise<TransformedDomainResult[]> {
-  const [results, pricingMap] = await Promise.all([
+  const [results, pricingMap, wholesaleMap] = await Promise.all([
     rtr.checkDomains(params.domains),
     loadPricingMap(masterDb),
+    loadWholesaleMap(rtr),
   ]);
-  return results.map((r) => transformResult(r, pricingMap));
+  return results.map((r) => transformResult(r, pricingMap, wholesaleMap));
 }
 
 export function roleContactsFromEnv(env: {
@@ -936,28 +961,33 @@ export async function createCheckout(
     return { ok: false, reason: 'unavailable', domain: params.input.domain };
   }
 
-  const tld = params.input.domain.split('.').slice(1).join('.').toLowerCase();
+  const tld = tldOf(params.input.domain);
   const [pricingRow] = await masterDb
     .select()
     .from(masterSchema.hostDomainPricing)
     .where(
       and(
-        eq(masterSchema.hostDomainPricing.tld, tld),
+        or(
+          eq(masterSchema.hostDomainPricing.tld, tld),
+          eq(masterSchema.hostDomainPricing.tld, `.${tld}`),
+        ),
         eq(masterSchema.hostDomainPricing.isActive, true),
       ),
     )
     .limit(1);
 
+  const wholesaleMap = await loadWholesaleMap(rtr);
+  const wholesale = wholesaleMap.get(tld);
   const unitAmountCents = applyMarkup(
-    check.priceCents,
+    check.priceCents ?? wholesale?.createCents,
     pricingRow ?? undefined,
-    check.currency,
+    check.currency ?? wholesale?.currency,
   );
   if (unitAmountCents === null || unitAmountCents <= 0) {
     return { ok: false, reason: 'no_price', tld };
   }
 
-  const currency = (pricingRow?.currency ?? check.currency ?? 'eur').toLowerCase();
+  const currency = (pricingRow?.currency ?? check.currency ?? wholesale?.currency ?? 'eur').toLowerCase();
 
   const [workspaceRow] = await masterDb
     .select({ stripeCustomerId: masterSchema.workspaces.stripeCustomerId })

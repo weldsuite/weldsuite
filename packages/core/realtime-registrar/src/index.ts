@@ -17,9 +17,11 @@ import {
   collapseAdacResults,
   postAdacAction,
 } from './adac';
+import { parseDomainPricelist, type DomainWholesalePrice } from './pricelist';
 
 export type RegistrarFetch = typeof fetch;
 export { RealtimeRegistrarError } from './errors';
+export { parseDomainPricelist, type DomainWholesalePrice } from './pricelist';
 
 // ============================================================================
 // Public types
@@ -521,6 +523,20 @@ export class RealtimeRegistrar {
       { method: 'GET', query: { renewPrice: opts?.renewPrice ? true : undefined } },
     );
     return mapCheck(name, data ?? {});
+  }
+
+  /**
+   * Wholesale TLD prices for this customer (`GET /v2/customers/{handle}/pricelist`).
+   * ADAC (and the REST domain check) omit standard-TLD prices; this is the
+   * catalog search/checkout falls back to when `domain_pricing` has no row.
+   */
+  async getPricelist(currency = 'EUR'): Promise<Map<string, DomainWholesalePrice>> {
+    const { data } = await this.request<{ prices?: Array<{ product?: string; action?: string; currency?: string; price?: number }> }>(
+      'pricelist',
+      `customers/${encodeURIComponent(this.customer)}/pricelist`,
+      { method: 'GET', query: { currency } },
+    );
+    return parseDomainPricelist(data.prices);
   }
 
   /**
