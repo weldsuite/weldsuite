@@ -198,6 +198,17 @@ app.get(
         503,
       );
     }
+    if (!rtr.hasAdac) {
+      return c.json(
+        {
+          error: {
+            code: 'SERVICE_UNAVAILABLE',
+            message: 'Realtime Register ADAC is not configured',
+          },
+        },
+        503,
+      );
+    }
     try {
       const masterDb = getMasterDb(c.env);
       const { q, limit } = c.req.valid('query');
@@ -218,6 +229,17 @@ app.post(
     if (!rtr) {
       return c.json(
         { error: { code: 'SERVICE_UNAVAILABLE', message: 'Realtime Register is not configured' } },
+        503,
+      );
+    }
+    if (!rtr.hasAdac) {
+      return c.json(
+        {
+          error: {
+            code: 'SERVICE_UNAVAILABLE',
+            message: 'Realtime Register ADAC is not configured',
+          },
+        },
         503,
       );
     }

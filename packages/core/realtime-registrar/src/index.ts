@@ -11,20 +11,15 @@
  * Base: prod `https://api.yoursrs.com/v2/` · OTE `https://api.yoursrs-ote.com/v2/`
  */
 
-export type RegistrarFetch = typeof fetch;
+import { RealtimeRegistrarError } from './errors';
+import {
+  ADAC_REQUEST_TIMEOUT_MS,
+  collapseAdacResults,
+  postAdacAction,
+} from './adac';
 
-export class RealtimeRegistrarError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly code: string,
-    message: string,
-    public readonly endpoint?: string,
-    public readonly body?: unknown,
-  ) {
-    super(message);
-    this.name = 'RealtimeRegistrarError';
-  }
-}
+export type RegistrarFetch = typeof fetch;
+export { RealtimeRegistrarError } from './errors';
 
 // ============================================================================
 // Public types
@@ -206,6 +201,24 @@ function mapCheck(name: string, data: {
   };
 }
 
+function adacToCheckResult(r: {
+  name: string;
+  available: boolean;
+  premium: boolean;
+  priceCents?: number;
+  currency?: string;
+  reason?: string;
+}): DomainCheckResult {
+  return {
+    name: r.name,
+    available: r.available,
+    premium: r.premium,
+    priceCents: r.priceCents,
+    currency: r.currency,
+    reason: r.reason,
+  };
+}
+
 function mapDomain(data: {
   domainName: string;
   status?: string[];
@@ -366,6 +379,8 @@ export function domainContactToCreateInput(
 export class RealtimeRegistrar {
   private readonly apiKey: string;
   private readonly customer: string;
+  private readonly adacApiKey: string | undefined;
+  private readonly adacTldSetToken: string | undefined;
   private readonly baseURL: string;
   private readonly fetchImpl: RegistrarFetch;
   private readonly timeoutMs: number;
@@ -377,6 +392,8 @@ export class RealtimeRegistrar {
     baseURL,
     fetch: fetchImpl,
     timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+    adacApiKey,
+    adacTldSetToken,
   }: {
     apiKey: string;
     customer: string;
@@ -384,9 +401,15 @@ export class RealtimeRegistrar {
     baseURL?: string;
     fetch?: RegistrarFetch;
     timeoutMs?: number;
+    /** ADAC-only key from the ADAC management panel — not the registrar API key. */
+    adacApiKey?: string;
+    /** Optional TLD-set token from the ADAC panel. Omit to use the account default. */
+    adacTldSetToken?: string;
   }) {
-    this.apiKey = apiKey;
-    this.customer = customer;
+    this.apiKey = apiKey.trim();
+    this.customer = customer.trim();
+    this.adacApiKey = adacApiKey?.trim() || undefined;
+    this.adacTldSetToken = adacTldSetToken?.trim() || undefined;
     this.baseURL =
       baseURL ??
       (ote ? 'https://api.yoursrs-ote.com/v2/' : 'https://api.yoursrs.com/v2/');
@@ -396,6 +419,22 @@ export class RealtimeRegistrar {
 
   get customerHandle(): string {
     return this.customer;
+  }
+
+  get hasAdac(): boolean {
+    return Boolean(this.adacApiKey);
+  }
+
+  private requireAdac(): string {
+    if (!this.adacApiKey) {
+      throw new RealtimeRegistrarError(
+        503,
+        'ADAC_NOT_CONFIGURED',
+        'Realtime Register ADAC is not configured',
+        'adac',
+      );
+    }
+    return this.adacApiKey;
   }
 
   private url(path: string, query?: Record<string, string | boolean | number | undefined>): string {
@@ -485,38 +524,57 @@ export class RealtimeRegistrar {
   }
 
   /**
-   * Fan-out availability checks across TLDs. RTR has no CF-style search; ADAC
-   * is WebSocket-only and unsuitable for Workers.
+   * ADAC `input` action — one POST returns TLD-set availability + suggestions.
+   * `tlds` is accepted for call-site compatibility and used only as a suffix
+   * filter when non-empty (ADAC already expands the query across its TLD set).
    */
   async searchDomains(
     query: string,
-    tlds: string[],
+    tlds: string[] = [],
     limit = 20,
   ): Promise<DomainCheckResult[]> {
     const cleaned = query.trim().toLowerCase().replace(/\.$/, '');
     if (!cleaned) return [];
 
-    const hasDot = cleaned.includes('.');
-    const candidates: string[] = [];
-    if (hasDot) {
-      candidates.push(cleaned);
-    } else {
-      for (const tld of tlds) {
-        const ext = tld.replace(/^\./, '').toLowerCase();
-        candidates.push(`${cleaned}.${ext}`);
-        if (candidates.length >= limit) break;
-      }
+    const events = await postAdacAction(this.fetchImpl, {
+      apiKey: this.requireAdac(),
+      action: 'input',
+      input: cleaned,
+      tldSetToken: this.adacTldSetToken,
+      timeoutMs: Math.max(this.timeoutMs, ADAC_REQUEST_TIMEOUT_MS),
+    });
+    let results = collapseAdacResults(events).map(adacToCheckResult);
+
+    const suffixes = new Set(
+      tlds.map((t) => t.replace(/^\./, '').toLowerCase()).filter(Boolean),
+    );
+    if (suffixes.size > 0) {
+      results = results.filter((r) => suffixes.has(r.name.split('.').slice(1).join('.')));
     }
 
-    const slice = candidates.slice(0, limit);
-    // Bound concurrency so a large TLD fan-out cannot stampede the API.
+    return results
+      .slice(0, limit)
+      .sort((a, b) => Number(b.available) - Number(a.available) || a.name.localeCompare(b.name));
+  }
+
+  /**
+   * ADAC `check` action per domain (single-name availability, including premium
+   * price when ADAC returns one). Falls back to the registrar REST check when
+   * ADAC is not configured.
+   */
+  async checkDomains(domains: string[]): Promise<DomainCheckResult[]> {
+    const names = domains.map((d) => d.trim().toLowerCase()).filter(Boolean);
+    if (names.length === 0) return [];
+
+    if (!this.adacApiKey) {
+      return this.checkDomainsViaRest(names);
+    }
+
     const concurrency = 5;
-    const out: DomainCheckResult[] = new Array(slice.length);
-    for (let i = 0; i < slice.length; i += concurrency) {
-      const batch = slice.slice(i, i + concurrency);
-      const settled = await Promise.allSettled(
-        batch.map((d) => this.checkDomain(d, { renewPrice: true })),
-      );
+    const out: DomainCheckResult[] = new Array(names.length);
+    for (let i = 0; i < names.length; i += concurrency) {
+      const batch = names.slice(i, i + concurrency);
+      const settled = await Promise.allSettled(batch.map((d) => this.adacCheck(d)));
       for (let j = 0; j < settled.length; j++) {
         const s = settled[j]!;
         out[i + j] =
@@ -530,17 +588,35 @@ export class RealtimeRegistrar {
               };
       }
     }
-    // Available first, then name.
-    return out.sort((a, b) => Number(b.available) - Number(a.available) || a.name.localeCompare(b.name));
+    return out;
   }
 
-  async checkDomains(domains: string[]): Promise<DomainCheckResult[]> {
+  private async adacCheck(name: string): Promise<DomainCheckResult> {
+    const events = await postAdacAction(this.fetchImpl, {
+      apiKey: this.requireAdac(),
+      action: 'check',
+      input: name,
+      timeoutMs: Math.max(this.timeoutMs, ADAC_REQUEST_TIMEOUT_MS),
+    });
+    const [result] = collapseAdacResults(events);
+    if (!result) {
+      throw new RealtimeRegistrarError(
+        502,
+        'ADAC_EMPTY',
+        `ADAC returned no status for ${name}`,
+        'adac',
+      );
+    }
+    return adacToCheckResult(result);
+  }
+
+  private async checkDomainsViaRest(names: string[]): Promise<DomainCheckResult[]> {
     const concurrency = 5;
-    const out: DomainCheckResult[] = new Array(domains.length);
-    for (let i = 0; i < domains.length; i += concurrency) {
-      const batch = domains.slice(i, i + concurrency);
+    const out: DomainCheckResult[] = new Array(names.length);
+    for (let i = 0; i < names.length; i += concurrency) {
+      const batch = names.slice(i, i + concurrency);
       const settled = await Promise.allSettled(
-        batch.map((d) => this.checkDomain(d.toLowerCase(), { renewPrice: true })),
+        batch.map((d) => this.checkDomain(d, { renewPrice: true })),
       );
       for (let j = 0; j < settled.length; j++) {
         const s = settled[j]!;

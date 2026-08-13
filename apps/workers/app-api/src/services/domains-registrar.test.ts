@@ -63,40 +63,154 @@ describe('RealtimeRegistrar.checkDomain', () => {
 });
 
 describe('RealtimeRegistrar.searchDomains', () => {
-  it('fans out checks across TLDs', async () => {
+  function adacClient(body: unknown, opts?: { tldSetToken?: string; status?: number }) {
     const calls: FetchCall[] = [];
     const fetchStub: RegistrarFetch = async (input, init) => {
       calls.push({
         url: String(input instanceof Request ? input.url : input),
         init: init as RequestInit | undefined,
       });
-      const url = String(input instanceof Request ? input.url : input);
-      const available = url.includes('acme.com');
+      return new Response(typeof body === 'string' ? body : JSON.stringify(body), {
+        status: opts?.status ?? 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+    const rtr = new RealtimeRegistrar({
+      apiKey: 'key_test',
+      customer: 'weldsuite',
+      adacApiKey: 'adac_test_key',
+      adacTldSetToken: opts?.tldSetToken,
+      fetch: fetchStub,
+    });
+    return { rtr, calls };
+  }
+
+  it('posts the ADAC input action once instead of fanning out REST checks', async () => {
+    const { rtr, calls } = adacClient([
+      { action: 'domain_status', data: { domain_name: 'acme.com', suffix: 'com', status: 1 } },
+      { action: 'domain_status', data: { domain_name: 'acme.nl', suffix: 'nl', status: 2 } },
+      { action: 'suggestion', data: { source: 'rns', domain_name: 'acme.live', suffix: 'live', status: 1 } },
+    ]);
+    const results = await rtr.searchDomains('acme', [], 20);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('https://adac.api.yoursrs.com/action');
+    const posted = JSON.parse(String(calls[0]!.init?.body)) as {
+      action: string;
+      api_key: string;
+      data: { input: string };
+    };
+    expect(posted).toMatchObject({
+      action: 'input',
+      api_key: 'adac_test_key',
+      data: { input: 'acme' },
+    });
+    expect(results.find((r) => r.name === 'acme.com')).toMatchObject({ available: true });
+    expect(results.find((r) => r.name === 'acme.nl')).toMatchObject({
+      available: false,
+      reason: 'domain_unavailable',
+    });
+    expect(results.some((r) => r.name === 'acme.live' && r.available)).toBe(true);
+  });
+
+  it('includes the TLD-set token when configured', async () => {
+    const { rtr, calls } = adacClient([], { tldSetToken: 'tldset_abc' });
+    await rtr.searchDomains('acme');
+    const posted = JSON.parse(String(calls[0]!.init?.body)) as { data: { tld_set_token?: string } };
+    expect(posted.data.tld_set_token).toBe('tldset_abc');
+  });
+
+  it('maps premium ADAC rows to price cents', async () => {
+    const { rtr } = adacClient([
+      {
+        action: 'domain_status',
+        data: {
+          domain_name: 'hot.shop',
+          suffix: 'shop',
+          status: 1,
+          type: 'premium',
+          currency: 'EUR',
+          price: 12500,
+        },
+      },
+    ]);
+    await expect(rtr.searchDomains('hot')).resolves.toEqual([
+      expect.objectContaining({
+        name: 'hot.shop',
+        available: true,
+        premium: true,
+        priceCents: 12500,
+        currency: 'EUR',
+      }),
+    ]);
+  });
+
+  it('throws when ADAC is not configured', async () => {
+    const { rtr } = withResponse(200, { available: true });
+    await expect(rtr.searchDomains('acme')).rejects.toMatchObject({
+      name: 'RealtimeRegistrarError',
+      code: 'ADAC_NOT_CONFIGURED',
+    });
+  });
+
+  it('throws the ADAC error payload', async () => {
+    const { rtr } = adacClient({ action: 'error', data: 'Invalid domain' });
+    await expect(rtr.searchDomains('acme')).rejects.toMatchObject({
+      name: 'RealtimeRegistrarError',
+      code: 'ADAC_ERROR',
+      message: 'Invalid domain',
+    });
+  });
+});
+
+describe('RealtimeRegistrar.checkDomains', () => {
+  it('uses the ADAC check action when an ADAC key is set', async () => {
+    const calls: FetchCall[] = [];
+    const fetchStub: RegistrarFetch = async (input, init) => {
+      calls.push({
+        url: String(input instanceof Request ? input.url : input),
+        init: init as RequestInit | undefined,
+      });
       return new Response(
-        JSON.stringify({ available, premium: false, currency: 'EUR' }),
+        JSON.stringify([
+          { action: 'domain_status', data: { domain_name: 'acme.com', suffix: 'com', status: 1 } },
+        ]),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     };
     const rtr = new RealtimeRegistrar({
       apiKey: 'key_test',
       customer: 'weldsuite',
+      adacApiKey: 'adac_test_key',
       fetch: fetchStub,
     });
-    const results = await rtr.searchDomains('acme', ['com', 'nl'], 10);
-    expect(calls.length).toBe(2);
-    expect(results.some((r) => r.name === 'acme.com' && r.available)).toBe(true);
+    const results = await rtr.checkDomains(['acme.com']);
+    expect(calls[0]!.url).toBe('https://adac.api.yoursrs.com/action');
+    expect(JSON.parse(String(calls[0]!.init?.body))).toMatchObject({
+      action: 'check',
+      api_key: 'adac_test_key',
+      data: { input: 'acme.com' },
+    });
+    expect(results).toEqual([expect.objectContaining({ name: 'acme.com', available: true })]);
   });
 
-  it('marks rejected checks as check_failed, not unavailable', async () => {
+  it('falls back to registrar REST checks without an ADAC key', async () => {
+    const { rtr, calls } = withResponse(200, { available: true, premium: false });
+    const results = await rtr.checkDomains(['acme.com']);
+    expect(calls[0]!.url).toContain('/domains/acme.com/check');
+    expect(results[0]).toMatchObject({ name: 'acme.com', available: true });
+  });
+
+  it('marks a rejected ADAC check as check_failed, not unavailable', async () => {
     const fetchStub: RegistrarFetch = async () => {
       throw new Error('network down');
     };
     const rtr = new RealtimeRegistrar({
       apiKey: 'key_test',
       customer: 'weldsuite',
+      adacApiKey: 'adac_test_key',
       fetch: fetchStub,
     });
-    const results = await rtr.searchDomains('acme', ['com'], 10);
+    const results = await rtr.checkDomains(['acme.com']);
     expect(results).toEqual([
       expect.objectContaining({
         name: 'acme.com',

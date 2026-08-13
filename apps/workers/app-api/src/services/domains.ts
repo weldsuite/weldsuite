@@ -137,31 +137,24 @@ function transformResult(
   };
 }
 
-async function popularTlds(masterDb: MasterDatabase, limit = 20): Promise<string[]> {
-  const rows = await masterDb
-    .select({ tld: masterSchema.hostDomainPricing.tld })
-    .from(masterSchema.hostDomainPricing)
-    .where(eq(masterSchema.hostDomainPricing.isActive, true))
-    .orderBy(
-      desc(masterSchema.hostDomainPricing.isPopular),
-      asc(masterSchema.hostDomainPricing.tld),
-    )
-    .limit(limit);
-  return rows.map((r) => r.tld.toLowerCase());
-}
-
 export async function searchDomains(
   rtr: RealtimeRegistrar,
   masterDb: MasterDatabase,
   params: { query: string; limit?: number },
 ): Promise<TransformedDomainResult[]> {
   const limit = Math.min(params.limit ?? 20, 50);
-  const [tlds, pricingMap] = await Promise.all([
-    popularTlds(masterDb, limit),
+  const [results, pricingMap] = await Promise.all([
+    // ADAC expands the query across its TLD set in one POST; don't pre-fan-out.
+    rtr.searchDomains(params.query, [], 50),
     loadPricingMap(masterDb),
   ]);
-  const results = await rtr.searchDomains(params.query, tlds.length ? tlds : ['com', 'nl', 'net', 'org'], limit);
-  return results.map((r) => transformResult(r, pricingMap));
+  const tldOf = (name: string) => name.split('.').slice(1).join('.').toLowerCase();
+  const priced = pricingMap.size
+    ? results.filter((r) => pricingMap.has(tldOf(r.name)))
+    : results;
+  return (priced.length ? priced : results)
+    .slice(0, limit)
+    .map((r) => transformResult(r, pricingMap));
 }
 
 export async function checkDomains(

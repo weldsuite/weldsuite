@@ -149,6 +149,11 @@ export const manifest: Record<string, SecretEntry[]> = {
     "REALTIME_REGISTER_API_KEY",
     "REALTIME_REGISTER_CUSTOMER",
     "REALTIME_REGISTER_OTE",
+    // ADAC availability checker — different key from the registrar REST key,
+    // minted in the ADAC management panel. Search/check use this; register
+    // still uses REALTIME_REGISTER_API_KEY.
+    "REALTIME_REGISTER_ADAC_API_KEY",
+    "REALTIME_REGISTER_ADAC_TLD_SET_TOKEN",
     "REALTIME_REGISTER_CONTACT_ADMIN",
     "REALTIME_REGISTER_CONTACT_TECH",
     "REALTIME_REGISTER_CONTACT_BILLING",
