@@ -2,7 +2,7 @@
   "expo": {
     "name": "WeldMail",
     "slug": "weldmail-app",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "weldmail",
@@ -33,6 +33,14 @@
       [
         "expo-build-properties",
         {
+          "ios": {
+            "deploymentTarget": "17.0",
+            "useFrameworks": "static",
+            "extraPods": [
+              { "name": "GoogleUtilities", "modular_headers": true },
+              { "name": "RecaptchaInterop", "modular_headers": true }
+            ]
+          },
           "android": {
             "usesCleartextTraffic": true,
             "packagingOptions": {
@@ -43,6 +51,7 @@
           }
         }
       ],
+      "@clerk/expo",
       [
         "expo-splash-screen",
         {
