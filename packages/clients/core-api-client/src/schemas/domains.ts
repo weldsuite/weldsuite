@@ -200,6 +200,8 @@ export interface Domain {
   registrarStatus: string | null;
   registrarSyncedAt: string | null;
   workflowUrl: string | null;
+  rtrRegistrantHandle: string | null;
+  rtrProcessId: string | null;
 
   registeredAt: string | null;
   expiresAt: string | null;

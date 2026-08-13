@@ -339,7 +339,18 @@ app.get('/', requirePermission('domains:read'), zValidator('query', listDomainsQ
     const result = await domainsService.listDomains(c.get('tenantDb'), c.req.valid('query'));
     return c.json(result);
   } catch (err) {
-    console.error('[app-api/domains] list failed:', err);
+    const extra = err as { message?: string; code?: string; detail?: string; cause?: unknown; stack?: string; name?: string };
+    console.error(
+      '[app-api/domains] list failed:',
+      JSON.stringify({
+        name: extra?.name,
+        message: extra?.message,
+        code: extra?.code,
+        detail: extra?.detail,
+        cause: extra?.cause instanceof Error ? extra.cause.message : extra?.cause ?? null,
+        stack: extra?.stack,
+      }),
+    );
     return error.internal(c, 'Failed to fetch domains');
   }
 });
