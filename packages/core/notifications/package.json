@@ -16,7 +16,7 @@
     "@weldsuite/db": "workspace:*",
     "@weldsuite/transactional-email": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "nanoid": "^5.0.0"
+    "nanoid": "^5.1.16"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
