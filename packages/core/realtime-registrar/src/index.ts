@@ -17,7 +17,7 @@ import {
   collapseAdacResults,
   postAdacAction,
 } from './adac';
-import { parseDomainPricelist, type DomainWholesalePrice } from './pricelist';
+import { parseDomainPricelist, PRICELIST_CURRENCY, type DomainWholesalePrice } from './pricelist';
 
 export type RegistrarFetch = typeof fetch;
 export { RealtimeRegistrarError } from './errors';
@@ -25,7 +25,9 @@ export {
   parseDomainPricelist,
   centsToMajorUnits,
   missingDomainPricingFromPricelist,
+  splitDomainPricingFromPricelist,
   normalizeTld,
+  PRICELIST_CURRENCY,
   type DomainWholesalePrice,
   type DomainPricingBackfillRow,
 } from './pricelist';
@@ -534,10 +536,10 @@ export class RealtimeRegistrar {
 
   /**
    * Wholesale TLD prices for this customer (`GET /v2/customers/{handle}/pricelist`).
-   * Used by the admin catalog backfill — search/checkout read `domain_pricing`,
-   * not this endpoint.
+   * Used by the admin catalog sync — search/checkout read `domain_pricing`,
+   * not this endpoint. Defaults to USD to match WeldHost charging.
    */
-  async getPricelist(currency = 'EUR'): Promise<Map<string, DomainWholesalePrice>> {
+  async getPricelist(currency = PRICELIST_CURRENCY): Promise<Map<string, DomainWholesalePrice>> {
     const { data } = await this.request<{ prices?: Array<{ product?: string; action?: string; currency?: string; price?: number }> }>(
       'pricelist',
       `customers/${encodeURIComponent(this.customer)}/pricelist`,

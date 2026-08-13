@@ -52,8 +52,7 @@ export async function listDomainPricing(): Promise<DomainPricingRow[]> {
   return rows.map(serialize);
 }
 
-export async function listExistingDomainTlds(): Promise<string[]> {
+export async function listExistingDomainPricingKeys(): Promise<Array<{ id: string; tld: string }>> {
   const db = getMasterDb();
-  const rows = await db.select({ tld: hostDomainPricing.tld }).from(hostDomainPricing);
-  return rows.map((r) => r.tld);
+  return db.select({ id: hostDomainPricing.id, tld: hostDomainPricing.tld }).from(hostDomainPricing);
 }

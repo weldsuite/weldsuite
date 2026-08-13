@@ -68,18 +68,18 @@ export const host = {
       navGroup: 'WeldHost',
       navCatalog: 'Catálogo de TLD',
       cardTitle: 'Precios de dominios',
-      cardDescription: 'Catálogo de TLD rellenado desde Realtime Register',
+      cardDescription: 'Catálogo de TLD sincronizado desde Realtime Register en USD',
       title: 'Precios de dominios',
       description:
-        'Catálogo maestro que WeldHost usa para búsqueda y pago. Completa los TLD que falten desde la lista de precios de Realtime Register; las filas y márgenes existentes no se modifican.',
-      backfillButton: 'Completar desde Realtime Register',
+        'Catálogo maestro que WeldHost usa para búsqueda y pago. Sincroniza precios mayoristas en USD desde la lista de Realtime Register; el margen existente no se modifica.',
+      backfillButton: 'Sincronizar desde Realtime Register',
       catalog: 'Catálogo',
       active: 'Activos',
       popular: 'Populares',
       filterTld: 'Filtrar TLD…',
       filterTldLabel: 'Filtrar TLD',
       emptyCatalog:
-        'Aún no hay precios de dominio. Completa desde Realtime Register para llenar el catálogo.',
+        'Aún no hay precios de dominio. Sincroniza desde Realtime Register para llenar el catálogo.',
       emptyFilter: 'Ningún TLD coincide con ese filtro.',
       columnTld: 'TLD',
       columnRegister: 'Registro',
@@ -90,15 +90,15 @@ export const host = {
       statusActive: 'activo',
       statusInactive: 'inactivo',
       statusPopular: 'popular',
-      confirmTitle: '¿Completar precios de dominio?',
+      confirmTitle: '¿Sincronizar precios de dominio?',
       confirmDescription:
-        'Esto llama a Realtime Register GET /v2/customers/…/pricelist (EUR) e inserta los TLD que aún no están en el catálogo maestro. Las filas existentes, incluido el margen, no se sobrescriben.',
+        'Esto llama a Realtime Register GET /v2/customers/…/pricelist (USD) y escribe los precios mayoristas de registro/renovación/transferencia en el catálogo maestro. El margen existente no se sobrescribe.',
       confirmCancel: 'Cancelar',
       confirmFetch: 'Obtener lista de precios',
       backfillSuccess:
-        'Se completaron {inserted} TLD(s) desde Realtime Register ({fetched} en la lista, {skipped} ya en el catálogo)',
+        'Se sincronizaron {updated} TLD existentes y se insertaron {inserted} nuevos desde Realtime Register ({fetched} en la lista)',
       backfillAlreadyComplete:
-        'El catálogo ya está completo — {fetched} TLD en la lista de precios, ninguno faltante',
+        'Los precios mayoristas ya coinciden con Realtime Register — {fetched} TLD en la lista de precios',
       notConfigured:
         'Realtime Register no está configurado. Define REALTIME_REGISTER_API_KEY y REALTIME_REGISTER_CUSTOMER en la app de administración.',
       pricelistFailed: 'La solicitud de lista de precios de Realtime Register falló',

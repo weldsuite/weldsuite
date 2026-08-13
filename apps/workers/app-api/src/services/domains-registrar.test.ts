@@ -8,6 +8,7 @@ import {
   RealtimeRegistrarError,
   parseDomainPricelist,
   missingDomainPricingFromPricelist,
+  splitDomainPricingFromPricelist,
   centsToMajorUnits,
   toE164a,
   contactHandleFrom,
@@ -393,10 +394,10 @@ describe('applyMarkup', () => {
       markupAmount: null,
       markupPercent: null,
       registrationPrice: '15.00',
-      currency: 'EUR',
+      currency: 'USD',
     } as never;
-    // 999 USD wholesale must not be mixed into EUR pricing.
-    expect(applyMarkup(999, pricing, 'USD')).toBe(1500);
+    // 890 EUR wholesale must not be mixed into USD pricing.
+    expect(applyMarkup(890, pricing, 'EUR')).toBe(1500);
   });
 
   it('converts major units via applyMarkup(cents)', () => {
@@ -418,15 +419,15 @@ describe('applyMarkup', () => {
 describe('parseDomainPricelist', () => {
   it('maps domain_com CREATE rows to TLD wholesale cents', () => {
     const map = parseDomainPricelist([
-      { product: 'domain_com', action: 'CREATE', currency: 'EUR', price: 890 },
-      { product: 'domain_com', action: 'RENEW', currency: 'EUR', price: 1090 },
-      { product: 'domain_nl', action: 'CREATE', currency: 'EUR', price: 650 },
-      { product: 'ssl_comodo', action: 'CREATE', currency: 'EUR', price: 5000 },
+      { product: 'domain_com', action: 'CREATE', currency: 'USD', price: 890 },
+      { product: 'domain_com', action: 'RENEW', currency: 'USD', price: 1090 },
+      { product: 'domain_nl', action: 'CREATE', currency: 'USD', price: 650 },
+      { product: 'ssl_comodo', action: 'CREATE', currency: 'USD', price: 5000 },
     ]);
     expect(map.get('com')).toEqual({
       createCents: 890,
       renewCents: 1090,
-      currency: 'EUR',
+      currency: 'USD',
     });
     expect(map.get('nl')?.createCents).toBe(650);
     expect(map.has('comodo')).toBe(false);
@@ -434,23 +435,24 @@ describe('parseDomainPricelist', () => {
 
   it('drops TLDs that have no CREATE price', () => {
     const map = parseDomainPricelist([
-      { product: 'domain_xyz', action: 'RENEW', currency: 'EUR', price: 100 },
+      { product: 'domain_xyz', action: 'RENEW', currency: 'USD', price: 100 },
     ]);
     expect(map.size).toBe(0);
   });
 });
 
 describe('RealtimeRegistrar.getPricelist', () => {
-  it('GETs the customer pricelist and parses domain CREATE prices', async () => {
+  it('GETs the customer pricelist in USD and parses domain CREATE prices', async () => {
     const { rtr, calls } = withResponse(200, {
       prices: [
-        { product: 'domain_com', action: 'CREATE', currency: 'EUR', price: 890 },
+        { product: 'domain_com', action: 'CREATE', currency: 'USD', price: 890 },
       ],
     });
-    const map = await rtr.getPricelist('EUR');
+    const map = await rtr.getPricelist();
     expect(calls[0]!.url).toContain('/customers/weldsuite/pricelist');
-    expect(calls[0]!.url).toContain('currency=EUR');
+    expect(calls[0]!.url).toContain('currency=USD');
     expect(map.get('com')?.createCents).toBe(890);
+    expect(map.get('com')?.currency).toBe('USD');
   });
 });
 
@@ -458,11 +460,11 @@ describe('missingDomainPricingFromPricelist', () => {
   it('converts cents to major units and skips existing TLDs', () => {
     expect(centsToMajorUnits(890)).toBe('8.90');
     const wholesale = parseDomainPricelist([
-      { product: 'domain_com', action: 'CREATE', currency: 'EUR', price: 890 },
-      { product: 'domain_com', action: 'RENEW', currency: 'EUR', price: 1090 },
-      { product: 'domain_com', action: 'TRANSFER', currency: 'EUR', price: 890 },
-      { product: 'domain_nl', action: 'CREATE', currency: 'EUR', price: 650 },
-      { product: 'domain_xyz', action: 'CREATE', currency: 'EUR', price: 1200 },
+      { product: 'domain_com', action: 'CREATE', currency: 'USD', price: 890 },
+      { product: 'domain_com', action: 'RENEW', currency: 'USD', price: 1090 },
+      { product: 'domain_com', action: 'TRANSFER', currency: 'USD', price: 890 },
+      { product: 'domain_nl', action: 'CREATE', currency: 'USD', price: 650 },
+      { product: 'domain_xyz', action: 'CREATE', currency: 'USD', price: 1200 },
     ]);
     const rows = missingDomainPricingFromPricelist(wholesale, ['.com', 'NL']);
     expect(rows.map((r) => r.tld)).toEqual(['xyz']);
@@ -471,7 +473,7 @@ describe('missingDomainPricingFromPricelist', () => {
       registrationPrice: '12.00',
       renewalPrice: '12.00',
       transferPrice: '12.00',
-      currency: 'EUR',
+      currency: 'USD',
       isPopular: false,
       registrar: 'realtimeregister',
     });
@@ -479,7 +481,7 @@ describe('missingDomainPricingFromPricelist', () => {
 
   it('falls back renew/transfer to CREATE and flags popular TLDs', () => {
     const wholesale = parseDomainPricelist([
-      { product: 'domain_io', action: 'CREATE', currency: 'EUR', price: 2500 },
+      { product: 'domain_io', action: 'CREATE', currency: 'USD', price: 2500 },
     ]);
     const [row] = missingDomainPricingFromPricelist(wholesale, []);
     expect(row).toMatchObject({
@@ -489,5 +491,26 @@ describe('missingDomainPricingFromPricelist', () => {
       transferPrice: '25.00',
       isPopular: true,
     });
+  });
+});
+
+describe('splitDomainPricingFromPricelist', () => {
+  it('splits missing inserts from existing wholesale updates', () => {
+    const wholesale = parseDomainPricelist([
+      { product: 'domain_com', action: 'CREATE', currency: 'USD', price: 990 },
+      { product: 'domain_com', action: 'RENEW', currency: 'USD', price: 1190 },
+      { product: 'domain_xyz', action: 'CREATE', currency: 'USD', price: 1200 },
+    ]);
+    const { missing, existing } = splitDomainPricingFromPricelist(wholesale, ['com']);
+    expect(missing.map((r) => r.tld)).toEqual(['xyz']);
+    expect(existing).toEqual([
+      expect.objectContaining({
+        tld: 'com',
+        registrationPrice: '9.90',
+        renewalPrice: '11.90',
+        transferPrice: '9.90',
+        currency: 'USD',
+      }),
+    ]);
   });
 });

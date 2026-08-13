@@ -134,7 +134,7 @@ function transformResult(
     status: available ? 1 : 2,
     premium: r.premium,
     price: applyMarkup(r.priceCents, pricing, r.currency),
-    currency: pricing?.currency ?? r.currency ?? 'EUR',
+    currency: pricing?.currency ?? r.currency ?? 'USD',
     domain: r.name,
     available,
     reason: r.reason,
@@ -963,7 +963,7 @@ export async function createCheckout(
     return { ok: false, reason: 'no_price', tld };
   }
 
-  const currency = (pricingRow?.currency ?? check.currency ?? 'eur').toLowerCase();
+  const currency = (pricingRow?.currency ?? check.currency ?? 'usd').toLowerCase();
 
   const [workspaceRow] = await masterDb
     .select({ stripeCustomerId: masterSchema.workspaces.stripeCustomerId })

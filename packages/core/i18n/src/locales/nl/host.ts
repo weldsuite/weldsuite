@@ -69,18 +69,18 @@ export const host = {
       navGroup: 'WeldHost',
       navCatalog: 'TLD-catalogus',
       cardTitle: 'Domeinprijzen',
-      cardDescription: 'TLD-catalogus aangevuld vanuit Realtime Register',
+      cardDescription: 'TLD-catalogus gesynchroniseerd vanuit Realtime Register in USD',
       title: 'Domeinprijzen',
       description:
-        'Hoofdcatalogus die WeldHost gebruikt voor zoeken en afrekenen. Vul ontbrekende TLD’s aan vanuit de Realtime Register-prijslijst — bestaande rijen en opslagen blijven ongewijzigd.',
-      backfillButton: 'Aanvullen vanuit Realtime Register',
+        'Hoofdcatalogus die WeldHost gebruikt voor zoeken en afrekenen. Synchroniseer USD-inkoopprijzen vanuit de Realtime Register-prijslijst — opslagen blijven ongewijzigd.',
+      backfillButton: 'Synchroniseren vanuit Realtime Register',
       catalog: 'Catalogus',
       active: 'Actief',
       popular: 'Populair',
       filterTld: 'Filter TLD…',
       filterTldLabel: 'Filter TLD',
       emptyCatalog:
-        'Nog geen domeinprijzen. Vul aan vanuit Realtime Register om de catalogus te vullen.',
+        'Nog geen domeinprijzen. Synchroniseer vanuit Realtime Register om de catalogus te vullen.',
       emptyFilter: 'Geen TLD’s komen overeen met dat filter.',
       columnTld: 'TLD',
       columnRegister: 'Registreren',
@@ -91,15 +91,15 @@ export const host = {
       statusActive: 'actief',
       statusInactive: 'inactief',
       statusPopular: 'populair',
-      confirmTitle: 'Domeinprijzen aanvullen?',
+      confirmTitle: 'Domeinprijzen synchroniseren?',
       confirmDescription:
-        'Dit vraagt de Realtime Register-prijslijst op (GET /v2/customers/…/pricelist, EUR) en voegt TLD’s toe die nog niet in de hoofdcatalogus staan. Bestaande rijen, inclusief opslag, worden niet overschreven.',
+        'Dit vraagt de Realtime Register-prijslijst op (GET /v2/customers/…/pricelist, USD) en schrijft inkoopprijzen voor registreren/verlengen/verhuizen naar de hoofdcatalogus. Bestaande opslag wordt niet overschreven.',
       confirmCancel: 'Annuleren',
       confirmFetch: 'Prijslijst ophalen',
       backfillSuccess:
-        '{inserted} TLD(’s) aangevuld vanuit Realtime Register ({fetched} op de prijslijst, {skipped} al in de catalogus)',
+        '{updated} bestaande TLD(’s) gesynchroniseerd en {inserted} nieuwe toegevoegd vanuit Realtime Register ({fetched} op de prijslijst)',
       backfillAlreadyComplete:
-        'Catalogus is al compleet — {fetched} TLD’s op de prijslijst, geen ontbrekend',
+        'Inkoopprijzen komen al overeen met Realtime Register — {fetched} TLD’s op de prijslijst',
       notConfigured:
         'Realtime Register is niet geconfigureerd. Stel REALTIME_REGISTER_API_KEY en REALTIME_REGISTER_CUSTOMER in op de admin-app.',
       pricelistFailed: 'Realtime Register-prijslijstverzoek is mislukt',
