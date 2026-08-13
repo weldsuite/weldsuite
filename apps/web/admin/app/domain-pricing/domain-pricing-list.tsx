@@ -83,10 +83,10 @@ export function DomainPricingList({
     startMutation(async () => {
       const result = await backfillDomainPricing();
       if (result.ok) {
-        const { inserted, skipped, fetched } = result.data;
+        const { inserted, updated, fetched } = result.data;
         toast.success(
-          inserted
-            ? fill(copy.backfillSuccess, { inserted, fetched, skipped })
+          inserted || updated
+            ? fill(copy.backfillSuccess, { inserted, updated, fetched })
             : fill(copy.backfillAlreadyComplete, { fetched }),
         );
         setConfirm(false);
@@ -279,7 +279,7 @@ export function DomainPricingList({
       <MarkupDialog
         open={bulkOpen || editRow !== null}
         tld={editRow ? editRow.tld.replace(/^\./, '') : null}
-        currency={editRow?.currency ?? rows[0]?.currency ?? 'EUR'}
+        currency={editRow?.currency ?? rows[0]?.currency ?? 'USD'}
         initialKind={editRow ? markupKindOf(editRow) : 'percent'}
         initialValue={editRow ? markupValueOf(editRow) : ''}
         showScope={!editRow}

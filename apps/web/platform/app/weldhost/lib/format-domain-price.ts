@@ -9,7 +9,7 @@
  * charged the correct $10.46.
  *
  * The currency also travels with the result — the UI used to hardcode "US$"
- * even though app-api defaults to EUR.
+ * while app-api still defaulted to EUR. Catalog + checkout now use USD.
  */
 
 /**
@@ -26,7 +26,7 @@ export function formatDomainPrice(
 ): string | null {
   if (cents == null || !Number.isFinite(cents)) return null;
 
-  const code = (currency ?? 'EUR').toUpperCase();
+  const code = (currency ?? 'USD').toUpperCase();
   const amount = cents / 100;
 
   try {

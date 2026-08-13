@@ -2,8 +2,14 @@
  * Realtime Register customer pricelist — wholesale CREATE/RENEW/TRANSFER
  * in cents, keyed by TLD (`domain_com` → `com`).
  *
+ * WeldHost charges in USD, so the catalog sync requests the pricelist
+ * in dollars. Markup stays on the catalog row and is not overwritten.
+ *
  * @see https://dm.realtimeregister.com/docs/api/customers/pricelist
  */
+
+/** Currency WeldHost stores and charges in. */
+export const PRICELIST_CURRENCY = 'USD';
 
 export interface DomainWholesalePrice {
   createCents: number;
@@ -31,7 +37,7 @@ export function parseDomainPricelist(
 
     let entry = byTld.get(tld);
     if (!entry) {
-      entry = { createCents: 0, currency: (row.currency ?? 'EUR').toUpperCase() };
+      entry = { createCents: 0, currency: (row.currency ?? PRICELIST_CURRENCY).toUpperCase() };
       byTld.set(tld, entry);
     }
     if (row.currency) entry.currency = row.currency.toUpperCase();
@@ -72,32 +78,51 @@ export interface DomainPricingBackfillRow {
   registrar: 'realtimeregister';
 }
 
+function catalogRowFromWholesale(
+  rawTld: string,
+  price: DomainWholesalePrice,
+): DomainPricingBackfillRow | null {
+  const tld = normalizeTld(rawTld);
+  if (!tld || !price.createCents) return null;
+  const create = centsToMajorUnits(price.createCents);
+  return {
+    tld,
+    registrationPrice: create,
+    renewalPrice: centsToMajorUnits(price.renewCents ?? price.createCents),
+    transferPrice: centsToMajorUnits(price.transferCents ?? price.createCents),
+    currency: (price.currency || PRICELIST_CURRENCY).toUpperCase(),
+    isPopular: POPULAR_TLDS.has(tld),
+    registrar: 'realtimeregister',
+  };
+}
+
+export function splitDomainPricingFromPricelist(
+  wholesale: Map<string, DomainWholesalePrice>,
+  existingTlds: Iterable<string>,
+): { missing: DomainPricingBackfillRow[]; existing: DomainPricingBackfillRow[] } {
+  const existing = new Set(
+    [...existingTlds].map(normalizeTld).filter(Boolean),
+  );
+  const missing: DomainPricingBackfillRow[] = [];
+  const existingRows: DomainPricingBackfillRow[] = [];
+  for (const [rawTld, price] of wholesale) {
+    const row = catalogRowFromWholesale(rawTld, price);
+    if (!row) continue;
+    if (existing.has(row.tld)) existingRows.push(row);
+    else missing.push(row);
+  }
+  missing.sort((a, b) => a.tld.localeCompare(b.tld));
+  existingRows.sort((a, b) => a.tld.localeCompare(b.tld));
+  return { missing, existing: existingRows };
+}
+
 /**
  * Rows to insert into master `domain_pricing` for TLDs present on the RTR
- * pricelist but missing from the catalog. Existing TLDs (and their markup)
- * are left untouched.
+ * pricelist but missing from the catalog.
  */
 export function missingDomainPricingFromPricelist(
   wholesale: Map<string, DomainWholesalePrice>,
   existingTlds: Iterable<string>,
 ): DomainPricingBackfillRow[] {
-  const existing = new Set(
-    [...existingTlds].map(normalizeTld).filter(Boolean),
-  );
-  const rows: DomainPricingBackfillRow[] = [];
-  for (const [rawTld, price] of wholesale) {
-    const tld = normalizeTld(rawTld);
-    if (!tld || existing.has(tld) || !price.createCents) continue;
-    const create = centsToMajorUnits(price.createCents);
-    rows.push({
-      tld,
-      registrationPrice: create,
-      renewalPrice: centsToMajorUnits(price.renewCents ?? price.createCents),
-      transferPrice: centsToMajorUnits(price.transferCents ?? price.createCents),
-      currency: (price.currency || 'EUR').toUpperCase(),
-      isPopular: POPULAR_TLDS.has(tld),
-      registrar: 'realtimeregister',
-    });
-  }
-  return rows.sort((a, b) => a.tld.localeCompare(b.tld));
+  return splitDomainPricingFromPricelist(wholesale, existingTlds).missing;
 }

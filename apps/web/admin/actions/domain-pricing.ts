@@ -2,12 +2,17 @@
 
 import { revalidatePath } from 'next/cache';
 import { and, eq, isNull } from 'drizzle-orm';
-import { RealtimeRegistrarError, missingDomainPricingFromPricelist } from '@weldsuite/realtime-registrar';
+import {
+  PRICELIST_CURRENCY,
+  RealtimeRegistrarError,
+  normalizeTld,
+  splitDomainPricingFromPricelist,
+} from '@weldsuite/realtime-registrar';
 import { guardWrite } from '@/lib/auth';
 import { getMasterDb, masterSchema } from '@/lib/db';
 import { generateId } from '@/lib/id';
 import { getAdminRealtimeRegistrar } from '@/lib/realtime-registrar';
-import { listExistingDomainTlds } from '@/lib/domain-pricing-data';
+import { listExistingDomainPricingKeys } from '@/lib/domain-pricing-data';
 import { adminPricingCopy } from '@/lib/i18n';
 import { parseMarkupInput, type MarkupPatch } from '@/lib/domain-pricing-markup';
 
@@ -20,6 +25,7 @@ export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string
 export interface BackfillDomainPricingResult {
   fetched: number;
   inserted: number;
+  updated: number;
   skipped: number;
 }
 
@@ -85,7 +91,7 @@ export async function backfillDomainPricing(): Promise<ActionResult<BackfillDoma
 
   let wholesale;
   try {
-    wholesale = await rtr.getPricelist('EUR');
+    wholesale = await rtr.getPricelist(PRICELIST_CURRENCY);
   } catch (err) {
     const message =
       err instanceof RealtimeRegistrarError
@@ -96,18 +102,16 @@ export async function backfillDomainPricing(): Promise<ActionResult<BackfillDoma
     return { ok: false, error: message };
   }
 
-  const existing = await listExistingDomainTlds();
-  const missing = missingDomainPricingFromPricelist(wholesale, existing);
-  if (missing.length === 0) {
-    refreshPricingRoutes();
-    return {
-      ok: true,
-      data: { fetched: wholesale.size, inserted: 0, skipped: wholesale.size },
-    };
-  }
+  const existingKeys = await listExistingDomainPricingKeys();
+  const { missing, existing: toUpdate } = splitDomainPricingFromPricelist(
+    wholesale,
+    existingKeys.map((r) => r.tld),
+  );
+  const idByTld = new Map(existingKeys.map((r) => [normalizeTld(r.tld), r.id]));
 
   const db = getMasterDb();
   let inserted = 0;
+  let updated = 0;
 
   for (let i = 0; i < missing.length; i += INSERT_CHUNK) {
     const chunk = missing.slice(i, i + INSERT_CHUNK).map((row) => ({
@@ -130,13 +134,36 @@ export async function backfillDomainPricing(): Promise<ActionResult<BackfillDoma
     inserted += created.length;
   }
 
+  for (let i = 0; i < toUpdate.length; i += INSERT_CHUNK) {
+    const chunk = toUpdate.slice(i, i + INSERT_CHUNK);
+    const results = await Promise.all(
+      chunk.map((row) => {
+        const id = idByTld.get(row.tld);
+        if (!id) return Promise.resolve([] as Array<{ id: string }>);
+        return db
+          .update(hostDomainPricing)
+          .set({
+            registrationPrice: row.registrationPrice,
+            renewalPrice: row.renewalPrice,
+            transferPrice: row.transferPrice,
+            currency: row.currency,
+            updatedAt: new Date(),
+          })
+          .where(eq(hostDomainPricing.id, id))
+          .returning({ id: hostDomainPricing.id });
+      }),
+    );
+    updated += results.reduce((sum, rows) => sum + rows.length, 0);
+  }
+
   refreshPricingRoutes();
   return {
     ok: true,
     data: {
       fetched: wholesale.size,
       inserted,
-      skipped: wholesale.size - inserted,
+      updated,
+      skipped: wholesale.size - inserted - updated,
     },
   };
 }

@@ -69,18 +69,18 @@ export const host = {
       navGroup: 'WeldHost',
       navCatalog: 'TLD Catalog',
       cardTitle: 'Domain Pricing',
-      cardDescription: 'TLD catalog backfilled from Realtime Register',
+      cardDescription: 'TLD catalog synced from Realtime Register in USD',
       title: 'Domain pricing',
       description:
-        'Master catalog used by WeldHost search and checkout. Backfill missing TLDs from the Realtime Register pricelist — existing rows and markup are left alone.',
-      backfillButton: 'Backfill from Realtime Register',
+        'Master catalog used by WeldHost search and checkout. Sync USD wholesale prices from the Realtime Register pricelist — markup is left alone.',
+      backfillButton: 'Sync from Realtime Register',
       catalog: 'Catalog',
       active: 'Active',
       popular: 'Popular',
       filterTld: 'Filter TLD…',
       filterTldLabel: 'Filter TLD',
       emptyCatalog:
-        'No domain pricing yet. Backfill from Realtime Register to populate the catalog.',
+        'No domain pricing yet. Sync from Realtime Register to populate the catalog.',
       emptyFilter: 'No TLDs match that filter.',
       columnTld: 'TLD',
       columnRegister: 'Register',
@@ -91,15 +91,15 @@ export const host = {
       statusActive: 'active',
       statusInactive: 'inactive',
       statusPopular: 'popular',
-      confirmTitle: 'Backfill domain pricing?',
+      confirmTitle: 'Sync domain pricing?',
       confirmDescription:
-        'This calls Realtime Register GET /v2/customers/…/pricelist (EUR) and inserts any TLDs that are not already in the master catalog. Existing rows, including markup, are not overwritten.',
+        'This calls Realtime Register GET /v2/customers/…/pricelist (USD) and writes wholesale register/renew/transfer prices onto the master catalog. Existing markup is not overwritten.',
       confirmCancel: 'Cancel',
       confirmFetch: 'Fetch pricelist',
       backfillSuccess:
-        'Backfilled {inserted} TLD(s) from Realtime Register ({fetched} on pricelist, {skipped} already in catalog)',
+        'Synced {updated} existing and inserted {inserted} new TLD(s) from Realtime Register ({fetched} on pricelist)',
       backfillAlreadyComplete:
-        'Catalog already complete — {fetched} TLDs on the pricelist, none missing',
+        'Wholesale prices already match Realtime Register — {fetched} TLDs on the pricelist',
       notConfigured:
         'Realtime Register is not configured. Set REALTIME_REGISTER_API_KEY and REALTIME_REGISTER_CUSTOMER on the admin app.',
       pricelistFailed: 'Realtime Register pricelist request failed',
