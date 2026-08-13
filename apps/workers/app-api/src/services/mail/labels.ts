@@ -332,6 +332,11 @@ export async function bulkRemoveLabelFromMessages(
 /**
  * Apply or remove `labelName` from every message in a thread. Returns
  * the count of messages whose JSONB array changed.
+ *
+ * System slugs are normalised (`archive` → `ARCHIVE`) so callers can
+ * pass either form. Adding `ARCHIVE` also strips `INBOX` (and adding
+ * `INBOX` strips `ARCHIVE`) so a conversation cannot sit in both the
+ * inbox and the archive at once — Gmail-style location labels.
  */
 export async function applyLabelToThread(
   db: Database,
@@ -340,6 +345,7 @@ export async function applyLabelToThread(
   labelName: string,
   action: 'add' | 'remove',
 ): Promise<{ affected: number }> {
+  const normalized = toSystemLabel(labelName) ?? labelName;
   const messages = await db
     .select({ id: mailMessages.id })
     .from(mailMessages)
@@ -352,10 +358,19 @@ export async function applyLabelToThread(
     );
   if (messages.length === 0) return { affected: 0 };
   const ids = messages.map((m) => m.id);
-  const result = action === 'add'
-    ? await bulkAddLabelToMessages(db, labelName, ids)
-    : await bulkRemoveLabelFromMessages(db, labelName, ids);
-  return { affected: result.affected };
+  if (action === 'add') {
+    const added = await bulkAddLabelToMessages(db, normalized, ids);
+    let affected = added.affected;
+    if (normalized === SYSTEM_LABELS.ARCHIVE) {
+      const removed = await bulkRemoveLabelFromMessages(db, SYSTEM_LABELS.INBOX, ids);
+      affected = Math.max(affected, removed.affected);
+    } else if (normalized === SYSTEM_LABELS.INBOX) {
+      await bulkRemoveLabelFromMessages(db, SYSTEM_LABELS.ARCHIVE, ids);
+    }
+    return { affected };
+  }
+  const removed = await bulkRemoveLabelFromMessages(db, normalized, ids);
+  return { affected: removed.affected };
 }
 
 async function updateLabelMessageCount(

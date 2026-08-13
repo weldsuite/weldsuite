@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { useRouter } from '@/lib/router';
+import { usePathname, useRouter } from '@/lib/router';
 import { formatAiBody } from '@/app/weldmail/lib/format-ai-body';
 import {
   Reply,
@@ -441,6 +441,7 @@ interface MessageDetailProps {
 export function MessageDetail({ message, thread = [], accountId, folder, availableLabels = [], onLabelsChange, threadId, drafts = [] }: MessageDetailProps) {
   const { t } = useI18n();
   const router = useRouter();
+  const pathname = usePathname();
   const archiveThreadMutation = useArchiveThread();
   const trashThreadMutation = useTrashThread();
   const markThreadAsSpamMutation = useMarkThreadAsSpam();
@@ -479,9 +480,14 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   // Compose context for floating panel
   const composeContext = useComposeSafe();
 
-  // Navigate back to the message list (for mobile)
+  // Close the detail pane and stay in the current mailbox (unified or
+  // per-account). Never jump to the conversation's own account inbox —
+  // that would yank the user out of the unified view.
+  const listPath = pathname.startsWith('/weldmail/unified/')
+    ? `/weldmail/unified/${folder}`
+    : `/weldmail/${accountId}/${folder}`;
   const handleBackToList = () => {
-    router.push(`/weldmail/${accountId}/${folder}`);
+    router.push(listPath);
   };
 
   // Track active formatting in the editor
@@ -804,34 +810,36 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     }
   };
 
-  const handleArchive = async () => {
+  const handleArchive = async (): Promise<boolean> => {
     if (threadId) {
-      // Thread-level: Archive all messages in the conversation
-      archiveThreadMutation.mutate({ accountId, threadId }, {
-        onSuccess: (result) => {
-          toast.success(t.mail.messageDetail.archivedMessages.replace('{n}', String(result.archivedCount ?? 1)));
-        },
-        onError: () => {
-          toast.error(t.mail.messageDetail.failedToArchive);
-        },
-      });
-      return;
-    } else {
-      // Gmail-style: Remove "inbox" label, add "archive" label
       try {
-        // Remove inbox label
-        if (messageLabels.includes('inbox')) {
-          await mailApi.messages.removeLabel(accountId, message.id, 'inbox');
-        }
-        // Add archive label
-        await mailApi.messages.addLabel(accountId, message.id, 'archive');
-        const newLabels = messageLabels.filter(l => l !== 'inbox').concat('archive');
-        setMessageLabels(newLabels);
-        onLabelsChange?.(newLabels);
-        toast.success(t.mail.messageDetail.archivedSingle);
+        const result = await archiveThreadMutation.mutateAsync({ accountId, threadId });
+        toast.success(t.mail.messageDetail.archivedMessages.replace('{n}', String(result.archivedCount ?? 1)));
+        window.dispatchEvent(new Event('mail:refresh'));
+        return true;
       } catch {
-        toast.error(t.mail.messageDetail.failedToArchiveSingle);
+        toast.error(t.mail.messageDetail.failedToArchive);
+        return false;
       }
+    }
+    // Gmail-style: Remove INBOX, add ARCHIVE (system labels are uppercase)
+    try {
+      const hasInbox = messageLabels.some((l) => l.toLowerCase() === 'inbox');
+      if (hasInbox) {
+        await mailApi.messages.removeLabel(accountId, message.id, 'INBOX');
+      }
+      await mailApi.messages.addLabel(accountId, message.id, 'ARCHIVE');
+      const newLabels = messageLabels
+        .filter((l) => l.toLowerCase() !== 'inbox')
+        .concat(messageLabels.some((l) => l.toLowerCase() === 'archive') ? [] : ['ARCHIVE']);
+      setMessageLabels(newLabels);
+      onLabelsChange?.(newLabels);
+      toast.success(t.mail.messageDetail.archivedSingle);
+      window.dispatchEvent(new Event('mail:refresh'));
+      return true;
+    } catch {
+      toast.error(t.mail.messageDetail.failedToArchiveSingle);
+      return false;
     }
   };
 
@@ -1232,8 +1240,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             </Button>
             <div className="w-px h-5 bg-border" />
             <Button variant="ghost" size="icon" className="p-1.5 hover:bg-gray-100 dark:hover:bg-secondary transition-colors" onClick={async () => {
-              await handleArchive();
-              handleBackToList();
+              const archived = await handleArchive();
+              if (archived) handleBackToList();
             }}>
               <Check className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
             </Button>
