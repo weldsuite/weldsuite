@@ -496,10 +496,10 @@ export default function ComposeScreen({ onCloseOverride, prefillOverride }: Comp
   // Recomputed on every selection change so Done reflects the same window
   // app-api enforces. `showCustomPicker` is a dep so reopening the sheet
   // re-evaluates against a fresh "now" rather than a stale render's.
-  const isSelectedTimeValid = useMemo(
-    () => isWithinScheduleWindow(selectedDate, new Date()),
-    [selectedDate, showCustomPicker],
-  );
+  const isSelectedTimeValid = useMemo(() => {
+    void showCustomPicker;
+    return isWithinScheduleWindow(selectedDate, new Date());
+  }, [selectedDate, showCustomPicker]);
 
   const confirmCustomDateTime = () => {
     if (!isSelectedTimeValid) return;

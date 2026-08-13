@@ -1,5 +1,5 @@
 import { styles } from './[id].styles';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -38,6 +38,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmailHtmlView from '@/components/EmailHtmlView';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { appApi } from '@/services/app-api';
 import { isApiError } from '@weldsuite/api-client/client';
 import { useMailCache } from '@/hooks/useMailCache';
@@ -57,6 +58,8 @@ import {
 } from '@/utils/email-format';
 import { openAttachment } from '@/utils/open-attachment';
 import { getAttachmentVisual, type AttachmentKind } from '@/utils/attachment-visual';
+import { hideAppSplash } from '@/utils/splash';
+import { firstParam, stubEmailFromTarget } from '@/utils/notification-target';
 
 // Icon component per attachment kind (see utils/attachment-visual).
 const ATTACHMENT_ICONS: Record<AttachmentKind, React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>> = {
@@ -223,20 +226,39 @@ function ThreadMessage({ message, colors, isExpanded, onToggle, onReply, onReply
 
 
 export default function EmailDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{
+    id: string;
+    fromName?: string;
+    fromEmail?: string;
+    subject?: string;
+    preview?: string;
+    fromNotification?: string;
+  }>();
+  const id = firstParam(params.id);
+  const fromName = firstParam(params.fromName);
+  const fromEmail = firstParam(params.fromEmail);
+  const subject = firstParam(params.subject);
+  const preview = firstParam(params.preview);
   const { theme, colors } = useTheme();
   const isDark = theme === 'dark';
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { organizationId } = useClerkAuth();
   const { refreshMail } = useMail();
   const cache = useMailCache();
   const outbox = useMailOutbox();
   const { isPinned: isMessagePinned, togglePin } = usePinnedMessages();
   const { openCompose: openComposeOverlay } = useComposeOverlay();
 
-  const [email, setEmail] = useState<any>(null);
+  const stub = useMemo(
+    () => (id ? stubEmailFromTarget(id, { fromName, fromEmail, subject, preview }) : null),
+    [id, fromName, fromEmail, subject, preview],
+  );
+
+  const [email, setEmail] = useState<any>(stub);
   const [threadMessages, setThreadMessages] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!stub);
+  const [bodyLoading, setBodyLoading] = useState(true);
   // How the message load ended when there's nothing to show: a real 404 (the
   // message is genuinely gone) vs a transient failure (offline / token not
   // ready / 5xx) that a Retry can recover. Keeps a network blip from lying
@@ -248,6 +270,15 @@ export default function EmailDetailScreen() {
   const [expandedThreadIds, setExpandedThreadIds] = useState<Set<string>>(new Set());
   const [snoozePickerVisible, setSnoozePickerVisible] = useState(false);
   const [labelPickerVisible, setLabelPickerVisible] = useState(false);
+
+  useEffect(() => {
+    hideAppSplash();
+  }, []);
+
+  const goBack = useCallback(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/');
+  }, [router]);
 
   useEffect(() => {
     if (!id) return;
@@ -264,6 +295,7 @@ export default function EmailDetailScreen() {
         setEmail(cachedMsg);
         if (cachedThread) setThreadMessages((cachedThread as any[]).filter((m) => m.id !== id));
         setLoading(false);
+        setBodyLoading(false);
       }
 
       // Fetch the message with a few retries. Only a genuine 404 means the
@@ -290,16 +322,17 @@ export default function EmailDetailScreen() {
       if (fetched) {
         setEmail(fetched);
         setLoadOutcome(null);
+        setBodyLoading(false);
         cache.setMessage(id, fetched as Record<string, unknown>);
         appApi.mailMessages.update(id, { isRead: true }).catch(() => {});
       } else if (gone) {
         // Genuinely gone server-side. If we had nothing cached, the tapped row
         // was a stale/dead entry in the list — re-sync so it disappears.
-        if (!cachedMsg) {
+        if (!cachedMsg && !stub) {
           setLoadOutcome('gone');
           refreshMail();
         }
-      } else if (!cachedMsg) {
+      } else if (!cachedMsg && !stub) {
         // Couldn't reach it after retries and have nothing to show — offer a
         // retry instead of a misleading "not found".
         setLoadOutcome('failed');
@@ -316,13 +349,16 @@ export default function EmailDetailScreen() {
         // Keep any cached thread already shown.
       }
 
-      if (!cancelled) setLoading(false);
+      if (!cancelled) {
+        setLoading(false);
+        setBodyLoading(false);
+      }
     };
     load();
     return () => {
       cancelled = true;
     };
-  }, [id, cache, reloadTick]);
+  }, [id, cache, reloadTick, organizationId, refreshMail, stub]);
 
   const retryLoad = useCallback(() => {
     setLoading(true);
@@ -359,28 +395,28 @@ export default function EmailDetailScreen() {
     togglePin(email.id);
   };
 
-  const handleDelete = async () => {
+  const handleDelete = useCallback(async () => {
     if (!email) return;
     // Queue the delete (replays on reconnect) and leave — the inbox overlay
     // hides it immediately, online or off.
     await outbox.remove(email.id);
     refreshMail();
-    router.back();
-  };
+    goBack();
+  }, [email, outbox, refreshMail, goBack]);
 
   const handleArchive = async () => {
     if (!email) return;
     await outbox.archive(email.id);
     refreshMail();
-    router.back();
+    goBack();
   };
 
   const handleMarkAsUnread = useCallback(async () => {
     if (!email) return;
     await outbox.update(email.id, { isRead: false });
     refreshMail();
-    router.back();
-  }, [email, router, refreshMail, outbox]);
+    goBack();
+  }, [email, goBack, refreshMail, outbox]);
 
   const handleMoreMenuAction = useCallback((buttonIndex: number) => {
     if (!email) return;
@@ -392,19 +428,19 @@ export default function EmailDetailScreen() {
         handleDelete();
         break;
       case 2: // Mark as spam
-        outbox.update(email.id, { isSpam: true }).then(() => { refreshMail(); router.back(); });
+        outbox.update(email.id, { isSpam: true }).then(() => { refreshMail(); goBack(); });
         break;
       case 3: // Report phishing
         outbox.update(email.id, { isSpam: true }).then(() => {
           refreshMail();
           Alert.alert('Reported', 'This message has been reported as phishing.');
-          router.back();
+          goBack();
         });
         break;
       default:
         break;
     }
-  }, [email, router, handleMarkAsUnread, refreshMail, outbox]);
+  }, [email, goBack, handleMarkAsUnread, handleDelete, refreshMail, outbox]);
 
   const handleMoreMenu = () => {
     const options = ['Mark as unread', 'Delete', 'Mark as spam', 'Report phishing', 'Cancel'];
@@ -433,8 +469,8 @@ export default function EmailDetailScreen() {
     const accountId = email.accountId || '';
     await outbox.snooze(email.id, accountId, until);
     refreshMail();
-    router.back();
-  }, [email, router, refreshMail, outbox]);
+    goBack();
+  }, [email, goBack, refreshMail, outbox]);
 
   const handleLabelsChanged = useCallback((newLabels: string[]) => {
     if (email) setEmail({ ...email, labels: newLabels });
@@ -452,7 +488,7 @@ export default function EmailDetailScreen() {
     openComposeForMessage(email, mode);
   };
 
-  if (loading) {
+  if (loading && !email) {
     return (
       <View style={[styles.centerContainer, { backgroundColor: colors.background }]}>
         {/* ActivityIndicator animates on the UI thread, so it stays smooth even
@@ -516,7 +552,7 @@ export default function EmailDetailScreen() {
       >
         <View style={styles.topHeaderRow}>
           <TouchableOpacity
-            onPress={() => router.back()}
+            onPress={goBack}
             style={styles.topHeaderBack}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
@@ -692,6 +728,10 @@ export default function EmailDetailScreen() {
               initialHeight={300}
               style={styles.webViewBody}
             />
+          ) : bodyLoading ? (
+            <View style={{ paddingVertical: 32, alignItems: 'center' }}>
+              <ActivityIndicator size="small" color={colors.text} />
+            </View>
           ) : (
             <Text style={[styles.body, { color: colors.text }]}>
               {email.textContent || email.body || email.preview || email.snippet || 'No content'}

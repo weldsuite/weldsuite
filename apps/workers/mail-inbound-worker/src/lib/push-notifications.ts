@@ -90,6 +90,12 @@ export async function sendNewEmailPushNotification(
         type: 'new_email',
         emailId: messageId,
         emailAccountId: accountId,
+        // Lets the mobile app paint the email chrome (sender/subject/preview)
+        // the instant the user taps, before mailMessages.get returns.
+        fromName: (senderName || '').slice(0, 80),
+        fromEmail: (from.email || '').slice(0, 120),
+        subject: (subject || '').slice(0, 120),
+        preview: (preview || '').slice(0, 160),
       },
     }));
 

@@ -15,13 +15,13 @@ import {
   Inter_900Black,
 } from '@expo-google-fonts/inter';
 import { useEffect } from 'react';
-import { View, Text } from 'react-native';
-import MaterialSpinner from '@/components/MaterialSpinner';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
+import * as SplashScreen from 'expo-splash-screen';
 import 'react-native-reanimated';
 
 import { applyInterAsDefaultFont } from '@/utils/inter-font';
+import { hideAppSplash } from '@/utils/splash';
 
 import { tokenCache } from '@clerk/expo/token-cache';
 import { ClerkAuthProvider, useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
@@ -43,22 +43,15 @@ import { NetworkProvider } from '@/contexts/NetworkContext';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { OutboxFlusher } from '@/components/OutboxFlusher';
 import { useMailRealtime } from '@/hooks/useMailRealtime';
-import { useUpdateGate } from '@/hooks/useUpdateGate';
 
 applyInterAsDefaultFont();
 
-const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+// Keep the native splash until the inbox or an opened email has something to
+// paint. Labeled "Loading…" / "Initializing…" screens are what made a
+// notification tap feel unlike Gmail/Outlook.
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
-function FullScreenLoader({ label }: { label: string }) {
-  return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <MaterialSpinner size={20} strokeWidth={2.6} color="#3B82F6" spinning />
-        <Text style={{ color: '#666' }}>{label}</Text>
-      </View>
-    </View>
-  );
-}
+const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, isLoading, getCredentials, organizationId } = useClerkAuth();
@@ -70,6 +63,18 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
   const membershipsLoading = userMemberships?.isLoading ?? true;
   const membershipCount = userMemberships?.data?.length ?? 0;
+
+  // Wire the token getter during render (not in an effect) so the email
+  // screen's first fetch — which can fire the same tick we open from a
+  // notification — already has a Clerk JWT. Effects run children-first.
+  if (user) {
+    setAppApiTokenGetter(async () => {
+      const credentials = await getCredentials();
+      return credentials?.accessToken || null;
+    });
+  } else {
+    setAppApiTokenGetter(null);
+  }
 
   useEffect(() => {
     if (
@@ -84,17 +89,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       setActive({ organization: userMemberships.data[0].organization.id });
     }
   }, [user, organizationId, isOrgListLoaded, membershipsLoading, membershipCount, setActive, userMemberships?.data]);
-
-  useEffect(() => {
-    if (user) {
-      setAppApiTokenGetter(async () => {
-        const credentials = await getCredentials();
-        return credentials?.accessToken || null;
-      });
-    } else {
-      setAppApiTokenGetter(null);
-    }
-  }, [user, getCredentials]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -122,9 +116,10 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [user, isLoading, isOrgListLoaded, membershipsLoading, membershipCount, organizationId, segments, router]);
 
-  if (isLoading || (user && !isOrgListLoaded) || (user && membershipsLoading)) {
-    return <FullScreenLoader label="Loading..." />;
-  }
+  // Keep the native splash up while Clerk hydrates the session. Do NOT swap
+  // it for a labeled loader, and do NOT wait for the org list — that unmounted
+  // the Stack and is why a notification tap showed "Loading…" then the inbox.
+  if (isLoading) return null;
 
   return <>{children}</>;
 }
@@ -218,14 +213,19 @@ function AppStack() {
                     <Stack.Screen name="index" options={{ headerShown: false }} />
                     <Stack.Screen
                       name="[id]"
-                      options={{
+                      options={({ route }) => ({
                         headerShown: false,
                         presentation: 'card',
                         gestureEnabled: true,
                         gestureDirection: 'horizontal',
-                        fullScreenGestureEnabled: true, // Gmail-style: swipe from anywhere on the page
-                        animation: 'slide_from_right',
-                      }}
+                        fullScreenGestureEnabled: true,
+                        // Notification opens skip the slide so the first painted
+                        // frame is the email, like Gmail/Outlook.
+                        animation: (route.params as { fromNotification?: string } | undefined)
+                          ?.fromNotification
+                          ? 'none'
+                          : 'slide_from_right',
+                      })}
                     />
                     <Stack.Screen
                       name="search"
@@ -292,9 +292,9 @@ function AuthenticatedApp() {
 }
 
 export default function RootLayout() {
-  // First-launch OTA gate: check for and apply the latest update before the app
-  // renders, so first-time installers never see the stale embedded bundle.
-  const checkingUpdate = useUpdateGate();
+  // OTA updates stay on expo-updates' default: check/download in the
+  // background (see app.json `updates.checkAutomatically: ON_LOAD` +
+  // `fallbackToCacheTimeout: 0`) and apply on the next process start.
 
   const [fontsLoaded, fontError] = useFonts({
     Inter_100Thin,
@@ -308,13 +308,12 @@ export default function RootLayout() {
     Inter_900Black,
   });
 
-  if (checkingUpdate) {
-    return <FullScreenLoader label="Updating…" />;
-  }
+  useEffect(() => {
+    const safety = setTimeout(() => hideAppSplash(), 5000);
+    return () => clearTimeout(safety);
+  }, []);
 
-  // Hold render until fonts are ready. The native splash will auto-hide
-  // when this component returns its real tree (no manual SplashScreen.* calls
-  // needed — those conflict with sheet/modal view controllers).
+  // Hold the native splash until fonts are ready.
   if (!fontsLoaded && !fontError) {
     return null;
   }
@@ -325,7 +324,7 @@ export default function RootLayout() {
         <ErrorBoundary>
           <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY || ''} tokenCache={tokenCache}>
             <ClerkLoading>
-              <FullScreenLoader label="Initializing..." />
+              {null}
             </ClerkLoading>
             <ClerkLoaded>
               <AuthenticatedApp />
