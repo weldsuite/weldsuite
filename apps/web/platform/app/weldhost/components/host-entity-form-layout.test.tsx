@@ -47,7 +47,7 @@ describe('HostEntityFormLayout', () => {
     const summary = screen.getByTestId('host-purchase-summary');
 
     expect(layout).toContainElement(summary);
-    expect(layout).toHaveClass('h-full', 'flex', 'overflow-hidden');
+    expect(layout).toHaveClass('h-full', 'flex-1', 'flex', 'overflow-hidden');
     expect(layout).not.toHaveClass('fixed');
 
     // Previously this panel was `fixed top-0 right-0 h-screen`, which

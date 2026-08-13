@@ -125,7 +125,7 @@ export function HostEntityFormLayout({
   return (
     <div
       data-testid="host-entity-form-layout"
-      className="h-full min-h-0 flex overflow-hidden"
+      className="h-full min-h-0 flex-1 flex overflow-hidden"
     >
       {/* Main column scrolls independently inside the module content card. */}
       <div className="flex-1 min-w-0 min-h-0 overflow-y-auto custom-scrollbar bg-muted/30">
