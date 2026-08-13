@@ -103,6 +103,26 @@ export const host = {
       notConfigured:
         'Realtime Register is niet geconfigureerd. Stel REALTIME_REGISTER_API_KEY en REALTIME_REGISTER_CUSTOMER in op de admin-app.',
       pricelistFailed: 'Realtime Register-prijslijstverzoek is mislukt',
+      setMarginButton: 'Marge instellen',
+      columnCustomer: 'Klantprijs',
+      markupEditAria: 'Marge bewerken voor .{tld}',
+      markupDialogTitle: 'Marge instellen',
+      markupDialogTitleTld: 'Marge instellen voor .{tld}',
+      markupDialogDescription:
+        'Komt bovenop de inkoopprijs. WeldHost-zoeken en afrekenen gebruiken deze klantprijs.',
+      markupKindPercent: 'Percentage',
+      markupKindAmount: 'Vast bedrag',
+      markupKindNone: 'Geen marge',
+      markupPercentLabel: 'Margepercentage',
+      markupAmountLabel: 'Margebedrag ({currency})',
+      markupScopeAll: 'Alle TLD’s',
+      markupScopeEmpty: 'Alleen TLD’s zonder marge',
+      markupSave: 'Opslaan',
+      markupSaved: 'Marge bijgewerkt',
+      markupSavedCount: 'Marge bijgewerkt op {count} TLD(’s)',
+      markupInvalid: 'Voer een geldig getal groter dan of gelijk aan 0 in',
+      markupOutOfRange: 'Percentage moet tussen 0 en 999,99 liggen',
+      markupNotFound: 'Prijsrij niet gevonden',
     },
 
     // Domain availability checker
