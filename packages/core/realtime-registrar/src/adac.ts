@@ -3,7 +3,8 @@
  *
  * Separate from the registrar REST API: different host, different API key
  * (`REALTIME_REGISTER_ADAC_API_KEY`), check-only. The REST `GET /v2/domains/{name}/check`
- * fan-out is a poor substitute — ADAC returns a TLD set + suggestions in one POST.
+ * fan-out is a poor substitute — ADAC returns a TLD set in one POST. Suggestion
+ * tools stay disabled on search; WeldHost only shows the typed name across TLDs.
  *
  * REST: POST https://adac.api.yoursrs.com/action
  * Body: { action: "input" | "check", api_key, data: { input, tld_set_token? } }
@@ -28,6 +29,15 @@ export const ADAC_STATUS = {
 } as const;
 
 export type AdacActionName = 'input' | 'check';
+
+/** Pass `false` per tool so ADAC `input` does not emit similar-name suggestions. */
+export const ADAC_DISABLE_SUGGESTION_HINTS = {
+  domainsbot: false,
+  sidn: false,
+  rns: false,
+  'prefixes-suffixes': false,
+  namesuggestion: false,
+} as const;
 
 export interface AdacDomainData {
   domain_name: string;
@@ -94,7 +104,7 @@ function isDomainData(data: AdacEvent['data']): data is AdacDomainData {
  * name can win. Error events are handled by the caller before mapping.
  */
 export function mapAdacEvent(event: AdacEvent): AdacMappedResult | null {
-  if (event.action !== 'domain_status' && event.action !== 'suggestion') return null;
+  if (event.action !== 'domain_status') return null;
   if (!isDomainData(event.data)) return null;
   if (event.data.status === ADAC_STATUS.WAITING) return null;
 
@@ -147,6 +157,7 @@ export async function postAdacAction(
     input: string;
     tldSetToken?: string;
     timeoutMs?: number;
+    hints?: Record<string, unknown>;
   },
 ): Promise<AdacEvent[]> {
   const timeoutMs = opts.timeoutMs ?? ADAC_REQUEST_TIMEOUT_MS;
@@ -156,6 +167,7 @@ export async function postAdacAction(
     data: {
       input: opts.input,
       ...(opts.tldSetToken ? { tld_set_token: opts.tldSetToken } : {}),
+      ...(opts.hints ? { hints: opts.hints } : {}),
     },
   };
 

@@ -172,6 +172,11 @@ export interface DomainSearchResult {
   /** Same as domain_name — backwards compat alias */
   domain: string;
   available: boolean;
+  /**
+   * Why a domain is not available. `domain_unavailable` means taken;
+   * `check_failed` must not render as already registered.
+   */
+  reason?: string;
 }
 
 export interface DomainDnsZone {

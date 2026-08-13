@@ -12,6 +12,8 @@ import {
   centsToMajorUnits,
   toE164a,
   contactHandleFrom,
+  isExactSldMatch,
+  rankExactDomainSearchResults,
   type RegistrarFetch,
 } from '@weldsuite/realtime-registrar';
 import { applyMarkup } from './domains';
@@ -37,6 +39,23 @@ function withResponse(status: number, body: unknown, opts: { headers?: Record<st
   });
   return { rtr, calls };
 }
+
+describe('exact domain search matching', () => {
+  it('matches the typed SLD across TLDs but not similar names', () => {
+    expect(isExactSldMatch('WeldSuite', 'weldsuite.com')).toBe(true);
+    expect(isExactSldMatch('weldsuite.com', 'weldsuite.net')).toBe(true);
+    expect(isExactSldMatch('weldsuite', 'getweldsuite.com')).toBe(false);
+    expect(isExactSldMatch('weldsuite', 'weld-suite.com')).toBe(false);
+  });
+
+  it('pins the typed FQDN first', () => {
+    const ranked = rankExactDomainSearchResults('weldsuite.com', [
+      { name: 'weldsuite.net' },
+      { name: 'weldsuite.com' },
+    ]);
+    expect(ranked.map((r) => r.name)).toEqual(['weldsuite.com', 'weldsuite.net']);
+  });
+});
 
 describe('RealtimeRegistrar.checkDomain', () => {
   it('maps availability and premium price in cents', async () => {
@@ -101,19 +120,24 @@ describe('RealtimeRegistrar.searchDomains', () => {
     const posted = JSON.parse(String(calls[0]!.init?.body)) as {
       action: string;
       api_key: string;
-      data: { input: string };
+      data: { input: string; hints?: Record<string, unknown> };
     };
-    expect(posted).toMatchObject({
-      action: 'input',
-      api_key: 'adac_test_key',
-      data: { input: 'acme' },
-    });
     expect(results.find((r) => r.name === 'acme.com')).toMatchObject({ available: true });
     expect(results.find((r) => r.name === 'acme.nl')).toMatchObject({
       available: false,
       reason: 'domain_unavailable',
     });
-    expect(results.some((r) => r.name === 'acme.live' && r.available)).toBe(true);
+    expect(results.some((r) => r.name === 'acme.live')).toBe(false);
+    expect(posted).toMatchObject({
+      action: 'input',
+      api_key: 'adac_test_key',
+      data: { input: 'acme' },
+    });
+    expect(posted.data.hints).toMatchObject({
+      domainsbot: false,
+      rns: false,
+      namesuggestion: false,
+    });
   });
 
   it('includes the TLD-set token when configured', async () => {
@@ -163,6 +187,40 @@ describe('RealtimeRegistrar.searchDomains', () => {
       code: 'ADAC_ERROR',
       message: 'Invalid domain',
     });
+  });
+
+  it('keeps only the typed SLD and does not hide taken exact matches', async () => {
+    const { rtr } = adacClient([
+      { action: 'domain_status', data: { domain_name: 'weldsuite.com', suffix: 'com', status: 2 } },
+      { action: 'domain_status', data: { domain_name: 'weldsuite.net', suffix: 'net', status: 1 } },
+      { action: 'domain_status', data: { domain_name: 'getweldsuite.com', suffix: 'com', status: 1 } },
+      { action: 'suggestion', data: { source: 'rns', domain_name: 'weld-suite.com', suffix: 'com', status: 1 } },
+    ]);
+    const results = await rtr.searchDomains('WeldSuite', [], 20);
+    expect(results.map((r) => r.name)).toEqual(['weldsuite.com', 'weldsuite.net']);
+    expect(results[0]).toMatchObject({
+      name: 'weldsuite.com',
+      available: false,
+      reason: 'domain_unavailable',
+    });
+  });
+
+  it('pins a typed FQDN first without dropping it when the TLD set is large', async () => {
+    const extras = Array.from({ length: 25 }, (_, i) => ({
+      action: 'domain_status' as const,
+      data: { domain_name: `weldsuite.t${i}`, suffix: `t${i}`, status: 1 },
+    }));
+    const { rtr } = adacClient([
+      ...extras,
+      { action: 'domain_status', data: { domain_name: 'weldsuite.com', suffix: 'com', status: 2 } },
+    ]);
+    const results = await rtr.searchDomains('weldsuite.com', [], 20);
+    expect(results[0]).toMatchObject({
+      name: 'weldsuite.com',
+      available: false,
+      reason: 'domain_unavailable',
+    });
+    expect(results).toHaveLength(20);
   });
 });
 
