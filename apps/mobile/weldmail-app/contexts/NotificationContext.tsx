@@ -7,7 +7,7 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
-import { useRouter, useRootNavigationState } from 'expo-router';
+import { useRouter, useRootNavigationState, useSegments } from 'expo-router';
 import {
   registerForPushNotificationsAsync,
   setupNotificationListeners,
@@ -17,7 +17,11 @@ import {
 } from '@weldsuite/mobile-ui/services/notifications';
 import { appApi } from '@/services/app-api';
 import { useMail } from '@/contexts/MailContext';
-import { parseNotificationTarget, type NotificationTarget } from '@/utils/notification-target';
+import {
+  parseNotificationContent,
+  emailOpenParams,
+  type NotificationTarget,
+} from '@/utils/notification-target';
 
 async function getDeviceId(): Promise<string> {
   if (Platform.OS === 'android') {
@@ -44,46 +48,41 @@ interface NotificationContextType {
   openNotificationSettings: () => Promise<void>;
   refreshBadgeCount: () => Promise<void>;
   unregisterDevice: () => Promise<void>;
+  /**
+   * False until we've inspected the OS "last notification response". The
+   * inbox stays unpainted until then so a cold-start tap never flashes the
+   * list before we replace it with the email.
+   */
+  launchReady: boolean;
+  /** Email we're opening from a tap; inbox renders nothing while this is set. */
+  openingEmailId: string | null;
 }
 
 const NotificationContext = createContext<NotificationContextType>({
   unreadCount: 0, isConnected: false, isPermissionGranted: false,
   requestPermissions: async () => false, openNotificationSettings: async () => {},
   refreshBadgeCount: async () => {}, unregisterDevice: async () => {},
+  launchReady: true, openingEmailId: null,
 });
 
-/**
- * Canonical accessor for the notification context. Currently unconsumed —
- * the provider drives push registration on its own — but kept as the public
- * API for screens that want to surface unread/connection state.
- * @expected-unused
- */
 export const useNotifications = () => useContext(NotificationContext);
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
-  const { user, getCredentials, organizationId } = useClerkAuth();
-  // Lets a notification tap move the mailbox to the account the email arrived
-  // in — this provider therefore has to sit inside MailProvider (see _layout).
+  const { user, getCredentials, organizationId, isLoading: authLoading } = useClerkAuth();
   const { selectAccountById, setSelectedLabel, refreshMail, expectNotificationEmail } = useMail();
   const router = useRouter();
-  // Defined once the root navigator is mounted — `?.key` is our "safe to
-  // navigate" signal. On a cold start the provider's effects run before the
-  // Stack mounts, so navigation is queued until this flips ready.
+  const segments = useSegments();
   const rootNavigationState = useRootNavigationState();
   const navReady = !!rootNavigationState?.key;
   const [unreadCount, setUnreadCount] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
   const [isPermissionGranted, setIsPermissionGranted] = useState(false);
+  const [launchReady, setLaunchReady] = useState(false);
+  const [openingEmailId, setOpeningEmailId] = useState<string | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
-  // A notification target held until the router is ready (cold start).
   const [pendingNav, setPendingNav] = useState<NotificationTarget | null>(null);
-  // Session-local dedupe so a single tap never navigates twice (live listener
-  // + cold-start replay can both surface the same response).
   const handledNotifIds = useRef<Set<string>>(new Set());
 
-  // Turn a notification tap into a queued navigation target. Dedupes by the
-  // notification identifier — in memory for this session and persisted for the
-  // cold-start guard — so the same tap is only ever acted on once.
   const queueNavigationFromResponse = useCallback((response: Notifications.NotificationResponse) => {
     const notifId = response.notification.request.identifier;
     if (notifId) {
@@ -91,39 +90,38 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       handledNotifIds.current.add(notifId);
       AsyncStorage.setItem(HANDLED_NOTIF_KEY, notifId).catch(() => {});
     }
-    // Ids are validated against our generateId() shape before use — a raw push
-    // payload is never interpolated into a route path (path injection).
-    const target = parseNotificationTarget(response.notification.request.content.data);
-    if (target) setPendingNav(target);
+    const target = parseNotificationContent(response.notification.request.content);
+    if (!target) return;
+    if (target.emailId) setOpeningEmailId(target.emailId);
+    setPendingNav(target);
   }, []);
 
-  // Fire the queued navigation once the root navigator is mounted. This is what
-  // makes a cold start (app launched by tapping a push while killed) land
-  // directly on the email with the normal slide animation, instead of dropping
-  // the navigation because the router wasn't ready yet.
+  // Inbox can paint once the email screen is actually on the stack (it sits
+  // underneath and loads in the background). Clearing too early flashes the list.
   useEffect(() => {
-    if (!navReady || !pendingNav) return;
-    // Follow the email into its own mailbox first: tapping a notification for
-    // account A must not leave the user sitting in account B. No-op when the
-    // unified inbox is active or that account is already the selected one.
+    if (openingEmailId && segments[0] === '[id]') {
+      setOpeningEmailId(null);
+    }
+  }, [segments, openingEmailId]);
+
+  useEffect(() => {
+    if (!navReady || !pendingNav || authLoading || !user) return;
     if (pendingNav.accountId) selectAccountById(pendingNav.accountId);
-    // Always land on Inbox — a tap from Sent/Trash would otherwise leave the
-    // new row invisible in the list behind the detail screen. Then kick a
-    // list refresh and remember the id so the inbox can retry until the row
-    // actually appears (the first paint is often a stale cache).
     setSelectedLabel('INBOX');
     expectNotificationEmail(pendingNav.emailId);
     refreshMail();
-    if (pendingNav.emailId) {
-      router.push({ pathname: '/[id]', params: { id: pendingNav.emailId } });
+    const params = emailOpenParams(pendingNav);
+    if (params) {
+      router.push({ pathname: '/[id]', params });
     } else {
       router.push('/');
     }
     setPendingNav(null);
-  }, [navReady, pendingNav, router, selectAccountById, setSelectedLabel, expectNotificationEmail, refreshMail]);
+  }, [
+    navReady, pendingNav, authLoading, user, router,
+    selectAccountById, setSelectedLabel, expectNotificationEmail, refreshMail,
+  ]);
 
-  // Register this device's push token with the backend. Shared by
-  // requestPermissions (awaited) and the init effect (fire-and-forget).
   const registerDeviceToken = async (token: string) => {
     const deviceId = await getDeviceId();
     const isExpoToken = token.startsWith('ExponentPushToken[');
@@ -168,10 +166,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   const refreshBadgeCount = async () => {};
 
-  // Deactivate this device's token on the backend and clear local badge state.
-  // Call this before signing out so the server stops pushing this user's mail
-  // to a device that no longer has an active session. Never throws — logout
-  // must proceed even if the network call fails.
   const unregisterDevice = async () => {
     try {
       const deviceId = await getDeviceId();
@@ -182,13 +176,55 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     await setBadgeCount(0);
   };
 
+  // Cold-start replay + tap listener: do this on mount, not after org hydrates.
+  // Waiting for organizationId was what left the inbox on screen first.
   useEffect(() => {
-    if (!user || !organizationId) {
-      if (!user && cleanupRef.current) { cleanupRef.current(); cleanupRef.current = null; }
-      return;
-    }
+    let cancelled = false;
+    const initLaunch = async () => {
+      try {
+        const cleanup = setupNotificationListeners(
+          (notification) => {
+            const data = notification.request.content.data as { unreadCount?: number };
+            if (data?.unreadCount !== undefined) {
+              setUnreadCount(data.unreadCount);
+              setBadgeCount(data.unreadCount);
+            }
+          },
+          queueNavigationFromResponse,
+        );
+        cleanupRef.current = cleanup;
 
-    const init = async () => {
+        const lastResponse = await Notifications.getLastNotificationResponseAsync();
+        if (cancelled) return;
+        if (lastResponse) {
+          const lastId = lastResponse.notification.request.identifier;
+          const alreadyHandled = await AsyncStorage.getItem(HANDLED_NOTIF_KEY);
+          if (lastId && lastId !== alreadyHandled) {
+            queueNavigationFromResponse(lastResponse);
+          }
+        }
+      } catch {
+        // Launch still has to settle so the inbox isn't blocked forever.
+      } finally {
+        if (!cancelled) setLaunchReady(true);
+      }
+    };
+    initLaunch();
+    return () => {
+      cancelled = true;
+      if (cleanupRef.current) {
+        cleanupRef.current();
+        cleanupRef.current = null;
+      }
+    };
+  }, [queueNavigationFromResponse]);
+
+  // Device token registration still needs a signed-in user + org-scoped JWT.
+  useEffect(() => {
+    if (!user || !organizationId) return;
+    let removeTokenRefresh: (() => void) | undefined;
+
+    const initToken = async () => {
       try {
         await createNotificationChannels([
           { id: 'email', name: 'Email Notifications', description: 'New email notifications' },
@@ -205,54 +241,28 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           console.warn('[Notifications] EAS project ID is not configured; push notifications disabled');
         }
 
-        const cleanup = setupNotificationListeners(
-          (notification) => {
-            const data = notification.request.content.data as { unreadCount?: number };
-            if (data?.unreadCount !== undefined) { setUnreadCount(data.unreadCount); setBadgeCount(data.unreadCount); }
-          },
-          // Warm / backgrounded tap. The navigator is already mounted, but we
-          // still route through the same queue so navigation is deduped and
-          // behaves identically to the cold-start path.
-          queueNavigationFromResponse,
-        );
-
-        // Cold start: a tap that launched the app from a killed state never
-        // reaches the listener above. Replay that launch response once, guarded
-        // by a persisted id so a later normal relaunch (same "last response")
-        // doesn't reopen the old email.
-        try {
-          const lastResponse = await Notifications.getLastNotificationResponseAsync();
-          if (lastResponse) {
-            const lastId = lastResponse.notification.request.identifier;
-            const alreadyHandled = await AsyncStorage.getItem(HANDLED_NOTIF_KEY);
-            if (lastId && lastId !== alreadyHandled) {
-              queueNavigationFromResponse(lastResponse);
-            }
-          }
-        } catch {}
-
-        // Re-register when the device token rotates so pushes don't silently
-        // stop between cold starts.
-        const removeTokenRefresh = addPushTokenRefreshListener(() => {
+        removeTokenRefresh = addPushTokenRefreshListener(() => {
           if (!EAS_PROJECT_ID) return;
           registerForPushNotificationsAsync(EAS_PROJECT_ID)
             .then((refreshed) => { if (refreshed) registerDeviceToken(refreshed); })
             .catch(() => {});
         });
-
-        cleanupRef.current = () => { cleanup(); removeTokenRefresh(); };
         setIsConnected(true);
       } catch (error) {
         console.error('Error initializing notifications:', error);
       }
     };
 
-    init();
-    return () => { if (cleanupRef.current) cleanupRef.current(); };
+    initToken();
+    return () => { removeTokenRefresh?.(); };
   }, [user, organizationId, getCredentials]);
 
   return (
-    <NotificationContext.Provider value={{ unreadCount, isConnected, isPermissionGranted, requestPermissions, openNotificationSettings, refreshBadgeCount, unregisterDevice }}>
+    <NotificationContext.Provider value={{
+      unreadCount, isConnected, isPermissionGranted,
+      requestPermissions, openNotificationSettings, refreshBadgeCount, unregisterDevice,
+      launchReady, openingEmailId,
+    }}>
       {children}
     </NotificationContext.Provider>
   );

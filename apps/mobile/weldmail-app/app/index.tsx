@@ -29,6 +29,7 @@ import { isNetworkError } from '@weldsuite/api-client/client';
 import { useMailCache } from '@/hooks/useMailCache';
 import { useMailOutbox } from '@/hooks/useMailOutbox';
 import { useMail, getAvatarColor } from '@/contexts/MailContext';
+import { useNotifications } from '@/contexts/NotificationContext';
 import { usePinnedMessages } from '@/contexts/PinnedMessagesContext';
 import { useComposeOverlay } from '@/contexts/ComposeOverlayContext';
 import type { ComposeCloseInfo } from '@/app/compose';
@@ -45,6 +46,7 @@ import {
   listContainsEmailId,
   nextNotificationListRetryMs,
 } from '@/utils/notification-target';
+import { hideAppSplash } from '@/utils/splash';
 
 const EMAIL_LIST_WIDTH_TABLET = 400;
 
@@ -292,6 +294,7 @@ export default function MailScreen() {
     pendingNotificationEmailId,
     clearPendingNotificationEmail,
   } = useMail();
+  const { launchReady, openingEmailId } = useNotifications();
   const cache = useMailCache();
   const outbox = useMailOutbox();
   const { organizationId } = useClerkAuth();
@@ -575,6 +578,10 @@ export default function MailScreen() {
       cancelled = true;
     };
   }, [pendingNotificationEmailId, clearPendingNotificationEmail]);
+
+  useEffect(() => {
+    if (launchReady && !openingEmailId) hideAppSplash();
+  }, [launchReady, openingEmailId]);
 
 
   const handleRefresh = useCallback(() => {
@@ -1183,6 +1190,12 @@ export default function MailScreen() {
 
     </View>
   );
+
+  // Gmail/Outlook: while a notification tap is opening an email, don't paint
+  // the inbox. The native splash (or the email screen) stays up instead.
+  if (!launchReady || openingEmailId) {
+    return null;
+  }
 
   if (isTablet) {
     return (
