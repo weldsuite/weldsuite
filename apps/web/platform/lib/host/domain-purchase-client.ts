@@ -11,6 +11,34 @@ export interface DomainPurchaseStatusResponse {
 type CheckStatusFn = (registrationId: string) => Promise<DomainPurchaseStatusResponse>;
 
 /**
+ * Map a registration-status payload (or a raw host_domains.status /
+ * registrationStatus value from an older worker) onto the success-page union.
+ */
+export function normalizePurchaseStatus(
+  raw: string | null | undefined,
+): DomainPurchaseStatusResponse['status'] {
+  switch (raw) {
+    case 'completed':
+    case 'registered':
+    case 'active':
+      return 'completed';
+    case 'failed':
+    case 'registration_failed':
+    case 'cancelled':
+      return 'failed';
+    case 'pending_registration':
+    case 'pending_workflow':
+    case 'registering':
+    case 'payment_complete':
+      return 'registering';
+    case 'pending_payment':
+    case 'pending':
+    default:
+      return 'pending';
+  }
+}
+
+/**
  * Redirect to Stripe Checkout
  */
 export function redirectToCheckout(checkoutUrl: string): void {
@@ -29,12 +57,10 @@ export function checkoutErrorMessage(error: unknown, fallback: string): string {
 }
 
 /**
- * Poll multiple registration statuses simultaneously
- * @param registrationIds Array of registration IDs to poll
- * @param onStatusUpdate Callback called when any status updates
- * @param checkStatus Function that checks registration status via API
- * @param maxAttempts Maximum number of polling attempts (default: 60)
- * @param intervalMs Milliseconds between polls (default: 3000)
+ * Poll multiple registration statuses simultaneously.
+ * Stops when every id is completed or failed. If the attempt budget runs
+ * out, returns the last known statuses instead of throwing so the success
+ * page can still show in-progress domains (async TLD workflows).
  */
 export async function pollMultipleRegistrationStatuses(
   registrationIds: string[],
@@ -47,40 +73,38 @@ export async function pollMultipleRegistrationStatuses(
   const completedIds = new Set<string>();
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    // Poll all registrations that are not yet completed
     const pendingIds = registrationIds.filter(id => !completedIds.has(id));
 
     if (pendingIds.length === 0) {
-      // All registrations are complete
       return statuses;
     }
 
-    // Fetch statuses in parallel
     const statusPromises = pendingIds.map(id => checkStatus(id));
     const currentStatuses = await Promise.all(statusPromises);
 
-    // Update status map
     currentStatuses.forEach((status, index) => {
       const id = pendingIds[index];
-      statuses.set(id, status);
+      const normalized: DomainPurchaseStatusResponse = {
+        ...status,
+        status: normalizePurchaseStatus(status.status),
+      };
+      statuses.set(id, normalized);
 
-      // Mark as completed if in terminal state
-      if (status.status === 'completed' || status.status === 'failed') {
+      if (normalized.status === 'completed' || normalized.status === 'failed') {
         completedIds.add(id);
       }
     });
 
-    // Notify caller of updated statuses
     onStatusUpdate(statuses);
 
-    // If all are complete, return
     if (completedIds.size === registrationIds.length) {
       return statuses;
     }
 
-    // Wait before next poll
-    await new Promise(resolve => setTimeout(resolve, intervalMs));
+    if (attempt < maxAttempts - 1) {
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
   }
 
-  throw new Error('Registration status polling timed out');
+  return statuses;
 }

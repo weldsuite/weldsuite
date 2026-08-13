@@ -169,6 +169,8 @@ export const host = {
       priceUnavailable: 'Price unavailable',
       selectAtLeastOne: 'Please select at least one domain',
       redirectingToCheckout: 'Redirecting to checkout for {count} domain{plural}',
+      mixedCurrencyCart: 'All domains in the cart must use the same currency',
+      cartLimit: 'You can register up to {max} domains at a time',
     },
 
     // Domain purchase card

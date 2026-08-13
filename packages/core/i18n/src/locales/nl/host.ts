@@ -169,6 +169,8 @@ export const host = {
       priceUnavailable: 'Prijs niet beschikbaar',
       selectAtLeastOne: 'Selecteer minimaal één domein',
       redirectingToCheckout: 'Doorsturen naar afrekenen voor {count} domein{plural}',
+      mixedCurrencyCart: 'Alle domeinen in het winkelmandje moeten dezelfde valuta gebruiken',
+      cartLimit: 'Je kunt maximaal {max} domeinen tegelijk registreren',
     },
 
     // Domain purchase card

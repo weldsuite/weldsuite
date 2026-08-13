@@ -114,15 +114,23 @@ export const externalDomainSchema = z.object({
   registrar: z.string().max(255).optional(),
 });
 
-export const checkoutInput = z.object({
-  domain: z.string().min(3),
-  contact: contactSchema.optional(),
-  autoRenew: z.boolean().optional().default(true),
-  privacyProtection: z.boolean().optional().default(false),
-  years: z.coerce.number().int().min(1).max(10).optional().default(1),
-  /** Optional Stripe price override; price is resolved server-side from the pricing table by default. */
-  stripePriceId: z.string().nullish(),
-});
+export const checkoutInput = z
+  .object({
+    /** Single-domain checkout (legacy). Prefer `domains` for a cart. */
+    domain: z.string().min(3).optional(),
+    /** One Stripe session covering every selected domain (max 10). */
+    domains: z.array(z.string().min(3)).min(1).max(10).optional(),
+    contact: contactSchema.optional(),
+    autoRenew: z.boolean().optional().default(true),
+    privacyProtection: z.boolean().optional().default(false),
+    years: z.coerce.number().int().min(1).max(10).optional().default(1),
+    /** Optional Stripe price override; price is resolved server-side from the pricing table by default. */
+    stripePriceId: z.string().nullish(),
+  })
+  .refine((value) => Boolean(value.domain?.trim()) || (value.domains && value.domains.length > 0), {
+    message: 'Provide at least one domain',
+    path: ['domains'],
+  });
 
 export const toggleAutoRenewInput = z.object({
   enabled: z.boolean(),

@@ -7,7 +7,7 @@
  * (pricing, workspace Stripe customer) accept `masterDb` explicitly.
  */
 
-import { and, asc, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
 import { schema, masterSchema, type Database, type MasterDatabase } from '../db';
 import { generateId } from '../lib/id';
 import type { CloudflareRegistrar } from '@weldsuite/cloudflare-registrar';
@@ -912,11 +912,32 @@ export async function issueAuthCode(
 // Checkout — RTR availability + pricing + Stripe Checkout Session
 // ============================================================================
 
+export const MAX_CHECKOUT_DOMAINS = 10;
+
 export type CheckoutResult =
   | { ok: false; reason: 'unavailable'; domain: string }
   | { ok: false; reason: 'no_price'; tld: string }
   | { ok: false; reason: 'workspace_not_found' }
-  | { ok: true; sessionId: string; url: string; registrationIds: string[] };
+  | { ok: false; reason: 'empty' }
+  | { ok: false; reason: 'too_many'; max: number }
+  | { ok: false; reason: 'currency_mismatch' }
+  | { ok: true; sessionId: string; url: string; registrationIds: string[]; domains: string[] };
+
+export function domainsFromCheckoutInput(input: {
+  domain?: string;
+  domains?: string[];
+}): string[] {
+  const raw = [...(input.domains ?? []), ...(input.domain ? [input.domain] : [])];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of raw) {
+    const normalized = name.trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
 
 export async function createCheckout(
   db: Database,
@@ -927,7 +948,8 @@ export async function createCheckout(
     stripeSecretKey: string;
     origin: string;
     input: {
-      domain: string;
+      domain?: string;
+      domains?: string[];
       contact?: Record<string, unknown>;
       autoRenew?: boolean;
       privacyProtection?: boolean;
@@ -935,37 +957,39 @@ export async function createCheckout(
     };
   },
 ): Promise<CheckoutResult> {
-  const checks = await rtr.checkDomains([params.input.domain]);
-  const check = checks[0];
-  if (!check?.available) {
-    return { ok: false, reason: 'unavailable', domain: params.input.domain };
+  const names = domainsFromCheckoutInput(params.input);
+  if (names.length === 0) return { ok: false, reason: 'empty' };
+  if (names.length > MAX_CHECKOUT_DOMAINS) {
+    return { ok: false, reason: 'too_many', max: MAX_CHECKOUT_DOMAINS };
   }
 
-  const tld = tldOf(params.input.domain);
-  const [pricingRow] = await masterDb
-    .select()
-    .from(masterSchema.hostDomainPricing)
-    .where(
-      and(
-        or(
-          eq(masterSchema.hostDomainPricing.tld, tld),
-          eq(masterSchema.hostDomainPricing.tld, `.${tld}`),
-        ),
-        eq(masterSchema.hostDomainPricing.isActive, true),
-      ),
-    )
-    .limit(1);
+  const [checks, pricingMap] = await Promise.all([
+    rtr.checkDomains(names),
+    loadPricingMap(masterDb),
+  ]);
+  const checkByName = new Map(checks.map((c) => [c.name.toLowerCase(), c]));
 
-  const unitAmountCents = applyMarkup(
-    check.priceCents,
-    pricingRow ?? undefined,
-    check.currency,
-  );
-  if (unitAmountCents === null || unitAmountCents <= 0) {
-    return { ok: false, reason: 'no_price', tld };
+  const lineItems: Array<{ name: string; unitAmountCents: number; currency: string }> = [];
+  let sessionCurrency: string | null = null;
+
+  for (const name of names) {
+    const check = checkByName.get(name);
+    if (!check?.available) {
+      return { ok: false, reason: 'unavailable', domain: name };
+    }
+    const tld = tldOf(name);
+    const pricingRow = pricingMap.get(tld);
+    const unitAmountCents = applyMarkup(check.priceCents, pricingRow, check.currency);
+    if (unitAmountCents === null || unitAmountCents <= 0) {
+      return { ok: false, reason: 'no_price', tld };
+    }
+    const currency = (pricingRow?.currency ?? check.currency ?? 'usd').toLowerCase();
+    if (sessionCurrency && sessionCurrency !== currency) {
+      return { ok: false, reason: 'currency_mismatch' };
+    }
+    sessionCurrency = currency;
+    lineItems.push({ name, unitAmountCents, currency });
   }
-
-  const currency = (pricingRow?.currency ?? check.currency ?? 'usd').toLowerCase();
 
   // `params.workspaceId` is the Clerk org id from app-api middleware
   // (`c.set('workspaceId', orgId)`). Look up by either column so this
@@ -1006,39 +1030,41 @@ export async function createCheckout(
       .where(eq(masterSchema.workspaces.id, workspaceRow.id));
   }
 
-  const parts = params.input.domain.split('.');
-  const domainName = parts[0];
-  const domainId = generateId('dom');
   const now = new Date();
-
-  await db.insert(hostDomains).values({
-    id: domainId,
-    name: domainName,
-    tld,
-    fullDomain: params.input.domain,
-    registrar: DEFAULT_REGISTRAR,
-    status: 'pending',
-    registrationStatus: 'pending_payment',
-    autoRenew: params.input.autoRenew ?? true,
-    // Always on: public WHOIS must not expose platform staff. Customer
-    // contact (if provided) stays in this tenant row and is never sent to RTR.
-    privacyProtection: true,
-    registrantContact: (params.input.contact as never) ?? null,
-    createdAt: now,
-    updatedAt: now,
+  const rows = names.map((fullDomain) => {
+    const parts = fullDomain.split('.');
+    return {
+      id: generateId('dom'),
+      name: parts[0]!,
+      tld: tldOf(fullDomain),
+      fullDomain,
+      registrar: DEFAULT_REGISTRAR,
+      status: 'pending' as const,
+      registrationStatus: 'pending_payment' as const,
+      autoRenew: params.input.autoRenew ?? true,
+      // Always on: public WHOIS must not expose platform staff. Customer
+      // contact (if provided) stays in this tenant row and is never sent to RTR.
+      privacyProtection: true,
+      registrantContact: (params.input.contact as never) ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
   });
+  const registrationIds = rows.map((row) => row.id);
 
-  const successUrl = `${params.origin}/weldhost/domains/purchase/success?session_id={CHECKOUT_SESSION_ID}&registration_ids=${domainId}`;
+  await db.insert(hostDomains).values(rows);
+
+  const successUrl = `${params.origin}/weldhost/domains/purchase/success?session_id={CHECKOUT_SESSION_ID}&registration_ids=${registrationIds.join(',')}`;
   const cancelUrl = `${params.origin}/weldhost/domains/purchase/cancel`;
 
   const session = await createDomainCheckoutSession(params.stripeSecretKey, {
     customerId,
-    lineItems: [{ name: params.input.domain, unitAmountCents, currency }],
+    lineItems,
     successUrl,
     cancelUrl,
     metadata: {
       kind: 'domain_registration',
-      registrationIds: JSON.stringify([domainId]),
+      registrationIds: JSON.stringify(registrationIds),
       workspaceId: params.workspaceId,
     },
   });
@@ -1046,9 +1072,15 @@ export async function createCheckout(
   await db
     .update(hostDomains)
     .set({ stripeSessionId: session.id, updatedAt: new Date() })
-    .where(eq(hostDomains.id, domainId));
+    .where(inArray(hostDomains.id, registrationIds));
 
-  return { ok: true, sessionId: session.id, url: session.url, registrationIds: [domainId] };
+  return {
+    ok: true,
+    sessionId: session.id,
+    url: session.url,
+    registrationIds,
+    domains: names,
+  };
 }
 
 /**
@@ -1065,6 +1097,7 @@ export async function pollRegistrationProcess(
     .from(hostDomains)
     .where(and(eq(hostDomains.id, domainId), isNull(hostDomains.deletedAt)))
     .limit(1);
+  if (!domain) return null;
   // Renewal processes are tracked separately so they cannot hijack registration polling.
   if (
     domain.registrationStatus === 'pending_renewal' ||
@@ -1072,7 +1105,7 @@ export async function pollRegistrationProcess(
   ) {
     return domain;
   }
-  if (!domain?.rtrProcessId) return domain;
+  if (!domain.rtrProcessId) return domain;
 
   const processId = Number.parseInt(domain.rtrProcessId, 10);
   if (!Number.isFinite(processId) || processId <= 0) return domain;
@@ -1258,8 +1291,15 @@ export async function getRegistrationStatus(
       status = 'failed';
       break;
     default:
-      status = row.status === 'active' ? 'completed' : 'pending';
+      if (row.status === 'active') status = 'completed';
+      else if (row.status === 'cancelled') status = 'failed';
+      else status = 'pending';
   }
+
+  const metadataError =
+    row.metadata && typeof row.metadata === 'object' && 'error' in row.metadata
+      ? String((row.metadata as { error?: unknown }).error ?? '')
+      : '';
 
   return {
     registrationId: row.id,
@@ -1267,7 +1307,7 @@ export async function getRegistrationStatus(
     domainName: row.fullDomain,
     status,
     totalPrice: null,
-    failureReason: null,
+    failureReason: status === 'failed' && metadataError ? metadataError : null,
   };
 }
 

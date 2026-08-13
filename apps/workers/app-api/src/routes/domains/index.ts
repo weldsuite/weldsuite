@@ -284,15 +284,27 @@ app.post(
         if (result.reason === 'no_price') {
           return error.internal(c, `No price available for .${result.tld}`);
         }
+        if (result.reason === 'currency_mismatch') {
+          return error.badRequest(c, 'All domains in the cart must use the same currency');
+        }
+        if (result.reason === 'too_many') {
+          return error.badRequest(c, `You can register up to ${result.max} domains at a time`);
+        }
+        if (result.reason === 'empty') {
+          return error.badRequest(c, 'Provide at least one domain');
+        }
         return error.notFound(c, 'Workspace');
       }
-      publishEntityEvent({
-        c,
-        entityType: 'domain',
-        entityId: result.registrationIds[0]!,
-        action: 'created',
-        data: { id: result.registrationIds[0]!, name: c.req.valid('json').domain, status: 'pending' },
-      });
+      for (let i = 0; i < result.registrationIds.length; i++) {
+        const entityId = result.registrationIds[i]!;
+        publishEntityEvent({
+          c,
+          entityType: 'domain',
+          entityId,
+          action: 'created',
+          data: { id: entityId, name: result.domains[i]!, status: 'pending' },
+        });
+      }
       return success(
         c,
         {
@@ -771,19 +783,16 @@ app.get('/registrations/:id/status', requirePermission('domains:read'), async (c
     const rtr = getRealtimeRegistrar(c.env);
     if (rtr) {
       try {
-        // Drive pending RTR processes forward; keep serving persisted status on
-        // transient registrar failures.
-        const polled = await domainsService.pollRegistrationProcess(
-          c.get('tenantDb'),
-          rtr,
-          id,
-        );
-        if (polled) return success(c, polled);
+        // Drive pending RTR processes forward; always return the mapped
+        // registration-status shape the success page polls for.
+        await domainsService.pollRegistrationProcess(c.get('tenantDb'), rtr, id);
       } catch (pollErr) {
         console.error('[app-api/domains] registration poll failed:', pollErr);
       }
     }
-    return success(c, persisted);
+    const latest =
+      (await domainsService.getRegistrationStatus(c.get('tenantDb'), id)) ?? persisted;
+    return success(c, latest);
   } catch (err) {
     console.error('[app-api/domains] registration status failed:', err);
     return error.internal(c, 'Failed to fetch registration status');

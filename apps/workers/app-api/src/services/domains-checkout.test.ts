@@ -24,7 +24,7 @@ vi.mock('../lib/stripe', async (importOriginal) => {
 });
 
 import { createStripeCustomer, createDomainCheckoutSession } from '../lib/stripe';
-import { createCheckout } from './domains';
+import { createCheckout, domainsFromCheckoutInput, MAX_CHECKOUT_DOMAINS } from './domains';
 
 const mockedCreateCustomer = createStripeCustomer as ReturnType<typeof vi.fn>;
 const mockedCreateSession = createDomainCheckoutSession as ReturnType<typeof vi.fn>;
@@ -44,17 +44,17 @@ beforeEach(() => {
   });
 });
 
-function availableRtr(domain = 'example.com'): RealtimeRegistrar {
+function availableRtr(): RealtimeRegistrar {
   return {
-    checkDomains: vi.fn(async () => [
-      {
-        name: domain,
+    checkDomains: vi.fn(async (requested: string[]) =>
+      requested.map((name) => ({
+        name,
         available: true,
         premium: false,
         priceCents: 1200,
         currency: 'usd',
-      },
-    ]),
+      })),
+    ),
   } as unknown as RealtimeRegistrar;
 }
 
@@ -70,12 +70,15 @@ function masterDbStub(opts: {
   return {
     select: () => ({
       from: (table: unknown) => ({
-        where: () => ({
-          limit: async () => {
-            if (table === masterSchema.hostDomainPricing) return [];
-            return opts.workspace ? [opts.workspace] : [];
-          },
-        }),
+        where: () => {
+          const isPricing = table === masterSchema.hostDomainPricing;
+          const rows = isPricing ? [] : opts.workspace ? [opts.workspace] : [];
+          const thenable = Promise.resolve(rows) as Promise<unknown[]> & {
+            limit: () => Promise<unknown[]>;
+          };
+          thenable.limit = async () => rows;
+          return thenable;
+        },
       }),
     }),
     update: () => ({
@@ -161,7 +164,7 @@ describe('createCheckout · Stripe customer', () => {
       country: 'GB',
     };
 
-    const result = await createCheckout(db, availableRtr('privacy-force.com'), masterDb, {
+    const result = await createCheckout(db, availableRtr(), masterDb, {
       ...checkoutParams,
       input: {
         domain: 'privacy-force.com',
@@ -197,7 +200,7 @@ describe('createCheckout · Stripe customer', () => {
 
     const result = await createCheckout(
       db,
-      availableRtr('reuse.com'),
+      availableRtr(),
       masterDb,
       { ...checkoutParams, input: { ...checkoutParams.input, domain: 'reuse.com' } },
     );
@@ -219,4 +222,107 @@ describe('createCheckout · Stripe customer', () => {
     expect(mockedCreateCustomer).not.toHaveBeenCalled();
     expect(mockedCreateSession).not.toHaveBeenCalled();
   });
+
+  it('checks out every selected domain on one Stripe session', async () => {
+    const masterDb = masterDbStub({
+      workspace: {
+        id: 'ws_internal',
+        name: 'Acme',
+        clerkOrgId: 'org_test_default',
+        stripeCustomerId: 'cus_existing',
+      },
+    });
+
+    const result = await createCheckout(db, availableRtr(), masterDb, {
+      ...checkoutParams,
+      input: { domains: ['alpha.com', 'beta.com'], autoRenew: true, years: 1 },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.registrationIds).toHaveLength(2);
+    expect(result.domains).toEqual(['alpha.com', 'beta.com']);
+    expect(mockedCreateSession).toHaveBeenCalledWith(
+      'sk_test',
+      expect.objectContaining({
+        lineItems: [
+          { name: 'alpha.com', unitAmountCents: 1200, currency: 'usd' },
+          { name: 'beta.com', unitAmountCents: 1200, currency: 'usd' },
+        ],
+      }),
+    );
+    const successUrl = mockedCreateSession.mock.calls[0]![1].successUrl as string;
+    expect(successUrl).toContain(result.registrationIds.join(','));
+
+    const all = await Promise.all(
+      result.registrationIds.map(async (id) => {
+        const [row] = await db
+          .select()
+          .from(schema.hostDomains)
+          .where(eq(schema.hostDomains.id, id))
+          .limit(1);
+        return row;
+      }),
+    );
+    expect(all.map((r) => r?.fullDomain)).toEqual(['alpha.com', 'beta.com']);
+    expect(all.every((r) => r?.registrationStatus === 'pending_payment')).toBe(true);
+    expect(all.every((r) => r?.stripeSessionId === 'cs_test_1')).toBe(true);
+  });
+
+  it('rejects a mixed-currency cart', async () => {
+    const rtr = {
+      checkDomains: vi.fn(async (requested: string[]) =>
+        requested.map((name, i) => ({
+          name,
+          available: true,
+          premium: false,
+          priceCents: 1200,
+          currency: i === 0 ? 'usd' : 'eur',
+        })),
+      ),
+    } as unknown as RealtimeRegistrar;
+    const masterDb = masterDbStub({
+      workspace: {
+        id: 'ws_internal',
+        name: 'Acme',
+        clerkOrgId: 'org_test_default',
+        stripeCustomerId: 'cus_existing',
+      },
+    });
+
+    const result = await createCheckout(db, rtr, masterDb, {
+      ...checkoutParams,
+      input: { domains: ['usd.com', 'eur.com'] },
+    });
+    expect(result).toEqual({ ok: false, reason: 'currency_mismatch' });
+    expect(mockedCreateSession).not.toHaveBeenCalled();
+  });
 });
+
+describe('domainsFromCheckoutInput', () => {
+  it('merges domain + domains, lowercases, and de-dupes', () => {
+    expect(domainsFromCheckoutInput({ domain: 'Example.COM', domains: ['foo.com', 'example.com'] })).toEqual([
+      'foo.com',
+      'example.com',
+    ]);
+  });
+
+  it('caps at MAX_CHECKOUT_DOMAINS in createCheckout', async () => {
+    expect(MAX_CHECKOUT_DOMAINS).toBe(10);
+    const masterDb = masterDbStub({
+      workspace: {
+        id: 'ws_internal',
+        name: 'Acme',
+        clerkOrgId: 'org_test_default',
+        stripeCustomerId: 'cus_existing',
+      },
+    });
+    const names = Array.from({ length: 11 }, (_, i) => `n${i}.com`);
+    const result = await createCheckout(db, availableRtr(), masterDb, {
+      ...checkoutParams,
+      input: { domains: names },
+    });
+    expect(result).toEqual({ ok: false, reason: 'too_many', max: 10 });
+  });
+});
+

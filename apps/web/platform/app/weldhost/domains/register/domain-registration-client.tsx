@@ -61,6 +61,16 @@ export function DomainRegistrationClient() {
       if (exists) {
         return prev.filter(d => d.domain_name !== domain.domain_name);
       }
+      if (prev.length >= 10) {
+        toast.error(tr.cartLimit.replace('{max}', '10'));
+        return prev;
+      }
+      const cartCurrency = prev.find((d) => d.currency)?.currency?.toLowerCase();
+      const nextCurrency = domain.currency?.toLowerCase();
+      if (cartCurrency && nextCurrency && cartCurrency !== nextCurrency) {
+        toast.error(tr.mixedCurrencyCart);
+        return prev;
+      }
       return [...prev, domain];
     });
   };
@@ -91,16 +101,8 @@ export function DomainRegistrationClient() {
 
     setIsPending(true);
     try {
-      // The new /api/domains/checkout endpoint registers one domain per call.
-      // For multi-domain selections we kick off the first one — the user can
-      // come back and register the rest. (Multi-domain checkout will land
-      // alongside the cart flow if we keep the multi-select UI.)
-      const first = selectedDomains[0];
-      if (!first) {
-        throw new Error('No domain selected');
-      }
       const response = await domainsApi.checkout({
-        domain: first.domain_name,
+        domains: selectedDomains.map((d) => d.domain_name),
         autoRenew,
         years: 1,
         privacyProtection: true,

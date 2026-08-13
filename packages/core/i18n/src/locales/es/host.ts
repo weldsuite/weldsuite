@@ -167,6 +167,8 @@ export const host = {
       renewsAt: 'Se renueva a US$ {price}',
       selectAtLeastOne: 'Por favor, selecciona al menos un dominio',
       redirectingToCheckout: 'Redirigiendo al pago para {count} dominio{plural}',
+      mixedCurrencyCart: 'Todos los dominios del carrito deben usar la misma moneda',
+      cartLimit: 'Puedes registrar hasta {max} dominios a la vez',
     },
 
     // Domain purchase card
