@@ -1691,8 +1691,8 @@ async function handleDomainRegistrationCheckout(
 
   if (registrationIds.length === 0) return;
 
-  const rtrKey = env.REALTIME_REGISTER_API_KEY;
-  const rtrCustomer = env.REALTIME_REGISTER_CUSTOMER;
+  const rtrKey = env.REALTIME_REGISTER_API_KEY?.trim();
+  const rtrCustomer = env.REALTIME_REGISTER_CUSTOMER?.trim();
   const cfToken = env.CLOUDFLARE_API_TOKEN;
   const cfAccountId = env.CLOUDFLARE_ACCOUNT_ID;
   if (!rtrKey || !rtrCustomer) {
@@ -1711,8 +1711,9 @@ async function handleDomainRegistrationCheckout(
   const rtr = new RealtimeRegistrar({
     apiKey: rtrKey,
     customer: rtrCustomer,
-    ote: env.REALTIME_REGISTER_OTE === 'true',
+    ote: env.REALTIME_REGISTER_OTE?.trim().toLowerCase() === 'true',
   });
+  console.log(`[Domain Registration] Using RTR host ${rtr.apiHost}`);
 
   const paymentIntentId = paymentIntentIdFromSession(session);
 

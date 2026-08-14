@@ -84,7 +84,11 @@ describe('RealtimeRegistrar.checkDomain', () => {
 
   it('throws RealtimeRegistrarError on 401', async () => {
     const { rtr } = withResponse(401, { type: 'AuthenticationError', message: 'bad key' });
-    await expect(rtr.checkDomain('x.com')).rejects.toBeInstanceOf(RealtimeRegistrarError);
+    await expect(rtr.checkDomain('x.com')).rejects.toMatchObject({
+      status: 401,
+      code: 'AuthenticationError',
+      message: expect.stringContaining('bad key'),
+    });
   });
 });
 
@@ -340,6 +344,41 @@ describe('RealtimeRegistrar fetch this-binding', () => {
 });
 
 describe('RealtimeRegistrar.register', () => {
+  it('sends ApiKey Authorization as a plain header record, not a Headers object', async () => {
+    const { rtr, calls } = withResponse(201, { domainName: 'new.example', status: ['OK'] });
+    await rtr.register({ name: 'new.example', registrant: 'ws-reg' });
+    const headers = calls[0]!.init?.headers as Record<string, string>;
+    expect(headers).toEqual(
+      expect.objectContaining({
+        Authorization: 'ApiKey key_test',
+        'Content-Type': 'application/json',
+      }),
+    );
+    expect(headers instanceof Headers).toBe(false);
+  });
+
+  it('strips a duplicated ApiKey prefix from the stored secret', async () => {
+    const calls: FetchCall[] = [];
+    const fetchStub: RegistrarFetch = async (input, init) => {
+      calls.push({
+        url: String(input instanceof Request ? input.url : input),
+        init: init as RequestInit | undefined,
+      });
+      return new Response(JSON.stringify({ domainName: 'new.example', status: ['OK'] }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+    const rtr = new RealtimeRegistrar({
+      apiKey: 'ApiKey key_test',
+      customer: 'weldsuite',
+      fetch: fetchStub,
+    });
+    await rtr.register({ name: 'new.example', registrant: 'ws-reg' });
+    const headers = calls[0]!.init?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe('ApiKey key_test');
+  });
+
   it('returns completed on 201', async () => {
     const { rtr } = withResponse(201, {
       domainName: 'new.example',

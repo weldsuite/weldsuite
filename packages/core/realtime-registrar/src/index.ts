@@ -437,7 +437,7 @@ export class RealtimeRegistrar {
     /** Optional TLD-set token from the ADAC panel. Omit to use the account default. */
     adacTldSetToken?: string;
   }) {
-    this.apiKey = apiKey.trim();
+    this.apiKey = apiKey.trim().replace(/^ApiKey\s+/i, '');
     this.customer = customer.trim();
     this.adacApiKey = adacApiKey?.trim() || undefined;
     this.adacTldSetToken = adacTldSetToken?.trim() || undefined;
@@ -454,6 +454,11 @@ export class RealtimeRegistrar {
 
   get customerHandle(): string {
     return this.customer;
+  }
+
+  /** Hostname the REST client will call (`api.yoursrs.com` vs OTE). */
+  get apiHost(): string {
+    return new URL(this.baseURL).host;
   }
 
   get hasAdac(): boolean {
@@ -490,13 +495,22 @@ export class RealtimeRegistrar {
     init: RequestInit & { query?: Record<string, string | boolean | number | undefined> } = {},
   ): Promise<{ data: T; status: number; processId?: number }> {
     const { query, ...rest } = init;
-    const headers = new Headers(rest.headers);
-    if (!headers.has('Authorization')) {
-      headers.set('Authorization', `ApiKey ${this.apiKey}`);
+    // Plain record, not `Headers`. Under `nodejs_compat` a Headers instance can
+    // come from a different realm than Worker fetch; fetch then sends no
+    // headers, and Realtime Register answers 401 with an empty body.
+    const headers: Record<string, string> = {};
+    if (rest.headers) {
+      new Headers(rest.headers).forEach((value, key) => {
+        headers[key] = value;
+      });
     }
-    if (rest.body && !headers.has('Content-Type')) {
-      headers.set('Content-Type', 'application/json');
+    if (!Object.keys(headers).some((k) => k.toLowerCase() === 'authorization')) {
+      headers.Authorization = `ApiKey ${this.apiKey}`;
     }
+    if (rest.body && !Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')) {
+      headers['Content-Type'] = 'application/json';
+    }
+    const requestUrl = this.url(path, query);
     let res: Response;
     try {
       const signal =
@@ -504,7 +518,7 @@ export class RealtimeRegistrar {
         (typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
           ? AbortSignal.timeout(this.timeoutMs)
           : undefined);
-      res = await this.fetchImpl(this.url(path, query), { ...rest, headers, signal });
+      res = await this.fetchImpl(requestUrl, { ...rest, headers, signal });
     } catch (err) {
       const aborted =
         (err instanceof Error && err.name === 'AbortError') ||
@@ -533,10 +547,14 @@ export class RealtimeRegistrar {
     if (!res.ok) {
       const errBody = body as { type?: string; message?: string; title?: string } | undefined;
       const code = errBody?.type ?? `HTTP_${res.status}`;
-      const message =
+      const detail =
         errBody?.message ??
         errBody?.title ??
-        (typeof body === 'string' && body ? body : `Realtime Register ${res.status} on ${endpoint}`);
+        (typeof body === 'string' && body ? body : undefined);
+      const host = new URL(requestUrl).host;
+      const message = detail
+        ? `Realtime Register ${res.status} on ${endpoint} (${host}): ${detail}`
+        : `Realtime Register ${res.status} on ${endpoint} (${host})`;
       throw new RealtimeRegistrarError(res.status, code, message, endpoint, body);
     }
 
