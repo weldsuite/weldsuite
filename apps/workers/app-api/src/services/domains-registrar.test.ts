@@ -304,6 +304,41 @@ describe('RealtimeRegistrar.pollProcess', () => {
   });
 });
 
+describe('RealtimeRegistrar fetch this-binding', () => {
+  it('does not throw Illegal invocation when default fetch is stored on the client', async () => {
+    const originalFetch = globalThis.fetch;
+    function workerFetch(this: unknown, input: RequestInfo | URL, _init?: RequestInit) {
+      if (this !== globalThis) {
+        throw new TypeError(
+          'Illegal invocation: function called with incorrect `this` reference.',
+        );
+      }
+      const url = String(input instanceof Request ? input.url : input);
+      const body = url.includes('/check')
+        ? { available: true, premium: false }
+        : { domainName: 'weldsuite.de', status: ['OK'] };
+      return Promise.resolve(
+        new Response(JSON.stringify(body), {
+          status: url.includes('/check') ? 200 : 201,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    }
+    globalThis.fetch = workerFetch as typeof fetch;
+    try {
+      const rtr = new RealtimeRegistrar({
+        apiKey: 'key_test',
+        customer: 'weldsuite',
+      });
+      await expect(
+        rtr.register({ name: 'weldsuite.de', registrant: 'ws-reg' }),
+      ).resolves.toMatchObject({ status: 'completed' });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
 describe('RealtimeRegistrar.register', () => {
   it('returns completed on 201', async () => {
     const { rtr } = withResponse(201, {
