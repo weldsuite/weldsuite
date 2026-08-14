@@ -7,12 +7,13 @@
  * (pricing, workspace Stripe customer) accept `masterDb` explicitly.
  */
 
-import { and, asc, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
 import { schema, masterSchema, type Database, type MasterDatabase } from '../db';
 import { generateId } from '../lib/id';
 import type { CloudflareRegistrar } from '@weldsuite/cloudflare-registrar';
 import {
   RealtimeRegistrar,
+  resolvePlatformRegistrarContacts,
   type DomainCheckResult,
   type DomainContactInput,
 } from '@weldsuite/realtime-registrar';
@@ -22,7 +23,8 @@ import {
   getCloudflareZone,
 } from '@weldsuite/cloudflare-zones';
 import { lookupTxt } from '../lib/dns-lookup';
-import { createDomainCheckoutSession, createStripeCustomer } from '../lib/stripe';
+import { createDomainCheckoutSession, createStripeCustomer, isDefiniteStripeFailure } from '../lib/stripe';
+import { MAX_CHECKOUT_DOMAINS } from '@weldsuite/core-api-client/schemas/domains';
 
 const { hostDomains, hostDnsZones } = schema;
 
@@ -172,16 +174,17 @@ export async function checkDomains(
   return results.map((r) => transformResult(r, pricingMap));
 }
 
+/** WeldSuite-owned RTR handles used as admin/tech/billing. Registrant is always the admin handle. */
 export function roleContactsFromEnv(env: {
   REALTIME_REGISTER_CONTACT_ADMIN?: string;
   REALTIME_REGISTER_CONTACT_TECH?: string;
   REALTIME_REGISTER_CONTACT_BILLING?: string;
-}, registrantHandle: string): Array<{ role: 'ADMIN' | 'BILLING' | 'TECH'; handle: string }> {
-  return [
-    { role: 'ADMIN', handle: env.REALTIME_REGISTER_CONTACT_ADMIN || registrantHandle },
-    { role: 'TECH', handle: env.REALTIME_REGISTER_CONTACT_TECH || registrantHandle },
-    { role: 'BILLING', handle: env.REALTIME_REGISTER_CONTACT_BILLING || registrantHandle },
-  ];
+}): Array<{ role: 'ADMIN' | 'BILLING' | 'TECH'; handle: string }> {
+  return resolvePlatformRegistrarContacts({
+    admin: env.REALTIME_REGISTER_CONTACT_ADMIN,
+    tech: env.REALTIME_REGISTER_CONTACT_TECH,
+    billing: env.REALTIME_REGISTER_CONTACT_BILLING,
+  }).contacts;
 }
 
 // ============================================================================
@@ -910,11 +913,115 @@ export async function issueAuthCode(
 // Checkout — RTR availability + pricing + Stripe Checkout Session
 // ============================================================================
 
+export { MAX_CHECKOUT_DOMAINS };
+
 export type CheckoutResult =
   | { ok: false; reason: 'unavailable'; domain: string }
   | { ok: false; reason: 'no_price'; tld: string }
   | { ok: false; reason: 'workspace_not_found' }
-  | { ok: true; sessionId: string; url: string; registrationIds: string[] };
+  | { ok: false; reason: 'empty' }
+  | { ok: false; reason: 'too_many'; max: number }
+  | { ok: false; reason: 'currency_mismatch' }
+  | { ok: false; reason: 'unsupported_years' }
+  | { ok: true; sessionId: string; url: string; registrationIds: string[]; domains: string[] };
+
+export function domainsFromCheckoutInput(input: {
+  domain?: string;
+  domains?: string[];
+}): string[] {
+  const raw = [...(input.domains ?? []), ...(input.domain ? [input.domain] : [])];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of raw) {
+    const normalized = name.trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
+async function insertOrReusePendingCheckoutRows(
+  db: Database,
+  names: string[],
+  input: {
+    contact?: Record<string, unknown>;
+    autoRenew?: boolean;
+    years: number;
+  },
+): Promise<string[]> {
+  const existing = await db
+    .select({
+      id: hostDomains.id,
+      fullDomain: hostDomains.fullDomain,
+      createdAt: hostDomains.createdAt,
+    })
+    .from(hostDomains)
+    .where(
+      and(
+        inArray(hostDomains.fullDomain, names),
+        eq(hostDomains.status, 'pending'),
+        eq(hostDomains.registrationStatus, 'pending_payment'),
+        isNull(hostDomains.stripeSessionId),
+        isNull(hostDomains.deletedAt),
+      ),
+    )
+    .orderBy(asc(hostDomains.createdAt));
+
+  const reusedByFqdn = new Map<string, string>();
+  for (const row of existing) {
+    if (!reusedByFqdn.has(row.fullDomain)) {
+      reusedByFqdn.set(row.fullDomain, row.id);
+    }
+  }
+
+  const now = new Date();
+  const metadata = { registrationYears: input.years };
+  const registrationIds: string[] = [];
+  const toInsert: Array<typeof hostDomains.$inferInsert> = [];
+
+  for (const fullDomain of names) {
+    const reusedId = reusedByFqdn.get(fullDomain);
+    if (reusedId) {
+      registrationIds.push(reusedId);
+      await db
+        .update(hostDomains)
+        .set({
+          autoRenew: input.autoRenew ?? true,
+          privacyProtection: true,
+          registrantContact: (input.contact as never) ?? null,
+          metadata,
+          updatedAt: now,
+        })
+        .where(eq(hostDomains.id, reusedId));
+      continue;
+    }
+
+    const parts = fullDomain.split('.');
+    const id = generateId('dom');
+    registrationIds.push(id);
+    toInsert.push({
+      id,
+      name: parts[0]!,
+      tld: tldOf(fullDomain),
+      fullDomain,
+      registrar: DEFAULT_REGISTRAR,
+      status: 'pending',
+      registrationStatus: 'pending_payment',
+      autoRenew: input.autoRenew ?? true,
+      privacyProtection: true,
+      registrantContact: (input.contact as never) ?? null,
+      metadata,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  if (toInsert.length > 0) {
+    await db.insert(hostDomains).values(toInsert);
+  }
+  return registrationIds;
+}
 
 export async function createCheckout(
   db: Database,
@@ -925,7 +1032,8 @@ export async function createCheckout(
     stripeSecretKey: string;
     origin: string;
     input: {
-      domain: string;
+      domain?: string;
+      domains?: string[];
       contact?: Record<string, unknown>;
       autoRenew?: boolean;
       privacyProtection?: boolean;
@@ -933,37 +1041,43 @@ export async function createCheckout(
     };
   },
 ): Promise<CheckoutResult> {
-  const checks = await rtr.checkDomains([params.input.domain]);
-  const check = checks[0];
-  if (!check?.available) {
-    return { ok: false, reason: 'unavailable', domain: params.input.domain };
+  const names = domainsFromCheckoutInput(params.input);
+  if (names.length === 0) return { ok: false, reason: 'empty' };
+  if (names.length > MAX_CHECKOUT_DOMAINS) {
+    return { ok: false, reason: 'too_many', max: MAX_CHECKOUT_DOMAINS };
+  }
+  const years = params.input.years ?? 1;
+  if (years !== 1) {
+    return { ok: false, reason: 'unsupported_years' };
   }
 
-  const tld = tldOf(params.input.domain);
-  const [pricingRow] = await masterDb
-    .select()
-    .from(masterSchema.hostDomainPricing)
-    .where(
-      and(
-        or(
-          eq(masterSchema.hostDomainPricing.tld, tld),
-          eq(masterSchema.hostDomainPricing.tld, `.${tld}`),
-        ),
-        eq(masterSchema.hostDomainPricing.isActive, true),
-      ),
-    )
-    .limit(1);
+  const [checks, pricingMap] = await Promise.all([
+    rtr.checkDomains(names),
+    loadPricingMap(masterDb),
+  ]);
+  const checkByName = new Map(checks.map((c) => [c.name.toLowerCase(), c]));
 
-  const unitAmountCents = applyMarkup(
-    check.priceCents,
-    pricingRow ?? undefined,
-    check.currency,
-  );
-  if (unitAmountCents === null || unitAmountCents <= 0) {
-    return { ok: false, reason: 'no_price', tld };
+  const lineItems: Array<{ name: string; unitAmountCents: number; currency: string }> = [];
+  let sessionCurrency: string | null = null;
+
+  for (const name of names) {
+    const check = checkByName.get(name);
+    if (!check?.available) {
+      return { ok: false, reason: 'unavailable', domain: name };
+    }
+    const tld = tldOf(name);
+    const pricingRow = pricingMap.get(tld);
+    const unitAmountCents = applyMarkup(check.priceCents, pricingRow, check.currency);
+    if (unitAmountCents === null || unitAmountCents <= 0) {
+      return { ok: false, reason: 'no_price', tld };
+    }
+    const currency = (pricingRow?.currency ?? check.currency ?? 'usd').toLowerCase();
+    if (sessionCurrency && sessionCurrency !== currency) {
+      return { ok: false, reason: 'currency_mismatch' };
+    }
+    sessionCurrency = currency;
+    lineItems.push({ name, unitAmountCents, currency });
   }
-
-  const currency = (pricingRow?.currency ?? check.currency ?? 'usd').toLowerCase();
 
   // `params.workspaceId` is the Clerk org id from app-api middleware
   // (`c.set('workspaceId', orgId)`). Look up by either column so this
@@ -1004,47 +1118,49 @@ export async function createCheckout(
       .where(eq(masterSchema.workspaces.id, workspaceRow.id));
   }
 
-  const parts = params.input.domain.split('.');
-  const domainName = parts[0];
-  const domainId = generateId('dom');
-  const now = new Date();
-
-  await db.insert(hostDomains).values({
-    id: domainId,
-    name: domainName,
-    tld,
-    fullDomain: params.input.domain,
-    registrar: DEFAULT_REGISTRAR,
-    status: 'pending',
-    registrationStatus: 'pending_payment',
-    autoRenew: params.input.autoRenew ?? true,
-    privacyProtection: params.input.privacyProtection ?? false,
-    registrantContact: (params.input.contact as never) ?? null,
-    createdAt: now,
-    updatedAt: now,
+  const registrationIds = await insertOrReusePendingCheckoutRows(db, names, {
+    contact: params.input.contact,
+    autoRenew: params.input.autoRenew,
+    years,
   });
 
-  const successUrl = `${params.origin}/weldhost/domains/purchase/success?session_id={CHECKOUT_SESSION_ID}&registration_ids=${domainId}`;
+  const successUrl = `${params.origin}/weldhost/domains/purchase/success?session_id={CHECKOUT_SESSION_ID}&registration_ids=${registrationIds.join(',')}`;
   const cancelUrl = `${params.origin}/weldhost/domains/purchase/cancel`;
 
-  const session = await createDomainCheckoutSession(params.stripeSecretKey, {
-    customerId,
-    lineItems: [{ name: params.input.domain, unitAmountCents, currency }],
-    successUrl,
-    cancelUrl,
-    metadata: {
-      kind: 'domain_registration',
-      registrationIds: JSON.stringify([domainId]),
-      workspaceId: params.workspaceId,
-    },
-  });
+  let session: { id: string; url: string };
+  try {
+    session = await createDomainCheckoutSession(params.stripeSecretKey, {
+      customerId,
+      lineItems,
+      successUrl,
+      cancelUrl,
+      idempotencyKey: `weldhost-checkout:${[...registrationIds].sort().join(',')}`,
+      metadata: {
+        kind: 'domain_registration',
+        registrationIds: JSON.stringify(registrationIds),
+        workspaceId: params.workspaceId,
+        registrationYears: String(years),
+      },
+    });
+  } catch (err) {
+    if (isDefiniteStripeFailure(err)) {
+      await db.delete(hostDomains).where(inArray(hostDomains.id, registrationIds));
+    }
+    throw err;
+  }
 
   await db
     .update(hostDomains)
     .set({ stripeSessionId: session.id, updatedAt: new Date() })
-    .where(eq(hostDomains.id, domainId));
+    .where(inArray(hostDomains.id, registrationIds));
 
-  return { ok: true, sessionId: session.id, url: session.url, registrationIds: [domainId] };
+  return {
+    ok: true,
+    sessionId: session.id,
+    url: session.url,
+    registrationIds,
+    domains: names,
+  };
 }
 
 /**
@@ -1061,6 +1177,7 @@ export async function pollRegistrationProcess(
     .from(hostDomains)
     .where(and(eq(hostDomains.id, domainId), isNull(hostDomains.deletedAt)))
     .limit(1);
+  if (!domain) return null;
   // Renewal processes are tracked separately so they cannot hijack registration polling.
   if (
     domain.registrationStatus === 'pending_renewal' ||
@@ -1068,7 +1185,7 @@ export async function pollRegistrationProcess(
   ) {
     return domain;
   }
-  if (!domain?.rtrProcessId) return domain;
+  if (!domain.rtrProcessId) return domain;
 
   const processId = Number.parseInt(domain.rtrProcessId, 10);
   if (!Number.isFinite(processId) || processId <= 0) return domain;
@@ -1226,17 +1343,15 @@ export interface RegistrationStatusRow {
   failureReason: string | null;
 }
 
-export async function getRegistrationStatus(
-  db: Database,
-  registrationId: string,
-): Promise<RegistrationStatusRow | null> {
-  const [row] = await db
-    .select()
-    .from(hostDomains)
-    .where(eq(hostDomains.id, registrationId))
-    .limit(1);
-  if (!row) return null;
+type RegistrationStatusSource = {
+  id: string;
+  fullDomain: string;
+  status: string;
+  registrationStatus: string | null;
+  metadata: Record<string, unknown> | null;
+};
 
+export function registrationStatusFromDomain(row: RegistrationStatusSource): RegistrationStatusRow {
   let status: RegistrationStatusRow['status'] = 'pending';
   switch (row.registrationStatus) {
     case 'pending_payment':
@@ -1254,8 +1369,15 @@ export async function getRegistrationStatus(
       status = 'failed';
       break;
     default:
-      status = row.status === 'active' ? 'completed' : 'pending';
+      if (row.status === 'active') status = 'completed';
+      else if (row.status === 'cancelled') status = 'failed';
+      else status = 'pending';
   }
+
+  const metadataError =
+    row.metadata && typeof row.metadata === 'object' && 'error' in row.metadata
+      ? String((row.metadata as { error?: unknown }).error ?? '')
+      : '';
 
   return {
     registrationId: row.id,
@@ -1263,8 +1385,21 @@ export async function getRegistrationStatus(
     domainName: row.fullDomain,
     status,
     totalPrice: null,
-    failureReason: null,
+    failureReason: status === 'failed' && metadataError ? metadataError : null,
   };
+}
+
+export async function getRegistrationStatus(
+  db: Database,
+  registrationId: string,
+): Promise<RegistrationStatusRow | null> {
+  const [row] = await db
+    .select()
+    .from(hostDomains)
+    .where(eq(hostDomains.id, registrationId))
+    .limit(1);
+  if (!row) return null;
+  return registrationStatusFromDomain(row);
 }
 
 // ============================================================================

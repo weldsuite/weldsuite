@@ -169,6 +169,8 @@ export const host = {
       priceUnavailable: 'Price unavailable',
       selectAtLeastOne: 'Please select at least one domain',
       redirectingToCheckout: 'Redirecting to checkout for {count} domain{plural}',
+      mixedCurrencyCart: 'All domains in the cart must use the same currency',
+      cartLimit: 'You can register up to {max} domains at a time',
     },
 
     // Domain purchase card
@@ -248,16 +250,19 @@ export const host = {
     purchaseSuccess: {
       registrationComplete: 'Registration Complete!',
       registrationFailed: 'Registration Failed',
+      registrationTimedOut: 'Registration Is Taking Longer Than Expected',
       processingDomains: 'Processing Your Domains',
       domainReady: 'Your {count} domain{plural} now ready to use',
       contactSupport: 'contact support',
       processingCount: 'Processing {count} domain{plural}...',
       completed: 'Completed',
       processing: 'Processing',
+      timedOut: 'Timed out',
       failed: 'Failed',
       domains: 'Domains',
       loadingStatus: 'Loading...',
       checkingStatus: 'Checking registration status...',
+      pollingTimedOut: 'We stopped waiting on this page. Registration may still finish in the background — refresh your domains list in a few minutes.',
       somethingWentWrong: 'Something went wrong',
       goToDomains: 'Go to Domains',
       tryAgain: 'Try Again',
@@ -270,6 +275,7 @@ export const host = {
         failed: 'Failed',
         registering: 'Registering...',
         processing: 'Processing...',
+        timedOut: 'Timed out',
       },
     },
 
