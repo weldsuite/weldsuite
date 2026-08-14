@@ -120,6 +120,10 @@ export const checkoutInput = z.object({
   stripePriceId: z.string().nullish(),
 });
 
+export const abandonCheckoutInput = z.object({
+  registrationIds: z.array(z.string().min(1)).min(1).max(20),
+});
+
 export const toggleAutoRenewInput = z.object({
   enabled: z.boolean(),
 });
@@ -147,6 +151,7 @@ export type CreateDomainInput = z.infer<typeof createDomainSchema>;
 export type UpdateDomainInput = z.infer<typeof updateDomainSchema>;
 export type ExternalDomainInput = z.infer<typeof externalDomainSchema>;
 export type CheckoutInput = z.infer<typeof checkoutInput>;
+export type AbandonCheckoutInput = z.infer<typeof abandonCheckoutInput>;
 export type ToggleAutoRenewInput = z.infer<typeof toggleAutoRenewInput>;
 export type TogglePrivacyInput = z.infer<typeof togglePrivacyInput>;
 export type ToggleLockInput = z.infer<typeof toggleLockInput>;
@@ -312,4 +317,66 @@ export interface RegistrationStatusResponse {
   status: 'pending' | 'payment_complete' | 'registering' | 'completed' | 'failed';
   totalPrice: number | null;
   failureReason: string | null;
+}
+
+// ============================================================================
+// Public registrar — never leak wholesale partners (Realtime Register / Cloudflare)
+// ============================================================================
+
+/**
+ * Registrars WeldSuite operates. These must never appear in API responses or
+ * the platform UI; customers see `PUBLIC_MANAGED_REGISTRAR` instead.
+ */
+export const MANAGED_DOMAIN_REGISTRARS = [
+  'realtimeregister',
+  'cloudflare',
+  'WeldHost',
+  'WeldSuite',
+] as const;
+
+/** Customer-facing registrar for domains registered through WeldSuite. */
+export const PUBLIC_MANAGED_REGISTRAR = 'WeldSuite';
+
+export function isManagedDomainRegistrar(
+  registrar: string | null | undefined,
+): boolean {
+  if (!registrar) return true;
+  return (MANAGED_DOMAIN_REGISTRARS as readonly string[]).includes(registrar);
+}
+
+/** True when the domain is brought in from an outside registrar (GoDaddy, …). */
+export function isExternalDomainRegistrar(
+  registrar: string | null | undefined,
+): boolean {
+  return !!registrar && !isManagedDomainRegistrar(registrar);
+}
+
+/**
+ * Registrar string suitable for API responses and the UI.
+ * Managed domains always resolve to "WeldSuite"; external names pass through.
+ */
+export function publicDomainRegistrar(
+  registrar: string | null | undefined,
+): string {
+  return isManagedDomainRegistrar(registrar)
+    ? PUBLIC_MANAGED_REGISTRAR
+    : registrar!;
+}
+
+export function toPublicDomain<T extends { registrar?: string | null }>(row: T): T {
+  return { ...row, registrar: publicDomainRegistrar(row.registrar) };
+}
+
+/**
+ * Unpaid (or abandoned unpaid) checkout rows must not appear in My Domains.
+ * `pending_payment` is the live unpaid Stripe session; `cancelled` + `failed`
+ * is the legacy webhook path that used to mark expired sessions cancelled
+ * instead of deleting them.
+ */
+export function isHiddenUnpaidDomain(row: {
+  status?: string | null;
+  registrationStatus?: string | null;
+}): boolean {
+  if (row.registrationStatus === 'pending_payment') return true;
+  return row.status === 'cancelled' && row.registrationStatus === 'failed';
 }

@@ -86,6 +86,18 @@ export async function createDomainCheckoutSession(
   return { id: session.id, url: session.url };
 }
 
+/**
+ * Expire an open Checkout session so a later payment cannot land on a row we
+ * already abandoned. Stripe returns 400 if the session is already complete
+ * or expired — callers should treat that as best-effort.
+ */
+export async function expireCheckoutSession(
+  secretKey: string,
+  sessionId: string,
+): Promise<void> {
+  await stripeRequest(secretKey, 'POST', `/v1/checkout/sessions/${sessionId}/expire`);
+}
+
 // ============================================================================
 // Subscription billing helpers — ported from api-worker `src/lib/stripe.ts`
 // for the /api/billing surface. Same raw-fetch style, minimally typed to the

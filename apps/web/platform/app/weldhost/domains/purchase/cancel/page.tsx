@@ -9,14 +9,38 @@ import {
   RotateCcw,
   HelpCircle,
 } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
+import { useAppApi } from '@/lib/api/use-app-api';
 
 export default function DomainPurchaseCancelPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { t } = useI18n();
   const tc = t.host.purchaseCancel;
+  const { domains } = useAppApi();
   const registrationId = searchParams.get('registration_id');
+  const registrationIdsParam = searchParams.get('registration_ids');
+  const abandonedRef = useRef(false);
+
+  useEffect(() => {
+    const ids = [
+      ...new Set(
+        [
+          ...(registrationIdsParam ? registrationIdsParam.split(',') : []),
+          ...(registrationId ? [registrationId] : []),
+        ]
+          .map((id) => id.trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (ids.length === 0 || abandonedRef.current) return;
+    abandonedRef.current = true;
+    void domains.abandonCheckout({ registrationIds: ids }).catch(() => {
+      // Best-effort: list/search already hide unpaid rows, and a later
+      // checkout for the same name deletes any leftover pending_payment row.
+    });
+  }, [domains, registrationId, registrationIdsParam]);
 
   return (
     <div className="min-h-screen bg-background">

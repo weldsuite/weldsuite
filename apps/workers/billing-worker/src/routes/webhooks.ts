@@ -2006,8 +2006,7 @@ async function handleDomainCheckoutFailed(
     await tenantDb
       .update(tenantSchema.hostDomains)
       .set({
-        registrationStatus: 'failed',
-        status: 'cancelled',
+        deletedAt: new Date(),
         updatedAt: new Date(),
       })
       .where(

@@ -20,14 +20,16 @@ vi.mock('../lib/stripe', async (importOriginal) => {
     ...actual,
     createStripeCustomer: vi.fn(),
     createDomainCheckoutSession: vi.fn(),
+    expireCheckoutSession: vi.fn(),
   };
 });
 
-import { createStripeCustomer, createDomainCheckoutSession } from '../lib/stripe';
-import { createCheckout } from './domains';
+import { createStripeCustomer, createDomainCheckoutSession, expireCheckoutSession } from '../lib/stripe';
+import { abandonUnpaidDomains, createCheckout, listDomains } from './domains';
 
 const mockedCreateCustomer = createStripeCustomer as ReturnType<typeof vi.fn>;
 const mockedCreateSession = createDomainCheckoutSession as ReturnType<typeof vi.fn>;
+const mockedExpireSession = expireCheckoutSession as ReturnType<typeof vi.fn>;
 
 let db: Database;
 
@@ -127,7 +129,10 @@ describe('createCheckout · Stripe customer', () => {
     expect(persisted[0]).toMatchObject({ stripeCustomerId: 'cus_created' });
     expect(mockedCreateSession).toHaveBeenCalledWith(
       'sk_test',
-      expect.objectContaining({ customerId: 'cus_created' }),
+      expect.objectContaining({
+        customerId: 'cus_created',
+        cancelUrl: expect.stringContaining('registration_ids='),
+      }),
     );
 
     const [row] = await db
@@ -173,5 +178,83 @@ describe('createCheckout · Stripe customer', () => {
     expect(result).toEqual({ ok: false, reason: 'workspace_not_found' });
     expect(mockedCreateCustomer).not.toHaveBeenCalled();
     expect(mockedCreateSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('createCheckout · unpaid leftovers', () => {
+  it('soft-deletes an existing unpaid row for the same domain so checkout can start again', async () => {
+    const domainName = 'retry-unpaid.com';
+    const oldId = 'dom_unpaid_retry1';
+    const now = new Date();
+    await db.insert(schema.hostDomains).values({
+      id: oldId,
+      name: 'retry-unpaid',
+      tld: 'com',
+      fullDomain: domainName,
+      status: 'pending',
+      registrationStatus: 'pending_payment',
+      registrar: 'realtimeregister',
+      stripeSessionId: 'cs_old',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const masterDb = masterDbStub({
+      workspace: {
+        id: 'ws_internal',
+        name: 'Acme',
+        clerkOrgId: 'org_test_default',
+        stripeCustomerId: 'cus_existing',
+      },
+    });
+
+    const result = await createCheckout(
+      db,
+      availableRtr(domainName),
+      masterDb,
+      { ...checkoutParams, input: { ...checkoutParams.input, domain: domainName } },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.registrationIds[0]).not.toBe(oldId);
+    expect(mockedExpireSession).toHaveBeenCalledWith('sk_test', 'cs_old');
+
+    const [oldRow] = await db
+      .select()
+      .from(schema.hostDomains)
+      .where(eq(schema.hostDomains.id, oldId))
+      .limit(1);
+    expect(oldRow?.deletedAt).not.toBeNull();
+
+    const listed = await listDomains(db, { page: 1, pageSize: 50 });
+    expect(listed.domains.find((d) => d.id === oldId)).toBeUndefined();
+    expect(listed.domains.find((d) => d.id === result.registrationIds[0])).toBeUndefined();
+  });
+
+  it('abandonUnpaidDomains removes pending_payment rows by id', async () => {
+    const id = 'dom_abandon_1';
+    const now = new Date();
+    await db.insert(schema.hostDomains).values({
+      id,
+      name: 'abandon-me',
+      tld: 'com',
+      fullDomain: 'abandon-me.com',
+      status: 'pending',
+      registrationStatus: 'pending_payment',
+      registrar: 'realtimeregister',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const abandoned = await abandonUnpaidDomains(db, { ids: [id] });
+    expect(abandoned).toEqual([{ id, stripeSessionId: null }]);
+
+    const [row] = await db
+      .select()
+      .from(schema.hostDomains)
+      .where(eq(schema.hostDomains.id, id))
+      .limit(1);
+    expect(row?.deletedAt).not.toBeNull();
   });
 });
