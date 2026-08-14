@@ -21,6 +21,7 @@ import {
   updateDomainSchema,
   externalDomainSchema,
   checkoutInput,
+  abandonCheckoutInput,
   toggleAutoRenewInput,
   togglePrivacyInput,
   toggleLockInput,
@@ -324,6 +325,33 @@ app.post(
   },
 );
 
+app.post(
+  '/checkout/abandon',
+  requirePermission('domains:create'),
+  zValidator('json', abandonCheckoutInput),
+  async (c) => {
+    try {
+      const abandoned = await domainsService.abandonUnpaidDomains(c.get('tenantDb'), {
+        ids: c.req.valid('json').registrationIds,
+        stripeSecretKey: c.env.STRIPE_SECRET_KEY,
+      });
+      for (const row of abandoned) {
+        publishEntityEvent({
+          c,
+          entityType: 'domain',
+          entityId: row.id,
+          action: 'deleted',
+          data: { id: row.id, name: row.fullDomain, status: row.status },
+        });
+      }
+      return success(c, { abandoned: abandoned.length });
+    } catch (err) {
+      console.error('[app-api/domains] abandon checkout failed:', err);
+      return error.internal(c, 'Failed to abandon unpaid registration');
+    }
+  },
+);
+
 // ============================================================================
 // External / verify-ownership (also placed before `:id` routes)
 // ============================================================================
@@ -353,7 +381,7 @@ app.post(
       return success(
         c,
         {
-          ...result.result.domain,
+          ...domainsService.toPublicDomain(result.result.domain),
           verificationRecord: result.result.verificationRecord,
         },
         201,
@@ -398,9 +426,11 @@ app.get('/:id', requirePermission('domains:read'), async (c) => {
   const id = c.req.param('id');
   try {
     const got = await domainsService.getDomainWithZone(c.get('tenantDb'), id);
-    if (!got) return error.notFound(c, 'Domain', id);
+    if (!got || domainsService.isHiddenUnpaidDomain(got.domain)) {
+      return error.notFound(c, 'Domain', id);
+    }
     return success(c, {
-      ...got.domain,
+      ...domainsService.toPublicDomain(got.domain),
       dnsZone: got.zone ?? null,
     });
   } catch (err) {
@@ -423,7 +453,7 @@ app.post(
         action: 'created',
         data: { id: row.id, name: row.fullDomain, status: row.status },
       });
-      return success(c, row, 201);
+      return success(c, domainsService.toPublicDomain(row), 201);
     } catch (err) {
       console.error('[app-api/domains] create failed:', err);
       return error.internal(c, 'Failed to create domain');
@@ -448,7 +478,7 @@ app.patch(
         action: 'updated',
         data: { id, name: res.row.fullDomain, status: res.row.status },
       });
-      return success(c, res.row);
+      return success(c, domainsService.toPublicDomain(res.row));
     } catch (err) {
       console.error('[app-api/domains] update failed:', err);
       return error.internal(c, 'Failed to update domain');
@@ -500,7 +530,7 @@ app.post(
         action: 'updated',
         data: { id, name: updated.fullDomain, status: updated.status },
       });
-      return success(c, updated);
+      return success(c, domainsService.toPublicDomain(updated));
     } catch (err) {
       return registrarFailure(c, 'toggle-auto-renew', err, 'Failed to toggle auto-renew');
     }
@@ -528,7 +558,7 @@ app.post(
         action: 'updated',
         data: { id, name: updated.fullDomain, status: updated.status },
       });
-      return success(c, updated);
+      return success(c, domainsService.toPublicDomain(updated));
     } catch (err) {
       return registrarFailure(c, 'toggle-privacy', err, 'Failed to toggle privacy protection');
     }
@@ -556,7 +586,7 @@ app.post(
         action: 'updated',
         data: { id, name: updated.fullDomain, status: updated.status },
       });
-      return success(c, updated);
+      return success(c, domainsService.toPublicDomain(updated));
     } catch (err) {
       return registrarFailure(c, 'toggle-lock', err, 'Failed to toggle transfer lock');
     }
@@ -583,7 +613,7 @@ app.post('/:id/sync', requirePermission('domains:update'), async (c) => {
       action: 'updated',
       data: { id, name: updated.fullDomain, status: updated.status },
     });
-    return success(c, updated);
+    return success(c, domainsService.toPublicDomain(updated));
   } catch (err) {
     console.error('[app-api/domains] sync failed:', err);
     return error.internal(c, 'Domain sync failed');
@@ -613,7 +643,7 @@ app.post('/:id/renew', requirePermission('domains:update'), async (c) => {
       action: 'updated',
       data: { id, name: updated.fullDomain, status: updated.status },
     });
-    return success(c, updated);
+    return success(c, domainsService.toPublicDomain(updated));
   } catch (err) {
     return registrarFailure(c, 'renew', err, 'Failed to renew domain');
   }
@@ -710,7 +740,7 @@ app.post('/:id/verify-ownership', requirePermission('domains:create'), async (c)
     }
 
     return success(c, {
-      ...result.domain,
+      ...domainsService.toPublicDomain(result.domain),
       nameservers: result.nameservers,
       dnsZone: result.zone,
     });
@@ -787,6 +817,9 @@ app.get('/registrations/:id/status', requirePermission('domains:read'), async (c
     const rtr = getRealtimeRegistrar(c.env);
     if (rtr) {
       try {
+        // Drive pending RTR processes forward; keep serving persisted status on
+        // transient registrar failures. Map onto the success-page DTO so a
+        // completed domain is not stuck as "processing".
         const polled = await domainsService.pollRegistrationProcess(c.get('tenantDb'), rtr, id);
         if (polled) {
           return success(c, domainsService.registrationStatusFromDomain(polled));
@@ -819,7 +852,7 @@ app.post(
         action: 'updated',
         data: { id, name: row.fullDomain, status: row.status },
       });
-      return success(c, { success: true, domainId: id, domain: row });
+      return success(c, { success: true, domainId: id, domain: domainsService.toPublicDomain(row) });
     } catch (err) {
       console.error('[app-api/domains] complete-registration failed:', err);
       return error.internal(c, 'Failed to complete registration');

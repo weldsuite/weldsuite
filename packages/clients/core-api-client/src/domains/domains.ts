@@ -17,6 +17,7 @@ import type {
   UpdateDomainInput,
   ExternalDomainInput,
   CheckoutInput,
+  AbandonCheckoutInput,
   CompleteRegistrationInput,
   Domain,
   DomainSearchResult,
@@ -56,6 +57,9 @@ export function createDomainsApi(api: ClientApi) {
     },
     checkout(input: CheckoutInput): Promise<DataResponse<CheckoutResponse>> {
       return api.post<DataResponse<CheckoutResponse>>('/domains/checkout', input);
+    },
+    abandonCheckout(input: AbandonCheckoutInput): Promise<DataResponse<{ abandoned: number }>> {
+      return api.post<DataResponse<{ abandoned: number }>>('/domains/checkout/abandon', input);
     },
 
     // ── List / get / mutate ──────────────────────────────────────────────

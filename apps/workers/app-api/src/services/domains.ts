@@ -23,14 +23,44 @@ import {
   getCloudflareZone,
 } from '@weldsuite/cloudflare-zones';
 import { lookupTxt } from '../lib/dns-lookup';
-import { createDomainCheckoutSession, createStripeCustomer, isDefiniteStripeFailure } from '../lib/stripe';
-import { MAX_CHECKOUT_DOMAINS } from '@weldsuite/core-api-client/schemas/domains';
+import {
+  createDomainCheckoutSession,
+  createStripeCustomer,
+  expireCheckoutSession,
+  isDefiniteStripeFailure,
+} from '../lib/stripe';
+import {
+  isExternalDomainRegistrar,
+  isHiddenUnpaidDomain,
+  MAX_CHECKOUT_DOMAINS,
+  toPublicDomain,
+} from '@weldsuite/core-api-client/schemas/domains';
+
+export { toPublicDomain, isHiddenUnpaidDomain };
 
 const { hostDomains, hostDnsZones } = schema;
 
 export const DEFAULT_REGISTRAR = 'realtimeregister' as const;
 /** Known registrars keep autocomplete; arbitrary strings remain accepted. */
 export type DomainRegistrar = 'realtimeregister' | 'cloudflare' | (string & {});
+
+/**
+ * Unpaid checkout rows (and the legacy cancelled/failed leftovers) stay out of
+ * My Domains, dashboard counts, and search. `IS DISTINCT FROM` keeps NULL
+ * `registration_status` (external domains) visible; `IS NOT DISTINCT FROM`
+ * hides cancelled+failed without also dropping cancelled rows whose status
+ * is NULL (`NULL = 'failed'` is unknown, so a plain `=` predicate would
+ * filter them out).
+ */
+function isListedDomainSql() {
+  return sql`(
+    ${hostDomains.registrationStatus} IS DISTINCT FROM 'pending_payment'
+    AND NOT (
+      ${hostDomains.status} = 'cancelled'
+      AND ${hostDomains.registrationStatus} IS NOT DISTINCT FROM 'failed'
+    )
+  )`;
+}
 
 // ============================================================================
 // Shared output type — mirrors the legacy `TransformedDomainResult` shape
@@ -204,7 +234,7 @@ export async function listDomains(db: Database, params: ListDomainsParams) {
   const page = params.page ?? 1;
   const pageSize = Math.min(params.pageSize ?? 20, 100);
 
-  const conditions = [isNull(hostDomains.deletedAt)];
+  const conditions = [isNull(hostDomains.deletedAt), isListedDomainSql()];
   if (params.search) {
     const term = `%${params.search}%`;
     conditions.push(or(like(hostDomains.fullDomain, term), like(hostDomains.name, term))!);
@@ -242,10 +272,10 @@ export async function listDomains(db: Database, params: ListDomainsParams) {
       expired: sql<number>`count(*) filter (where ${hostDomains.status} = 'expired')::int`,
     })
     .from(hostDomains)
-    .where(isNull(hostDomains.deletedAt));
+    .where(and(isNull(hostDomains.deletedAt), isListedDomainSql()));
 
   return {
-    domains,
+    domains: domains.map(toPublicDomain),
     pagination: {
       page,
       pageSize,
@@ -353,6 +383,67 @@ export async function deleteDomain(db: Database, id: string) {
     .set({ deletedAt: new Date(), updatedAt: new Date() })
     .where(eq(hostDomains.id, id));
   return existing;
+}
+
+/**
+ * Soft-delete unpaid checkout rows so the name can be registered again and
+ * so they never appear on My Domains. Optionally expire the matching Stripe
+ * sessions so a later payment cannot land on a deleted row.
+ */
+export async function abandonUnpaidDomains(
+  db: Database,
+  params: {
+    ids?: string[];
+    fullDomain?: string;
+    stripeSecretKey?: string;
+  },
+): Promise<{ id: string; stripeSessionId: string | null; fullDomain: string; status: string }[]> {
+  if (!params.ids?.length && !params.fullDomain) return [];
+
+  const unpaid = or(
+    eq(hostDomains.registrationStatus, 'pending_payment'),
+    and(
+      eq(hostDomains.status, 'cancelled'),
+      eq(hostDomains.registrationStatus, 'failed'),
+    ),
+  )!;
+
+  const conditions = [isNull(hostDomains.deletedAt), unpaid];
+  if (params.ids?.length) conditions.push(inArray(hostDomains.id, params.ids));
+  if (params.fullDomain) conditions.push(eq(hostDomains.fullDomain, params.fullDomain));
+
+  const rows = await db
+    .select({
+      id: hostDomains.id,
+      stripeSessionId: hostDomains.stripeSessionId,
+      fullDomain: hostDomains.fullDomain,
+      status: hostDomains.status,
+    })
+    .from(hostDomains)
+    .where(and(...conditions));
+
+  if (rows.length === 0) return [];
+
+  const now = new Date();
+  await db
+    .update(hostDomains)
+    .set({ deletedAt: now, updatedAt: now })
+    .where(inArray(hostDomains.id, rows.map((r) => r.id)));
+
+  if (params.stripeSecretKey) {
+    await Promise.all(
+      rows.map(async (row) => {
+        if (!row.stripeSessionId) return;
+        try {
+          await expireCheckoutSession(params.stripeSecretKey!, row.stripeSessionId);
+        } catch {
+          // Already expired, paid, or never created — the row is gone either way.
+        }
+      }),
+    );
+  }
+
+  return rows;
 }
 
 // ============================================================================
@@ -615,7 +706,7 @@ export async function refreshZoneStatus(
       .where(eq(hostDnsZones.id, zone.id));
   }
 
-  const isExternal = !!domain.registrar && domain.registrar !== 'WeldHost';
+  const isExternal = isExternalDomainRegistrar(domain.registrar);
   let nextDomainStatus = domain.status;
   if (isExternal && nextZoneStatus === 'active' && domain.status === 'pending') {
     nextDomainStatus = 'active';
@@ -1125,7 +1216,7 @@ export async function createCheckout(
   });
 
   const successUrl = `${params.origin}/weldhost/domains/purchase/success?session_id={CHECKOUT_SESSION_ID}&registration_ids=${registrationIds.join(',')}`;
-  const cancelUrl = `${params.origin}/weldhost/domains/purchase/cancel`;
+  const cancelUrl = `${params.origin}/weldhost/domains/purchase/cancel?registration_ids=${registrationIds.join(',')}`;
 
   let session: { id: string; url: string };
   try {
@@ -1418,7 +1509,7 @@ export async function getDashboardStats(db: Database) {
       autoRenewEnabled: sql<number>`count(*) filter (where ${hostDomains.autoRenew} = true)::int`,
     })
     .from(hostDomains)
-    .where(isNull(hostDomains.deletedAt));
+    .where(and(isNull(hostDomains.deletedAt), isListedDomainSql()));
 
   return {
     totalDomains: stats?.total ?? 0,
@@ -1440,7 +1531,7 @@ export async function getDashboardChart(db: Database, days: number) {
       status: hostDomains.status,
     })
     .from(hostDomains)
-    .where(isNull(hostDomains.deletedAt));
+    .where(and(isNull(hostDomains.deletedAt), isListedDomainSql()));
 
   const endDate = new Date();
   const startDate = new Date();
@@ -1475,10 +1566,11 @@ export async function getDashboardChart(db: Database, days: number) {
 }
 
 export async function getDashboardRecent(db: Database, limit: number) {
-  return db
+  const rows = await db
     .select()
     .from(hostDomains)
-    .where(isNull(hostDomains.deletedAt))
+    .where(and(isNull(hostDomains.deletedAt), isListedDomainSql()))
     .orderBy(desc(hostDomains.createdAt))
     .limit(limit);
+  return rows.map(toPublicDomain);
 }
