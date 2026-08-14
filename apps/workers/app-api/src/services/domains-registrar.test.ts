@@ -14,9 +14,12 @@ import {
   contactHandleFrom,
   isExactSldMatch,
   rankExactDomainSearchResults,
+  resolvePlatformRegistrarContacts,
+  MissingPlatformRegistrantError,
+  WELDHOST_PRIVACY_PROTECT,
   type RegistrarFetch,
 } from '@weldsuite/realtime-registrar';
-import { applyMarkup } from './domains';
+import { applyMarkup, roleContactsFromEnv } from './domains';
 
 type FetchCall = { url: string; init: RequestInit | undefined };
 
@@ -569,6 +572,50 @@ describe('splitDomainPricingFromPricelist', () => {
         transferPrice: '9.90',
         currency: 'USD',
       }),
+    ]);
+  });
+});
+
+describe('resolvePlatformRegistrarContacts', () => {
+  it('uses the admin handle as registrant and fills missing tech/billing from admin', () => {
+    const resolved = resolvePlatformRegistrarContacts({ admin: 'ws-admin' });
+    expect(resolved.registrant).toBe('ws-admin');
+    expect(resolved.contacts).toEqual([
+      { role: 'ADMIN', handle: 'ws-admin' },
+      { role: 'TECH', handle: 'ws-admin' },
+      { role: 'BILLING', handle: 'ws-admin' },
+    ]);
+  });
+
+  it('keeps distinct tech and billing handles when provided', () => {
+    const resolved = resolvePlatformRegistrarContacts({
+      admin: ' ws-admin ',
+      tech: 'ws-tech',
+      billing: 'ws-billing',
+    });
+    expect(resolved).toEqual({
+      registrant: 'ws-admin',
+      contacts: [
+        { role: 'ADMIN', handle: 'ws-admin' },
+        { role: 'TECH', handle: 'ws-tech' },
+        { role: 'BILLING', handle: 'ws-billing' },
+      ],
+    });
+  });
+
+  it('throws when the platform admin handle is missing', () => {
+    expect(() => resolvePlatformRegistrarContacts({})).toThrow(MissingPlatformRegistrantError);
+    expect(() => resolvePlatformRegistrarContacts({ admin: '  ' })).toThrow(
+      MissingPlatformRegistrantError,
+    );
+  });
+
+  it('never takes a customer handle as a fallback', () => {
+    expect(WELDHOST_PRIVACY_PROTECT).toBe(true);
+    expect(roleContactsFromEnv({ REALTIME_REGISTER_CONTACT_ADMIN: 'ws-admin' })).toEqual([
+      { role: 'ADMIN', handle: 'ws-admin' },
+      { role: 'TECH', handle: 'ws-admin' },
+      { role: 'BILLING', handle: 'ws-admin' },
     ]);
   });
 });

@@ -279,21 +279,37 @@ app.post(
         input: c.req.valid('json'),
       });
       if (!result.ok) {
-        if (result.reason === 'unavailable') {
-          return error.badRequest(c, `Domain ${result.domain} is not available for registration`);
+        switch (result.reason) {
+          case 'unavailable':
+            return error.badRequest(c, `Domain ${result.domain} is not available for registration`);
+          case 'no_price':
+            return error.internal(c, `No price available for .${result.tld}`);
+          case 'currency_mismatch':
+            return error.badRequest(c, 'All domains in the cart must use the same currency');
+          case 'too_many':
+            return error.badRequest(c, `You can register up to ${result.max} domains at a time`);
+          case 'empty':
+            return error.badRequest(c, 'Provide at least one domain');
+          case 'unsupported_years':
+            return error.badRequest(c, 'Only 1-year registrations are supported');
+          case 'workspace_not_found':
+            return error.notFound(c, 'Workspace');
+          default: {
+            const _exhaustive: never = result;
+            return error.internal(c, `Unhandled checkout failure: ${JSON.stringify(_exhaustive)}`);
+          }
         }
-        if (result.reason === 'no_price') {
-          return error.internal(c, `No price available for .${result.tld}`);
-        }
-        return error.notFound(c, 'Workspace');
       }
-      publishEntityEvent({
-        c,
-        entityType: 'domain',
-        entityId: result.registrationIds[0]!,
-        action: 'created',
-        data: { id: result.registrationIds[0]!, name: c.req.valid('json').domain, status: 'pending' },
-      });
+      for (let i = 0; i < result.registrationIds.length; i++) {
+        const entityId = result.registrationIds[i]!;
+        publishEntityEvent({
+          c,
+          entityType: 'domain',
+          entityId,
+          action: 'created',
+          data: { id: entityId, name: result.domains[i]!, status: 'pending' },
+        });
+      }
       return success(
         c,
         {
@@ -793,13 +809,12 @@ app.get('/registrations/:id/status', requirePermission('domains:read'), async (c
     if (rtr) {
       try {
         // Drive pending RTR processes forward; keep serving persisted status on
-        // transient registrar failures.
-        const polled = await domainsService.pollRegistrationProcess(
-          c.get('tenantDb'),
-          rtr,
-          id,
-        );
-        if (polled) return success(c, domainsService.toPublicDomain(polled));
+        // transient registrar failures. Map onto the success-page DTO so a
+        // completed domain is not stuck as "processing".
+        const polled = await domainsService.pollRegistrationProcess(c.get('tenantDb'), rtr, id);
+        if (polled) {
+          return success(c, domainsService.registrationStatusFromDomain(polled));
+        }
       } catch (pollErr) {
         console.error('[app-api/domains] registration poll failed:', pollErr);
       }

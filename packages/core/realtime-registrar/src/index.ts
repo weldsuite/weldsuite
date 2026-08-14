@@ -43,6 +43,14 @@ export {
   normalizeDomainSearchQuery,
   rankExactDomainSearchResults,
 } from './domain-search';
+export {
+  MissingPlatformRegistrantError,
+  WELDHOST_PRIVACY_PROTECT,
+  resolvePlatformRegistrarContacts,
+  type PlatformRegistrarContactEnv,
+  type PlatformRegistrarContacts,
+  type PlatformRoleContact,
+} from './platform-contacts';
 
 // ============================================================================
 // Public types
@@ -1016,6 +1024,10 @@ export class RealtimeRegistrar {
   /**
    * Ensure a registrant contact from WeldHost DomainContact JSON. Returns null
    * when the contact is too incomplete to satisfy RTR's required fields.
+   *
+   * Do not call this with customer PII on register/transfer — WeldHost uses
+   * {@link resolvePlatformRegistrarContacts} so the registrar never emails
+   * the customer. Keep customer details in the tenant DB only.
    */
   async ensureRegistrantFromDomainContact(
     contact: DomainContactInput,

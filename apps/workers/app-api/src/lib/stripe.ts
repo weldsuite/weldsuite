@@ -12,6 +12,7 @@ async function stripeRequest(
   method: string,
   path: string,
   body?: Record<string, string>,
+  extraHeaders?: Record<string, string>,
 ): Promise<unknown> {
   const auth = `Basic ${btoa(`${secretKey}:`)}`;
   const options: RequestInit = {
@@ -19,6 +20,7 @@ async function stripeRequest(
     headers: {
       Authorization: auth,
       'Content-Type': 'application/x-www-form-urlencoded',
+      ...extraHeaders,
     },
   };
   if (body) options.body = new URLSearchParams(body).toString();
@@ -29,6 +31,15 @@ async function stripeRequest(
     throw new Error(`Stripe ${method} ${path} failed (${res.status}): ${text}`);
   }
   return res.json();
+}
+
+/** HTTP 4xx from Stripe is a definite rejection; 5xx/network/abort are ambiguous. */
+export function isDefiniteStripeFailure(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  const match = /Stripe .+ failed \((\d+)\)/.exec(msg);
+  if (!match) return false;
+  const status = Number(match[1]);
+  return status >= 400 && status < 500;
 }
 
 /**
@@ -55,6 +66,7 @@ export interface CreateDomainCheckoutParams {
   successUrl: string;
   cancelUrl: string;
   metadata: Record<string, string>;
+  idempotencyKey?: string;
 }
 
 export async function createDomainCheckoutSession(
@@ -79,7 +91,13 @@ export async function createDomainCheckoutSession(
     body[`metadata[${k}]`] = v;
   }
 
-  const session = (await stripeRequest(secretKey, 'POST', '/v1/checkout/sessions', body)) as {
+  const session = (await stripeRequest(
+    secretKey,
+    'POST',
+    '/v1/checkout/sessions',
+    body,
+    params.idempotencyKey ? { 'Idempotency-Key': params.idempotencyKey } : undefined,
+  )) as {
     id: string;
     url: string;
   };
