@@ -165,6 +165,7 @@ export async function createDomainTransfer(
       const externalTransferId = String(result.processId);
       const registrarResponse = result as unknown as Record<string, unknown>;
       toRegistrar = 'realtimeregister';
+      const effectivePrivacy = result.privacyProtect ?? privacyProtect;
 
       // Ensure a domain row exists for the incoming transfer
       if (!domainId) {
@@ -180,7 +181,7 @@ export async function createDomainTransfer(
           registrar: 'realtimeregister',
           status: 'pending',
           registrationStatus: 'pending_transfer',
-          privacyProtection: privacyProtect,
+          privacyProtection: effectivePrivacy,
           rtrRegistrantHandle: platform.registrant,
           rtrProcessId: externalTransferId,
           authCode: data.authCode,
@@ -193,7 +194,7 @@ export async function createDomainTransfer(
             registrationStatus: 'pending_transfer',
             rtrProcessId: externalTransferId,
             rtrRegistrantHandle: platform.registrant,
-            privacyProtection: privacyProtect,
+            privacyProtection: effectivePrivacy,
             ...(opts.registrantContact
               ? { registrantContact: opts.registrantContact as never }
               : {}),

@@ -485,6 +485,7 @@ describe('RealtimeRegistrar.transfer', () => {
     expect(calls[0]!.url).toContain('/domains/move.example/transfer');
     expect(result.processId).toBe(99);
     expect(result.status).toBe('pending');
+    expect(result.privacyProtect).toBe(false);
   });
 
   it('throws when process id is missing', async () => {
@@ -524,6 +525,7 @@ describe('RealtimeRegistrar.transfer', () => {
     expect(JSON.parse(String(calls[0]!.init?.body)).privacyProtect).toBe(true);
     expect(JSON.parse(String(calls[1]!.init?.body)).privacyProtect).toBeUndefined();
     expect(result.processId).toBe(77);
+    expect(result.privacyProtect).toBe(false);
   });
 });
 

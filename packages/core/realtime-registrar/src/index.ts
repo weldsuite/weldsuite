@@ -154,6 +154,8 @@ export interface TransferResult {
   type: 'IN' | 'OUT';
   requestedDate?: string;
   expiryDate?: string;
+  /** Effective flag after TLD fallback — false when RTR rejected privacy. */
+  privacyProtect: boolean;
 }
 
 export interface UpdateDomainInput {
@@ -881,6 +883,7 @@ export class RealtimeRegistrar {
       type: data.type ?? 'IN',
       requestedDate: data.requestedDate,
       expiryDate: data.expiryDate,
+      privacyProtect: Boolean(input.privacyProtect),
     };
   }
 

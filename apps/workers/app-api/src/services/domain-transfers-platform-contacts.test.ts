@@ -123,6 +123,41 @@ describe('createDomainTransfer · platform contacts', () => {
     expect(domain?.privacyProtection).toBe(false);
   });
 
+  it('persists privacyProtect from the transfer result after a privacy fallback', async () => {
+    const transfer = vi.fn(async (_payload: Record<string, unknown>) => ({
+      status: 'pending',
+      processId: 66,
+      domainName: 'privacy-fallback-in.com',
+      type: 'IN' as const,
+      privacyProtect: false,
+    }));
+    const rtr = { ensureRegistrantFromDomainContact: vi.fn(), transfer } as unknown as RealtimeRegistrar;
+
+    const row = await createDomainTransfer(
+      db,
+      {
+        domainName: 'privacy-fallback-in.com',
+        type: 'incoming',
+        authCode: 'EPPCODE',
+      },
+      {
+        rtr,
+        contactEnv: { REALTIME_REGISTER_CONTACT_ADMIN: 'ws-admin' },
+      },
+    );
+
+    expect(transfer.mock.calls[0]![0]).toMatchObject({
+      name: 'privacy-fallback-in.com',
+      privacyProtect: true,
+    });
+    const [domain] = await db
+      .select()
+      .from(schema.hostDomains)
+      .where(eq(schema.hostDomains.id, row.domainId!))
+      .limit(1);
+    expect(domain?.privacyProtection).toBe(false);
+  });
+
   it('fails the transfer when REALTIME_REGISTER_CONTACT_ADMIN is unset', async () => {
     const transfer = vi.fn();
     const rtr = { transfer } as unknown as RealtimeRegistrar;
