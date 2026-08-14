@@ -17,6 +17,9 @@ import {
   resolvePlatformRegistrarContacts,
   MissingPlatformRegistrantError,
   WELDHOST_PRIVACY_PROTECT,
+  privacyProtectForDomain,
+  tldSupportsPrivacyProtect,
+  isPrivacyProtectUnsupportedError,
   type RegistrarFetch,
 } from '@weldsuite/realtime-registrar';
 import { applyMarkup, roleContactsFromEnv } from './domains';
@@ -33,6 +36,31 @@ function withResponse(status: number, body: unknown, opts: { headers?: Record<st
     return new Response(JSON.stringify(body), {
       status,
       headers: { 'Content-Type': 'application/json', ...(opts.headers ?? {}) },
+    });
+  };
+  const rtr = new RealtimeRegistrar({
+    apiKey: 'key_test',
+    customer: 'weldsuite',
+    fetch: fetchStub,
+  });
+  return { rtr, calls };
+}
+
+function withResponses(
+  responses: Array<{ status: number; body: unknown; headers?: Record<string, string> }>,
+) {
+  const calls: FetchCall[] = [];
+  let index = 0;
+  const fetchStub: RegistrarFetch = async (input, init) => {
+    calls.push({
+      url: String(input instanceof Request ? input.url : input),
+      init: init as RequestInit | undefined,
+    });
+    const spec = responses[Math.min(index, responses.length - 1)]!;
+    index += 1;
+    return new Response(JSON.stringify(spec.body), {
+      status: spec.status,
+      headers: { 'Content-Type': 'application/json', ...(spec.headers ?? {}) },
     });
   };
   const rtr = new RealtimeRegistrar({
@@ -382,6 +410,62 @@ describe('RealtimeRegistrar.register', () => {
     });
     expect(result).toMatchObject({ status: 'failed', code: 'MISSING_PROCESS_ID' });
   });
+
+  it('sends privacyProtect only when requested', async () => {
+    const { rtr, calls } = withResponse(201, {
+      domainName: 'new.example',
+      status: ['OK'],
+    });
+    await rtr.register({
+      name: 'new.example',
+      registrant: 'ws-reg',
+      privacyProtect: true,
+    });
+    expect(JSON.parse(String(calls[0]!.init?.body))).toMatchObject({ privacyProtect: true });
+  });
+
+  it('retries without privacyProtect when the TLD rejects it', async () => {
+    const { rtr, calls } = withResponses([
+      {
+        status: 400,
+        body: { type: 'ConstraintException', message: 'Privacy protect is not supported' },
+      },
+      {
+        status: 201,
+        body: {
+          domainName: 'weldsuite.de',
+          expiryDate: '2027-01-01T00:00:00Z',
+          status: ['OK'],
+        },
+      },
+    ]);
+    const result = await rtr.register({
+      name: 'weldsuite.de',
+      registrant: 'ws-reg',
+      privacyProtect: true,
+      periodMonths: 12,
+    });
+    expect(calls).toHaveLength(2);
+    expect(JSON.parse(String(calls[0]!.init?.body)).privacyProtect).toBe(true);
+    expect(JSON.parse(String(calls[1]!.init?.body)).privacyProtect).toBeUndefined();
+    expect(result.status).toBe('completed');
+    if (result.status === 'completed') {
+      expect(result.domain.privacyProtect).toBe(false);
+    }
+  });
+
+  it('does not retry a privacy-unsupported error when privacy was already off', async () => {
+    const { rtr, calls } = withResponses([
+      {
+        status: 400,
+        body: { type: 'ConstraintException', message: 'Privacy protect is not supported' },
+      },
+    ]);
+    await expect(
+      rtr.register({ name: 'weldsuite.de', registrant: 'ws-reg', privacyProtect: false }),
+    ).rejects.toBeInstanceOf(RealtimeRegistrarError);
+    expect(calls).toHaveLength(1);
+  });
 });
 
 describe('RealtimeRegistrar.transfer', () => {
@@ -401,6 +485,7 @@ describe('RealtimeRegistrar.transfer', () => {
     expect(calls[0]!.url).toContain('/domains/move.example/transfer');
     expect(result.processId).toBe(99);
     expect(result.status).toBe('pending');
+    expect(result.privacyProtect).toBe(false);
   });
 
   it('throws when process id is missing', async () => {
@@ -412,6 +497,35 @@ describe('RealtimeRegistrar.transfer', () => {
     await expect(
       rtr.transfer({ name: 'move.example', registrant: 'ws-reg', authCode: 'EPP' }),
     ).rejects.toMatchObject({ code: 'MISSING_PROCESS_ID' });
+  });
+
+  it('retries without privacyProtect when the TLD rejects it', async () => {
+    const { rtr, calls } = withResponses([
+      {
+        status: 400,
+        body: { type: 'ConstraintException', message: 'Privacy protect is not supported' },
+      },
+      {
+        status: 202,
+        body: {
+          domainName: 'weldsuite.de',
+          status: 'pending',
+          processId: 77,
+          type: 'IN',
+        },
+      },
+    ]);
+    const result = await rtr.transfer({
+      name: 'weldsuite.de',
+      registrant: 'ws-reg',
+      authCode: 'EPP',
+      privacyProtect: true,
+    });
+    expect(calls).toHaveLength(2);
+    expect(JSON.parse(String(calls[0]!.init?.body)).privacyProtect).toBe(true);
+    expect(JSON.parse(String(calls[1]!.init?.body)).privacyProtect).toBeUndefined();
+    expect(result.processId).toBe(77);
+    expect(result.privacyProtect).toBe(false);
   });
 });
 
@@ -647,6 +761,15 @@ describe('resolvePlatformRegistrarContacts', () => {
 
   it('never takes a customer handle as a fallback', () => {
     expect(WELDHOST_PRIVACY_PROTECT).toBe(true);
+    expect(privacyProtectForDomain('example.com')).toBe(true);
+    expect(privacyProtectForDomain('weldsuite.de')).toBe(false);
+    expect(privacyProtectForDomain('de')).toBe(false);
+    expect(tldSupportsPrivacyProtect('.DE')).toBe(false);
+    expect(
+      isPrivacyProtectUnsupportedError(
+        new RealtimeRegistrarError(400, 'ConstraintException', 'Privacy protect is not supported'),
+      ),
+    ).toBe(true);
     expect(roleContactsFromEnv({ REALTIME_REGISTER_CONTACT_ADMIN: 'ws-admin' })).toEqual([
       { role: 'ADMIN', handle: 'ws-admin' },
       { role: 'TECH', handle: 'ws-admin' },

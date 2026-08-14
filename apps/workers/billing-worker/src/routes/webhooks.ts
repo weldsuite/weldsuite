@@ -25,7 +25,7 @@ import {
   RealtimeRegistrar,
   RealtimeRegistrarError,
   resolvePlatformRegistrarContacts,
-  WELDHOST_PRIVACY_PROTECT,
+  privacyProtectForDomain,
 } from '@weldsuite/realtime-registrar';
 import {
   createCloudflareZone,
@@ -1856,6 +1856,8 @@ async function handleDomainRegistrationCheckout(
           .where(eq(tenantSchema.hostDomains.id, domainId));
       }
 
+      const privacyProtect = privacyProtectForDomain(domainRow.fullDomain);
+
       // 3) Register at Realtime Register with CF nameservers
       const result = await rtr.register({
         name: domainRow.fullDomain,
@@ -1863,7 +1865,7 @@ async function handleDomainRegistrationCheckout(
         contacts,
         nameservers: nameservers.length ? nameservers : undefined,
         autoRenew: domainRow.autoRenew ?? true,
-        privacyProtect: WELDHOST_PRIVACY_PROTECT,
+        privacyProtect,
         periodMonths,
       });
 
@@ -1901,7 +1903,7 @@ async function handleDomainRegistrationCheckout(
             registrar: 'realtimeregister',
             rtrProcessId: String(result.processId),
             rtrRegistrantHandle: registrantHandle,
-            privacyProtection: WELDHOST_PRIVACY_PROTECT,
+            privacyProtection: result.privacyProtect ?? privacyProtect,
             updatedAt: new Date(),
           })
           .where(eq(tenantSchema.hostDomains.id, domainId));

@@ -24,6 +24,7 @@ import {
   rankExactDomainSearchResults,
 } from './domain-search';
 import { parseDomainPricelist, PRICELIST_CURRENCY, type DomainWholesalePrice } from './pricelist';
+import { isPrivacyProtectUnsupportedError } from './privacy-protect';
 
 export type RegistrarFetch = typeof fetch;
 export { RealtimeRegistrarError } from './errors';
@@ -51,6 +52,11 @@ export {
   type PlatformRegistrarContacts,
   type PlatformRoleContact,
 } from './platform-contacts';
+export {
+  isPrivacyProtectUnsupportedError,
+  privacyProtectForDomain,
+  tldSupportsPrivacyProtect,
+} from './privacy-protect';
 
 // ============================================================================
 // Public types
@@ -112,7 +118,7 @@ export interface RegisteredDomain {
 
 export type ProcessResult =
   | { status: 'completed'; domain: RegisteredDomain; processId?: number }
-  | { status: 'pending'; processId: number; pollAfter: number }
+  | { status: 'pending'; processId: number; pollAfter: number; privacyProtect?: boolean }
   | { status: 'failed'; code: string; message: string; processId?: number };
 
 export interface RegisterInput {
@@ -148,6 +154,8 @@ export interface TransferResult {
   type: 'IN' | 'OUT';
   requestedDate?: string;
   expiryDate?: string;
+  /** Effective flag after TLD fallback — false when RTR rejected privacy. */
+  privacyProtect: boolean;
 }
 
 export interface UpdateDomainInput {
@@ -735,16 +743,27 @@ export class RealtimeRegistrar {
   }
 
   async register(input: RegisterInput): Promise<ProcessResult> {
+    try {
+      return await this.registerOnce(input);
+    } catch (err) {
+      if (input.privacyProtect && isPrivacyProtectUnsupportedError(err)) {
+        return await this.registerOnce({ ...input, privacyProtect: false });
+      }
+      throw err;
+    }
+  }
+
+  private async registerOnce(input: RegisterInput): Promise<ProcessResult> {
     const body = {
       customer: this.customer,
       registrant: input.registrant,
       contacts: input.contacts,
       period: input.periodMonths,
       ns: input.nameservers,
-      privacyProtect: input.privacyProtect,
       autoRenew: input.autoRenew,
       authcode: input.authCode,
       billables: input.billables,
+      ...(input.privacyProtect ? { privacyProtect: true } : {}),
     };
     try {
       const { data, status, processId } = await this.request<{
@@ -763,6 +782,7 @@ export class RealtimeRegistrar {
           status: 'pending',
           processId: required.processId,
           pollAfter: 5000,
+          privacyProtect: Boolean(input.privacyProtect),
         };
       }
 
@@ -797,8 +817,8 @@ export class RealtimeRegistrar {
       contacts: input.contacts,
       period: input.periodMonths,
       ns: input.nameservers,
-      privacyProtect: input.privacyProtect,
       autoRenew: input.autoRenew,
+      ...(input.privacyProtect ? { privacyProtect: true } : {}),
     };
     const { data } = await this.request<{ quote?: { billables?: QuoteBillable[] }; billables?: QuoteBillable[] }>(
       'domain-register-quote',
@@ -813,17 +833,28 @@ export class RealtimeRegistrar {
   }
 
   async transfer(input: TransferInput): Promise<TransferResult> {
+    try {
+      return await this.transferOnce(input);
+    } catch (err) {
+      if (input.privacyProtect && isPrivacyProtectUnsupportedError(err)) {
+        return await this.transferOnce({ ...input, privacyProtect: false });
+      }
+      throw err;
+    }
+  }
+
+  private async transferOnce(input: TransferInput): Promise<TransferResult> {
     const body = {
       customer: this.customer,
       registrant: input.registrant,
       contacts: input.contacts,
       period: input.periodMonths,
       ns: input.nameservers,
-      privacyProtect: input.privacyProtect,
       autoRenew: input.autoRenew,
       authcode: input.authCode,
       designatedAgent: input.designatedAgent,
       billables: input.billables,
+      ...(input.privacyProtect ? { privacyProtect: true } : {}),
     };
     const { data, processId } = await this.request<{
       domainName: string;
@@ -852,6 +883,7 @@ export class RealtimeRegistrar {
       type: data.type ?? 'IN',
       requestedDate: data.requestedDate,
       expiryDate: data.expiryDate,
+      privacyProtect: Boolean(input.privacyProtect),
     };
   }
 
