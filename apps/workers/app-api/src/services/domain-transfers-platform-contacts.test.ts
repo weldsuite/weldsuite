@@ -19,7 +19,7 @@ beforeAll(async () => {
 describe('createDomainTransfer · platform contacts', () => {
   it('sends only platform handles to RTR even when a customer contact is provided', async () => {
     const ensure = vi.fn();
-    const transfer = vi.fn(async () => ({
+    const transfer = vi.fn(async (_payload: Record<string, unknown>) => ({
       status: 'pending',
       processId: 99,
       domainName: 'platform-contacts-in.example',

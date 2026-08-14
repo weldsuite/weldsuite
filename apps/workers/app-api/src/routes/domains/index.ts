@@ -294,9 +294,8 @@ app.post(
           case 'workspace_not_found':
             return error.notFound(c, 'Workspace');
           default: {
-            const _exhaustive: never = result.reason;
-            void _exhaustive;
-            return error.internal(c, 'Unhandled checkout failure');
+            const _exhaustive: never = result;
+            return error.internal(c, `Unhandled checkout failure: ${JSON.stringify(_exhaustive)}`);
           }
         }
       }
