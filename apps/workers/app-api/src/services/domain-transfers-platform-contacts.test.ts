@@ -90,7 +90,7 @@ describe('createDomainTransfer · platform contacts', () => {
   });
 
   it('does not request WHOIS privacy on TLDs that reject it', async () => {
-    const transfer = vi.fn(async () => ({
+    const transfer = vi.fn(async (_payload: Record<string, unknown>) => ({
       status: 'pending',
       processId: 88,
       domainName: 'privacy-unsupported-in.de',
