@@ -1718,6 +1718,7 @@ async function handleDomainRegistrationCheckout(
 
   let registeredCount = 0;
   let failedCount = 0;
+  let lostToSoftDeleteCount = 0;
 
   // Validate platform contacts before claiming any paid row. A missing
   // REALTIME_REGISTER_CONTACT_ADMIN must fail the webhook (Stripe retries)
@@ -1755,6 +1756,9 @@ async function handleDomainRegistrationCheckout(
 
     // Atomically claim the row. Only the delivery that transitions
     // pending_payment → pending_registration may call rtr.register.
+    // `deletedAt IS NULL` blocks completion after unpaid abandon: cancel
+    // soft-deletes first, then best-effort expires Stripe; if expire fails
+    // because the session is already paid, this claim must still lose.
     const [claimedDomain] = await tenantDb
       .update(tenantSchema.hostDomains)
       .set({
@@ -1765,12 +1769,28 @@ async function handleDomainRegistrationCheckout(
         and(
           eq(tenantSchema.hostDomains.id, domainId),
           eq(tenantSchema.hostDomains.registrationStatus, 'pending_payment'),
+          isNull(tenantSchema.hostDomains.deletedAt),
         ),
       )
       .returning({ id: tenantSchema.hostDomains.id });
 
     if (!claimedDomain) {
-      console.log(`[Domain Registration] Domain ${domainId} was already claimed, skipping`);
+      const [current] = await tenantDb
+        .select({
+          deletedAt: tenantSchema.hostDomains.deletedAt,
+          registrationStatus: tenantSchema.hostDomains.registrationStatus,
+        })
+        .from(tenantSchema.hostDomains)
+        .where(eq(tenantSchema.hostDomains.id, domainId))
+        .limit(1);
+      if (current?.deletedAt && current.registrationStatus === 'pending_payment') {
+        lostToSoftDeleteCount += 1;
+        console.log(
+          `[Domain Registration] Domain ${domainId} was soft-deleted before claim; payment not refunded, manual review required`,
+        );
+      } else {
+        console.log(`[Domain Registration] Domain ${domainId} was already claimed, skipping`);
+      }
       continue;
     }
 
@@ -1930,11 +1950,12 @@ async function handleDomainRegistrationCheckout(
   }
 
   // Never auto-refund a domain Checkout. Registration failures (RTR, DNS,
-  // contacts) need a human look — a live registration can still complete
-  // after the webhook errors, and a refund then cannot be clawed back.
-  if (failedCount > 0) {
+  // contacts) and paid sessions that lost every claim to unpaid abandon
+  // need a human look — a live registration can still complete after the
+  // webhook errors, and a refund then cannot be clawed back.
+  if (failedCount > 0 || lostToSoftDeleteCount > 0) {
     console.error(
-      `[Domain Registration] ${failedCount} failed, ${registeredCount} registered for session ${sessionId}` +
+      `[Domain Registration] ${failedCount} failed, ${lostToSoftDeleteCount} lost to delete, ${registeredCount} registered for session ${sessionId}` +
         `${paymentIntentId ? ` payment ${paymentIntentId}` : ''} — payment not refunded, manual review required`,
     );
   }
@@ -1979,8 +2000,7 @@ async function handleDomainCheckoutFailed(
     await tenantDb
       .update(tenantSchema.hostDomains)
       .set({
-        registrationStatus: 'failed',
-        status: 'cancelled',
+        deletedAt: new Date(),
         updatedAt: new Date(),
       })
       .where(

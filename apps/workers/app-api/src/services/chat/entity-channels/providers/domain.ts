@@ -1,6 +1,7 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { schema } from '../../../../db';
 import { registerEntityProvider, type EntityChannelProvider } from '../registry';
+import { publicDomainRegistrar } from '@weldsuite/core-api-client/schemas/domains';
 
 /**
  * Domain entity chat provider (WeldHost).
@@ -52,7 +53,9 @@ export const domainEntityProvider: EntityChannelProvider = {
       .from(hostDomains)
       .where(and(eq(hostDomains.id, entityId), isNull(hostDomains.deletedAt)))
       .limit(1);
-    return domain ?? null;
+    return domain
+      ? { ...domain, registrar: publicDomainRegistrar(domain.registrar) }
+      : null;
   },
 
   async canAccess({ db, entityId }) {
