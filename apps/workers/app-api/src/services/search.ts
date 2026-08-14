@@ -897,7 +897,7 @@ export async function searchDomains(
       and(
         isNull(hostDomains.deletedAt),
         sql`${hostDomains.registrationStatus} IS DISTINCT FROM 'pending_payment'`,
-        sql`NOT (${hostDomains.status} = 'cancelled' AND ${hostDomains.registrationStatus} = 'failed')`,
+        sql`NOT (${hostDomains.status} = 'cancelled' AND ${hostDomains.registrationStatus} IS NOT DISTINCT FROM 'failed')`,
         or(
           sql`lower(${hostDomains.fullDomain}) LIKE ${term}`,
           sql`lower(${hostDomains.name}) LIKE ${term}`,

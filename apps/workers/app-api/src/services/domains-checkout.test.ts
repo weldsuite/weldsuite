@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { createPgliteDb } from '../test/pglite';
 import { masterSchema, schema, type Database, type MasterDatabase } from '../db';
 import type { RealtimeRegistrar } from '@weldsuite/realtime-registrar';
@@ -507,7 +507,9 @@ describe('createCheckout · unpaid leftovers', () => {
     });
 
     const abandoned = await abandonUnpaidDomains(db, { ids: [id] });
-    expect(abandoned).toEqual([{ id, stripeSessionId: null }]);
+    expect(abandoned).toEqual([
+      { id, stripeSessionId: null, fullDomain: 'abandon-me.com', status: 'pending' },
+    ]);
 
     const [row] = await db
       .select()
@@ -515,6 +517,82 @@ describe('createCheckout · unpaid leftovers', () => {
       .where(eq(schema.hostDomains.id, id))
       .limit(1);
     expect(row?.deletedAt).not.toBeNull();
+  });
+
+  it('does not claim a pending_payment row after unpaid abandon (paid session loses the race)', async () => {
+    // Mirrors billing-worker handleDomainRegistrationCheckout: cancel
+    // soft-deletes first, then best-effort expires Stripe. If expire fails
+    // because the session is already paid, completion must still refuse to
+    // register.
+    const id = 'dom_claim_after_abandon';
+    const now = new Date();
+    await db.insert(schema.hostDomains).values({
+      id,
+      name: 'claim-race',
+      tld: 'com',
+      fullDomain: 'claim-race.com',
+      status: 'pending',
+      registrationStatus: 'pending_payment',
+      registrar: 'realtimeregister',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await abandonUnpaidDomains(db, { ids: [id] });
+
+    const claimed = await db
+      .update(schema.hostDomains)
+      .set({ registrationStatus: 'pending_registration', updatedAt: new Date() })
+      .where(
+        and(
+          eq(schema.hostDomains.id, id),
+          eq(schema.hostDomains.registrationStatus, 'pending_payment'),
+          isNull(schema.hostDomains.deletedAt),
+        ),
+      )
+      .returning({ id: schema.hostDomains.id });
+
+    expect(claimed).toHaveLength(0);
+
+    const [row] = await db
+      .select()
+      .from(schema.hostDomains)
+      .where(eq(schema.hostDomains.id, id))
+      .limit(1);
+    expect(row?.deletedAt).not.toBeNull();
+    expect(row?.registrationStatus).toBe('pending_payment');
+  });
+
+  it('lists cancelled domains whose registrationStatus is null', async () => {
+    const now = new Date();
+    await db.insert(schema.hostDomains).values([
+      {
+        id: 'dom_cancelled_null',
+        name: 'cancelled-null',
+        tld: 'com',
+        fullDomain: 'cancelled-null.com',
+        status: 'cancelled',
+        registrationStatus: null,
+        registrar: 'GoDaddy',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'dom_cancelled_failed',
+        name: 'cancelled-failed',
+        tld: 'com',
+        fullDomain: 'cancelled-failed.com',
+        status: 'cancelled',
+        registrationStatus: 'failed',
+        registrar: 'realtimeregister',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    const listed = await listDomains(db, { page: 1, pageSize: 50 });
+    expect(listed.domains.find((d) => d.id === 'dom_cancelled_null')).toBeDefined();
+    expect(listed.domains.find((d) => d.id === 'dom_cancelled_failed')).toBeUndefined();
   });
 });
 

@@ -30,6 +30,7 @@ describe('public domain registrar', () => {
     expect(isHiddenUnpaidDomain({ status: 'cancelled', registrationStatus: 'failed' })).toBe(true);
     expect(isHiddenUnpaidDomain({ status: 'pending', registrationStatus: 'pending_registration' })).toBe(false);
     expect(isHiddenUnpaidDomain({ status: 'pending', registrationStatus: null })).toBe(false);
+    expect(isHiddenUnpaidDomain({ status: 'cancelled', registrationStatus: null })).toBe(false);
     expect(isHiddenUnpaidDomain({ status: 'cancelled', registrationStatus: 'registration_failed' })).toBe(false);
   });
 

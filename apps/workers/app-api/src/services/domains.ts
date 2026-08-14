@@ -47,14 +47,17 @@ export type DomainRegistrar = 'realtimeregister' | 'cloudflare' | (string & {});
 /**
  * Unpaid checkout rows (and the legacy cancelled/failed leftovers) stay out of
  * My Domains, dashboard counts, and search. `IS DISTINCT FROM` keeps NULL
- * `registration_status` (external domains) visible.
+ * `registration_status` (external domains) visible; `IS NOT DISTINCT FROM`
+ * hides cancelled+failed without also dropping cancelled rows whose status
+ * is NULL (`NULL = 'failed'` is unknown, so a plain `=` predicate would
+ * filter them out).
  */
 function isListedDomainSql() {
   return sql`(
     ${hostDomains.registrationStatus} IS DISTINCT FROM 'pending_payment'
     AND NOT (
       ${hostDomains.status} = 'cancelled'
-      AND ${hostDomains.registrationStatus} = 'failed'
+      AND ${hostDomains.registrationStatus} IS NOT DISTINCT FROM 'failed'
     )
   )`;
 }
@@ -394,7 +397,7 @@ export async function abandonUnpaidDomains(
     fullDomain?: string;
     stripeSecretKey?: string;
   },
-): Promise<{ id: string; stripeSessionId: string | null }[]> {
+): Promise<{ id: string; stripeSessionId: string | null; fullDomain: string; status: string }[]> {
   if (!params.ids?.length && !params.fullDomain) return [];
 
   const unpaid = or(
@@ -413,6 +416,8 @@ export async function abandonUnpaidDomains(
     .select({
       id: hostDomains.id,
       stripeSessionId: hostDomains.stripeSessionId,
+      fullDomain: hostDomains.fullDomain,
+      status: hostDomains.status,
     })
     .from(hostDomains)
     .where(and(...conditions));

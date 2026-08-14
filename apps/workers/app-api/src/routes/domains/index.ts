@@ -335,6 +335,15 @@ app.post(
         ids: c.req.valid('json').registrationIds,
         stripeSecretKey: c.env.STRIPE_SECRET_KEY,
       });
+      for (const row of abandoned) {
+        publishEntityEvent({
+          c,
+          entityType: 'domain',
+          entityId: row.id,
+          action: 'deleted',
+          data: { id: row.id, name: row.fullDomain, status: row.status },
+        });
+      }
       return success(c, { abandoned: abandoned.length });
     } catch (err) {
       console.error('[app-api/domains] abandon checkout failed:', err);

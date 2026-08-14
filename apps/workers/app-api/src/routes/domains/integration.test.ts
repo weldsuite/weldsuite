@@ -121,6 +121,27 @@ describe('/api/domains · pglite integration', () => {
         createdAt: now,
         updatedAt: now,
       },
+      {
+        id: 'dom_cancelled_null',
+        name: 'cancelled-null',
+        tld: 'com',
+        fullDomain: 'cancelled-null.com',
+        status: 'cancelled',
+        registrar: 'GoDaddy',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'dom_cancelled_failed',
+        name: 'cancelled-failed',
+        tld: 'com',
+        fullDomain: 'cancelled-failed.com',
+        status: 'cancelled',
+        registrationStatus: 'failed',
+        registrar: 'realtimeregister',
+        createdAt: now,
+        updatedAt: now,
+      },
     ]);
 
     const { request } = createTestApp('/api/domains', domainsRoutes, {
@@ -134,7 +155,9 @@ describe('/api/domains · pglite integration', () => {
     const ids = body.domains.map((d) => d.id);
     expect(ids).toContain('dom_paid_rtr');
     expect(ids).toContain('dom_godaddy');
+    expect(ids).toContain('dom_cancelled_null');
     expect(ids).not.toContain('dom_unpaid_list');
+    expect(ids).not.toContain('dom_cancelled_failed');
     expect(body.domains.find((d) => d.id === 'dom_paid_rtr')?.registrar).toBe('WeldSuite');
     expect(body.domains.find((d) => d.id === 'dom_godaddy')?.registrar).toBe('GoDaddy');
   });

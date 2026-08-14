@@ -50,7 +50,7 @@ app.get('/', requireScope('domains:read'), zValidator('query', listDomainsQuery)
   }
   if (q.status && q.status !== 'all') where.push(eq(domainTable.status, q.status as Exclude<typeof q.status, 'all'>));
   where.push(sql`${domainTable.registrationStatus} IS DISTINCT FROM 'pending_payment'`);
-  where.push(sql`NOT (${domainTable.status} = 'cancelled' AND ${domainTable.registrationStatus} = 'failed')`);
+  where.push(sql`NOT (${domainTable.status} = 'cancelled' AND ${domainTable.registrationStatus} IS NOT DISTINCT FROM 'failed')`);
   const result = await listWithCursor({ db, table: domainTable, where, cursor: q.cursor, limit: q.limit });
   return list(c, result.data.map(toPublicDomain) as Record<string, unknown>[], cursorPagination(result.totalCount, result.hasMore, result.cursor));
 });
