@@ -23,7 +23,8 @@ import {
   getCloudflareZone,
 } from '@weldsuite/cloudflare-zones';
 import { lookupTxt } from '../lib/dns-lookup';
-import { createDomainCheckoutSession, createStripeCustomer } from '../lib/stripe';
+import { createDomainCheckoutSession, createStripeCustomer, isDefiniteStripeFailure } from '../lib/stripe';
+import { MAX_CHECKOUT_DOMAINS } from '@weldsuite/core-api-client/schemas/domains';
 
 const { hostDomains, hostDnsZones } = schema;
 
@@ -912,7 +913,7 @@ export async function issueAuthCode(
 // Checkout — RTR availability + pricing + Stripe Checkout Session
 // ============================================================================
 
-export const MAX_CHECKOUT_DOMAINS = 10;
+export { MAX_CHECKOUT_DOMAINS };
 
 export type CheckoutResult =
   | { ok: false; reason: 'unavailable'; domain: string }
@@ -921,6 +922,7 @@ export type CheckoutResult =
   | { ok: false; reason: 'empty' }
   | { ok: false; reason: 'too_many'; max: number }
   | { ok: false; reason: 'currency_mismatch' }
+  | { ok: false; reason: 'unsupported_years' }
   | { ok: true; sessionId: string; url: string; registrationIds: string[]; domains: string[] };
 
 export function domainsFromCheckoutInput(input: {
@@ -937,6 +939,88 @@ export function domainsFromCheckoutInput(input: {
     out.push(normalized);
   }
   return out;
+}
+
+async function insertOrReusePendingCheckoutRows(
+  db: Database,
+  names: string[],
+  input: {
+    contact?: Record<string, unknown>;
+    autoRenew?: boolean;
+    years: number;
+  },
+): Promise<string[]> {
+  const existing = await db
+    .select({
+      id: hostDomains.id,
+      fullDomain: hostDomains.fullDomain,
+      createdAt: hostDomains.createdAt,
+    })
+    .from(hostDomains)
+    .where(
+      and(
+        inArray(hostDomains.fullDomain, names),
+        eq(hostDomains.status, 'pending'),
+        eq(hostDomains.registrationStatus, 'pending_payment'),
+        isNull(hostDomains.stripeSessionId),
+        isNull(hostDomains.deletedAt),
+      ),
+    )
+    .orderBy(asc(hostDomains.createdAt));
+
+  const reusedByFqdn = new Map<string, string>();
+  for (const row of existing) {
+    if (!reusedByFqdn.has(row.fullDomain)) {
+      reusedByFqdn.set(row.fullDomain, row.id);
+    }
+  }
+
+  const now = new Date();
+  const metadata = { registrationYears: input.years };
+  const registrationIds: string[] = [];
+  const toInsert: Array<typeof hostDomains.$inferInsert> = [];
+
+  for (const fullDomain of names) {
+    const reusedId = reusedByFqdn.get(fullDomain);
+    if (reusedId) {
+      registrationIds.push(reusedId);
+      await db
+        .update(hostDomains)
+        .set({
+          autoRenew: input.autoRenew ?? true,
+          privacyProtection: true,
+          registrantContact: (input.contact as never) ?? null,
+          metadata,
+          updatedAt: now,
+        })
+        .where(eq(hostDomains.id, reusedId));
+      continue;
+    }
+
+    const parts = fullDomain.split('.');
+    const id = generateId('dom');
+    registrationIds.push(id);
+    toInsert.push({
+      id,
+      name: parts[0]!,
+      tld: tldOf(fullDomain),
+      fullDomain,
+      registrar: DEFAULT_REGISTRAR,
+      status: 'pending',
+      registrationStatus: 'pending_payment',
+      autoRenew: input.autoRenew ?? true,
+      privacyProtection: true,
+      registrantContact: (input.contact as never) ?? null,
+      metadata,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  if (toInsert.length > 0) {
+    await db.insert(hostDomains).values(toInsert);
+  }
+  return registrationIds;
 }
 
 export async function createCheckout(
@@ -961,6 +1045,10 @@ export async function createCheckout(
   if (names.length === 0) return { ok: false, reason: 'empty' };
   if (names.length > MAX_CHECKOUT_DOMAINS) {
     return { ok: false, reason: 'too_many', max: MAX_CHECKOUT_DOMAINS };
+  }
+  const years = params.input.years ?? 1;
+  if (years !== 1) {
+    return { ok: false, reason: 'unsupported_years' };
   }
 
   const [checks, pricingMap] = await Promise.all([
@@ -1030,44 +1118,36 @@ export async function createCheckout(
       .where(eq(masterSchema.workspaces.id, workspaceRow.id));
   }
 
-  const now = new Date();
-  const rows = names.map((fullDomain) => {
-    const parts = fullDomain.split('.');
-    return {
-      id: generateId('dom'),
-      name: parts[0]!,
-      tld: tldOf(fullDomain),
-      fullDomain,
-      registrar: DEFAULT_REGISTRAR,
-      status: 'pending' as const,
-      registrationStatus: 'pending_payment' as const,
-      autoRenew: params.input.autoRenew ?? true,
-      // Always on: public WHOIS must not expose platform staff. Customer
-      // contact (if provided) stays in this tenant row and is never sent to RTR.
-      privacyProtection: true,
-      registrantContact: (params.input.contact as never) ?? null,
-      createdAt: now,
-      updatedAt: now,
-    };
+  const registrationIds = await insertOrReusePendingCheckoutRows(db, names, {
+    contact: params.input.contact,
+    autoRenew: params.input.autoRenew,
+    years,
   });
-  const registrationIds = rows.map((row) => row.id);
-
-  await db.insert(hostDomains).values(rows);
 
   const successUrl = `${params.origin}/weldhost/domains/purchase/success?session_id={CHECKOUT_SESSION_ID}&registration_ids=${registrationIds.join(',')}`;
   const cancelUrl = `${params.origin}/weldhost/domains/purchase/cancel`;
 
-  const session = await createDomainCheckoutSession(params.stripeSecretKey, {
-    customerId,
-    lineItems,
-    successUrl,
-    cancelUrl,
-    metadata: {
-      kind: 'domain_registration',
-      registrationIds: JSON.stringify(registrationIds),
-      workspaceId: params.workspaceId,
-    },
-  });
+  let session: { id: string; url: string };
+  try {
+    session = await createDomainCheckoutSession(params.stripeSecretKey, {
+      customerId,
+      lineItems,
+      successUrl,
+      cancelUrl,
+      idempotencyKey: `weldhost-checkout:${[...registrationIds].sort().join(',')}`,
+      metadata: {
+        kind: 'domain_registration',
+        registrationIds: JSON.stringify(registrationIds),
+        workspaceId: params.workspaceId,
+        registrationYears: String(years),
+      },
+    });
+  } catch (err) {
+    if (isDefiniteStripeFailure(err)) {
+      await db.delete(hostDomains).where(inArray(hostDomains.id, registrationIds));
+    }
+    throw err;
+  }
 
   await db
     .update(hostDomains)
@@ -1263,17 +1343,15 @@ export interface RegistrationStatusRow {
   failureReason: string | null;
 }
 
-export async function getRegistrationStatus(
-  db: Database,
-  registrationId: string,
-): Promise<RegistrationStatusRow | null> {
-  const [row] = await db
-    .select()
-    .from(hostDomains)
-    .where(eq(hostDomains.id, registrationId))
-    .limit(1);
-  if (!row) return null;
+type RegistrationStatusSource = {
+  id: string;
+  fullDomain: string;
+  status: string;
+  registrationStatus: string | null;
+  metadata: Record<string, unknown> | null;
+};
 
+export function registrationStatusFromDomain(row: RegistrationStatusSource): RegistrationStatusRow {
   let status: RegistrationStatusRow['status'] = 'pending';
   switch (row.registrationStatus) {
     case 'pending_payment':
@@ -1309,6 +1387,19 @@ export async function getRegistrationStatus(
     totalPrice: null,
     failureReason: status === 'failed' && metadataError ? metadataError : null,
   };
+}
+
+export async function getRegistrationStatus(
+  db: Database,
+  registrationId: string,
+): Promise<RegistrationStatusRow | null> {
+  const [row] = await db
+    .select()
+    .from(hostDomains)
+    .where(eq(hostDomains.id, registrationId))
+    .limit(1);
+  if (!row) return null;
+  return registrationStatusFromDomain(row);
 }
 
 // ============================================================================

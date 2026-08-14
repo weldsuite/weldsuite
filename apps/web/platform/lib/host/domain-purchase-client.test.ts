@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   checkoutErrorMessage,
   normalizePurchaseStatus,
   pollMultipleRegistrationStatuses,
+  type CheckStatusFn,
+  type RawDomainPurchaseStatus,
 } from './domain-purchase-client';
 
 describe('checkoutErrorMessage', () => {
@@ -49,25 +51,64 @@ describe('normalizePurchaseStatus', () => {
 
 describe('pollMultipleRegistrationStatuses', () => {
   it('stops when every registration is completed', async () => {
+    const checkStatus: CheckStatusFn = async () => ({
+      status: 'active',
+      domainName: 'a.com',
+      domainId: 'dom_1',
+    });
     const statuses = await pollMultipleRegistrationStatuses(
       ['dom_1'],
       () => undefined,
-      async () => ({ status: 'active', domainName: 'a.com', domainId: 'dom_1' }),
+      checkStatus,
       3,
       1,
     );
     expect(statuses.get('dom_1')).toMatchObject({ status: 'completed', domainId: 'dom_1' });
   });
 
-  it('returns last statuses instead of throwing when polling times out', async () => {
+  it('marks unresolved registrations as timeout when polling is exhausted', async () => {
+    const checkStatus: CheckStatusFn = async () => ({
+      status: 'registering',
+      domainName: 'a.com',
+    });
     const statuses = await pollMultipleRegistrationStatuses(
       ['dom_1'],
       () => undefined,
-      async () => ({ status: 'registering', domainName: 'a.com' }),
+      checkStatus,
       2,
       1,
     );
-    expect(statuses.get('dom_1')?.status).toBe('registering');
+    expect(statuses.get('dom_1')?.status).toBe('timeout');
+    expect(statuses.get('dom_1')?.error).toMatch(/timed out/i);
+  });
+
+  it('records a rejected check as failed without aborting sibling registrations', async () => {
+    const checkStatus: CheckStatusFn = async (id) => {
+      if (id === 'dom_fail') {
+        throw new Error('registrar unreachable');
+      }
+      const payload: RawDomainPurchaseStatus = {
+        status: 'registered',
+        domainName: 'ok.com',
+        domainId: id,
+      };
+      return payload;
+    };
+
+    const onStatusUpdate = vi.fn();
+    const statuses = await pollMultipleRegistrationStatuses(
+      ['dom_ok', 'dom_fail'],
+      onStatusUpdate,
+      checkStatus,
+      3,
+      1,
+    );
+
+    expect(statuses.get('dom_ok')).toMatchObject({ status: 'completed', domainName: 'ok.com' });
+    expect(statuses.get('dom_fail')).toMatchObject({
+      status: 'failed',
+      error: 'registrar unreachable',
+    });
+    expect(onStatusUpdate).toHaveBeenCalled();
   });
 });
-

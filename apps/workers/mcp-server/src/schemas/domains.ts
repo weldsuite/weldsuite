@@ -114,23 +114,8 @@ export const externalDomainSchema = z.object({
   registrar: z.string().max(255).optional(),
 });
 
-export const checkoutInput = z
-  .object({
-    /** Single-domain checkout (legacy). Prefer `domains` for a cart. */
-    domain: z.string().min(3).optional(),
-    /** One Stripe session covering every selected domain (max 10). */
-    domains: z.array(z.string().min(3)).min(1).max(10).optional(),
-    contact: contactSchema.optional(),
-    autoRenew: z.boolean().optional().default(true),
-    privacyProtection: z.boolean().optional().default(false),
-    years: z.coerce.number().int().min(1).max(10).optional().default(1),
-    /** Optional Stripe price override; price is resolved server-side from the pricing table by default. */
-    stripePriceId: z.string().nullish(),
-  })
-  .refine((value) => Boolean(value.domain?.trim()) || (value.domains && value.domains.length > 0), {
-    message: 'Provide at least one domain',
-    path: ['domains'],
-  });
+export { checkoutInput, MAX_CHECKOUT_DOMAINS } from '@weldsuite/core-api-client/schemas/domains';
+export type { CheckoutInput } from '@weldsuite/core-api-client/schemas/domains';
 
 export const toggleAutoRenewInput = z.object({
   enabled: z.boolean(),
@@ -158,7 +143,6 @@ export type DomainCheckInput = z.infer<typeof domainCheckInput>;
 export type CreateDomainInput = z.infer<typeof createDomainSchema>;
 export type UpdateDomainInput = z.infer<typeof updateDomainSchema>;
 export type ExternalDomainInput = z.infer<typeof externalDomainSchema>;
-export type CheckoutInput = z.infer<typeof checkoutInput>;
 export type ToggleAutoRenewInput = z.infer<typeof toggleAutoRenewInput>;
 export type TogglePrivacyInput = z.infer<typeof togglePrivacyInput>;
 export type ToggleLockInput = z.infer<typeof toggleLockInput>;

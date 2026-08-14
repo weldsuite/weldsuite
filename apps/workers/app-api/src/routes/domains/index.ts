@@ -278,22 +278,27 @@ app.post(
         input: c.req.valid('json'),
       });
       if (!result.ok) {
-        if (result.reason === 'unavailable') {
-          return error.badRequest(c, `Domain ${result.domain} is not available for registration`);
+        switch (result.reason) {
+          case 'unavailable':
+            return error.badRequest(c, `Domain ${result.domain} is not available for registration`);
+          case 'no_price':
+            return error.internal(c, `No price available for .${result.tld}`);
+          case 'currency_mismatch':
+            return error.badRequest(c, 'All domains in the cart must use the same currency');
+          case 'too_many':
+            return error.badRequest(c, `You can register up to ${result.max} domains at a time`);
+          case 'empty':
+            return error.badRequest(c, 'Provide at least one domain');
+          case 'unsupported_years':
+            return error.badRequest(c, 'Only 1-year registrations are supported');
+          case 'workspace_not_found':
+            return error.notFound(c, 'Workspace');
+          default: {
+            const _exhaustive: never = result.reason;
+            void _exhaustive;
+            return error.internal(c, 'Unhandled checkout failure');
+          }
         }
-        if (result.reason === 'no_price') {
-          return error.internal(c, `No price available for .${result.tld}`);
-        }
-        if (result.reason === 'currency_mismatch') {
-          return error.badRequest(c, 'All domains in the cart must use the same currency');
-        }
-        if (result.reason === 'too_many') {
-          return error.badRequest(c, `You can register up to ${result.max} domains at a time`);
-        }
-        if (result.reason === 'empty') {
-          return error.badRequest(c, 'Provide at least one domain');
-        }
-        return error.notFound(c, 'Workspace');
       }
       for (let i = 0; i < result.registrationIds.length; i++) {
         const entityId = result.registrationIds[i]!;
@@ -783,16 +788,15 @@ app.get('/registrations/:id/status', requirePermission('domains:read'), async (c
     const rtr = getRealtimeRegistrar(c.env);
     if (rtr) {
       try {
-        // Drive pending RTR processes forward; always return the mapped
-        // registration-status shape the success page polls for.
-        await domainsService.pollRegistrationProcess(c.get('tenantDb'), rtr, id);
+        const polled = await domainsService.pollRegistrationProcess(c.get('tenantDb'), rtr, id);
+        if (polled) {
+          return success(c, domainsService.registrationStatusFromDomain(polled));
+        }
       } catch (pollErr) {
         console.error('[app-api/domains] registration poll failed:', pollErr);
       }
     }
-    const latest =
-      (await domainsService.getRegistrationStatus(c.get('tenantDb'), id)) ?? persisted;
-    return success(c, latest);
+    return success(c, persisted);
   } catch (err) {
     console.error('[app-api/domains] registration status failed:', err);
     return error.internal(c, 'Failed to fetch registration status');

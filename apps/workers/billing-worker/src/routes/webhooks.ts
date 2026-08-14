@@ -1736,6 +1736,21 @@ async function handleDomainRegistrationCheckout(
   let registeredCount = 0;
   let failedCount = 0;
 
+  // Validate platform contacts before claiming any paid row. A missing
+  // REALTIME_REGISTER_CONTACT_ADMIN must fail the webhook (Stripe retries)
+  // and leave domains at pending_payment.
+  const platform = resolvePlatformRegistrarContacts({
+    admin: env.REALTIME_REGISTER_CONTACT_ADMIN,
+    tech: env.REALTIME_REGISTER_CONTACT_TECH,
+    billing: env.REALTIME_REGISTER_CONTACT_BILLING,
+  });
+  const registrantHandle = platform.registrant;
+  const contacts = platform.contacts;
+
+  const yearsFromSession = Number(session.metadata?.registrationYears);
+  const sessionYears =
+    Number.isInteger(yearsFromSession) && yearsFromSession >= 1 ? yearsFromSession : null;
+
   for (const domainId of registrationIds) {
     // Fetch the pending row
     const [domainRow] = await tenantDb
@@ -1777,16 +1792,18 @@ async function handleDomainRegistrationCheckout(
     }
 
     try {
-      // Platform handles only. Customer contact on the tenant row is never
-      // sent to Realtime Register — registry/registrar mail must land in
-      // WeldSuite's hostmaster inbox, not the customer's.
-      const platform = resolvePlatformRegistrarContacts({
-        admin: env.REALTIME_REGISTER_CONTACT_ADMIN,
-        tech: env.REALTIME_REGISTER_CONTACT_TECH,
-        billing: env.REALTIME_REGISTER_CONTACT_BILLING,
-      });
-      const registrantHandle = platform.registrant;
-      const contacts = platform.contacts;
+      const metadataYears =
+        domainRow.metadata &&
+        typeof domainRow.metadata === 'object' &&
+        typeof (domainRow.metadata as { registrationYears?: unknown }).registrationYears === 'number'
+          ? (domainRow.metadata as { registrationYears: number }).registrationYears
+          : null;
+      const years =
+        sessionYears ??
+        (metadataYears !== null && Number.isInteger(metadataYears) && metadataYears >= 1
+          ? metadataYears
+          : 1);
+      const periodMonths = years * 12;
 
       // 2) Create Cloudflare DNS zone first so we can pass NS into RTR register
       let nameservers: string[] = [];
@@ -1844,7 +1861,7 @@ async function handleDomainRegistrationCheckout(
         nameservers: nameservers.length ? nameservers : undefined,
         autoRenew: domainRow.autoRenew ?? true,
         privacyProtect: WELDHOST_PRIVACY_PROTECT,
-        periodMonths: 12,
+        periodMonths,
       });
 
       if (result.status === 'completed') {

@@ -110,16 +110,19 @@ export const externalDomainSchema = z.object({
   registrar: z.string().max(255).optional(),
 });
 
+export const MAX_CHECKOUT_DOMAINS = 10;
+
 export const checkoutInput = z
   .object({
     /** Single-domain checkout (legacy). Prefer `domains` for a cart. */
     domain: z.string().min(3).optional(),
-    /** One Stripe session covering every selected domain (max 10). */
-    domains: z.array(z.string().min(3)).min(1).max(10).optional(),
+    /** One Stripe session covering every selected domain. */
+    domains: z.array(z.string().min(3)).min(1).max(MAX_CHECKOUT_DOMAINS).optional(),
     contact: contactSchema.optional(),
     autoRenew: z.boolean().optional().default(true),
     privacyProtection: z.boolean().optional().default(false),
-    years: z.coerce.number().int().min(1).max(10).optional().default(1),
+    /** Only 1-year terms are billed and registered today. */
+    years: z.coerce.number().int().min(1).max(1).optional().default(1),
     /** Optional Stripe price override; price is resolved server-side from the pricing table by default. */
     stripePriceId: z.string().nullish(),
   })

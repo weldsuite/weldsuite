@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useI18n } from '@/lib/i18n/provider';
 import { formatDomainPrice } from '../../lib/format-domain-price';
+import { MAX_CHECKOUT_DOMAINS } from '@weldsuite/core-api-client/schemas/domains';
 
 export function DomainRegistrationClient() {
   const { t, language } = useI18n();
@@ -56,23 +57,22 @@ export function DomainRegistrationClient() {
   }, [rotatingPhrases.length]);
 
   const handleDomainSelect = (domain: TransformedDomainResult) => {
-    setSelectedDomains(prev => {
-      const exists = prev.find(d => d.domain_name === domain.domain_name);
-      if (exists) {
-        return prev.filter(d => d.domain_name !== domain.domain_name);
-      }
-      if (prev.length >= 10) {
-        toast.error(tr.cartLimit.replace('{max}', '10'));
-        return prev;
-      }
-      const cartCurrency = prev.find((d) => d.currency)?.currency?.toLowerCase();
-      const nextCurrency = domain.currency?.toLowerCase();
-      if (cartCurrency && nextCurrency && cartCurrency !== nextCurrency) {
-        toast.error(tr.mixedCurrencyCart);
-        return prev;
-      }
-      return [...prev, domain];
-    });
+    const exists = selectedDomains.find((d) => d.domain_name === domain.domain_name);
+    if (exists) {
+      setSelectedDomains((prev) => prev.filter((d) => d.domain_name !== domain.domain_name));
+      return;
+    }
+    if (selectedDomains.length >= MAX_CHECKOUT_DOMAINS) {
+      toast.error(tr.cartLimit.replace('{max}', String(MAX_CHECKOUT_DOMAINS)));
+      return;
+    }
+    const cartCurrency = selectedDomains.find((d) => d.currency)?.currency?.toLowerCase();
+    const nextCurrency = domain.currency?.toLowerCase();
+    if (cartCurrency && nextCurrency && cartCurrency !== nextCurrency) {
+      toast.error(tr.mixedCurrencyCart);
+      return;
+    }
+    setSelectedDomains((prev) => [...prev, domain]);
   };
 
   const handleRemoveDomain = (domainName: string) => {

@@ -58,18 +58,25 @@ describe('createDomainTransfer · platform contacts', () => {
     );
 
     expect(ensure).not.toHaveBeenCalled();
-    expect(transfer).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: 'platform-contacts-in.example',
-        registrant: 'ws-admin',
-        privacyProtect: true,
-        contacts: [
-          { role: 'ADMIN', handle: 'ws-admin' },
-          { role: 'TECH', handle: 'ws-tech' },
-          { role: 'BILLING', handle: 'ws-billing' },
-        ],
-      }),
-    );
+    expect(transfer).toHaveBeenCalledTimes(1);
+    const payload = transfer.mock.calls[0]![0];
+    expect(payload).toEqual({
+      name: 'platform-contacts-in.example',
+      registrant: 'ws-admin',
+      authCode: 'EPPCODE',
+      contacts: [
+        { role: 'ADMIN', handle: 'ws-admin' },
+        { role: 'TECH', handle: 'ws-tech' },
+        { role: 'BILLING', handle: 'ws-billing' },
+      ],
+      nameservers: undefined,
+      privacyProtect: true,
+      designatedAgent: 'NONE',
+      periodMonths: 12,
+    });
+    expect(payload).not.toHaveProperty('registrantContact');
+    expect(JSON.stringify(payload)).not.toContain('ada@customer.example');
+    expect(JSON.stringify(payload)).not.toContain('Ada');
 
     expect(row.domainId).toBeTruthy();
     const [domain] = await db

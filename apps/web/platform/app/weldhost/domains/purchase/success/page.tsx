@@ -83,9 +83,11 @@ export default function DomainPurchaseSuccessPage() {
   const totalDomains = registrationIds.length;
   const completedCount = Array.from(statuses.values()).filter(s => s.status === 'completed').length;
   const failedCount = Array.from(statuses.values()).filter(s => s.status === 'failed').length;
-  const processingCount = totalDomains - completedCount - failedCount;
+  const timedOutCount = Array.from(statuses.values()).filter(s => s.status === 'timeout').length;
+  const processingCount = totalDomains - completedCount - failedCount - timedOutCount;
   const allCompleted = completedCount === totalDomains;
   const allFailed = failedCount === totalDomains;
+  const timedOut = !isPolling && timedOutCount > 0 && !allCompleted && !allFailed;
 
   const getStatusBadge = (status?: string) => {
     switch (status) {
@@ -93,6 +95,8 @@ export default function DomainPurchaseSuccessPage() {
         return <Badge className="bg-green-500/10 text-green-600 border-0 rounded-sm py-1">{ts.statusBadges.registered}</Badge>;
       case 'failed':
         return <Badge className="bg-red-500/10 text-red-600 border-0 rounded-sm py-1">{ts.statusBadges.failed}</Badge>;
+      case 'timeout':
+        return <Badge className="bg-amber-500/10 text-amber-700 border-0 rounded-sm py-1">{ts.statusBadges.timedOut}</Badge>;
       case 'payment_complete':
       case 'registering':
         return <Badge className="bg-blue-500/10 text-blue-600 border-0 rounded-sm py-1">{ts.statusBadges.registering}</Badge>;
@@ -146,12 +150,16 @@ export default function DomainPurchaseSuccessPage() {
               ? 'w-14 h-14 rounded-xl bg-green-500/10'
               : allFailed
               ? 'w-14 h-14 rounded-xl bg-red-500/10'
+              : timedOut
+              ? 'w-14 h-14 rounded-xl bg-amber-500/10'
               : 'w-20 h-20 rounded-full bg-blue-500/10'
           }`}>
             {allCompleted ? (
               <CheckCircle2 className="h-7 w-7 text-green-600" />
             ) : allFailed ? (
               <XCircle className="h-7 w-7 text-red-600" />
+            ) : timedOut ? (
+              <AlertCircle className="h-7 w-7 text-amber-700" />
             ) : (
               <Loader2 className="h-10 w-10 text-blue-600 animate-spin" />
             )}
@@ -162,6 +170,8 @@ export default function DomainPurchaseSuccessPage() {
                 ? ts.registrationComplete
                 : allFailed
                 ? ts.registrationFailed
+                : timedOut
+                ? ts.registrationTimedOut
                 : ts.processingDomains}
             </h1>
             <p className="text-muted-foreground mt-1">
@@ -171,6 +181,8 @@ export default function DomainPurchaseSuccessPage() {
                     : tse.domainReadySingular)
                 : allFailed
                 ? <>{tse.contactSupportPrefix}<a href="https://www.weldsuite.org/support" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground">{ts.contactSupport}</a></>
+                : timedOut
+                ? ts.pollingTimedOut
                 : ts.processingCount
                     .replace('{count}', String(totalDomains))
                     .replace('{plural}', totalDomains > 1 ? 's' : '')}
@@ -185,8 +197,8 @@ export default function DomainPurchaseSuccessPage() {
             <p className="text-sm font-medium text-muted-foreground mt-1">{ts.completed}</p>
           </div>
           <div className="px-4 py-3 rounded-lg border bg-card text-center">
-            <p className="text-xl font-semibold">{processingCount}</p>
-            <p className="text-sm font-medium text-muted-foreground mt-1">{ts.processing}</p>
+            <p className="text-xl font-semibold">{timedOut ? timedOutCount : processingCount}</p>
+            <p className="text-sm font-medium text-muted-foreground mt-1">{timedOut ? ts.timedOut : ts.processing}</p>
           </div>
           <div className="px-4 py-3 rounded-lg border bg-card text-center">
             <p className="text-xl font-semibold">{failedCount}</p>
@@ -208,6 +220,8 @@ export default function DomainPurchaseSuccessPage() {
                         ? 'bg-green-500/10'
                         : status?.status === 'failed'
                         ? 'bg-red-500/10'
+                        : status?.status === 'timeout'
+                        ? 'bg-amber-500/10'
                         : 'bg-muted'
                     }`}>
                       <Globe className={`h-5 w-5 ${
@@ -215,6 +229,8 @@ export default function DomainPurchaseSuccessPage() {
                           ? 'text-green-600'
                           : status?.status === 'failed'
                           ? 'text-red-600'
+                          : status?.status === 'timeout'
+                          ? 'text-amber-700'
                           : 'text-muted-foreground'
                       }`} />
                     </div>

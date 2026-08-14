@@ -297,17 +297,8 @@ describe('createCheckout · Stripe customer', () => {
     expect(result).toEqual({ ok: false, reason: 'currency_mismatch' });
     expect(mockedCreateSession).not.toHaveBeenCalled();
   });
-});
 
-describe('domainsFromCheckoutInput', () => {
-  it('merges domain + domains, lowercases, and de-dupes', () => {
-    expect(domainsFromCheckoutInput({ domain: 'Example.COM', domains: ['foo.com', 'example.com'] })).toEqual([
-      'foo.com',
-      'example.com',
-    ]);
-  });
-
-  it('caps at MAX_CHECKOUT_DOMAINS in createCheckout', async () => {
+  it('caps at MAX_CHECKOUT_DOMAINS', async () => {
     expect(MAX_CHECKOUT_DOMAINS).toBe(10);
     const masterDb = masterDbStub({
       workspace: {
@@ -318,11 +309,139 @@ describe('domainsFromCheckoutInput', () => {
       },
     });
     const names = Array.from({ length: 11 }, (_, i) => `n${i}.com`);
-    const result = await createCheckout(db, availableRtr(), masterDb, {
+    const result = await createCheckout(db, {} as RealtimeRegistrar, masterDb, {
       ...checkoutParams,
       input: { domains: names },
     });
     expect(result).toEqual({ ok: false, reason: 'too_many', max: 10 });
+    expect(mockedCreateSession).not.toHaveBeenCalled();
+  });
+
+  it('rejects multi-year checkout so billing and registration stay in lockstep', async () => {
+    const masterDb = masterDbStub({
+      workspace: {
+        id: 'ws_internal',
+        name: 'Acme',
+        clerkOrgId: 'org_test_default',
+        stripeCustomerId: 'cus_existing',
+      },
+    });
+    const result = await createCheckout(db, {} as RealtimeRegistrar, masterDb, {
+      ...checkoutParams,
+      input: { domain: 'multi-year.com', years: 2 },
+    });
+    expect(result).toEqual({ ok: false, reason: 'unsupported_years' });
+    expect(mockedCreateSession).not.toHaveBeenCalled();
+  });
+
+  it('deletes pending domain rows when Stripe returns a definite 4xx', async () => {
+    mockedCreateSession.mockRejectedValueOnce(
+      new Error('Stripe POST /v1/checkout/sessions failed (400): invalid_request'),
+    );
+    const masterDb = masterDbStub({
+      workspace: {
+        id: 'ws_internal',
+        name: 'Acme',
+        clerkOrgId: 'org_test_default',
+        stripeCustomerId: 'cus_existing',
+      },
+    });
+
+    await expect(
+      createCheckout(db, availableRtr(), masterDb, {
+        ...checkoutParams,
+        input: { domain: 'stripe-400.com', years: 1 },
+      }),
+    ).rejects.toThrow(/failed \(400\)/);
+
+    const leftover = await db
+      .select()
+      .from(schema.hostDomains)
+      .where(eq(schema.hostDomains.fullDomain, 'stripe-400.com'));
+    expect(leftover).toHaveLength(0);
+  });
+
+  it('keeps pending rows without a session id when Stripe fails ambiguously', async () => {
+    mockedCreateSession.mockRejectedValueOnce(new Error('fetch failed'));
+    const masterDb = masterDbStub({
+      workspace: {
+        id: 'ws_internal',
+        name: 'Acme',
+        clerkOrgId: 'org_test_default',
+        stripeCustomerId: 'cus_existing',
+      },
+    });
+
+    await expect(
+      createCheckout(db, availableRtr(), masterDb, {
+        ...checkoutParams,
+        input: { domain: 'stripe-timeout.com', years: 1 },
+      }),
+    ).rejects.toThrow(/fetch failed/);
+
+    const [row] = await db
+      .select()
+      .from(schema.hostDomains)
+      .where(eq(schema.hostDomains.fullDomain, 'stripe-timeout.com'))
+      .limit(1);
+    expect(row?.registrationStatus).toBe('pending_payment');
+    expect(row?.stripeSessionId).toBeNull();
+    expect(row?.metadata).toMatchObject({ registrationYears: 1 });
+  });
+
+  it('reuses orphan pending_payment rows on retry so Stripe cannot double-register', async () => {
+    mockedCreateSession.mockRejectedValueOnce(new Error('fetch failed'));
+    const masterDb = masterDbStub({
+      workspace: {
+        id: 'ws_internal',
+        name: 'Acme',
+        clerkOrgId: 'org_test_default',
+        stripeCustomerId: 'cus_existing',
+      },
+    });
+    const params = {
+      ...checkoutParams,
+      input: { domain: 'retry-orphan.com', years: 1 },
+    };
+
+    await expect(createCheckout(db, availableRtr(), masterDb, params)).rejects.toThrow(/fetch failed/);
+    const [orphan] = await db
+      .select()
+      .from(schema.hostDomains)
+      .where(eq(schema.hostDomains.fullDomain, 'retry-orphan.com'))
+      .limit(1);
+    expect(orphan?.stripeSessionId).toBeNull();
+
+    mockedCreateSession.mockResolvedValueOnce({
+      id: 'cs_retry',
+      url: 'https://checkout.stripe.com/c/pay/cs_retry',
+    });
+    const result = await createCheckout(db, availableRtr(), masterDb, params);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.registrationIds).toEqual([orphan!.id]);
+    expect(mockedCreateSession).toHaveBeenLastCalledWith(
+      'sk_test',
+      expect.objectContaining({
+        idempotencyKey: `weldhost-checkout:${orphan!.id}`,
+      }),
+    );
+
+    const rows = await db
+      .select()
+      .from(schema.hostDomains)
+      .where(eq(schema.hostDomains.fullDomain, 'retry-orphan.com'));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.stripeSessionId).toBe('cs_retry');
+  });
+});
+
+describe('domainsFromCheckoutInput', () => {
+  it('merges domain + domains, lowercases, and de-dupes', () => {
+    expect(domainsFromCheckoutInput({ domain: 'Example.COM', domains: ['foo.com', 'example.com'] })).toEqual([
+      'foo.com',
+      'example.com',
+    ]);
   });
 });
 

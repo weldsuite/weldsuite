@@ -80,4 +80,18 @@ describe('getRegistrationStatus', () => {
       failureReason: 'TLD rejected the contact',
     });
   });
+
+  it('maps a cancelled row with null registrationStatus to failed', async () => {
+    const id = await insertDomain({
+      fullDomain: 'cancelled-null.example',
+      status: 'cancelled',
+      registrationStatus: null,
+    });
+    await expect(getRegistrationStatus(db, id)).resolves.toMatchObject({
+      registrationId: id,
+      domainId: null,
+      domainName: 'cancelled-null.example',
+      status: 'failed',
+    });
+  });
 });

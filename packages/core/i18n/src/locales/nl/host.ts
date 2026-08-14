@@ -170,7 +170,7 @@ export const host = {
       selectAtLeastOne: 'Selecteer minimaal één domein',
       redirectingToCheckout: 'Doorsturen naar afrekenen voor {count} domein{plural}',
       mixedCurrencyCart: 'Alle domeinen in het winkelmandje moeten dezelfde valuta gebruiken',
-      cartLimit: 'Je kunt maximaal {max} domeinen tegelijk registreren',
+      cartLimit: 'U kunt maximaal {max} domeinen tegelijk registreren',
     },
 
     // Domain purchase card
@@ -250,16 +250,19 @@ export const host = {
     purchaseSuccess: {
       registrationComplete: 'Registratie voltooid!',
       registrationFailed: 'Registratie mislukt',
+      registrationTimedOut: 'De registratie duurt langer dan verwacht',
       processingDomains: 'Uw domeinen worden verwerkt',
       domainReady: 'Uw {count} domein{plural} {verb} nu klaar voor gebruik',
       contactSupport: 'neem contact op met ondersteuning',
       processingCount: '{count} domein{plural} worden verwerkt...',
       completed: 'Voltooid',
       processing: 'Verwerken',
+      timedOut: 'Time-out',
       failed: 'Mislukt',
       domains: 'Domeinen',
       loadingStatus: 'Laden...',
       checkingStatus: 'Registratiestatus controleren...',
+      pollingTimedOut: 'We zijn op deze pagina gestopt met wachten. De registratie kan op de achtergrond nog worden afgerond — vernieuw over een paar minuten uw domeinenlijst.',
       somethingWentWrong: 'Er is iets misgegaan',
       goToDomains: 'Naar domeinen',
       tryAgain: 'Opnieuw proberen',
@@ -272,6 +275,7 @@ export const host = {
         failed: 'Mislukt',
         registering: 'Registreren...',
         processing: 'Verwerken...',
+        timedOut: 'Time-out',
       },
     },
 
