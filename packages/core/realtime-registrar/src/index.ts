@@ -444,7 +444,11 @@ export class RealtimeRegistrar {
     this.baseURL =
       baseURL ??
       (ote ? 'https://api.yoursrs-ote.com/v2/' : 'https://api.yoursrs.com/v2/');
-    this.fetchImpl = fetchImpl ?? fetch;
+    // Workers' global `fetch` is a method. Storing it on the instance and later
+    // calling `this.fetchImpl(...)` throws Illegal invocation (wrong `this`).
+    // Bind the default; wrap injectables so method-style calls stay safe too.
+    const impl = fetchImpl ?? globalThis.fetch.bind(globalThis);
+    this.fetchImpl = ((input, init) => impl(input, init)) as RegistrarFetch;
     this.timeoutMs = timeoutMs;
   }
 
