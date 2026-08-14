@@ -31,6 +31,7 @@ import type { Context } from 'hono';
 import type { Env, Variables } from '../../types';
 import { error, list, noContent, success } from '../../lib/response';
 import * as domainsService from '../../services/domains';
+import { chargeAndRenewDomain, voidPendingRenewalInvoice } from '../../services/domain-renewal-billing';
 import { getMasterDb } from '../../db';
 import { CloudflareApiError, CloudflareRegistrar } from '@weldsuite/cloudflare-registrar';
 import { RealtimeRegistrarError } from '@weldsuite/realtime-registrar';
@@ -523,6 +524,9 @@ app.post(
         { domainId: id, enabled },
       );
       if (!updated) return error.notFound(c, 'Domain', id);
+      if (!enabled && c.env.STRIPE_SECRET_KEY) {
+        await voidPendingRenewalInvoice(c.get('tenantDb'), c.env.STRIPE_SECRET_KEY, id);
+      }
       publishEntityEvent({
         c,
         entityType: 'domain',
@@ -622,19 +626,65 @@ app.post('/:id/sync', requirePermission('domains:update'), async (c) => {
 
 app.post('/:id/renew', requirePermission('domains:update'), async (c) => {
   const id = c.req.param('id');
+  const workspaceId = c.get('workspaceId');
+  if (!workspaceId) return error.orgRequired(c);
   const clients = registrarClients(c.env);
   const existing = await domainsService.getDomain(c.get('tenantDb'), id);
   if (!existing) return error.notFound(c, 'Domain', id);
+  if (existing.registrar === 'cloudflare') {
+    return error.badRequest(
+      c,
+      'Renewal is not available via API for domains registered through Cloudflare Registrar',
+    );
+  }
   if (existing.registrar === 'realtimeregister' && !clients.rtr) {
     return c.json(
       { error: { code: 'SERVICE_UNAVAILABLE', message: 'Realtime Register is not configured' } },
       503,
     );
   }
+  if (!c.env.STRIPE_SECRET_KEY) return error.internal(c, 'Stripe is not configured');
+  if (!clients.rtr) {
+    return c.json(
+      { error: { code: 'SERVICE_UNAVAILABLE', message: 'Realtime Register is not configured' } },
+      503,
+    );
+  }
   try {
-    const updated = await domainsService.renewDomain(c.get('tenantDb'), clients, {
+    const result = await chargeAndRenewDomain(c.get('tenantDb'), clients.rtr, getMasterDb(c.env), {
       domainId: id,
+      workspaceId,
+      stripeSecretKey: c.env.STRIPE_SECRET_KEY,
     });
+    if (!result.ok) {
+      switch (result.reason) {
+        case 'not_found':
+          return error.notFound(c, 'Domain', id);
+        case 'unsupported':
+          return error.badRequest(c, 'Renewal is only supported for Realtime Register domains');
+        case 'no_price':
+          return error.internal(c, 'No renewal price available for this TLD');
+        case 'no_customer':
+          return error.badRequest(c, 'Workspace has no Stripe customer — add a payment method in Billing first');
+        case 'payment_failed':
+          return c.json(
+            {
+              error: {
+                code: 'PAYMENT_REQUIRED',
+                message: 'Could not charge the saved payment method for this renewal. Update the card in Billing and try again.',
+              },
+            },
+            402,
+          );
+        case 'already_renewed':
+          break;
+        default: {
+          const _exhaustive: never = result.reason;
+          return error.internal(c, `Unhandled renewal failure: ${_exhaustive}`);
+        }
+      }
+    }
+    const updated = await domainsService.getDomain(c.get('tenantDb'), id);
     if (!updated) return error.notFound(c, 'Domain', id);
     publishEntityEvent({
       c,

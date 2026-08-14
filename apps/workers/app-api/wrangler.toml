@@ -319,7 +319,8 @@ class_name = "ImportTasksWorkflow"
 # Cron sweeps re-hosted from api-worker (there they were configured ONLY in
 # the Cloudflare dashboard — invisible in its repo config; delete those
 # dashboard crons after this deploys, see W7). Handled by scheduled() in
-# src/index.ts: hourly digest sweep + daily 04:00 calendar replan.
+# src/index.ts: hourly digest sweep + daily 04:00 calendar replan and
+# WeldHost domain auto-renew (Stripe invoice, then registrar renew).
 [triggers]
 crons = ["0 * * * *", "0 4 * * *"]
 

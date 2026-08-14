@@ -414,6 +414,20 @@ export async function listInvoices(
   return stripeApiRequest(key, 'GET', `/v1/invoices?customer=${customerId}&limit=${limit}`);
 }
 
+export async function retrievePaymentIntent(key: string, paymentIntentId: string): Promise<any> {
+  return stripeApiRequest(key, 'GET', `/v1/payment_intents/${paymentIntentId}`);
+}
+
+export async function setCustomerDefaultPaymentMethod(
+  key: string,
+  customerId: string,
+  paymentMethodId: string,
+): Promise<any> {
+  return stripeApiRequest(key, 'POST', `/v1/customers/${customerId}`, {
+    'invoice_settings[default_payment_method]': paymentMethodId,
+  });
+}
+
 // ============================================================================
 // Stripe Product & Price Management
 // ============================================================================

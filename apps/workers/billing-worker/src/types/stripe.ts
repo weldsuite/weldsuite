@@ -87,6 +87,7 @@ export interface StripeInvoice {
   status_transitions?: {
     paid_at?: number | null;
   } | null;
+  metadata?: Record<string, string> | null;
 }
 
 export interface StripeProduct {

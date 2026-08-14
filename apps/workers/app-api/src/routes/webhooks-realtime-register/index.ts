@@ -24,7 +24,7 @@ export type RtrProcessCache = {
   workspaceId: string;
   domainId?: string;
   transferId?: string;
-  kind: 'registration' | 'transfer';
+  kind: 'registration' | 'transfer' | 'renewal';
 };
 
 export function rtrProcessCacheKey(processId: number | string): string {
@@ -99,6 +99,9 @@ app.post('/', async (c) => {
     if (mapping.kind === 'registration' && mapping.domainId) {
       await domainsService.pollRegistrationProcess(tenantDb, rtr, mapping.domainId);
       console.log(`[RTR Webhook] polled registration ${mapping.domainId} for process ${processId}`);
+    } else if (mapping.kind === 'renewal' && mapping.domainId) {
+      await domainsService.pollRenewalProcess(tenantDb, rtr, mapping.domainId);
+      console.log(`[RTR Webhook] polled renewal ${mapping.domainId} for process ${processId}`);
     } else if (mapping.kind === 'transfer' && mapping.transferId) {
       await transfersService.syncTransferFromRegistrar(tenantDb, rtr, mapping.transferId);
       console.log(`[RTR Webhook] synced transfer ${mapping.transferId} for process ${processId}`);
