@@ -64,16 +64,10 @@ const GRACE_PERIOD_DAYS = 30;
 // Domain Registration helpers (Task 5b)
 // ============================================================================
 
-/** Issue a Stripe refund for a given payment intent. */
-async function issueRefund(env: Env, paymentIntentId: string): Promise<void> {
-  try {
-    await stripeApiRequest(env.STRIPE_SECRET_KEY, 'POST', '/v1/refunds', {
-      payment_intent: paymentIntentId,
-    });
-  } catch (err) {
-    console.error('[Domain Registration] Stripe refund failed:', err);
-    throw err;
-  }
+function paymentIntentIdFromSession(session: StripeCheckoutSession): string | null {
+  const pi = session.payment_intent;
+  if (!pi) return null;
+  return typeof pi === 'string' ? pi : pi.id;
 }
 
 // Helper: extract subscription cycle from Stripe subscription
@@ -1720,18 +1714,7 @@ async function handleDomainRegistrationCheckout(
     ote: env.REALTIME_REGISTER_OTE === 'true',
   });
 
-  // Retrieve payment intent for potential refunds
-  let paymentIntentId: string | null = null;
-  try {
-    const fullSession = await stripeApiRequest(
-      env.STRIPE_SECRET_KEY,
-      'GET',
-      `/v1/checkout/sessions/${sessionId}`,
-    ) as { payment_intent?: string | null };
-    paymentIntentId = fullSession.payment_intent ?? null;
-  } catch (err) {
-    console.warn('[Domain Registration] Could not retrieve payment intent:', err);
-  }
+  const paymentIntentId = paymentIntentIdFromSession(session);
 
   let registeredCount = 0;
   let failedCount = 0;
@@ -1946,20 +1929,13 @@ async function handleDomainRegistrationCheckout(
     }
   }
 
-  // Refund the whole Checkout payment intent only when every domain failed.
-  // Partial success must not refund a live registration.
-  if (failedCount > 0 && registeredCount === 0 && paymentIntentId) {
-    try {
-      await issueRefund(env, paymentIntentId);
-      console.log(
-        `[Domain Registration] Refund issued for payment ${paymentIntentId} (${failedCount} failed, 0 registered)`,
-      );
-    } catch (refundErr) {
-      console.error('[Domain Registration] Refund failed:', refundErr);
-    }
-  } else if (failedCount > 0 && registeredCount > 0) {
+  // Never auto-refund a domain Checkout. Registration failures (RTR, DNS,
+  // contacts) need a human look — a live registration can still complete
+  // after the webhook errors, and a refund then cannot be clawed back.
+  if (failedCount > 0) {
     console.error(
-      `[Domain Registration] Partial failure for session ${sessionId}: ${registeredCount} registered, ${failedCount} failed — manual refund review required`,
+      `[Domain Registration] ${failedCount} failed, ${registeredCount} registered for session ${sessionId}` +
+        `${paymentIntentId ? ` payment ${paymentIntentId}` : ''} — payment not refunded, manual review required`,
     );
   }
 }
