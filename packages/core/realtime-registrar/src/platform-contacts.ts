@@ -32,7 +32,11 @@ export class MissingPlatformRegistrantError extends Error {
   }
 }
 
-/** WHOIS/RDAP privacy is always requested so public output does not expose platform staff. */
+/**
+ * WHOIS/RDAP privacy is requested so public output does not expose platform
+ * staff. Call `privacyProtectForDomain()` at register/transfer time — some
+ * TLDs (e.g. .de) reject the flag and must register without it.
+ */
 export const WELDHOST_PRIVACY_PROTECT = true;
 
 export function resolvePlatformRegistrarContacts(

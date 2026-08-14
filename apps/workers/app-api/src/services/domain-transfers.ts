@@ -11,7 +11,7 @@ import { schema, type Database } from '../db';
 import { generateId } from '../lib/id';
 import {
   resolvePlatformRegistrarContacts,
-  WELDHOST_PRIVACY_PROTECT,
+  privacyProtectForDomain,
   type RealtimeRegistrar,
 } from '@weldsuite/realtime-registrar';
 
@@ -148,13 +148,15 @@ export async function createDomainTransfer(
         billing: opts.contactEnv?.REALTIME_REGISTER_CONTACT_BILLING,
       });
 
+      const privacyProtect = privacyProtectForDomain(data.domainName);
+
       const result = await rtr.transfer({
         name: data.domainName.toLowerCase(),
         registrant: platform.registrant,
         authCode: data.authCode,
         contacts: platform.contacts,
         nameservers: opts.nameservers,
-        privacyProtect: WELDHOST_PRIVACY_PROTECT,
+        privacyProtect,
         designatedAgent: 'NONE',
         periodMonths: 12,
       });
@@ -178,7 +180,7 @@ export async function createDomainTransfer(
           registrar: 'realtimeregister',
           status: 'pending',
           registrationStatus: 'pending_transfer',
-          privacyProtection: WELDHOST_PRIVACY_PROTECT,
+          privacyProtection: privacyProtect,
           rtrRegistrantHandle: platform.registrant,
           rtrProcessId: externalTransferId,
           authCode: data.authCode,
@@ -191,7 +193,7 @@ export async function createDomainTransfer(
             registrationStatus: 'pending_transfer',
             rtrProcessId: externalTransferId,
             rtrRegistrantHandle: platform.registrant,
-            privacyProtection: WELDHOST_PRIVACY_PROTECT,
+            privacyProtection: privacyProtect,
             ...(opts.registrantContact
               ? { registrantContact: opts.registrantContact as never }
               : {}),

@@ -89,6 +89,40 @@ describe('createDomainTransfer · platform contacts', () => {
     expect(domain?.registrantContact).toMatchObject({ email: 'ada@customer.example' });
   });
 
+  it('does not request WHOIS privacy on TLDs that reject it', async () => {
+    const transfer = vi.fn(async () => ({
+      status: 'pending',
+      processId: 88,
+      domainName: 'privacy-unsupported-in.de',
+      type: 'IN' as const,
+    }));
+    const rtr = { ensureRegistrantFromDomainContact: vi.fn(), transfer } as unknown as RealtimeRegistrar;
+
+    const row = await createDomainTransfer(
+      db,
+      {
+        domainName: 'privacy-unsupported-in.de',
+        type: 'incoming',
+        authCode: 'EPPCODE',
+      },
+      {
+        rtr,
+        contactEnv: { REALTIME_REGISTER_CONTACT_ADMIN: 'ws-admin' },
+      },
+    );
+
+    expect(transfer.mock.calls[0]![0]).toMatchObject({
+      name: 'privacy-unsupported-in.de',
+      privacyProtect: false,
+    });
+    const [domain] = await db
+      .select()
+      .from(schema.hostDomains)
+      .where(eq(schema.hostDomains.id, row.domainId!))
+      .limit(1);
+    expect(domain?.privacyProtection).toBe(false);
+  });
+
   it('fails the transfer when REALTIME_REGISTER_CONTACT_ADMIN is unset', async () => {
     const transfer = vi.fn();
     const rtr = { transfer } as unknown as RealtimeRegistrar;
