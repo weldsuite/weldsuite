@@ -53,6 +53,42 @@ describe('/api/bills · pglite integration', () => {
     expect(row?.billNumber).toBe('B-E2E-001');
   });
 
+  it('POST / defaults currency to the entity baseCurrency when omitted', async () => {
+    await db.insert(schema.entities).values({
+      id: 'ent_inr_bill',
+      name: 'INR Bill Co',
+      jurisdictionCode: 'IN',
+      baseCurrency: 'INR',
+      locale: 'en-IN',
+    });
+
+    const { request } = createTestApp('/api/bills', billsRoutes, {
+      context: { permissions: permissions('bills:create'), tenantDb: db },
+    });
+
+    const res = await request('/api/bills', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        entityId: 'ent_inr_bill',
+        contactId: 'ctt_e2e',
+        issueDate: '2025-01-15T00:00:00Z',
+        dueDate: '2025-02-15T00:00:00Z',
+        contactName: 'Mumbai Supplies',
+        billNumber: 'B-INR-001',
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { data: { id: string } };
+    const [row] = await db
+      .select()
+      .from(schema.bills)
+      .where(eq(schema.bills.id, body.data.id))
+      .limit(1);
+    expect(row?.currency).toBe('INR');
+  });
+
   it('POST / returns 400 with a useful message when a required field is missing', async () => {
     const { request } = createTestApp('/api/bills', billsRoutes, {
       context: { permissions: permissions('bills:create'), tenantDb: db },

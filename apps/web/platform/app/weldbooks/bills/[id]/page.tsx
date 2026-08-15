@@ -31,11 +31,7 @@ import {
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
 import { ArrowLeft, Pencil, Check, X } from 'lucide-react';
-
-const formatCurrency = (value: string | number | null) =>
-  new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(
-    Number(value ?? 0),
-  );
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 function statusVariant(status: string) {
   switch (status) {
@@ -76,6 +72,7 @@ export default function BillDetailPage() {
   const { t } = useI18n();
   const st = useTranslations();
   const tb = t.accounting.billDetail;
+  const { formatMoney } = useCurrentEntityCurrency();
 
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -246,16 +243,16 @@ export default function BillDetailPage() {
                     <TableCell>{item.description}</TableCell>
                     <TableCell className="text-right">{item.quantity ?? '-'}</TableCell>
                     <TableCell className="text-right">
-                      {formatCurrency(item.unitPrice)}
+                      {formatMoney(item.unitPrice, bill.currency)}
                     </TableCell>
                     <TableCell className="text-right">
                       {item.discountPercent ? `${item.discountPercent}%` : '-'}
                     </TableCell>
                     <TableCell className="text-right">
-                      {formatCurrency(item.taxAmount)}
+                      {formatMoney(item.taxAmount, bill.currency)}
                     </TableCell>
                     <TableCell className="text-right font-medium">
-                      {formatCurrency(item.lineTotalWithTax ?? item.lineTotal)}
+                      {formatMoney(item.lineTotalWithTax ?? item.lineTotal, bill.currency)}
                     </TableCell>
                   </TableRow>
                 ))
@@ -269,26 +266,26 @@ export default function BillDetailPage() {
             <div className="w-64 space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">{tb.subtotal}</span>
-                <span>{formatCurrency(bill.subtotal)}</span>
+                <span>{formatMoney(bill.subtotal, bill.currency)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">{tb.tax}</span>
-                <span>{formatCurrency(bill.taxTotal)}</span>
+                <span>{formatMoney(bill.taxTotal, bill.currency)}</span>
               </div>
               <Separator />
               <div className="flex justify-between font-semibold">
                 <span>{tb.total}</span>
-                <span>{formatCurrency(bill.total)}</span>
+                <span>{formatMoney(bill.total, bill.currency)}</span>
               </div>
               {bill.amountPaid && Number(bill.amountPaid) > 0 && (
                 <>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">{tb.paid}</span>
-                    <span>{formatCurrency(bill.amountPaid)}</span>
+                    <span>{formatMoney(bill.amountPaid, bill.currency)}</span>
                   </div>
                   <div className="flex justify-between font-semibold text-destructive">
                     <span>{tb.balanceDue}</span>
-                    <span>{formatCurrency(bill.balanceDue)}</span>
+                    <span>{formatMoney(bill.balanceDue, bill.currency)}</span>
                   </div>
                 </>
               )}

@@ -24,7 +24,7 @@ import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema } from '../../db';
-import { nextEntityNumber, resolveEntityId } from '../../lib/entity-context';
+import { nextEntityNumber, resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
 import { writeAccountingAudit } from '../../services/accounting-guards';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -283,11 +283,14 @@ app.post('/:id/generate', requirePermission('invoices:create'), async (c) => {
     const [contact] = await db.select().from(parties)
       .where(and(eq(parties.id, rec.contactId), isNull(parties.deletedAt))).limit(1);
 
-    const entityIdForNumbering = await resolveEntityId(c, db);
+    const entityIdForNumbering = rec.entityId || (await resolveEntityId(c, db));
     if (!entityIdForNumbering) return error.badRequest(c, 'No accounting entity resolved');
     const { formatted: invoiceNumber } = await nextEntityNumber(db, entityIdForNumbering, 'invoice');
 
     const template = (rec.templateData || {}) as Record<string, any>;
+    const currency =
+      (typeof template.currency === 'string' && template.currency) ||
+      (await resolveEntityBaseCurrency(db, entityIdForNumbering));
     const items = (template.items || []) as Array<{ description: string; quantity: number; unitPrice: number; unit?: string; taxRateId?: string; accountId?: string }>;
     const paymentTermsDays = template.paymentTermsDays || rec.dayOfMonth || 30;
 
@@ -335,7 +338,7 @@ app.post('/:id/generate', requirePermission('invoices:create'), async (c) => {
       contactEmail: null,
       issueDate,
       dueDate,
-      currency: 'EUR',
+      currency,
       subtotal: subtotal.toFixed(2),
       discountTotal: '0',
       taxTotal: taxTotal.toFixed(2),

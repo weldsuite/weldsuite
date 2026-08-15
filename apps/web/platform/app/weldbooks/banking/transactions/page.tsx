@@ -19,6 +19,7 @@ import {
 import { BankTransactionsTable } from '@/components/accounting/bank-transactions-table';
 import type { BankAccount, BankTransaction } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 const PAGE_SIZE = 50;
 
@@ -30,6 +31,7 @@ export default function BankTransactionsPage() {
   const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
   const { t } = useI18n();
+  const { currency: entityCurrency } = useCurrentEntityCurrency();
   const tbp = t.accounting.bankingPages;
 
   const STATUS_OPTIONS = [
@@ -62,8 +64,8 @@ export default function BankTransactionsPage() {
 
   const currencyForDisplay =
     accountFilter !== 'all'
-      ? accounts.find((a) => a.id === accountFilter)?.currency ?? 'EUR'
-      : 'EUR';
+      ? accounts.find((a) => a.id === accountFilter)?.currency ?? entityCurrency
+      : entityCurrency;
 
   return (
     <div className="p-6 space-y-4">

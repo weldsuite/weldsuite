@@ -19,13 +19,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
-
-function fmt(value: string | number | null | undefined): string {
-  return new Intl.NumberFormat('nl-NL', {
-    style: 'currency',
-    currency: 'EUR',
-  }).format(Number(value ?? 0));
-}
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 interface TransactionSuggestion {
   type: string;
@@ -47,6 +41,7 @@ export default function BankReconciliationPage() {
   const { t } = useI18n();
   const tbp = t.accounting.bankingPages;
   const tsl = t.accounting.statusLabels;
+  const { formatMoney: fmt } = useCurrentEntityCurrency();
 
   const { data: txnData, isLoading } = useAccountingBankTransactions(
     selectedAccountId ? { bankAccountId: selectedAccountId, status: 'unreconciled' } : undefined

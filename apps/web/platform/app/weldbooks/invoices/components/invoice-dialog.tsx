@@ -32,6 +32,7 @@ import { accountingApi } from '@/lib/api/domains/weldbooks';
 import type { Customer } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 function createInvoiceFormSchema(st: (key: string) => string) {
   const lineItemSchema = z.object({
@@ -53,9 +54,6 @@ function createInvoiceFormSchema(st: (key: string) => string) {
 }
 
 type InvoiceFormValues = z.infer<ReturnType<typeof createInvoiceFormSchema>>;
-
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(value);
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -80,6 +78,7 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: InvoiceDialogPr
   const st = useTranslations();
   const tid = t.accounting.invoiceDialog;
   const invoiceFormSchema = useMemo(() => createInvoiceFormSchema(st), [st]);
+  const { currency, formatMoney } = useCurrentEntityCurrency();
 
   const { data: contactsData } = useAccountingCustomers({ role: 'customer' });
   const { data: taxRatesData } = useAccountingTaxRates();
@@ -172,6 +171,7 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: InvoiceDialogPr
           contactId: values.contactId,
           issueDate: values.issueDate,
           dueDate: values.dueDate,
+          currency,
           reference: values.reference || undefined,
           notes: values.notes || undefined,
           items: values.items.map((item) => ({
@@ -391,15 +391,15 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: InvoiceDialogPr
           <div className="border-t px-6 py-3 space-y-1 text-sm">
             <div className="flex justify-between text-muted-foreground">
               <span>{tid.subtotal}</span>
-              <span>{formatCurrency(totals.subtotal)}</span>
+              <span>{formatMoney(totals.subtotal)}</span>
             </div>
             <div className="flex justify-between text-muted-foreground">
               <span>{tid.tax}</span>
-              <span>{formatCurrency(totals.taxTotal)}</span>
+              <span>{formatMoney(totals.taxTotal)}</span>
             </div>
             <div className="flex justify-between font-semibold">
               <span>{tid.total}</span>
-              <span>{formatCurrency(totals.total)}</span>
+              <span>{formatMoney(totals.total)}</span>
             </div>
           </div>
 

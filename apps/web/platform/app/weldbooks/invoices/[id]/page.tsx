@@ -31,12 +31,7 @@ import { RecordPaymentDialog } from '../components/record-payment-dialog';
 import { SendInvoiceDialog } from '../components/send-invoice-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
-
-const formatCurrency = (value: string | number | null | undefined, currency?: string | null) =>
-  new Intl.NumberFormat('nl-NL', {
-    style: 'currency',
-    currency: currency || 'EUR',
-  }).format(Number(value ?? 0));
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 const formatDate = (value: string | null | undefined) => {
   if (!value) return '-';
@@ -75,6 +70,7 @@ export default function InvoiceDetailPage() {
   const st = useTranslations();
   const ti = t.accounting.invoiceDetail;
   const tsl = t.accounting.statusLabels.invoice;
+  const { formatMoney } = useCurrentEntityCurrency();
 
   const { data, isLoading } = useAccountingInvoice(id);
   const finalizeMutation = useFinalizeInvoice();
@@ -234,7 +230,7 @@ export default function InvoiceDetailPage() {
                     {item.unit ? ` ${item.unit}` : ''}
                   </TableCell>
                   <TableCell className="text-right">
-                    {formatCurrency(item.unitPrice, invoice.currency)}
+                    {formatMoney(item.unitPrice, invoice.currency)}
                   </TableCell>
                   <TableCell className="text-right">
                     {item.discountPercent ? `${Number(item.discountPercent)}%` : '-'}
@@ -243,7 +239,7 @@ export default function InvoiceDetailPage() {
                     {item.taxRate ? `${Number(item.taxRate)}%` : '-'}
                   </TableCell>
                   <TableCell className="text-right font-medium">
-                    {formatCurrency(item.lineTotalWithTax ?? item.lineTotal, invoice.currency)}
+                    {formatMoney(item.lineTotalWithTax ?? item.lineTotal, invoice.currency)}
                   </TableCell>
                 </TableRow>
               ))}
@@ -266,35 +262,35 @@ export default function InvoiceDetailPage() {
             <div className="w-full max-w-xs space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">{ti.subtotal}</span>
-                <span>{formatCurrency(invoice.subtotal, invoice.currency)}</span>
+                <span>{formatMoney(invoice.subtotal, invoice.currency)}</span>
               </div>
               {invoice.taxBreakdown && invoice.taxBreakdown.length > 0 ? (
                 invoice.taxBreakdown.map((row, idx) => (
                   <div key={`${row.taxRateName}-${idx}`} className="flex justify-between text-sm">
                     <span className="text-muted-foreground">{row.taxRateName}</span>
-                    <span>{formatCurrency(row.taxAmount, invoice.currency)}</span>
+                    <span>{formatMoney(row.taxAmount, invoice.currency)}</span>
                   </div>
                 ))
               ) : invoice.taxTotal && Number(invoice.taxTotal) !== 0 ? (
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">{ti.tax}</span>
-                  <span>{formatCurrency(invoice.taxTotal, invoice.currency)}</span>
+                  <span>{formatMoney(invoice.taxTotal, invoice.currency)}</span>
                 </div>
               ) : null}
               <div className="flex justify-between font-semibold border-t pt-2">
                 <span>{ti.total}</span>
-                <span>{formatCurrency(invoice.total, invoice.currency)}</span>
+                <span>{formatMoney(invoice.total, invoice.currency)}</span>
               </div>
               {invoice.amountPaid && Number(invoice.amountPaid) > 0 && (
                 <div className="flex justify-between text-sm text-green-600">
                   <span>{ti.amountPaid}</span>
-                  <span>-{formatCurrency(invoice.amountPaid, invoice.currency)}</span>
+                  <span>-{formatMoney(invoice.amountPaid, invoice.currency)}</span>
                 </div>
               )}
               {invoice.balanceDue && Number(invoice.balanceDue) > 0 && (
                 <div className="flex justify-between font-semibold">
                   <span>{ti.balanceDue}</span>
-                  <span>{formatCurrency(invoice.balanceDue, invoice.currency)}</span>
+                  <span>{formatMoney(invoice.balanceDue, invoice.currency)}</span>
                 </div>
               )}
             </div>

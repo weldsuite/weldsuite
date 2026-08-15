@@ -34,6 +34,7 @@ import {
 } from '@weldsuite/ui/components/table';
 import { Plus } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import { weldbooksApi } from '@/lib/api/weldbooks-client';
@@ -53,11 +54,8 @@ interface EntityRow {
   jurisdictionCode: string;
 }
 
-function fmt(value: number | string | null | undefined): string {
-  return new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(Number(value ?? 0));
-}
-
 export default function VatReturnsPage() {
+  const { formatMoney: fmt } = useCurrentEntityCurrency();
   const { data, isLoading } = useAccountingVatReturns();
   const calculateMutation = useCalculateVatReturn();
   const navigate = useNavigate();

@@ -26,6 +26,7 @@ import { FileText, Eye, Scan, FileCheck, Upload, Loader2, Sparkles, UserPlus, X,
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { TranslationsType } from '@/lib/i18n/types';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
@@ -95,14 +96,8 @@ interface DocumentRow {
 
 const ACCEPTED_TYPES = 'image/jpeg,image/jpg,image/png,image/webp';
 
-function fmt(value: number | null | undefined): string {
-  return new Intl.NumberFormat('nl-NL', {
-    style: 'currency',
-    currency: 'EUR',
-  }).format(value ?? 0);
-}
-
 export default function DocumentInboxPage() {
+  const { formatMoney: fmt } = useCurrentEntityCurrency();
   const { t } = useI18n();
   const st = useTranslations();
   const td = t.accounting.documents;

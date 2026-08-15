@@ -7,6 +7,7 @@ import { EmptyStateIllustration, type ColumnDef, type GroupConfig } from '@/comp
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { InvoiceDialog } from './components/invoice-dialog';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 interface InvoiceRow {
   id: string;
@@ -15,6 +16,8 @@ interface InvoiceRow {
   issueDate: string | null;
   dueDate: string | null;
   totalAmount: number | null;
+  total?: string | number | null;
+  currency?: string | null;
   status: string;
 }
 
@@ -33,16 +36,13 @@ function statusVariant(status: string) {
   }
 }
 
-function formatCurrency(value: number | null | undefined): string {
-  return new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(Number(value ?? 0));
-}
-
 export default function InvoicesPage() {
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const { data, isLoading } = useAccountingInvoices({ search });
   const navigate = useNavigate();
   const { t } = useI18n();
+  const { formatMoney } = useCurrentEntityCurrency();
   const tip = t.accounting.invoicesPage;
   const tsl = t.accounting.statusLabels.invoice;
 
@@ -89,7 +89,7 @@ export default function InvoicesPage() {
       id: 'total',
       header: tip.colTotal,
       width: 'w-[140px]',
-      render: (inv) => formatCurrency(inv.totalAmount),
+      render: (inv) => formatMoney(inv.total ?? inv.totalAmount, inv.currency),
     },
     {
       id: 'status',

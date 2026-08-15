@@ -13,17 +13,12 @@ import {
 } from '@weldsuite/ui/components/table';
 import { KpiCards } from './components/kpi-cards';
 import { useI18n } from '@/lib/i18n/provider';
-
-function fmt(value: string | number | null | undefined): string {
-  return new Intl.NumberFormat('nl-NL', {
-    style: 'currency',
-    currency: 'EUR',
-  }).format(Number(value ?? 0));
-}
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 export default function AccountingDashboardPage() {
   const { t } = useI18n();
   const td = t.accounting.dashboard;
+  const { formatMoney: fmt } = useCurrentEntityCurrency();
   const { data, isLoading } = useAccountingDashboard();
   if (isLoading) return <PageLoader fullScreen={false} />;
   const dashboard = data?.data;

@@ -184,7 +184,7 @@ function getFallbackRates(): Record<string, number> {
     EUR: 1,
     USD: 1.08, GBP: 0.86, CHF: 0.96, JPY: 162.5, CAD: 1.47, AUD: 1.66,
     SEK: 11.2, NOK: 11.5, DKK: 7.46, PLN: 4.31, CZK: 25.2, HUF: 395,
-    TRY: 35.0, CNY: 7.85,
+    TRY: 35.0, CNY: 7.85, INR: 90.0,
   };
 }
 
@@ -202,4 +202,5 @@ export const SUPPORTED_CURRENCIES = [
   { code: 'AUD', name: 'Australian Dollar', symbol: 'A$' },
   { code: 'JPY', name: 'Japanese Yen', symbol: '¥' },
   { code: 'CNY', name: 'Chinese Yuan', symbol: '¥' },
+  { code: 'INR', name: 'Indian Rupee', symbol: '₹' },
 ] as const;

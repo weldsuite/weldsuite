@@ -7,13 +7,11 @@ import { ArrowLeft, Play, Pause, RefreshCw } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
-
-function fmt(value: string | number | null | undefined): string {
-  return new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(Number(value ?? 0));
-}
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 export default function RecurringInvoiceDetailPage() {
   const { t } = useI18n();
+  const { formatMoney: fmt } = useCurrentEntityCurrency();
   const trp = t.accounting.recurringPage;
   const tslRec = t.accounting.statusLabels.recurringInvoice;
 

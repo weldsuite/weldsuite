@@ -1,17 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import type { Dashboard } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
-
-function fmt(value: string | number | null | undefined): string {
-  return new Intl.NumberFormat('nl-NL', {
-    style: 'currency',
-    currency: 'EUR',
-  }).format(Number(value ?? 0));
-}
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 export function KpiCards({ dashboard }: { dashboard: Dashboard }) {
   const { t } = useI18n();
   const tk = t.accounting.kpiCards;
+  const { formatMoney: fmt } = useCurrentEntityCurrency();
 
   const cards = [
     { label: tk.revenueMonth, value: fmt(dashboard.revenue?.month) },

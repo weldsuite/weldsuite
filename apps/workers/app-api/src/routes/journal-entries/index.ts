@@ -22,7 +22,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema } from '../../db';
-import { nextEntityNumber, resolveEntityId } from '../../lib/entity-context';
+import { nextEntityNumber, resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
 import {
   assertPeriodOpen,
   ClosedPeriodError,
@@ -163,6 +163,7 @@ app.post('/', requirePermission('journal:create'), zValidator('json', createJour
     const { formatted: entryNumber } = await nextEntityNumber(db, entityId, 'journal');
     const entryId = generateId('je');
     const now = new Date();
+    const currency = await resolveEntityBaseCurrency(db, entityId);
 
     await db.insert(journalEntries).values({
       id: entryId,
@@ -172,6 +173,7 @@ app.post('/', requirePermission('journal:create'), zValidator('json', createJour
       status: 'draft',
       description: data.description || null,
       reference: data.reference || null,
+      currency,
       totalDebit: totalDebit.toFixed(2),
       totalCredit: totalCredit.toFixed(2),
       sourceType: 'manual',
@@ -333,6 +335,7 @@ app.post('/:id/reverse', requirePermission('journal:create'), async (c) => {
       date: reversalDate,
       status: 'posted',
       description: `Reversal of ${entry.entryNumber}`,
+      currency: entry.currency,
       totalDebit: entry.totalCredit,
       totalCredit: entry.totalDebit,
       sourceType: entry.sourceType,

@@ -25,7 +25,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema, type Database } from '../../db';
-import { nextEntityNumber, resolveEntityId } from '../../lib/entity-context';
+import { nextEntityNumber, resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
 import { calculateFxGainLoss } from '../../services/accounting-currency';
 import {
   assertPeriodOpen,
@@ -118,12 +118,33 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createPaym
 
     const paymentExchangeRate = data.exchangeRate ?? '1';
 
+    let currency = data.currency;
+    if (!currency && data.invoiceId) {
+      const [linkedInvoice] = await db
+        .select({ currency: invoices.currency })
+        .from(invoices)
+        .where(eq(invoices.id, data.invoiceId))
+        .limit(1);
+      currency = linkedInvoice?.currency ?? undefined;
+    }
+    if (!currency && data.billId) {
+      const [linkedBill] = await db
+        .select({ currency: bills.currency })
+        .from(bills)
+        .where(eq(bills.id, data.billId))
+        .limit(1);
+      currency = linkedBill?.currency ?? undefined;
+    }
+    if (!currency) {
+      currency = await resolveEntityBaseCurrency(db, entityId);
+    }
+
     await db.insert(payments).values({
       id: paymentId,
       entityId,
       type: data.type,
       amount: data.amount,
-      currency: data.currency || 'EUR',
+      currency,
       exchangeRate: paymentExchangeRate,
       date: new Date(data.date),
       paymentMethod: data.paymentMethod || null,

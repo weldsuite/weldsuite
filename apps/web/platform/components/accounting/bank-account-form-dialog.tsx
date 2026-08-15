@@ -20,6 +20,7 @@ import {
 } from '@weldsuite/ui/components/select';
 import { Loader2 } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 import {
   useCreateBankAccount,
   useUpdateBankAccount,
@@ -27,7 +28,7 @@ import {
 } from '@/hooks/queries/use-accounting-queries';
 import type { BankAccount } from '@/lib/api/domains/weldbooks';
 
-const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'SEK', 'DKK', 'NOK', 'PLN'];
+const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'SEK', 'DKK', 'NOK', 'PLN', 'INR'];
 
 interface BankAccountFormDialogProps {
   open: boolean;
@@ -48,6 +49,7 @@ export function BankAccountFormDialog({
 }: BankAccountFormDialogProps) {
   const t = useTranslations();
   const isEdit = !!bankAccount;
+  const { currency: entityCurrency } = useCurrentEntityCurrency();
 
   const [name, setName] = useState('');
   const [iban, setIban] = useState('');
@@ -74,7 +76,7 @@ export function BankAccountFormDialog({
       setBic(bankAccount.bic ?? '');
       setBankName(bankAccount.bankName ?? '');
       setAccountHolderName(bankAccount.accountHolderName ?? '');
-      setCurrency(bankAccount.currency ?? 'EUR');
+      setCurrency(bankAccount.currency ?? entityCurrency);
       setLedgerAccountId(bankAccount.ledgerAccountId ?? '');
       setIsDefault(!!bankAccount.isDefault);
       setAutoReconcile(bankAccount.autoReconcile !== false);
@@ -84,12 +86,12 @@ export function BankAccountFormDialog({
       setBic('');
       setBankName('');
       setAccountHolderName('');
-      setCurrency('EUR');
+      setCurrency(entityCurrency);
       setLedgerAccountId('');
       setIsDefault(false);
       setAutoReconcile(true);
     }
-  }, [open, bankAccount]);
+  }, [open, bankAccount, entityCurrency]);
 
   const createMutation = useCreateBankAccount();
   const updateMutation = useUpdateBankAccount();

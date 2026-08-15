@@ -32,6 +32,7 @@ import type { BillDetail } from '@/lib/api/domains/weldbooks';
 import { Plus, Trash2 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 function createBillFormSchema(st: (key: string) => string) {
   const lineItemSchema = z.object({
@@ -86,9 +87,6 @@ interface BillFormProps {
   isSubmitting?: boolean;
 }
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(value);
-
 const emptyItem = {
   description: '',
   quantity: 1,
@@ -102,6 +100,7 @@ const emptyItem = {
 export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: BillFormProps) {
   const { t } = useI18n();
   const st = useTranslations();
+  const { formatMoney } = useCurrentEntityCurrency();
   const tb = t.accounting.billForm;
   const billFormSchema = useMemo(() => createBillFormSchema(st), [st]);
   const { data: contactsData } = useAccountingCustomers({ role: 'supplier' });
@@ -360,7 +359,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: BillFo
                       </Select>
                     </TableCell>
                     <TableCell className="text-right font-medium">
-                      {formatCurrency(lineTotal)}
+                      {formatMoney(lineTotal)}
                     </TableCell>
                     <TableCell>
                       {fields.length > 1 && (
@@ -386,16 +385,16 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: BillFo
             <div className="w-64 space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">{tb.subtotal}</span>
-                <span>{formatCurrency(subtotal)}</span>
+                <span>{formatMoney(subtotal)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">{tb.tax}</span>
-                <span>{formatCurrency(taxTotal)}</span>
+                <span>{formatMoney(taxTotal)}</span>
               </div>
               <Separator />
               <div className="flex justify-between font-semibold">
                 <span>{tb.total}</span>
-                <span>{formatCurrency(total)}</span>
+                <span>{formatMoney(total)}</span>
               </div>
             </div>
           </div>

@@ -11,11 +11,7 @@ import {
 } from '@weldsuite/ui/components/card';
 import { ArrowLeft, Pencil } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
-
-const formatCurrency = (value: string | number | null | undefined) =>
-  new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(
-    Number(value ?? 0),
-  );
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   if (value === null || value === undefined) return null;
@@ -32,6 +28,7 @@ export default function AccountDetailPage() {
   const { data, isLoading } = useAccountingAccount(id);
   const { t } = useI18n();
   const ta = t.accounting.accounts;
+  const { formatMoney } = useCurrentEntityCurrency();
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
@@ -105,8 +102,8 @@ export default function AccountDetailPage() {
           <CardTitle>{ta.balances}</CardTitle>
         </CardHeader>
         <CardContent>
-          <DetailRow label={ta.openingBalance} value={formatCurrency(account.openingBalance)} />
-          <DetailRow label={ta.currentBalance} value={formatCurrency(account.currentBalance)} />
+          <DetailRow label={ta.openingBalance} value={formatMoney(account.openingBalance)} />
+          <DetailRow label={ta.currentBalance} value={formatMoney(account.currentBalance)} />
         </CardContent>
       </Card>
     </div>

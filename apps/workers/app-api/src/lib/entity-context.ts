@@ -1,5 +1,5 @@
 import type { Context } from 'hono';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { schema } from '../db';
 import { generateId } from './id';
 
@@ -19,6 +19,19 @@ export async function resolveEntityId(c: Context, db: any): Promise<string | nul
 
   const [settings] = await db.select().from(schema.settings).limit(1);
   return settings?.defaultEntityId ?? null;
+}
+
+/**
+ * Base currency of an accounting entity. Used when a document omits
+ * `currency` so INR (and other non-EUR) entities don't silently store Euro.
+ */
+export async function resolveEntityBaseCurrency(db: any, entityId: string): Promise<string> {
+  const [entity] = await db
+    .select({ baseCurrency: schema.entities.baseCurrency })
+    .from(schema.entities)
+    .where(eq(schema.entities.id, entityId))
+    .limit(1);
+  return entity?.baseCurrency || 'EUR';
 }
 
 /**
