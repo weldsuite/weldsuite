@@ -197,6 +197,37 @@ describe('createCheckout · Stripe customer', () => {
     expect(row?.rtrRegistrantHandle).toBeNull();
   });
 
+  it('does not store WHOIS privacy on TLDs that reject it', async () => {
+    const masterDb = masterDbStub({
+      workspace: {
+        id: 'ws_internal',
+        name: 'Acme',
+        clerkOrgId: 'org_test_default',
+        stripeCustomerId: 'cus_existing',
+      },
+    });
+
+    const result = await createCheckout(db, availableRtr(), masterDb, {
+      ...checkoutParams,
+      input: {
+        domain: 'privacy-unsupported.de',
+        autoRenew: true,
+        years: 1,
+        privacyProtection: true,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const [row] = await db
+      .select()
+      .from(schema.hostDomains)
+      .where(eq(schema.hostDomains.id, result.registrationIds[0]!))
+      .limit(1);
+    expect(row?.fullDomain).toBe('privacy-unsupported.de');
+    expect(row?.privacyProtection).toBe(false);
+  });
+
 
   it('reuses an existing Stripe customer and does not create another', async () => {
     const masterDb = masterDbStub({

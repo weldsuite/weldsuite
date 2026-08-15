@@ -14,6 +14,8 @@ import type { CloudflareRegistrar } from '@weldsuite/cloudflare-registrar';
 import {
   RealtimeRegistrar,
   resolvePlatformRegistrarContacts,
+  privacyProtectForDomain,
+  tldSupportsPrivacyProtect,
   type DomainCheckResult,
   type DomainContactInput,
 } from '@weldsuite/realtime-registrar';
@@ -878,6 +880,9 @@ export async function togglePrivacy(
 
   if (domain.registrar === 'realtimeregister' && domain.externalRegistrarId) {
     if (!clients.rtr) throw new Error('Realtime Register is not configured');
+    if (params.enabled && !tldSupportsPrivacyProtect(domain.fullDomain)) {
+      throw new Error('Privacy protection is not supported for this TLD');
+    }
     await clients.rtr.updateDomain(domain.fullDomain, { privacyProtect: params.enabled });
   } else if (domain.registrar === 'cloudflare' && domain.externalRegistrarId) {
     // Cloudflare Registrar beta has no privacy toggle API.
@@ -1105,7 +1110,7 @@ async function insertOrReusePendingCheckoutRows(
         .update(hostDomains)
         .set({
           autoRenew: input.autoRenew ?? true,
-          privacyProtection: true,
+          privacyProtection: privacyProtectForDomain(fullDomain),
           registrantContact: (input.contact as never) ?? null,
           metadata,
           updatedAt: now,
@@ -1126,7 +1131,7 @@ async function insertOrReusePendingCheckoutRows(
       status: 'pending',
       registrationStatus: 'pending_payment',
       autoRenew: input.autoRenew ?? true,
-      privacyProtection: true,
+      privacyProtection: privacyProtectForDomain(fullDomain),
       registrantContact: (input.contact as never) ?? null,
       metadata,
       createdAt: now,
