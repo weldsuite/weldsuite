@@ -1799,7 +1799,7 @@ export const accounting = {
       deleteBankAccount: 'Delete bank account',
       autoReconcile: 'Auto-reconcile',
       importStatement: 'Import statement',
-      noTransactionsYet: 'No transactions yet. Import a bank statement to get started.',
+      noTransactionsYet: 'No transactions yet. Add a transaction or import a bank statement to get started.',
       allTransactions: 'All transactions',
       unreconciledFilter: 'Unreconciled',
       reconciledFilter: 'Reconciled',
@@ -1874,7 +1874,8 @@ export const accounting = {
 
       // Transactions page
       transactionsTitle: 'Bank Transactions',
-      transactionsSubtitle: 'Imported activity across all your bank accounts.',
+      transactionsSubtitle: 'Imported and manually added activity across all your bank accounts.',
+      addTransactionButton: 'Add transaction',
       importStatementButton: 'Import statement',
       accountLabel: 'Account',
       statusLabel: 'Status',
