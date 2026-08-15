@@ -12,6 +12,7 @@ import { MailDetailWrapper } from '../../components/mail-detail-wrapper';
 import { MobileMailLayout } from '../../components/mobile-mail-layout';
 import { MessageList } from '../../components/message-list';
 import { MailThreadListProvider } from '../../contexts/mail-thread-list-context';
+import { useOptimisticThreadList } from '../../hooks/use-optimistic-thread-list';
 import { useMailRealtime } from '../../hooks/useMailRealtime';
 import { UNIFIED_ACCOUNT } from '../../lib/mail-preferences';
 import {
@@ -80,7 +81,16 @@ export default function UnifiedLabelLayout({
     setThreads(mappedThreads);
   }, [mappedThreads]);
 
-  const totalCount = threadsQuery.data?.data?.totalCount ?? 0;
+  // Archive-and-next hides the row immediately so the left list doesn't
+  // wait on the background refetch.
+  const {
+    threads: visibleThreads,
+    hiddenCount,
+    hideThread,
+    unhideThread,
+  } = useOptimisticThreadList(threads);
+
+  const totalCount = Math.max(0, (threadsQuery.data?.data?.totalCount ?? 0) - hiddenCount);
   const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1;
   const error = threadsQuery.isError ? t.mail.unifiedLayout.failedToLoadConversations : null;
 
@@ -166,7 +176,7 @@ export default function UnifiedLabelLayout({
         </div>
       )}
       <MessageList
-        threads={threads}
+        threads={visibleThreads}
         accountId="unified"
         folder={labelSlug}
         error={error}
@@ -183,7 +193,14 @@ export default function UnifiedLabelLayout({
   const detailContent = <MailDetailWrapper>{children}</MailDetailWrapper>;
 
   return (
-    <MailThreadListProvider threads={threads} isUnified folder={labelSlug} accountId="unified">
+    <MailThreadListProvider
+      threads={visibleThreads}
+      isUnified
+      folder={labelSlug}
+      accountId="unified"
+      hideThread={hideThread}
+      unhideThread={unhideThread}
+    >
       <MobileMailLayout
         list={listContent}
         detail={detailContent}
