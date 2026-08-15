@@ -3,6 +3,9 @@ import { threadContainsMessage } from './next-thread';
 
 export type ThreadRef = { messageId: string; threadId?: string | null };
 
+/** threadId → list query identity that originally contained the row */
+export type HiddenThreadMap = Map<string, string>;
+
 /**
  * Inbox (and only inbox) drops a conversation on archive. Other folders
  * such as Starred / All Mail keep the row, so they must not be hidden
@@ -10,6 +13,16 @@ export type ThreadRef = { messageId: string; threadId?: string | null };
  */
 export function folderHidesOnArchive(folder: string): boolean {
   return folder.toLowerCase() === 'inbox';
+}
+
+/** Stable identity for the paginated threads query currently on screen. */
+export function mailThreadListKey(parts: {
+  accountId: string;
+  folder: string;
+  page: number;
+  pageSize: number;
+}): string {
+  return `${parts.accountId}:${parts.folder}:${parts.page}:${parts.pageSize}`;
 }
 
 export function findThreadIdToHide(
@@ -25,46 +38,82 @@ export function findThreadIdToHide(
 
 export function filterHiddenThreads(
   threads: ThreadSummary[],
-  hiddenIds: ReadonlySet<string>,
+  hiddenIds: { has(id: string): boolean; size?: number },
 ): ThreadSummary[] {
   if (hiddenIds.size === 0) return threads;
   return threads.filter((t) => !hiddenIds.has(t.threadId));
 }
 
+export function countHiddenOnServer(
+  serverThreads: ThreadSummary[],
+  hiddenIds: { has(id: string): boolean },
+): number {
+  let n = 0;
+  for (const t of serverThreads) {
+    if (hiddenIds.has(t.threadId)) n++;
+  }
+  return n;
+}
+
+function sameHiddenMap(
+  a: ReadonlyMap<string, string>,
+  b: ReadonlyMap<string, string>,
+): boolean {
+  if (a.size !== b.size) return false;
+  for (const [id, key] of a) {
+    if (b.get(id) !== key) return false;
+  }
+  return true;
+}
+
 /**
- * Keep an id hidden only while the server snapshot still contains it.
- * Once the refetch drops the row, the overlay entry can go away.
- * Stale refetches that still include the row stay filtered.
+ * Drop an overlay entry only when its originating list query is on screen
+ * and that snapshot no longer contains the row. A different page/folder
+ * must not clear it — the archived thread simply is not in this page.
  */
 export function retainHiddenIdsStillOnServer(
   serverThreads: ThreadSummary[],
-  hiddenIds: ReadonlySet<string>,
-): Set<string> {
-  if (hiddenIds.size === 0) return hiddenIds instanceof Set ? hiddenIds : new Set(hiddenIds);
-  const next = new Set<string>();
-  for (const id of hiddenIds) {
-    if (serverThreads.some((t) => t.threadId === id)) next.add(id);
+  hidden: ReadonlyMap<string, string>,
+  listKey: string,
+): HiddenThreadMap {
+  if (hidden.size === 0) return hidden instanceof Map ? hidden : new Map(hidden);
+  const next: HiddenThreadMap = new Map();
+  for (const [threadId, originKey] of hidden) {
+    // Another page/folder, or a loading/empty placeholder for this
+    // query, is not a confirmed omission of the originating snapshot.
+    if (originKey !== listKey || serverThreads.length === 0) {
+      next.set(threadId, originKey);
+      continue;
+    }
+    if (serverThreads.some((t) => t.threadId === threadId)) {
+      next.set(threadId, originKey);
+    }
   }
-  if (next.size === hiddenIds.size) {
-    return hiddenIds instanceof Set ? hiddenIds : next;
-  }
+  if (hidden instanceof Map && sameHiddenMap(hidden, next)) return hidden;
   return next;
 }
 
-export function addHiddenId(hiddenIds: ReadonlySet<string>, threadId: string): Set<string> {
-  if (hiddenIds.has(threadId)) {
-    return hiddenIds instanceof Set ? hiddenIds : new Set(hiddenIds);
+export function addHiddenId(
+  hidden: ReadonlyMap<string, string>,
+  threadId: string,
+  listKey: string,
+): HiddenThreadMap {
+  if (hidden.get(threadId) === listKey) {
+    return hidden instanceof Map ? hidden : new Map(hidden);
   }
-  const next = new Set(hiddenIds);
-  next.add(threadId);
+  const next = new Map(hidden);
+  next.set(threadId, listKey);
   return next;
 }
 
-export function removeHiddenId(hiddenIds: ReadonlySet<string>, threadId: string): Set<string> {
-  if (!hiddenIds.has(threadId)) {
-    return hiddenIds instanceof Set ? hiddenIds : new Set(hiddenIds);
+export function removeHiddenId(
+  hidden: ReadonlyMap<string, string>,
+  threadId: string,
+): HiddenThreadMap {
+  if (!hidden.has(threadId)) {
+    return hidden instanceof Map ? hidden : new Map(hidden);
   }
-  const next = new Set(hiddenIds);
+  const next = new Map(hidden);
   next.delete(threadId);
   return next;
 }

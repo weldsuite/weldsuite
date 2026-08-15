@@ -13,6 +13,7 @@ import { MobileMailLayout } from '../../components/mobile-mail-layout';
 import { MessageList } from '../../components/message-list';
 import { MailThreadListProvider } from '../../contexts/mail-thread-list-context';
 import { useOptimisticThreadList } from '../../hooks/use-optimistic-thread-list';
+import { mailThreadListKey } from '../../lib/optimistic-thread-list';
 import { useMailRealtime } from '../../hooks/useMailRealtime';
 import { UNIFIED_ACCOUNT } from '../../lib/mail-preferences';
 import {
@@ -88,7 +89,10 @@ export default function UnifiedLabelLayout({
     hiddenCount,
     hideThread,
     unhideThread,
-  } = useOptimisticThreadList(threads);
+  } = useOptimisticThreadList(
+    threads,
+    mailThreadListKey({ accountId: 'unified', folder: labelSlug, page: currentPage, pageSize: PAGE_SIZE }),
+  );
 
   const totalCount = Math.max(0, (threadsQuery.data?.data?.totalCount ?? 0) - hiddenCount);
   const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1;
