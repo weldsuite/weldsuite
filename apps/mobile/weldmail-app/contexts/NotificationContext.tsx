@@ -12,6 +12,7 @@ import {
   registerForPushNotificationsAsync,
   setupNotificationListeners,
   setBadgeCount,
+  dismissAllPresentedNotifications,
   createNotificationChannels,
   addPushTokenRefreshListener,
 } from '@weldsuite/mobile-ui/services/notifications';
@@ -20,6 +21,7 @@ import { useMail } from '@/contexts/MailContext';
 import {
   parseNotificationContent,
   emailOpenParams,
+  notificationMatchesWorkspace,
   type NotificationTarget,
 } from '@/utils/notification-target';
 
@@ -56,13 +58,20 @@ interface NotificationContextType {
   launchReady: boolean;
   /** Email we're opening from a tap; inbox renders nothing while this is set. */
   openingEmailId: string | null;
+  /**
+   * Deactivate this device's push token in the *current* tenant (JWT org),
+   * dismiss presented OS banners, and clear the badge. Call this *before*
+   * Clerk `setActive` when switching workspaces so the previous tenant stops
+   * delivering mail pushes to this device.
+   */
+  prepareWorkspaceSwitch: () => Promise<void>;
 }
 
 const NotificationContext = createContext<NotificationContextType>({
   unreadCount: 0, isConnected: false, isPermissionGranted: false,
   requestPermissions: async () => false, openNotificationSettings: async () => {},
   refreshBadgeCount: async () => {}, unregisterDevice: async () => {},
-  launchReady: true, openingEmailId: null,
+  launchReady: true, openingEmailId: null, prepareWorkspaceSwitch: async () => {},
 });
 
 export const useNotifications = () => useContext(NotificationContext);
@@ -83,6 +92,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const [pendingNav, setPendingNav] = useState<NotificationTarget | null>(null);
   const handledNotifIds = useRef<Set<string>>(new Set());
 
+  // Latest org id for notification listeners (they are mounted once; ref avoids
+  // stale closures when the user switches workspaces).
+  const organizationIdRef = useRef(organizationId);
+  organizationIdRef.current = organizationId;
+
   const queueNavigationFromResponse = useCallback((response: Notifications.NotificationResponse) => {
     const notifId = response.notification.request.identifier;
     if (notifId) {
@@ -92,6 +106,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     }
     const target = parseNotificationContent(response.notification.request.content);
     if (!target) return;
+    // Ignore taps for another workspace (payload may still arrive briefly after
+    // a switch, or if unregister against the previous tenant failed).
+    if (!notificationMatchesWorkspace(target, organizationIdRef.current)) return;
     if (target.emailId) setOpeningEmailId(target.emailId);
     setPendingNav(target);
   }, []);
@@ -106,6 +123,13 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     if (!navReady || !pendingNav || authLoading || !user) return;
+    // Re-check after org hydrates — cold-start may have queued a tap before
+    // organizationId was known.
+    if (!notificationMatchesWorkspace(pendingNav, organizationId)) {
+      setPendingNav(null);
+      setOpeningEmailId(null);
+      return;
+    }
     if (pendingNav.accountId) selectAccountById(pendingNav.accountId);
     setSelectedLabel('INBOX');
     expectNotificationEmail(pendingNav.emailId);
@@ -118,7 +142,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     }
     setPendingNav(null);
   }, [
-    navReady, pendingNav, authLoading, user, router,
+    navReady, pendingNav, authLoading, user, organizationId, router,
     selectAccountById, setSelectedLabel, expectNotificationEmail, refreshMail,
   ]);
 
@@ -173,8 +197,14 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     } catch {
       // ignore — best-effort cleanup
     }
+    await dismissAllPresentedNotifications();
     await setBadgeCount(0);
   };
+
+  // Same cleanup as sign-out, but keep the session: deactivate the token while
+  // the JWT still points at the *leaving* workspace, then clear the shade.
+  // NotificationContext re-registers against the new org after setActive.
+  const prepareWorkspaceSwitch = unregisterDevice;
 
   // Cold-start replay + tap listener: do this on mount, not after org hydrates.
   // Waiting for organizationId was what left the inbox on screen first.
@@ -184,6 +214,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       try {
         const cleanup = setupNotificationListeners(
           (notification) => {
+            const target = parseNotificationContent(notification.request.content);
+            // Drop badge updates from pushes that belong to another workspace.
+            if (target && !notificationMatchesWorkspace(target, organizationIdRef.current)) {
+              return;
+            }
             const data = notification.request.content.data as { unreadCount?: number };
             if (data?.unreadCount !== undefined) {
               setUnreadCount(data.unreadCount);
@@ -261,7 +296,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     <NotificationContext.Provider value={{
       unreadCount, isConnected, isPermissionGranted,
       requestPermissions, openNotificationSettings, refreshBadgeCount, unregisterDevice,
-      launchReady, openingEmailId,
+      launchReady, openingEmailId, prepareWorkspaceSwitch,
     }}>
       {children}
     </NotificationContext.Provider>

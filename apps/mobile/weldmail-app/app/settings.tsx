@@ -15,7 +15,7 @@ export default function SettingsScreen() {
   const { theme, colors, toggleTheme } = useTheme();
   const { user, signOut } = useClerkAuth();
   const { currentWorkspace, workspaces, switchWorkspace, hasMultipleWorkspaces } = useWorkspace();
-  const { unregisterDevice } = useNotifications();
+  const { unregisterDevice, prepareWorkspaceSwitch } = useNotifications();
   const [switchingId, setSwitchingId] = useState<string | null>(null);
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -59,10 +59,14 @@ export default function SettingsScreen() {
     await signOut();
   };
 
+  // Unregister against the *current* tenant while the JWT still carries that
+  // org, then switch. Otherwise the Expo token stays active in the previous
+  // workspace's device_tokens table and mail-inbound keeps pushing.
   const handleSwitchWorkspace = async (clerkOrgId: string) => {
     if (switchingId) return;
     setSwitchingId(clerkOrgId);
     try {
+      await prepareWorkspaceSwitch();
       await switchWorkspace(clerkOrgId);
     } catch (err) {
       console.error('Failed to switch workspace:', err);

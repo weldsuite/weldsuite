@@ -10,6 +10,8 @@
 
 /** Shape of a `generateId()` id — see `packages/core/db` `lib/id`. */
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,40}$/;
+/** Clerk organization ids (`org_…`); slightly wider than generateId. */
+const CLERK_ORG_ID_PATTERN = /^org_[A-Za-z0-9]{1,64}$/;
 
 const FROM_TITLE = /^New email from (.+)$/;
 const NAME_MAX = 80;
@@ -21,6 +23,11 @@ export interface NotificationTarget {
   emailId?: string;
   /** Mail account the message belongs to, so the mailbox can follow it. */
   accountId?: string;
+  /**
+   * Clerk organization id of the workspace that produced the push. Used to
+   * ignore notifications after the user has switched to a different workspace.
+   */
+  clerkOrgId?: string;
   /** Sender display name — paints the detail chrome before the body loads. */
   fromName?: string;
   fromEmail?: string;
@@ -53,6 +60,10 @@ function parseId(value: unknown): string | undefined {
   return typeof value === 'string' && ID_PATTERN.test(value) ? value : undefined;
 }
 
+function parseClerkOrgId(value: unknown): string | undefined {
+  return typeof value === 'string' && CLERK_ORG_ID_PATTERN.test(value) ? value : undefined;
+}
+
 /**
  * Turn the `data` blob of a notification into a navigation target, dropping any
  * id that doesn't look like one of ours. Returns null when there is nothing
@@ -64,17 +75,33 @@ export function parseNotificationTarget(data: unknown): NotificationTarget | nul
 
   const emailId = parseId(record.emailId);
   const accountId = parseId(record.emailAccountId);
+  const clerkOrgId = parseClerkOrgId(record.clerkOrgId);
 
   if (!emailId && !accountId) return null;
 
   return {
     emailId,
     accountId,
+    clerkOrgId,
     fromName: clipPreviewString(record.fromName, NAME_MAX),
     fromEmail: clipPreviewString(record.fromEmail, SUBJECT_MAX),
     subject: clipPreviewString(record.subject, SUBJECT_MAX),
     preview: clipPreviewString(record.preview, PREVIEW_MAX),
   };
+}
+
+/**
+ * Whether a parsed push belongs to the active Clerk organization.
+ * Legacy payloads without `clerkOrgId` are treated as matching so older
+ * tickets still open; once the inbound worker ships the field, wrong-workspace
+ * pushes are dropped on the device.
+ */
+export function notificationMatchesWorkspace(
+  target: Pick<NotificationTarget, 'clerkOrgId'>,
+  activeClerkOrgId: string | null | undefined,
+): boolean {
+  if (!target.clerkOrgId || !activeClerkOrgId) return true;
+  return target.clerkOrgId === activeClerkOrgId;
 }
 
 export interface NotificationContent {

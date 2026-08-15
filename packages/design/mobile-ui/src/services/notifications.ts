@@ -187,6 +187,19 @@ export async function setBadgeCount(count: number): Promise<void> {
 }
 
 /**
+ * Dismiss every presented OS notification (notification center / shade).
+ * Used on workspace switch and sign-out so banners from another tenant
+ * do not linger after the push token has been deactivated.
+ */
+export async function dismissAllPresentedNotifications(): Promise<void> {
+  try {
+    await Notifications.dismissAllNotificationsAsync();
+  } catch (error) {
+    console.error('Error dismissing presented notifications:', error);
+  }
+}
+
+/**
  * Get badge count
  */
 export async function getBadgeCount(): Promise<number> {

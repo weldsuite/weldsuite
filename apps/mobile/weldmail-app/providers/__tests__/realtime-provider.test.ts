@@ -18,4 +18,10 @@ describe('RealtimeProvider', () => {
   it('does not keep the unused banner component', () => {
     expect(existsSync(join(__dirname, '../../components/RealtimeStatusBanner.tsx'))).toBe(false);
   });
+
+  it('remounts the realtime client when the active organization changes', () => {
+    // WorkspaceHub is org-scoped; keying only by userId left the previous
+    // workspace's mail socket alive after a Clerk setActive switch.
+    expect(src).toMatch(/\$\{user\.id\}:\$\{organizationId/);
+  });
 });
