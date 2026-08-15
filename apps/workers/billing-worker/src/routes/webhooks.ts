@@ -18,6 +18,7 @@ import {
   createStripeSubscription,
   stripeApiRequest,
   retrievePaymentIntent,
+  retrieveCustomer,
   setCustomerDefaultPaymentMethod,
 } from '../lib/stripe';
 import { calculateEffectiveSeatLimit, syncClerkSeatLimit, getMemberCount } from '../lib/clerk';
@@ -75,7 +76,7 @@ function paymentIntentIdFromSession(session: StripeCheckoutSession): string | nu
 function customerIdFromSession(session: StripeCheckoutSession): string | null {
   const customer = session.customer;
   if (!customer) return null;
-  return typeof customer === 'string' ? customer : customer;
+  return typeof customer === 'string' ? customer : customer.id;
 }
 
 /**
@@ -95,6 +96,14 @@ async function saveCheckoutPaymentMethodAsDefault(
     const pm = pi?.payment_method;
     const paymentMethodId = typeof pm === 'string' ? pm : pm?.id;
     if (!paymentMethodId) return;
+    const customer = await retrieveCustomer(secret, customerId);
+    const existingDefault = customer.invoice_settings?.default_payment_method;
+    if (existingDefault) {
+      console.log(
+        `[Domain Registration] Customer ${customerId} already has a default payment method, leaving it unchanged`,
+      );
+      return;
+    }
     await setCustomerDefaultPaymentMethod(secret, customerId, paymentMethodId);
     console.log(
       `[Domain Registration] Saved ${paymentMethodId} as default payment method for ${customerId}`,
@@ -2059,6 +2068,13 @@ async function handleDomainRenewalInvoicePaid(
     return;
   }
 
+  const processedId = (domainRow.metadata as { stripeRenewalProcessedInvoiceId?: unknown } | null)
+    ?.stripeRenewalProcessedInvoiceId;
+  if (processedId === invoice.id) {
+    console.log(`[Domain Renewal] Invoice ${invoice.id} already applied to ${domainRow.fullDomain}`);
+    return;
+  }
+
   if (domainRow.registrationStatus === 'pending_renewal' || domainRow.registrationStatus === 'renewed') {
     const expiresAt = domainRow.expiresAt ? new Date(domainRow.expiresAt).getTime() : 0;
     if (expiresAt > Date.now() + 30 * 86_400_000) {
@@ -2086,9 +2102,14 @@ async function handleDomainRenewalInvoicePaid(
       throw new Error(result.message);
     }
 
+    const billedExpiry = domainRow.expiresAt
+      ? new Date(domainRow.expiresAt).toISOString().slice(0, 10)
+      : undefined;
     const metadata = {
       ...(domainRow.metadata ?? {}),
       stripeRenewalInvoiceId: invoice.id,
+      ...(billedExpiry ? { stripeRenewalForExpiresAt: billedExpiry } : {}),
+      stripeRenewalProcessedInvoiceId: invoice.id,
     };
 
     if (result.status === 'pending') {
@@ -2114,10 +2135,6 @@ async function handleDomainRenewalInvoicePaid(
       return;
     }
 
-    const { stripeRenewalInvoiceId: _id, stripeRenewalForExpiresAt: _exp, ...rest } =
-      metadata as Record<string, unknown>;
-    void _id;
-    void _exp;
     await tenantDb
       .update(tenantSchema.hostDomains)
       .set({
@@ -2127,7 +2144,7 @@ async function handleDomainRenewalInvoicePaid(
         expiresAt: result.domain.expiresAt ? new Date(result.domain.expiresAt) : domainRow.expiresAt,
         registrarStatus: result.domain.status.join(','),
         registrarSyncedAt: new Date(),
-        metadata: rest,
+        metadata,
         updatedAt: new Date(),
       })
       .where(eq(tenantSchema.hostDomains.id, domainId));

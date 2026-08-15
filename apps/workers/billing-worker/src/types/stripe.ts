@@ -14,7 +14,7 @@ export interface StripeCheckoutSession {
   id: string;
   mode: string;
   subscription: string | null;
-  customer: string | null;
+  customer: string | { id: string } | null;
   metadata: Record<string, string> | null;
   /** 'paid' | 'unpaid' | 'no_payment_required' — relevant for mode='payment'. */
   payment_status?: string;

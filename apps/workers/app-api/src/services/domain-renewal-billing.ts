@@ -44,6 +44,7 @@ function expiresAtKey(expiresAt: Date): string {
 export function renewalMeta(metadata: Record<string, unknown> | null | undefined): {
   stripeRenewalInvoiceId: string | null;
   stripeRenewalForExpiresAt: string | null;
+  stripeRenewalProcessedInvoiceId: string | null;
   rtrRenewalProcessId: string | null;
 } {
   const meta = metadata ?? {};
@@ -52,9 +53,24 @@ export function renewalMeta(metadata: Record<string, unknown> | null | undefined
       typeof meta.stripeRenewalInvoiceId === 'string' ? meta.stripeRenewalInvoiceId : null,
     stripeRenewalForExpiresAt:
       typeof meta.stripeRenewalForExpiresAt === 'string' ? meta.stripeRenewalForExpiresAt : null,
+    stripeRenewalProcessedInvoiceId:
+      typeof meta.stripeRenewalProcessedInvoiceId === 'string'
+        ? meta.stripeRenewalProcessedInvoiceId
+        : null,
     rtrRenewalProcessId:
       typeof meta.rtrRenewalProcessId === 'string' ? meta.rtrRenewalProcessId : null,
   };
+}
+
+/** Stored invoice may be reused only for the expiry it was raised against. */
+export function storedInvoiceAppliesToExpiry(
+  meta: ReturnType<typeof renewalMeta>,
+  expiresAt: Date,
+): boolean {
+  return (
+    Boolean(meta.stripeRenewalInvoiceId) &&
+    meta.stripeRenewalForExpiresAt === expiresAtKey(expiresAt)
+  );
 }
 
 export function isDueForStripeAutoRenew(
@@ -154,6 +170,7 @@ async function persistRenewalInvoiceMeta(
   metadata: Record<string, unknown>,
   invoiceId: string,
   expiresAt: Date,
+  extra?: { processedInvoiceId?: string },
 ) {
   await db
     .update(hostDomains)
@@ -162,6 +179,9 @@ async function persistRenewalInvoiceMeta(
         ...metadata,
         stripeRenewalInvoiceId: invoiceId,
         stripeRenewalForExpiresAt: expiresAtKey(expiresAt),
+        ...(extra?.processedInvoiceId
+          ? { stripeRenewalProcessedInvoiceId: extra.processedInvoiceId }
+          : {}),
       },
       updatedAt: new Date(),
     })
@@ -210,8 +230,10 @@ export async function chargeAndRenewDomain(
 
   const meta = renewalMeta(domain.metadata);
   if (
-    meta.stripeRenewalForExpiresAt === expiresAtKey(domain.expiresAt) &&
-    domain.registrationStatus === 'renewed'
+    (params.alreadyPaidInvoiceId &&
+      meta.stripeRenewalProcessedInvoiceId === params.alreadyPaidInvoiceId) ||
+    (meta.stripeRenewalForExpiresAt === expiresAtKey(domain.expiresAt) &&
+      domain.registrationStatus === 'renewed')
   ) {
     return { ok: false, reason: 'already_renewed' };
   }
@@ -223,7 +245,9 @@ export async function chargeAndRenewDomain(
   if (amountCents === null || amountCents <= 0) return { ok: false, reason: 'no_price' };
   const currency = (pricing?.currency ?? 'usd').toLowerCase();
 
-  let invoiceId = params.alreadyPaidInvoiceId ?? meta.stripeRenewalInvoiceId;
+  let invoiceId =
+    params.alreadyPaidInvoiceId ??
+    (storedInvoiceAppliesToExpiry(meta, domain.expiresAt) ? meta.stripeRenewalInvoiceId : null);
   let invoice: StripeInvoice | null = null;
 
   if (invoiceId && !params.alreadyPaidInvoiceId) {
@@ -251,6 +275,14 @@ export async function chargeAndRenewDomain(
     );
     const updated = await renewDomain(db, { rtr, cf: null }, { domainId: domain.id });
     if (!updated) return { ok: false, reason: 'not_found' };
+    await persistRenewalInvoiceMeta(
+      db,
+      domain.id,
+      updated.metadata ?? {},
+      paidId,
+      domain.expiresAt,
+      { processedInvoiceId: paidId },
+    );
     return {
       ok: true,
       invoiceId: paidId,
@@ -288,6 +320,8 @@ export async function chargeAndRenewDomain(
     );
   }
 
+  if (!invoiceId) return { ok: false, reason: 'payment_failed' };
+
   if (invoice.status !== 'paid') {
     try {
       invoice = await payInvoiceOffSession(params.stripeSecretKey, invoiceId);
@@ -295,7 +329,7 @@ export async function chargeAndRenewDomain(
       try {
         invoice = await retrieveInvoice(params.stripeSecretKey, invoiceId);
       } catch {
-        invoice = invoice;
+        // Keep the last known invoice and fall through to the paid check.
       }
       if (invoice.status !== 'paid') {
         console.error('[domain-renewal] off-session pay failed:', err);
@@ -310,6 +344,14 @@ export async function chargeAndRenewDomain(
 
   const updated = await renewDomain(db, { rtr, cf: null }, { domainId: domain.id });
   if (!updated) return { ok: false, reason: 'not_found' };
+  await persistRenewalInvoiceMeta(
+    db,
+    domain.id,
+    updated.metadata ?? {},
+    invoiceId,
+    domain.expiresAt,
+    { processedInvoiceId: invoiceId },
+  );
   return {
     ok: true,
     invoiceId,
@@ -337,6 +379,10 @@ export async function voidPendingRenewalInvoice(
       await voidInvoice(stripeSecretKey, invoiceId);
     }
   } catch (err) {
-    console.warn('[domain-renewal] void pending invoice failed:', err);
+    if (isDefiniteStripeFailure(err)) {
+      console.warn('[domain-renewal] pending invoice already gone:', err);
+      return;
+    }
+    throw err;
   }
 }

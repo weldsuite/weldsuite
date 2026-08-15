@@ -382,7 +382,7 @@ export async function createDomainRenewalInvoice(
   secretKey: string,
   params: DomainRenewalInvoiceParams,
 ): Promise<StripeInvoice> {
-  const invoice = (await stripeRequest(
+  const created = (await stripeRequest(
     secretKey,
     'POST',
     '/v1/invoices',
@@ -399,29 +399,33 @@ export async function createDomainRenewalInvoice(
     { 'Idempotency-Key': params.idempotencyKey },
   )) as StripeInvoice;
 
-  if (invoice.status === 'draft') {
-    await stripeRequest(
-      secretKey,
-      'POST',
-      '/v1/invoiceitems',
-      {
-        customer: params.customerId,
-        invoice: invoice.id,
-        amount: String(params.amountCents),
-        currency: params.currency.toLowerCase(),
-        description: params.description,
-      },
-      { 'Idempotency-Key': `${params.idempotencyKey}:item` },
-    );
+  // Idempotent retries replay the original create body; retrieve live status
+  // before adding items or finalizing so a previously finalized invoice is not
+  // finalized again.
+  const invoice = await retrieveInvoice(secretKey, created.id);
+  if (invoice.status !== 'draft') return invoice;
 
-    return (await stripeRequest(
-      secretKey,
-      'POST',
-      `/v1/invoices/${invoice.id}/finalize`,
-    )) as StripeInvoice;
-  }
+  await stripeRequest(
+    secretKey,
+    'POST',
+    '/v1/invoiceitems',
+    {
+      customer: params.customerId,
+      invoice: invoice.id,
+      amount: String(params.amountCents),
+      currency: params.currency.toLowerCase(),
+      description: params.description,
+    },
+    { 'Idempotency-Key': `${params.idempotencyKey}:item` },
+  );
 
-  return invoice;
+  return (await stripeRequest(
+    secretKey,
+    'POST',
+    `/v1/invoices/${invoice.id}/finalize`,
+    undefined,
+    { 'Idempotency-Key': `${params.idempotencyKey}:finalize` },
+  )) as StripeInvoice;
 }
 
 /** Charge a finalized invoice using the customer's default payment method. */

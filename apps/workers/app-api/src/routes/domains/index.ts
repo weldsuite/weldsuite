@@ -518,15 +518,15 @@ app.post(
     const id = c.req.param('id');
     const { enabled } = c.req.valid('json');
     try {
+      if (!enabled && c.env.STRIPE_SECRET_KEY) {
+        await voidPendingRenewalInvoice(c.get('tenantDb'), c.env.STRIPE_SECRET_KEY, id);
+      }
       const updated = await domainsService.toggleAutoRenew(
         c.get('tenantDb'),
         registrarClients(c.env),
         { domainId: id, enabled },
       );
       if (!updated) return error.notFound(c, 'Domain', id);
-      if (!enabled && c.env.STRIPE_SECRET_KEY) {
-        await voidPendingRenewalInvoice(c.get('tenantDb'), c.env.STRIPE_SECRET_KEY, id);
-      }
       publishEntityEvent({
         c,
         entityType: 'domain',

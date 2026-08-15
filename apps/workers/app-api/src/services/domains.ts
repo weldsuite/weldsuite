@@ -1407,11 +1407,9 @@ export async function renewDomain(
     patch.expiresAt = result.domain.expiresAt ? new Date(result.domain.expiresAt) : domain.expiresAt;
     patch.registrarStatus = result.domain.status.join(',');
     patch.registrarSyncedAt = new Date();
-    const { stripeRenewalInvoiceId: _paid, stripeRenewalForExpiresAt: _exp, ...rest } =
-      (domain.metadata ?? {}) as Record<string, unknown>;
-    void _paid;
-    void _exp;
-    patch.metadata = rest;
+    const metadata = { ...(domain.metadata ?? {}) };
+    delete metadata.rtrRenewalProcessId;
+    patch.metadata = metadata;
   }
 
   const [updated] = await db
@@ -1473,11 +1471,8 @@ export async function pollRenewalProcess(
 
   try {
     const remote = await rtr.getDomain(domain.fullDomain);
-    const { stripeRenewalInvoiceId: _paid, stripeRenewalForExpiresAt: _exp, rtrRenewalProcessId: _proc, ...rest } =
-      (domain.metadata ?? {}) as Record<string, unknown>;
-    void _paid;
-    void _exp;
-    void _proc;
+    const metadata = { ...(domain.metadata ?? {}) };
+    delete metadata.rtrRenewalProcessId;
     const [updated] = await db
       .update(hostDomains)
       .set({
@@ -1487,7 +1482,7 @@ export async function pollRenewalProcess(
         expiresAt: remote.expiresAt ? new Date(remote.expiresAt) : domain.expiresAt,
         registrarStatus: remote.status.join(','),
         registrarSyncedAt: new Date(),
-        metadata: rest,
+        metadata,
         updatedAt: new Date(),
       })
       .where(eq(hostDomains.id, domainId))

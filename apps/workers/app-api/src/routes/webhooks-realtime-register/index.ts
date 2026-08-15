@@ -14,6 +14,7 @@ import type { Env, Variables } from '../../types';
 import { verifyWebhookToken } from '../../lib/webhook-token';
 import { getRealtimeRegistrar } from '../../lib/realtime-registrar';
 import { getTenantDbForWorkspace } from '../../db';
+import { publishEntityEventRaw } from '@weldsuite/entity-events';
 import * as domainsService from '../../services/domains';
 import * as transfersService from '../../services/domain-transfers';
 
@@ -100,8 +101,24 @@ app.post('/', async (c) => {
       await domainsService.pollRegistrationProcess(tenantDb, rtr, mapping.domainId);
       console.log(`[RTR Webhook] polled registration ${mapping.domainId} for process ${processId}`);
     } else if (mapping.kind === 'renewal' && mapping.domainId) {
-      await domainsService.pollRenewalProcess(tenantDb, rtr, mapping.domainId);
+      const polled = await domainsService.pollRenewalProcess(tenantDb, rtr, mapping.domainId);
       console.log(`[RTR Webhook] polled renewal ${mapping.domainId} for process ${processId}`);
+      if (
+        polled &&
+        (polled.registrationStatus === 'renewed' || polled.registrationStatus === 'failed')
+      ) {
+        await publishEntityEventRaw({
+          env: c.env,
+          db: tenantDb,
+          workspaceId: mapping.workspaceId,
+          userId: 'system',
+          entityType: 'domain',
+          action: 'updated',
+          entityId: mapping.domainId,
+          data: { id: mapping.domainId, name: polled.fullDomain, status: polled.status },
+          source: 'system',
+        });
+      }
     } else if (mapping.kind === 'transfer' && mapping.transferId) {
       await transfersService.syncTransferFromRegistrar(tenantDb, rtr, mapping.transferId);
       console.log(`[RTR Webhook] synced transfer ${mapping.transferId} for process ${processId}`);
