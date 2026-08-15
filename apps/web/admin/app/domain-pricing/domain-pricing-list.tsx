@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Globe, Loader2, Percent, RefreshCw, Search } from 'lucide-react';
+import { Globe, Loader2, Percent, Plus, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
@@ -31,7 +31,9 @@ import { PageBody, PageContent, PageHeading } from '@/components/shell/admin-she
 import {
   applyDomainPricingMarkup,
   backfillDomainPricing,
+  createDomainPricing,
   updateDomainPricingMarkup,
+  updateDomainPricingRenewal,
 } from '@/actions/domain-pricing';
 import { adminPricingCopy, fill } from '@/lib/i18n';
 import {
@@ -70,6 +72,8 @@ export function DomainPricingList({
   const [confirm, setConfirm] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [editRow, setEditRow] = useState<DomainPricingRow | null>(null);
+  const [renewRow, setRenewRow] = useState<DomainPricingRow | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
   const [isMutating, startMutation] = useTransition();
   const copy = adminPricingCopy();
 
@@ -121,6 +125,38 @@ export function DomainPricingList({
     });
   }
 
+  function saveRenewal(renewalPrice: string) {
+    if (!renewRow) return;
+    startMutation(async () => {
+      const result = await updateDomainPricingRenewal(renewRow.id, { renewalPrice });
+      if (result.ok) {
+        toast.success(copy.renewSaved);
+        setRenewRow(null);
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    });
+  }
+
+  function runCreate(input: {
+    tld: string;
+    registrationPrice: string;
+    renewalPrice: string;
+    transferPrice: string;
+  }) {
+    startMutation(async () => {
+      const result = await createDomainPricing(input);
+      if (result.ok) {
+        toast.success(fill(copy.createSaved, { tld: result.data.tld }));
+        setCreateOpen(false);
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    });
+  }
+
   return (
     <PageContent>
       <PageBody className="space-y-6">
@@ -134,6 +170,15 @@ export function DomainPricingList({
           description={copy.description}
           actions={
             <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCreateOpen(true)}
+                disabled={isMutating}
+              >
+                <Plus className="h-4 w-4" />
+                {copy.addTldButton}
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -211,6 +256,7 @@ export function DomainPricingList({
               )}
               {filtered.map((row) => {
                 const customer = customerPriceMajor(row.registrationPrice, row);
+                const customerRenew = customerPriceMajor(row.renewalPrice, row);
                 return (
                   <TableRow key={row.id} className="h-10 hover:bg-muted/50">
                     <TableCell className="py-2 font-mono text-sm">
@@ -222,8 +268,17 @@ export function DomainPricingList({
                     <TableCell className="py-2 text-right font-medium tabular-nums">
                       {formatMoney(customer ?? row.registrationPrice, row.currency)}
                     </TableCell>
-                    <TableCell className="py-2 text-right tabular-nums">
-                      {formatMoney(row.renewalPrice, row.currency)}
+                    <TableCell className="py-2 text-right">
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        className="tabular-nums"
+                        aria-label={fill(copy.renewEditAria, { tld: row.tld.replace(/^\./, '') })}
+                        onClick={() => setRenewRow(row)}
+                        disabled={isMutating}
+                      >
+                        {formatMoney(customerRenew ?? row.renewalPrice, row.currency)}
+                      </Button>
                     </TableCell>
                     <TableCell className="py-2 text-right tabular-nums">
                       {formatMoney(row.transferPrice, row.currency)}
@@ -289,6 +344,29 @@ export function DomainPricingList({
           setEditRow(null);
         }}
         onSave={saveMarkup}
+      />
+
+      <RenewalDialog
+        open={renewRow !== null}
+        tld={renewRow ? renewRow.tld.replace(/^\./, '') : null}
+        currency={renewRow?.currency ?? 'USD'}
+        initialValue={renewRow?.renewalPrice ?? ''}
+        markup={
+          renewRow
+            ? { markupAmount: renewRow.markupAmount, markupPercent: renewRow.markupPercent }
+            : { markupAmount: null, markupPercent: null }
+        }
+        isMutating={isMutating}
+        onClose={() => setRenewRow(null)}
+        onSave={saveRenewal}
+      />
+
+      <CreateTldDialog
+        open={createOpen}
+        currency={rows[0]?.currency ?? 'USD'}
+        isMutating={isMutating}
+        onClose={() => setCreateOpen(false)}
+        onSave={runCreate}
       />
     </PageContent>
   );
@@ -393,6 +471,179 @@ function MarkupDialog({
           <Button onClick={() => onSave(kind, value, onlyEmpty)} disabled={isMutating}>
             {isMutating && <Loader2 className="h-4 w-4 animate-spin" />}
             {copy.markupSave}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function RenewalDialog({
+  open,
+  tld,
+  currency,
+  initialValue,
+  markup,
+  isMutating,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  tld: string | null;
+  currency: string;
+  initialValue: string;
+  markup: { markupAmount: number | null; markupPercent: string | null };
+  isMutating: boolean;
+  onClose: () => void;
+  onSave: (renewalPrice: string) => void;
+}) {
+  const copy = adminPricingCopy();
+  const [value, setValue] = useState(initialValue);
+  const customerPreview = customerPriceMajor(value, markup);
+
+  useEffect(() => {
+    if (!open) return;
+    setValue(initialValue);
+  }, [open, tld, initialValue]);
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {tld ? fill(copy.renewDialogTitleTld, { tld }) : copy.renewDialogTitle}
+          </DialogTitle>
+          <DialogDescription>{copy.renewDialogDescription}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="renewal-price">{fill(copy.renewPriceLabel, { currency })}</Label>
+          <Input
+            id="renewal-price"
+            type="number"
+            min="0"
+            step="0.01"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="12.00"
+          />
+          {customerPreview && (
+            <p className="text-xs text-muted-foreground">
+              {fill(copy.renewCustomerPreview, {
+                price: formatMoney(customerPreview, currency),
+              })}
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={isMutating}>
+            {copy.confirmCancel}
+          </Button>
+          <Button onClick={() => onSave(value)} disabled={isMutating}>
+            {isMutating && <Loader2 className="h-4 w-4 animate-spin" />}
+            {copy.markupSave}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CreateTldDialog({
+  open,
+  currency,
+  isMutating,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  currency: string;
+  isMutating: boolean;
+  onClose: () => void;
+  onSave: (input: {
+    tld: string;
+    registrationPrice: string;
+    renewalPrice: string;
+    transferPrice: string;
+  }) => void;
+}) {
+  const copy = adminPricingCopy();
+  const [tld, setTld] = useState('');
+  const [registrationPrice, setRegistrationPrice] = useState('');
+  const [renewalPrice, setRenewalPrice] = useState('');
+  const [transferPrice, setTransferPrice] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    setTld('');
+    setRegistrationPrice('');
+    setRenewalPrice('');
+    setTransferPrice('');
+  }, [open]);
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{copy.createDialogTitle}</DialogTitle>
+          <DialogDescription>{copy.createDialogDescription}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <Label htmlFor="create-tld">{copy.createTldLabel}</Label>
+            <Input
+              id="create-tld"
+              value={tld}
+              onChange={(e) => setTld(e.target.value)}
+              placeholder="com"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="create-register">{fill(copy.createRegisterLabel, { currency })}</Label>
+            <Input
+              id="create-register"
+              type="number"
+              min="0"
+              step="0.01"
+              value={registrationPrice}
+              onChange={(e) => setRegistrationPrice(e.target.value)}
+              placeholder="10.00"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="create-renew">{fill(copy.createRenewLabel, { currency })}</Label>
+            <Input
+              id="create-renew"
+              type="number"
+              min="0"
+              step="0.01"
+              value={renewalPrice}
+              onChange={(e) => setRenewalPrice(e.target.value)}
+              placeholder="12.00"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="create-transfer">{fill(copy.createTransferLabel, { currency })}</Label>
+            <Input
+              id="create-transfer"
+              type="number"
+              min="0"
+              step="0.01"
+              value={transferPrice}
+              onChange={(e) => setTransferPrice(e.target.value)}
+              placeholder="10.00"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={isMutating}>
+            {copy.confirmCancel}
+          </Button>
+          <Button
+            onClick={() => onSave({ tld, registrationPrice, renewalPrice, transferPrice })}
+            disabled={isMutating}
+          >
+            {isMutating && <Loader2 className="h-4 w-4 animate-spin" />}
+            {copy.createSave}
           </Button>
         </DialogFooter>
       </DialogContent>

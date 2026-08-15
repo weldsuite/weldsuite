@@ -71,7 +71,7 @@ export const host = {
       cardDescription: 'Catálogo de TLD sincronizado desde Realtime Register en USD',
       title: 'Precios de dominios',
       description:
-        'Catálogo maestro que WeldHost usa para búsqueda y pago. Sincroniza precios mayoristas en USD desde la lista de Realtime Register; el margen existente no se modifica.',
+        'Catálogo maestro que WeldHost usa para búsqueda, pago y renovación automática. Sincroniza precios mayoristas de registro/transferencia en USD desde Realtime Register; los precios de renovación que definas y el margen no se modifican.',
       backfillButton: 'Sincronizar desde Realtime Register',
       catalog: 'Catálogo',
       active: 'Activos',
@@ -92,7 +92,7 @@ export const host = {
       statusPopular: 'popular',
       confirmTitle: '¿Sincronizar precios de dominio?',
       confirmDescription:
-        'Esto llama a Realtime Register GET /v2/customers/…/pricelist (USD) y escribe los precios mayoristas de registro/renovación/transferencia en el catálogo maestro. El margen existente no se sobrescribe.',
+        'Esto llama a Realtime Register GET /v2/customers/…/pricelist (USD) y escribe los precios mayoristas de registro/transferencia en el catálogo maestro. Los TLD nuevos también reciben un precio de renovación de la lista. Los precios de renovación que definas y el margen no se sobrescriben.',
       confirmCancel: 'Cancelar',
       confirmFetch: 'Obtener lista de precios',
       backfillSuccess:
@@ -122,6 +122,29 @@ export const host = {
       markupInvalid: 'Introduce un número válido mayor o igual que 0',
       markupOutOfRange: 'El porcentaje debe estar entre 0 y 999.99',
       markupNotFound: 'No se encontró la fila de precios',
+      priceInvalid: 'Introduce un precio válido mayor o igual que 0',
+      priceOutOfRange: 'El precio no puede superar 99999999.99',
+      addTldButton: 'Añadir TLD',
+      renewEditAria: 'Editar precio de renovación de .{tld}',
+      renewDialogTitle: 'Establecer precio de renovación',
+      renewDialogTitleTld: 'Establecer precio de renovación de .{tld}',
+      renewDialogDescription:
+        'Precio de renovación definido en el catálogo maestro. El margen se suma encima. La renovación automática cobra este precio de cliente desde la base de datos.',
+      renewPriceLabel: 'Precio de renovación ({currency})',
+      renewCustomerPreview: 'El cliente paga {price} tras el margen',
+      renewSaved: 'Precio de renovación actualizado',
+      renewNotFound: 'No se encontró la fila de precios',
+      createDialogTitle: 'Añadir precio de TLD',
+      createDialogDescription:
+        'Crea una fila en el catálogo maestro. El precio de renovación se define aquí y se usa para la facturación de renovación automática.',
+      createTldLabel: 'TLD',
+      createRegisterLabel: 'Precio de registro ({currency})',
+      createRenewLabel: 'Precio de renovación ({currency})',
+      createTransferLabel: 'Precio de transferencia ({currency})',
+      createSave: 'Crear',
+      createSaved: 'Se añadió .{tld} al catálogo',
+      createDuplicate: 'Ese TLD ya existe',
+      createTldInvalid: 'Introduce un TLD válido (p. ej. com o co.uk)',
     },
 
     // Domain availability checker

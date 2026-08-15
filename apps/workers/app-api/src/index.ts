@@ -764,6 +764,7 @@ export { ImportTasksWorkflow } from './workflows/import-tasks';
 // [triggers]): hourly task digests + daily calendar replan.
 import { runDigestSweep } from './cron/digest-sweep';
 import { runCalendarReplanSweep } from './cron/calendar-replan';
+import { runDomainAutoRenewSweep } from './cron/domain-auto-renew';
 import { handleSearchIndexBatch } from './queue/search-index-consumer';
 import type { EntityEventMessage } from '@weldsuite/entity-events';
 
@@ -793,11 +794,16 @@ export default {
     }
 
     // Daily at 04:00 UTC: re-plan stale auto-scheduled calendar events
-    // (tasks that were scheduled but didn't get done on the planned day)
+    // and invoice+renew WeldHost domains that are inside the auto-renew window.
     if (event.cron === '0 4 * * *') {
       ctx.waitUntil(
         runCalendarReplanSweep(env).catch((err) => {
           console.error('[CalendarReplan] Failed:', err);
+        }),
+      );
+      ctx.waitUntil(
+        runDomainAutoRenewSweep(env).catch((err) => {
+          console.error('[DomainAutoRenew] Failed:', err);
         }),
       );
     }

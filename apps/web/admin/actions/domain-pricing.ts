@@ -14,7 +14,7 @@ import { generateId } from '@/lib/id';
 import { getAdminRealtimeRegistrar } from '@/lib/realtime-registrar';
 import { listExistingDomainPricingKeys } from '@/lib/domain-pricing-data';
 import { adminPricingCopy } from '@/lib/i18n';
-import { parseMarkupInput, type MarkupPatch } from '@/lib/domain-pricing-markup';
+import { parseMarkupInput, parsePriceMajor, parseTldInput, type MarkupPatch } from '@/lib/domain-pricing-markup';
 
 const { hostDomainPricing } = masterSchema;
 
@@ -37,6 +37,11 @@ function refreshPricingRoutes(): void {
 function markupError(code: 'invalid' | 'out_of_range'): string {
   const copy = adminPricingCopy();
   return code === 'out_of_range' ? copy.markupOutOfRange : copy.markupInvalid;
+}
+
+function priceError(code: 'invalid' | 'out_of_range'): string {
+  const copy = adminPricingCopy();
+  return code === 'out_of_range' ? copy.priceOutOfRange : copy.priceInvalid;
 }
 
 async function persistMarkup(
@@ -144,7 +149,6 @@ export async function backfillDomainPricing(): Promise<ActionResult<BackfillDoma
           .update(hostDomainPricing)
           .set({
             registrationPrice: row.registrationPrice,
-            renewalPrice: row.renewalPrice,
             transferPrice: row.transferPrice,
             currency: row.currency,
             updatedAt: new Date(),
@@ -199,4 +203,67 @@ export async function applyDomainPricingMarkup(input: {
   const updated = await persistMarkup(parsed.data, { onlyEmpty: Boolean(input.onlyEmpty) });
   refreshPricingRoutes();
   return { ok: true, data: { updated } };
+}
+
+export async function updateDomainPricingRenewal(
+  id: string,
+  input: { renewalPrice: string },
+): Promise<ActionResult<{ id: string }>> {
+  const guard = await guardWrite();
+  if (!guard.ok) return { ok: false, error: guard.error };
+
+  const parsed = parsePriceMajor(input.renewalPrice);
+  if (!parsed.ok) return { ok: false, error: priceError(parsed.code) };
+
+  const db = getMasterDb();
+  const updated = await db
+    .update(hostDomainPricing)
+    .set({ renewalPrice: parsed.value, updatedAt: new Date() })
+    .where(eq(hostDomainPricing.id, id))
+    .returning({ id: hostDomainPricing.id });
+  if (!updated.length) return { ok: false, error: adminPricingCopy().renewNotFound };
+
+  refreshPricingRoutes();
+  return { ok: true, data: { id } };
+}
+
+export async function createDomainPricing(input: {
+  tld: string;
+  registrationPrice: string;
+  renewalPrice: string;
+  transferPrice: string;
+}): Promise<ActionResult<{ id: string; tld: string }>> {
+  const guard = await guardWrite();
+  if (!guard.ok) return { ok: false, error: guard.error };
+
+  const copy = adminPricingCopy();
+  const tld = parseTldInput(input.tld);
+  if (!tld.ok) return { ok: false, error: copy.createTldInvalid };
+
+  const registrationPrice = parsePriceMajor(input.registrationPrice);
+  if (!registrationPrice.ok) return { ok: false, error: priceError(registrationPrice.code) };
+  const renewalPrice = parsePriceMajor(input.renewalPrice);
+  if (!renewalPrice.ok) return { ok: false, error: priceError(renewalPrice.code) };
+  const transferPrice = parsePriceMajor(input.transferPrice);
+  if (!transferPrice.ok) return { ok: false, error: priceError(transferPrice.code) };
+
+  const db = getMasterDb();
+  const created = await db
+    .insert(hostDomainPricing)
+    .values({
+      id: generateId('dp'),
+      tld: tld.tld,
+      registrationPrice: registrationPrice.value,
+      renewalPrice: renewalPrice.value,
+      transferPrice: transferPrice.value,
+      currency: PRICELIST_CURRENCY,
+      isActive: true,
+      registrar: 'realtimeregister',
+    })
+    .onConflictDoNothing({ target: hostDomainPricing.tld })
+    .returning({ id: hostDomainPricing.id, tld: hostDomainPricing.tld });
+  if (!created[0]) return { ok: false, error: copy.createDuplicate };
+
+  refreshPricingRoutes();
+  return { ok: true, data: created[0] };
 }

@@ -111,16 +111,45 @@ function tldOf(name: string): string {
 const ALLOW_REGISTRAR_MARKUP = true;
 
 /**
- * Apply markup to a wholesale price already expressed in **cents**.
- * Falls back to `pricing.registrationPrice` (major units) when wholesale
- * cents are missing or when wholesale currency disagrees with the pricing row.
- * Returns null when neither source has a usable price.
+ * Apply markup to a catalog / wholesale price already expressed in **cents**.
+ *
+ * Registration uses live wholesale (premium checks) and falls back to
+ * catalog `registrationPrice` when wholesale is missing or the currency
+ * disagrees with the pricing row.
+ *
+ * Renewal always uses the authored catalog `renewalPrice` (admin dashboard)
+ * and ignores wholesale — auto-renew charges that stored amount plus markup.
  */
+export type DomainPriceKind = 'registration' | 'renewal';
+
+function applyCatalogMarkup(
+  cents: number,
+  pricing: typeof masterSchema.hostDomainPricing.$inferSelect | undefined,
+): number {
+  if (!ALLOW_REGISTRAR_MARKUP || !pricing) return cents;
+  if (pricing.markupAmount !== null && pricing.markupAmount !== undefined) {
+    return cents + pricing.markupAmount;
+  }
+  if (pricing.markupPercent !== null && pricing.markupPercent !== undefined) {
+    const pct = parseFloat(String(pricing.markupPercent));
+    return Math.round(cents * (1 + pct / 100));
+  }
+  return cents;
+}
+
 export function applyMarkup(
   wholesaleCents: number | undefined | null,
   pricing: typeof masterSchema.hostDomainPricing.$inferSelect | undefined,
   wholesaleCurrency?: string | null,
+  priceKind: DomainPriceKind = 'registration',
 ): number | null {
+  if (priceKind === 'renewal') {
+    if (pricing?.renewalPrice == null) return null;
+    const major = Number.parseFloat(String(pricing.renewalPrice));
+    if (!Number.isFinite(major)) return null;
+    return applyCatalogMarkup(Math.round(major * 100), pricing);
+  }
+
   const pricingCurrency = pricing?.currency?.toLowerCase() ?? null;
   const wholesaleCur = wholesaleCurrency?.toLowerCase() ?? null;
   const currencyMismatch =
@@ -139,16 +168,7 @@ export function applyMarkup(
     if (Number.isFinite(major)) cents = Math.round(major * 100);
   }
   if (cents === null) return null;
-
-  if (!ALLOW_REGISTRAR_MARKUP || !pricing) return cents;
-  if (pricing.markupAmount !== null && pricing.markupAmount !== undefined) {
-    return cents + pricing.markupAmount;
-  }
-  if (pricing.markupPercent !== null && pricing.markupPercent !== undefined) {
-    const pct = parseFloat(String(pricing.markupPercent));
-    return Math.round(cents * (1 + pct / 100));
-  }
-  return cents;
+  return applyCatalogMarkup(cents, pricing);
 }
 
 // ============================================================================
@@ -765,7 +785,8 @@ export async function syncDomainStatus(
         externalRegistrarId: remote.id,
         registrarStatus: remote.status.join(','),
         locked: remote.locked,
-        autoRenew: remote.autoRenew,
+        // Stripe owns auto-renew billing for RTR domains — don't clobber the
+        // customer preference with the registrar flag (which we keep off).
         privacyProtection: remote.privacyProtect,
         expiresAt: remote.expiresAt ? new Date(remote.expiresAt) : domain.expiresAt,
         authCode: remote.authCode ?? domain.authCode,
@@ -821,9 +842,14 @@ export async function toggleAutoRenew(
 
   // Registrar-backed domains must succeed at the registrar before we persist.
   // External / unregistered rows only update locally.
+  //
+  // Realtime Register auto-renew is owned by Stripe (charge, then we call
+  // RTR renew). Keep the registrar flag off so RTR does not bill WeldSuite
+  // independently of the customer invoice. Cloudflare Registrar has no
+  // renew API, so CF auto_renew still tracks the customer's toggle.
   if (domain.registrar === 'realtimeregister' && domain.externalRegistrarId) {
     if (!clients.rtr) throw new Error('Realtime Register is not configured');
-    await clients.rtr.updateDomain(domain.fullDomain, { autoRenew: params.enabled });
+    await clients.rtr.updateDomain(domain.fullDomain, { autoRenew: false });
   } else if (domain.registrar === 'cloudflare' && domain.externalRegistrarId) {
     if (!clients.cf) throw new Error('Cloudflare Registrar is not configured');
     await clients.cf.updateDomain(domain.fullDomain, { autoRenew: params.enabled });
@@ -1320,7 +1346,6 @@ export async function pollRegistrationProcess(
         registeredAt: new Date(),
         expiresAt: remote.expiresAt ? new Date(remote.expiresAt) : null,
         locked: remote.locked,
-        autoRenew: remote.autoRenew,
         privacyProtection: remote.privacyProtect,
         registrarSyncedAt: new Date(),
         updatedAt: new Date(),
@@ -1359,7 +1384,9 @@ export async function renewDomain(
   }
   if (!clients.rtr) throw new Error('Realtime Register is not configured');
 
-  const result = await clients.rtr.renew(domain.fullDomain, params.periodMonths ?? 12);
+  const result = await clients.rtr.renew(domain.fullDomain, params.periodMonths ?? 12, {
+    expiryDate: domain.expiresAt ? domain.expiresAt.toISOString().slice(0, 10) : undefined,
+  });
   if (result.status === 'failed') {
     throw new Error(result.message);
   }
@@ -1380,6 +1407,9 @@ export async function renewDomain(
     patch.expiresAt = result.domain.expiresAt ? new Date(result.domain.expiresAt) : domain.expiresAt;
     patch.registrarStatus = result.domain.status.join(',');
     patch.registrarSyncedAt = new Date();
+    const metadata = { ...(domain.metadata ?? {}) };
+    delete metadata.rtrRenewalProcessId;
+    patch.metadata = metadata;
   }
 
   const [updated] = await db
@@ -1388,6 +1418,80 @@ export async function renewDomain(
     .where(eq(hostDomains.id, params.domainId))
     .returning();
   return updated ?? null;
+}
+
+/**
+ * Finish an async RTR renew process stored on `metadata.rtrRenewalProcessId`.
+ * Separate from `pollRegistrationProcess` so a renewal cannot hijack a
+ * registration poll (and vice versa).
+ */
+export async function pollRenewalProcess(
+  db: Database,
+  rtr: RealtimeRegistrar,
+  domainId: string,
+): Promise<typeof hostDomains.$inferSelect | null> {
+  const [domain] = await db
+    .select()
+    .from(hostDomains)
+    .where(and(eq(hostDomains.id, domainId), isNull(hostDomains.deletedAt)))
+    .limit(1);
+  if (!domain) return null;
+  if (domain.registrationStatus !== 'pending_renewal') return domain;
+
+  const processIdRaw = (domain.metadata as { rtrRenewalProcessId?: unknown } | null)?.rtrRenewalProcessId;
+  const processId =
+    typeof processIdRaw === 'string' ? Number.parseInt(processIdRaw, 10) : Number(processIdRaw);
+  if (!Number.isFinite(processId) || processId <= 0) return domain;
+
+  let outcome: 'completed' | 'pending' | 'failed';
+  try {
+    outcome = await rtr.pollProcess(processId);
+  } catch (err) {
+    console.error('[domains.service] pollRenewalProcess pollProcess failed:', err);
+    return domain;
+  }
+  if (outcome === 'pending') return domain;
+
+  if (outcome === 'failed') {
+    const metadata = {
+      ...(domain.metadata ?? {}),
+      error: 'Registrar renewal process failed',
+    };
+    const [updated] = await db
+      .update(hostDomains)
+      .set({
+        registrationStatus: 'failed',
+        metadata,
+        updatedAt: new Date(),
+      })
+      .where(eq(hostDomains.id, domainId))
+      .returning();
+    return updated ?? null;
+  }
+
+  try {
+    const remote = await rtr.getDomain(domain.fullDomain);
+    const metadata = { ...(domain.metadata ?? {}) };
+    delete metadata.rtrRenewalProcessId;
+    const [updated] = await db
+      .update(hostDomains)
+      .set({
+        status: 'active',
+        registrationStatus: 'renewed',
+        renewedAt: new Date(),
+        expiresAt: remote.expiresAt ? new Date(remote.expiresAt) : domain.expiresAt,
+        registrarStatus: remote.status.join(','),
+        registrarSyncedAt: new Date(),
+        metadata,
+        updatedAt: new Date(),
+      })
+      .where(eq(hostDomains.id, domainId))
+      .returning();
+    return updated ?? null;
+  } catch (err) {
+    console.error('[domains.service] pollRenewalProcess getDomain failed:', err);
+    return domain;
+  }
 }
 
 /** Re-export contact input type for transfer/register helpers. */

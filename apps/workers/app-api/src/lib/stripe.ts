@@ -78,6 +78,9 @@ export async function createDomainCheckoutSession(
     mode: 'payment',
     success_url: params.successUrl,
     cancel_url: params.cancelUrl,
+    // Save the card (or SEPA mandate) so the daily auto-renew sweep can
+    // raise an off-session invoice next year without another Checkout.
+    'payment_intent_data[setup_future_usage]': 'off_session',
   };
 
   params.lineItems.forEach((item, idx) => {
@@ -359,6 +362,92 @@ export async function retrieveInvoice(
   invoiceId: string,
 ): Promise<StripeInvoice> {
   return (await stripeRequest(secretKey, 'GET', `/v1/invoices/${invoiceId}`)) as StripeInvoice;
+}
+
+export interface DomainRenewalInvoiceParams {
+  customerId: string;
+  amountCents: number;
+  currency: string;
+  description: string;
+  metadata: Record<string, string>;
+  idempotencyKey: string;
+}
+
+/**
+ * Create a draft invoice with one domain-renewal line, then finalize it.
+ * Payment is a separate call so the domain row can store the invoice id
+ * before we attempt an off-session charge.
+ */
+export async function createDomainRenewalInvoice(
+  secretKey: string,
+  params: DomainRenewalInvoiceParams,
+): Promise<StripeInvoice> {
+  const created = (await stripeRequest(
+    secretKey,
+    'POST',
+    '/v1/invoices',
+    {
+      customer: params.customerId,
+      auto_advance: 'false',
+      collection_method: 'charge_automatically',
+      description: params.description,
+      pending_invoice_items_behavior: 'exclude',
+      ...Object.fromEntries(
+        Object.entries(params.metadata).map(([k, v]) => [`metadata[${k}]`, v]),
+      ),
+    },
+    { 'Idempotency-Key': params.idempotencyKey },
+  )) as StripeInvoice;
+
+  // Idempotent retries replay the original create body; retrieve live status
+  // before adding items or finalizing so a previously finalized invoice is not
+  // finalized again.
+  const invoice = await retrieveInvoice(secretKey, created.id);
+  if (invoice.status !== 'draft') return invoice;
+
+  await stripeRequest(
+    secretKey,
+    'POST',
+    '/v1/invoiceitems',
+    {
+      customer: params.customerId,
+      invoice: invoice.id,
+      amount: String(params.amountCents),
+      currency: params.currency.toLowerCase(),
+      description: params.description,
+    },
+    { 'Idempotency-Key': `${params.idempotencyKey}:item` },
+  );
+
+  return (await stripeRequest(
+    secretKey,
+    'POST',
+    `/v1/invoices/${invoice.id}/finalize`,
+    undefined,
+    { 'Idempotency-Key': `${params.idempotencyKey}:finalize` },
+  )) as StripeInvoice;
+}
+
+/** Charge a finalized invoice using the customer's default payment method. */
+export async function payInvoiceOffSession(
+  secretKey: string,
+  invoiceId: string,
+): Promise<StripeInvoice> {
+  return (await stripeRequest(secretKey, 'POST', `/v1/invoices/${invoiceId}/pay`, {
+    off_session: 'true',
+  })) as StripeInvoice;
+}
+
+/** Void an open invoice (used when the customer turns auto-renew off). */
+export async function voidInvoice(
+  secretKey: string,
+  invoiceId: string,
+): Promise<StripeInvoice> {
+  return (await stripeRequest(
+    secretKey,
+    'POST',
+    `/v1/invoices/${invoiceId}/void`,
+  )) as StripeInvoice;
 }
 
 /**

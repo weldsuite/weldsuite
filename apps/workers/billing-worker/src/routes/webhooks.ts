@@ -17,6 +17,9 @@ import {
   retrieveSubscription,
   createStripeSubscription,
   stripeApiRequest,
+  retrievePaymentIntent,
+  retrieveCustomer,
+  setCustomerDefaultPaymentMethod,
 } from '../lib/stripe';
 import { calculateEffectiveSeatLimit, syncClerkSeatLimit, getMemberCount } from '../lib/clerk';
 import { updateSubscriptionCredits } from '../services/credits';
@@ -68,6 +71,46 @@ function paymentIntentIdFromSession(session: StripeCheckoutSession): string | nu
   const pi = session.payment_intent;
   if (!pi) return null;
   return typeof pi === 'string' ? pi : pi.id;
+}
+
+function customerIdFromSession(session: StripeCheckoutSession): string | null {
+  const customer = session.customer;
+  if (!customer) return null;
+  return typeof customer === 'string' ? customer : customer.id;
+}
+
+/**
+ * Persist the Checkout payment method as the customer default so the daily
+ * domain auto-renew sweep can raise off-session invoices next year.
+ */
+async function saveCheckoutPaymentMethodAsDefault(
+  env: Env,
+  session: StripeCheckoutSession,
+): Promise<void> {
+  const secret = env.STRIPE_SECRET_KEY;
+  const customerId = customerIdFromSession(session);
+  const paymentIntentId = paymentIntentIdFromSession(session);
+  if (!secret || !customerId || !paymentIntentId) return;
+  try {
+    const pi = await retrievePaymentIntent(secret, paymentIntentId);
+    const pm = pi?.payment_method;
+    const paymentMethodId = typeof pm === 'string' ? pm : pm?.id;
+    if (!paymentMethodId) return;
+    const customer = await retrieveCustomer(secret, customerId);
+    const existingDefault = customer.invoice_settings?.default_payment_method;
+    if (existingDefault) {
+      console.log(
+        `[Domain Registration] Customer ${customerId} already has a default payment method, leaving it unchanged`,
+      );
+      return;
+    }
+    await setCustomerDefaultPaymentMethod(secret, customerId, paymentMethodId);
+    console.log(
+      `[Domain Registration] Saved ${paymentMethodId} as default payment method for ${customerId}`,
+    );
+  } catch (err) {
+    console.warn('[Domain Registration] Could not save default payment method:', err);
+  }
 }
 
 // Helper: extract subscription cycle from Stripe subscription
@@ -878,6 +921,11 @@ async function handleInvoicePaid(
   // Always upsert the invoice into the database
   await handleInvoiceUpsert(masterDb, invoice);
 
+  if (invoice.metadata?.kind === 'domain_renewal') {
+    await handleDomainRenewalInvoicePaid(env, invoice);
+    return;
+  }
+
   const subscriptionId = extractSubscriptionId(invoice.subscription);
 
   if (!subscriptionId) {
@@ -1087,6 +1135,14 @@ async function handleInvoicePaymentFailed(
   invoice: StripeInvoice
 ) {
   console.log('[Stripe Webhook] Processing invoice payment failure');
+
+  if (invoice.metadata?.kind === 'domain_renewal') {
+    console.warn(
+      `[Stripe Webhook] Domain renewal invoice ${invoice.id} payment failed for domain ${invoice.metadata.domainId ?? 'unknown'}`,
+    );
+    await handleInvoiceUpsert(masterDb, invoice);
+    return;
+  }
 
   const subscriptionId = extractSubscriptionId(invoice.subscription);
 
@@ -1715,6 +1771,7 @@ async function handleDomainRegistrationCheckout(
   });
 
   const paymentIntentId = paymentIntentIdFromSession(session);
+  await saveCheckoutPaymentMethodAsDefault(env, session);
 
   let registeredCount = 0;
   let failedCount = 0;
@@ -1864,7 +1921,9 @@ async function handleDomainRegistrationCheckout(
         registrant: registrantHandle,
         contacts,
         nameservers: nameservers.length ? nameservers : undefined,
-        autoRenew: domainRow.autoRenew ?? true,
+        // Stripe invoices auto-renew; keep RTR auto-renew off so the
+        // registrar does not bill WeldSuite independently of the customer.
+        autoRenew: false,
         privacyProtect,
         periodMonths,
       });
@@ -1881,7 +1940,7 @@ async function handleDomainRegistrationCheckout(
             registeredAt: new Date(),
             expiresAt: result.domain.expiresAt ? new Date(result.domain.expiresAt) : null,
             locked: result.domain.locked,
-            autoRenew: result.domain.autoRenew,
+            autoRenew: domainRow.autoRenew ?? true,
             privacyProtection: result.domain.privacyProtect,
             rtrRegistrantHandle: registrantHandle,
             registrarSyncedAt: new Date(),
@@ -1960,6 +2019,139 @@ async function handleDomainRegistrationCheckout(
       `[Domain Registration] ${failedCount} failed, ${lostToSoftDeleteCount} lost to delete, ${registeredCount} registered for session ${sessionId}` +
         `${paymentIntentId ? ` payment ${paymentIntentId}` : ''} — payment not refunded, manual review required`,
     );
+  }
+}
+
+// ============================================================================
+// Domain Renewal — invoice.paid (kind='domain_renewal')
+// ============================================================================
+//
+// The daily sweep creates and pays the invoice, then tries to renew immediately.
+// This handler is the backup: delayed payment methods, a sweep that charged
+// but failed to reach RTR, or a pay that succeeded after the sweep moved on.
+// Idempotent against an already-extended expiry (RTR renew uses expiryDate
+// as a precondition, so a second call fails closed).
+
+async function handleDomainRenewalInvoicePaid(
+  env: Env,
+  invoice: StripeInvoice,
+): Promise<void> {
+  if (invoice.status !== 'paid') return;
+
+  const workspaceId = invoice.metadata?.workspaceId;
+  const domainId = invoice.metadata?.domainId;
+  if (!workspaceId || !domainId) {
+    console.error('[Domain Renewal] Missing workspaceId or domainId in invoice metadata');
+    return;
+  }
+
+  const rtrKey = env.REALTIME_REGISTER_API_KEY;
+  const rtrCustomer = env.REALTIME_REGISTER_CUSTOMER;
+  if (!rtrKey || !rtrCustomer) {
+    console.error('[Domain Renewal] REALTIME_REGISTER_API_KEY/CUSTOMER not configured');
+    return;
+  }
+
+  const { getTenantDbForWorkspace, schema: tenantSchema } = await import('../lib/tenant-db');
+  const tenantDb = await getTenantDbForWorkspace(env, workspaceId);
+
+  const [domainRow] = await tenantDb
+    .select()
+    .from(tenantSchema.hostDomains)
+    .where(
+      and(eq(tenantSchema.hostDomains.id, domainId), isNull(tenantSchema.hostDomains.deletedAt)),
+    )
+    .limit(1);
+
+  if (!domainRow) {
+    console.error(`[Domain Renewal] Domain row not found: ${domainId}`);
+    return;
+  }
+
+  const processedId = (domainRow.metadata as { stripeRenewalProcessedInvoiceId?: unknown } | null)
+    ?.stripeRenewalProcessedInvoiceId;
+  if (processedId === invoice.id) {
+    console.log(`[Domain Renewal] Invoice ${invoice.id} already applied to ${domainRow.fullDomain}`);
+    return;
+  }
+
+  if (domainRow.registrationStatus === 'pending_renewal' || domainRow.registrationStatus === 'renewed') {
+    const expiresAt = domainRow.expiresAt ? new Date(domainRow.expiresAt).getTime() : 0;
+    if (expiresAt > Date.now() + 30 * 86_400_000) {
+      console.log(`[Domain Renewal] Domain ${domainRow.fullDomain} already extended, skipping`);
+      return;
+    }
+    if (domainRow.registrationStatus === 'pending_renewal') {
+      console.log(`[Domain Renewal] Domain ${domainRow.fullDomain} already submitted to registrar`);
+      return;
+    }
+  }
+
+  const rtr = new RealtimeRegistrar({
+    apiKey: rtrKey,
+    customer: rtrCustomer,
+    ote: env.REALTIME_REGISTER_OTE === 'true',
+  });
+
+  try {
+    const result = await rtr.renew(domainRow.fullDomain, 12, {
+      expiryDate: domainRow.expiresAt ? new Date(domainRow.expiresAt).toISOString().slice(0, 10) : undefined,
+    });
+
+    if (result.status === 'failed') {
+      throw new Error(result.message);
+    }
+
+    const billedExpiry = domainRow.expiresAt
+      ? new Date(domainRow.expiresAt).toISOString().slice(0, 10)
+      : undefined;
+    const metadata = {
+      ...(domainRow.metadata ?? {}),
+      stripeRenewalInvoiceId: invoice.id,
+      ...(billedExpiry ? { stripeRenewalForExpiresAt: billedExpiry } : {}),
+      stripeRenewalProcessedInvoiceId: invoice.id,
+    };
+
+    if (result.status === 'pending') {
+      await tenantDb
+        .update(tenantSchema.hostDomains)
+        .set({
+          registrationStatus: 'pending_renewal',
+          metadata: { ...metadata, rtrRenewalProcessId: String(result.processId) },
+          updatedAt: new Date(),
+        })
+        .where(eq(tenantSchema.hostDomains.id, domainId));
+
+      try {
+        await env.WORKSPACE_CACHE.put(
+          `rtr:process:${result.processId}`,
+          JSON.stringify({ workspaceId, domainId, kind: 'renewal' }),
+          { expirationTtl: 60 * 60 * 24 * 14 },
+        );
+      } catch (cacheErr) {
+        console.warn('[Domain Renewal] Failed to write RTR process cache:', cacheErr);
+      }
+      console.log(`[Domain Renewal] ${domainRow.fullDomain} pending RTR process: ${result.processId}`);
+      return;
+    }
+
+    await tenantDb
+      .update(tenantSchema.hostDomains)
+      .set({
+        status: 'active',
+        registrationStatus: 'renewed',
+        renewedAt: new Date(),
+        expiresAt: result.domain.expiresAt ? new Date(result.domain.expiresAt) : domainRow.expiresAt,
+        registrarStatus: result.domain.status.join(','),
+        registrarSyncedAt: new Date(),
+        metadata,
+        updatedAt: new Date(),
+      })
+      .where(eq(tenantSchema.hostDomains.id, domainId));
+
+    console.log(`[Domain Renewal] Renewed ${domainRow.fullDomain} (invoice ${invoice.id})`);
+  } catch (err) {
+    console.error(`[Domain Renewal] Failed for ${domainRow.fullDomain}:`, err);
   }
 }
 
