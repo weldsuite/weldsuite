@@ -7,6 +7,7 @@ import {
   firstParam,
   nextNotificationListRetryMs,
   listContainsEmailId,
+  notificationMatchesWorkspace,
 } from '../notification-target';
 
 describe('parseNotificationTarget', () => {
@@ -20,6 +21,7 @@ describe('parseNotificationTarget', () => {
     ).toEqual({
       emailId: 'msg_01HX3ABCDEF',
       accountId: 'macc_01HX3ZYXWVU',
+      clerkOrgId: undefined,
       fromName: undefined,
       fromEmail: undefined,
       subject: undefined,
@@ -46,11 +48,34 @@ describe('parseNotificationTarget', () => {
     });
   });
 
+  it('reads clerkOrgId when present', () => {
+    expect(
+      parseNotificationTarget({
+        emailId: 'msg_01HX3ABCDEF',
+        emailAccountId: 'macc_01HX3ZYXWVU',
+        clerkOrgId: 'org_2NXz8Kabc123',
+      }),
+    ).toMatchObject({
+      emailId: 'msg_01HX3ABCDEF',
+      clerkOrgId: 'org_2NXz8Kabc123',
+    });
+  });
+
+  it('drops a malformed clerkOrgId', () => {
+    expect(
+      parseNotificationTarget({
+        emailId: 'msg_01HX3ABCDEF',
+        clerkOrgId: 'not-an-org',
+      }),
+    ).toMatchObject({ clerkOrgId: undefined });
+  });
+
   it('keeps the account id when the message id is missing', () => {
     // Falls back to "open the mailbox" rather than dropping the tap entirely.
     expect(parseNotificationTarget({ emailAccountId: 'macc_01HX3ZYXWVU' })).toEqual({
       emailId: undefined,
       accountId: 'macc_01HX3ZYXWVU',
+      clerkOrgId: undefined,
       fromName: undefined,
       fromEmail: undefined,
       subject: undefined,
@@ -62,6 +87,7 @@ describe('parseNotificationTarget', () => {
     expect(parseNotificationTarget({ emailId: 'msg_01HX3ABCDEF' })).toEqual({
       emailId: 'msg_01HX3ABCDEF',
       accountId: undefined,
+      clerkOrgId: undefined,
       fromName: undefined,
       fromEmail: undefined,
       subject: undefined,
@@ -91,6 +117,7 @@ describe('parseNotificationTarget', () => {
     ).toEqual({
       emailId: undefined,
       accountId: 'macc_01HX3ZYXWVU',
+      clerkOrgId: undefined,
       fromName: undefined,
       fromEmail: undefined,
       subject: undefined,
@@ -102,6 +129,7 @@ describe('parseNotificationTarget', () => {
     ).toEqual({
       emailId: 'msg_01HX3ABCDEF',
       accountId: undefined,
+      clerkOrgId: undefined,
       fromName: undefined,
       fromEmail: undefined,
       subject: undefined,
@@ -111,6 +139,30 @@ describe('parseNotificationTarget', () => {
 
   it('ignores non-string ids', () => {
     expect(parseNotificationTarget({ emailId: 42, emailAccountId: { id: 'x' } })).toBeNull();
+  });
+});
+
+describe('notificationMatchesWorkspace', () => {
+  it('matches when clerkOrgId equals the active org', () => {
+    expect(
+      notificationMatchesWorkspace({ clerkOrgId: 'org_abc123' }, 'org_abc123'),
+    ).toBe(true);
+  });
+
+  it('rejects a different active org', () => {
+    expect(
+      notificationMatchesWorkspace({ clerkOrgId: 'org_workspaceA' }, 'org_workspaceB'),
+    ).toBe(false);
+  });
+
+  it('treats legacy payloads without clerkOrgId as matching', () => {
+    expect(notificationMatchesWorkspace({}, 'org_abc123')).toBe(true);
+    expect(notificationMatchesWorkspace({ clerkOrgId: undefined }, 'org_abc123')).toBe(true);
+  });
+
+  it('matches when the active org is not hydrated yet', () => {
+    expect(notificationMatchesWorkspace({ clerkOrgId: 'org_abc123' }, null)).toBe(true);
+    expect(notificationMatchesWorkspace({ clerkOrgId: 'org_abc123' }, undefined)).toBe(true);
   });
 });
 

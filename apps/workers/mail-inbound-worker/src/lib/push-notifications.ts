@@ -34,6 +34,8 @@ const TRANSIENT_ERROR_CODES = new Set(['MessageTooBig', 'MessageRateExceeded']);
 interface NewEmailPushParams {
   userId: string;
   workspaceId: string;
+  /** Clerk org id — included in the push `data` so the app can ignore wrong-workspace banners. */
+  clerkOrgId?: string | null;
   messageId: string;
   accountId: string;
   from: EmailAddress;
@@ -48,7 +50,7 @@ export async function sendNewEmailPushNotification(
   env: Env,
   params: NewEmailPushParams,
 ): Promise<SendExpoPushResult | null> {
-  const { userId, workspaceId, messageId, accountId, from, subject, preview } = params;
+  const { userId, workspaceId, clerkOrgId, messageId, accountId, from, subject, preview } = params;
 
   try {
     const tenantDb = await getTenantDbForWorkspaceById(env, workspaceId);
@@ -90,6 +92,8 @@ export async function sendNewEmailPushNotification(
         type: 'new_email',
         emailId: messageId,
         emailAccountId: accountId,
+        // Lets the mobile app drop/ignore pushes after a workspace switch.
+        ...(clerkOrgId ? { clerkOrgId } : {}),
         // Lets the mobile app paint the email chrome (sender/subject/preview)
         // the instant the user taps, before mailMessages.get returns.
         fromName: (senderName || '').slice(0, 80),
