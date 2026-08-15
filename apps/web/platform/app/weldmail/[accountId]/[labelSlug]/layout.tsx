@@ -9,6 +9,8 @@ import type { ThreadSummary } from '../../lib/thread-utils';
 import { MailDetailWrapper } from '../../components/mail-detail-wrapper';
 import { MobileMailLayout } from '../../components/mobile-mail-layout';
 import { MailThreadListProvider } from '../../contexts/mail-thread-list-context';
+import { useOptimisticThreadList } from '../../hooks/use-optimistic-thread-list';
+import { mailThreadListKey } from '../../lib/optimistic-thread-list';
 import { useI18n } from '@/lib/i18n/provider';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -89,10 +91,20 @@ export default function LabelLayout({
     );
   }, [isDraftsView, draftsQuery.data, threadsQuery.data]);
 
+  const {
+    threads: visibleThreads,
+    hiddenCount,
+    hideThread,
+    unhideThread,
+  } = useOptimisticThreadList(
+    threads,
+    mailThreadListKey({ accountId, folder: labelSlug, page: currentPage, pageSize: PAGE_SIZE }),
+  );
+
   const totalCount = useMemo<number>(() => {
     if (isDraftsView) return draftsQuery.data?.data?.length ?? 0;
-    return threadsQuery.data?.data?.totalCount ?? 0;
-  }, [isDraftsView, draftsQuery.data, threadsQuery.data]);
+    return Math.max(0, (threadsQuery.data?.data?.totalCount ?? 0) - hiddenCount);
+  }, [isDraftsView, draftsQuery.data, threadsQuery.data, hiddenCount]);
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1;
 
@@ -118,7 +130,7 @@ export default function LabelLayout({
 
   const listContent = (
     <LabelRealtimeWrapper
-      initialThreads={threads}
+      initialThreads={visibleThreads}
       accountId={accountId}
       labelSlug={labelSlug}
       displayName={displayName}
@@ -134,7 +146,14 @@ export default function LabelLayout({
   const detailContent = <MailDetailWrapper>{children}</MailDetailWrapper>;
 
   return (
-    <MailThreadListProvider threads={threads} isUnified={false} folder={labelSlug} accountId={accountId}>
+    <MailThreadListProvider
+      threads={visibleThreads}
+      isUnified={false}
+      folder={labelSlug}
+      accountId={accountId}
+      hideThread={hideThread}
+      unhideThread={unhideThread}
+    >
       <MobileMailLayout
         list={listContent}
         detail={detailContent}

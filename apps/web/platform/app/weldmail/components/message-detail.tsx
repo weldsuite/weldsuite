@@ -64,6 +64,7 @@ import { useCustomerPanel } from '@/contexts/customer-panel-context';
 import { useComposeSafe } from '@/contexts/compose-context';
 import { useMailThreadListSafe } from '@/app/weldmail/contexts/mail-thread-list-context';
 import { getNextThreadHref } from '@/app/weldmail/lib/next-thread';
+import { folderHidesOnArchive } from '@/app/weldmail/lib/optimistic-thread-list';
 import { mailApi } from '../lib/api-client';
 import { currentMailHref } from '../lib/mail-urls';
 import { IsolatedHtmlContent } from './isolated-html-content';
@@ -848,20 +849,19 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     }
   };
 
-  // Capture the next conversation *before* archive refreshes the list, then
-  // open it in this same mailbox. Last item falls back to closing the pane.
+  // Drop the row from the left list immediately, then open the next
+  // conversation. The archive request runs in the background; a failed
+  // mutation puts the row back. Last item falls back to closing the pane.
   const handleArchiveAndNext = async () => {
-    const nextHref = threadList
-      ? getNextThreadHref(
-          threadList.threads,
-          { messageId: message.id, threadId },
-          threadList,
-        )
-      : null;
-    const archived = await handleArchive();
-    if (!archived) return;
+    const current = { messageId: message.id, threadId };
+    const list = threadList;
+    const nextHref = list ? getNextThreadHref(list.threads, current, list) : null;
+    const shouldHide = !!list && folderHidesOnArchive(list.folder);
+    if (shouldHide) list?.hideThread(current);
     if (nextHref) router.push(nextHref);
     else handleBackToList();
+    const archived = await handleArchive();
+    if (!archived && shouldHide) list?.unhideThread(current);
   };
 
   const handleMarkAsSpam = async () => {

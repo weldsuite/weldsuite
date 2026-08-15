@@ -1,10 +1,15 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import type { ThreadSummary } from '../lib/thread-utils';
 import type { ThreadListLocation } from '../lib/next-thread';
+import type { ThreadRef } from '../lib/optimistic-thread-list';
 
 interface MailThreadListContextValue extends ThreadListLocation {
   threads: ThreadSummary[];
+  hideThread: (current: ThreadRef) => void;
+  unhideThread: (current: ThreadRef) => void;
 }
+
+const noop = () => {};
 
 const MailThreadListContext = createContext<MailThreadListContextValue | null>(null);
 
@@ -13,10 +18,18 @@ export function MailThreadListProvider({
   isUnified,
   folder,
   accountId,
+  hideThread = noop,
+  unhideThread = noop,
   children,
-}: MailThreadListContextValue & { children: ReactNode }) {
+}: Omit<MailThreadListContextValue, 'hideThread' | 'unhideThread'> & {
+  hideThread?: MailThreadListContextValue['hideThread'];
+  unhideThread?: MailThreadListContextValue['unhideThread'];
+  children: ReactNode;
+}) {
   return (
-    <MailThreadListContext.Provider value={{ threads, isUnified, folder, accountId }}>
+    <MailThreadListContext.Provider
+      value={{ threads, isUnified, folder, accountId, hideThread, unhideThread }}
+    >
       {children}
     </MailThreadListContext.Provider>
   );
