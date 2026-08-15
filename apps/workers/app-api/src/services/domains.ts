@@ -109,12 +109,31 @@ function tldOf(name: string): string {
 const ALLOW_REGISTRAR_MARKUP = true;
 
 /**
- * Apply markup to a wholesale price already expressed in **cents**.
- * Falls back to the catalog `registrationPrice` / `renewalPrice` (major units)
- * when wholesale cents are missing or when wholesale currency disagrees with
- * the pricing row. Returns null when neither source has a usable price.
+ * Apply markup to a catalog / wholesale price already expressed in **cents**.
+ *
+ * Registration uses live wholesale (premium checks) and falls back to
+ * catalog `registrationPrice` when wholesale is missing or the currency
+ * disagrees with the pricing row.
+ *
+ * Renewal always uses the authored catalog `renewalPrice` (admin dashboard)
+ * and ignores wholesale — auto-renew charges that stored amount plus markup.
  */
 export type DomainPriceKind = 'registration' | 'renewal';
+
+function applyCatalogMarkup(
+  cents: number,
+  pricing: typeof masterSchema.hostDomainPricing.$inferSelect | undefined,
+): number {
+  if (!ALLOW_REGISTRAR_MARKUP || !pricing) return cents;
+  if (pricing.markupAmount !== null && pricing.markupAmount !== undefined) {
+    return cents + pricing.markupAmount;
+  }
+  if (pricing.markupPercent !== null && pricing.markupPercent !== undefined) {
+    const pct = parseFloat(String(pricing.markupPercent));
+    return Math.round(cents * (1 + pct / 100));
+  }
+  return cents;
+}
 
 export function applyMarkup(
   wholesaleCents: number | undefined | null,
@@ -122,6 +141,13 @@ export function applyMarkup(
   wholesaleCurrency?: string | null,
   priceKind: DomainPriceKind = 'registration',
 ): number | null {
+  if (priceKind === 'renewal') {
+    if (pricing?.renewalPrice == null) return null;
+    const major = Number.parseFloat(String(pricing.renewalPrice));
+    if (!Number.isFinite(major)) return null;
+    return applyCatalogMarkup(Math.round(major * 100), pricing);
+  }
+
   const pricingCurrency = pricing?.currency?.toLowerCase() ?? null;
   const wholesaleCur = wholesaleCurrency?.toLowerCase() ?? null;
   const currencyMismatch =
@@ -135,23 +161,12 @@ export function applyMarkup(
       ? Math.round(wholesaleCents)
       : null;
 
-  const catalogMajor =
-    priceKind === 'renewal' ? pricing?.renewalPrice : pricing?.registrationPrice;
-  if (cents === null && catalogMajor != null) {
-    const major = Number.parseFloat(String(catalogMajor));
+  if (cents === null && pricing?.registrationPrice != null) {
+    const major = Number.parseFloat(String(pricing.registrationPrice));
     if (Number.isFinite(major)) cents = Math.round(major * 100);
   }
   if (cents === null) return null;
-
-  if (!ALLOW_REGISTRAR_MARKUP || !pricing) return cents;
-  if (pricing.markupAmount !== null && pricing.markupAmount !== undefined) {
-    return cents + pricing.markupAmount;
-  }
-  if (pricing.markupPercent !== null && pricing.markupPercent !== undefined) {
-    const pct = parseFloat(String(pricing.markupPercent));
-    return Math.round(cents * (1 + pct / 100));
-  }
-  return cents;
+  return applyCatalogMarkup(cents, pricing);
 }
 
 // ============================================================================

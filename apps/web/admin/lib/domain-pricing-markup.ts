@@ -65,3 +65,28 @@ export function markupValueOf(row: {
   if (row.markupPercent != null) return String(Number.parseFloat(row.markupPercent));
   return '';
 }
+
+/** `domain_pricing` numeric(10, 2) — 8 digits before the decimal. */
+const PRICE_MAJOR_MAX = 99_999_999.99;
+
+export function parsePriceMajor(
+  raw: string,
+): { ok: true; value: string } | { ok: false; code: 'invalid' | 'out_of_range' } {
+  const normalized = raw.trim().replace(',', '.');
+  if (!normalized) return { ok: false, code: 'invalid' };
+  const n = Number.parseFloat(normalized);
+  if (!Number.isFinite(n) || n < 0) return { ok: false, code: 'invalid' };
+  if (n > PRICE_MAJOR_MAX) return { ok: false, code: 'out_of_range' };
+  return { ok: true, value: n.toFixed(2) };
+}
+
+const TLD_RE =
+  /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
+
+export function parseTldInput(
+  raw: string,
+): { ok: true; tld: string } | { ok: false; code: 'invalid' } {
+  const tld = raw.trim().replace(/^\./, '').toLowerCase();
+  if (!tld || tld.length > 50 || !TLD_RE.test(tld)) return { ok: false, code: 'invalid' };
+  return { ok: true, tld };
+}

@@ -49,13 +49,6 @@ export async function runDomainAutoRenewSweep(env: Env): Promise<{
     .from(masterSchema.workspaces)
     .where(eq(masterSchema.workspaces.isActive, true));
 
-  let wholesaleRenew = new Map<string, { renewCents?: number; currency: string }>();
-  try {
-    wholesaleRenew = await rtr.getPricelist();
-  } catch (err) {
-    console.warn('[DomainAutoRenew] pricelist fetch failed, falling back to catalog renewalPrice:', err);
-  }
-
   let domainsScanned = 0;
   let invoiced = 0;
   let renewed = 0;
@@ -86,14 +79,10 @@ export async function runDomainAutoRenewSweep(env: Env): Promise<{
             }
           }
 
-          const tld = domain.tld.replace(/^\./, '').toLowerCase();
-          const wholesale = wholesaleRenew.get(tld);
           const result = await chargeAndRenewDomain(db, rtr, masterDb, {
             domainId: domain.id,
             workspaceId: ws.clerkOrgId,
             stripeSecretKey: env.STRIPE_SECRET_KEY,
-            wholesaleRenewCents: wholesale?.renewCents ?? null,
-            wholesaleCurrency: wholesale?.currency ?? null,
           });
 
           if (!result.ok) {

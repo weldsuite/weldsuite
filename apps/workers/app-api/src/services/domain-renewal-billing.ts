@@ -119,16 +119,9 @@ async function loadPricingMap(
 
 export function renewalPriceCents(params: {
   tld: string;
-  wholesaleRenewCents?: number | null;
-  wholesaleCurrency?: string | null;
   pricing: typeof masterSchema.hostDomainPricing.$inferSelect | undefined;
 }): number | null {
-  return applyMarkup(
-    params.wholesaleRenewCents,
-    params.pricing,
-    params.wholesaleCurrency,
-    'renewal',
-  );
+  return applyMarkup(null, params.pricing, null, 'renewal');
 }
 
 async function lookupWorkspaceStripeCustomer(
@@ -187,8 +180,6 @@ export async function chargeAndRenewDomain(
     domainId: string;
     workspaceId: string;
     stripeSecretKey: string;
-    wholesaleRenewCents?: number | null;
-    wholesaleCurrency?: string | null;
     /** Skip the charge when the invoice is already paid (webhook path). */
     alreadyPaidInvoiceId?: string;
   },
@@ -227,14 +218,10 @@ export async function chargeAndRenewDomain(
 
   const pricingMap = await loadPricingMap(masterDb);
   const tld = tldOf(domain.fullDomain);
-  const amountCents = renewalPriceCents({
-    tld,
-    wholesaleRenewCents: params.wholesaleRenewCents,
-    wholesaleCurrency: params.wholesaleCurrency,
-    pricing: pricingMap.get(tld),
-  });
+  const pricing = pricingMap.get(tld);
+  const amountCents = renewalPriceCents({ tld, pricing });
   if (amountCents === null || amountCents <= 0) return { ok: false, reason: 'no_price' };
-  const currency = (pricingMap.get(tld)?.currency ?? params.wholesaleCurrency ?? 'usd').toLowerCase();
+  const currency = (pricing?.currency ?? 'usd').toLowerCase();
 
   let invoiceId = params.alreadyPaidInvoiceId ?? meta.stripeRenewalInvoiceId;
   let invoice: StripeInvoice | null = null;

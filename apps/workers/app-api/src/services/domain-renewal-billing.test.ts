@@ -104,6 +104,25 @@ describe('renewalPriceCents', () => {
       }),
     ).toBe(1550);
   });
+
+  it('applies markup to the authored catalog renewalPrice', () => {
+    expect(
+      renewalPriceCents({
+        tld: 'com',
+        pricing: {
+          renewalPrice: '11.00',
+          registrationPrice: '10.00',
+          currency: 'USD',
+          markupAmount: 200,
+          markupPercent: null,
+        } as never,
+      }),
+    ).toBe(1300);
+  });
+
+  it('returns null without a catalog row', () => {
+    expect(renewalPriceCents({ tld: 'com', pricing: undefined })).toBeNull();
+  });
 });
 
 describe('listDomainsDueForAutoRenew', () => {

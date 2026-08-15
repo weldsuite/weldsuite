@@ -72,7 +72,7 @@ export const host = {
       cardDescription: 'TLD-catalogus gesynchroniseerd vanuit Realtime Register in USD',
       title: 'Domeinprijzen',
       description:
-        'Hoofdcatalogus die WeldHost gebruikt voor zoeken en afrekenen. Synchroniseer USD-inkoopprijzen vanuit de Realtime Register-prijslijst — opslagen blijven ongewijzigd.',
+        'Hoofdcatalogus die WeldHost gebruikt voor zoeken, afrekenen en automatisch verlengen. Synchroniseer USD-inkoopprijzen voor registreren/verhuizen vanuit Realtime Register — zelf ingestelde verlengprijzen en opslagen blijven ongewijzigd.',
       backfillButton: 'Synchroniseren vanuit Realtime Register',
       catalog: 'Catalogus',
       active: 'Actief',
@@ -93,7 +93,7 @@ export const host = {
       statusPopular: 'populair',
       confirmTitle: 'Domeinprijzen synchroniseren?',
       confirmDescription:
-        'Dit vraagt de Realtime Register-prijslijst op (GET /v2/customers/…/pricelist, USD) en schrijft inkoopprijzen voor registreren/verlengen/verhuizen naar de hoofdcatalogus. Bestaande opslag wordt niet overschreven.',
+        'Dit vraagt de Realtime Register-prijslijst op (GET /v2/customers/…/pricelist, USD) en schrijft inkoopprijzen voor registreren/verhuizen naar de hoofdcatalogus. Nieuwe TLD’s krijgen ook een verlengprijs van de prijslijst. Zelf ingestelde verlengprijzen en opslag worden niet overschreven.',
       confirmCancel: 'Annuleren',
       confirmFetch: 'Prijslijst ophalen',
       backfillSuccess:
@@ -123,6 +123,29 @@ export const host = {
       markupInvalid: 'Voer een geldig getal groter dan of gelijk aan 0 in',
       markupOutOfRange: 'Percentage moet tussen 0 en 999,99 liggen',
       markupNotFound: 'Prijsrij niet gevonden',
+      priceInvalid: 'Voer een geldige prijs groter dan of gelijk aan 0 in',
+      priceOutOfRange: 'Prijs mag maximaal 99999999,99 zijn',
+      addTldButton: 'TLD toevoegen',
+      renewEditAria: 'Verlengprijs bewerken voor .{tld}',
+      renewDialogTitle: 'Verlengprijs instellen',
+      renewDialogTitleTld: 'Verlengprijs instellen voor .{tld}',
+      renewDialogDescription:
+        'Zelf ingestelde verlengprijs in de hoofdcatalogus. Opslag komt er bovenop. Automatisch verlengen rekent deze klantprijs uit de database.',
+      renewPriceLabel: 'Verlengprijs ({currency})',
+      renewCustomerPreview: 'Klant betaalt {price} na opslag',
+      renewSaved: 'Verlengprijs bijgewerkt',
+      renewNotFound: 'Prijsrij niet gevonden',
+      createDialogTitle: 'TLD-prijs toevoegen',
+      createDialogDescription:
+        'Maak een rij in de hoofdcatalogus. De verlengprijs stel je hier in en wordt gebruikt voor automatisch verlengen.',
+      createTldLabel: 'TLD',
+      createRegisterLabel: 'Registratieprijs ({currency})',
+      createRenewLabel: 'Verlengprijs ({currency})',
+      createTransferLabel: 'Verhuisprijs ({currency})',
+      createSave: 'Aanmaken',
+      createSaved: '.{tld} toegevoegd aan de catalogus',
+      createDuplicate: 'Die TLD bestaat al',
+      createTldInvalid: 'Voer een geldige TLD in (bijv. com of co.uk)',
     },
 
     // Domain availability checker

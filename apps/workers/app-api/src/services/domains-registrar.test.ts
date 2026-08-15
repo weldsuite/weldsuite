@@ -475,7 +475,7 @@ describe('applyMarkup', () => {
     expect(applyMarkup(1000, pricing, 'EUR')).toBe(1200);
   });
 
-  it('falls back to pricing.renewalPrice when priceKind is renewal', () => {
+  it('uses catalog renewalPrice when priceKind is renewal', () => {
     const pricing = {
       markupAmount: null,
       markupPercent: null,
@@ -487,7 +487,7 @@ describe('applyMarkup', () => {
     expect(applyMarkup(null, pricing, null, 'registration')).toBe(1250);
   });
 
-  it('applies markup to wholesale renew cents', () => {
+  it('ignores wholesale cents for renewal and uses authored catalog renewalPrice', () => {
     const pricing = {
       markupAmount: 200,
       markupPercent: null,
@@ -495,7 +495,11 @@ describe('applyMarkup', () => {
       renewalPrice: '11.00',
       currency: 'USD',
     } as never;
-    expect(applyMarkup(1090, pricing, 'USD', 'renewal')).toBe(1290);
+    expect(applyMarkup(1090, pricing, 'USD', 'renewal')).toBe(1300);
+  });
+
+  it('returns null for renewal when the catalog row has no renewalPrice', () => {
+    expect(applyMarkup(1090, undefined, 'USD', 'renewal')).toBeNull();
   });
 
   it('ignores wholesale cents when currency disagrees with pricing', () => {

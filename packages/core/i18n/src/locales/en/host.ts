@@ -72,7 +72,7 @@ export const host = {
       cardDescription: 'TLD catalog synced from Realtime Register in USD',
       title: 'Domain pricing',
       description:
-        'Master catalog used by WeldHost search and checkout. Sync USD wholesale prices from the Realtime Register pricelist — markup is left alone.',
+        'Master catalog used by WeldHost search, checkout, and auto-renew. Sync USD wholesale register/transfer prices from Realtime Register — authored renewal prices and markup stay as you set them.',
       backfillButton: 'Sync from Realtime Register',
       catalog: 'Catalog',
       active: 'Active',
@@ -93,7 +93,7 @@ export const host = {
       statusPopular: 'popular',
       confirmTitle: 'Sync domain pricing?',
       confirmDescription:
-        'This calls Realtime Register GET /v2/customers/…/pricelist (USD) and writes wholesale register/renew/transfer prices onto the master catalog. Existing markup is not overwritten.',
+        'This calls Realtime Register GET /v2/customers/…/pricelist (USD) and writes wholesale register/transfer prices onto the master catalog. New TLDs also get a renewal price from the pricelist. Authored renewal prices and markup are not overwritten.',
       confirmCancel: 'Cancel',
       confirmFetch: 'Fetch pricelist',
       backfillSuccess:
@@ -123,6 +123,29 @@ export const host = {
       markupInvalid: 'Enter a valid non-negative number',
       markupOutOfRange: 'Percent must be between 0 and 999.99',
       markupNotFound: 'Pricing row not found',
+      priceInvalid: 'Enter a valid non-negative price',
+      priceOutOfRange: 'Price must be at most 99999999.99',
+      addTldButton: 'Add TLD',
+      renewEditAria: 'Edit renewal price for .{tld}',
+      renewDialogTitle: 'Set renewal price',
+      renewDialogTitleTld: 'Set renewal price for .{tld}',
+      renewDialogDescription:
+        'Authored renewal stored on the master catalog. Markup is added on top. Auto-renew charges this customer price from the database.',
+      renewPriceLabel: 'Renewal price ({currency})',
+      renewCustomerPreview: 'Customer pays {price} after markup',
+      renewSaved: 'Renewal price updated',
+      renewNotFound: 'Pricing row not found',
+      createDialogTitle: 'Add TLD pricing',
+      createDialogDescription:
+        'Create a master catalog row. The renewal price is authored here and used for auto-renew billing.',
+      createTldLabel: 'TLD',
+      createRegisterLabel: 'Register price ({currency})',
+      createRenewLabel: 'Renewal price ({currency})',
+      createTransferLabel: 'Transfer price ({currency})',
+      createSave: 'Create',
+      createSaved: 'Added .{tld} to the catalog',
+      createDuplicate: 'That TLD already exists',
+      createTldInvalid: 'Enter a valid TLD (e.g. com or co.uk)',
     },
 
     // Domain availability checker
