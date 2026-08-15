@@ -147,4 +147,20 @@ describe('/api/bank-transactions · pglite integration', () => {
     });
     expect(res.status).toBe(400);
   });
+
+  it('POST / returns 403 without banking:create', async () => {
+    const { request } = createTestApp('/api/bank-transactions', bankTransactionsRoutes, {
+      context: { permissions: permissions('banking:read'), tenantDb: db },
+    });
+    const res = await request('/api/bank-transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bankAccountId: 'ba_manual_in',
+        date: '2026-08-15',
+        amount: 10,
+      }),
+    });
+    expect(res.status).toBe(403);
+  });
 });
