@@ -614,6 +614,7 @@ function CreateSupplierFromOcrDialog({
 }
 
 function OcrResultView({ result, matchedContactId, td }: { result: OcrResult; matchedContactId: string | null; td: DocumentsTranslations }) {
+  const { formatMoney: fmt } = useCurrentEntityCurrency();
   return (
     <div className="space-y-4">
       {/* Supplier */}
