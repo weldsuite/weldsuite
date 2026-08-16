@@ -9,6 +9,7 @@ import {
   type ColumnDef,
 } from '@/components/entity-list';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 interface CreditNoteRow {
   id: string;
@@ -46,6 +47,7 @@ export default function CreditNotesPage() {
   const { t } = useI18n();
   const tcn = t.accounting.creditNotesPage;
   const tsl = t.accounting.statusLabels.invoice;
+  const { formatMoney } = useCurrentEntityCurrency();
 
   const creditNotes = (data?.data ?? []) as unknown as CreditNoteRow[];
 
@@ -92,10 +94,7 @@ export default function CreditNotesPage() {
       width: 'w-[140px]',
       render: (cn) => (
         <span>
-          {new Intl.NumberFormat('nl-NL', {
-            style: 'currency',
-            currency: cn.currency || 'EUR',
-          }).format(Number(cn.total ?? 0))}
+          {formatMoney(cn.total, cn.currency)}
         </span>
       ),
     },

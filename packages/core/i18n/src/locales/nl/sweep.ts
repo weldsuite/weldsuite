@@ -236,7 +236,8 @@ export const sweep = {
       "noLedgerAccounts": "Geen bank-/kasrekeningen in het rekeningschema",
       "makeDefault": "Maak dit de standaard bankrekening",
       "autoReconcileLabel": "Automatisch afletteren van geïmporteerde transacties bij ≥ 80% overeenkomst",
-      "createButton": "Bankrekening aanmaken"
+      "createButton": "Bankrekening aanmaken",
+      "currencyInr": "INR - Indiase Roepie"
     },
     "bankTransactionForm": {
       "title": "Banktransactie toevoegen",

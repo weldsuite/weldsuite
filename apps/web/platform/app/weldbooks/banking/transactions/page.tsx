@@ -20,6 +20,7 @@ import { BankTransactionsTable } from '@/components/accounting/bank-transactions
 import { BankTransactionFormDialog } from '@/components/accounting/bank-transaction-form-dialog';
 import type { BankAccount, BankTransaction } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 const PAGE_SIZE = 50;
 
@@ -32,6 +33,7 @@ export default function BankTransactionsPage() {
   const [page, setPage] = useState(1);
   const [addOpen, setAddOpen] = useState(false);
   const { t } = useI18n();
+  const { currency: entityCurrency } = useCurrentEntityCurrency();
   const tbp = t.accounting.bankingPages;
 
   const STATUS_OPTIONS = [
@@ -62,10 +64,13 @@ export default function BankTransactionsPage() {
   const total = txnData?.pagination?.totalCount ?? transactions.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  const currencyByAccountId = Object.fromEntries(
+    accounts.map((a) => [a.id, a.currency ?? entityCurrency]),
+  );
   const currencyForDisplay =
     accountFilter !== 'all'
-      ? accounts.find((a) => a.id === accountFilter)?.currency ?? 'EUR'
-      : 'EUR';
+      ? accounts.find((a) => a.id === accountFilter)?.currency ?? entityCurrency
+      : entityCurrency;
 
   return (
     <div className="p-6 space-y-4">
@@ -198,6 +203,7 @@ export default function BankTransactionsPage() {
           <BankTransactionsTable
             transactions={transactions}
             currency={currencyForDisplay}
+            currencyByAccountId={currencyByAccountId}
             groupByStatus={statusFilter === 'all'}
           />
           <div className="flex items-center justify-between text-sm text-muted-foreground">

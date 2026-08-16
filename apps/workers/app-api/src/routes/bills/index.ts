@@ -25,7 +25,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema, type Database } from '../../db';
-import { nextEntityNumber, resolveEntityId } from '../../lib/entity-context';
+import { nextEntityNumber, resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
 import {
   assertPeriodOpen,
   ClosedPeriodError,
@@ -189,6 +189,7 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
       return error.badRequest(c, 'No accounting entity resolved — set X-Accounting-Entity-Id or configure a default entity.');
     }
     const billNumber = data.billNumber ?? (await nextEntityNumber(db, entityId, 'bill')).formatted;
+    const currency = data.currency || (await resolveEntityBaseCurrency(db, entityId));
 
     const place = await loadPlaceOfSupply(db, entityId);
     const totals = await buildTaxTotalsWithRates(db, data.items, {
@@ -208,7 +209,7 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
       contactName: data.contactName || null,
       issueDate: new Date(data.issueDate),
       dueDate: new Date(data.dueDate),
-      currency: data.currency || 'EUR',
+      currency,
       ...billTotals,
       taxBreakdown,
       amountPaid: '0',
@@ -314,7 +315,7 @@ app.post('/from-document/:documentId', requirePermission('bills:create'), async 
       externalReference: ocr.invoiceNumber || null,
       issueDate: ocr.invoiceDate || null,
       dueDate: ocr.dueDate || null,
-      currency: ocr.currency || 'EUR',
+      currency: ocr.currency || null,
       items: (ocr.lineItems || []).map((li, idx) => ({
         description: li.description || '',
         quantity: String(li.quantity || 1),

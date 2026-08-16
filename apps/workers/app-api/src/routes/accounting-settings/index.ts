@@ -28,7 +28,7 @@ import { getMasterDb, masterSchema, schema } from '../../db';
 import {
   getExchangeRate,
   getExchangeRates,
-  SUPPORTED_CURRENCIES,
+  getSupportedCurrencies,
 } from '../../services/accounting-currency';
 import { writeAccountingAudit } from '../../services/accounting-guards';
 
@@ -132,10 +132,11 @@ app.on(
 // ---------------------------------------------------------------------------
 app.get('/exchange-rates', requirePermission('accounts:read'), async (c) => {
   try {
+    const locale = c.req.header('accept-language') ?? 'en';
     const rates = await getExchangeRates();
     return success(c, {
       rates,
-      currencies: SUPPORTED_CURRENCIES,
+      currencies: getSupportedCurrencies(locale),
       baseCurrency: 'EUR',
       fetchedAt: new Date().toISOString(),
     });

@@ -11,13 +11,15 @@ import {
   type GroupConfig,
 } from '@/components/entity-list';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 interface AccountRow {
   id: string;
   code: string;
   name: string;
   type: string;
-  balance?: number | null;
+  currentBalance?: string | number | null;
+  currency?: string | null;
 }
 
 export default function ChartOfAccountsPage() {
@@ -25,6 +27,7 @@ export default function ChartOfAccountsPage() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const tap = t.accounting.accountsPage;
+  const { formatMoney } = useCurrentEntityCurrency();
 
   const filterConfigs: FilterConfig[] = [
     {
@@ -88,9 +91,7 @@ export default function ChartOfAccountsPage() {
       width: 'w-[160px]',
       render: (acc) => (
         <span>
-          {new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(
-            Number(acc.balance ?? 0),
-          )}
+          {formatMoney(acc.currentBalance, acc.currency)}
         </span>
       ),
     },

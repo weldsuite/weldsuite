@@ -37,6 +37,7 @@ export const recurringInvoices = pgTable('recurring_invoices', {
     paymentTermsDays?: number;
     revenueAccountId?: string;
     reference?: string;
+    currency?: string;
   }>(),
 
   autoSend: boolean('auto_send').default(false),

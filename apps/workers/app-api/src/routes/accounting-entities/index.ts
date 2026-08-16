@@ -284,7 +284,7 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
         type: row.type,
         subtype: row.subtype,
         normalSide: row.normalSide,
-        currency: data.baseCurrency,
+        currency: baseCurrency,
         isActive: true,
         isSystemAccount: row.isSystemAccount ?? false,
         openingBalance: '0',

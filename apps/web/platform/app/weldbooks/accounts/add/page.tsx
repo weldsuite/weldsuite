@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -24,6 +24,7 @@ import {
 } from '@weldsuite/ui/components/card';
 import { ArrowLeft } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 const subtypesByType: Record<string, { value: string; labelKey: string }[]> = {
   asset: [
@@ -84,6 +85,7 @@ export default function AddAccountPage() {
   const { t } = useI18n();
   const st = useTranslations();
   const ta = t.accounting.accounts;
+  const { currency } = useCurrentEntityCurrency();
   const accountSchema = useMemo(() => createAccountSchema(st), [st]);
 
   const form = useForm({
@@ -102,6 +104,12 @@ export default function AddAccountPage() {
 
   const selectedType = form.watch('type');
   const subtypes = subtypesByType[selectedType] ?? [];
+
+  useEffect(() => {
+    if (!form.formState.dirtyFields.currency) {
+      form.setValue('currency', currency);
+    }
+  }, [currency, form]);
 
   const onSubmit = async (values: AccountFormValues) => {
     await createAccount.mutateAsync(values as Record<string, unknown>);

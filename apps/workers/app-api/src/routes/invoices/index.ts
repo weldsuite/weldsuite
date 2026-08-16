@@ -28,7 +28,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema, type Database } from '../../db';
-import { nextEntityNumber, resolveEntityId } from '../../lib/entity-context';
+import { nextEntityNumber, resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
 import {
   assertPeriodOpen,
   ClosedPeriodError,
@@ -341,6 +341,7 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
     const entityId = await resolveEntityId(c, db);
     if (!entityId) return error.badRequest(c, 'No accounting entity resolved — set X-Accounting-Entity-Id or configure a default entity.');
     const { formatted: invoiceNumber } = await nextEntityNumber(db, entityId, 'invoice');
+    const currency = data.currency || (await resolveEntityBaseCurrency(db, entityId));
 
     const place = await loadPlaceOfSupply(db, entityId, {
       buyerCountry: data.billingAddress?.country,
@@ -360,7 +361,7 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
       contactEmail: data.contactEmail || null,
       issueDate: new Date(data.issueDate),
       dueDate: new Date(data.dueDate),
-      currency: data.currency || 'EUR',
+      currency,
       subtotal: totals.subtotal,
       discountTotal: totals.discountTotal,
       taxTotal: totals.taxTotal,
@@ -1290,6 +1291,7 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
     });
     const totals = await buildTaxTotalsWithRates(db, lineInputs, place);
     const { formatted: invoiceNumber } = await nextEntityNumber(db, entityId, 'invoice');
+    const currency = order.currency || (await resolveEntityBaseCurrency(db, entityId));
 
     const invoiceId = generateId('inv');
     const now = new Date();
@@ -1306,7 +1308,7 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
       contactEmail: order.customerEmail || null,
       issueDate: now,
       dueDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
-      currency: order.currency || 'EUR',
+      currency,
       subtotal: totals.subtotal,
       discountTotal: totals.discountTotal,
       taxTotal: totals.taxTotal,

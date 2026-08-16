@@ -11,7 +11,9 @@ import {
 import { Button } from '@weldsuite/ui/components/button';
 import { Building2, ChevronDown, Check, Plus } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
+import { accountingEntitiesQueryKey } from '@/hooks/use-current-entity-currency';
 import { weldbooksApi } from '@/lib/api/weldbooks-client';
 import { CreateEntityDialog } from './create-entity-dialog';
 
@@ -33,10 +35,11 @@ interface EntityRow {
 export function EntitySwitcher() {
   const t = useTranslations();
   const { entityId, setEntityId } = useCurrentAccountingEntity();
+  const workspaceId = useWorkspaceId();
   const [createOpen, setCreateOpen] = useState(false);
 
   const { data: entities = [] } = useQuery<EntityRow[]>({
-    queryKey: ['accounting', 'entities'],
+    queryKey: accountingEntitiesQueryKey(workspaceId),
     queryFn: async () => {
       const res = await weldbooksApi.get<{ data: EntityRow[] } | EntityRow[]>('/accounting-entities');
       return Array.isArray(res) ? res : res.data ?? [];

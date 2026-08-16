@@ -23,6 +23,7 @@ import { accountingApi } from '@/lib/api/domains/weldbooks';
 import type { Account } from '@/lib/api/domains/weldbooks';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 interface GeneralLedgerLineRow {
   id: string;
@@ -45,15 +46,9 @@ interface GeneralLedgerReport {
   };
 }
 
-function fmt(value: string | number | null | undefined): string {
-  return new Intl.NumberFormat('nl-NL', {
-    style: 'currency',
-    currency: 'EUR',
-  }).format(Number(value ?? 0));
-}
-
 export default function GeneralLedgerReportPage() {
   const { t } = useI18n();
+  const { formatMoney: fmt } = useCurrentEntityCurrency();
   const tr = t.accounting.reports;
 
   const today = new Date();

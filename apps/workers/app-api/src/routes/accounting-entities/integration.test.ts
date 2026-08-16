@@ -91,6 +91,7 @@ describe('/api/accounting-entities · pglite integration', () => {
     const roles = accounts.map((a) => (a.metadata as { systemRole?: string } | null)?.systemRole);
     expect(roles).toContain('tax_output_cgst');
     expect(roles).toContain('tax_output_igst');
+    expect(accounts.every((a) => a.currency === 'INR')).toBe(true);
 
     const rates = await db
       .select()

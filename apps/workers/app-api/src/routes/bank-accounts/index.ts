@@ -19,7 +19,7 @@ import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema } from '../../db';
-import { resolveEntityId } from '../../lib/entity-context';
+import { resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.bankAccounts;
@@ -81,6 +81,7 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createBank
       id: generateId('ba'),
       entityId: accountingEntityId,
       ...data,
+      currency: data.currency ?? (await resolveEntityBaseCurrency(db, accountingEntityId)),
       isActive: true,
       currentBalance: '0',
       createdAt: new Date(),
