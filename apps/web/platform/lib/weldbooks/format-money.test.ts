@@ -21,6 +21,12 @@ describe('formatWeldbooksMoney', () => {
   it('ignores invalid currency codes instead of throwing', () => {
     expect(() => formatWeldbooksMoney(10, 'NOPE', 'nl-NL')).not.toThrow();
     expect(formatWeldbooksMoney(10, 'NOPE', 'nl-NL')).toMatch(/€/);
+    expect(formatWeldbooksMoney(10, 'FOO', 'nl-NL')).toMatch(/€/);
+  });
+
+  it('falls back to nl-NL when the persisted locale is malformed', () => {
+    expect(() => formatWeldbooksMoney(10, 'EUR', 'en_US')).not.toThrow();
+    expect(formatWeldbooksMoney(10, 'EUR', 'en_US')).toMatch(/€/);
   });
 
   it('treats null/undefined amounts as zero', () => {

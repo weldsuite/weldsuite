@@ -202,5 +202,20 @@ export const SUPPORTED_CURRENCIES = [
   { code: 'AUD', name: 'Australian Dollar', symbol: 'A$' },
   { code: 'JPY', name: 'Japanese Yen', symbol: '¥' },
   { code: 'CNY', name: 'Chinese Yuan', symbol: '¥' },
-  { code: 'INR', name: 'Indian Rupee', symbol: '₹' },
+  { code: 'INR', name: 'INR', symbol: '₹' },
 ] as const;
+
+const INR_LOCALIZED_NAME: Record<string, string> = {
+  en: 'Indian Rupee',
+  nl: 'Indiase Roepie',
+};
+
+/** Localized currency list for API clients. INR names come from i18n catalogs. */
+export function getSupportedCurrencies(locale = 'en') {
+  const lang = locale.slice(0, 2).toLowerCase();
+  return SUPPORTED_CURRENCIES.map((c) =>
+    c.code === 'INR'
+      ? { ...c, name: INR_LOCALIZED_NAME[lang] ?? INR_LOCALIZED_NAME.en }
+      : { ...c },
+  );
+}

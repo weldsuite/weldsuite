@@ -18,7 +18,8 @@ interface AccountRow {
   code: string;
   name: string;
   type: string;
-  balance?: number | null;
+  currentBalance?: string | number | null;
+  currency?: string | null;
 }
 
 export default function ChartOfAccountsPage() {
@@ -90,7 +91,7 @@ export default function ChartOfAccountsPage() {
       width: 'w-[160px]',
       render: (acc) => (
         <span>
-          {formatMoney(acc.balance)}
+          {formatMoney(acc.currentBalance, acc.currency)}
         </span>
       ),
     },

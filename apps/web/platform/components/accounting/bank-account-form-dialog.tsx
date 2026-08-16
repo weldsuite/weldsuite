@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -60,6 +60,7 @@ export function BankAccountFormDialog({
   const [ledgerAccountId, setLedgerAccountId] = useState<string>('');
   const [isDefault, setIsDefault] = useState(false);
   const [autoReconcile, setAutoReconcile] = useState(true);
+  const currencyTouchedRef = useRef(false);
 
   // Bank ledger accounts from the CoA — filtered to asset/bank subtype
   const { data: accountsData } = useAccountingAccounts();
@@ -67,9 +68,14 @@ export function BankAccountFormDialog({
     (a) => a.type === 'asset' && (a.subtype === 'bank' || a.subtype === 'cash'),
   );
 
-  // Reset/prefill whenever the dialog opens or the account changes
+  // Reset/prefill whenever the dialog opens or the account changes.
+  // entityCurrency is applied in a separate effect so a late-loading entity
+  // does not wipe unsaved fields.
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      currencyTouchedRef.current = false;
+      return;
+    }
     if (bankAccount) {
       setName(bankAccount.name ?? '');
       setIban(bankAccount.iban ?? '');
@@ -91,6 +97,11 @@ export function BankAccountFormDialog({
       setIsDefault(false);
       setAutoReconcile(true);
     }
+  }, [open, bankAccount]);
+
+  useEffect(() => {
+    if (!open || bankAccount || currencyTouchedRef.current) return;
+    setCurrency(entityCurrency);
   }, [open, bankAccount, entityCurrency]);
 
   const createMutation = useCreateBankAccount();
@@ -192,11 +203,19 @@ export function BankAccountFormDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>{t('sweep.weldbooks.currency')}</Label>
-              <Select value={currency} onValueChange={setCurrency}>
+              <Select
+                value={currency}
+                onValueChange={(value) => {
+                  currencyTouchedRef.current = true;
+                  setCurrency(value);
+                }}
+              >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {CURRENCIES.map((c) => (
-                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                    <SelectItem key={c} value={c}>
+                      {c === 'INR' ? t('sweep.weldbooks.bankAccountForm.currencyInr') : c}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>

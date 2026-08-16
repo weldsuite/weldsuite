@@ -14,6 +14,8 @@ interface BankTransactionsTableProps {
   transactions: BankTransaction[];
   emptyMessage?: string;
   currency?: string;
+  /** Per-account currency lookup used when the table shows mixed accounts. */
+  currencyByAccountId?: Record<string, string | null | undefined>;
   /** When true, hide the counterparty column (used on account detail where it's obvious). */
   dense?: boolean;
   /**
@@ -57,6 +59,7 @@ export function BankTransactionsTable({
   transactions,
   emptyMessage,
   currency,
+  currencyByAccountId,
   dense,
   groupByStatus,
 }: BankTransactionsTableProps) {
@@ -118,7 +121,7 @@ export function BankTransactionsTable({
               isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground',
             )}
           >
-            {formatAmount(t.amount, displayCurrency, locale)}
+            {formatAmount(t.amount, currencyByAccountId?.[t.bankAccountId] ?? displayCurrency, locale)}
           </span>
         );
       },

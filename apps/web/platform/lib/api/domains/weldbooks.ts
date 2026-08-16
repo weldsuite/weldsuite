@@ -369,6 +369,7 @@ export interface RecurringInvoiceTemplateData {
   paymentTermsDays?: number;
   revenueAccountId?: string;
   reference?: string;
+  currency?: string;
 }
 
 export interface RecurringInvoice {

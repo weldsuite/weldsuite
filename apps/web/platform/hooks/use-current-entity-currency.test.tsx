@@ -19,6 +19,10 @@ vi.mock('@/hooks/use-current-accounting-entity', () => ({
   }),
 }));
 
+vi.mock('@/contexts/workspace-context', () => ({
+  useWorkspaceId: () => 'ws_test',
+}));
+
 import { useCurrentEntityCurrency } from './use-current-entity-currency';
 
 function wrapper({ children }: { children: ReactNode }) {

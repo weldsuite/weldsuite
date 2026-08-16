@@ -29,6 +29,25 @@ import { writeAccountingAudit } from '../../services/accounting-guards';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+const recurringTemplateSchema = z.object({
+  items: z.array(z.object({
+    description: z.string(),
+    quantity: z.number(),
+    unitPrice: z.number(),
+    unit: z.string().optional(),
+    taxRateId: z.string().optional(),
+    accountId: z.string().optional(),
+  })).optional(),
+  notes: z.string().optional(),
+  internalNotes: z.string().optional(),
+  paymentTermsDays: z.number().optional(),
+  revenueAccountId: z.string().optional(),
+  reference: z.string().optional(),
+  currency: z.string().length(3).optional(),
+});
+
+type RecurringTemplateData = z.infer<typeof recurringTemplateSchema>;
+
 const createRecurringSchema = z.object({
   name: z.string().max(255).optional(),
   contactId: z.string().min(1),
@@ -38,21 +57,7 @@ const createRecurringSchema = z.object({
   endDate: z.string().optional(),
   autoSend: z.boolean().optional(),
   autoFinalize: z.boolean().optional(),
-  templateData: z.object({
-    items: z.array(z.object({
-      description: z.string(),
-      quantity: z.number(),
-      unitPrice: z.number(),
-      unit: z.string().optional(),
-      taxRateId: z.string().optional(),
-      accountId: z.string().optional(),
-    })).optional(),
-    notes: z.string().optional(),
-    internalNotes: z.string().optional(),
-    paymentTermsDays: z.number().optional(),
-    revenueAccountId: z.string().optional(),
-    reference: z.string().optional(),
-  }).optional(),
+  templateData: recurringTemplateSchema.optional(),
 });
 
 // GET / — legacy shape: plain array, no pagination envelope
@@ -283,15 +288,20 @@ app.post('/:id/generate', requirePermission('invoices:create'), async (c) => {
     const [contact] = await db.select().from(parties)
       .where(and(eq(parties.id, rec.contactId), isNull(parties.deletedAt))).limit(1);
 
-    const entityIdForNumbering = rec.entityId || (await resolveEntityId(c, db));
+    const resolvedEntityId = await resolveEntityId(c, db);
+    const entityIdForNumbering = rec.entityId || resolvedEntityId;
     if (!entityIdForNumbering) return error.badRequest(c, 'No accounting entity resolved');
+    if (resolvedEntityId && rec.entityId && rec.entityId !== resolvedEntityId) {
+      return error.badRequest(c, 'Recurring invoice belongs to a different accounting entity');
+    }
     const { formatted: invoiceNumber } = await nextEntityNumber(db, entityIdForNumbering, 'invoice');
 
-    const template = (rec.templateData || {}) as Record<string, any>;
+    const parsedTemplate = recurringTemplateSchema.safeParse(rec.templateData ?? {});
+    const template: RecurringTemplateData = parsedTemplate.success ? parsedTemplate.data : {};
     const currency =
       (typeof template.currency === 'string' && template.currency) ||
       (await resolveEntityBaseCurrency(db, entityIdForNumbering));
-    const items = (template.items || []) as Array<{ description: string; quantity: number; unitPrice: number; unit?: string; taxRateId?: string; accountId?: string }>;
+    const items = template.items || [];
     const paymentTermsDays = template.paymentTermsDays || rec.dayOfMonth || 30;
 
     // Calculate totals
@@ -388,7 +398,7 @@ app.post('/:id/generate', requirePermission('invoices:create'), async (c) => {
     }).where(eq(recurringInvoices.id, id));
 
     await writeAccountingAudit(c, db, {
-      accountingEntityId: rec.entityId,
+      accountingEntityId: entityIdForNumbering,
       entityType: 'recurring_invoice',
       entityId: id,
       action: 'generated',

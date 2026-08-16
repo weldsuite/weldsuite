@@ -907,6 +907,10 @@ export const accounting = {
         inr: 'INR - Indiase Roepie',
       },
 
+      supportedCurrencyNames: {
+        inr: 'Indiase Roepie',
+      },
+
       // Vendor Categories
       categories: {
         supplier: 'Leverancier',

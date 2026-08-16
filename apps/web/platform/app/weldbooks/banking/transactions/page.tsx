@@ -62,6 +62,9 @@ export default function BankTransactionsPage() {
   const total = txnData?.pagination?.totalCount ?? transactions.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  const currencyByAccountId = Object.fromEntries(
+    accounts.map((a) => [a.id, a.currency ?? entityCurrency]),
+  );
   const currencyForDisplay =
     accountFilter !== 'all'
       ? accounts.find((a) => a.id === accountFilter)?.currency ?? entityCurrency
@@ -181,6 +184,7 @@ export default function BankTransactionsPage() {
           <BankTransactionsTable
             transactions={transactions}
             currency={currencyForDisplay}
+            currencyByAccountId={currencyByAccountId}
             groupByStatus={statusFilter === 'all'}
           />
           <div className="flex items-center justify-between text-sm text-muted-foreground">

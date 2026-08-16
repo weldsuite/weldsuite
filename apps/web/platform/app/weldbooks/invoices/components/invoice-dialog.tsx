@@ -78,7 +78,7 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: InvoiceDialogPr
   const st = useTranslations();
   const tid = t.accounting.invoiceDialog;
   const invoiceFormSchema = useMemo(() => createInvoiceFormSchema(st), [st]);
-  const { currency, formatMoney } = useCurrentEntityCurrency();
+  const { entityCurrency, formatMoney } = useCurrentEntityCurrency();
 
   const { data: contactsData } = useAccountingCustomers({ role: 'customer' });
   const { data: taxRatesData } = useAccountingTaxRates();
@@ -171,7 +171,6 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: InvoiceDialogPr
           contactId: values.contactId,
           issueDate: values.issueDate,
           dueDate: values.dueDate,
-          currency,
           reference: values.reference || undefined,
           notes: values.notes || undefined,
           items: values.items.map((item) => ({
@@ -182,6 +181,7 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: InvoiceDialogPr
             discountPercent: item.discountPercent || undefined,
           })),
         };
+        if (entityCurrency) payload.currency = entityCurrency;
 
         const result = (await createMutation.mutateAsync(payload)) as
           | { id?: string; data?: { id?: string } }

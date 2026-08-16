@@ -6,6 +6,8 @@ import { ModuleContent } from '@/components/layout/module-content';
 import { PageLoader } from '@/components/page-loader';
 import { EntityEmptyState } from '@/components/accounting/entity-empty-state';
 import { weldbooksApi } from '@/lib/api/weldbooks-client';
+import { useWorkspaceId } from '@/contexts/workspace-context';
+import { accountingEntitiesQueryKey } from '@/hooks/use-current-entity-currency';
 import { useI18n } from '@/lib/i18n/provider';
 
 interface EntityRow {
@@ -23,6 +25,7 @@ interface EntityRow {
 export function AccountingLayoutClient({ children }: { children: React.ReactNode }) {
   const { t } = useI18n();
   const tl = t.accounting.layout;
+  const workspaceId = useWorkspaceId();
 
   const {
     data: entities,
@@ -33,7 +36,7 @@ export function AccountingLayoutClient({ children }: { children: React.ReactNode
     refetch,
     isFetching,
   } = useQuery<EntityRow[]>({
-    queryKey: ['accounting', 'entities'],
+    queryKey: accountingEntitiesQueryKey(workspaceId),
     queryFn: async () => {
       const res = await weldbooksApi.get<{ data: EntityRow[] } | EntityRow[]>('/accounting-entities');
       return Array.isArray(res) ? res : res.data ?? [];

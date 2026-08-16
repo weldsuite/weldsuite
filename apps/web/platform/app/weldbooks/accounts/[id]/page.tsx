@@ -102,8 +102,8 @@ export default function AccountDetailPage() {
           <CardTitle>{ta.balances}</CardTitle>
         </CardHeader>
         <CardContent>
-          <DetailRow label={ta.openingBalance} value={formatMoney(account.openingBalance)} />
-          <DetailRow label={ta.currentBalance} value={formatMoney(account.currentBalance)} />
+          <DetailRow label={ta.openingBalance} value={formatMoney(account.openingBalance, account.currency)} />
+          <DetailRow label={ta.currentBalance} value={formatMoney(account.currentBalance, account.currency)} />
         </CardContent>
       </Card>
     </div>

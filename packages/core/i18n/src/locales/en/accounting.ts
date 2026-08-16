@@ -906,6 +906,10 @@ export const accounting = {
         inr: 'INR - Indian Rupee',
       },
 
+      supportedCurrencyNames: {
+        inr: 'Indian Rupee',
+      },
+
       // Vendor Categories
       categories: {
         supplier: 'Supplier',

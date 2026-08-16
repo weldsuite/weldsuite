@@ -236,7 +236,8 @@ export const sweep = {
       "noLedgerAccounts": "No bank/cash accounts in CoA",
       "makeDefault": "Make this the default bank account",
       "autoReconcileLabel": "Auto-reconcile imported transactions with ≥ 80% match confidence",
-      "createButton": "Create bank account"
+      "createButton": "Create bank account",
+      "currencyInr": "INR - Rupia India"
     },
     "entitySwitcher": {
       "createEntity": "Create entity",

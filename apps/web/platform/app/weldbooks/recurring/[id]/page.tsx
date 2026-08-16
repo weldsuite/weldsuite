@@ -154,7 +154,7 @@ export default function RecurringInvoiceDetailPage() {
                 <div key={i} className="flex justify-between text-sm border-b pb-2">
                   <span>{item.description}</span>
                   <span className="font-medium">
-                    {item.quantity} × {fmt(item.unitPrice)} = {fmt((item.quantity ?? 1) * (item.unitPrice ?? 0))}
+                    {item.quantity} × {fmt(item.unitPrice, template.currency)} = {fmt((item.quantity ?? 1) * (item.unitPrice ?? 0), template.currency)}
                   </span>
                 </div>
               ))}

@@ -315,7 +315,7 @@ app.post('/from-document/:documentId', requirePermission('bills:create'), async 
       externalReference: ocr.invoiceNumber || null,
       issueDate: ocr.invoiceDate || null,
       dueDate: ocr.dueDate || null,
-      currency: ocr.currency || 'EUR',
+      currency: ocr.currency || null,
       items: (ocr.lineItems || []).map((li, idx) => ({
         description: li.description || '',
         quantity: String(li.quantity || 1),

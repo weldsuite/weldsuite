@@ -101,6 +101,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: BillFo
   const { t } = useI18n();
   const st = useTranslations();
   const { formatMoney } = useCurrentEntityCurrency();
+  const displayCurrency = bill?.currency;
   const tb = t.accounting.billForm;
   const billFormSchema = useMemo(() => createBillFormSchema(st), [st]);
   const { data: contactsData } = useAccountingCustomers({ role: 'supplier' });
@@ -359,7 +360,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: BillFo
                       </Select>
                     </TableCell>
                     <TableCell className="text-right font-medium">
-                      {formatMoney(lineTotal)}
+                      {formatMoney(lineTotal, displayCurrency)}
                     </TableCell>
                     <TableCell>
                       {fields.length > 1 && (
@@ -385,16 +386,16 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: BillFo
             <div className="w-64 space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">{tb.subtotal}</span>
-                <span>{formatMoney(subtotal)}</span>
+                <span>{formatMoney(subtotal, displayCurrency)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">{tb.tax}</span>
-                <span>{formatMoney(taxTotal)}</span>
+                <span>{formatMoney(taxTotal, displayCurrency)}</span>
               </div>
               <Separator />
               <div className="flex justify-between font-semibold">
                 <span>{tb.total}</span>
-                <span>{formatMoney(total)}</span>
+                <span>{formatMoney(total, displayCurrency)}</span>
               </div>
             </div>
           </div>

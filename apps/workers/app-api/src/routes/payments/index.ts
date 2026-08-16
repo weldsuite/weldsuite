@@ -119,21 +119,30 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createPaym
     const paymentExchangeRate = data.exchangeRate ?? '1';
 
     let currency = data.currency;
-    if (!currency && data.invoiceId) {
+
+    if (data.invoiceId) {
       const [linkedInvoice] = await db
-        .select({ currency: invoices.currency })
+        .select()
         .from(invoices)
         .where(eq(invoices.id, data.invoiceId))
         .limit(1);
-      currency = linkedInvoice?.currency ?? undefined;
+      if (!linkedInvoice) return error.notFound(c, 'Invoice', data.invoiceId);
+      if (linkedInvoice.entityId !== entityId) {
+        return error.badRequest(c, 'Linked invoice belongs to a different accounting entity');
+      }
+      if (!currency) currency = linkedInvoice.currency ?? undefined;
     }
-    if (!currency && data.billId) {
+    if (data.billId) {
       const [linkedBill] = await db
-        .select({ currency: bills.currency })
+        .select()
         .from(bills)
         .where(eq(bills.id, data.billId))
         .limit(1);
-      currency = linkedBill?.currency ?? undefined;
+      if (!linkedBill) return error.notFound(c, 'Bill', data.billId);
+      if (linkedBill.entityId !== entityId) {
+        return error.badRequest(c, 'Linked bill belongs to a different accounting entity');
+      }
+      if (!currency) currency = linkedBill.currency ?? undefined;
     }
     if (!currency) {
       currency = await resolveEntityBaseCurrency(db, entityId);
@@ -163,7 +172,9 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createPaym
 
     // Update invoice/bill balance if linked
     if (data.invoiceId) {
-      const [invoice] = await db.select().from(invoices).where(eq(invoices.id, data.invoiceId)).limit(1);
+      const [invoice] = await db.select().from(invoices)
+        .where(and(eq(invoices.id, data.invoiceId), eq(invoices.entityId, entityId)))
+        .limit(1);
       if (invoice) {
         const newAmountPaid = parseFloat(invoice.amountPaid || '0') + paymentAmount;
         const newBalanceDue = parseFloat(invoice.total || '0') - newAmountPaid;
@@ -174,7 +185,7 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createPaym
           status: isFullyPaid ? 'paid' : 'partial',
           paidAt: isFullyPaid ? new Date() : null,
           updatedAt: new Date(),
-        }).where(eq(invoices.id, data.invoiceId));
+        }).where(and(eq(invoices.id, data.invoiceId), eq(invoices.entityId, entityId)));
 
         // Update payment isPartial
         if (!isFullyPaid) {
@@ -184,7 +195,9 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createPaym
     }
 
     if (data.billId) {
-      const [bill] = await db.select().from(bills).where(eq(bills.id, data.billId)).limit(1);
+      const [bill] = await db.select().from(bills)
+        .where(and(eq(bills.id, data.billId), eq(bills.entityId, entityId)))
+        .limit(1);
       if (bill) {
         const newAmountPaid = parseFloat(bill.amountPaid || '0') + paymentAmount;
         const newBalanceDue = parseFloat(bill.total || '0') - newAmountPaid;
@@ -195,7 +208,7 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createPaym
           status: isFullyPaid ? 'paid' : 'partial',
           paidAt: isFullyPaid ? new Date() : null,
           updatedAt: new Date(),
-        }).where(eq(bills.id, data.billId));
+        }).where(and(eq(bills.id, data.billId), eq(bills.entityId, entityId)));
       }
     }
 
@@ -225,7 +238,7 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createPaym
       entityType: 'payment',
       entityId: paymentId,
       action: 'created',
-      data: { id: paymentId, amount: data.amount, currency: data.currency, invoiceId: data.invoiceId, billId: data.billId, method: data.paymentMethod },
+      data: { id: paymentId, amount: data.amount, currency, invoiceId: data.invoiceId, billId: data.billId, method: data.paymentMethod },
     });
 
     return success(c, { id: paymentId }, 201);
@@ -406,7 +419,7 @@ app.delete('/:id', requirePermission('banking:delete'), async (c) => {
       entityType: 'payment',
       entityId: paymentId,
       action: 'deleted',
-      data: { id: paymentId, amount: existing.amount || '0', invoiceId: existing.invoiceId, billId: existing.billId },
+      data: { id: paymentId, amount: existing.amount || '0', currency: existing.currency, invoiceId: existing.invoiceId, billId: existing.billId },
     });
 
     return noContent(c);

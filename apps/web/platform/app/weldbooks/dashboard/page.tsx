@@ -52,7 +52,7 @@ export default function AccountingDashboardPage() {
                       <p className="text-sm font-medium">{ba.name}</p>
                       <p className="text-xs text-muted-foreground">{ba.iban}</p>
                     </div>
-                    <p className="text-sm font-semibold">{fmt(ba.currentBalance)}</p>
+                    <p className="text-sm font-semibold">{fmt(ba.currentBalance, ba.currency)}</p>
                   </div>
                 ))}
               </div>

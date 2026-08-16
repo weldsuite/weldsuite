@@ -93,7 +93,8 @@ export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
   const st = useTranslations();
   const tf = t.accounting.invoiceForm;
   const invoiceFormSchema = useMemo(() => createInvoiceFormSchema(st), [st]);
-  const { currency, formatMoney } = useCurrentEntityCurrency();
+  const { currency, entityCurrency, formatMoney } = useCurrentEntityCurrency();
+  const displayCurrency = invoice?.currency || currency;
 
   const createMutation = useCreateInvoice();
   const updateMutation = useUpdateInvoice();
@@ -200,7 +201,6 @@ export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
           contactId: values.contactId,
           issueDate: values.issueDate,
           dueDate: values.dueDate,
-          currency: invoice?.currency || currency,
           reference: values.reference || undefined,
           notes: values.notes || undefined,
           internalNotes: values.internalNotes || undefined,
@@ -214,6 +214,11 @@ export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
             discountPercent: item.discountPercent || undefined,
           })),
         };
+        if (mode === 'edit' && invoice?.currency) {
+          payload.currency = invoice.currency;
+        } else if (entityCurrency) {
+          payload.currency = entityCurrency;
+        }
 
         if (mode === 'edit' && invoice) {
           await updateMutation.mutateAsync({ id: invoice.id, data: payload });
@@ -409,7 +414,7 @@ export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
               <div className="flex justify-end text-sm text-muted-foreground">
                 {tf.lineTotal}{' '}
                 <span className="ml-1 font-medium text-foreground">
-                  {formatMoney(lineCalculations[index]?.total ?? 0)}
+                  {formatMoney(lineCalculations[index]?.total ?? 0, displayCurrency)}
                 </span>
               </div>
             </div>
@@ -488,9 +493,9 @@ export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
         ? tf.items.replace('{count}', String(itemCount))
         : tf.itemsPlural.replace('{count}', String(itemCount)),
     },
-    { label: tf.subtotal, value: formatMoney(totals.subtotal), bordered: true },
-    { label: tf.tax, value: formatMoney(totals.taxTotal) },
-    { label: tf.total, value: <span className="font-semibold">{formatMoney(totals.total)}</span> },
+    { label: tf.subtotal, value: formatMoney(totals.subtotal, displayCurrency), bordered: true },
+    { label: tf.tax, value: formatMoney(totals.taxTotal, displayCurrency) },
+    { label: tf.total, value: <span className="font-semibold">{formatMoney(totals.total, displayCurrency)}</span> },
   ];
 
   return (

@@ -206,7 +206,7 @@ app.post('/', requirePermission('journal:create'), zValidator('json', createJour
       entityId: entryId,
       action: 'created',
     });
-    publishEntityEvent({ c, entityType: 'journal_entry', entityId: entryId, action: 'created', data: { id: entryId, entityId, entryNumber, status: 'draft' } });
+    publishEntityEvent({ c, entityType: 'journal_entry', entityId: entryId, action: 'created', data: { id: entryId, entityId, entryNumber, status: 'draft', currency } });
 
     return success(c, { id: entryId, entryNumber, lines: lineRecords }, 201);
   } catch (err) {
@@ -252,7 +252,7 @@ app.patch('/:id', requirePermission('journal:update'), zValidator('json', update
           .map(([k, v]) => [k, { old: (existing as Record<string, unknown>)[k], new: v }]),
       ),
     });
-    publishEntityEvent({ c, entityType: 'journal_entry', entityId: id, action: 'updated', data: { id, entityId: existing.entityId, entryNumber: existing.entryNumber, status: existing.status } });
+    publishEntityEvent({ c, entityType: 'journal_entry', entityId: id, action: 'updated', data: { id, entityId: existing.entityId, entryNumber: existing.entryNumber, status: existing.status, currency: await resolveEntityBaseCurrency(db, existing.entityId) } });
 
     return success(c, { id });
   } catch (err) {

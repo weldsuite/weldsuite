@@ -148,10 +148,10 @@ export default function JournalEntryDetailPage() {
                     <TableCell className="font-mono text-sm">{line.accountId}</TableCell>
                     <TableCell className="text-sm">{line.description || '-'}</TableCell>
                     <TableCell className="text-right text-sm">
-                      {Number(line.debit) > 0 ? fmt(line.debit) : '-'}
+                      {Number(line.debit) > 0 ? fmt(line.debit, line.currency) : '-'}
                     </TableCell>
                     <TableCell className="text-right text-sm">
-                      {Number(line.credit) > 0 ? fmt(line.credit) : '-'}
+                      {Number(line.credit) > 0 ? fmt(line.credit, line.currency) : '-'}
                     </TableCell>
                   </TableRow>
                 ))
