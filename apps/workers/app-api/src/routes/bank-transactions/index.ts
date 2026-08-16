@@ -2,9 +2,9 @@
  * Bank transaction routes — flat /api/bank-transactions/* surface backed by `bankTransactions`.
  *
  * Ported from apps/api-worker/src/routes/accounting/bank-transactions.ts.
- * Transactions enter the ledger exclusively via POST /import (MT940 /
- * CAMT.053 / CSV statement files) — there is deliberately no generic
- * create/update/delete surface. Reconciliation state changes go through
+ * Transactions enter the ledger via POST / (manual cashbook entry) or
+ * POST /import (MT940 / CAMT.053 / CSV statement files). There is no
+ * generic update/delete surface — reconciliation state changes go through
  * /:id/reconcile, /:id/exclude, and /auto-reconcile, and every one of them
  * is written to the accounting audit log (administratieplicht).
  *
@@ -17,6 +17,7 @@ import { z } from 'zod';
 import { and, desc, eq, gte, isNull, like, lte, or, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
+import { createBankTransactionSchema } from '@weldsuite/core-api-client/schemas/bank-transactions';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
@@ -104,6 +105,104 @@ app.get('/unreconciled', requirePermission('banking:read'), async (c) => {
   } catch (err) {
     console.error('[app-api/bank-transactions] unreconciled failed:', err);
     return error.internal(c, 'Failed to fetch unreconciled transactions');
+  }
+});
+
+function roundMoney(value: number): string {
+  return (Math.round(value * 100) / 100).toFixed(2);
+}
+
+function parseDate(value: string): Date | null {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+// POST / — manually record a single bank transaction (cashbook entry)
+app.post('/', requirePermission('banking:create'), zValidator('json', createBankTransactionSchema), async (c) => {
+  const db = c.get('tenantDb');
+  const data = c.req.valid('json');
+  const { bankTransactions, bankAccounts } = schema;
+
+  try {
+    const [bankAccount] = await db.select().from(bankAccounts)
+      .where(and(eq(bankAccounts.id, data.bankAccountId), isNull(bankAccounts.deletedAt))).limit(1);
+    if (!bankAccount) return error.notFound(c, 'Bank account', data.bankAccountId);
+
+    const date = parseDate(data.date);
+    if (!date) return error.badRequest(c, 'Invalid date');
+    const valueDate = data.valueDate ? parseDate(data.valueDate) : null;
+    if (data.valueDate && !valueDate) return error.badRequest(c, 'Invalid valueDate');
+
+    const amountNumber = typeof data.amount === 'number' ? data.amount : Number(data.amount);
+    const amount = roundMoney(amountNumber);
+    const previousBalance = Number(bankAccount.currentBalance || '0');
+    const runningBalance = roundMoney(previousBalance + Number(amount));
+    const now = new Date();
+    const id = generateId('bt');
+    const counterpartyIban = data.counterpartyIban
+      ? data.counterpartyIban.replace(/\s+/g, '').toUpperCase()
+      : null;
+
+    const txn = {
+      id,
+      entityId: bankAccount.entityId,
+      bankAccountId: data.bankAccountId,
+      date,
+      valueDate,
+      description: data.description?.trim() || null,
+      amount,
+      runningBalance,
+      counterpartyName: data.counterpartyName?.trim() || null,
+      counterpartyIban,
+      counterpartyBic: data.counterpartyBic?.trim().toUpperCase() || null,
+      reference: data.reference?.trim() || null,
+      notes: data.notes?.trim() || null,
+      importBatchId: null,
+      externalId: null,
+      status: 'unreconciled' as const,
+      rawData: { source: 'manual' },
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await db.insert(bankTransactions).values(txn);
+    await db.update(bankAccounts).set({
+      currentBalance: runningBalance,
+      updatedAt: now,
+    }).where(eq(bankAccounts.id, data.bankAccountId));
+
+    await writeAccountingAudit(c, db, {
+      accountingEntityId: bankAccount.entityId,
+      entityType: 'bank_transaction',
+      entityId: id,
+      action: 'created',
+      changes: {
+        bankAccountId: { old: null, new: data.bankAccountId },
+        date: { old: null, new: date.toISOString() },
+        amount: { old: null, new: amount },
+        description: { old: null, new: txn.description },
+        source: { old: null, new: 'manual' },
+      },
+    });
+    publishEntityEvent({
+      c,
+      entityType: 'bank_transaction',
+      entityId: id,
+      action: 'created',
+      data: {
+        id,
+        bankAccountId: data.bankAccountId,
+        amount,
+        description: txn.description,
+        date: date.toISOString(),
+        status: 'unreconciled',
+      },
+    });
+
+    return success(c, txn, 201);
+  } catch (err) {
+    console.error('[app-api/bank-transactions] create failed:', err);
+    return error.internal(c, 'Failed to create bank transaction');
   }
 });
 

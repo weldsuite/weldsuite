@@ -238,6 +238,26 @@ export const sweep = {
       "autoReconcileLabel": "Automatisch afletteren van geïmporteerde transacties bij ≥ 80% overeenkomst",
       "createButton": "Bankrekening aanmaken"
     },
+    "bankTransactionForm": {
+      "title": "Banktransactie toevoegen",
+      "description": "Registreer een transactie die niet uit een afschriftimport komt. U kunt deze daarna nog afstemmen.",
+      "accountLabel": "Bankrekening",
+      "selectAccount": "Selecteer bankrekening",
+      "noAccounts": "Voeg eerst een bankrekening toe",
+      "dateLabel": "Datum",
+      "directionLabel": "Type",
+      "moneyIn": "Bijschrijving",
+      "moneyOut": "Afschrijving",
+      "amountLabel": "Bedrag",
+      "descriptionLabel": "Omschrijving",
+      "descriptionPlaceholder": "bijv. Kantoorhuur",
+      "counterpartyLabel": "Tegenpartij",
+      "counterpartyPlaceholder": "Naam op het afschrift",
+      "ibanLabel": "IBAN tegenpartij",
+      "referenceLabel": "Referentie",
+      "createButton": "Transactie toevoegen",
+      "creating": "Toevoegen…"
+    },
     "entitySwitcher": {
       "createEntity": "Entiteit aanmaken",
       "selectEntity": "Selecteer entiteit",

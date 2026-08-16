@@ -238,6 +238,26 @@ export const sweep = {
       "autoReconcileLabel": "Auto-reconcile imported transactions with ≥ 80% match confidence",
       "createButton": "Create bank account"
     },
+    "bankTransactionForm": {
+      "title": "Add bank transaction",
+      "description": "Record a transaction that is not coming from a statement import. You can still reconcile it afterwards.",
+      "accountLabel": "Bank account",
+      "selectAccount": "Select bank account",
+      "noAccounts": "Add a bank account first",
+      "dateLabel": "Date",
+      "directionLabel": "Type",
+      "moneyIn": "Money in",
+      "moneyOut": "Money out",
+      "amountLabel": "Amount",
+      "descriptionLabel": "Description",
+      "descriptionPlaceholder": "e.g. Office rent",
+      "counterpartyLabel": "Counterparty",
+      "counterpartyPlaceholder": "Name on the statement",
+      "ibanLabel": "Counterparty IBAN",
+      "referenceLabel": "Reference",
+      "createButton": "Add transaction",
+      "creating": "Adding…"
+    },
     "entitySwitcher": {
       "createEntity": "Create entity",
       "selectEntity": "Select entity",

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { Download, Inbox } from 'lucide-react';
+import { Download, Inbox, Plus } from 'lucide-react';
 import { PageLoader } from '@/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
@@ -17,6 +17,7 @@ import {
   useAccountingBankTransactions,
 } from '@/hooks/queries/use-accounting-queries';
 import { BankTransactionsTable } from '@/components/accounting/bank-transactions-table';
+import { BankTransactionFormDialog } from '@/components/accounting/bank-transaction-form-dialog';
 import type { BankAccount, BankTransaction } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 
@@ -29,6 +30,7 @@ export default function BankTransactionsPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
+  const [addOpen, setAddOpen] = useState(false);
   const { t } = useI18n();
   const tbp = t.accounting.bankingPages;
 
@@ -72,12 +74,23 @@ export default function BankTransactionsPage() {
           <h1 className="text-2xl font-semibold">{tbp.transactionsTitle}</h1>
           <p className="text-sm text-muted-foreground">{tbp.transactionsSubtitle}</p>
         </div>
-        <Link to="/weldbooks/banking/import">
-          <Button size="sm">
-            <Download className="h-4 w-4 mr-1" />
-            {tbp.importStatementButton}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            data-testid="add-bank-transaction"
+            onClick={() => setAddOpen(true)}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            {tbp.addTransactionButton}
           </Button>
-        </Link>
+          <Link to="/weldbooks/banking/import">
+            <Button size="sm">
+              <Download className="h-4 w-4 mr-1" />
+              {tbp.importStatementButton}
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
@@ -166,12 +179,18 @@ export default function BankTransactionsPage() {
           <CardContent className="py-10 text-center space-y-3">
             <Inbox className="h-10 w-10 mx-auto text-muted-foreground" />
             <p className="text-sm text-muted-foreground">{tbp.noTransactionsMatch}</p>
-            <Link to="/weldbooks/banking/import">
-              <Button>
-                <Download className="h-4 w-4 mr-1" />
-                {tbp.importStatementButton}
+            <div className="flex items-center justify-center gap-2">
+              <Button variant="outline" onClick={() => setAddOpen(true)}>
+                <Plus className="h-4 w-4 mr-1" />
+                {tbp.addTransactionButton}
               </Button>
-            </Link>
+              <Link to="/weldbooks/banking/import">
+                <Button>
+                  <Download className="h-4 w-4 mr-1" />
+                  {tbp.importStatementButton}
+                </Button>
+              </Link>
+            </div>
           </CardContent>
         </Card>
       ) : (
@@ -213,6 +232,12 @@ export default function BankTransactionsPage() {
           </div>
         </>
       )}
+
+      <BankTransactionFormDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        bankAccountId={accountFilter === 'all' ? undefined : accountFilter}
+      />
     </div>
   );
 }
