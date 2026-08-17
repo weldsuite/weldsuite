@@ -112,6 +112,9 @@
     "./domains/chat-agent": "./src/domains/chat-agent.ts",
     "./domains/notifications": "./src/domains/notifications.ts",
     "./domains/dashboard": "./src/domains/dashboard.ts",
+    "./domains/products": "./src/domains/products.ts",
+    "./domains/inventory": "./src/domains/inventory.ts",
+    "./domains/warehouses": "./src/domains/warehouses.ts",
     "./domains/search": "./src/domains/search.ts",
     "./domains/access-requests": "./src/domains/access-requests.ts"
   },
