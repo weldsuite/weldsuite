@@ -108,6 +108,29 @@ describe('/api/products · pglite integration', () => {
     expect(body.data.map((r) => r.name)).toEqual(['Anvils', 'Tools']);
   });
 
+  it('GET / matches products by barcode', async () => {
+    const { request } = createTestApp('/api/products', productsRoutes, {
+      context: { permissions: permissions('products:create', 'products:read'), tenantDb: db },
+    });
+
+    const created = await request('/api/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Scanned Widget',
+        slug: 'scanned-widget-1',
+        sku: 'SKU-SCAN-1',
+        barcode: '0123456789012',
+      }),
+    });
+    expect(created.status).toBe(201);
+
+    const res = await request('/api/products?search=0123456789012');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ name: string; barcode: string | null }> };
+    expect(body.data.some((row) => row.barcode === '0123456789012')).toBe(true);
+  });
+
   it('GET /:id/categories 404s for a missing product', async () => {
     const { request } = createTestApp('/api/products', productsRoutes, {
       context: { permissions: permissions('products:read'), tenantDb: db },
