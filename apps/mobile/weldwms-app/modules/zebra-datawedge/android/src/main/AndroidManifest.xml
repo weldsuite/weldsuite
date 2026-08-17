@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <!-- DataWedge is a separate package on Zebra devices; Android 11+ needs this
-       visibility so we can send CREATE_PROFILE / SET_CONFIG broadcasts. -->
+       visibility so we can send CREATE_PROFILE / SET_CONFIG broadcasts and
+       look up DataWedge's signature permission when registering the scan
+       receiver. -->
   <queries>
     <package android:name="com.symbol.datawedge" />
     <intent>

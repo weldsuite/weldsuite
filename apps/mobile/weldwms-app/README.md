@@ -17,8 +17,8 @@ WeldWMS uses that intent path:
 
 1. On launch, the app creates a DataWedge profile named `WeldWMS` associated with `com.weldsuite.weldwms`.
 2. Barcode input stays on; **keystroke output is turned off** so a scan is not typed into a random text field.
-3. Intent output is a **broadcast** with action `com.weldsuite.weldwms.SCAN`.
-4. The native module listens for `com.symbol.datawedge.data_string` and the JS app treats that as a product search.
+3. Intent output is an **explicit broadcast** to this package with action `com.weldsuite.weldwms.SCAN` (not the well-known `com.symbol.datawedge.ACTION_BARCODE_SCANNED`).
+4. The native module accepts `com.symbol.datawedge.data_string` only from DataWedge (sender permission + package check) and the JS app treats that as a product search.
 
 If DataWedge is missing (simulator, iOS, a non-Zebra phone), the search field still accepts a **keyboard-wedge** scan: the scanner types the barcode and sends Enter.
 
@@ -30,7 +30,7 @@ If auto-config is blocked by device policy, create the profile in DataWedge:
 - Associated app: `com.weldsuite.weldwms` / `*`
 - Barcode input: enabled
 - Keystroke output: disabled
-- Intent output: enabled, action `com.weldsuite.weldwms.SCAN`, delivery **Broadcast**
+- Intent output: enabled, action `com.weldsuite.weldwms.SCAN`, delivery **Broadcast**, component = this app
 
 A development build (`expo run:android` / EAS) is required. Expo Go cannot receive DataWedge broadcasts.
 

@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as path from 'path';
+
 jest.mock('expo', () => ({
   requireOptionalNativeModule: jest.fn(() => null),
 }));
@@ -44,5 +47,40 @@ describe('zebra-datawedge JS facade', () => {
     expect(native.addListener).toHaveBeenCalledWith('onBarcodeScanned', expect.any(Function));
     listeners[0]({ data: '0123456789012' });
     expect(received).toEqual(['0123456789012']);
+  });
+});
+
+describe('ZebraDataWedge native scan receiver', () => {
+  const source = fs.readFileSync(
+    path.join(
+      __dirname,
+      '../android/src/main/java/expo/modules/zebradatawedge/ZebraDataWedgeModule.kt',
+    ),
+    'utf8',
+  );
+
+  it('does not listen for the well-known DataWedge scan action', () => {
+    expect(source).not.toContain('com.symbol.datawedge.ACTION_BARCODE_SCANNED');
+    expect(source).not.toContain('SCAN_ACTION_ALT');
+    expect(source).toContain('addAction(SCAN_ACTION)');
+  });
+
+  it('registers the exported receiver with a sender-permission argument', () => {
+    expect(source).toContain('Context.RECEIVER_EXPORTED');
+    expect(source).toContain('senderPermission');
+    expect(source).toContain('com.symbol.datawedge.permission.contentprovider');
+  });
+
+  it('drops broadcasts that are not from DataWedge when the sender is known', () => {
+    expect(source).toContain('sentFromPackage');
+    expect(source).toContain('sentFromUid');
+    expect(source).toContain('isTrustedPackage');
+    expect(source).toContain('com.symbol.datawedge');
+    expect(source).toContain('com.weldsuite.weldwms.SCAN');
+  });
+
+  it('configures DataWedge to send an explicit broadcast to this package', () => {
+    expect(source).toContain('intent_component_info');
+    expect(source).toContain('setPackage(DATAWEDGE_PACKAGE)');
   });
 });
