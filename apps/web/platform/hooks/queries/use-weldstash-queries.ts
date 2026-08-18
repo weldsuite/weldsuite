@@ -73,6 +73,9 @@ const weldstashKeys = {
   stock: () => [...weldstashKeys.all, 'stock'] as const,
   stockList: (params?: ListStockQuery) => [...weldstashKeys.stock(), 'list', params ?? {}] as const,
   movements: (params?: Record<string, unknown>) => [...weldstashKeys.all, 'movements', params ?? {}] as const,
+  pickLists: () => [...weldstashKeys.all, 'pickLists'] as const,
+  pickListList: (params?: Record<string, unknown>) => [...weldstashKeys.pickLists(), 'list', params ?? {}] as const,
+  pickList: (id: string) => [...weldstashKeys.pickLists(), 'detail', id] as const,
 };
 
 // ---------------------- Products ----------------------
@@ -396,6 +399,148 @@ export function useAdjustWeldstashStock() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: weldstashKeys.stock() });
       qc.invalidateQueries({ queryKey: [...weldstashKeys.all, 'movements'] });
+    },
+  });
+}
+
+export interface WeldstashPickList {
+  id: string;
+  pickListNumber: string;
+  warehouseId: string;
+  status: string;
+  assignedTo?: string | null;
+  assignedToName?: string | null;
+  totalItems?: number | null;
+  pickedItems?: number | null;
+  totalQuantity?: number | null;
+  pickedQuantity?: number | null;
+  orderIds?: string[] | null;
+  packedAt?: string | null;
+  shippedAt?: string | null;
+  shipmentId?: string | null;
+  parcelId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  items?: Array<{
+    id: string;
+    name: string;
+    sku?: string | null;
+    locationCode?: string | null;
+    quantityRequired: number;
+    quantityPicked?: number | null;
+    status?: string | null;
+  }>;
+}
+
+export interface ListPickListsQuery {
+  limit?: number;
+  status?: string;
+  warehouseId?: string;
+  assignedTo?: string;
+}
+
+export function useInfiniteWeldstashPickLists(params?: Omit<ListPickListsQuery, 'cursor'>) {
+  const { getClient } = useAppApiClient();
+  return useInfiniteQuery({
+    queryKey: [...weldstashKeys.pickLists(), 'infinite', params ?? {}],
+    queryFn: async ({ pageParam }) => {
+      const client = await getClient();
+      const qs = buildQueryString({
+        ...(params ?? { limit: 50 }),
+        cursor: pageParam as string | undefined,
+      } as Record<string, unknown>);
+      return client.get<ListResponse<WeldstashPickList>>(`/pick-lists${qs}`);
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) =>
+      lastPage.pagination?.hasMore ? lastPage.pagination.cursor ?? undefined : undefined,
+  });
+}
+
+export function useWeldstashPickList(id: string, enabled = true) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: weldstashKeys.pickList(id),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<DataResponse<WeldstashPickList>>(`/pick-lists/${id}`);
+    },
+    enabled: !!id && enabled,
+  });
+}
+
+export function useGenerateWeldstashPickList() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { orderId: string; warehouseId?: string; assignedTo?: string; assignedToName?: string }) => {
+      const client = await getClient();
+      return client.post<DataResponse<{ id: string; pickListNumber: string }>>('/pick-lists/generate', data);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: weldstashKeys.pickLists() }),
+  });
+}
+
+export function useAssignWeldstashPickList() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, assignedTo, assignedToName }: { id: string; assignedTo: string | null; assignedToName?: string | null }) => {
+      const client = await getClient();
+      return client.patch<DataResponse<{ id: string; status: string }>>(`/pick-lists/${id}/assign`, {
+        assignedTo,
+        assignedToName,
+      });
+    },
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: weldstashKeys.pickLists() });
+      qc.invalidateQueries({ queryKey: weldstashKeys.pickList(vars.id) });
+    },
+  });
+}
+
+export function usePackWeldstashPickList() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const client = await getClient();
+      return client.post<DataResponse<{ id: string; status: string }>>(`/pick-lists/${id}/pack`, {});
+    },
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: weldstashKeys.pickLists() });
+      qc.invalidateQueries({ queryKey: weldstashKeys.pickList(id) });
+    },
+  });
+}
+
+export function useShipWeldstashPickList() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const client = await getClient();
+      return client.post<DataResponse<{ id: string; status: string }>>(`/pick-lists/${id}/ship`, {});
+    },
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: weldstashKeys.pickLists() });
+      qc.invalidateQueries({ queryKey: weldstashKeys.pickList(id) });
+    },
+  });
+}
+
+export function usePrintPackingSlip() {
+  const { getClient } = useAppApiClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const client = await getClient();
+      const res = await client.getRaw(`/pick-lists/${id}/packing-slip`);
+      const html = await res.text();
+      const popup = window.open('', '_blank');
+      if (popup) {
+        popup.document.write(html);
+        popup.document.close();
+      }
     },
   });
 }

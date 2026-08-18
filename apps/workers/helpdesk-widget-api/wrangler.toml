@@ -56,6 +56,47 @@ service = "helpdesk-workflow-worker"
 binding = "REALTIME"
 service = "weldsuite-realtime"
 
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "helpdesk-widget-api-test"
+routes = [
+  { pattern = "helpdesk-widget-api-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+CF_ACCOUNT_ID = "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[[env.test.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
+
+[[env.test.queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events-test"
+
+[[env.test.services]]
+binding = "WORKFLOW_WORKER"
+service = "helpdesk-workflow-worker-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 logpush = true

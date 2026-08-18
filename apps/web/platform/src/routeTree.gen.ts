@@ -73,6 +73,8 @@ import { Route as WeldstashWarehousesIndexRouteImport } from './routes/weldstash
 import { Route as WeldstashSuppliersIndexRouteImport } from './routes/weldstash/suppliers/index'
 import { Route as WeldstashStockIndexRouteImport } from './routes/weldstash/stock/index'
 import { Route as WeldstashProductsIndexRouteImport } from './routes/weldstash/products/index'
+import { Route as WeldstashPickListsIndexRouteImport } from './routes/weldstash/pick-lists/index'
+import { Route as WeldstashPackingIndexRouteImport } from './routes/weldstash/packing/index'
 import { Route as WeldmeetUpcomingIndexRouteImport } from './routes/weldmeet/upcoming/index'
 import { Route as WeldmeetPeopleIndexRouteImport } from './routes/weldmeet/people/index'
 import { Route as WeldmeetNewIndexRouteImport } from './routes/weldmeet/new/index'
@@ -720,6 +722,16 @@ const WeldstashStockIndexRoute = WeldstashStockIndexRouteImport.update({
 const WeldstashProductsIndexRoute = WeldstashProductsIndexRouteImport.update({
   id: '/products/',
   path: '/products/',
+  getParentRoute: () => WeldstashRouteRoute,
+} as any)
+const WeldstashPickListsIndexRoute = WeldstashPickListsIndexRouteImport.update({
+  id: '/pick-lists/',
+  path: '/pick-lists/',
+  getParentRoute: () => WeldstashRouteRoute,
+} as any)
+const WeldstashPackingIndexRoute = WeldstashPackingIndexRouteImport.update({
+  id: '/packing/',
+  path: '/packing/',
   getParentRoute: () => WeldstashRouteRoute,
 } as any)
 const WeldmeetUpcomingIndexRoute = WeldmeetUpcomingIndexRouteImport.update({
@@ -2751,6 +2763,8 @@ export interface FileRoutesByFullPath {
   '/weldmeet/new/': typeof WeldmeetNewIndexRoute
   '/weldmeet/people/': typeof WeldmeetPeopleIndexRoute
   '/weldmeet/upcoming/': typeof WeldmeetUpcomingIndexRoute
+  '/weldstash/packing/': typeof WeldstashPackingIndexRoute
+  '/weldstash/pick-lists/': typeof WeldstashPickListsIndexRoute
   '/weldstash/products/': typeof WeldstashProductsIndexRoute
   '/weldstash/stock/': typeof WeldstashStockIndexRoute
   '/weldstash/suppliers/': typeof WeldstashSuppliersIndexRoute
@@ -3110,6 +3124,8 @@ export interface FileRoutesByTo {
   '/weldmeet/new': typeof WeldmeetNewIndexRoute
   '/weldmeet/people': typeof WeldmeetPeopleIndexRoute
   '/weldmeet/upcoming': typeof WeldmeetUpcomingIndexRoute
+  '/weldstash/packing': typeof WeldstashPackingIndexRoute
+  '/weldstash/pick-lists': typeof WeldstashPickListsIndexRoute
   '/weldstash/products': typeof WeldstashProductsIndexRoute
   '/weldstash/stock': typeof WeldstashStockIndexRoute
   '/weldstash/suppliers': typeof WeldstashSuppliersIndexRoute
@@ -3504,6 +3520,8 @@ export interface FileRoutesById {
   '/weldmeet/new/': typeof WeldmeetNewIndexRoute
   '/weldmeet/people/': typeof WeldmeetPeopleIndexRoute
   '/weldmeet/upcoming/': typeof WeldmeetUpcomingIndexRoute
+  '/weldstash/packing/': typeof WeldstashPackingIndexRoute
+  '/weldstash/pick-lists/': typeof WeldstashPickListsIndexRoute
   '/weldstash/products/': typeof WeldstashProductsIndexRoute
   '/weldstash/stock/': typeof WeldstashStockIndexRoute
   '/weldstash/suppliers/': typeof WeldstashSuppliersIndexRoute
@@ -3899,6 +3917,8 @@ export interface FileRouteTypes {
     | '/weldmeet/new/'
     | '/weldmeet/people/'
     | '/weldmeet/upcoming/'
+    | '/weldstash/packing/'
+    | '/weldstash/pick-lists/'
     | '/weldstash/products/'
     | '/weldstash/stock/'
     | '/weldstash/suppliers/'
@@ -4258,6 +4278,8 @@ export interface FileRouteTypes {
     | '/weldmeet/new'
     | '/weldmeet/people'
     | '/weldmeet/upcoming'
+    | '/weldstash/packing'
+    | '/weldstash/pick-lists'
     | '/weldstash/products'
     | '/weldstash/stock'
     | '/weldstash/suppliers'
@@ -4651,6 +4673,8 @@ export interface FileRouteTypes {
     | '/weldmeet/new/'
     | '/weldmeet/people/'
     | '/weldmeet/upcoming/'
+    | '/weldstash/packing/'
+    | '/weldstash/pick-lists/'
     | '/weldstash/products/'
     | '/weldstash/stock/'
     | '/weldstash/suppliers/'
@@ -5317,6 +5341,20 @@ declare module '@tanstack/react-router' {
       path: '/products'
       fullPath: '/weldstash/products/'
       preLoaderRoute: typeof WeldstashProductsIndexRouteImport
+      parentRoute: typeof WeldstashRouteRoute
+    }
+    '/weldstash/pick-lists/': {
+      id: '/weldstash/pick-lists/'
+      path: '/pick-lists'
+      fullPath: '/weldstash/pick-lists/'
+      preLoaderRoute: typeof WeldstashPickListsIndexRouteImport
+      parentRoute: typeof WeldstashRouteRoute
+    }
+    '/weldstash/packing/': {
+      id: '/weldstash/packing/'
+      path: '/packing'
+      fullPath: '/weldstash/packing/'
+      preLoaderRoute: typeof WeldstashPackingIndexRouteImport
       parentRoute: typeof WeldstashRouteRoute
     }
     '/weldmeet/upcoming/': {
@@ -8776,6 +8814,8 @@ const WeldmeetRouteRouteWithChildren = WeldmeetRouteRoute._addFileChildren(
 
 interface WeldstashRouteRouteChildren {
   WeldstashIndexRoute: typeof WeldstashIndexRoute
+  WeldstashPackingIndexRoute: typeof WeldstashPackingIndexRoute
+  WeldstashPickListsIndexRoute: typeof WeldstashPickListsIndexRoute
   WeldstashProductsIndexRoute: typeof WeldstashProductsIndexRoute
   WeldstashStockIndexRoute: typeof WeldstashStockIndexRoute
   WeldstashSuppliersIndexRoute: typeof WeldstashSuppliersIndexRoute
@@ -8784,6 +8824,8 @@ interface WeldstashRouteRouteChildren {
 
 const WeldstashRouteRouteChildren: WeldstashRouteRouteChildren = {
   WeldstashIndexRoute: WeldstashIndexRoute,
+  WeldstashPackingIndexRoute: WeldstashPackingIndexRoute,
+  WeldstashPickListsIndexRoute: WeldstashPickListsIndexRoute,
   WeldstashProductsIndexRoute: WeldstashProductsIndexRoute,
   WeldstashStockIndexRoute: WeldstashStockIndexRoute,
   WeldstashSuppliersIndexRoute: WeldstashSuppliersIndexRoute,

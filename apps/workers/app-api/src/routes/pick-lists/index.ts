@@ -1,5 +1,6 @@
 /**
- * Pick list routes — flat /api/pick-lists/* surface backed by `pickLists`.
+ * Pick list routes — generate from unfulfilled orders, execute picks,
+ * pack, and ship. Stock writes go through the inventory ledger.
  *
  * Permissions: picklists:read | picklists:create | picklists:update | picklists:delete.
  */
@@ -9,32 +10,70 @@ import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { createPickListSchema, updatePickListSchema } from '@weldsuite/core-api-client/schemas/pick-lists';
+import {
+  assignPickListSchema,
+  createPickListSchema,
+  generatePickListSchema,
+  pickItemSchema,
+  updatePickListSchema,
+} from '@weldsuite/core-api-client/schemas/pick-lists';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema } from '../../db';
+import { StockLedgerError } from '../../services/inventory-ledger';
+import {
+  assignPickList,
+  cancelPickList,
+  completePickList,
+  confirmPickItem,
+  generatePickList,
+  getPickListWithItems,
+  packPickList,
+  PickListError,
+  renderPackingSlipHtml,
+  shipPickList,
+  startPickList,
+} from '../../services/pick-lists';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.pickLists;
+
+function mapPickError(c: Parameters<typeof error.badRequest>[0], err: unknown, fallback: string) {
+  if (err instanceof PickListError) {
+    if (err.code === 'ORDER_NOT_FOUND') return error.notFound(c, 'Order');
+    if (err.code === 'WAREHOUSE_NOT_FOUND') return error.notFound(c, 'Warehouse');
+    if (err.code === 'ITEM_NOT_FOUND') return error.notFound(c, 'Pick list item');
+    if (err.code === 'ALREADY_PICKING') return error.conflict(c, err.message, { code: err.code });
+    return error.badRequest(c, err.message, { code: err.code });
+  }
+  if (err instanceof StockLedgerError) {
+    if (err.code === 'PRODUCT_NOT_FOUND') return error.notFound(c, 'Product');
+    if (err.code === 'INSUFFICIENT_STOCK' || err.code === 'INSUFFICIENT_AVAILABLE') {
+      return error.conflict(c, err.message, { code: err.code });
+    }
+    return error.badRequest(c, err.message, { code: err.code });
+  }
+  console.error(`[app-api/pick-lists] ${fallback}:`, err);
+  return error.internal(c, fallback);
+}
 
 app.get('/', requirePermission('picklists:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
   const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
 
-  const conditions: any[] = [isNull(t.deletedAt)];
+  const conditions: ReturnType<typeof eq>[] = [isNull(t.deletedAt)] as never[];
   if (q.warehouseId !== undefined && q.warehouseId !== '') conditions.push(eq(t.warehouseId, q.warehouseId));
   if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));
   if (q.assignedTo !== undefined && q.assignedTo !== '') conditions.push(eq(t.assignedTo, q.assignedTo));
-  // pick_lists holds an `orderIds` jsonb array, not a scalar — filter dropped.
   if (q.cursor) {
     const [cur] = await db
       .select({ createdAt: t.createdAt, id: t.id })
       .from(t).where(eq(t.id, q.cursor)).limit(1);
     if (cur?.createdAt) {
       conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
+        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))` as never,
       );
     }
   }
@@ -58,11 +97,175 @@ app.get('/', requirePermission('picklists:read'), async (c) => {
   }
 });
 
+app.post('/generate', requirePermission('picklists:create'), zValidator('json', generatePickListSchema), async (c) => {
+  const db = c.get('tenantDb');
+  const body = c.req.valid('json');
+  try {
+    const result = await generatePickList(db, {
+      ...body,
+      createdBy: c.get('userId'),
+    });
+    publishEntityEvent({
+      c,
+      entityType: 'picklist',
+      entityId: result.id,
+      action: 'created',
+      data: result,
+    });
+    return success(c, result, 201);
+  } catch (err) {
+    return mapPickError(c, err, 'Failed to generate pick list');
+  }
+});
+
+app.get('/:id/packing-slip', requirePermission('picklists:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  try {
+    const row = await getPickListWithItems(db, id);
+    if (!row) return error.notFound(c, 'Pick list', id);
+    const [warehouse] = await db
+      .select({ name: schema.warehouses.name })
+      .from(schema.warehouses)
+      .where(eq(schema.warehouses.id, row.warehouseId))
+      .limit(1);
+    let orderNumber: string | null = null;
+    const orderId = row.orderIds?.[0];
+    if (orderId) {
+      const [order] = await db
+        .select({ orderNumber: schema.orders.orderNumber })
+        .from(schema.orders)
+        .where(eq(schema.orders.id, orderId))
+        .limit(1);
+      orderNumber = order?.orderNumber ?? null;
+    }
+    const html = renderPackingSlipHtml({
+      pickListNumber: row.pickListNumber,
+      orderNumber,
+      warehouseName: warehouse?.name ?? null,
+      packedAt: row.packedAt,
+      items: row.items.map((item) => ({
+        sku: item.sku,
+        name: item.name,
+        quantityPicked: item.quantityPicked ?? 0,
+        locationCode: item.locationCode,
+      })),
+    });
+    return new Response(html, {
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Disposition': `inline; filename="${row.pickListNumber}-packing-slip.html"`,
+      },
+    });
+  } catch (err) {
+    console.error('[app-api/pick-lists] packing slip failed:', err);
+    return error.internal(c, 'Failed to generate packing slip');
+  }
+});
+
+app.patch('/:id/assign', requirePermission('picklists:update'), zValidator('json', assignPickListSchema), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  const body = c.req.valid('json');
+  try {
+    const result = await assignPickList(db, {
+      id,
+      assignedTo: body.assignedTo ?? null,
+      assignedToName: body.assignedToName ?? null,
+    });
+    if (!result) return error.notFound(c, 'Pick list', id);
+    publishEntityEvent({ c, entityType: 'picklist', entityId: id, action: 'updated', data: result });
+    return success(c, result);
+  } catch (err) {
+    return mapPickError(c, err, 'Failed to assign pick list');
+  }
+});
+
+app.patch('/:id/start', requirePermission('picklists:update'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  try {
+    const result = await startPickList(db, id);
+    if (!result) return error.notFound(c, 'Pick list', id);
+    publishEntityEvent({ c, entityType: 'picklist', entityId: id, action: 'updated', data: result });
+    return success(c, result);
+  } catch (err) {
+    return mapPickError(c, err, 'Failed to start pick list');
+  }
+});
+
+app.patch('/:id/complete', requirePermission('picklists:update'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  try {
+    const result = await completePickList(db, id, c.get('userId'));
+    if (!result) return error.notFound(c, 'Pick list', id);
+    publishEntityEvent({ c, entityType: 'picklist', entityId: id, action: 'completed', data: result });
+    return success(c, result);
+  } catch (err) {
+    return mapPickError(c, err, 'Failed to complete pick list');
+  }
+});
+
+app.post('/:id/pack', requirePermission('picklists:update'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  try {
+    const result = await packPickList(db, id, c.get('userId'));
+    if (!result) return error.notFound(c, 'Pick list', id);
+    publishEntityEvent({ c, entityType: 'picklist', entityId: id, action: 'updated', data: result });
+    return success(c, result);
+  } catch (err) {
+    return mapPickError(c, err, 'Failed to pack pick list');
+  }
+});
+
+app.post('/:id/ship', requirePermission('picklists:update'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  try {
+    const result = await shipPickList(db, id, c.get('userId'));
+    if (!result) return error.notFound(c, 'Pick list', id);
+    publishEntityEvent({ c, entityType: 'picklist', entityId: id, action: 'updated', data: result });
+    return success(c, result);
+  } catch (err) {
+    return mapPickError(c, err, 'Failed to ship pick list');
+  }
+});
+
+app.post(
+  '/:id/items/:itemId/pick',
+  requirePermission('picklists:update'),
+  zValidator('json', pickItemSchema),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const id = c.req.param('id');
+    const itemId = c.req.param('itemId');
+    const body = c.req.valid('json');
+    try {
+      const result = await confirmPickItem(db, {
+        pickListId: id,
+        itemId,
+        quantity: body.quantity,
+        productBarcode: body.productBarcode,
+        locationBarcode: body.locationBarcode,
+        short: body.short,
+        userId: c.get('userId'),
+      });
+      if (!result) return error.notFound(c, 'Pick list', id);
+      publishEntityEvent({ c, entityType: 'picklist', entityId: id, action: 'updated', data: result });
+      return success(c, result);
+    } catch (err) {
+      return mapPickError(c, err, 'Failed to confirm pick');
+    }
+  },
+);
+
 app.get('/:id', requirePermission('picklists:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   try {
-    const [row] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
+    const row = await getPickListWithItems(db, id);
     if (!row) return error.notFound(c, 'Pick list', id);
     return success(c, row);
   } catch (err) {
@@ -73,24 +276,34 @@ app.get('/:id', requirePermission('picklists:read'), async (c) => {
 
 app.post('/', requirePermission('picklists:create'), zValidator('json', createPickListSchema), async (c) => {
   const db = c.get('tenantDb');
-  const data = c.req.valid('json') as Record<string, any>;
+  const data = c.req.valid('json') as Record<string, unknown>;
   const id = generateId('pl');
   const now = new Date();
+  const pickListNumber = `PL-${Date.now().toString(36).toUpperCase()}`;
   try {
-    await db.insert(t).values({ id, ...data, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
+    await db.insert(t).values({
+      id,
+      pickListNumber,
+      warehouseId: data.warehouseId as string,
+      status: (data.status as string | undefined) ?? 'pending',
+      assignedTo: (data.assignedTo as string | null | undefined) ?? null,
+      assignedToName: (data.assignedToName as string | null | undefined) ?? null,
+      orderIds: (data.orderIds as string[] | undefined) ?? null,
+      pickType: (data.pickType as string | undefined) ?? 'order',
+      priority: (data.priority as string | undefined) ?? 'normal',
+      notes: (data.notes as string | undefined) ?? null,
+      createdBy: c.get('userId'),
+      createdAt: now,
+      updatedAt: now,
+    });
     publishEntityEvent({
       c,
       entityType: 'picklist',
       entityId: id,
       action: 'created',
-      data: {
-        id,
-        warehouseId: data.warehouseId as string,
-        status: data.status as string,
-        assignedTo: data.assignedTo as string | undefined,
-      },
+      data: { id, warehouseId: data.warehouseId, status: data.status },
     });
-    return success(c, { id }, 201);
+    return success(c, { id, pickListNumber }, 201);
   } catch (err) {
     console.error('[app-api/pick-lists] create failed:', err);
     return error.internal(c, 'Failed to create pick list');
@@ -100,11 +313,11 @@ app.post('/', requirePermission('picklists:create'), zValidator('json', createPi
 app.patch('/:id', requirePermission('picklists:update'), zValidator('json', updatePickListSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  const data = c.req.valid('json') as Record<string, any>;
+  const data = c.req.valid('json') as Record<string, unknown>;
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Pick list', id);
-    const update: Record<string, any> = { updatedAt: new Date() };
+    const update: Record<string, unknown> = { updatedAt: new Date() };
     for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
     publishEntityEvent({
@@ -112,12 +325,7 @@ app.patch('/:id', requirePermission('picklists:update'), zValidator('json', upda
       entityType: 'picklist',
       entityId: id,
       action: 'updated',
-      data: {
-        id,
-        warehouseId: existing.warehouseId,
-        status: (update.status as string | undefined) ?? existing.status,
-        assignedTo: (update.assignedTo as string | null | undefined) ?? existing.assignedTo,
-      },
+      data: { id, status: (update.status as string | undefined) ?? existing.status },
     });
     return success(c, { id });
   } catch (err) {
@@ -132,18 +340,14 @@ app.delete('/:id', requirePermission('picklists:delete'), async (c) => {
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Pick list', id);
+    if (existing.status !== 'shipped' && existing.status !== 'cancelled') {
+      await cancelPickList(db, id);
+    }
     await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));
-    publishEntityEvent({
-      c,
-      entityType: 'picklist',
-      entityId: id,
-      action: 'deleted',
-      data: { id },
-    });
+    publishEntityEvent({ c, entityType: 'picklist', entityId: id, action: 'deleted', data: { id } });
     return noContent(c);
   } catch (err) {
-    console.error('[app-api/pick-lists] delete failed:', err);
-    return error.internal(c, 'Failed to delete pick list');
+    return mapPickError(c, err, 'Failed to delete pick list');
   }
 });
 

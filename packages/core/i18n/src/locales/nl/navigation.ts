@@ -88,6 +88,8 @@ export const navigation = {
         suppliers: 'Leveranciers',
         warehouses: 'Magazijnen',
         stock: 'Voorraad',
+        pickLists: 'Picklijsten',
+        packing: 'Inpakken',
       },
       welddata: {
         findLeads: 'Leads zoeken',

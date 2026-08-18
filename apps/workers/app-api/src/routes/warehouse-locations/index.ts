@@ -40,6 +40,7 @@ app.get('/', requirePermission('locations:read'), async (c) => {
   if (q.isEmpty !== undefined) conditions.push(eq(t.isEmpty, q.isEmpty === 'true'));
   if (q.isBlocked !== undefined) conditions.push(eq(t.isBlocked, q.isBlocked === 'true'));
   if (q.abcClass) conditions.push(eq(t.abcClass, q.abcClass));
+  if (q.barcode) conditions.push(eq(t.barcode, q.barcode));
 
   if (q.cursor) {
     const [cur] = await db

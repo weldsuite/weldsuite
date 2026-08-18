@@ -115,6 +115,7 @@
     "./domains/products": "./src/domains/products.ts",
     "./domains/inventory": "./src/domains/inventory.ts",
     "./domains/warehouses": "./src/domains/warehouses.ts",
+    "./domains/pick-lists": "./src/domains/pick-lists.ts",
     "./domains/search": "./src/domains/search.ts",
     "./domains/access-requests": "./src/domains/access-requests.ts"
   },

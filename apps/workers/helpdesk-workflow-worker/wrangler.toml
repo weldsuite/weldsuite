@@ -53,6 +53,42 @@ id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 binding = "REALTIME"
 service = "weldsuite-realtime"
 
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "helpdesk-workflow-worker-test"
+routes = [
+  { pattern = "helpdesk-workflow-worker-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.durable_objects]
+bindings = [
+  { name = "ASSIGNMENT_ROUTER", class_name = "AssignmentRouter" },
+]
+
+[env.test.triggers]
+crons = []
+
+[env.test.vars]
+ENVIRONMENT = "test"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[[env.test.workflows]]
+name = "conversation-workflow"
+binding = "CONVERSATION_WORKFLOW"
+class_name = "ConversationWorkflow"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 logpush = true

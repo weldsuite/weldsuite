@@ -85,6 +85,8 @@ export const navigation = {
         suppliers: 'Proveedores',
         warehouses: 'Almacenes',
         stock: 'Existencias',
+        pickLists: 'Listas de picking',
+        packing: 'Embalaje',
       },
       welddata: {
         findLeads: 'Buscar leads',

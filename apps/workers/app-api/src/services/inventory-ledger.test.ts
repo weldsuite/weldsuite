@@ -12,7 +12,14 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { createPgliteDb } from '../test/pglite';
 import { schema, type Database } from '../db';
 import { generateId } from '../lib/id';
-import { applyStockChange, StockLedgerError, transferStock } from './inventory-ledger';
+import {
+  allocateStock,
+  applyStockChange,
+  issueAllocatedStock,
+  releaseAllocation,
+  StockLedgerError,
+  transferStock,
+} from './inventory-ledger';
 
 let db: Database;
 
@@ -415,7 +422,7 @@ describe('transferStock', () => {
 
   it('rejects a non-positive quantity', async () => {
     const productId = await makeProduct();
-    await expect(
+    await     expect(
       transferStock(db, {
         productId,
         quantity: 0,
@@ -423,5 +430,83 @@ describe('transferStock', () => {
         to: { warehouseId: WAREHOUSE_B },
       }),
     ).rejects.toMatchObject({ code: 'INVALID_DELTA' });
+  });
+});
+
+describe('allocateStock / releaseAllocation / issueAllocatedStock', () => {
+  it('reserves available units without changing on-hand', async () => {
+    const productId = await makeProduct();
+    const receipt = await applyStockChange(db, {
+      productId,
+      warehouseId: WAREHOUSE_A,
+      delta: 10,
+      type: 'received',
+    });
+
+    const allocated = await allocateStock(db, { inventoryId: receipt.inventoryId, quantity: 4 });
+    expect(allocated.previousAllocated).toBe(0);
+    expect(allocated.newAllocated).toBe(4);
+    expect(allocated.quantityOnHand).toBe(10);
+    expect(allocated.quantityAvailable).toBe(6);
+
+    const bucket = await bucketFor(productId, WAREHOUSE_A);
+    expect(bucket?.quantityOnHand).toBe(10);
+    expect(bucket?.quantityAllocated).toBe(4);
+    expect(bucket?.quantityAvailable).toBe(6);
+    expect(await productQuantity(productId)).toBe(10);
+  });
+
+  it('rejects allocating more than available', async () => {
+    const productId = await makeProduct();
+    const receipt = await applyStockChange(db, {
+      productId,
+      warehouseId: WAREHOUSE_A,
+      delta: 3,
+      type: 'received',
+    });
+
+    await expect(
+      allocateStock(db, { inventoryId: receipt.inventoryId, quantity: 4 }),
+    ).rejects.toMatchObject({ code: 'INSUFFICIENT_AVAILABLE' });
+  });
+
+  it('releases a reservation back to available', async () => {
+    const productId = await makeProduct();
+    const receipt = await applyStockChange(db, {
+      productId,
+      warehouseId: WAREHOUSE_A,
+      delta: 10,
+      type: 'received',
+    });
+    await allocateStock(db, { inventoryId: receipt.inventoryId, quantity: 4 });
+    const released = await releaseAllocation(db, { inventoryId: receipt.inventoryId, quantity: 4 });
+    expect(released.newAllocated).toBe(0);
+    expect(released.quantityAvailable).toBe(10);
+  });
+
+  it('issues allocated stock as shipped without changing available', async () => {
+    const productId = await makeProduct();
+    const receipt = await applyStockChange(db, {
+      productId,
+      warehouseId: WAREHOUSE_A,
+      delta: 10,
+      type: 'received',
+    });
+    await allocateStock(db, { inventoryId: receipt.inventoryId, quantity: 4 });
+
+    const shipped = await issueAllocatedStock(db, {
+      inventoryId: receipt.inventoryId,
+      quantity: 4,
+      sourceType: 'pick_list',
+      sourceId: 'pl_test',
+    });
+    expect(shipped.previousQuantity).toBe(10);
+    expect(shipped.newQuantity).toBe(6);
+    expect(shipped.productQuantity).toBe(6);
+
+    const bucket = await bucketFor(productId, WAREHOUSE_A);
+    expect(bucket?.quantityOnHand).toBe(6);
+    expect(bucket?.quantityAllocated).toBe(0);
+    expect(bucket?.quantityAvailable).toBe(6);
   });
 });

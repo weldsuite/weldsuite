@@ -51,6 +51,13 @@ export const pickLists = pgTable('pick_lists', {
   // Pick Type
   pickType: varchar('pick_type', { length: 30 }).default('order'), // order, wave, batch, zone
 
+  // Pack / ship (v1: packed then shipped after pick complete)
+  packedAt: timestamp('packed_at'),
+  packedBy: varchar('packed_by', { length: 255 }),
+  shippedAt: timestamp('shipped_at'),
+  shipmentId: varchar('shipment_id', { length: 30 }),
+  parcelId: varchar('parcel_id', { length: 30 }),
+
   // Notes
   notes: text('notes'),
 
