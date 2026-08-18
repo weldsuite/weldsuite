@@ -415,6 +415,7 @@ export interface WeldstashPickList {
   totalQuantity?: number | null;
   pickedQuantity?: number | null;
   orderIds?: string[] | null;
+  orderCount?: number | null;
   packedAt?: string | null;
   shippedAt?: string | null;
   shipmentId?: string | null;

@@ -907,6 +907,7 @@ export const common = {
       },
       packing: {
         empty: 'Geen picklijsten om in te pakken of te verzenden.',
+        emptyDescription: 'Afgeronde picks verschijnen hier zodat je ze kunt inpakken en verzenden.',
         printSlip: 'Pakbon afdrukken',
         ship: 'Verzenden',
         pack: 'Inpakken',

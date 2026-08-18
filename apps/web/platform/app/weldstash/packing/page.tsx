@@ -99,6 +99,7 @@ function PackingPageContent() {
           </EmptyStateIllustration>
         ),
         title: t.packing.empty,
+        description: t.packing.emptyDescription,
       }}
     />
   );

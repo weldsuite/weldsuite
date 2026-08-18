@@ -907,6 +907,7 @@ export const common = {
       },
       packing: {
         empty: 'No pick lists waiting to pack or ship.',
+        emptyDescription: 'Completed picks appear here so you can pack them and create a shipment.',
         printSlip: 'Print packing slip',
         ship: 'Ship',
         pack: 'Pack',

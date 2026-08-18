@@ -895,6 +895,7 @@ export const common = {
       },
       packing: {
         empty: 'No hay listas pendientes de embalar o enviar.',
+        emptyDescription: 'Las listas completadas aparecen aquí para embalarlas y crear un envío.',
         printSlip: 'Imprimir albarán',
         ship: 'Enviar',
         pack: 'Embalar',
