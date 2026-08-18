@@ -8,9 +8,9 @@ import { useAuth } from '@clerk/clerk-react';
 import { RoomClient } from '@weldsuite/realtime/client';
 import type { RoomEvent } from '@weldsuite/realtime/types';
 import type { WeldDeskMessage, WeldDeskEvent, WeldDeskConnectionState } from './types';
+import { getRealtimeWsOrigin } from '@/lib/api/public-env';
 
-const REALTIME_BASE_URL =
-  import.meta.env.VITE_REALTIME_URL?.replace(/\/ws\/?$/, '') || 'ws://localhost:8790';
+const REALTIME_BASE_URL = getRealtimeWsOrigin();
 
 interface UseWeldDeskRealtimeOptions {
   conversationId: string;

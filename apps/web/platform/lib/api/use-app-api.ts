@@ -56,8 +56,9 @@ import { createWorkspaceSettingsApi } from '@weldsuite/app-api-client/domains/wo
 import { createNotificationsApi } from '@weldsuite/app-api-client/domains/notifications';
 import { createSearchApi } from '@weldsuite/app-api-client/domains/search';
 import { createAccessRequestsApi } from '@weldsuite/app-api-client/domains/access-requests';
+import { getAppApiUrl } from '@/lib/api/public-env';
 
-const APP_API_URL = import.meta.env.VITE_APP_API_URL || 'http://localhost:8789';
+const APP_API_URL = getAppApiUrl();
 
 /**
  * Returns a token-aware ClientApi instance pointing at the app-api worker.

@@ -8,7 +8,9 @@
  * derived/legacy artifact used only for the load fallback + download.
  */
 
-const APP_API_URL = import.meta.env.VITE_APP_API_URL || 'http://localhost:8789';
+import { getAppApiUrl } from '@/lib/api/public-env';
+
+const APP_API_URL = getAppApiUrl();
 
 async function authHeader(): Promise<Record<string, string>> {
   if (typeof window !== 'undefined') {

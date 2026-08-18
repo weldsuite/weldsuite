@@ -15,6 +15,7 @@ import {
 } from '@weldsuite/df3-noise-suppression';
 import rnnoiseWorkerUrl from '@weldsuite/df3-noise-suppression/rnnoise-worker?worker&url';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { getAppApiUrl } from '@/lib/api/public-env';
 import { consumeStartHandoff } from '@/lib/weldmeet/start-handoff';
 import { usePathname } from '@/lib/router';
 import { useQueryClient } from '@tanstack/react-query';
@@ -365,7 +366,7 @@ export function WeldMeetCallProvider({ children }: { children: React.ReactNode }
 
   // Fire-and-forget leave request for tab close
   const fireLeaveRequest = useCallback((mId: string, sId: string) => {
-    const baseUrl = import.meta.env.VITE_APP_API_URL ?? 'http://localhost:8789';
+    const baseUrl = getAppApiUrl();
     const url = `${baseUrl}/api/meeting-sessions/${sId}/leave`;
     const token = authTokenRef.current;
     if (!token) return;

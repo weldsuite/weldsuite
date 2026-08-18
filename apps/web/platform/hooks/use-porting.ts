@@ -9,8 +9,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { getAppApiUrl } from '@/lib/api/public-env';
 
-const APP_API_URL = import.meta.env.VITE_APP_API_URL || 'http://localhost:8789';
+const APP_API_URL = getAppApiUrl();
 
 // =============================================================================
 // Types

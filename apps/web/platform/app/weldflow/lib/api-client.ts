@@ -14,6 +14,7 @@
 
 import type { Projects } from '@/lib/api/types/apps/projects.types';
 import type { ProjectGoals } from '@/lib/api/domains/weldflow';
+import { getAppApiUrl } from '@/lib/api/public-env';
 
 interface ApiResponse<T> {
   success: boolean;
@@ -367,7 +368,7 @@ export interface ChartDataPoint {
   [key: string]: string | number | undefined;
 }
 
-const APP_API_URL = import.meta.env.VITE_APP_API_URL || 'http://localhost:8789';
+const APP_API_URL = getAppApiUrl();
 
 let _getToken: (() => Promise<string | null>) | null = null;
 
