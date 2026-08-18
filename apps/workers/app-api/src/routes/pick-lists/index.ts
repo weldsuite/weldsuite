@@ -285,7 +285,7 @@ app.post('/', requirePermission('picklists:create'), zValidator('json', createPi
       id,
       pickListNumber,
       warehouseId: data.warehouseId as string,
-      status: (data.status as string | undefined) ?? 'pending',
+      status: 'pending',
       assignedTo: (data.assignedTo as string | null | undefined) ?? null,
       assignedToName: (data.assignedToName as string | null | undefined) ?? null,
       orderIds: (data.orderIds as string[] | undefined) ?? null,
@@ -301,7 +301,7 @@ app.post('/', requirePermission('picklists:create'), zValidator('json', createPi
       entityType: 'picklist',
       entityId: id,
       action: 'created',
-      data: { id, warehouseId: data.warehouseId, status: data.status },
+      data: { id, warehouseId: data.warehouseId, status: 'pending' },
     });
     return success(c, { id, pickListNumber }, 201);
   } catch (err) {
@@ -318,14 +318,18 @@ app.patch('/:id', requirePermission('picklists:update'), zValidator('json', upda
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Pick list', id);
     const update: Record<string, unknown> = { updatedAt: new Date() };
-    for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
+    if (data.assignedTo !== undefined) update.assignedTo = data.assignedTo;
+    if (data.assignedToName !== undefined) update.assignedToName = data.assignedToName;
+    if (data.priority !== undefined) update.priority = data.priority;
+    if (data.notes !== undefined) update.notes = data.notes;
+    if (data.metadata !== undefined) update.metadata = data.metadata;
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
     publishEntityEvent({
       c,
       entityType: 'picklist',
       entityId: id,
       action: 'updated',
-      data: { id, status: (update.status as string | undefined) ?? existing.status },
+      data: { id, status: existing.status },
     });
     return success(c, { id });
   } catch (err) {

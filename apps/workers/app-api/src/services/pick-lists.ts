@@ -408,6 +408,12 @@ export async function confirmPickItem(
     .where(and(eq(pickListItems.id, params.itemId), eq(pickListItems.pickListId, params.pickListId)))
     .limit(1);
   if (!item) throw new PickListError('Pick list item not found', 'ITEM_NOT_FOUND');
+  if (TERMINAL_ITEM.has(item.status ?? '')) {
+    throw new PickListError(
+      `Cannot pick a line in status ${item.status}`,
+      'INVALID_STATUS',
+    );
+  }
 
   const expected = await barcodesForItem(db, item);
   const scannedProduct = normalizeScan(params.productBarcode);

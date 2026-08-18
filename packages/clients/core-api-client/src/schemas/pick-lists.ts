@@ -2,7 +2,6 @@ import { z } from 'zod';
 
 export const createPickListSchema = z.object({
   warehouseId: z.string().min(1),
-  status: z.string().max(30).optional(),
   assignedTo: z.string().nullish(),
   assignedToName: z.string().nullish(),
   orderIds: z.array(z.string()).optional(),
@@ -10,9 +9,16 @@ export const createPickListSchema = z.object({
   priority: z.string().max(20).optional(),
   notes: z.string().optional(),
   metadata: z.unknown().optional(),
-}).passthrough();
+});
 
-export const updatePickListSchema = createPickListSchema.partial();
+/** Notes/assignment only — status, parcel, and shipment go through pack/ship. */
+export const updatePickListSchema = z.object({
+  assignedTo: z.string().nullish(),
+  assignedToName: z.string().nullish(),
+  priority: z.string().max(20).optional(),
+  notes: z.string().optional(),
+  metadata: z.unknown().optional(),
+});
 
 export const generatePickListSchema = z.object({
   orderId: z.string().min(1),

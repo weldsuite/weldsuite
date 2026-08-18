@@ -8,6 +8,8 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { and, eq, isNull } from 'drizzle-orm';
 import { createPgliteDb } from '../test/pglite';
+import { createTestApp, permissions } from '../test/harness';
+import { pickListsRoutes } from '../routes/pick-lists';
 import { schema, type Database } from '../db';
 import { generateId } from '../lib/id';
 import { applyStockChange } from './inventory-ledger';
@@ -267,6 +269,67 @@ describe('pick → pack → ship', () => {
       .where(eq(schema.orders.id, seed.orderId))
       .limit(1);
     expect(order?.fulfillmentStatus).toBe('partial');
+  });
+
+  it('rejects a second pick on a finished line without releasing more allocation', async () => {
+    const seed = await seedShippableOrder({ quantity: 3, stock: 10 });
+    const generated = await generatePickList(db, {
+      orderId: seed.orderId,
+      warehouseId: seed.warehouseId,
+    });
+    const detail = await getPickListWithItems(db, generated.id);
+    const item = detail!.items[0]!;
+
+    await confirmPickItem(db, {
+      pickListId: generated.id,
+      itemId: item.id,
+      quantity: 3,
+      productBarcode: seed.barcode,
+    });
+    const afterPick = await bucketFor(seed.productId, seed.warehouseId);
+    expect(afterPick?.quantityAllocated).toBe(3);
+
+    await expect(
+      confirmPickItem(db, {
+        pickListId: generated.id,
+        itemId: item.id,
+        quantity: 0,
+        productBarcode: seed.barcode,
+        short: true,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_STATUS' });
+
+    const afterRetry = await bucketFor(seed.productId, seed.warehouseId);
+    expect(afterRetry?.quantityAllocated).toBe(3);
+    expect(afterRetry?.quantityOnHand).toBe(10);
+  });
+});
+
+describe('PATCH /api/pick-lists/:id', () => {
+  it('does not let a status patch skip pack/ship', async () => {
+    const seed = await seedShippableOrder({ quantity: 1, stock: 5 });
+    const generated = await generatePickList(db, {
+      orderId: seed.orderId,
+      warehouseId: seed.warehouseId,
+    });
+
+    const { request } = createTestApp('/api/pick-lists', pickListsRoutes, {
+      context: { permissions: permissions('picklists:update'), tenantDb: db },
+    });
+    const res = await request(`/api/pick-lists/${generated.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'shipped', parcelId: 'par_fake' }),
+    });
+    expect(res.status).toBe(200);
+
+    const detail = await getPickListWithItems(db, generated.id);
+    expect(detail?.status).toBe('pending');
+    expect(detail?.parcelId).toBeNull();
+
+    const bucket = await bucketFor(seed.productId, seed.warehouseId);
+    expect(bucket?.quantityOnHand).toBe(5);
+    expect(bucket?.quantityAllocated).toBe(1);
   });
 });
 
