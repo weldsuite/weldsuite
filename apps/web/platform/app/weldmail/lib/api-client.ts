@@ -19,8 +19,9 @@
  */
 
 import type { Mail } from '@/lib/api/types/apps/mail.types';
+import { getAppApiUrl } from '@/lib/api/public-env';
 
-const APP_API_URL = import.meta.env.VITE_APP_API_URL || 'http://localhost:8789';
+const APP_API_URL = getAppApiUrl();
 
 const APP_BASE = `${APP_API_URL}/api`;
 

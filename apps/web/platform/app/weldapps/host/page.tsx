@@ -13,8 +13,9 @@ import {
   useInstalledUserApps,
   useUserAppSessionToken,
 } from '@/hooks/queries/use-user-apps-queries';
+import { getAppApiUrl } from '@/lib/api/public-env';
 
-const APP_API_BASE = (import.meta.env.VITE_APP_API_URL as string | undefined) || 'http://localhost:8789';
+const APP_API_BASE = getAppApiUrl();
 
 /**
  * postMessage targetOrigin for the app iframe.
