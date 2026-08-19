@@ -57,6 +57,7 @@ export interface CommerceOrder {
   orderNumber: string | null;
   customerId?: string | null;
   websiteId?: string | null;
+  source?: string | null;
   status: string | null;
   currency?: string | null;
   subtotal?: string | number | null;
@@ -530,5 +531,104 @@ export function useDeleteCommerceOrder() {
       return client.delete<void>(`/orders/${id}`);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: commerceKeys.orders() }),
+  });
+}
+
+export interface CommercePortalSettings {
+  id: string | null;
+  isEnabled: boolean;
+  displayName: string | null;
+  logo: string | null;
+  primaryColor: string | null;
+  accentColor: string | null;
+  portalUrl: string | null;
+  workspaceSlug: string | null;
+}
+
+export interface CommercePortalAccessRow {
+  id: string;
+  personId: string;
+  companyId: string;
+  email: string;
+  status: 'invited' | 'active' | 'revoked' | string;
+  invitedAt?: string | null;
+  lastLoginAt?: string | null;
+}
+
+const portalKeys = {
+  settings: ['commerce-portal', 'settings'] as const,
+  access: (companyId: string) => ['commerce-portal', 'access', companyId] as const,
+};
+
+export function useCommercePortalSettings() {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: portalKeys.settings,
+    queryFn: async () => {
+      const client = await getClient();
+      const res = await client.get<DataResponse<CommercePortalSettings>>('/commerce-portal/settings');
+      return res.data;
+    },
+  });
+}
+
+export function useUpdateCommercePortalSettings() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: Partial<Pick<CommercePortalSettings, 'isEnabled' | 'displayName' | 'logo' | 'primaryColor' | 'accentColor'>>) => {
+      const client = await getClient();
+      const res = await client.patch<DataResponse<CommercePortalSettings>>('/commerce-portal/settings', data);
+      return res.data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: portalKeys.settings }),
+  });
+}
+
+export function useCommercePortalAccess(companyId: string | undefined) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: portalKeys.access(companyId ?? ''),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<ListResponse<CommercePortalAccessRow>>(`/commerce-portal/access?companyId=${encodeURIComponent(companyId!)}`);
+    },
+    enabled: !!companyId,
+  });
+}
+
+export function useInviteCommercePortalAccess() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { personId: string; companyId: string }) => {
+      const client = await getClient();
+      return client.post<DataResponse<CommercePortalAccessRow>>('/commerce-portal/access/invite', data);
+    },
+    onSuccess: (_, vars) => qc.invalidateQueries({ queryKey: portalKeys.access(vars.companyId) }),
+  });
+}
+
+export function useRevokeCommercePortalAccess(companyId: string) {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const client = await getClient();
+      return client.post<DataResponse<CommercePortalAccessRow>>(`/commerce-portal/access/${id}/revoke`, {});
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: portalKeys.access(companyId) }),
+  });
+}
+
+export function useResendCommercePortalAccess(companyId: string) {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const client = await getClient();
+      return client.post<DataResponse<{ ok: boolean }>>(`/commerce-portal/access/${id}/resend`, {});
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: portalKeys.access(companyId) }),
   });
 }

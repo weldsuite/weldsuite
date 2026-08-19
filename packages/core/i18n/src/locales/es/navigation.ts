@@ -78,6 +78,7 @@ export const navigation = {
         categories: 'Categorías',
         orders: 'Pedidos',
         customers: 'Clientes',
+        portal: 'Portal de clientes',
       },
       weldstash: {
         overview: 'Resumen',

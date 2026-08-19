@@ -91,3 +91,6 @@ export * from './domains/products';
 export * from './domains/inventory';
 export * from './domains/warehouses';
 export * from './domains/pick-lists';
+
+// WeldCommerce B2B customer portal (staff invite + buyer-facing schemas).
+export * from './schemas/commerce-portal';

@@ -410,6 +410,12 @@ export interface Env {
    *  OAuth redirect_uri values (helpdesk Discord/Slack callbacks). Defaults
    *  to the per-environment app-api hostname when unset. */
   APP_API_PUBLIC_URL?: string;
+  /**
+   * Public origin of the B2B commerce portal (no trailing slash), used in
+   * magic-link emails. Defaults: production `https://orders.weldsuite.org`,
+   * test `https://orders-test.weldsuite.org`, otherwise `http://localhost:3021`.
+   */
+  COMMERCE_PORTAL_URL?: string;
 }
 
 /**
@@ -427,4 +433,11 @@ export type Variables = {
   /** Set by `requireCustomObject()` — the resolved `custom_objects` row for
    *  the request's `:slug` param, so handlers never re-query it. */
   customObject?: CustomObjectRow;
+  /** B2B commerce portal buyer session (public `/public/commerce-portal` only). */
+  portalPersonId?: string;
+  portalCompanyId?: string;
+  portalPartyId?: string;
+  portalAccessId?: string;
+  portalEmail?: string;
+  portalSessionToken?: string;
 };
