@@ -67,7 +67,15 @@ import { getNextThreadHref } from '@/app/weldmail/lib/next-thread';
 import { folderHidesOnArchive } from '@/app/weldmail/lib/optimistic-thread-list';
 import { mailApi } from '../lib/api-client';
 import { currentMailHref } from '../lib/mail-urls';
+import { useAppApiClient } from '@/lib/api/use-app-api';
 import { IsolatedHtmlContent } from './isolated-html-content';
+import { ComposeAttachButton } from './compose-attach-button';
+import {
+  MAX_EMAIL_SIZE_BYTES,
+  MailAttachmentUploadError,
+  emailSizeExceedsLimit,
+  uploadMailAttachments,
+} from '@/app/weldmail/lib/upload-attachments';
 import {
   useArchiveThread,
   useTrashThread,
@@ -453,11 +461,13 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const generateAutoDraftMutation = useGenerateAutoDraft();
   const generateAIReplyMutation = useGenerateAIReply();
   const handleAiCreditsError = useAiCreditsToast();
+  const { getClient } = useAppApiClient();
   const [isReplying, setIsReplying] = useState(false);
   const [isReplyingAll, setIsReplyingAll] = useState(false);
   const [isForwarding, setIsForwarding] = useState(false);
   const [replyToMessageId, setReplyToMessageId] = useState<string | null>(null);
   const [composeData, setComposeData] = useState({ to: '', subject: '', body: '' });
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const editorRef = useRef<HTMLDivElement>(null);
   const [activeFormats, setActiveFormats] = useState<Record<string, boolean>>({});
   const [messageLabels, setMessageLabels] = useState<string[]>(message.labels || []);
@@ -695,6 +705,32 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     setExpandedThreadIds(prev => new Set([...prev, newestMessage.id]));
   };
 
+  const resetCompose = () => {
+    setIsReplying(false);
+    setIsReplyingAll(false);
+    setIsForwarding(false);
+    setReplyToMessageId(null);
+    setComposeData({ to: '', subject: '', body: '' });
+    setAttachedFiles([]);
+    if (editorRef.current) editorRef.current.innerHTML = '';
+  };
+
+  const uploadAttachedFiles = async (textContent: string, htmlContent: string) => {
+    if (emailSizeExceedsLimit(textContent, htmlContent, attachedFiles)) {
+      toast.error(t.mail.composePage.emailSizeExceeded.replace('{mb}', String(MAX_EMAIL_SIZE_BYTES / (1024 * 1024))));
+      return null;
+    }
+    if (attachedFiles.length === 0) return [];
+    try {
+      const client = await getClient();
+      return await uploadMailAttachments(client, accountId, attachedFiles);
+    } catch (err) {
+      const filename = err instanceof MailAttachmentUploadError ? err.filename : 'file';
+      toast.error(t.mail.composePage.failedToUpload.replace('{filename}', filename));
+      return null;
+    }
+  };
+
   const handleSendReply = async () => {
     const htmlContent = editorRef.current?.innerHTML || '';
     const textContent = editorRef.current?.textContent || '';
@@ -704,19 +740,18 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     }
     setIsSending(true);
     try {
+      const attachments = await uploadAttachedFiles(textContent, htmlContent);
+      if (attachments === null) return;
       const result = await mailApi.messages.reply(accountId, message.id, {
         body: textContent,
         htmlBody: htmlContent,
         replyAll: isReplyingAll,
+        attachments: attachments.length > 0 ? attachments : undefined,
       });
       if (result.success) {
         toast.success(t.mail.messageDetail.replySent);
         addOptimisticMessage(textContent, composeData.to, htmlContent);
-        setIsReplying(false);
-        setIsReplyingAll(false);
-        setReplyToMessageId(null);
-        setComposeData({ to: '', subject: '', body: '' });
-        if (editorRef.current) editorRef.current.innerHTML = '';
+        resetCompose();
       } else {
         toast.error(result.error || t.mail.messageDetail.failedToSendReply);
       }
@@ -737,18 +772,18 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     const textContent = editorRef.current?.textContent || '';
     setIsSending(true);
     try {
+      const attachments = await uploadAttachedFiles(textContent, htmlContent);
+      if (attachments === null) return;
       const result = await mailApi.messages.forward(accountId, message.id, {
         to: toAddresses,
         body: textContent || undefined,
         htmlBody: htmlContent || undefined,
+        attachments: attachments.length > 0 ? attachments : undefined,
       });
       if (result.success) {
         toast.success(t.mail.messageDetail.emailForwarded);
         addOptimisticMessage(textContent || `Forwarded: ${message.subject}`, composeData.to, htmlContent || undefined);
-        setIsForwarding(false);
-        setReplyToMessageId(null);
-        setComposeData({ to: '', subject: '', body: '' });
-        if (editorRef.current) editorRef.current.innerHTML = '';
+        resetCompose();
       } else {
         toast.error(result.error || t.mail.messageDetail.failedToForwardEmail);
       }
@@ -974,6 +1009,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
       setIsForwarding(false);
       setReplyToMessageId(null);
       setComposeData({ to: '', subject: '', body: '' });
+      setAttachedFiles([]);
       setIsAutoDraft(false);
       setShowInlineAiInput(false);
       setInlineAiPrompt('');
@@ -1024,6 +1060,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                   body: htmlContent || textContent,
                   inReplyTo: isReply ? getReplyToRfcMessageId() : undefined,
                   accountId,
+                  attachedFiles,
                 }, currentMailHref());
                 onCancel();
               }}
@@ -1047,6 +1084,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                     subject: composeData.subject || message.subject,
                     body: htmlContent || textContent,
                     inReplyTo: rfcMessageId,
+                    attachedFiles,
                   });
                 }
                 onCancel();
@@ -1074,6 +1112,28 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             suppressContentEditableWarning
           />
         </div>
+        {attachedFiles.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-3 pb-2">
+            {attachedFiles.map((file, index) => (
+              <div
+                key={`${file.name}-${index}`}
+                className="flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-xs max-w-[180px]"
+              >
+                <span className="truncate">{file.name}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-4 w-4 p-0 hover:bg-muted-foreground/20"
+                  onClick={() => setAttachedFiles((prev) => prev.filter((_, i) => i !== index))}
+                  title={t.mail.messageDetail.cancel}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
         {/* Actions bar */}
         {isAutoDraft ? (
           <>
@@ -1197,9 +1257,13 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                 <ListOrdered className={cn("h-4 w-4", activeFormats.insertOrderedList ? "text-foreground" : "text-muted-foreground")} />
               </Button>
               <div className="w-px h-5 bg-border mx-0.5" />
-              <Button variant="ghost" size="icon" className="p-2 hover:bg-muted rounded-md transition-colors" title={t.mail.toolbar.attachFile} onMouseDown={(e) => { e.preventDefault(); toast.success(t.mail.messageDetail.attachFile); }}>
-                <Paperclip className="h-4 w-4 text-muted-foreground" />
-              </Button>
+              <ComposeAttachButton
+                title={t.mail.toolbar.attachFile}
+                testId="reply-attach-input"
+                className="p-2 hover:bg-muted rounded-md transition-colors"
+                iconClassName="text-muted-foreground"
+                onFilesSelected={(files) => setAttachedFiles((prev) => [...prev, ...files])}
+              />
               <Button variant="ghost" size="icon" className="p-2 hover:bg-muted rounded-md transition-colors" title={t.mail.toolbar.insertLink} onMouseDown={(e) => {
                 e.preventDefault();
                 const url = prompt('Enter URL:');
