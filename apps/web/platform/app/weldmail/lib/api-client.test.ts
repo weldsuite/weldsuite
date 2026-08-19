@@ -93,3 +93,40 @@ describe('mailApi.scheduled', () => {
     expect(body.scheduledFor).toBe('2030-05-06T07:08:09.000Z');
   });
 });
+
+describe('mailApi.messages reply / forward attachments', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('POSTs reply attachments through to /mail-messages/:id/reply', async () => {
+    const fetchMock = mockFetch();
+    const attachments = [
+      { filename: 'a.pdf', contentType: 'application/pdf', size: 12, fileKey: 'k/1' },
+    ];
+    await mailApi.messages.reply('acc_1', 'msg_1', { body: 'Thanks', attachments });
+
+    const { url, body } = lastCall(fetchMock);
+    expect(url).toBe(`${BASE}/mail-messages/msg_1/reply`);
+    expect(body.attachments).toEqual(attachments);
+  });
+
+  it('POSTs forward attachments through to /mail-messages/:id/forward', async () => {
+    const fetchMock = mockFetch();
+    const attachments = [
+      { filename: 'a.pdf', contentType: 'application/pdf', size: 12, fileKey: 'k/1' },
+    ];
+    await mailApi.messages.forward('acc_1', 'msg_1', {
+      to: ['other@example.com'],
+      body: 'FYI',
+      attachments,
+    });
+
+    const { url, body } = lastCall(fetchMock);
+    expect(url).toBe(`${BASE}/mail-messages/msg_1/forward`);
+    expect(body.attachments).toEqual(attachments);
+  });
+});

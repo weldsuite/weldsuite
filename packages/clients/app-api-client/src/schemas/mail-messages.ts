@@ -34,6 +34,16 @@ export const replyMailMessageSchema = z.object({
   body: z.string().optional(),
   htmlBody: z.string().optional(),
   replyAll: z.boolean().default(false),
+  attachments: z
+    .array(
+      z.object({
+        filename: z.string().min(1).max(500),
+        contentType: z.string().max(255).optional(),
+        size: z.number().int().nonnegative(),
+        fileKey: z.string().min(1),
+      }),
+    )
+    .optional(),
 });
 
 export const forwardMailMessageSchema = z.object({
