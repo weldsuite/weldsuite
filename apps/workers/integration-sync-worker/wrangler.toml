@@ -32,6 +32,21 @@ localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:
 binding = "APP_API"
 service = "weldsuite-app-api"
 
+# ============ TEST ENVIRONMENT ============
+[env.test]
+name = "integration-sync-scheduler-test"
+
+[env.test.vars]
+ENVIRONMENT = "test"
+
+[[env.test.services]]
+binding = "APP_API"
+service = "weldsuite-app-api-test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 name = "integration-sync-scheduler-production"

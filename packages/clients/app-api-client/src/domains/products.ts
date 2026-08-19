@@ -1,7 +1,7 @@
 /**
  * App-API products domain client — flat /api/products/* surface.
  *
- * Shared by WeldCommerce and WeldStash / WeldWMS. Stock quantity on a product
+ * Shared by WeldCommerce and WeldStash. Stock quantity on a product
  * is a roll-up; warehouse-level stock lives on `/inventory`.
  */
 

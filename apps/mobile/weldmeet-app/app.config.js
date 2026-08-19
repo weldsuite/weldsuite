@@ -1,4 +1,4 @@
-const { withAndroidManifest, withAppBuildGradle, withStringsXml, AndroidConfig } = require('@expo/config-plugins');
+const { withAppBuildGradle, withStringsXml, AndroidConfig } = require('@expo/config-plugins');
 
 // Config plugin to add `blob_provider_authority` to strings.xml. Required by
 // @cloudflare/realtimekit-react-native — its AndroidManifest registers a
@@ -49,58 +49,7 @@ const withAndroidPackagingExcludes = (config) => {
   });
 };
 
-// Config plugin to add react-native-app-auth intent filter
-const withAndroidManifestFixes = (config) => {
-  return withAndroidManifest(config, async (config) => {
-    const manifest = config.modResults.manifest;
-
-    if (!manifest.$['xmlns:tools']) {
-      manifest.$['xmlns:tools'] = 'http://schemas.android.com/tools';
-    }
-
-    const application = manifest.application?.[0];
-    if (!application) {
-      return config;
-    }
-
-    const redirectActivity = {
-      $: {
-        'android:name': 'net.openid.appauth.RedirectUriReceiverActivity',
-        'android:exported': 'true',
-      },
-      'intent-filter': [
-        {
-          action: [{ $: { 'android:name': 'android.intent.action.VIEW' } }],
-          category: [
-            { $: { 'android:name': 'android.intent.category.DEFAULT' } },
-            { $: { 'android:name': 'android.intent.category.BROWSABLE' } },
-          ],
-          data: [
-            {
-              $: {
-                'android:scheme': 'weldmeet',
-              },
-            },
-          ],
-        },
-      ],
-    };
-
-    const activities = application.activity || [];
-    const existingActivity = activities.find(
-      (a) => a.$?.['android:name'] === 'net.openid.appauth.RedirectUriReceiverActivity'
-    );
-
-    if (!existingActivity) {
-      application.activity = [...activities, redirectActivity];
-    }
-
-    return config;
-  });
-};
-
 module.exports = ({ config }) => {
-  config = withAndroidManifestFixes(config);
   config = withAndroidPackagingExcludes(config);
   config = withBlobProviderAuthority(config);
 

@@ -393,7 +393,7 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
     category: 'Sales & Marketing',
     path: '/weldcommerce',
     overview:
-      "WeldCommerce is an end-to-end commerce stack. Build your storefront with the visual website builder, manage products with variants and bundles, take payment with Stripe / Mollie / PayPal, and watch orders flow into the same inventory and shipping layer used by WeldWMS and WeldParcel. No webhooks, no syncing — orders, stock, and shipments all share one database. Sync to Shopify or WooCommerce if you'd rather keep your existing storefront.",
+      "WeldCommerce is an end-to-end commerce stack. Build your storefront with the visual website builder, manage products with variants and bundles, take payment with Stripe / Mollie / PayPal, and watch orders flow into the same inventory and shipping layer used by WeldStash and WeldParcel. No webhooks, no syncing — orders, stock, and shipments all share one database. Sync to Shopify or WooCommerce if you'd rather keep your existing storefront.",
     features: [
       'Drag-and-drop website builder with sections, blocks, and reusable templates',
       'Products with variants, bundles, digital goods, and per-warehouse stock',

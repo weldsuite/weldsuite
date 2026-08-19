@@ -84,7 +84,9 @@ export const navigation = {
       "products": "Produits",
       "suppliers": "Fournisseurs",
       "warehouses": "Entrepôts",
-      "stock": "Stock"
+      "stock": "Stock",
+      "pickLists": "Listes de picking",
+      "packing": "Emballage"
     },
     "welddata": {
       "findLeads": "[TRANSLATE] Find Leads"

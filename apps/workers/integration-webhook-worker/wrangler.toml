@@ -76,6 +76,48 @@ class_name = "GithubProjectOutboundSyncWorkflow"
 [triggers]
 crons = []
 
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-integration-webhooks-test"
+routes = [
+  { pattern = "integration-webhooks-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+
+[[env.test.services]]
+binding = "APP_API"
+service = "weldsuite-app-api-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[[env.test.queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events-test"
+
+[[env.test.queues.producers]]
+binding = "WORKFLOW_EVENTS"
+queue = "workflow-events-test"
+
+[[env.test.queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events-test"
+
+[env.test.triggers]
+crons = []
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 logpush = true

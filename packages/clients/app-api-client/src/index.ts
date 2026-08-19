@@ -86,7 +86,8 @@ export * from './schemas/credits';
 // Dashboard — read-only workspace-home reads (installed apps for the WeldChat layout).
 export * from './domains/dashboard';
 
-// WeldWMS / WeldStash — products, inventory ledger, warehouses.
+// WeldStash — products, inventory ledger, warehouses.
 export * from './domains/products';
 export * from './domains/inventory';
 export * from './domains/warehouses';
+export * from './domains/pick-lists';

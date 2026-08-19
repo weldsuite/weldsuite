@@ -64,6 +64,33 @@ new_classes = ["SupportRoom"]
 tag = "v4"
 new_classes = ["DocumentRoom"]
 
+[env.test]
+name = "weldsuite-realtime-test"
+routes = [
+  { pattern = "realtime-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+CLERK_ISSUER = "https://definite-eagle-3.clerk.accounts.dev"
+
+[env.test.durable_objects]
+bindings = [
+  { name = "WORKSPACE_HUB", class_name = "WorkspaceHub" },
+  { name = "CONVERSATION_ROOM", class_name = "ConversationRoom" },
+  { name = "CHAT_ROOM", class_name = "ChatRoom" },
+  { name = "WHITEBOARD_ROOM", class_name = "WhiteboardRoom" },
+  { name = "DOCUMENT_ROOM", class_name = "DocumentRoom" },
+  { name = "SUPPORT_ROOM", class_name = "SupportRoom" },
+]
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
 [env.production]
 name = "weldsuite-realtime-production"
 routes = [

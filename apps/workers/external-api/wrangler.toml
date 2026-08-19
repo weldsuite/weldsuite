@@ -93,6 +93,40 @@ service = "weldsuite-realtime"
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
+# ============ TEST ENVIRONMENT ============
+[env.test]
+name = "weldsuite-external-api-test"
+routes = [{ pattern = "api-test.weldsuite.org/*", zone_name = "weldsuite.org" }]
+vars = { ENVIRONMENT = "test" }
+
+[[env.test.kv_namespaces]]
+binding = "API_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[[env.test.queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events-test"
+
+[[env.test.queues.producers]]
+binding = "WORKFLOW_EVENTS"
+queue = "workflow-events-test"
+
+[[env.test.queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 name = "weldsuite-external-api"

@@ -9,20 +9,17 @@ name: Dispatch deploy
 # ONLY weldsuite/deployment-overlay (see that repo's SECRETS.md). Until the
 # token exists this workflow no-ops with a clear error and nothing deploys.
 #
-# Path-gated: frontend / desktop / docs / CI-only pushes never wake the overlay.
-# Cloudflare Pages still ships the platform SPA on its own Git connection.
-# The overlay then path-filters again so only the workers (or migrations /
-# mobile OTA) that actually changed are released.
+# Path-gated: desktop / docs / CI-only pushes never wake the overlay.
+# Merges to `main` always deploy **test** (workers + app-test.weldsuite.org).
+# Production is never dispatched from this repo — it is a manual run of
+# Deploy (overlay) in weldsuite/deployment-overlay.
 
 on:
   push:
-    # `main` only. Production is the sole deploy environment, so any dispatch
-    # resolves to production — listing `develop` here would mean that creating
-    # that branch (it does not currently exist) silently deploys to production.
     branches: [main]
     paths:
-      # Workers + the packages they bundle. A change under apps/web or
-      # apps/desktop is not listed, so those commits never dispatch.
+      # Workers + bundled packages, plus the platform SPA so test Pages refresh.
+      - 'apps/web/platform/**'
       - 'apps/workers/**'
       - 'apps/mobile/**'
       - 'apps/tools/migrate-databases/**'
@@ -75,5 +72,6 @@ jobs:
             {
               "sha": "${{ github.sha }}",
               "base_sha": "${{ github.event.before }}",
-              "ref": "${{ github.ref_name }}"
+              "ref": "${{ github.ref_name }}",
+              "environment": "test"
             }

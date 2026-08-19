@@ -57,6 +57,42 @@ crons = ["*/5 * * * *", "0 3 * * *"]
 binding = "WORKSPACE_CACHE"
 id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
 
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-workspace-test"
+routes = [
+  { pattern = "workspace-worker-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+NEON_DEFAULT_REGION = "aws-eu-central-1"
+APP_URL = "https://app-test.weldsuite.org"
+POOL_TARGET_SHARED = "2"
+POOL_TARGET_DEDICATED = "0"
+
+[[env.test.workflows]]
+name = "provision-workspace"
+binding = "PROVISION_WORKSPACE"
+class_name = "ProvisionWorkspaceWorkflow"
+
+[[env.test.workflows]]
+name = "refill-pool"
+binding = "REFILL_POOL"
+class_name = "RefillPoolWorkflow"
+
+[env.test.triggers]
+crons = ["*/5 * * * *", "0 3 * * *"]
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 logpush = true

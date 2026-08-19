@@ -37,6 +37,7 @@ import { customFieldsRoutes } from './custom-fields';
 import { enrichFieldsRoutes } from './enrich-fields';
 import { wmsSuppliersRoutes } from './wms-suppliers';
 import { pickersRoutes } from './pickers';
+import { pickListsRoutes } from './pick-lists';
 import { stockAdjustmentsRoutes } from './stock-adjustments';
 import { milestonesRoutes } from './milestones';
 import { boxesRoutes } from './boxes';
@@ -130,6 +131,7 @@ const cases: RouteCase[] = [
   { mount: '/api/chat-dm', router: chatDmRoutes, prefix: 'messages', skipPatch: true, skipDelete: true },
   // pickers: uses PUT /:id (full update) not PATCH /:id; PATCH /:id/status is a sub-action.
   { mount: '/api/pickers', router: pickersRoutes, prefix: 'warehouses', skipPatch: true },
+  { mount: '/api/pick-lists', router: pickListsRoutes, prefix: 'picklists' },
 ];
 
 describe.each(cases)('$mount · auth gates', (c) => {
