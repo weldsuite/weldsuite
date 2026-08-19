@@ -486,7 +486,7 @@ export async function replyAndPersist(
   orgId: string,
   userId: string,
   originalMessageId: string,
-  data: { body?: string; htmlBody?: string; replyAll?: boolean },
+  data: { body?: string; htmlBody?: string; replyAll?: boolean; attachments?: SendAttachmentInput[] },
   waitUntil?: ExecutionContext['waitUntil'],
   opts?: SendOptions,
 ): Promise<SendResult & { repliedTo: string }> {
@@ -541,6 +541,7 @@ export async function replyAndPersist(
       htmlBody: data.htmlBody,
       inReplyTo: originalSmtpId,
       references,
+      attachments: data.attachments,
     },
     waitUntil,
     opts,
