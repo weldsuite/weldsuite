@@ -41,7 +41,7 @@ env:
 jobs:
   prepare:
     name: Prepare
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     outputs:
       ref: ${{ steps.ctx.outputs.ref }}
       version: ${{ steps.version.outputs.version }}
@@ -218,7 +218,7 @@ jobs:
     name: Publish to R2
     needs: [prepare, build]
     if: needs.prepare.outputs.publish == 'true' && !failure() && !cancelled()
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     environment: production
     steps:
       - uses: actions/checkout@v4
