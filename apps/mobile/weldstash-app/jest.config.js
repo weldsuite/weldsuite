@@ -22,6 +22,7 @@ module.exports = {
   collectCoverageFrom: [
     'utils/**/*.{ts,tsx}',
     'services/**/*.{ts,tsx}',
+    'lib/**/*.{ts,tsx}',
     'modules/zebra-datawedge/index.ts',
     '!**/node_modules/**',
     '!**/__tests__/**',

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Package, Plus, ScanBarcode } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
@@ -17,45 +18,27 @@ import { SearchBar } from '@weldsuite/mobile-ui/components/SearchBar';
 import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import type { ProductRow } from '@weldsuite/app-api-client/domains/products';
 import { appApi } from '@/services/app-api';
 import { useHardwareBarcodeScan } from '@/hooks/useHardwareBarcodeScan';
 import { normalizeBarcode, pickExactProduct } from '@/utils/barcode';
+import { weldstashKeys } from '@/lib/query-client';
+import { prefetchWeldstashProduct, useWeldstashProducts } from '@/hooks/use-weldstash-queries';
 
 export default function ProductsScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { info, error: showError } = useToast();
 
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
-  const [products, setProducts] = useState<ProductRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fetchProducts = useCallback(async (term: string) => {
-    try {
-      setError(null);
-      const response = await appApi.products.list({
-        limit: 50,
-        search: term || undefined,
-      });
-      setProducts(response.data ?? []);
-    } catch (err) {
-      setError((err as Error).message || 'Failed to load products');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    setLoading(true);
-    void fetchProducts(query);
-  }, [fetchProducts, query]);
+  const productsQuery = useWeldstashProducts(query);
+  const products = productsQuery.data?.data ?? [];
+  const loading = productsQuery.isPending && products.length === 0;
+  const error = productsQuery.error ? (productsQuery.error as Error).message : null;
 
   const handleSearchChange = (text: string) => {
     setSearch(text);
@@ -71,12 +54,15 @@ export default function ProductsScreen() {
       setSearch(normalized);
       setQuery(normalized);
       try {
-        const response = await appApi.products.list({ search: normalized, limit: 50 });
+        const response = await queryClient.fetchQuery({
+          queryKey: weldstashKeys.productList(normalized),
+          queryFn: () => appApi.products.list({ search: normalized, limit: 50 }),
+        });
         const rows = response.data ?? [];
-        setProducts(rows);
         const exact = pickExactProduct(rows, normalized);
         if (exact) {
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          prefetchWeldstashProduct(queryClient, exact.id);
           router.push(`/product/${exact.id}`);
         } else {
           void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -84,11 +70,9 @@ export default function ProductsScreen() {
         }
       } catch (err) {
         showError((err as Error).message || 'Scan lookup failed');
-      } finally {
-        setLoading(false);
       }
     },
-    [router, info, showError],
+    [queryClient, router, info, showError],
   );
 
   const hardwareScanner = useHardwareBarcodeScan((code) => {
@@ -138,7 +122,7 @@ export default function ProductsScreen() {
         </View>
       </View>
 
-      {loading && products.length === 0 ? (
+      {loading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={colors.text} />
         </View>
@@ -149,10 +133,9 @@ export default function ProductsScreen() {
           contentContainerStyle={products.length === 0 ? styles.emptyList : styles.list}
           refreshControl={
             <RefreshControl
-              refreshing={refreshing}
+              refreshing={productsQuery.isRefetching && !productsQuery.isPending}
               onRefresh={() => {
-                setRefreshing(true);
-                void fetchProducts(query);
+                void productsQuery.refetch();
               }}
             />
           }
@@ -177,6 +160,7 @@ export default function ProductsScreen() {
           }
           renderItem={({ item }) => (
             <Pressable
+              onPressIn={() => prefetchWeldstashProduct(queryClient, item.id)}
               onPress={() => router.push(`/product/${item.id}`)}
               style={({ pressed }) => [
                 styles.row,

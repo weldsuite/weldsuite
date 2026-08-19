@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -8,87 +8,61 @@ import {
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, Minus, Plus } from 'lucide-react-native';
-import * as Haptics from 'expo-haptics';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { Input } from '@weldsuite/mobile-ui/components/Input';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import { isApiError } from '@weldsuite/api-client/client';
-import type { ProductRow } from '@weldsuite/app-api-client/domains/products';
-import type { InventoryRow } from '@weldsuite/app-api-client/domains/inventory';
-import type { WarehouseRow } from '@weldsuite/app-api-client/domains/warehouses';
 import { appApi } from '@/services/app-api';
-import { buildAdjustPayload, pickDefaultWarehouse } from '@/utils/barcode';
+import { pickDefaultWarehouse } from '@/utils/barcode';
+import { warehouseOnHand } from '@/utils/stock';
+import { weldstashKeys } from '@/lib/query-client';
+import {
+  useWeldstashProduct,
+  useWeldstashStock,
+  useWeldstashWarehouses,
+} from '@/hooks/use-weldstash-queries';
+import { useStockAdjuster } from '@/hooks/use-stock-adjuster';
 
 export default function ProductDetailScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { success, error: showError } = useToast();
+  const queryClient = useQueryClient();
+  const { error: showError } = useToast();
   const { id } = useLocalSearchParams<{ id: string }>();
 
-  const [product, setProduct] = useState<ProductRow | null>(null);
-  const [stock, setStock] = useState<InventoryRow[]>([]);
-  const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
+  const productQuery = useWeldstashProduct(id);
+  const stockQuery = useWeldstashStock(id);
+  const warehouseQuery = useWeldstashWarehouses();
+
+  const product = productQuery.data?.data ?? null;
+  const stock = stockQuery.data?.data ?? [];
+  const warehouses = warehouseQuery.data?.data ?? [];
+
   const [warehouseId, setWarehouseId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [adjusting, setAdjusting] = useState(false);
   const [amount, setAmount] = useState('1');
   const [reason, setReason] = useState('Adjusted from WeldStash');
   const [newWarehouseName, setNewWarehouseName] = useState('');
   const [creatingWarehouse, setCreatingWarehouse] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!id) return;
-    try {
-      const [productRes, stockRes, warehouseRes] = await Promise.all([
-        appApi.products.get(id),
-        appApi.inventory.list({ productId: id, limit: 50 }),
-        appApi.warehouses.list({ limit: 50 }),
-      ]);
-      setProduct(productRes.data);
-      setStock(stockRes.data ?? []);
-      const warehouseRows = warehouseRes.data ?? [];
-      setWarehouses(warehouseRows);
-      setWarehouseId((current) => current ?? pickDefaultWarehouse(warehouseRows)?.id ?? null);
-    } catch (err) {
-      showError((err as Error).message || 'Failed to load product');
-    } finally {
-      setLoading(false);
-    }
-  }, [id, showError]);
-
   useEffect(() => {
-    void load();
-  }, [load]);
+    setWarehouseId((current) => current ?? pickDefaultWarehouse(warehouses)?.id ?? null);
+  }, [warehouses]);
+
+  const { applyDelta, syncing } = useStockAdjuster({
+    productId: id,
+    warehouseId,
+    reason,
+    onError: showError,
+  });
 
   const selectedWarehouse = warehouses.find((w) => w.id === warehouseId) ?? null;
-  const selectedStock = stock.filter((row) => row.warehouseId === warehouseId);
-  const onHand = selectedStock.reduce((sum, row) => sum + (row.quantityOnHand ?? 0), 0);
-
-  const applyDelta = async (delta: number) => {
-    if (!id || !warehouseId || delta === 0 || adjusting) return;
-    setAdjusting(true);
-    try {
-      await appApi.inventory.adjust(buildAdjustPayload({
-        productId: id,
-        warehouseId,
-        delta,
-        reason,
-      }));
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      success(`Stock ${delta > 0 ? 'increased' : 'decreased'} by ${Math.abs(delta)}`);
-      await load();
-    } catch (err) {
-      const message = isApiError(err) ? err.message : (err as Error).message;
-      showError(message || 'Failed to adjust stock');
-    } finally {
-      setAdjusting(false);
-    }
-  };
+  const onHand = warehouseOnHand(stock, warehouseId);
+  const selectedStockCount = stock.filter((row) => row.warehouseId === warehouseId).length;
 
   const applyAmount = () => {
     const parsed = Number.parseInt(amount, 10);
@@ -96,7 +70,9 @@ export default function ProductDetailScreen() {
       showError('Enter a non-zero quantity');
       return;
     }
-    void applyDelta(parsed);
+    if (!applyDelta(parsed)) {
+      showError('Not enough stock to decrease');
+    }
   };
 
   const createWarehouse = async () => {
@@ -111,16 +87,17 @@ export default function ProductDetailScreen() {
         isDefault: warehouses.length === 0,
         isActive: true,
       });
-      success('Warehouse created');
       setNewWarehouseName('');
       setWarehouseId(created.data.id);
-      await load();
+      await queryClient.invalidateQueries({ queryKey: weldstashKeys.warehouses() });
     } catch (err) {
       showError((err as Error).message || 'Failed to create warehouse');
     } finally {
       setCreatingWarehouse(false);
     }
   };
+
+  const loading = !product && (productQuery.isPending || stockQuery.isPending || warehouseQuery.isPending);
 
   if (loading) {
     return (
@@ -199,17 +176,19 @@ export default function ProductDetailScreen() {
               <Text style={[styles.onHandLabel, { color: colors.mutedForeground }]}>
                 On hand{selectedWarehouse ? ` · ${selectedWarehouse.name}` : ''}
               </Text>
-              <Text style={[styles.onHandValue, { color: colors.text }]}>{onHand}</Text>
-              {selectedStock.length > 1 ? (
+              <View style={styles.onHandRow}>
+                <Text style={[styles.onHandValue, { color: colors.text }]}>{onHand}</Text>
+                {syncing ? <ActivityIndicator size="small" color={colors.mutedForeground} /> : null}
+              </View>
+              {selectedStockCount > 1 ? (
                 <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>
-                  Across {selectedStock.length} locations / lots
+                  Across {selectedStockCount} locations / lots
                 </Text>
               ) : null}
 
               <View style={styles.stepper}>
                 <Pressable
-                  onPress={() => void applyDelta(-1)}
-                  disabled={adjusting}
+                  onPress={() => applyDelta(-1)}
                   accessibilityRole="button"
                   accessibilityLabel="Decrease stock by 1"
                   style={[styles.stepperBtn, { borderColor: colors.border }]}
@@ -217,8 +196,7 @@ export default function ProductDetailScreen() {
                   <Minus size={22} color={colors.text} />
                 </Pressable>
                 <Pressable
-                  onPress={() => void applyDelta(1)}
-                  disabled={adjusting}
+                  onPress={() => applyDelta(1)}
                   accessibilityRole="button"
                   accessibilityLabel="Increase stock by 1"
                   style={[styles.stepperBtn, { borderColor: colors.border }]}
@@ -237,7 +215,7 @@ export default function ProductDetailScreen() {
                 keyboardType="numbers-and-punctuation"
               />
               <Input label="Reason" value={reason} onChangeText={setReason} />
-              <Button title="Apply adjustment" loading={adjusting} onPress={applyAmount} />
+              <Button title="Apply adjustment" onPress={applyAmount} />
             </View>
           </>
         )}
@@ -276,7 +254,8 @@ const styles = StyleSheet.create({
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 },
   onHandLabel: { fontSize: 13, fontWeight: '500' },
-  onHandValue: { fontSize: 40, fontWeight: '700', fontVariant: ['tabular-nums'], marginVertical: 4 },
+  onHandRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 4 },
+  onHandValue: { fontSize: 40, fontWeight: '700', fontVariant: ['tabular-nums'] },
   stepper: { flexDirection: 'row', gap: 12, marginTop: 12 },
   stepperBtn: {
     flex: 1,

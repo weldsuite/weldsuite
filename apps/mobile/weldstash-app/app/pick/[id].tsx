@@ -9,15 +9,18 @@ import {
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import type { PickListItemRow, PickListRow } from '@weldsuite/app-api-client/domains/pick-lists';
+import type { PickListItemRow } from '@weldsuite/app-api-client/domains/pick-lists';
 import { appApi } from '@/services/app-api';
 import { useHardwareBarcodeScan } from '@/hooks/useHardwareBarcodeScan';
 import { normalizeBarcode } from '@/utils/barcode';
+import { weldstashKeys } from '@/lib/query-client';
+import { useWeldstashPickList } from '@/hooks/use-weldstash-queries';
 
 const TERMINAL = new Set(['picked', 'partial', 'short', 'skipped']);
 
@@ -27,9 +30,12 @@ export default function PickDetailScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { error: showError, success } = useToast();
+  const queryClient = useQueryClient();
 
-  const [list, setList] = useState<PickListRow | null>(null);
-  const [loading, setLoading] = useState(true);
+  const pickQuery = useWeldstashPickList(id);
+  const list = pickQuery.data?.data ?? null;
+  const loading = pickQuery.isPending && !list;
+
   const [busy, setBusy] = useState(false);
   const [qty, setQty] = useState('');
   const [scannedLocation, setScannedLocation] = useState<string | null>(null);
@@ -43,30 +49,19 @@ export default function PickDetailScreen() {
   const scanPhase: 'location' | 'product' | 'done' =
     !current ? 'done' : needsLocation && !scannedLocation ? 'location' : 'product';
 
-  const load = useCallback(async () => {
-    if (!id) return;
-    const response = await appApi.pickLists.get(id);
-    setList(response.data);
-    setScannedLocation(null);
-    const next = (response.data.items ?? []).find((item) => !TERMINAL.has(item.status ?? 'pending'));
-    setQty(next ? String(next.quantityRequired ?? 1) : '');
-  }, [id]);
-
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        await load();
-      } catch (err) {
-        if (!cancelled) showError((err as Error).message || 'Failed to load pick list');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [load, showError]);
+    if (!current) return;
+    setQty(String(current.quantityRequired ?? 1));
+    // Only reset when the active line changes — not on background refetches.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current?.id]);
+
+  const refresh = useCallback(async () => {
+    if (!id) return;
+    setScannedLocation(null);
+    await queryClient.invalidateQueries({ queryKey: weldstashKeys.pickList(id) });
+    await queryClient.invalidateQueries({ queryKey: weldstashKeys.pickLists() });
+  }, [id, queryClient]);
 
   const confirmLine = useCallback(
     async (item: PickListItemRow, productBarcode: string, locationBarcode?: string, short = false) => {
@@ -81,7 +76,7 @@ export default function PickDetailScreen() {
           short,
         });
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        await load();
+        await refresh();
       } catch (err) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         showError((err as Error).message || 'Pick failed');
@@ -89,7 +84,7 @@ export default function PickDetailScreen() {
         setBusy(false);
       }
     },
-    [id, load, qty, showError],
+    [id, refresh, qty, showError],
   );
 
   useHardwareBarcodeScan((code) => {
@@ -109,7 +104,7 @@ export default function PickDetailScreen() {
     try {
       await fn();
       success(ok);
-      await load();
+      await refresh();
     } catch (err) {
       showError((err as Error).message || ok);
     } finally {
@@ -117,10 +112,18 @@ export default function PickDetailScreen() {
     }
   };
 
-  if (loading || !list) {
+  if (loading) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background, paddingTop: insets.top }]}>
         <ActivityIndicator color={colors.text} />
+      </View>
+    );
+  }
+
+  if (!list) {
+    return (
+      <View style={[styles.center, { backgroundColor: colors.background, paddingTop: insets.top }]}>
+        <Text style={{ color: colors.text }}>Could not load pick list</Text>
       </View>
     );
   }

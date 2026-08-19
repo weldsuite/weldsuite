@@ -7,6 +7,8 @@ import { View, ActivityIndicator, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import 'react-native-reanimated';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from '@/lib/query-client';
 
 import { tokenCache } from '@clerk/expo/token-cache';
 import { ClerkAuthProvider, useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
@@ -149,30 +151,32 @@ function AppStack() {
   };
 
   return (
-    <ToastProvider>
-      <NotificationProvider>
-        <InstalledAppsProvider api={installedAppsApi}>
-          <WorkspaceProvider api={workspaceApi}>
-            <NavigationThemeProvider value={navigationTheme}>
-              <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
-              <AuthGuard>
-                <RealtimeProvider>
-                  <Stack screenOptions={{ headerShown: false }}>
-                    <Stack.Screen name="authorisation" />
-                    <Stack.Screen name="sso-callback" />
-                    <Stack.Screen name="no-workspace" options={{ animation: 'fade', animationDuration: 200, gestureEnabled: false }} />
-                    <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 150 }} />
-                    <Stack.Screen name="product/new" />
-                    <Stack.Screen name="product/[id]" />
-                    <Stack.Screen name="pick/[id]" />
-                  </Stack>
-                </RealtimeProvider>
-              </AuthGuard>
-            </NavigationThemeProvider>
-          </WorkspaceProvider>
-        </InstalledAppsProvider>
-      </NotificationProvider>
-    </ToastProvider>
+    <QueryClientProvider client={queryClient}>
+      <ToastProvider>
+        <NotificationProvider>
+          <InstalledAppsProvider api={installedAppsApi}>
+            <WorkspaceProvider api={workspaceApi}>
+              <NavigationThemeProvider value={navigationTheme}>
+                <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
+                <AuthGuard>
+                  <RealtimeProvider>
+                    <Stack screenOptions={{ headerShown: false }}>
+                      <Stack.Screen name="authorisation" />
+                      <Stack.Screen name="sso-callback" />
+                      <Stack.Screen name="no-workspace" options={{ animation: 'fade', animationDuration: 200, gestureEnabled: false }} />
+                      <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 150 }} />
+                      <Stack.Screen name="product/new" />
+                      <Stack.Screen name="product/[id]" />
+                      <Stack.Screen name="pick/[id]" />
+                    </Stack>
+                  </RealtimeProvider>
+                </AuthGuard>
+              </NavigationThemeProvider>
+            </WorkspaceProvider>
+          </InstalledAppsProvider>
+        </NotificationProvider>
+      </ToastProvider>
+    </QueryClientProvider>
   );
 }
 

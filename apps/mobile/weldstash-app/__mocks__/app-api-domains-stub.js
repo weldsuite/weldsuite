@@ -8,4 +8,5 @@ module.exports = {
   createProductsApi: factory('products'),
   createInventoryApi: factory('inventory'),
   createWarehousesApi: factory('warehouses'),
+  createPickListsApi: factory('pickLists'),
 };

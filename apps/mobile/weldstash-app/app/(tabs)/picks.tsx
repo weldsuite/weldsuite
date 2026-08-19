@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -9,55 +9,34 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ClipboardList } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
-import type { PickListRow } from '@weldsuite/app-api-client/domains/pick-lists';
 import { appApi } from '@/services/app-api';
-
-const OPEN_STATUSES = ['pending', 'assigned', 'in_progress', 'completed', 'packed'];
+import { weldstashKeys } from '@/lib/query-client';
+import { useWeldstashPickLists } from '@/hooks/use-weldstash-queries';
 
 export default function PicksScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { user } = useClerkAuth();
 
-  const [lists, setLists] = useState<PickListRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchLists = useCallback(async () => {
-    try {
-      setError(null);
-      const response = await appApi.pickLists.list({
-        limit: 50,
-        assignedTo: user?.id,
-      });
-      const rows = (response.data ?? []).filter((row) => OPEN_STATUSES.includes(row.status));
-      setLists(rows);
-    } catch (err) {
-      setError((err as Error).message || 'Failed to load pick lists');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [user?.id]);
-
-  useEffect(() => {
-    setLoading(true);
-    void fetchLists();
-  }, [fetchLists]);
+  const picksQuery = useWeldstashPickLists(user?.id);
+  const lists = picksQuery.data?.data ?? [];
+  const loading = picksQuery.isPending && lists.length === 0;
+  const error = picksQuery.error ? (picksQuery.error as Error).message : null;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Text style={[styles.title, { color: colors.text }]}>Picks</Text>
       </View>
-      {loading && lists.length === 0 ? (
+      {loading ? (
         <ActivityIndicator style={{ marginTop: 48 }} color={colors.text} />
       ) : (
         <FlatList
@@ -65,7 +44,12 @@ export default function PicksScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={lists.length === 0 ? styles.emptyContainer : styles.list}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void fetchLists(); }} />
+            <RefreshControl
+              refreshing={picksQuery.isRefetching && !picksQuery.isPending}
+              onRefresh={() => {
+                void picksQuery.refetch();
+              }}
+            />
           }
           ListEmptyComponent={
             <EmptyState
@@ -76,6 +60,12 @@ export default function PicksScreen() {
           }
           renderItem={({ item }) => (
             <Pressable
+              onPressIn={() => {
+                void queryClient.prefetchQuery({
+                  queryKey: weldstashKeys.pickList(item.id),
+                  queryFn: () => appApi.pickLists.get(item.id),
+                });
+              }}
               onPress={() => router.push(`/pick/${item.id}`)}
               style={[styles.row, { backgroundColor: colors.card, borderColor: colors.divider }]}
             >

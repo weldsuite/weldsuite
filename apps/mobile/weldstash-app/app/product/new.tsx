@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
@@ -9,11 +10,13 @@ import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { appApi } from '@/services/app-api';
 import { buildCreateProductPayload, normalizeBarcode } from '@/utils/barcode';
+import { weldstashKeys } from '@/lib/query-client';
 
 export default function NewProductScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const toast = useToast();
   const params = useLocalSearchParams<{ barcode?: string }>();
 
@@ -37,6 +40,7 @@ export default function NewProductScreen() {
       const payload = buildCreateProductPayload({ name, sku, barcode });
       const created = await appApi.products.create(payload);
       toast.success('Product created');
+      await queryClient.invalidateQueries({ queryKey: weldstashKeys.products() });
       router.replace(`/product/${created.data.id}`);
     } catch (err) {
       toast.error((err as Error).message || 'Failed to create product');
