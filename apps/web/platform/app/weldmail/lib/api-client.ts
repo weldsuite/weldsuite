@@ -377,7 +377,17 @@ export const mailApi = {
     reply: (
       _accountId: string,
       messageId: string,
-      data: { body: string; htmlBody?: string; replyAll?: boolean },
+      data: {
+        body: string;
+        htmlBody?: string;
+        replyAll?: boolean;
+        attachments?: Array<{
+          filename: string;
+          contentType?: string;
+          size: number;
+          fileKey: string;
+        }>;
+      },
     ) =>
       mutate(
         appApi<{ messageId: string; smtpMessageId: string; pendingVerification: boolean; repliedTo: string }>(
@@ -389,7 +399,17 @@ export const mailApi = {
     forward: (
       _accountId: string,
       messageId: string,
-      data: { to: string[]; body?: string; htmlBody?: string },
+      data: {
+        to: string[];
+        body?: string;
+        htmlBody?: string;
+        attachments?: Array<{
+          filename: string;
+          contentType?: string;
+          size: number;
+          fileKey: string;
+        }>;
+      },
     ) =>
       mutate(
         appApi<{ messageId: string; smtpMessageId: string; pendingVerification: boolean; forwardedFrom: string }>(
