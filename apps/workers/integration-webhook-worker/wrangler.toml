@@ -25,7 +25,7 @@ ENVIRONMENT = "development"
 # KV namespace for workspace URL + connection caching
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "748b8f38937f4807b3978cacb17e1880"
 
 # app-api service binding (Google Calendar incremental-sync trigger + renew-watch).
 # Targets the internal router (app-api routes/integrations/internal.ts), mounted
@@ -112,7 +112,7 @@ crons = []
 
 [[env.test.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "54dd4f453a5e4021a31695ada36cc708"
 
 [env.test.observability]
 enabled = true
@@ -131,7 +131,7 @@ ENVIRONMENT = "production"
 
 [[env.production.hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "2cdec4bef19746d1a2c2e9726ddaacc3"
 
 # app-api's [env.production] name is "weldsuite-app-api" (no "-production" suffix).
 [[env.production.services]]
@@ -180,7 +180,7 @@ crons = ["*/10 * * * *"]
 
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "99689831a815455ba7f836175e5e17c9"
 
 [env.production.observability]
 enabled = true

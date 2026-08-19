@@ -2,21 +2,11 @@
 
 # WeldSuite
 
-**The open-source business platform.** CRM, helpdesk, email, projects, commerce, accounting, meetings, and team chat in one suite, behind one login, on one shared data model.
-
-An open-source alternative to stitching together Intercom, HubSpot, and a dozen other SaaS tools.
-
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE)
+CRM, helpdesk, email, projects, commerce, accounting, meetings, and team chat in one suite, behind one login, on one shared data model.
 
 </div>
 
 ---
-
-> [!IMPORTANT]
-> **WeldSuite is source-visible, not (yet) self-hostable.**
-> This repository is published so you can read the code, learn from it, report issues, and contribute. You can't run the full product from it. The hosted service depends on infrastructure (Cloudflare account resources, Neon databases, Clerk, Stripe, and other third-party services) that nothing in this repo provisions, and the deployment configuration lives in a separate private overlay.
->
-> Self-hosting may come later. For now, please don't open "how do I self-host" issues. The honest answer is "you can't, yet."
 
 ## What's inside
 
@@ -68,7 +58,7 @@ The unified first-party backend is `apps/workers/app-api`. Every endpoint lives 
 
 ## Configuration & deployment
 
-The `wrangler.toml` files, `.env.example` files, and other infrastructure configs here are **templates**. Cloudflare account IDs, KV / D1 / R2 / Hyperdrive resource IDs, routes, and custom domains are placeholders. The real values, all deploy workflows, and every secret live in a **separate private deployment overlay** that runs the hosted product. Nothing in this repo provisions or deploys the live service. That's why WeldSuite is source-visible rather than self-hostable today (see the banner up top).
+`develop` deploys to **test** (`app-test.weldsuite.org`). `main` deploys to **production** (`app.weldsuite.org`). The pipeline is `.github/workflows/deploy.yml`. Secrets live on the GitHub Environments `test` and `production` — see [`.github/SECRETS.md`](./.github/SECRETS.md).
 
 ## License
 

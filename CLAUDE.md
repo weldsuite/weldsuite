@@ -147,10 +147,8 @@ pnpm deploy:production    # production workers
 pnpm deploy:test          # test workers (app-api-test.weldsuite.org, etc.)
 ```
 **Two worker environments:** `test` (`[env.test]`, hostnames `*-test.weldsuite.org`) and
-`production` (`[env.production]`). A merge to public `main` deploys **test only**.
-Production is a manual run of Deploy (overlay) in the private overlay repo.
-Don't deploy `--env test` without the overlay wrangler configs (real D1/KV/R2
-ids live in the private overlay).
+`production` (`[env.production]`). Push `develop` to deploy test; push `main` to
+deploy production. `wrangler.toml` in this repo has the real D1/KV/R2 IDs.
 
 ### DB Migrations (`apps/tools/migrate-databases`)
 ```bash
@@ -311,58 +309,35 @@ The **platform** has its own local shadcn components at `apps/web/platform/compo
 
 ## CI/CD
 
-**This repo is the public, secret-free half of a two-repo split.** It carries no
-deploy credentials. The real Cloudflare/Neon configs and every deploy secret live
-in the private **`weldsuite/deployment-overlay`** repo.
-
-Workflows in *this* repo. The three CI workflows are deliberately secret-free —
-they reference no `secrets.*` at all, so fork PRs run them in full with a
-read-only token. `dispatch-deploy.yml` is the sole exception:
+`develop` deploys **test**. `main` deploys **production**. Secrets live on the
+GitHub Environments `test` and `production` (see `.github/SECRETS.md`).
 
 | Workflow | Trigger | Blocks a PR? |
 |---|---|---|
-| `ci.yml` | PR + push to `main`/`develop` | `Type Check · app-api`, `Unit · app-api`, `Unit · platform` block. Lint, platform type-check and build run `continue-on-error: true` while pre-existing failures are worked down. |
+| `ci.yml` | PR + push to `main`/`develop` | yes — job names are required status checks. Don't rename without updating branch protection. |
 | `secret-scan.yml` | PR + push | yes |
 | `i18n-check.yml` | PR touching locales | yes |
-| `dispatch-deploy.yml` | push to `main` **only**, path-gated (workers / DB / mobile / platform SPA / shared packages) | n/a — fires a `repository_dispatch` at the overlay repo (always **test**) |
+| `deploy.yml` | push to `develop` → test; push to `main` → production | n/a |
+| `release-desktop.yml` | manual | n/a |
 
-`dispatch-deploy.yml` holds the **only** secret this repo uses,
-`OVERLAY_DISPATCH_TOKEN`, and it can do exactly one thing: trigger a `deploy`
-event on the overlay. No Cloudflare / Neon / Doppler / Expo credentials here.
+`deploy.yml` runs: **Prepare** (migration + mobile + per-worker diff) → **Migrations**
+(path-gated) → **Workers** (only changed workers) → **Mobile OTA** (path-gated) →
+**Pages** (`weldsuite-test` / `weldsuite`).
 
-The actual deploy (`.github/workflows/deploy.yml` in the **overlay** repo) then
-checks out this repo at the dispatched SHA, overlays the real wrangler configs,
-and runs: **Prepare** (detects migration + mobile + per-worker changes) → **Migrations**
-(master DB, then all tenants, path-gated) → **Workers Deploy** (only workers
-whose tree or bundled packages changed) → **Mobile OTA** (path-gated) →
-**Pages** (test SPA on merge; production SPA only on manual promote).
-
-A merge to `main` deploys **test only**. Production is a manual `workflow_dispatch`
-on the overlay (`environment = production`). CI green is still required before
-merge to `main`.
-
-`.github/actions/setup-monorepo/action.yml` pins pnpm 10.4.1 + Node 20 and caches the pnpm store + turbo cache.
+`.github/actions/setup-monorepo/action.yml` pins pnpm 10.4.1 + Node 22 and caches the pnpm store + turbo cache.
 
 ### Frontend deploys
 
-The **test** SPA (`app-test.weldsuite.org`) is the Pages project `weldsuite-test`,
-deployed by the overlay on every merge to `main`.
+- Test SPA: Pages project `weldsuite-test` → `app-test.weldsuite.org` (push to `develop`)
+- Production SPA: Pages project `weldsuite` → `app.weldsuite.org` (push to `main`)
 
-The **production** SPA (`app.weldsuite.org`) is the Pages project `weldsuite`,
-deployed by the overlay only on a manual promote. Automatic Git production
-deploys from `main` must stay disabled so a merge cannot ship production. PR
-preview deployments (`*.weldsuite.pages.dev`) can stay enabled.
+Keep Cloudflare Pages **Git auto-deploy off** for production so GitHub Actions is the only releaser. PR preview deployments (`*.weldsuite.pages.dev`) can stay on.
 
 `apps/web/platform/vercel.json` and the platform's `deploy` / `deploy:preview` /
-`deploy:production` scripts (which shell out to `vercel`) are **dead code** —
-that `vercel.json` sets `deploymentEnabled: { main: false, develop: false }`.
-Cloudflare Pages is the real path; don't reach for the vercel scripts.
+`deploy:production` scripts (which shell out to `vercel`) are **dead code**.
+Cloudflare Pages is the real path.
 
-Environments: local wrangler → **test** (merge to `main`) → **production** (manual overlay promote).
-
-> There is no `deploy.yml`, `migrate-database.yml`, `publish-widget-sdk.yml` or
-> `sync-secrets.yml` in this repo — those were private-monorepo workflows and are
-> excluded from the public export. Don't add secret-bearing workflows here.
+Environments: local wrangler → **test** (`develop`) → **production** (`main`).
 
 ## Critical Files
 

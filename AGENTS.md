@@ -9,20 +9,10 @@ Read those first. This file only adds cloud-environment caveats.
 Toolchain is already provisioned (Node 22, pnpm 10.4.1). The startup update
 script runs `pnpm install`; you normally don't need to reinstall.
 
-### Big picture: source-visible, not self-hostable
-Per the README, the hosted product depends on external services (Clerk, Neon
-Postgres, Cloudflare account resources, Stripe) that **nothing in this repo
-provisions** — `wrangler.toml`/`.env.example` are templates with
-`REPLACE_WITH_*` placeholders. Consequences for local dev:
+### Branches
+Daily work goes to **`develop`** and deploys to test (`app-test.weldsuite.org`). Merge `develop` → **`main`** to deploy production (`app.weldsuite.org`).
 
-- The **platform SPA renders a blank page** unless `VITE_CLERK_PUBLISHABLE_KEY`
-  is set (Clerk's `ClerkProvider` throws `Missing publishableKey` and blocks the
-  whole React tree). Even with a key, signing in and loading any module data
-  additionally requires a real Clerk instance **and** a provisioned Neon master
-  DB + tenant workspace. So you cannot drive a logged-in UI flow locally without
-  the private overlay's secrets.
-- `apps/web/platform/.env.example` is **stale** (describes a retired
-  Keycloak/NextAuth/Mailcow stack). Trust the code (`VITE_*` vars), not that file.
+The hosted product depends on Clerk, Neon, Cloudflare, and Stripe. Local UI needs `VITE_CLERK_PUBLISHABLE_KEY`; a logged-in flow also needs a provisioned workspace.
 
 ### Best offline verification path (no external services)
 The backend has a full in-memory Postgres (`@electric-sql/pglite`) test harness.

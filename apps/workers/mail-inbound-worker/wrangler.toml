@@ -21,7 +21,7 @@ R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 # KV namespace for workspace URL caching (create via: wrangler kv namespace create WORKSPACE_CACHE)
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "748b8f38937f4807b3978cacb17e1880"
 
 # R2 storage for mail attachments
 [[r2_buckets]]
@@ -50,7 +50,7 @@ bucket_name = "weldsuite-storage-test"
 
 [[env.test.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "54dd4f453a5e4021a31695ada36cc708"
 
 [[env.test.services]]
 binding = "REALTIME"
@@ -78,7 +78,7 @@ bucket_name = "weldsuite-storage"
 
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "99689831a815455ba7f836175e5e17c9"
 
 [[env.production.services]]
 binding = "REALTIME"

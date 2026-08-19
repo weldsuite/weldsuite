@@ -22,7 +22,7 @@ ENVIRONMENT = "development"
 # KV namespace for workspace URL caching (shared with api-worker)
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "748b8f38937f4807b3978cacb17e1880"
 
 # Queue: this worker consumes audit events
 [[queues.consumers]]
@@ -40,7 +40,7 @@ ENVIRONMENT = "test"
 
 [[env.test.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "54dd4f453a5e4021a31695ada36cc708"
 
 [[env.test.queues.consumers]]
 queue = "audit-events-test"
@@ -61,7 +61,7 @@ ENVIRONMENT = "production"
 
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "99689831a815455ba7f836175e5e17c9"
 
 [[env.production.queues.consumers]]
 queue = "audit-events"

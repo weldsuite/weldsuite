@@ -26,12 +26,12 @@ ENVIRONMENT = "development"
 
 [[hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "f1b2e092e6b64ade8ea7e7e17a1a0d39"
 localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:5432/weldsuite_master?sslmode=require"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "748b8f38937f4807b3978cacb17e1880"
 
 # ============ TEST ENVIRONMENT ============
 [env.test]
@@ -46,7 +46,7 @@ ENVIRONMENT = "test"
 
 [[env.test.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "54dd4f453a5e4021a31695ada36cc708"
 
 [env.test.observability]
 enabled = true
@@ -65,11 +65,11 @@ ENVIRONMENT = "production"
 
 [[env.production.hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "2cdec4bef19746d1a2c2e9726ddaacc3"
 
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "99689831a815455ba7f836175e5e17c9"
 
 [env.production.observability]
 enabled = true
