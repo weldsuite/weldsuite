@@ -112,7 +112,7 @@ jobs:
         uses: dorny/paths-filter@v3
         id: changes
         with:
-          base: ${{ github.event.before || '' }}
+          base: ${{ github.event.before != '0000000000000000000000000000000000000000' && github.event.before || '' }}
           filters: |
             migrations:
               - 'packages/core/db/drizzle/**'
