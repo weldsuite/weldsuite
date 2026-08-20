@@ -98,6 +98,16 @@ async function seedShippableOrder(params?: { quantity?: number; stock?: number }
     fulfillmentStatus: 'unfulfilled',
     subtotal: '10.00',
     total: '10.00',
+    customerName: 'Ada Lovelace',
+    customerEmail: 'ada@example.com',
+    shippingAddress: {
+      name: 'Ada Lovelace',
+      line1: 'Insulindelaan 115',
+      city: 'Eindhoven',
+      postalCode: '5642CV',
+      country: 'NL',
+      phone: '+31612345678',
+    },
   });
   await db.insert(schema.orderItems).values({
     id: generateId('oi'),

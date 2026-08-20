@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { createPgliteDb } from '../test/pglite';
-import { createTestApp, permissions } from '../test/harness';
-import { sendcloudRoutes } from '../routes/sendcloud';
-import { type Database } from '../db';
+import { createPgliteDb } from '../../test/pglite';
+import { createTestApp, permissions } from '../../test/harness';
+import { sendcloudRoutes } from '../../routes/sendcloud';
+import { type Database } from '../../db';
 import { createSendcloudClient, SendcloudError } from './client';
 import {
   applySendcloudPatches,
