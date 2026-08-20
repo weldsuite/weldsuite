@@ -11,6 +11,10 @@ vi.mock('@/lib/api/weldbooks-client', () => ({
   },
 }));
 
+vi.mock('@/contexts/workspace-context', () => ({
+  useWorkspaceId: () => 'ws_test',
+}));
+
 vi.mock('@/lib/i18n/provider', () => ({
   useI18n: () => ({
     t: {

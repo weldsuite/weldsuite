@@ -31,6 +31,7 @@ import {
 } from '@/components/objects/_shared/simple-object-panel';
 import { getProductTabs } from './product-tabs';
 import { CategoryPickerDialog } from './category-picker-dialog';
+import { ProductSalesChannelsEditor } from '@/app/weldcommerce/products/components/product-sales-channels-editor';
 
 export function ProductPanel(props: ObjectPanelComponentProps) {
   const t = getTranslations('commerce').module;
@@ -46,6 +47,7 @@ export function ProductPanel(props: ObjectPanelComponentProps) {
   const stockRows = stock?.data ?? [];
   const movementRows = movements?.data ?? [];
   const categoryRows = categories?.data ?? [];
+  const salesChannels = product?.salesChannels ?? [];
   const images = product?.images ?? [];
 
   const totalOnHand = stockRows.reduce((sum, r) => sum + (r.quantityOnHand ?? 0), 0);
@@ -59,7 +61,9 @@ export function ProductPanel(props: ObjectPanelComponentProps) {
     stock: t.panel.tabStock,
     movements: t.panel.tabMovements,
     categories: t.panel.tabCategories,
+    salesChannels: t.panel.tabSalesChannels,
     categoryCount: categoryRows.length || undefined,
+    salesChannelCount: salesChannels.length || undefined,
   });
 
   /** One call per category — the junction is written from the category side. */
@@ -172,6 +176,20 @@ export function ProductPanel(props: ObjectPanelComponentProps) {
       );
     }
 
+    if (tabId === 'channels') {
+      return (
+        <div className="space-y-2 px-4 py-3">
+          <ProductSalesChannelsEditor
+            productId={id}
+            channels={salesChannels}
+            catalogPrice={product?.price}
+            catalogStatus={product?.status}
+            currency={product?.currency}
+          />
+        </div>
+      );
+    }
+
     return null;
   };
 
@@ -240,6 +258,18 @@ export function ProductPanel(props: ObjectPanelComponentProps) {
                 { label: t.fields.lowStockAt, value: product.lowStockThreshold },
                 { label: t.fields.brand, value: product.brand },
                 { label: t.fields.vendor, value: product.vendor },
+                {
+                  label: t.products.salesChannels,
+                  value: salesChannels.length
+                    ? salesChannels
+                        .map((c) => {
+                          const name = c.displayName || c.provider;
+                          const price = formatPanelMoney(c.price, product.currency);
+                          return `${name} (${price}, ${c.listingStatus ?? 'active'})`;
+                        })
+                        .join(', ')
+                    : t.products.salesChannelsNone,
+                },
                 { label: t.fields.created, value: formatPanelDate(product.createdAt) },
               ]
             : []

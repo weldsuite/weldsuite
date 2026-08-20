@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
   CheckCircle2,
-  Cloud,
-  Database,
   Loader2,
   Pause,
   Play,
@@ -12,9 +11,13 @@ import {
   Search,
   Link2Off,
   Link as LinkIcon,
+  ShoppingBag,
+  Settings,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
+import { Label } from '@weldsuite/ui/components/label';
+import { Switch } from '@weldsuite/ui/components/switch';
 import { Badge } from '@weldsuite/ui/components/badge';
 import {
   Card,
@@ -31,6 +34,14 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@weldsuite/ui/components/sheet';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@weldsuite/ui/components/dialog';
 import { Separator } from '@weldsuite/ui/components/separator';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
@@ -39,25 +50,24 @@ import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Link } from '@/lib/router';
 import {
-  useCreateNangoConnectSession,
-  useDisconnectNangoConnection,
-  useFinalizeNangoConnection,
-  useNangoCatalog,
-  useNangoConnection,
-  useNangoSyncRuns,
-  useSetNangoConnectionPaused,
-  useTriggerNangoSync,
-  type NangoConnection,
-  type NangoConnector,
-} from '@/hooks/queries/use-nango-queries';
-
-// ---------------------------------------------------------------------------
-// Icons — catalog entries carry an icon key, not a component
-// ---------------------------------------------------------------------------
+  useConnectConnector,
+  useAuthorizeConnector,
+  useConnectorCatalog,
+  useConnectorConnection,
+  useConnectorSyncRuns,
+  useDisconnectConnector,
+  useSetConnectorPaused,
+  useTestConnector,
+  useTriggerConnectorSync,
+  useUpdateConnector,
+  type ConnectorCatalogEntry,
+  type ConnectorConnection,
+  type ConnectorSyncDef,
+} from '@/hooks/queries/use-connector-queries';
 
 const ICON_MAP: Record<string, React.ElementType> = {
-  cloud: Cloud,
-  database: Database,
+  'shopping-bag': ShoppingBag,
+  store: ShoppingBag,
   plug: Plug,
 };
 
@@ -65,11 +75,20 @@ function getIcon(key: string): React.ElementType {
   return ICON_MAP[key] ?? Plug;
 }
 
-const EMPTY_CATALOG: NangoConnector[] = [];
+const EMPTY_CATALOG: ConnectorCatalogEntry[] = [];
 
-// ---------------------------------------------------------------------------
-// Status presentation
-// ---------------------------------------------------------------------------
+export function consumeWooCommerceAuthReturn(
+  copy: { authReturned: string; authDenied: string },
+  onSettled?: () => void,
+): void {
+  const params = new URLSearchParams(window.location.search);
+  const success = params.get('success');
+  if (success === null) return;
+  if (success === '1') toast.success(copy.authReturned);
+  else toast.error(copy.authDenied);
+  window.history.replaceState({}, '', window.location.pathname + window.location.hash);
+  onSettled?.();
+}
 
 const STATUS_CLASSES: Record<string, string> = {
   active: 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-300 border-green-200 dark:border-green-800',
@@ -85,130 +104,199 @@ function formatDateTime(value: string | null | undefined, language: string): str
   return Number.isNaN(date.getTime()) ? null : date.toLocaleString(language);
 }
 
-// ---------------------------------------------------------------------------
-// Connect flow
-// ---------------------------------------------------------------------------
-
-/** How long to wait for the auth webhook before giving up on the popup. */
-const CONNECT_POLL_TIMEOUT_MS = 3 * 60 * 1000;
-const CONNECT_POLL_INTERVAL_MS = 3000;
-
-/**
- * Drives the hosted Nango Connect UI.
- *
- * The authorisation happens in a popup on Nango's domain, so completion
- * reaches us two ways: a `postMessage` from the Connect UI (fast path, calls
- * finalize) and the auth webhook landing server-side (authoritative). We poll
- * the catalog until one of them makes the connection live, which means a
- * blocked postMessage or a closed popup still resolves correctly.
- */
-function useConnectFlow(onSettled: () => void) {
-  const createSession = useCreateNangoConnectSession();
-  const finalize = useFinalizeNangoConnection();
-  const [connecting, setConnecting] = useState<string | null>(null);
-  const pendingRef = useRef<{
-    connectionId: string;
-    providerConfigKey: string;
-    /** Origin of the Connect UI — the only sender we accept a connection id from. */
-    origin: string;
-  } | null>(null);
-
-  // Fast path — the Connect UI reports the new connection id.
-  useEffect(() => {
-    function onMessage(event: MessageEvent) {
-      const pending = pendingRef.current;
-      if (!pending) return;
-      // Any page can postMessage to this window. Without this check a hostile
-      // tab could hand us a connection id during a pending connect and have the
-      // server bind it to this workspace. Derived from the session URL rather
-      // than hardcoded, because NANGO_CONNECT_URL moves when Nango is self-hosted.
-      if (event.origin !== pending.origin) return;
-      const data = event.data as { connectionId?: string; payload?: { connectionId?: string } } | null;
-      const nangoConnectionId = data?.connectionId ?? data?.payload?.connectionId;
-      if (typeof nangoConnectionId !== 'string' || !nangoConnectionId) return;
-
-      finalize.mutate(
-        { connectionId: pending.connectionId, nangoConnectionId },
-        // The poll below is the authoritative path; a failure here is not
-        // fatal, the auth webhook still activates the connection.
-        { onError: () => undefined },
-      );
-    }
-
-    window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, [finalize]);
-
-  const connect = useCallback(
-    async (providerConfigKey: string, onPoll: () => Promise<boolean>) => {
-      setConnecting(providerConfigKey);
-      try {
-        const session = await createSession.mutateAsync(providerConfigKey);
-        pendingRef.current = {
-          connectionId: session.connectionId,
-          providerConfigKey,
-          origin: new URL(session.connectUrl).origin,
-        };
-
-        const popup = window.open(session.connectUrl, 'nango-connect', 'width=520,height=720');
-        if (!popup) {
-          setConnecting(null);
-          pendingRef.current = null;
-          return { ok: false, reason: 'popup_blocked' as const };
-        }
-
-        const deadline = Date.now() + CONNECT_POLL_TIMEOUT_MS;
-        while (Date.now() < deadline) {
-          await new Promise((resolve) => setTimeout(resolve, CONNECT_POLL_INTERVAL_MS));
-          if (await onPoll()) {
-            popup.close();
-            return { ok: true as const };
-          }
-          if (popup.closed) {
-            // One more check after the user closes the window — the webhook
-            // may still be in flight.
-            await new Promise((resolve) => setTimeout(resolve, CONNECT_POLL_INTERVAL_MS));
-            return { ok: await onPoll() };
-          }
-        }
-        return { ok: false, reason: 'timeout' as const };
-      } catch (err) {
-        // Without this the rejection escapes into a synchronous onClick and
-        // becomes an unhandled promise rejection — the spinner clears and the
-        // user is told nothing. Reported as a result so the caller can toast.
-        console.error('[connectors] connect failed:', err);
-        return { ok: false, reason: 'error' as const };
-      } finally {
-        setConnecting(null);
-        pendingRef.current = null;
-        onSettled();
-      }
-    },
-    [createSession, onSettled],
-  );
-
-  return { connect, connecting };
+function settingEnabled(enabledSyncs: string[], sync: ConnectorSyncDef): boolean {
+  return enabledSyncs.includes(sync.settingKey) || enabledSyncs.includes(sync.syncName);
 }
 
-// ---------------------------------------------------------------------------
-// Connector card
-// ---------------------------------------------------------------------------
+function SyncToggles({
+  syncs,
+  enabled,
+  onChange,
+  disabled,
+}: {
+  syncs: ConnectorSyncDef[];
+  enabled: string[];
+  onChange: (next: string[]) => void;
+  disabled?: boolean;
+}) {
+  const { t } = useI18n();
+  const ts = t.weldconnect.connectors.settings;
+
+  const labels: Record<ConnectorSyncDef['settingKey'], { title: string; description: string }> = {
+    products: { title: ts.products, description: ts.productsDescription },
+    orders: { title: ts.orders, description: ts.ordersDescription },
+    customers: { title: ts.customers, description: ts.customersDescription },
+  };
+
+  return (
+    <div className="space-y-3">
+      {syncs.map((sync) => {
+        const on = settingEnabled(enabled, sync);
+        const copy = labels[sync.settingKey];
+        return (
+          <div key={sync.syncName} className="flex items-start justify-between gap-3 rounded-md border px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">{copy.title}</p>
+              <p className="text-muted-foreground text-xs">{copy.description}</p>
+            </div>
+            <Switch
+              checked={on}
+              disabled={disabled}
+              onCheckedChange={(checked) => {
+                const without = enabled.filter((value) => value !== sync.settingKey && value !== sync.syncName);
+                onChange(checked ? [...without, sync.settingKey] : without);
+              }}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+interface ConnectDialogProps {
+  connector: ConnectorCatalogEntry | null;
+  onOpenChange: (open: boolean) => void;
+}
+
+export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
+  const { t } = useI18n();
+  const tc = t.weldconnect.connectors;
+  const connect = useConnectConnector();
+  const authorize = useAuthorizeConnector();
+  const test = useTestConnector();
+  const [credentials, setCredentials] = useState<Record<string, string>>({});
+  const [enabledSyncs, setEnabledSyncs] = useState<string[]>(['products', 'orders', 'customers']);
+
+  const fields = connector?.auth.fields ?? [];
+  const isAppAuth = connector?.auth.kind === 'app_auth';
+  const busy = connect.isPending || authorize.isPending;
+
+  const handleOpenChange = (open: boolean) => {
+    if (!open) {
+      setCredentials({});
+      setEnabledSyncs(['products', 'orders', 'customers']);
+    }
+    onOpenChange(open);
+  };
+
+  const handleTest = () => {
+    if (!connector) return;
+    test.mutate(
+      { provider: connector.provider, credentials },
+      {
+        onSuccess: () => toast.success(tc.testSuccess),
+        onError: (err) => toast.error(err instanceof Error ? err.message : tc.testFailed),
+      },
+    );
+  };
+
+  const handleConnect = () => {
+    if (!connector) return;
+    if (isAppAuth) {
+      const storeUrl = credentials.storeUrl?.trim();
+      if (!storeUrl) {
+        toast.error(tc.enterStoreUrl);
+        return;
+      }
+      authorize.mutate(
+        {
+          provider: 'woocommerce',
+          storeUrl,
+          enabledSyncs,
+          returnUrl: `${window.location.origin}${window.location.pathname}`,
+        },
+        {
+          onSuccess: (result) => {
+            const url = result.data.authorizeUrl;
+            if (!url) {
+              toast.error(tc.connectFailed);
+              return;
+            }
+            window.location.assign(url);
+          },
+          onError: (err) => toast.error(err instanceof Error ? err.message : tc.connectFailed),
+        },
+      );
+      return;
+    }
+    connect.mutate(
+      { provider: connector.provider, credentials, enabledSyncs },
+      {
+        onSuccess: () => {
+          toast.success(tc.connected);
+          handleOpenChange(false);
+        },
+        onError: (err) => toast.error(err instanceof Error ? err.message : tc.connectFailed),
+      },
+    );
+  };
+
+  return (
+    <Dialog open={Boolean(connector)} onOpenChange={handleOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{connector ? `${tc.connect} ${connector.label}` : tc.connect}</DialogTitle>
+          <DialogDescription>
+            {isAppAuth ? tc.settings.connectDescriptionAppAuth : tc.settings.connectDescription}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {fields.map((field) => (
+            <div key={field.key} className="space-y-1.5">
+              <Label htmlFor={`connect-${field.key}`}>{field.label}</Label>
+              <Input
+                id={`connect-${field.key}`}
+                type={field.type === 'secret' ? 'password' : field.type === 'url' ? 'url' : 'text'}
+                placeholder={field.placeholder}
+                autoComplete="off"
+                value={credentials[field.key] ?? ''}
+                onChange={(event) => setCredentials((prev) => ({ ...prev, [field.key]: event.target.value }))}
+              />
+            </div>
+          ))}
+
+          <div>
+            <h3 className="mb-2 text-sm font-medium">{tc.settings.title}</h3>
+            <p className="text-muted-foreground mb-3 text-xs">{tc.settings.description}</p>
+            <SyncToggles syncs={connector?.syncs ?? []} enabled={enabledSyncs} onChange={setEnabledSyncs} />
+          </div>
+        </div>
+
+        <DialogFooter className={isAppAuth ? 'gap-2' : 'gap-2 sm:justify-between'}>
+          {isAppAuth ? null : (
+            <Button variant="outline" onClick={handleTest} disabled={test.isPending || busy}>
+              {test.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+              {tc.testConnection}
+            </Button>
+          )}
+          <Button onClick={handleConnect} disabled={busy}>
+            {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+            {tc.connect}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 interface ConnectorCardProps {
-  connector: NangoConnector;
-  onConnect: (providerConfigKey: string) => void;
-  onOpenDetails: (connection: NangoConnection) => void;
-  isConnecting: boolean;
+  connector: ConnectorCatalogEntry;
+  onConnect: (connector: ConnectorCatalogEntry) => void;
+  onOpenDetails: (connection: ConnectorConnection) => void;
   canConnect: boolean;
 }
 
-function ConnectorCard({ connector, onConnect, onOpenDetails, isConnecting, canConnect }: ConnectorCardProps) {
+function ConnectorCard({ connector, onConnect, onOpenDetails, canConnect }: ConnectorCardProps) {
   const { t, language } = useI18n();
   const tc = t.weldconnect.connectors;
   const Icon = getIcon(connector.icon);
-  const connection = connector.connection;
-  const status = connection?.status ?? null;
-  const lastSync = formatDateTime(connection?.lastSyncAt, language);
+  const connections = connector.connections ?? [];
+  const live = connections.filter((row) => row.isConnected);
+  const primary = live[0] ?? null;
+  const status = live.length > 1 ? 'active' : primary?.status ?? null;
+  const lastSync = formatDateTime(primary?.lastSyncAt, language);
 
   return (
     <Card className="flex flex-col border-border/50 transition-shadow duration-200 hover:shadow-md">
@@ -227,7 +315,9 @@ function ConnectorCard({ connector, onConnect, onOpenDetails, isConnecting, canC
                   ) : status === 'auth_error' || status === 'sync_error' ? (
                     <AlertCircle className="mr-1 h-3 w-3" />
                   ) : null}
-                  {tc.status[status]}
+                  {live.length > 1
+                    ? tc.storeCount.replace('{count}', String(live.length))
+                    : tc.status[status]}
                 </Badge>
               ) : null}
             </div>
@@ -238,58 +328,64 @@ function ConnectorCard({ connector, onConnect, onOpenDetails, isConnecting, canC
 
       <CardContent className="text-muted-foreground flex-1 space-y-1 pb-3 text-xs">
         <p>
-          {tc.syncsLabel}: {connector.syncs.map((s) => s.model).join(', ')}
+          {tc.syncsLabel}: {connector.syncs.map((s) => s.settingKey).join(', ')}
         </p>
-        {connection?.isConnected ? (
+        {live.length === 0 ? (
+          <p>{tc.noStores}</p>
+        ) : (
+          live.map((connection) => (
+            <button
+              key={connection.id}
+              type="button"
+              className="hover:text-foreground block w-full truncate text-left"
+              onClick={() => onOpenDetails(connection)}
+            >
+              {connection.displayName || connection.externalAccountId || connection.label}
+            </button>
+          ))
+        )}
+        {primary?.isConnected ? (
           <p>
             {tc.lastSync}: {lastSync ?? tc.lastSyncNever}
           </p>
         ) : null}
-        {connection?.lastError ? (
-          <p className="text-red-600 dark:text-red-400">{connection.lastError}</p>
-        ) : null}
       </CardContent>
 
       <CardFooter className="gap-2 pt-0">
-        {connection?.isConnected ? (
-          <Button variant="outline" size="sm" onClick={() => onOpenDetails(connection)}>
+        {primary ? (
+          <Button variant="outline" size="sm" onClick={() => onOpenDetails(primary)}>
+            <Settings className="mr-1.5 h-3.5 w-3.5" />
             {tc.viewDetails}
           </Button>
         ) : null}
-        <Button
-          size="sm"
-          variant={connection?.isConnected ? 'ghost' : 'default'}
-          disabled={isConnecting || !canConnect}
-          onClick={() => onConnect(connector.providerConfigKey)}
-        >
-          {isConnecting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-          {connection?.isConnected ? tc.reconnect : tc.connect}
+        <Button size="sm" disabled={!canConnect} onClick={() => onConnect(connector)}>
+          {live.length > 0 ? tc.addStore : tc.connect}
         </Button>
       </CardFooter>
     </Card>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Detail panel — sync health + run history
-// ---------------------------------------------------------------------------
-
 interface ConnectionDetailsProps {
   connectionId: string | null;
   onOpenChange: (open: boolean) => void;
-  onDisconnect: (connection: NangoConnection) => void;
+  onDisconnect: (connection: ConnectorConnection) => void;
+  canManage: boolean;
 }
 
-function ConnectionDetails({ connectionId, onOpenChange, onDisconnect }: ConnectionDetailsProps) {
+export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, canManage }: ConnectionDetailsProps) {
   const { t, language, format } = useI18n();
   const tc = t.weldconnect.connectors;
-  const { data, isLoading } = useNangoConnection(connectionId, { pollWhileRunning: true });
-  const { data: runsData } = useNangoSyncRuns(connectionId);
-  const triggerSync = useTriggerNangoSync();
-  const setPaused = useSetNangoConnectionPaused();
+  const { data, isLoading } = useConnectorConnection(connectionId, { pollWhileRunning: true });
+  const { data: runsData } = useConnectorSyncRuns(connectionId);
+  const triggerSync = useTriggerConnectorSync();
+  const setPaused = useSetConnectorPaused();
+  const update = useUpdateConnector();
 
   const connection = data?.data;
   const runs = runsData?.data ?? [];
+  const [enabledSyncs, setEnabledSyncs] = useState<string[] | null>(null);
+  const currentSyncs = enabledSyncs ?? connection?.enabledSyncs ?? [];
 
   const handleSync = (full: boolean) => {
     if (!connectionId) return;
@@ -313,15 +409,36 @@ function ConnectionDetails({ connectionId, onOpenChange, onDisconnect }: Connect
     );
   };
 
+  const handleSaveSettings = () => {
+    if (!connectionId) return;
+    update.mutate(
+      { connectionId, enabledSyncs: currentSyncs },
+      {
+        onSuccess: () => {
+          toast.success(tc.settings.saved);
+          setEnabledSyncs(null);
+        },
+        onError: () => toast.error(tc.settings.saveFailed),
+      },
+    );
+  };
+
   return (
-    <Sheet open={Boolean(connectionId)} onOpenChange={onOpenChange}>
+    <Sheet
+      open={Boolean(connectionId)}
+      onOpenChange={(open) => {
+        if (!open) setEnabledSyncs(null);
+        onOpenChange(open);
+      }}
+    >
       <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
         <SheetHeader>
-          <SheetTitle>{connection?.label ?? tc.title}</SheetTitle>
+          <SheetTitle>{connection?.displayName ?? connection?.label ?? tc.title}</SheetTitle>
           <SheetDescription>
-            {connection?.connectedAt
-              ? format(tc.connectedOn, { date: formatDateTime(connection.connectedAt, language) ?? '' })
-              : tc.description}
+            {connection?.externalAccountId ??
+              (connection?.connectedAt
+                ? format(tc.connectedOn, { date: formatDateTime(connection.connectedAt, language) ?? '' })
+                : tc.description)}
           </SheetDescription>
         </SheetHeader>
 
@@ -332,7 +449,7 @@ function ConnectionDetails({ connectionId, onOpenChange, onDisconnect }: Connect
         ) : (
           <div className="mt-6 space-y-6">
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => handleSync(false)} disabled={triggerSync.isPending}>
+              <Button size="sm" onClick={() => handleSync(false)} disabled={triggerSync.isPending || !canManage}>
                 <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
                 {tc.syncNow}
               </Button>
@@ -340,7 +457,7 @@ function ConnectionDetails({ connectionId, onOpenChange, onDisconnect }: Connect
                 size="sm"
                 variant="outline"
                 onClick={() => handleSync(true)}
-                disabled={triggerSync.isPending}
+                disabled={triggerSync.isPending || !canManage}
               >
                 {tc.fullResync}
               </Button>
@@ -348,7 +465,7 @@ function ConnectionDetails({ connectionId, onOpenChange, onDisconnect }: Connect
                 size="sm"
                 variant="outline"
                 onClick={() => handlePause(connection.status !== 'paused')}
-                disabled={setPaused.isPending}
+                disabled={setPaused.isPending || !canManage}
               >
                 {connection.status === 'paused' ? (
                   <Play className="mr-1.5 h-3.5 w-3.5" />
@@ -357,10 +474,12 @@ function ConnectionDetails({ connectionId, onOpenChange, onDisconnect }: Connect
                 )}
                 {connection.status === 'paused' ? tc.resume : tc.pause}
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => onDisconnect(connection)}>
-                <Link2Off className="mr-1.5 h-3.5 w-3.5" />
-                {tc.disconnect}
-              </Button>
+              {canManage ? (
+                <Button size="sm" variant="ghost" onClick={() => onDisconnect(connection)}>
+                  <Link2Off className="mr-1.5 h-3.5 w-3.5" />
+                  {tc.disconnect}
+                </Button>
+              ) : null}
             </div>
 
             {connection.lastError ? (
@@ -370,28 +489,28 @@ function ConnectionDetails({ connectionId, onOpenChange, onDisconnect }: Connect
             ) : null}
 
             <div>
-              <h3 className="mb-2 text-sm font-medium">{tc.health.title}</h3>
-              {connection.syncs.length === 0 ? (
-                <p className="text-muted-foreground text-sm">{tc.health.empty}</p>
-              ) : (
-                <ul className="space-y-2">
-                  {connection.syncs.map((sync) => (
-                    <li
-                      key={sync.name}
-                      className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
-                    >
-                      <span className="font-mono text-xs">{sync.name}</span>
-                      <span className="text-muted-foreground text-xs">
-                        {sync.status}
-                        {sync.finishedAt
-                          ? ` · ${formatDateTime(sync.finishedAt, language)}`
-                          : ''}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <h3 className="mb-1 text-sm font-medium">{tc.settings.title}</h3>
+              <p className="text-muted-foreground mb-3 text-xs">{tc.settings.description}</p>
+              <SyncToggles
+                syncs={connection.syncs}
+                enabled={currentSyncs}
+                onChange={setEnabledSyncs}
+                disabled={!canManage}
+              />
+              {canManage ? (
+                <Button
+                  size="sm"
+                  className="mt-3"
+                  onClick={handleSaveSettings}
+                  disabled={update.isPending || enabledSyncs === null}
+                >
+                  {update.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                  {tc.settings.save}
+                </Button>
+              ) : null}
             </div>
+
+            <p className="text-muted-foreground text-xs">{tc.webhookHint}</p>
 
             <Separator />
 
@@ -441,10 +560,6 @@ function ConnectionDetails({ connectionId, onOpenChange, onDisconnect }: Connect
   );
 }
 
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
-
 export function ConnectorsClient() {
   const { t, format } = useI18n();
   const tc = t.weldconnect.connectors;
@@ -455,13 +570,21 @@ export function ConnectorsClient() {
 
   const [search, setSearch] = useState('');
   const [detailId, setDetailId] = useState<string | null>(null);
-  const [pendingDisconnect, setPendingDisconnect] = useState<NangoConnection | null>(null);
+  const [pendingConnect, setPendingConnect] = useState<ConnectorCatalogEntry | null>(null);
+  const [pendingDisconnect, setPendingDisconnect] = useState<ConnectorConnection | null>(null);
 
-  const { data, isLoading, refetch } = useNangoCatalog();
-  const disconnect = useDisconnectNangoConnection();
-  const { connect, connecting } = useConnectFlow(() => {
-    void refetch();
-  });
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useConnectorCatalog();
+  const disconnect = useDisconnectConnector();
+
+  useEffect(() => {
+    consumeWooCommerceAuthReturn(
+      { authReturned: tc.authReturned, authDenied: tc.authDenied },
+      () => {
+        void queryClient.invalidateQueries({ queryKey: ['connectors'] });
+      },
+    );
+  }, [queryClient, tc.authReturned, tc.authDenied]);
 
   useBreadcrumbs([
     { label: t.weldconnect.title, href: '/weldconnect' },
@@ -483,25 +606,6 @@ export function ConnectorsClient() {
 
   const isSearchEmpty = connectors.length > 0 && filtered.length === 0;
   const isCatalogEmpty = !isLoading && connectors.length === 0;
-
-  const handleConnect = async (providerConfigKey: string) => {
-    const result = await connect(providerConfigKey, async () => {
-      const fresh = await refetch();
-      return Boolean(
-        fresh.data?.data.find((c) => c.providerConfigKey === providerConfigKey)?.connection?.isConnected,
-      );
-    });
-
-    if (result.ok) {
-      toast.success(tc.connected);
-    } else if (result.reason === 'popup_blocked') {
-      toast.error(tc.connectWindowBlocked);
-    } else if (result.reason === 'error') {
-      toast.error(tc.connectFailed);
-    }
-    // A timeout is not an error worth shouting about — the auth webhook may
-    // still land, and the card reflects the truth on the next refetch.
-  };
 
   const handleDisconnect = () => {
     if (!pendingDisconnect) return;
@@ -546,7 +650,7 @@ export function ConnectorsClient() {
               </div>
             ) : isCatalogEmpty ? (
               <div className="flex flex-col items-center rounded-lg border border-dashed py-16 text-center">
-                <Database className="text-muted-foreground/40 mb-4 h-12 w-12" />
+                <ShoppingBag className="text-muted-foreground/40 mb-4 h-12 w-12" />
                 <p className="max-w-md text-sm font-medium">{tc.emptyCatalog}</p>
                 <p className="text-muted-foreground mt-2 max-w-md text-xs">{tc.emptyCatalogHint}</p>
                 <Button variant="outline" size="sm" className="mt-4" asChild>
@@ -562,11 +666,10 @@ export function ConnectorsClient() {
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {filtered.map((connector) => (
                   <ConnectorCard
-                    key={connector.providerConfigKey}
+                    key={connector.provider}
                     connector={connector}
-                    onConnect={handleConnect}
+                    onConnect={setPendingConnect}
                     onOpenDetails={(connection) => setDetailId(connection.id)}
-                    isConnecting={connecting === connector.providerConfigKey}
                     canConnect={canConnect}
                   />
                 ))}
@@ -575,22 +678,25 @@ export function ConnectorsClient() {
           </>
         )}
 
-      <ConnectionDetails
-        connectionId={detailId}
-        onOpenChange={(open) => !open && setDetailId(null)}
-        onDisconnect={setPendingDisconnect}
-      />
+        <ConnectDialog connector={pendingConnect} onOpenChange={(open) => !open && setPendingConnect(null)} />
 
-      <ConfirmDialog
-        open={Boolean(pendingDisconnect)}
-        onOpenChange={(open) => !open && setPendingDisconnect(null)}
-        title={format(tc.disconnectTitle, { name: pendingDisconnect?.label ?? '' })}
-        description={tc.disconnectDescription}
-        confirmLabel={tc.disconnect}
-        variant="destructive"
-        loading={disconnect.isPending}
-        onConfirm={handleDisconnect}
-      />
+        <ConnectionDetails
+          connectionId={detailId}
+          onOpenChange={(open) => !open && setDetailId(null)}
+          onDisconnect={setPendingDisconnect}
+          canManage={canManage}
+        />
+
+        <ConfirmDialog
+          open={Boolean(pendingDisconnect)}
+          onOpenChange={(open) => !open && setPendingDisconnect(null)}
+          title={format(tc.disconnectTitle, { name: pendingDisconnect?.label ?? '' })}
+          description={tc.disconnectDescription}
+          confirmLabel={tc.disconnect}
+          variant="destructive"
+          loading={disconnect.isPending}
+          onConfirm={handleDisconnect}
+        />
       </div>
     </div>
   );

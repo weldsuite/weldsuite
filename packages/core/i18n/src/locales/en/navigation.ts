@@ -81,6 +81,7 @@ export const navigation = {
         categories: 'Categories',
         orders: 'Orders',
         customers: 'Customers',
+        portal: 'Customer portal',
       },
       weldstash: {
         overview: 'Overview',
@@ -88,6 +89,8 @@ export const navigation = {
         suppliers: 'Suppliers',
         warehouses: 'Warehouses',
         stock: 'Stock',
+        pickLists: 'Pick lists',
+        packing: 'Packing',
       },
       welddata: {
         findLeads: 'Find Leads',

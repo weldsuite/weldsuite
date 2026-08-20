@@ -3,7 +3,6 @@ import { AppState } from 'react-native';
 import { RealtimeProvider as BaseProvider, useWorkspaceClientMaybe } from '@weldsuite/realtime/react';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { createAsyncStorageCursorStore } from '@/lib/realtime/cursor-store';
-import { RealtimeStatusBanner } from '@/components/RealtimeStatusBanner';
 
 const REALTIME_URL = process.env.EXPO_PUBLIC_REALTIME_URL || 'ws://localhost:8790';
 
@@ -39,18 +38,20 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     [organizationId],
   );
 
-  // Key the provider to the signed-in user so the underlying WorkspaceClient is
-  // fully torn down (disconnect) and recreated whenever the user changes —
-  // sign-out / sign-in / account switch. The auth tree is NOT unmounted on
-  // sign-out (the route guard only navigates), so without this key the socket
-  // would survive authenticated as the previous user.
-  const clientKey = user?.id ?? 'signed-out';
+  // Key the provider to user + active org so the WorkspaceClient is torn down
+  // and recreated on workspace switch (hub is org-scoped) as well as on
+  // sign-out / account switch. Without the org in the key, the socket can stay
+  // subscribed to the previous workspace's mail hub after setActive.
+  const clientKey = user ? `${user.id}:${organizationId ?? 'no-org'}` : 'signed-out';
 
   // Only connect when the user is signed in.
   if (!user) {
     return <>{children}</>;
   }
 
+  // No connection-status banner. Mail loads over REST; a slow or failed
+  // websocket (cold start, notification tap, token refresh) is not worth a
+  // loading overlay. The socket still retries in the background.
   return (
     <BaseProvider
       key={clientKey}
@@ -59,7 +60,6 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       cursorStore={cursorStore}
     >
       <ForegroundReconnect />
-      <RealtimeStatusBanner />
       {children}
     </BaseProvider>
   );

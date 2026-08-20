@@ -91,9 +91,7 @@ export default function ContactDetailScreen() {
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
-  useEffect(() => { loadContact(); }, [id]);
-
-  const loadContact = async () => {
+  const loadContact = useCallback(async () => {
     try {
       setLoading(true);
       const idStr = id as string;
@@ -110,7 +108,9 @@ export default function ContactDetailScreen() {
       const contact: Contact = (contactData as any)?.data ?? contactData;
       if (contact) setContact(contact);
     } catch {} finally { setLoading(false); }
-  };
+  }, [id]);
+
+  useEffect(() => { loadContact(); }, [loadContact]);
 
   // Contact fields can originate from a spoofed email sender, so sanitise before
   // building tel:/mailto: URLs (strip CRLF / mailto-header-injection characters).

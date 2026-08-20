@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { installedAppsKeys } from '@/hooks/use-installed-apps';
+import { getAppApiUrl } from '@/lib/api/public-env';
 
 /**
  * WeldApps — user-created apps.
@@ -325,7 +326,7 @@ export function useSubmitUserApp() {
 export function useInstallUserApp() {
   const { getToken } = useAuth();
   const qc = useQueryClient();
-  const apiBaseUrl = (import.meta.env.VITE_APP_API_URL as string | undefined) || 'http://localhost:8789';
+  const apiBaseUrl = getAppApiUrl();
 
   return useMutation({
     mutationFn: async ({ id, grantedScopes }: { id: string; grantedScopes: string[] }) => {

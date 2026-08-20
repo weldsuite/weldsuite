@@ -2,7 +2,7 @@
  * AUTO-GENERATED — do not edit manually.
  * Run `pnpm bundle-migrations` to regenerate.
  *
- * Contains 179 tenant database migrations bundled for Cloudflare Workers.
+ * Contains 184 tenant database migrations bundled for Cloudflare Workers.
  * Generated from: packages/core/db/drizzle/tenant-migrations/
  */
 
@@ -186,6 +186,11 @@ export const MIGRATION_JOURNAL = [
   { idx: 176, tag: "0176_lean_christian_walker", when: 1785569740639 },
   { idx: 177, tag: "0177_project_files_parent", when: 1785671439413 },
   { idx: 178, tag: "0178_workflow_trigger_index", when: 1785875886331 },
+  { idx: 179, tag: "0179_flowery_edwin_jarvis", when: 1786609647121 },
+  { idx: 180, tag: "0180_pick_list_pack_ship", when: 1787070000000 },
+  { idx: 181, tag: "0181_first_party_connectors", when: 1787160000000 },
+  { idx: 182, tag: "0182_connector_multi_store_webhooks", when: 1787200000000 },
+  { idx: 183, tag: "0183_product_sales_channel_price_status", when: 1787300000000 },
 ] as const;
 
 export const MIGRATION_SQL: Record<string, string> = {
@@ -10175,6 +10180,94 @@ CREATE INDEX "workflow_trigger_index_category_idx" ON "workflow_trigger_index" U
 CREATE INDEX "workflow_trigger_index_entity_event_idx" ON "workflow_trigger_index" USING btree ("category","entity_type","event_type","is_enabled");--> statement-breakpoint
 CREATE INDEX "workflow_trigger_index_integration_event_idx" ON "workflow_trigger_index" USING btree ("category","provider","integration_event","is_enabled");--> statement-breakpoint
 CREATE INDEX "workflow_trigger_index_source_workflow_idx" ON "workflow_trigger_index" USING btree ("source_workflow_id");`,
+  "0179_flowery_edwin_jarvis": `ALTER TABLE "domains" ADD COLUMN IF NOT EXISTS "rtr_registrant_handle" varchar(40);--> statement-breakpoint
+ALTER TABLE "domains" ADD COLUMN IF NOT EXISTS "rtr_process_id" varchar(64);`,
+  "0180_pick_list_pack_ship": `ALTER TABLE "pick_lists" ADD COLUMN IF NOT EXISTS "packed_at" timestamp;--> statement-breakpoint
+ALTER TABLE "pick_lists" ADD COLUMN IF NOT EXISTS "packed_by" varchar(255);--> statement-breakpoint
+ALTER TABLE "pick_lists" ADD COLUMN IF NOT EXISTS "shipped_at" timestamp;--> statement-breakpoint
+ALTER TABLE "pick_lists" ADD COLUMN IF NOT EXISTS "shipment_id" varchar(30);--> statement-breakpoint
+ALTER TABLE "pick_lists" ADD COLUMN IF NOT EXISTS "parcel_id" varchar(30);`,
+  "0181_first_party_connectors": `DROP TABLE IF EXISTS "nango_sync_runs";--> statement-breakpoint
+DROP TABLE IF EXISTS "nango_connections";--> statement-breakpoint
+CREATE TABLE "connector_connections" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	"deleted_at" timestamp,
+	"provider" varchar(100) NOT NULL,
+	"display_name" varchar(255),
+	"status" varchar(20) DEFAULT 'pending' NOT NULL,
+	"credentials" jsonb,
+	"external_account_id" varchar(255),
+	"enabled_syncs" jsonb,
+	"sync_watermarks" jsonb,
+	"last_sync_at" timestamp,
+	"last_sync_status" varchar(20),
+	"last_error" text,
+	"last_error_at" timestamp,
+	"records_synced" integer DEFAULT 0 NOT NULL,
+	"connected_at" timestamp,
+	"connected_by" varchar(255),
+	"disconnected_at" timestamp
+);
+--> statement-breakpoint
+CREATE TABLE "connector_sync_runs" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"connection_id" varchar(30) NOT NULL,
+	"sync_name" varchar(100) NOT NULL,
+	"model" varchar(100) NOT NULL,
+	"status" varchar(20) DEFAULT 'running' NOT NULL,
+	"trigger" varchar(20) NOT NULL,
+	"sync_type" varchar(20),
+	"records_added" integer DEFAULT 0 NOT NULL,
+	"records_updated" integer DEFAULT 0 NOT NULL,
+	"records_deleted" integer DEFAULT 0 NOT NULL,
+	"records_created" integer DEFAULT 0 NOT NULL,
+	"records_modified" integer DEFAULT 0 NOT NULL,
+	"records_skipped" integer DEFAULT 0 NOT NULL,
+	"records_failed" integer DEFAULT 0 NOT NULL,
+	"started_at" timestamp DEFAULT now() NOT NULL,
+	"finished_at" timestamp,
+	"duration_ms" integer,
+	"error" text,
+	"error_samples" jsonb
+);
+--> statement-breakpoint
+ALTER TABLE "connector_sync_runs" ADD CONSTRAINT "connector_sync_runs_connection_id_connector_connections_id_fk" FOREIGN KEY ("connection_id") REFERENCES "public"."connector_connections"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "connector_connections_provider_unique" ON "connector_connections" USING btree ("provider");--> statement-breakpoint
+CREATE INDEX "connector_connections_status_idx" ON "connector_connections" USING btree ("status");--> statement-breakpoint
+CREATE INDEX "connector_connections_deleted_at_idx" ON "connector_connections" USING btree ("deleted_at");--> statement-breakpoint
+CREATE INDEX "connector_sync_runs_connection_idx" ON "connector_sync_runs" USING btree ("connection_id","created_at");--> statement-breakpoint
+CREATE INDEX "connector_sync_runs_status_idx" ON "connector_sync_runs" USING btree ("status");`,
+  "0182_connector_multi_store_webhooks": `DROP INDEX IF EXISTS "connector_connections_provider_unique";--> statement-breakpoint
+ALTER TABLE "connector_connections" ADD COLUMN "webhook_secret" text;--> statement-breakpoint
+ALTER TABLE "connector_connections" ADD COLUMN "webhook_registrations" jsonb;--> statement-breakpoint
+CREATE UNIQUE INDEX "connector_connections_provider_account_live_unique" ON "connector_connections" ("provider", "external_account_id") WHERE "deleted_at" IS NULL;--> statement-breakpoint
+CREATE INDEX "connector_connections_provider_idx" ON "connector_connections" USING btree ("provider");--> statement-breakpoint
+CREATE TABLE "product_sales_channels" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	"product_id" varchar(30) NOT NULL,
+	"connection_id" varchar(30) NOT NULL,
+	"provider" varchar(100) NOT NULL,
+	"display_name" varchar(255),
+	"external_id" varchar(255) NOT NULL,
+	"external_url" varchar(500),
+	"status" varchar(20) DEFAULT 'active' NOT NULL,
+	"last_synced_at" timestamp
+);
+--> statement-breakpoint
+ALTER TABLE "product_sales_channels" ADD CONSTRAINT "product_sales_channels_product_id_products_id_fk" FOREIGN KEY ("product_id") REFERENCES "public"."products"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "product_sales_channels" ADD CONSTRAINT "product_sales_channels_connection_id_connector_connections_id_fk" FOREIGN KEY ("connection_id") REFERENCES "public"."connector_connections"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "product_sales_channels_connection_external_unique" ON "product_sales_channels" USING btree ("connection_id","external_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "product_sales_channels_product_connection_unique" ON "product_sales_channels" USING btree ("product_id","connection_id");--> statement-breakpoint
+CREATE INDEX "product_sales_channels_product_idx" ON "product_sales_channels" USING btree ("product_id");--> statement-breakpoint
+CREATE INDEX "product_sales_channels_connection_idx" ON "product_sales_channels" USING btree ("connection_id");--> statement-breakpoint
+CREATE INDEX "product_sales_channels_provider_idx" ON "product_sales_channels" USING btree ("provider");`,
+  "0183_product_sales_channel_price_status": `ALTER TABLE "product_sales_channels" ADD COLUMN "price" numeric(18, 2);--> statement-breakpoint
+ALTER TABLE "product_sales_channels" ADD COLUMN "listing_status" varchar(20) DEFAULT 'active' NOT NULL;`,
 };
 
 export const MIGRATION_HASHES: Record<string, string> = {
@@ -10357,4 +10450,9 @@ export const MIGRATION_HASHES: Record<string, string> = {
   "0176_lean_christian_walker": "7ce768b579d5a3aade93c67ca3fd075053210cce4b85d682b632631aa2b6b335",
   "0177_project_files_parent": "258b3457faa726a22d1f565097250e04215b86faa1b539e0ac3e7a6be62647c1",
   "0178_workflow_trigger_index": "cee11cf3078a72229a8dbfffd32fbb86874a4fb92d820bde3d8f61735b458f76",
+  "0179_flowery_edwin_jarvis": "7b11ffe9754645c53c90f116002b338b4bc4632595642775f6924bd144eefacc",
+  "0180_pick_list_pack_ship": "0a29b9184394ca3231b692d1798651d2103cbc2e85479be1e8a1ea4e402b9cf6",
+  "0181_first_party_connectors": "d93c995d2f3f076620e1bf2ab66d6aae063b6f4495c02f6cf1c98a4416f1b0c3",
+  "0182_connector_multi_store_webhooks": "9d9f8f9a881773612a508238b91ae0ac8cf11946a51d539fa7ff35afbc64a4ce",
+  "0183_product_sales_channel_price_status": "4520314caa55ab6078030ec155ec3bdfd8c6a0a461e5b2a478b6b549d34f5cf7",
 };

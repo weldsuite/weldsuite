@@ -2,7 +2,7 @@
 
 Thanks for your interest in contributing! This guide covers how to get set up, how we work, and what we expect in a pull request.
 
-> **Heads up:** WeldSuite is *source-visible, not self-hostable* right now (see the note in the [README](./README.md)). You can build and type-check the code and run parts of it locally, but standing up the full product requires infrastructure this repo doesn't provision. Most contributions (bug fixes, UI work, tests, docs) don't need the whole thing running.
+Work lands on **`develop`** (test). Production is a PR from `develop` into **`main`**.
 
 ## Before you start
 
@@ -52,7 +52,7 @@ Before you open a PR, please make sure:
 - [ ] No stray `console.log`, `any`, or `@ts-ignore`.
 - [ ] Tests added or updated where it makes sense.
 - [ ] **Database schema changes** are flagged in the PR description. Do **not** commit migration files; they're generated and applied separately. Call out the schema change and let a maintainer handle the migration.
-- [ ] Commit messages are meaningful (no `wip`, `fix`, `sdf`). This repo is public now.
+- [ ] Commit messages are meaningful (no `wip`, `fix`, `sdf`).
 
 ## Commit and PR conventions
 

@@ -2,6 +2,7 @@ import { createRootRouteWithContext, Outlet } from '@tanstack/react-router';
 import type { QueryClient } from '@tanstack/react-query';
 import { RootErrorFallback } from '@/components/root-error-fallback';
 import { ApiClientProvider } from '@/lib/api/api-provider';
+import { getRealtimeUrl } from '@/lib/api/public-env';
 import { QueryProvider } from '@/providers/query-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
 import { I18nProvider } from '@/lib/i18n/provider';
@@ -67,7 +68,7 @@ function RealtimeSyncBridge() {
   return null;
 }
 
-const REALTIME_URL = import.meta.env.VITE_REALTIME_URL || 'ws://localhost:8790/ws';
+const REALTIME_URL = getRealtimeUrl();
 
 function RealtimeProviderWrapper({ children }: { children: React.ReactNode }) {
   const { getToken, orgId } = useAuth();

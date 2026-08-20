@@ -9,6 +9,7 @@ import {
   MoreVertical,
   ArrowLeft,
   Inbox,
+  Plus,
 } from 'lucide-react';
 import { PageLoader } from '@/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
@@ -44,15 +45,15 @@ import {
   useDeleteBankAccount,
 } from '@/hooks/queries/use-accounting-queries';
 import { BankAccountFormDialog } from '@/components/accounting/bank-account-form-dialog';
+import { BankTransactionFormDialog } from '@/components/accounting/bank-transaction-form-dialog';
 import { BankTransactionsTable } from '@/components/accounting/bank-transactions-table';
 import type { BankAccount, BankTransaction } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { formatWeldbooksMoney } from '@/lib/weldbooks/format-money';
 
-function formatBalance(value: string | null | undefined, currency: string | null | undefined): string {
-  return new Intl.NumberFormat('nl-NL', {
-    style: 'currency',
-    currency: currency || 'EUR',
-  }).format(Number(value ?? 0));
+function formatBalance(value: string | null | undefined, currency: string | null | undefined, locale?: string | null): string {
+  return formatWeldbooksMoney(value, currency, locale);
 }
 
 function formatDate(value: string | null | undefined, never: string): string {
@@ -73,9 +74,11 @@ function formatDate(value: string | null | undefined, never: string): string {
 export default function BankAccountDetailPage() {
   const { id } = useParams({ strict: false }) as { id: string };
   const [editOpen, setEditOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const { t } = useI18n();
+  const { currency: entityCurrency, locale } = useCurrentEntityCurrency();
   const tbp = t.accounting.bankingPages;
 
   const STATUS_OPTIONS = [
@@ -187,7 +190,7 @@ export default function BankAccountDetailPage() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-semibold tabular-nums">
-              {formatBalance(account.currentBalance, account.currency)}
+              {formatBalance(account.currentBalance, account.currency ?? entityCurrency, locale)}
             </p>
           </CardContent>
         </Card>
@@ -240,6 +243,15 @@ export default function BankAccountDetailPage() {
             <RefreshCw className={`h-4 w-4 mr-1 ${autoReconcile.isPending ? 'animate-spin' : ''}`} />
             {tbp.autoReconcile}
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            data-testid="add-bank-transaction"
+            onClick={() => setAddOpen(true)}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            {tbp.addTransactionButton}
+          </Button>
           <Link to="/weldbooks/banking/import" search={{ accountId: id }}>
             <Button size="sm">
               <Download className="h-4 w-4 mr-1" />
@@ -258,21 +270,33 @@ export default function BankAccountDetailPage() {
             <p className="text-sm text-muted-foreground">
               {tbp.noTransactionsYet}
             </p>
-            <Link to="/weldbooks/banking/import" search={{ accountId: id }}>
-              <Button>
-                <Download className="h-4 w-4 mr-1" />
-                {tbp.importStatement}
+            <div className="flex items-center justify-center gap-2">
+              <Button variant="outline" onClick={() => setAddOpen(true)}>
+                <Plus className="h-4 w-4 mr-1" />
+                {tbp.addTransactionButton}
               </Button>
-            </Link>
+              <Link to="/weldbooks/banking/import" search={{ accountId: id }}>
+                <Button>
+                  <Download className="h-4 w-4 mr-1" />
+                  {tbp.importStatement}
+                </Button>
+              </Link>
+            </div>
           </CardContent>
         </Card>
       ) : (
         <BankTransactionsTable
           transactions={transactions}
-          currency={account.currency ?? 'EUR'}
+          currency={account.currency ?? entityCurrency}
           dense
         />
       )}
+
+      <BankTransactionFormDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        bankAccountId={id}
+      />
 
       <BankAccountFormDialog
         open={editOpen}

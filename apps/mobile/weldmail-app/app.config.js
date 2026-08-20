@@ -1,4 +1,4 @@
-const { withAndroidManifest, withInfoPlist } = require('@expo/config-plugins');
+const { withInfoPlist } = require('@expo/config-plugins');
 
 // Add iOS URL scheme for Google Sign-In callback
 const withGoogleSignInUrlScheme = (config) => {
@@ -18,48 +18,6 @@ const withGoogleSignInUrlScheme = (config) => {
           CFBundleURLSchemes: [iosUrlScheme],
         },
       ];
-    }
-
-    return config;
-  });
-};
-
-// Add Android intent filter for OAuth callbacks
-const withAndroidManifestFixes = (config) => {
-  return withAndroidManifest(config, async (config) => {
-    const manifest = config.modResults.manifest;
-
-    if (!manifest.$['xmlns:tools']) {
-      manifest.$['xmlns:tools'] = 'http://schemas.android.com/tools';
-    }
-
-    const application = manifest.application?.[0];
-    if (!application) return config;
-
-    const redirectActivity = {
-      $: {
-        'android:name': 'net.openid.appauth.RedirectUriReceiverActivity',
-        'android:exported': 'true',
-      },
-      'intent-filter': [
-        {
-          action: [{ $: { 'android:name': 'android.intent.action.VIEW' } }],
-          category: [
-            { $: { 'android:name': 'android.intent.category.DEFAULT' } },
-            { $: { 'android:name': 'android.intent.category.BROWSABLE' } },
-          ],
-          data: [{ $: { 'android:scheme': 'weldmail' } }],
-        },
-      ],
-    };
-
-    const activities = application.activity || [];
-    const exists = activities.find(
-      (a) => a.$?.['android:name'] === 'net.openid.appauth.RedirectUriReceiverActivity'
-    );
-
-    if (!exists) {
-      application.activity = [...activities, redirectActivity];
     }
 
     return config;
@@ -93,7 +51,6 @@ module.exports = ({ config }) => {
   };
 
   config = withGoogleSignInUrlScheme(config);
-  config = withAndroidManifestFixes(config);
   config = withCleartextPolicy(config);
   return config;
 };

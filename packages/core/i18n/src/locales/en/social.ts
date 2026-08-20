@@ -37,6 +37,19 @@ export const social = {
       published: 'Published',
       failed: 'Failed',
 
+      cancelConfirm: {
+        title: 'Cancel this schedule?',
+        description:
+          'The post will not go out at the scheduled time. It is kept as a draft, so you can schedule it again whenever you want. Any credits charged when it was scheduled are refunded.',
+        alternatives: 'If you only want to change it, reschedule or edit it instead.',
+        reschedule: 'Reschedule instead',
+        edit: 'Edit instead',
+        confirm: 'Cancel schedule',
+        keep: 'Keep scheduled',
+        failed:
+          'The post could not be unscheduled and is still set to publish. Please try again.',
+      },
+
       statuses: {
         draft: 'Draft',
         pendingApproval: 'Pending Approval',

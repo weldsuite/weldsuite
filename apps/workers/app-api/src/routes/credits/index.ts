@@ -9,9 +9,16 @@
  *
  * Response shape preserved as `{ success, data }` to match the existing
  * api-worker contract its platform consumers still expect. No object-level
- * `requirePermission` (mirrors the source) — Clerk auth + org resolution is
- * enforced by the shared `/api/*` middleware. No entity events: billing
- * ledger writes live in master and are not fanned out over the entity bus.
+ * `requirePermission` on reads (mirrors the source) — Clerk auth + org
+ * resolution is enforced by the shared `/api/*` middleware. Spend writes
+ * (`POST /checkout`, `POST /adjust`) require `billing:manage`.
+ *
+ * `POST /checkout` proxies to billing-worker (Stripe Checkout session +
+ * webhook grant). App-api never mutates the prepaid balance on checkout —
+ * that remains webhook-owned on billing-worker.
+ *
+ * No entity events: billing ledger writes live in master and are not fanned
+ * out over the entity bus.
  */
 
 import { Hono } from 'hono';
@@ -28,7 +35,9 @@ import {
 import type { PlanFeatures } from '@weldsuite/db/schema/plans';
 import type { Env, Variables } from '../../types';
 import { getMasterDb, masterSchema, type MasterDatabase } from '../../db';
-import { getOrCreateWorkspaceCredits, updateSubscriptionCredits } from '../../services/credits';
+import { getOrCreateWorkspaceCredits, updateSubscriptionCredits, createCreditTopupCheckout } from '../../services/credits';
+import { success, error as apiError } from '../../lib/response';
+import { creditTopupCheckoutSchema } from '@weldsuite/app-api-client/schemas/credits';
 
 const { workspaceCredits, creditTransactions, creditPackages, workspaces, plans } = masterSchema;
 
@@ -598,5 +607,42 @@ app.post('/adjust', requirePermission('billing:manage'), zValidator('json', adju
     return c.json({ error: 'internal_error', message: 'Failed to adjust credits' }, 500);
   }
 });
+
+// ============================================================================
+// POST /checkout — Stripe Checkout for a prepaid credit package (proxied)
+// ============================================================================
+
+/**
+ * Start a prepaid credit topup. Forwards to billing-worker, which creates the
+ * Stripe Checkout session; credits are granted by the checkout.session.completed
+ * webhook once payment succeeds.
+ */
+app.post(
+  '/checkout',
+  requirePermission('billing:manage'),
+  zValidator('json', creditTopupCheckoutSchema),
+  async (c) => {
+    const orgId = c.get('orgId');
+    if (!orgId) return apiError.orgRequired(c);
+
+    const body = c.req.valid('json');
+
+    const result = await createCreditTopupCheckout({
+      env: c.env,
+      authorization: c.req.header('Authorization'),
+      body,
+    });
+
+    if (!result.ok) {
+      if (result.error.kind === 'bad_request') return apiError.badRequest(c, result.error.message);
+      if (result.error.kind === 'not_found') return apiError.notFound(c, 'Credit package');
+      console.error('[app-api/credits] checkout proxy failed:', result.error.message);
+      return apiError.internal(c, result.error.message);
+    }
+
+    // Match /api/billing/checkout envelope so platform hooks can unwrap `{ data: { url } }`.
+    return success(c, { url: result.url });
+  },
+);
 
 export const creditsRoutes = app;

@@ -58,6 +58,8 @@ import {
   ShoppingCart,
   Warehouse,
   Boxes,
+  ClipboardList,
+  PackageCheck,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import type { TranslationsType } from '@/lib/i18n/types';
@@ -113,6 +115,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldcommerce.orders, href: '/weldcommerce/orders', icon: ShoppingCart, permission: 'orders:read' },
           // Customers are companies — see app/weldcommerce/customers/page.tsx.
           { title: t.navigation.moduleSidebar.weldcommerce.customers, href: '/weldcommerce/customers', icon: Building, permission: 'companies:read' },
+          { title: t.navigation.moduleSidebar.weldcommerce.portal, href: '/weldcommerce/settings', icon: Globe, permission: 'companies:read' },
         ],
       },
     ],
@@ -132,6 +135,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldstash.suppliers, href: '/weldstash/suppliers', icon: Truck, permission: 'suppliers:read' },
           { title: t.navigation.moduleSidebar.weldstash.warehouses, href: '/weldstash/warehouses', icon: Warehouse, permission: 'warehouses:read' },
           { title: t.navigation.moduleSidebar.weldstash.stock, href: '/weldstash/stock', icon: Boxes, permission: 'inventory:read' },
+          { title: t.navigation.moduleSidebar.weldstash.pickLists, href: '/weldstash/pick-lists', icon: ClipboardList, permission: 'picklists:read' },
+          { title: t.navigation.moduleSidebar.weldstash.packing, href: '/weldstash/packing', icon: PackageCheck, permission: 'picklists:read' },
         ],
       },
     ],

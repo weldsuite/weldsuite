@@ -1,6 +1,6 @@
 ---
 name: weldbooks-accounting
-description: Use for WeldBooks, double-entry accounting, invoices, bills, payments, journal entries, bank reconciliation, tax rates, VAT returns, fiscal periods, FX rates, recurring invoices, accounting entities. Country-agnostic core, consult country-specific accounting agents (accounting-be, -nl, -de, -fr, -uk, -us) for compliance.
+description: Use for WeldBooks, double-entry accounting, invoices, bills, payments, journal entries, bank reconciliation, tax rates, VAT returns, fiscal periods, FX rates, recurring invoices, accounting entities. Country-agnostic core, consult country-specific accounting agents (accounting-be, -nl, -de, -fr, -uk, -us, -in) for compliance.
 model: sonnet
 ---
 
@@ -48,8 +48,9 @@ You are the WeldBooks (Accounting) domain specialist for WeldSuite.
 ## Tax calculation
 
 - `apps/web/platform/lib/tax-utils.ts` is the single source of truth for client-side calculation; the server must re-calculate authoritative totals on save.
-- Tax rate selection depends on counterparty country + entity country + product type. **Delegate to the matching country agent** (`accounting-be`, `-nl`, `-de`, `-fr`, `-uk`, `-us`) for which rate applies, reverse-charge logic, and VAT ID validation.
+- Tax rate selection depends on counterparty country + entity country + product type. **Delegate to the matching country agent** (`accounting-be`, `-nl`, `-de`, `-fr`, `-uk`, `-us`, `-in`) for which rate applies, reverse-charge logic, and VAT/GST ID validation.
 - EU reverse charge (B2B, cross-border EU) uses a 0% tax rate with a specific code, don't apply 0% generically.
+- India GST: place of supply (seller state vs buyer state) selects CGST+SGST vs IGST; see `accounting-in`.
 
 ## VAT returns
 

@@ -5,8 +5,9 @@
  * integration connections due for sync, then triggers syncs via app-api's
  * service binding (internal router — see app-api routes/integrations/internal.ts).
  *
- * Provider-agnostic — works for CRM, e-commerce, and any future integration type.
- * Each connection's sync interval is user-configurable via syncSettings.syncIntervalHours.
+ * Ongoing updates do not use this worker. Ecommerce connectors register
+ * store webhooks and ingest through integration-webhook-worker → app-api, so
+ * tenant databases stay asleep until the store has new data.
  */
 
 import { drizzle as drizzleNeonHttp } from 'drizzle-orm/neon-http';
@@ -36,12 +37,10 @@ const MIN_INTERVAL_HOURS = 1;
 
 /** Providers that support automatic sync */
 const SYNCABLE_PROVIDERS = new Set([
-  // CRM
+  // CRM — remaining pollers. Ecommerce connectors (WooCommerce, Shopify) are
+  // webhook-only and must not sweep tenant databases on a timer.
   'attio', 'hubspot', 'salesforce', 'pipedrive',
-  // Calendar
   'google_calendar',
-  // E-commerce (future)
-  // 'shopify', 'woocommerce',
 ]);
 
 function getMasterDb(env: Env) {

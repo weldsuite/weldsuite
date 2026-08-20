@@ -18,6 +18,10 @@ import {
   NL_NOTICE_REVERSE_CHARGE_DOMESTIC,
   NL_NOTICE_REVERSE_CHARGE_EU,
 } from './jurisdictions/nl/invoice-format';
+import {
+  IN_NOTICE_EXPORT,
+  IN_NOTICE_REVERSE_CHARGE,
+} from './jurisdictions/in/invoice-format';
 import { isKorActive } from './accounting-guards';
 import { checkVatNumber } from './vies';
 
@@ -68,6 +72,12 @@ export function invoiceUsesReverseCharge(categories: Set<string>): boolean {
 
 /** Legally required statements to print on the invoice document. */
 export function buildComplianceNotices(entity: Entity, categories: Set<string>): string[] {
+  if (entity.jurisdictionCode === 'IN') {
+    const notices: string[] = [];
+    if (categories.has('reverse_charge')) notices.push(IN_NOTICE_REVERSE_CHARGE);
+    if (categories.has('export_goods')) notices.push(IN_NOTICE_EXPORT);
+    return notices;
+  }
   if (entity.jurisdictionCode !== 'NL') return [];
   const notices: string[] = [];
   if (isKorActive(entity)) notices.push(NL_NOTICE_KOR);

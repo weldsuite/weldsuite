@@ -5,6 +5,7 @@ import { createProductSchema, type CreateProductInput } from '@weldsuite/core-ap
 import {
   useCreateCommerceProduct,
   useUpdateCommerceProduct,
+  useCommerceProduct,
   type CommerceProduct,
 } from '@/hooks/queries/use-commerce-queries';
 import { Button } from '@weldsuite/ui/components/button';
@@ -16,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
 import { ProductImagesField, type ProductImage } from './product-images-field';
+import { ProductSalesChannelsEditor } from './product-sales-channels-editor';
 
 type FormValues = z.input<typeof createProductSchema>;
 
@@ -37,6 +39,8 @@ export function ProductDialog({
   const isEdit = !!product;
   const create = useCreateCommerceProduct();
   const update = useUpdateCommerceProduct();
+  const { data: productDetail } = useCommerceProduct(product?.id ?? '', isEdit);
+  const salesChannels = productDetail?.data?.salesChannels ?? product?.salesChannels ?? [];
 
   const form = useForm<FormValues>({
     resolver: zodResolver(createProductSchema),
@@ -160,6 +164,15 @@ export function ProductDialog({
             value={images}
             onChange={(next) => form.setValue('images', next, { shouldDirty: true })}
           />
+          {isEdit && product ? (
+            <ProductSalesChannelsEditor
+              productId={product.id}
+              channels={salesChannels}
+              catalogPrice={product.price}
+              catalogStatus={product.status}
+              currency={product.currency}
+            />
+          ) : null}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               {tc.actions.cancel}

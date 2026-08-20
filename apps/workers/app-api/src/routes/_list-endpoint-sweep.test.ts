@@ -34,6 +34,7 @@ import { customFieldsRoutes } from './custom-fields';
 import { enrichFieldsRoutes } from './enrich-fields';
 import { myTasksRoutes } from './my-tasks';
 import { wmsSuppliersRoutes } from './wms-suppliers';
+import { pickListsRoutes } from './pick-lists';
 import { stockAdjustmentsRoutes } from './stock-adjustments';
 import { conversationsRoutes } from './conversations';
 import { meetingsRoutes } from './meetings';
@@ -77,6 +78,7 @@ const cases: SweepCase[] = [
   { mount: '/api/enrich-fields', router: enrichFieldsRoutes, permission: 'settings:read' },
   { mount: '/api/my-tasks', router: myTasksRoutes, permission: 'tasks:read' },
   { mount: '/api/wms-suppliers', router: wmsSuppliersRoutes, permission: 'suppliers:read' },
+  { mount: '/api/pick-lists', router: pickListsRoutes, permission: 'picklists:read' },
   { mount: '/api/stock-adjustments', router: stockAdjustmentsRoutes, permission: 'inventory:read' },
   { mount: '/api/conversations', router: conversationsRoutes, permission: 'conversations:read' },
   { mount: '/api/meetings', router: meetingsRoutes, permission: 'meetings:read' },

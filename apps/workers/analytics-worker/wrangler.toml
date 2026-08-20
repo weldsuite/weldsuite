@@ -21,7 +21,7 @@ max_batch_size = 25
 max_batch_timeout = 5
 
 [[pipelines]]
-pipeline = "REPLACE_WITH_PIPELINE_ID"
+pipeline = "8724b50989ab438f92d5ffe5c51c2399"
 binding = "ANALYTICS_STREAM"
 
 # ============ PRODUCTION ENVIRONMENT ============
@@ -38,7 +38,7 @@ max_batch_size = 25
 max_batch_timeout = 5
 
 [[env.production.pipelines]]
-pipeline = "REPLACE_WITH_PIPELINE_ID"
+pipeline = "8724b50989ab438f92d5ffe5c51c2399"
 binding = "ANALYTICS_STREAM"
 
 [env.production.observability]

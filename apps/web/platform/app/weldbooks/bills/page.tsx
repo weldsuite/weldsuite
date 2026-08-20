@@ -10,6 +10,7 @@ import {
   type GroupConfig,
 } from '@/components/entity-list';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 interface BillRow {
   id: string;
@@ -18,6 +19,8 @@ interface BillRow {
   issueDate: string | null;
   dueDate: string | null;
   totalAmount: number | null;
+  total?: string | number | null;
+  currency?: string | null;
   status: string;
 }
 
@@ -36,15 +39,12 @@ function statusVariant(status: string) {
   }
 }
 
-function formatCurrency(value: number | null | undefined): string {
-  return new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(Number(value ?? 0));
-}
-
 export default function BillsPage() {
   const [search, setSearch] = useState('');
   const { data, isLoading } = useAccountingBills({ search });
   const navigate = useNavigate();
   const { t } = useI18n();
+  const { formatMoney } = useCurrentEntityCurrency();
   const tbp = t.accounting.billsPage;
 
   const bills = (data?.data ?? []) as unknown as BillRow[];
@@ -96,7 +96,7 @@ export default function BillsPage() {
       id: 'total',
       header: tbp.colTotal,
       width: 'w-[140px]',
-      render: (bill) => <span>{formatCurrency(bill.totalAmount)}</span>,
+      render: (bill) => <span>{formatMoney(bill.total ?? bill.totalAmount, bill.currency)}</span>,
     },
     {
       id: 'status',

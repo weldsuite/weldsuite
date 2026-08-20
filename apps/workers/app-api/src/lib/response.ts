@@ -72,6 +72,10 @@ export const error = {
   internal: (c: Context, message = 'Internal server error') =>
     c.json({ error: { code: 'INTERNAL_ERROR', message } }, 500),
 
+  /** An upstream provider we depend on failed — the request is retryable. */
+  badGateway: (c: Context, message = 'Upstream service error') =>
+    c.json({ error: { code: 'UPSTREAM_ERROR', message } }, 502),
+
   /** Helper for routes that require an authenticated workspace context. */
   orgRequired: (c: Context) =>
     c.json({ error: { code: 'ORG_REQUIRED', message: 'Organization context required' } }, 400),

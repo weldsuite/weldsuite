@@ -72,19 +72,22 @@ export const navigation = {
       "notes": "[TRANSLATE] Notes",
       "sequences": "[TRANSLATE] Sequences"
     },
-    "weldcommerce": {
-      "overview": "Aperçu",
-      "products": "Produits",
-      "categories": "Catégories",
-      "orders": "Commandes",
-      "customers": "Clients"
-    },
+      "weldcommerce": {
+        "overview": "Aperçu",
+        "products": "Produits",
+        "categories": "Catégories",
+        "orders": "Commandes",
+        "customers": "Clients",
+        "portal": "Portail client"
+      },
     "weldstash": {
       "overview": "Aperçu",
       "products": "Produits",
       "suppliers": "Fournisseurs",
       "warehouses": "Entrepôts",
-      "stock": "Stock"
+      "stock": "Stock",
+      "pickLists": "Listes de picking",
+      "packing": "Emballage"
     },
     "welddata": {
       "findLeads": "[TRANSLATE] Find Leads"

@@ -7,11 +7,15 @@ import {
   type ListTableGroup,
 } from '@weldsuite/ui/components/list-table';
 import type { BankTransaction } from '@/lib/api/domains/weldbooks';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { formatWeldbooksMoney } from '@/lib/weldbooks/format-money';
 
 interface BankTransactionsTableProps {
   transactions: BankTransaction[];
   emptyMessage?: string;
   currency?: string;
+  /** Per-account currency lookup used when the table shows mixed accounts. */
+  currencyByAccountId?: Record<string, string | null | undefined>;
   /** When true, hide the counterparty column (used on account detail where it's obvious). */
   dense?: boolean;
   /**
@@ -47,22 +51,21 @@ function formatDate(dateStr: string | null | undefined): string {
   }
 }
 
-function formatAmount(amount: string, currency: string): string {
-  const n = Number(amount) || 0;
-  return new Intl.NumberFormat('nl-NL', {
-    style: 'currency',
-    currency,
-  }).format(n);
+function formatAmount(amount: string, currency: string, locale?: string | null): string {
+  return formatWeldbooksMoney(amount, currency, locale);
 }
 
 export function BankTransactionsTable({
   transactions,
   emptyMessage,
-  currency = 'EUR',
+  currency,
+  currencyByAccountId,
   dense,
   groupByStatus,
 }: BankTransactionsTableProps) {
   const st = useTranslations();
+  const { currency: entityCurrency, locale } = useCurrentEntityCurrency();
+  const displayCurrency = currency || entityCurrency;
   const resolvedEmptyMessage = emptyMessage ?? st('sweep.weldbooks.bankTransactionsTable.emptyMessage');
   const columns: ListTableColumn<BankTransaction>[] = [
     {
@@ -118,7 +121,7 @@ export function BankTransactionsTable({
               isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground',
             )}
           >
-            {formatAmount(t.amount, currency)}
+            {formatAmount(t.amount, currencyByAccountId?.[t.bankAccountId] ?? displayCurrency, locale)}
           </span>
         );
       },

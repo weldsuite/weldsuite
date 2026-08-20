@@ -37,6 +37,7 @@ import {
 } from '@/components/entity-overview';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -66,13 +67,6 @@ function createInvoiceFormSchema(st: (key: string) => string) {
 
 type InvoiceFormValues = z.infer<ReturnType<typeof createInvoiceFormSchema>>;
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(value);
-
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -99,6 +93,8 @@ export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
   const st = useTranslations();
   const tf = t.accounting.invoiceForm;
   const invoiceFormSchema = useMemo(() => createInvoiceFormSchema(st), [st]);
+  const { currency, entityCurrency, formatMoney } = useCurrentEntityCurrency();
+  const displayCurrency = invoice?.currency || currency;
 
   const createMutation = useCreateInvoice();
   const updateMutation = useUpdateInvoice();
@@ -218,6 +214,11 @@ export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
             discountPercent: item.discountPercent || undefined,
           })),
         };
+        if (mode === 'edit' && invoice?.currency) {
+          payload.currency = invoice.currency;
+        } else if (entityCurrency) {
+          payload.currency = entityCurrency;
+        }
 
         if (mode === 'edit' && invoice) {
           await updateMutation.mutateAsync({ id: invoice.id, data: payload });
@@ -413,7 +414,7 @@ export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
               <div className="flex justify-end text-sm text-muted-foreground">
                 {tf.lineTotal}{' '}
                 <span className="ml-1 font-medium text-foreground">
-                  {formatCurrency(lineCalculations[index]?.total ?? 0)}
+                  {formatMoney(lineCalculations[index]?.total ?? 0, displayCurrency)}
                 </span>
               </div>
             </div>
@@ -492,9 +493,9 @@ export function InvoiceForm({ mode, invoice }: InvoiceFormProps) {
         ? tf.items.replace('{count}', String(itemCount))
         : tf.itemsPlural.replace('{count}', String(itemCount)),
     },
-    { label: tf.subtotal, value: formatCurrency(totals.subtotal), bordered: true },
-    { label: tf.tax, value: formatCurrency(totals.taxTotal) },
-    { label: tf.total, value: <span className="font-semibold">{formatCurrency(totals.total)}</span> },
+    { label: tf.subtotal, value: formatMoney(totals.subtotal, displayCurrency), bordered: true },
+    { label: tf.tax, value: formatMoney(totals.taxTotal, displayCurrency) },
+    { label: tf.total, value: <span className="font-semibold">{formatMoney(totals.total, displayCurrency)}</span> },
   ];
 
   return (

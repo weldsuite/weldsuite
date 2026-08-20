@@ -1,5 +1,5 @@
 
-import { ReactNode } from "react";
+import { ReactNode, useId } from "react";
 import { useRouter, Link } from '@/lib/router';
 import { Button } from "@weldsuite/ui/components/button";
 import { LucideIcon, ChevronLeft } from "lucide-react";
@@ -91,6 +91,7 @@ export function HostEntityFormLayout({
 }: HostEntityFormLayoutProps) {
   const router = useRouter();
   const t = useTranslations();
+  const formId = `host-entity-form${useId()}`;
   const resolvedSubmitText = submitText ?? t('sweep.miscB.save');
   const resolvedCancelText = cancelText ?? t('sweep.miscB.cancel');
   const resolvedBackButtonText = backButtonText ?? t('sweep.miscB.back');
@@ -123,256 +124,252 @@ export function HostEntityFormLayout({
   ) : null;
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex-1 overflow-y-scroll min-h-0 custom-scrollbar bg-muted/30">
+    <div
+      data-testid="host-entity-form-layout"
+      className="h-full min-h-0 flex-1 flex overflow-hidden"
+    >
+      {/* Main column scrolls independently inside the module content card. */}
+      <div className="flex-1 min-w-0 min-h-0 overflow-y-auto custom-scrollbar bg-muted/30">
         <div className="container mx-auto px-4 md:px-6 py-6 md:py-8 max-w-[1600px] pb-20">
-          <>
-            {/* Form - full width on mobile, leaves room for sidebar on desktop */}
-            <form onSubmit={onSubmit} className="space-y-6 md:space-y-8 min-h-full md:mr-[420px]" suppressHydrationWarning>
-              <div className="w-full">
-                {/* Form Sections - Full Width */}
-                <div className="space-y-4">
-                  <div className="mb-2">
-                    {backButton}
-                  </div>
-                  <h2 className="text-xl md:text-2xl font-semibold">{title}</h2>
-                  {subtitle && (
-                    <p className="text-sm text-muted-foreground -mt-2">{subtitle}</p>
-                  )}
-                  {sections.map((section, index) => {
-                    const hasHeader = section.title || section.description;
+          <form id={formId} onSubmit={onSubmit} className="space-y-6 md:space-y-8" suppressHydrationWarning>
+            <div className="w-full">
+              <div className="space-y-4">
+                <div className="mb-2">
+                  {backButton}
+                </div>
+                <h2 className="text-xl md:text-2xl font-semibold">{title}</h2>
+                {subtitle && (
+                  <p className="text-sm text-muted-foreground -mt-2">{subtitle}</p>
+                )}
+                {sections.map((section, index) => {
+                  const hasHeader = section.title || section.description;
 
-                    if (!hasHeader) {
-                      // Render without card wrapper if no title/description
-                      return (
-                        <div key={index} className="space-y-4">
-                          {section.content}
-                        </div>
-                      );
+                  if (!hasHeader) {
+                    return (
+                      <div key={index} className="space-y-4">
+                        {section.content}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div
+                      key={index}
+                      className="bg-background px-4 md:px-6 pt-4 md:pt-5 pb-5 md:pb-6 rounded-lg border border-border"
+                    >
+                      <div className="mb-4">
+                        <h3 className="text-base font-semibold">
+                          {section.title}
+                        </h3>
+                        {section.description && (
+                          <p className="text-sm text-muted-foreground mt-1">
+                            {section.description}
+                          </p>
+                        )}
+                      </div>
+                      <div className="space-y-4">
+                        {section.content}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </form>
+
+          {/* Mobile Summary Panel - shown at bottom on mobile (unless hideMobileSummary is true) */}
+          {!hideMobileSummary && (
+          <div className="md:hidden mt-6 bg-background rounded-lg border border-border">
+            <div className="p-4 border-b border-border flex items-center gap-2">
+              <SummaryIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+              <h3 className="text-base font-semibold">
+                {summaryTitle}
+              </h3>
+            </div>
+
+            <div className="p-4 space-y-4">
+              {summaryFields.length > 0 && (
+                <div className="space-y-3">
+                  {summaryFields.map((field, index) => {
+                    if (field.hideIfEmpty && !field.value) {
+                      return null;
                     }
-
-                    // Render with card wrapper if has title/description
                     return (
                       <div
                         key={index}
-                        className="bg-background px-4 md:px-6 pt-4 md:pt-5 pb-5 md:pb-6 rounded-lg border border-border"
+                        className={`flex justify-between text-sm ${
+                          field.bordered ? "border-t pt-3 mt-3" : ""
+                        }`}
                       >
-                        <div className="mb-4">
-                          <h3 className="text-base font-semibold">
-                            {section.title}
-                          </h3>
-                          {section.description && (
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {section.description}
-                            </p>
-                          )}
-                        </div>
-                        <div className="space-y-4">
-                          {section.content}
-                        </div>
+                        <span className="text-muted-foreground">{field.label}</span>
+                        <span className="font-medium">{field.value || "—"}</span>
                       </div>
                     );
                   })}
                 </div>
-              </div>
-            </form>
+              )}
 
-            {/* Mobile Summary Panel - shown at bottom on mobile (unless hideMobileSummary is true) */}
-            {!hideMobileSummary && (
-            <div className="md:hidden mt-6 bg-background rounded-lg border border-border">
-              <div className="p-4 border-b border-border flex items-center gap-2">
+              {summaryContent && (
+                <div className="space-y-2">
+                  {summaryContent}
+                </div>
+              )}
+
+              {summaryBottomFields && summaryBottomFields.length > 0 && (
+                <div className="space-y-3 pt-3 border-t border-border">
+                  {summaryBottomFields.map((field, index) => {
+                    if (field.hideIfEmpty && !field.value) {
+                      return null;
+                    }
+                    return (
+                      <div
+                        key={index}
+                        className={`flex justify-between text-sm ${
+                          field.bordered ? "border-t pt-3 mt-3" : ""
+                        }`}
+                      >
+                        <span className="text-muted-foreground">{field.label}</span>
+                        <span className="font-medium">{field.value || "—"}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="space-y-3 pt-2">
+                <Button
+                  type="submit"
+                  form={formId}
+                  disabled={isPending}
+                  variant={submitVariant}
+                  className="w-full shadow-none"
+                  size="lg"
+                >
+                  {resolvedSubmitText}
+                </Button>
+
+                {cancelLink && (
+                  <Link href={cancelLink} className="block">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={isPending}
+                      className="w-full shadow-none"
+                    >
+                      {resolvedCancelText}
+                    </Button>
+                  </Link>
+                )}
+              </div>
+            </div>
+          </div>
+          )}
+        </div>
+      </div>
+
+      {/*
+        Desktop summary sits in-flow next to the form, filling the module
+        content card (below the header). It must not be `fixed` to the
+        viewport — that overlay covered the whole site including the
+        top header and sidebars.
+      */}
+      <aside
+        data-testid="host-purchase-summary"
+        className="hidden md:flex w-[400px] shrink-0 min-h-0 h-full bg-background border-l border-border flex-col"
+      >
+        <div className="flex-1 overflow-y-auto">
+          <div className="mb-6">
+            <div className="flex items-center justify-between px-4 pt-2.5 mb-2.5">
+              <div className="flex items-center gap-2">
                 <SummaryIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-                <h3 className="text-base font-semibold">
+                <h3 className="text-lg font-semibold">
                   {summaryTitle}
                 </h3>
               </div>
-
-              <div className="p-4 space-y-4">
-                {/* Summary Fields */}
-                {summaryFields.length > 0 && (
-                  <div className="space-y-3">
-                    {summaryFields.map((field, index) => {
-                      if (field.hideIfEmpty && !field.value) {
-                        return null;
-                      }
-                      return (
-                        <div
-                          key={index}
-                          className={`flex justify-between text-sm ${
-                            field.bordered ? "border-t pt-3 mt-3" : ""
-                          }`}
-                        >
-                          <span className="text-muted-foreground">{field.label}</span>
-                          <span className="font-medium">{field.value || "—"}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Additional Summary Content */}
-                {summaryContent && (
-                  <div className="space-y-2">
-                    {summaryContent}
-                  </div>
-                )}
-
-                {/* Bottom Summary Fields */}
-                {summaryBottomFields && summaryBottomFields.length > 0 && (
-                  <div className="space-y-3 pt-3 border-t border-border">
-                    {summaryBottomFields.map((field, index) => {
-                      if (field.hideIfEmpty && !field.value) {
-                        return null;
-                      }
-                      return (
-                        <div
-                          key={index}
-                          className={`flex justify-between text-sm ${
-                            field.bordered ? "border-t pt-3 mt-3" : ""
-                          }`}
-                        >
-                          <span className="text-muted-foreground">{field.label}</span>
-                          <span className="font-medium">{field.value || "—"}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Actions */}
-                <div className="space-y-3 pt-2">
-                  <Button
-                    type="submit"
-                    disabled={isPending}
-                    variant={submitVariant}
-                    className="w-full shadow-none"
-                    size="lg"
-                    onClick={onSubmit}
-                  >
-                    {resolvedSubmitText}
-                  </Button>
-
-                  {cancelLink && (
-                    <Link href={cancelLink} className="block">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={isPending}
-                        className="w-full shadow-none"
-                      >
-                        {resolvedCancelText}
-                      </Button>
-                    </Link>
-                  )}
-                </div>
-              </div>
+              {summaryHeaderAction}
             </div>
+            <div className="border-t border-border" />
+          </div>
+
+          <div className="space-y-6 px-4">
+            <div className="space-y-3">
+              {summaryFields.map((field, index) => {
+                if (field.hideIfEmpty && !field.value) {
+                  return null;
+                }
+
+                return (
+                  <div
+                    key={index}
+                    className={`flex justify-between text-sm ${
+                      field.bordered ? "border-t pt-3 mt-3" : ""
+                    }`}
+                  >
+                    <span className="text-muted-foreground">{field.label}</span>
+                    <span className="font-medium">{field.value || "—"}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {summaryContent && (
+              <div className="space-y-2">
+                {summaryContent}
+              </div>
             )}
-
-            {/* Desktop Right Side Panel - Fixed Overlay (hidden on mobile) */}
-            <div className="hidden md:flex fixed top-0 right-0 h-screen w-[400px] bg-background border-l border-border z-40 flex-col pt-16">
-              <div className="flex-1 overflow-y-auto">
-                <div className="mb-6">
-                  <div className="flex items-center justify-between px-4 pt-2.5 mb-2.5">
-                    <div className="flex items-center gap-2">
-                      <SummaryIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <h3 className="text-lg font-semibold">
-                        {summaryTitle}
-                      </h3>
-                    </div>
-                    {summaryHeaderAction}
-                  </div>
-                  <div className="border-t border-border" />
-                </div>
-
-                <div className="space-y-6 px-4">
-                  {/* Summary Fields */}
-                  <div className="space-y-3">
-                    {summaryFields.map((field, index) => {
-                      // Check if field should be hidden when empty
-                      if (field.hideIfEmpty && !field.value) {
-                        return null;
-                      }
-
-                      return (
-                        <div
-                          key={index}
-                          className={`flex justify-between text-sm ${
-                            field.bordered ? "border-t pt-3 mt-3" : ""
-                          }`}
-                        >
-                          <span className="text-muted-foreground">{field.label}</span>
-                          <span className="font-medium">{field.value || "—"}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Additional Summary Content */}
-                  {summaryContent && (
-                    <div className="space-y-2">
-                      {summaryContent}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Actions - Fixed at Bottom */}
-              <div className="p-4 pt-4 border-t border-border bg-background">
-                {/* Bottom Summary Fields */}
-                {summaryBottomFields && summaryBottomFields.length > 0 && (
-                  <div className="space-y-3 mb-4">
-                    {summaryBottomFields.map((field, index) => {
-                      // Check if field should be hidden when empty
-                      if (field.hideIfEmpty && !field.value) {
-                        return null;
-                      }
-
-                      return (
-                        <div
-                          key={index}
-                          className={`flex justify-between text-sm ${
-                            field.bordered ? "border-t pt-3 mt-3" : ""
-                          }`}
-                        >
-                          <span className="text-muted-foreground">{field.label}</span>
-                          <span className="font-medium">{field.value || "—"}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                <div className="space-y-3">
-                  <Button
-                    type="submit"
-                    disabled={isPending}
-                    variant={submitVariant}
-                    className="w-full shadow-none"
-                    size="lg"
-                    onClick={onSubmit}
-                  >
-                    {resolvedSubmitText}
-                  </Button>
-
-                  {cancelLink && (
-                    <Link href={cancelLink} className="block">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={isPending}
-                        className="w-full shadow-none"
-                      >
-                        {resolvedCancelText}
-                      </Button>
-                    </Link>
-                  )}
-                </div>
-              </div>
-            </div>
-          </>
+          </div>
         </div>
-      </div>
+
+        <div className="p-4 pt-4 border-t border-border bg-background">
+          {summaryBottomFields && summaryBottomFields.length > 0 && (
+            <div className="space-y-3 mb-4">
+              {summaryBottomFields.map((field, index) => {
+                if (field.hideIfEmpty && !field.value) {
+                  return null;
+                }
+
+                return (
+                  <div
+                    key={index}
+                    className={`flex justify-between text-sm ${
+                      field.bordered ? "border-t pt-3 mt-3" : ""
+                    }`}
+                  >
+                    <span className="text-muted-foreground">{field.label}</span>
+                    <span className="font-medium">{field.value || "—"}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="space-y-3">
+            <Button
+              type="submit"
+              form={formId}
+              disabled={isPending}
+              variant={submitVariant}
+              className="w-full shadow-none"
+              size="lg"
+            >
+              {resolvedSubmitText}
+            </Button>
+
+            {cancelLink && (
+              <Link href={cancelLink} className="block">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isPending}
+                  className="w-full shadow-none"
+                >
+                  {resolvedCancelText}
+                </Button>
+              </Link>
+            )}
+          </div>
+        </div>
+      </aside>
     </div>
   );
 }

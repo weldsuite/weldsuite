@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -34,7 +34,10 @@ import {
 } from '@weldsuite/ui/components/table';
 import { Plus } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
+import { weldbooksApi } from '@/lib/api/weldbooks-client';
 
 interface VatReturnRow {
   id: string;
@@ -46,11 +49,13 @@ interface VatReturnRow {
   rubrieken?: Record<string, number> | null;
 }
 
-function fmt(value: number | string | null | undefined): string {
-  return new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(Number(value ?? 0));
+interface EntityRow {
+  id: string;
+  jurisdictionCode: string;
 }
 
 export default function VatReturnsPage() {
+  const { formatMoney: fmt } = useCurrentEntityCurrency();
   const { data, isLoading } = useAccountingVatReturns();
   const calculateMutation = useCalculateVatReturn();
   const navigate = useNavigate();
@@ -58,6 +63,7 @@ export default function VatReturnsPage() {
   const st = useTranslations();
   const tv = t.accounting.vat;
   const tslVat = { ...t.accounting.vat.statuses, ...t.accounting.statusLabels.vatReturn };
+  const { entityId } = useCurrentAccountingEntity();
   const [showDialog, setShowDialog] = useState(false);
   const [dialogMode, setDialogMode] = useState<'vat' | 'icp'>('vat');
   const [periodType, setPeriodType] = useState('quarterly');
@@ -66,8 +72,32 @@ export default function VatReturnsPage() {
   const [periodLabel, setPeriodLabel] = useState('');
 
   const qc = useQueryClient();
+
+  const { data: entities = [] } = useQuery<EntityRow[]>({
+    queryKey: ['accounting', 'entities'],
+    queryFn: async () => {
+      const res = await weldbooksApi.get<{ data: EntityRow[] } | EntityRow[]>('/accounting-entities');
+      return Array.isArray(res) ? res : res.data ?? [];
+    },
+  });
+  const matchedEntity = entityId ? entities.find((e) => e.id === entityId) : undefined;
+  const currentJurisdiction = matchedEntity?.jurisdictionCode;
+  // Only treat as NL when the selected entity is known and NL — never default unresolved → NL
+  const isNlEntity = currentJurisdiction === 'NL';
+
+  useEffect(() => {
+    if (!isNlEntity && dialogMode === 'icp') {
+      setShowDialog(false);
+      setDialogMode('vat');
+      setPeriodStart('');
+      setPeriodEnd('');
+      setPeriodLabel('');
+    }
+  }, [isNlEntity, dialogMode]);
+
   const { data: icpData } = useQuery({
-    queryKey: ['accounting', 'icp-declarations'],
+    queryKey: ['accounting', 'icp-declarations', entityId],
+    enabled: isNlEntity && Boolean(entityId),
     queryFn: () => accountingApi.listIcpDeclarations(),
   });
 
@@ -99,6 +129,10 @@ export default function VatReturnsPage() {
 
   const handleCalculate = () => {
     if (!periodStart || !periodEnd) return;
+    if (dialogMode === 'icp' && !isNlEntity) {
+      toast.error(st('sweep.weldbooks.vat.icpFilingFailed'));
+      return;
+    }
     const payload = {
       periodType,
       periodStart,
@@ -192,7 +226,8 @@ export default function VatReturnsPage() {
         </CardContent>
       </Card>
 
-      {/* Opgaaf ICP */}
+      {/* Opgaaf ICP — Netherlands only */}
+      {isNlEntity ? (
       <Card>
         <CardHeader className="flex flex-row items-start justify-between space-y-0">
           <div>
@@ -252,6 +287,7 @@ export default function VatReturnsPage() {
           </Table>
         </CardContent>
       </Card>
+      ) : null}
 
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
         <DialogContent>

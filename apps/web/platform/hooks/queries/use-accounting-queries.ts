@@ -436,6 +436,30 @@ export function useAccountingBankTransactions(filters?: { bankAccountId?: string
     queryFn: () => accountingApi.listBankTransactions(filters),
   });
 }
+
+export function useCreateBankTransaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      bankAccountId: string;
+      date: string;
+      amount: string | number;
+      description?: string;
+      valueDate?: string;
+      counterpartyName?: string;
+      counterpartyIban?: string;
+      counterpartyBic?: string;
+      reference?: string;
+      notes?: string;
+    }) => accountingApi.createBankTransaction(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: accountingKeys.bankTransactions.all });
+      qc.invalidateQueries({ queryKey: accountingKeys.bankAccounts.all });
+      qc.invalidateQueries({ queryKey: accountingKeys.dashboard() });
+    },
+  });
+}
+
 export function useAutoReconcile() {
   const qc = useQueryClient();
   return useMutation({

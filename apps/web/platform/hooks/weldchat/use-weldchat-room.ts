@@ -13,9 +13,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { RoomClient } from '@weldsuite/realtime/client';
+import { getRealtimeWsOrigin } from '@/lib/api/public-env';
 
-const REALTIME_BASE_URL =
-  import.meta.env.VITE_REALTIME_URL?.replace(/\/ws\/?$/, '') || 'ws://localhost:8790';
+const REALTIME_BASE_URL = getRealtimeWsOrigin();
 
 export function useWeldChatRoom(channelId: string | null): {
   client: RoomClient | null;

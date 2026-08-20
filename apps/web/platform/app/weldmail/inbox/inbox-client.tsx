@@ -84,6 +84,7 @@ import { format, isToday, isYesterday } from 'date-fns';
 import { toast } from 'sonner';
 import { mailApi } from '../lib/api-client';
 import { IsolatedHtmlContent } from '../components/isolated-html-content';
+import { ComposeAttachButton } from '../components/compose-attach-button';
 import {
   useMarkMailRead,
   useToggleMailStar,
@@ -2464,27 +2465,40 @@ export function InboxClient({
                     onChange={(e) => setComposeData(prev => ({ ...prev, body: e.target.value }))}
                     autoFocus
                   />
+                  {attachedFiles.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {attachedFiles.map((file, index) => (
+                        <div
+                          key={`${file.name}-${index}`}
+                          className="flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-xs max-w-[180px]"
+                        >
+                          <span className="truncate">{file.name}</span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-4 w-4 p-0"
+                            onClick={() => removeAttachment(index)}
+                            title={t.mail.messageDetail.cancel}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Reply Footer */}
                 <div className="pl-[18px] pr-[18px] py-3 border-t border-gray-200 dark:border-border flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Button variant="ghost"
-                      className="p-1.5 hover:bg-gray-100 dark:hover:bg-accent rounded-lg transition-colors"
+                    <ComposeAttachButton
                       title={st('sweep.weldmail.compose.attachFiles')}
-                      onClick={() => {
-                        const input = document.createElement('input');
-                        input.type = 'file';
-                        input.multiple = true;
-                        input.onchange = (e: Event) => {
-                          const files = Array.from((e.target as HTMLInputElement).files ?? []);
-                          toast.success(t.mail.inboxPage.filesAttached.replace('{n}', String(files.length)));
-                        };
-                        input.click();
-                      }}
-                    >
-                      <Paperclip className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
-                    </Button>
+                      testId="inbox-reply-attach-input"
+                      className="p-1.5 hover:bg-gray-100 dark:hover:bg-accent rounded-lg transition-colors"
+                      iconClassName="text-gray-500 dark:text-muted-foreground"
+                      onFilesSelected={(files) => setAttachedFiles((prev) => [...prev, ...files])}
+                    />
                     <Button variant="ghost"
                       className="p-1.5 hover:bg-gray-100 dark:hover:bg-accent rounded-lg transition-colors"
                       title={st('sweep.weldmail.compose.insertLink')}
@@ -3724,22 +3738,13 @@ export function InboxClient({
               {/* Footer with actions */}
               <div className="px-4 py-3 border-t border-gray-200 dark:border-border flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Button variant="ghost"
-                    className="p-1.5 hover:bg-gray-100 dark:hover:bg-accent rounded transition-colors"
+                  <ComposeAttachButton
                     title={st('sweep.weldmail.compose.attachFiles')}
-                    onClick={() => {
-                      const input = document.createElement('input');
-                      input.type = 'file';
-                      input.multiple = true;
-                      input.onchange = (e: Event) => {
-                        const files = Array.from((e.target as HTMLInputElement).files ?? []);
-                        toast.success(t.mail.inboxPage.filesAttached.replace('{n}', String(files.length)));
-                      };
-                      input.click();
-                    }}
-                  >
-                    <Paperclip className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
-                  </Button>
+                    testId="inbox-popup-attach-input"
+                    className="p-1.5 hover:bg-gray-100 dark:hover:bg-accent rounded transition-colors"
+                    iconClassName="text-gray-500 dark:text-muted-foreground"
+                    onFilesSelected={(files) => setAttachedFiles((prev) => [...prev, ...files])}
+                  />
                   <Button variant="ghost"
                     className="p-1.5 hover:bg-gray-100 dark:hover:bg-accent rounded transition-colors"
                     title={st('sweep.weldmail.compose.insertLink')}

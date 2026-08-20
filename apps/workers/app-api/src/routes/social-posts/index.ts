@@ -21,6 +21,7 @@ import {
   cancelDeliveryBeforeDelete,
   PostPeerNotConfiguredError,
   SocialPublishConflictError,
+  SocialCancelUpstreamError,
   SocialInsufficientCreditsError,
 } from '@weldsuite/social-publishing';
 import { socialContext } from '../../lib/social-context';
@@ -232,15 +233,18 @@ app.post('/:id/reschedule', requirePermission('posts:update'), zValidator('json'
 });
 
 /**
- * POST /:id/cancel — cancel a scheduled/draft post (marks it cancelled locally).
+ * POST /:id/cancel — cancel a post's schedule. The post is kept and returned to
+ * `draft` so it can be re-scheduled; only the slot is given up.
  */
 app.post('/:id/cancel', requirePermission('posts:update'), async (c) => {
   const db = c.get('tenantDb');
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
   try {
-    // cancelPost also cancels the live PostPeer scheduled post (if any) so it
-    // can't still fire after the user cancels, and refunds the charged credits.
+    // cancelPost removes the live PostPeer scheduled post (if any) so it can't
+    // still fire after the user cancels, and refunds the charged credits. If the
+    // upstream delete fails it throws and the post stays `scheduled` — see
+    // SocialCancelUpstreamError.
     const cancelled = await cancelPost(db, socialContext(c.env), workspaceId, id);
     if (!cancelled) return error.notFound(c, 'Social post', id);
     publishEntityEvent({
@@ -248,12 +252,20 @@ app.post('/:id/cancel', requirePermission('posts:update'), async (c) => {
       entityType: 'social_post',
       entityId: id,
       action: 'cancelled',
-      data: { id, status: 'cancelled' },
+      data: { id, status: 'draft' },
     });
-    return success(c, { id, status: 'cancelled' });
+    // The action is "cancelled" (the schedule is gone) but the post itself lives
+    // on as a draft, so that is the status the client gets back.
+    return success(c, { id, status: 'draft' });
   } catch (err) {
     if (err instanceof SocialPublishConflictError) {
       return error.conflict(c, err.message);
+    }
+    // The post is still scheduled upstream — surface that plainly so the client
+    // can tell the user it was NOT cancelled, rather than a generic failure.
+    if (err instanceof SocialCancelUpstreamError) {
+      console.error('[app-api/social-posts] cancel failed upstream:', err.cause ?? err);
+      return error.badGateway(c, err.message);
     }
     console.error('[app-api/social-posts] cancel failed:', err);
     return error.internal(c, 'Failed to cancel post');
@@ -309,6 +321,13 @@ app.delete('/:id', requirePermission('posts:delete'), async (c) => {
     });
     return noContent(c);
   } catch (err) {
+    // The schedule is still live on PostPeer, so the row must stay: deleting it
+    // now would hide a post that is still going to publish. Say so plainly
+    // instead of returning a generic failure.
+    if (err instanceof SocialCancelUpstreamError) {
+      console.error('[app-api/social-posts] delete blocked, cancel failed upstream:', err.cause ?? err);
+      return error.badGateway(c, err.message);
+    }
     console.error('[app-api/social-posts] delete failed:', err);
     return error.internal(c, 'Failed to delete social post');
   }

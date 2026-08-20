@@ -8,6 +8,7 @@
     "dev": "wrangler dev --port 8789",
     "build": "wrangler deploy --dry-run --outdir dist",
     "deploy": "wrangler deploy",
+    "deploy:test": "wrangler deploy --env test",
     "deploy:production": "wrangler deploy --env production",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
@@ -22,6 +23,7 @@
     "@weldsuite/cloudflare-realtime": "workspace:*",
     "@weldsuite/cloudflare-registrar": "workspace:*",
     "@weldsuite/cloudflare-zones": "workspace:*",
+    "@weldsuite/realtime-registrar": "workspace:*",
     "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/credits": "workspace:*",
     "@weldsuite/social-publishing": "workspace:*",
@@ -29,7 +31,7 @@
     "@weldsuite/email": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/feature-flags": "workspace:*",
-    "@weldsuite/nango": "workspace:*",
+    "@weldsuite/connectors": "workspace:*",
     "@weldsuite/notifications": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
@@ -38,7 +40,7 @@
     "drizzle-orm": "^0.45.2",
     "fflate": "^0.8.2",
     "hono": "4.12.34",
-    "nanoid": "^5.1.5",
+    "nanoid": "^5.1.16",
     "zod": "^3.25.76"
   },
   "devDependencies": {

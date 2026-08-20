@@ -51,7 +51,12 @@ import {
   type DnsRecordInput,
 } from '@/hooks/queries/use-host-queries';
 import { useI18n } from '@/lib/i18n/provider';
-import type { Domain, ContactInput } from '@weldsuite/core-api-client/schemas/domains';
+import {
+  isExternalDomainRegistrar,
+  publicDomainRegistrar,
+  type Domain,
+  type ContactInput,
+} from '@weldsuite/core-api-client/schemas/domains';
 import type { DnsZone } from '@weldsuite/core-api-client/schemas/dns-zones';
 
 type DomainContact = Partial<ContactInput>;
@@ -145,7 +150,7 @@ export function DomainDetailContent({
   // configured DNS provider; the UI never surfaces the provider name.
   const canManageDns = dnsZone?.provider === 'cloudflare' && !!dnsZone?.externalZoneId;
 
-  const isExternalDomain = !!(domain.registrar && domain.registrar !== 'WeldHost');
+  const isExternalDomain = isExternalDomainRegistrar(domain.registrar);
   const status = statusPill[domain.status] ?? statusPill.active;
 
   useEffect(() => {
@@ -835,7 +840,7 @@ function DomainSidebarDetails({
         </div>
         <div className="flex items-center gap-3">
           <Building2 className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm text-foreground">{domain.registrar || 'WeldHost'}</span>
+          <span className="text-sm text-foreground">{publicDomainRegistrar(domain.registrar)}</span>
         </div>
       </div>
 

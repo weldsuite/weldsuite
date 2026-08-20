@@ -1,0 +1,408 @@
+name: Deploy
+
+# Deploy lives in this repo.
+#   push to `develop` → test  (app-test.weldsuite.org, *-test workers)
+#   push to `main`    → production (app.weldsuite.org)
+#
+# Secrets live on the GitHub Environments `test` and `production`.
+# See .github/SECRETS.md.
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - 'apps/web/platform/**'
+      - 'apps/workers/**'
+      - 'apps/mobile/**'
+      - 'apps/tools/migrate-databases/**'
+      - 'packages/clients/**'
+      - 'packages/core/ai/**'
+      - 'packages/core/cloudflare-realtime/**'
+      - 'packages/core/cloudflare-registrar/**'
+      - 'packages/core/cloudflare-zones/**'
+      - 'packages/core/credits/**'
+      - 'packages/core/db/**'
+      - 'packages/core/email/**'
+      - 'packages/core/entity-events/**'
+      - 'packages/core/feature-flags/**'
+      - 'packages/core/connectors/**'
+      - 'packages/core/neon-provisioning/**'
+      - 'packages/core/notifications/**'
+      - 'packages/core/permissions/**'
+      - 'packages/core/realtime/**'
+      - 'packages/core/social-publishing/**'
+      - 'packages/core/transactional-email/**'
+      - 'packages/core/workflow-integrations/**'
+      - 'packages/design/mobile-ui/**'
+      - 'packages/config/typescript-config/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'package.json'
+      - 'turbo.json'
+      - '.npmrc'
+      - '.github/actions/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deploy target. Push to develop always uses test; push to main always uses production.'
+        required: true
+        type: choice
+        options:
+          - test
+          - production
+        default: 'test'
+
+concurrency:
+  group: deploy-${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'main' && 'production' || 'test') }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare
+    runs-on: [self-hosted, linux, x64]
+    outputs:
+      sha: ${{ steps.ctx.outputs.sha }}
+      ref: ${{ steps.ctx.outputs.ref }}
+      cf_env: ${{ steps.ctx.outputs.cf_env }}
+      run_migrations: ${{ steps.changes.outputs.migrations }}
+      release_weldmail: ${{ steps.changes.outputs.weldmail }}
+      release_weldchat: ${{ steps.changes.outputs.weldchat }}
+      workers: ${{ steps.matrix.outputs.workers }}
+    steps:
+      - name: Resolve deploy context
+        id: ctx
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          INPUT_ENV: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            ENV="${INPUT_ENV:-test}"
+          elif [ "$REF_NAME" = "main" ]; then
+            ENV="production"
+          else
+            ENV="test"
+          fi
+
+          if [ "$ENV" = "production" ] && [ "$REF_NAME" != "main" ]; then
+            echo "::error::production deploys only from the main branch (got $REF_NAME)"
+            exit 1
+          fi
+          if [ "$ENV" = "test" ] && [ "$EVENT_NAME" = "push" ] && [ "$REF_NAME" != "develop" ]; then
+            echo "::error::test deploys from push only on develop (got $REF_NAME)"
+            exit 1
+          fi
+
+          {
+            echo "sha=$SHA"
+            echo "ref=$REF_NAME"
+            echo "cf_env=$ENV"
+          } >> "$GITHUB_OUTPUT"
+          echo "Deploying $REF_NAME @ $SHA to $ENV"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect DB / mobile / worker changes
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          base: ${{ github.event.before != '0000000000000000000000000000000000000000' && github.event.before || '' }}
+          filters: |
+            migrations:
+              - 'packages/core/db/drizzle/**'
+              - 'packages/core/db/src/schema/**'
+              - 'apps/tools/migrate-databases/**'
+            weldmail:
+              - 'apps/mobile/weldmail-app/**'
+              - 'packages/clients/app-api-client/**'
+              - 'packages/clients/api-client/**'
+              - 'packages/design/mobile-ui/**'
+            weldchat:
+              - 'apps/mobile/weldchat-app/**'
+              - 'packages/clients/app-api-client/**'
+              - 'packages/clients/api-client/**'
+              - 'packages/design/mobile-ui/**'
+              - 'packages/core/realtime/**'
+            all_workers:
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'package.json'
+              - 'turbo.json'
+              - '.npmrc'
+              - 'packages/core/db/**'
+              - 'packages/core/permissions/**'
+              - 'packages/clients/app-api-client/**'
+              - 'packages/clients/api-client/**'
+            app-api:
+              - 'apps/workers/app-api/**'
+              - 'packages/core/ai/**'
+              - 'packages/core/cloudflare-realtime/**'
+              - 'packages/core/cloudflare-registrar/**'
+              - 'packages/core/cloudflare-zones/**'
+              - 'packages/clients/core-api-client/**'
+              - 'packages/core/credits/**'
+              - 'packages/core/social-publishing/**'
+              - 'packages/core/email/**'
+              - 'packages/core/entity-events/**'
+              - 'packages/core/feature-flags/**'
+              - 'packages/core/connectors/**'
+              - 'packages/core/notifications/**'
+              - 'packages/core/realtime/**'
+              - 'packages/core/workflow-integrations/**'
+              - 'packages/core/transactional-email/**'
+            billing-worker:
+              - 'apps/workers/billing-worker/**'
+              - 'packages/core/cloudflare-registrar/**'
+              - 'packages/core/credits/**'
+            audit-log-worker:
+              - 'apps/workers/audit-log-worker/**'
+              - 'packages/core/entity-events/**'
+              - 'packages/core/realtime/**'
+            external-api:
+              - 'apps/workers/external-api/**'
+              - 'packages/clients/core-api-client/**'
+              - 'packages/core/entity-events/**'
+              - 'packages/core/social-publishing/**'
+              - 'packages/core/credits/**'
+              - 'packages/core/realtime/**'
+            integration-webhook-worker:
+              - 'apps/workers/integration-webhook-worker/**'
+              - 'packages/core/entity-events/**'
+              - 'packages/core/workflow-integrations/**'
+              - 'packages/core/realtime/**'
+            integration-sync-worker:
+              - 'apps/workers/integration-sync-worker/**'
+            mail-inbound-worker:
+              - 'apps/workers/mail-inbound-worker/**'
+              - 'packages/core/email/**'
+              - 'packages/core/realtime/**'
+            realtime-worker:
+              - 'apps/workers/realtime-worker/**'
+              - 'packages/core/realtime/**'
+            workspace-worker:
+              - 'apps/workers/workspace-worker/**'
+              - 'packages/core/cloudflare-zones/**'
+              - 'packages/core/email/**'
+              - 'packages/core/neon-provisioning/**'
+              - 'packages/core/transactional-email/**'
+            workflow-worker:
+              - 'apps/workers/workflow-worker/**'
+              - 'packages/core/ai/**'
+              - 'packages/core/credits/**'
+              - 'packages/core/entity-events/**'
+              - 'packages/core/workflow-integrations/**'
+              - 'packages/core/realtime/**'
+            mcp-server:
+              - 'apps/workers/mcp-server/**'
+              - 'packages/clients/core-api-client/**'
+              - 'packages/core/entity-events/**'
+              - 'packages/core/social-publishing/**'
+              - 'packages/core/credits/**'
+              - 'packages/core/realtime/**'
+
+      - name: Build worker matrix
+        id: matrix
+        env:
+          ALL_WORKERS: ${{ steps.changes.outputs.all_workers }}
+          W_APP_API: ${{ steps.changes.outputs.app-api }}
+          W_BILLING: ${{ steps.changes.outputs.billing-worker }}
+          W_AUDIT: ${{ steps.changes.outputs.audit-log-worker }}
+          W_EXTERNAL: ${{ steps.changes.outputs.external-api }}
+          W_WEBHOOK: ${{ steps.changes.outputs.integration-webhook-worker }}
+          W_SYNC: ${{ steps.changes.outputs.integration-sync-worker }}
+          W_MAIL: ${{ steps.changes.outputs.mail-inbound-worker }}
+          W_REALTIME: ${{ steps.changes.outputs.realtime-worker }}
+          W_WORKSPACE: ${{ steps.changes.outputs.workspace-worker }}
+          W_WORKFLOW: ${{ steps.changes.outputs.workflow-worker }}
+          W_MCP: ${{ steps.changes.outputs.mcp-server }}
+        run: |
+          set -euo pipefail
+          ALL='["app-api","billing-worker","audit-log-worker","external-api","integration-webhook-worker","integration-sync-worker","mail-inbound-worker","realtime-worker","workspace-worker","workflow-worker","mcp-server"]'
+          if [ "$ALL_WORKERS" = "true" ]; then
+            echo "workers=$ALL" >> "$GITHUB_OUTPUT"
+            echo "Deploying all 11 workers (lockfile, workspace graph, or @weldsuite/db graph changed)"
+            exit 0
+          fi
+
+          selected=()
+          add() { if [ "$2" = "true" ]; then selected+=("$1"); fi; }
+          add app-api "$W_APP_API"
+          add billing-worker "$W_BILLING"
+          add audit-log-worker "$W_AUDIT"
+          add external-api "$W_EXTERNAL"
+          add integration-webhook-worker "$W_WEBHOOK"
+          add integration-sync-worker "$W_SYNC"
+          add mail-inbound-worker "$W_MAIL"
+          add realtime-worker "$W_REALTIME"
+          add workspace-worker "$W_WORKSPACE"
+          add workflow-worker "$W_WORKFLOW"
+          add mcp-server "$W_MCP"
+
+          if [ ${#selected[@]} -eq 0 ]; then
+            echo 'workers=[]' >> "$GITHUB_OUTPUT"
+            echo "No workers changed; skipping worker deploy"
+            exit 0
+          fi
+
+          json='['
+          first=1
+          for w in "${selected[@]}"; do
+            if [ "$first" -eq 1 ]; then first=0; else json+=','; fi
+            json+="\"$w\""
+          done
+          json+=']'
+          echo "workers=$json" >> "$GITHUB_OUTPUT"
+          echo "Deploying workers: $json"
+
+  migrations:
+    name: Database Migrations
+    needs: prepare
+    if: needs.prepare.outputs.run_migrations == 'true'
+    runs-on: [self-hosted, linux, x64]
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Run master migration
+        working-directory: packages/core/db
+        env:
+          MASTER_DATABASE_URL: ${{ secrets.MASTER_DATABASE_URL }}
+        run: pnpm db:migrate:master
+      - name: Run tenant migrations
+        working-directory: apps/tools/migrate-databases
+        env:
+          MASTER_DATABASE_URL: ${{ secrets.MASTER_DATABASE_URL }}
+          DATABASE_ENCRYPTION_KEY: ${{ secrets.DATABASE_ENCRYPTION_KEY }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NODE_TLS_REJECT_UNAUTHORIZED: '0'
+        run: pnpm migrate
+
+  workers:
+    name: Deploy ${{ matrix.worker }}
+    needs: [prepare, migrations]
+    if: >-
+      always() && !failure() && !cancelled() &&
+      needs.prepare.outputs.workers != '[]'
+    runs-on: [self-hosted, linux, x64]
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: ${{ fromJson(needs.prepare.outputs.workers) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Deploy ${{ matrix.worker }}
+        working-directory: apps/workers/${{ matrix.worker }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          TARGET="${{ needs.prepare.outputs.cf_env }}"
+          echo "=== Deploying ${{ matrix.worker }} to $TARGET ==="
+          pnpm "deploy:${TARGET}"
+
+  mobile-weldmail:
+    name: Release WeldMail (OTA)
+    needs: [prepare, workers]
+    if: >-
+      always() && !failure() && !cancelled() &&
+      (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
+      needs.prepare.outputs.release_weldmail == 'true'
+    runs-on: [self-hosted, linux, x64]
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Publish OTA update
+        working-directory: apps/mobile/weldmail-app
+        env:
+          EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
+        run: |
+          CHANNEL="${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}"
+          eas update \
+            --channel "$CHANNEL" \
+            --environment "$CHANNEL" \
+            --message "deploy ${{ needs.prepare.outputs.sha }} ($CHANNEL)" \
+            --non-interactive
+
+  mobile-weldchat:
+    name: Release WeldChat (OTA)
+    needs: [prepare, workers]
+    if: >-
+      always() && !failure() && !cancelled() &&
+      (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
+      needs.prepare.outputs.release_weldchat == 'true'
+    runs-on: [self-hosted, linux, x64]
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Publish OTA update
+        working-directory: apps/mobile/weldchat-app
+        env:
+          EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
+        run: |
+          CHANNEL="${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}"
+          eas update \
+            --channel "$CHANNEL" \
+            --environment "$CHANNEL" \
+            --message "deploy ${{ needs.prepare.outputs.sha }} ($CHANNEL)" \
+            --non-interactive
+
+  frontend:
+    name: Deploy platform (${{ needs.prepare.outputs.cf_env }} Pages)
+    needs: [prepare, workers]
+    if: >-
+      always() && !failure() && !cancelled() &&
+      (needs.workers.result == 'success' || needs.workers.result == 'skipped')
+    runs-on: [self-hosted, linux, x64]
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Build platform
+        working-directory: apps/web/platform
+        env:
+          VITE_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
+          VITE_CORE_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
+          VITE_REALTIME_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'wss://realtime-test.weldsuite.org/ws' || 'wss://realtime.weldsuite.org/ws' }}
+          VITE_ENVIRONMENT: ${{ needs.prepare.outputs.cf_env }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
+          VITE_BOOKING_PORTAL_URL: ${{ secrets.VITE_BOOKING_PORTAL_URL }}
+          VITE_MEETING_PORTAL_URL: ${{ secrets.VITE_MEETING_PORTAL_URL }}
+          VITE_MIXPANEL_TOKEN: ${{ secrets.VITE_MIXPANEL_TOKEN }}
+          VITE_BETTERSTACK_SOURCE_TOKEN: ${{ secrets.VITE_BETTERSTACK_SOURCE_TOKEN }}
+        run: pnpm build
+      - name: Deploy to Pages
+        working-directory: apps/web/platform
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ENV: ${{ needs.prepare.outputs.cf_env }}
+        run: |
+          if [ "$CF_ENV" = "test" ]; then
+            PROJECT=weldsuite-test
+            BRANCH=develop
+          else
+            PROJECT=weldsuite
+            BRANCH=main
+          fi
+          pnpm exec wrangler pages deploy dist \
+            --project-name "$PROJECT" \
+            --branch "$BRANCH" \
+            --commit-dirty=true

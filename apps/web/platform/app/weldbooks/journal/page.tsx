@@ -4,6 +4,7 @@ import { BookOpen } from 'lucide-react';
 import { EmptyStateIllustration, type ColumnDef, type GroupConfig } from '@/components/entity-list';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 interface JournalEntryRow {
   id: string;
@@ -12,12 +13,6 @@ interface JournalEntryRow {
   description: string | null;
   totalDebit: number | null;
   totalCredit: number | null;
-}
-
-function fmt(value: number | null | undefined): string {
-  return new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(
-    Number(value ?? 0),
-  );
 }
 
 /**
@@ -70,6 +65,7 @@ export default function JournalEntriesPage() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const tjp = t.accounting.journalPage;
+  const { formatMoney: fmt } = useCurrentEntityCurrency();
 
   const entries = (data?.data ?? []) as unknown as JournalEntryRow[];
 

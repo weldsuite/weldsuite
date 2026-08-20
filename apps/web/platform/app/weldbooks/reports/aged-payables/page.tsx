@@ -10,6 +10,7 @@ import {
 } from '@weldsuite/ui/components/table';
 import { useAgedPayablesReport } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 interface AgedPayablesBillRow {
   id: string;
@@ -26,15 +27,9 @@ interface AgedPayablesReport {
   bills?: AgedPayablesBillRow[];
 }
 
-function fmt(value: string | number | null | undefined): string {
-  return new Intl.NumberFormat('nl-NL', {
-    style: 'currency',
-    currency: 'EUR',
-  }).format(Number(value ?? 0));
-}
-
 export default function AgedPayablesReportPage() {
   const { t } = useI18n();
+  const { formatMoney: fmt } = useCurrentEntityCurrency();
   const tr = t.accounting.reports;
 
   const { data, isLoading } = useAgedPayablesReport();

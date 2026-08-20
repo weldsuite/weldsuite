@@ -37,6 +37,19 @@ export const social = {
       published: 'Gepubliceerd',
       failed: 'Mislukt',
 
+      cancelConfirm: {
+        title: 'Deze planning annuleren?',
+        description:
+          'Het bericht wordt niet op het geplande tijdstip verstuurd. Het blijft bewaard als concept, dus je kunt het later opnieuw inplannen. Credits die bij het inplannen zijn afgeschreven worden terugbetaald.',
+        alternatives: 'Wil je het alleen aanpassen? Herplan of bewerk het bericht dan.',
+        reschedule: 'Liever herplannen',
+        edit: 'Liever bewerken',
+        confirm: 'Planning annuleren',
+        keep: 'Gepland houden',
+        failed:
+          'De planning kon niet worden geannuleerd; het bericht staat nog steeds klaar om te publiceren. Probeer het opnieuw.',
+      },
+
       statuses: {
         draft: 'Concept',
         pendingApproval: 'Wacht op Goedkeuring',

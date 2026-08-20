@@ -1,0 +1,348 @@
+name: Release Desktop
+
+# Builds the WeldSuite desktop app (Electron) for macOS and Windows, then
+# uploads installers + electron-updater manifests to the R2 bucket
+# `weldsuite-desktop-downloads` at https://downloads.weldsuite.org.
+#
+# Not triggered by a push: bump apps/desktop/package.json, merge to main,
+# then run this workflow. Signing degrades to unsigned if certs are absent.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch, tag or SHA to build'
+        required: false
+        default: 'main'
+      platforms:
+        description: 'Which platforms to build'
+        required: false
+        default: 'both'
+        type: choice
+        options: [both, mac, win]
+      publish:
+        description: 'Upload to R2. Unchecked = build + attach to this run only (safe dry run).'
+        required: false
+        default: false
+        type: boolean
+      promote_latest:
+        description: 'Also update the stable download/ aliases the marketing site links to.'
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: release-desktop
+  cancel-in-progress: false
+
+env:
+  R2_BUCKET: weldsuite-desktop-downloads
+
+jobs:
+  prepare:
+    name: Prepare
+    runs-on: [self-hosted, linux, x64]
+    outputs:
+      ref: ${{ steps.ctx.outputs.ref }}
+      version: ${{ steps.version.outputs.version }}
+      build_mac: ${{ steps.ctx.outputs.build_mac }}
+      build_win: ${{ steps.ctx.outputs.build_win }}
+      publish: ${{ steps.ctx.outputs.publish }}
+      promote_latest: ${{ steps.ctx.outputs.promote_latest }}
+    steps:
+      - name: Resolve release context
+        id: ctx
+        env:
+          IN_REF: ${{ inputs.ref }}
+          IN_PLATFORMS: ${{ inputs.platforms }}
+          IN_PUBLISH: ${{ inputs.publish }}
+          IN_PROMOTE: ${{ inputs.promote_latest }}
+        run: |
+          set -euo pipefail
+          REF="${IN_REF:-main}"
+          PLATFORMS="${IN_PLATFORMS:-both}"
+          PUBLISH="${IN_PUBLISH:-false}"
+          PROMOTE="${IN_PROMOTE:-true}"
+
+          case "$PLATFORMS" in
+            both) MAC=true;  WIN=true  ;;
+            mac)  MAC=true;  WIN=false ;;
+            win)  MAC=false; WIN=true  ;;
+            *) echo "::error::unknown platforms value '$PLATFORMS'"; exit 1 ;;
+          esac
+
+          {
+            echo "ref=$REF"
+            echo "build_mac=$MAC"
+            echo "build_win=$WIN"
+            echo "publish=$PUBLISH"
+            echo "promote_latest=$PROMOTE"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ctx.outputs.ref }}
+
+      - name: Read desktop version
+        id: version
+        run: |
+          set -euo pipefail
+          V=$(node -p "require('./apps/desktop/package.json').version")
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Desktop version: $V"
+
+      - name: Summarise plan
+        env:
+          V: ${{ steps.version.outputs.version }}
+        run: |
+          {
+            echo "### Desktop release plan"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Version | \`$V\` |"
+            echo "| Ref | \`${{ steps.ctx.outputs.ref }}\` |"
+            echo "| macOS | ${{ steps.ctx.outputs.build_mac }} |"
+            echo "| Windows | ${{ steps.ctx.outputs.build_win }} |"
+            echo "| Upload to R2 | ${{ steps.ctx.outputs.publish }} |"
+            echo "| Update download/ aliases | ${{ steps.ctx.outputs.promote_latest }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: prepare
+    environment: production
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-latest
+            script: package:mac
+            enabled: ${{ needs.prepare.outputs.build_mac }}
+          - name: Windows
+            os: windows-latest
+            script: package:win
+            enabled: ${{ needs.prepare.outputs.build_win }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Skip if platform not requested
+        if: matrix.enabled != 'true'
+        run: echo "${{ matrix.name }} not requested — skipping."
+
+      - name: Checkout
+        if: matrix.enabled == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+
+      - name: Setup monorepo
+        if: matrix.enabled == 'true'
+        uses: ./.github/actions/setup-monorepo
+
+      - name: Detect macOS signing availability
+        if: matrix.enabled == 'true' && runner.os == 'macOS'
+        id: mac_signing
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+        run: |
+          set -euo pipefail
+          if [ -n "${CSC_LINK:-}" ]; then echo "sign=true"  >> "$GITHUB_OUTPUT";
+          else                            echo "sign=false" >> "$GITHUB_OUTPUT"; fi
+          if [ -n "${APPLE_ID:-}" ];  then echo "notarize=true"  >> "$GITHUB_OUTPUT";
+          else                             echo "notarize=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Package macOS
+        if: matrix.enabled == 'true' && runner.os == 'macOS'
+        working-directory: apps/desktop
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ steps.mac_signing.outputs.sign }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.mac_signing.outputs.sign }}" != "true" ]; then
+            echo "::warning title=Unsigned macOS build::No MAC_CSC_LINK secret. Producing an UNSIGNED build — Gatekeeper will refuse it and WeldMeet screen-recording permission will not persist. Do not ship to users."
+          fi
+          if [ "${{ steps.mac_signing.outputs.notarize }}" = "true" ]; then
+            pnpm exec electron-vite build
+            pnpm exec electron-builder --mac -c.mac.notarize=true
+          else
+            echo "::warning title=Not notarized::No APPLE_ID secret. Skipping notarization."
+            pnpm run package:mac
+          fi
+
+      - name: Package Windows
+        if: matrix.enabled == 'true' && runner.os == 'Windows'
+        working-directory: apps/desktop
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CSC_LINK:-}" ]; then
+            echo "::warning title=Unsigned Windows build::No WIN_CSC_LINK secret. Producing an UNSIGNED installer — every download will hit a SmartScreen warning. Do not ship to users."
+          fi
+          pnpm run package:win
+
+      - name: Collect release files
+        if: matrix.enabled == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _dist
+          cd apps/desktop/release
+          find . -maxdepth 1 -type f \
+            \( -name '*.exe' -o -name '*.dmg' -o -name '*.zip' \
+               -o -name '*.blockmap' -o -name 'latest*.yml' \) \
+            -exec cp {} "$GITHUB_WORKSPACE/_dist/" \;
+          echo "Collected:"
+          ls -la "$GITHUB_WORKSPACE/_dist/"
+
+      - name: Upload build artifact
+        if: matrix.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ runner.os }}
+          path: _dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish to R2
+    needs: [prepare, build]
+    if: needs.prepare.outputs.publish == 'true' && !failure() && !cancelled()
+    runs-on: [self-hosted, linux, x64]
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.ref }}
+
+      - uses: ./.github/actions/setup-monorepo
+
+      - name: Download built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: _artifacts
+          merge-multiple: true
+
+      - name: Verify payload before upload
+        run: |
+          set -euo pipefail
+          cd _artifacts
+          ls -la
+          missing=0
+          found_manifest=0
+          for yml in latest*.yml; do
+            [ -e "$yml" ] || continue
+            found_manifest=1
+            echo "--- $yml ---"
+            cat "$yml"
+            refs=$(grep -E '^[[:space:]]*-?[[:space:]]*(url|path):' "$yml" \
+                   | sed -E 's/^[[:space:]]*-?[[:space:]]*(url|path):[[:space:]]*//' \
+                   | tr -d '\r' | sort -u || true)
+            while read -r f; do
+              [ -n "$f" ] || continue
+              if [ ! -f "$f" ]; then
+                echo "::error::$yml references '$f', which is not in the upload set"
+                missing=1
+              fi
+            done <<< "$refs"
+          done
+
+          if [ "$found_manifest" -eq 0 ]; then
+            echo "::error::No latest*.yml found. electron-updater needs a manifest; refusing to publish installers without one."
+            exit 1
+          fi
+          [ "$missing" -eq 0 ] || exit 1
+          echo "Manifest references all resolve."
+
+      - name: Upload versioned artifacts
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.R2_DOWNLOADS_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          cd _artifacts
+          put() {
+            local file="$1" key="$2" ct="$3"
+            echo "→ $key"
+            pnpm exec wrangler r2 object put "${{ env.R2_BUCKET }}/$key" \
+              --file "$file" --content-type "$ct" --remote
+          }
+          content_type() {
+            case "$1" in
+              *.exe)      echo 'application/vnd.microsoft.portable-executable' ;;
+              *.dmg)      echo 'application/x-apple-diskimage' ;;
+              *.zip)      echo 'application/zip' ;;
+              *.yml)      echo 'text/yaml; charset=utf-8' ;;
+              *.blockmap) echo 'application/octet-stream' ;;
+              *)          echo 'application/octet-stream' ;;
+            esac
+          }
+
+          for f in *.exe *.dmg *.zip *.blockmap; do
+            [ -e "$f" ] || continue
+            put "$f" "$f" "$(content_type "$f")"
+          done
+          for f in latest*.yml; do
+            [ -e "$f" ] || continue
+            put "$f" "$f" "$(content_type "$f")"
+          done
+
+      - name: Promote stable download aliases
+        if: needs.prepare.outputs.promote_latest == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.R2_DOWNLOADS_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          cd _artifacts
+          alias_put() {
+            local file="$1" key="$2" ct="$3"
+            echo "→ $key  (from $file)"
+            pnpm exec wrangler r2 object put "${{ env.R2_BUCKET }}/$key" \
+              --file "$file" --content-type "$ct" --remote
+          }
+
+          WIN_X64=$(ls *-win-x64.exe 2>/dev/null | head -1 || true)
+          [ -n "$WIN_X64" ] && alias_put "$WIN_X64" "download/WeldSuite-Setup.exe" \
+            'application/vnd.microsoft.portable-executable'
+
+          MAC_DMG=$(ls *-mac-universal.dmg 2>/dev/null | head -1 || true)
+          [ -n "$MAC_DMG" ] && alias_put "$MAC_DMG" "download/WeldSuite.dmg" \
+            'application/x-apple-diskimage'
+
+          if [ -z "${WIN_X64:-}" ] && [ -z "${MAC_DMG:-}" ]; then
+            echo "::error::promote_latest was requested but no aliasable artifact was found"
+            exit 1
+          fi
+
+      - name: Summarise release
+        env:
+          V: ${{ needs.prepare.outputs.version }}
+        run: |
+          {
+            echo "### Published desktop $V"
+            echo ""
+            echo "Update feed:"
+            echo "- https://downloads.weldsuite.org/latest.yml (Windows)"
+            echo "- https://downloads.weldsuite.org/latest-mac.yml (macOS)"
+            echo ""
+            echo "Stable download links for the marketing site:"
+            echo "- https://downloads.weldsuite.org/download/WeldSuite-Setup.exe"
+            echo "- https://downloads.weldsuite.org/download/WeldSuite.dmg"
+            echo ""
+            echo "Uploaded:"
+            echo '```'
+            ls -1 _artifacts
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

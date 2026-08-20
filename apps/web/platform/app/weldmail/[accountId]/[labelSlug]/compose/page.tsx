@@ -49,6 +49,13 @@ import {
 import { useComposeSafe } from '@/contexts/compose-context';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { ComposeAttachButton } from '@/app/weldmail/components/compose-attach-button';
+import {
+  MAX_EMAIL_SIZE_BYTES,
+  MailAttachmentUploadError,
+  emailSizeExceedsLimit,
+  uploadMailAttachments,
+} from '@/app/weldmail/lib/upload-attachments';
 
 interface PersonSuggestion {
   id: string;
@@ -60,9 +67,6 @@ interface PersonSuggestion {
 // A complete, syntactically valid email address (used to decide whether Enter
 // should commit the typed text verbatim or resolve the highlighted suggestion).
 const isCompleteEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
-
-// Server-side mirror lives in apps/api-worker/src/routes/mail/accounts.ts.
-const MAX_EMAIL_SIZE_BYTES = 5 * 1024 * 1024;
 
 interface ComposePageProps {
   accountId?: string;
@@ -106,7 +110,9 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
   const [fontSize, setFontSize] = useState('14');
   const [textAlignment] = useState<'left' | 'center' | 'right'>('left');
   const [scheduledTime, setScheduledTime] = useState<Date | null>(null);
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [attachedFiles, setAttachedFiles] = useState<File[]>(
+    () => composeContext?.composeData.attachedFiles ?? [],
+  );
 
   // Formatting states
   const [isBold, setIsBold] = useState(false);
@@ -434,58 +440,22 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
         const ccAddresses = ccRecipients ? parseRecipients(ccRecipients) : undefined;
         const bccAddresses = bccRecipients ? parseRecipients(bccRecipients) : undefined;
 
-        // Upload attachments to R2 and pass fileKeys (same pattern as immediate send).
         const trimmedBodyScheduled = body.trim();
         const htmlBodyScheduled = body.includes('<') ? body : body.replace(/\n/g, '<br>');
-        const bodyBytesScheduled = new TextEncoder().encode(trimmedBodyScheduled).byteLength
-          + new TextEncoder().encode(htmlBodyScheduled).byteLength;
-        const attachmentBytesScheduled = attachedFiles.reduce((sum, f) => sum + f.size, 0);
-        if (bodyBytesScheduled + attachmentBytesScheduled > MAX_EMAIL_SIZE_BYTES) {
+        if (emailSizeExceedsLimit(trimmedBodyScheduled, htmlBodyScheduled, attachedFiles)) {
           toast.error(t.mail.composePage.emailSizeExceeded.replace('{mb}', String(MAX_EMAIL_SIZE_BYTES / (1024 * 1024))));
           setIsSending(false);
           return;
         }
 
-        const uploadedAttachments: Array<{
-          filename: string;
-          contentType: string;
-          size: number;
-          fileKey: string;
-        }> = [];
-        for (const file of attachedFiles) {
-          try {
-            const contentType = file.type || 'application/octet-stream';
-            const genResp = await client.post<{
-              success: boolean;
-              uploadUrl: string;
-              uploadToken: string;
-              fileKey: string;
-            }>('/storage/generate-upload-url', {
-              fileName: file.name,
-              contentType,
-              fileSize: file.size,
-              folder: 'mail-attachments',
-              entityType: 'mail-attachment',
-              entityId: accountId,
-              isPublic: false,
-            });
-            const putResp = await fetch(genResp.uploadUrl, {
-              method: 'PUT',
-              body: file,
-              headers: { 'Content-Type': contentType },
-            });
-            if (!putResp.ok) throw new Error(`Upload failed: ${putResp.status}`);
-            uploadedAttachments.push({
-              filename: file.name,
-              contentType,
-              size: file.size,
-              fileKey: genResp.fileKey,
-            });
-          } catch {
-            toast.error(t.mail.composePage.failedToUpload.replace('{filename}', file.name));
-            setIsSending(false);
-            return;
-          }
+        let uploadedAttachments: Awaited<ReturnType<typeof uploadMailAttachments>> = [];
+        try {
+          uploadedAttachments = await uploadMailAttachments(client, accountId, attachedFiles);
+        } catch (err) {
+          const filename = err instanceof MailAttachmentUploadError ? err.filename : 'file';
+          toast.error(t.mail.composePage.failedToUpload.replace('{filename}', filename));
+          setIsSending(false);
+          return;
         }
 
         const result = await mailApi.scheduled.schedule({
@@ -516,60 +486,23 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
 
     setIsSending(true);
     try {
-      // Upload attachments to R2 first, then pass fileKeys to /send.
-      // Mirrors the 5 MiB server-side cap so the user gets instant feedback.
       const trimmedBody = body.trim();
       const htmlBody = body.includes('<') ? body : body.replace(/\n/g, '<br>');
-      const bodyBytes = new TextEncoder().encode(trimmedBody).byteLength
-        + new TextEncoder().encode(htmlBody).byteLength;
-      const attachmentBytes = attachedFiles.reduce((sum, f) => sum + f.size, 0);
-      if (bodyBytes + attachmentBytes > MAX_EMAIL_SIZE_BYTES) {
+      if (emailSizeExceedsLimit(trimmedBody, htmlBody, attachedFiles)) {
         toast.error(t.mail.composePage.emailSizeExceeded.replace('{mb}', String(MAX_EMAIL_SIZE_BYTES / (1024 * 1024))));
         setIsSending(false);
         return;
       }
 
-      const uploadedAttachments: Array<{
-        filename: string;
-        contentType: string;
-        size: number;
-        fileKey: string;
-      }> = [];
-      const client = await getClient();
-      for (const file of attachedFiles) {
-        try {
-          const contentType = file.type || 'application/octet-stream';
-          const genResp = await client.post<{
-            success: boolean;
-            uploadUrl: string;
-            uploadToken: string;
-            fileKey: string;
-          }>('/storage/generate-upload-url', {
-            fileName: file.name,
-            contentType,
-            fileSize: file.size,
-            folder: 'mail-attachments',
-            entityType: 'mail-attachment',
-            entityId: accountId,
-            isPublic: false,
-          });
-          const putResp = await fetch(genResp.uploadUrl, {
-            method: 'PUT',
-            body: file,
-            headers: { 'Content-Type': contentType },
-          });
-          if (!putResp.ok) throw new Error(`Upload failed: ${putResp.status}`);
-          uploadedAttachments.push({
-            filename: file.name,
-            contentType,
-            size: file.size,
-            fileKey: genResp.fileKey,
-          });
-        } catch {
-          toast.error(t.mail.composePage.failedToUpload.replace('{filename}', file.name));
-          setIsSending(false);
-          return;
-        }
+      let uploadedAttachments: Awaited<ReturnType<typeof uploadMailAttachments>> = [];
+      try {
+        const client = await getClient();
+        uploadedAttachments = await uploadMailAttachments(client, accountId, attachedFiles);
+      } catch (err) {
+        const filename = err instanceof MailAttachmentUploadError ? err.filename : 'file';
+        toast.error(t.mail.composePage.failedToUpload.replace('{filename}', filename));
+        setIsSending(false);
+        return;
       }
 
       const result = await mailApi.messages.send(accountId, {
@@ -1247,23 +1180,12 @@ export default function ComposePage({ accountId: accountIdProp, labelSlug: label
 
               <div className="w-px h-5 bg-gray-300 dark:bg-border mx-1" />
 
-              {/* Attachment */}
-              <label className="cursor-pointer" onMouseDown={preventFocusLoss}>
-                <input
-                  type="file"
-                  className="hidden"
-                  multiple
-                  data-testid="compose-attach-input"
-                  onChange={(e) => {
-                    if (e.target.files) {
-                      setAttachedFiles(prev => [...prev, ...Array.from(e.target.files!)]);
-                    }
-                  }}
-                />
-                <div className="p-1.5 hover:bg-gray-100 dark:hover:bg-accent rounded-md transition-colors" title={t.mail.toolbar.attachFile}>
-                  <Paperclip className="h-4 w-4" />
-                </div>
-              </label>
+              <ComposeAttachButton
+                title={t.mail.toolbar.attachFile}
+                testId="compose-attach-input"
+                className="p-1.5 hover:bg-gray-100 dark:hover:bg-accent rounded-md transition-colors"
+                onFilesSelected={(files) => setAttachedFiles((prev) => [...prev, ...files])}
+              />
 
               <div className="w-px h-5 bg-gray-300 dark:bg-border mx-1" />
 

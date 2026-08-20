@@ -69,11 +69,14 @@ export function buildOrderColumns(customerNames: Map<string, string>): ColumnDef
     {
       id: 'status',
       header: t.fields.status,
-      width: 'w-[130px]',
+      width: 'w-[160px]',
       render: (o) => (
-        // No `capitalize` — the translations carry their own casing, and
-        // forcing it breaks locales where a mid-phrase word stays lowercase.
-        <Badge variant={statusVariant(o.status)}>{orderStatusLabel(o.status)}</Badge>
+        <span className="inline-flex items-center gap-1.5">
+          <Badge variant={statusVariant(o.status)}>{orderStatusLabel(o.status)}</Badge>
+          {o.source === 'b2b_portal' ? (
+            <Badge variant="secondary">{t.orders.portalSource}</Badge>
+          ) : null}
+        </span>
       ),
     },
     {

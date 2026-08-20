@@ -26,6 +26,7 @@ import { FileText, Eye, Scan, FileCheck, Upload, Loader2, Sparkles, UserPlus, X,
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { TranslationsType } from '@/lib/i18n/types';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
@@ -95,14 +96,8 @@ interface DocumentRow {
 
 const ACCEPTED_TYPES = 'image/jpeg,image/jpg,image/png,image/webp';
 
-function fmt(value: number | null | undefined): string {
-  return new Intl.NumberFormat('nl-NL', {
-    style: 'currency',
-    currency: 'EUR',
-  }).format(value ?? 0);
-}
-
 export default function DocumentInboxPage() {
+  const { formatMoney: fmt } = useCurrentEntityCurrency();
   const { t } = useI18n();
   const st = useTranslations();
   const td = t.accounting.documents;
@@ -619,6 +614,7 @@ function CreateSupplierFromOcrDialog({
 }
 
 function OcrResultView({ result, matchedContactId, td }: { result: OcrResult; matchedContactId: string | null; td: DocumentsTranslations }) {
+  const { formatMoney: fmt } = useCurrentEntityCurrency();
   return (
     <div className="space-y-4">
       {/* Supplier */}
@@ -677,9 +673,9 @@ function OcrResultView({ result, matchedContactId, td }: { result: OcrResult; ma
                   <TableRow key={i}>
                     <TableCell className="text-sm">{item.description}</TableCell>
                     <TableCell className="text-right text-sm">{item.quantity ?? '-'}</TableCell>
-                    <TableCell className="text-right text-sm">{item.unitPrice != null ? fmt(item.unitPrice) : '-'}</TableCell>
+                    <TableCell className="text-right text-sm">{item.unitPrice != null ? fmt(item.unitPrice, result.currency) : '-'}</TableCell>
                     <TableCell className="text-right text-sm">{item.taxRate != null ? `${item.taxRate}%` : '-'}</TableCell>
-                    <TableCell className="text-right text-sm">{item.total != null ? fmt(item.total) : '-'}</TableCell>
+                    <TableCell className="text-right text-sm">{item.total != null ? fmt(item.total, result.currency) : '-'}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -693,21 +689,21 @@ function OcrResultView({ result, matchedContactId, td }: { result: OcrResult; ma
         <CardContent className="pt-4 space-y-2 text-sm">
           <div className="flex justify-between">
             <span>{td.ocrSubtotal}</span>
-            <span>{result.subtotal != null ? fmt(result.subtotal) : '-'}</span>
+            <span>{result.subtotal != null ? fmt(result.subtotal, result.currency) : '-'}</span>
           </div>
           {result.taxBreakdown?.map((tb, i: number) => (
             <div key={i} className="flex justify-between text-muted-foreground">
-              <span>{td.ocrVatLine.replace('{rate}', String(tb.rate)).replace('{amount}', fmt(tb.taxableAmount))}</span>
-              <span>{fmt(tb.taxAmount)}</span>
+              <span>{td.ocrVatLine.replace('{rate}', String(tb.rate)).replace('{amount}', fmt(tb.taxableAmount, result.currency))}</span>
+              <span>{fmt(tb.taxAmount, result.currency)}</span>
             </div>
           ))}
           <div className="flex justify-between">
             <span>{td.ocrTotalTax}</span>
-            <span>{result.totalTax != null ? fmt(result.totalTax) : '-'}</span>
+            <span>{result.totalTax != null ? fmt(result.totalTax, result.currency) : '-'}</span>
           </div>
           <div className="flex justify-between font-semibold text-base border-t pt-2">
             <span>{td.ocrTotal}</span>
-            <span>{result.total != null ? fmt(result.total) : '-'}</span>
+            <span>{result.total != null ? fmt(result.total, result.currency) : '-'}</span>
           </div>
         </CardContent>
       </Card>

@@ -28,7 +28,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema, type Database } from '../../db';
-import { nextEntityNumber, resolveEntityId } from '../../lib/entity-context';
+import { nextEntityNumber, resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
 import {
   assertPeriodOpen,
   ClosedPeriodError,
@@ -42,6 +42,7 @@ import {
   invoiceUsesReverseCharge,
   validateInvoiceForFinalize,
 } from '../../services/accounting-compliance';
+import { buildTaxTotalsWithRates, loadPlaceOfSupply } from '../../services/accounting-tax-resolve';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -94,61 +95,6 @@ const recordPaymentSchema = z.object({
   bankAccountId: z.string().optional(),
   notes: z.string().optional(),
 });
-
-function calculateInvoiceTotals(items: Array<{
-  quantity: string;
-  unitPrice: string;
-  discountPercent: string;
-  taxRate?: string | null;
-}>) {
-  let subtotal = 0;
-  let discountTotal = 0;
-  let taxTotal = 0;
-
-  const taxBreakdown: Record<string, { taxRateId: string; taxRateName: string; taxRate: number; taxableAmount: number; taxAmount: number }> = {};
-
-  const processedItems = items.map((item) => {
-    const qty = parseFloat(item.quantity) || 1;
-    const price = parseFloat(item.unitPrice) || 0;
-    const discount = parseFloat(item.discountPercent) || 0;
-    const rate = parseFloat(item.taxRate || '0');
-
-    const lineGross = qty * price;
-    const lineDiscount = lineGross * (discount / 100);
-    const lineTotal = lineGross - lineDiscount;
-    const lineTax = lineTotal * (rate / 100);
-    const lineTotalWithTax = lineTotal + lineTax;
-
-    subtotal += lineTotal;
-    discountTotal += lineDiscount;
-    taxTotal += lineTax;
-
-    const rateKey = String(rate);
-    if (!taxBreakdown[rateKey]) {
-      taxBreakdown[rateKey] = { taxRateId: '', taxRateName: `${rate}%`, taxRate: rate, taxableAmount: 0, taxAmount: 0 };
-    }
-    taxBreakdown[rateKey].taxableAmount += lineTotal;
-    taxBreakdown[rateKey].taxAmount += lineTax;
-
-    return {
-      lineTotal: lineTotal.toFixed(2),
-      lineTotalWithTax: lineTotalWithTax.toFixed(2),
-      taxAmount: lineTax.toFixed(2),
-    };
-  });
-
-  const total = subtotal + taxTotal;
-
-  return {
-    subtotal: subtotal.toFixed(2),
-    discountTotal: discountTotal.toFixed(2),
-    taxTotal: taxTotal.toFixed(2),
-    total: total.toFixed(2),
-    balanceDue: total.toFixed(2),
-    taxBreakdown: Object.values(taxBreakdown),
-    processedItems,
-  };
-}
 
 /**
  * Auto-promote a contact's `role` when it gets its first invoice.
@@ -395,14 +341,13 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
     const entityId = await resolveEntityId(c, db);
     if (!entityId) return error.badRequest(c, 'No accounting entity resolved — set X-Accounting-Entity-Id or configure a default entity.');
     const { formatted: invoiceNumber } = await nextEntityNumber(db, entityId, 'invoice');
+    const currency = data.currency || (await resolveEntityBaseCurrency(db, entityId));
 
-    // Calculate totals
-    const totals = calculateInvoiceTotals(data.items.map(item => ({
-      quantity: item.quantity || '1',
-      unitPrice: item.unitPrice,
-      discountPercent: item.discountPercent || '0',
-      taxRate: item.taxRate,
-    })));
+    const place = await loadPlaceOfSupply(db, entityId, {
+      buyerCountry: data.billingAddress?.country,
+      billingProvince: data.billingAddress?.province,
+    });
+    const totals = await buildTaxTotalsWithRates(db, data.items, place);
 
     const invoiceId = generateId('inv');
     const newInvoice = {
@@ -416,7 +361,7 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
       contactEmail: data.contactEmail || null,
       issueDate: new Date(data.issueDate),
       dueDate: new Date(data.dueDate),
-      currency: data.currency || 'EUR',
+      currency,
       subtotal: totals.subtotal,
       discountTotal: totals.discountTotal,
       taxTotal: totals.taxTotal,
@@ -543,12 +488,11 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
         .set({ deletedAt: new Date() })
         .where(eq(invoiceItems.invoiceId, invoiceId));
 
-      const totals = calculateInvoiceTotals(data.items.map(item => ({
-        quantity: item.quantity || '1',
-        unitPrice: item.unitPrice,
-        discountPercent: item.discountPercent || '0',
-        taxRate: item.taxRate,
-      })));
+      const place = await loadPlaceOfSupply(db, invoice.entityId, {
+        buyerCountry: data.billingAddress?.country ?? invoice.billingAddress?.country,
+        billingProvince: data.billingAddress?.province ?? invoice.billingAddress?.province,
+      });
+      const totals = await buildTaxTotalsWithRates(db, data.items, place);
 
       updateData.subtotal = totals.subtotal;
       updateData.discountTotal = totals.discountTotal;
@@ -814,26 +758,31 @@ app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
 
     // Find system accounts (scoped to the invoice's entity — codes repeat
     // across administrations in the multi-entity model)
-    const debiteurenAccount = await db
+    const entityAccounts = await db
       .select()
       .from(accounts)
-      .where(and(eq(accounts.code, '1300'), eq(accounts.entityId, invoice.entityId), isNull(accounts.deletedAt)))
-      .limit(1);
+      .where(and(eq(accounts.entityId, invoice.entityId), isNull(accounts.deletedAt)));
 
-    const revenueAccount = await db
-      .select()
-      .from(accounts)
-      .where(and(eq(accounts.code, '8000'), eq(accounts.entityId, invoice.entityId), isNull(accounts.deletedAt)))
-      .limit(1);
+    const byRole = (role: string) =>
+      entityAccounts.find((a) => (a.metadata as { systemRole?: string } | null)?.systemRole === role);
+    const byCode = (code: string) => entityAccounts.find((a) => a.code === code);
 
-    const btwTeBetalenAccount = await db
-      .select()
-      .from(accounts)
-      .where(and(eq(accounts.code, '1700'), eq(accounts.entityId, invoice.entityId), isNull(accounts.deletedAt)))
-      .limit(1);
+    const debiteurenAccount = byRole('accounts_receivable') ?? byCode('1300');
+    const revenueAccount = byRole('sales_revenue') ?? byCode('8000');
+    const taxPayableAccount = byRole('tax_payable') ?? byCode('1700');
 
-    if (!debiteurenAccount[0] || !revenueAccount[0]) {
+    if (!debiteurenAccount || !revenueAccount) {
       return error.badRequest(c, 'System accounts not found. Please run seed first.');
+    }
+
+    // Client-supplied revenueAccountId must belong to this entity (prevent cross-entity posting)
+    let resolvedRevenueAccountId = revenueAccount.id;
+    if (invoice.revenueAccountId) {
+      const owned = entityAccounts.find((a) => a.id === invoice.revenueAccountId);
+      if (!owned) {
+        return error.badRequest(c, 'revenueAccountId does not belong to this accounting entity');
+      }
+      resolvedRevenueAccountId = owned.id;
     }
 
     const total = parseFloat(invoice.total || '0');
@@ -865,7 +814,7 @@ app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
         id: generateId('jl'),
         entityId: invoice.entityId,
         journalEntryId,
-        accountId: debiteurenAccount[0].id,
+        accountId: debiteurenAccount.id,
         description: `Invoice ${invoice.invoiceNumber}`,
         debit: total.toFixed(2),
         credit: '0',
@@ -879,7 +828,7 @@ app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
         id: generateId('jl'),
         entityId: invoice.entityId,
         journalEntryId,
-        accountId: invoice.revenueAccountId || revenueAccount[0].id,
+        accountId: resolvedRevenueAccountId,
         description: `Revenue ${invoice.invoiceNumber}`,
         debit: '0',
         credit: subtotal.toFixed(2),
@@ -890,14 +839,59 @@ app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
       },
     ];
 
-    // Credit: BTW te betalen (tax amount)
-    if (taxTotal > 0 && btwTeBetalenAccount[0]) {
+    // Credit tax: prefer per-component GST accounts (CGST/SGST/IGST), else tax payable
+    const breakdown = (invoice.taxBreakdown ?? []) as Array<{
+      taxRateName?: string;
+      taxAmount?: number;
+      accountRole?: string;
+      component?: string;
+    }>;
+    const componentRows = breakdown.filter((b) => b.accountRole && (b.taxAmount ?? 0) > 0);
+
+    if (componentRows.length > 0) {
+      let sortOrder = 2;
+      let postedTax = 0;
+      const componentLines: typeof lines = [];
+      for (const row of componentRows) {
+        const taxAccount = byRole(row.accountRole!) ?? taxPayableAccount;
+        if (!taxAccount) {
+          return error.badRequest(
+            c,
+            `No account found for tax component role '${row.accountRole}'. Please run seed first.`,
+          );
+        }
+        const amount = Number(row.taxAmount);
+        postedTax += amount;
+        componentLines.push({
+          id: generateId('jl'),
+          entityId: invoice.entityId,
+          journalEntryId,
+          accountId: taxAccount.id,
+          description: `${row.taxRateName ?? 'GST'} ${invoice.invoiceNumber}`,
+          debit: '0',
+          credit: amount.toFixed(2),
+          contactId: invoice.contactId,
+          sortOrder,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+        sortOrder += 1;
+      }
+
+      // Absorb rounding remainder into the last component so credits match taxTotal
+      const remainder = Math.round((taxTotal - postedTax) * 100) / 100;
+      const last = componentLines[componentLines.length - 1];
+      if (last && Math.abs(remainder) >= 0.01) {
+        last.credit = (Number(last.credit) + remainder).toFixed(2);
+      }
+      lines.push(...componentLines);
+    } else if (taxTotal > 0 && taxPayableAccount) {
       lines.push({
         id: generateId('jl'),
         entityId: invoice.entityId,
         journalEntryId,
-        accountId: btwTeBetalenAccount[0].id,
-        description: `BTW ${invoice.invoiceNumber}`,
+        accountId: taxPayableAccount.id,
+        description: `Tax ${invoice.invoiceNumber}`,
         debit: '0',
         credit: taxTotal.toFixed(2),
         contactId: invoice.contactId,
@@ -905,6 +899,8 @@ app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
         createdAt: new Date(),
         updatedAt: new Date(),
       });
+    } else if (taxTotal > 0 && !taxPayableAccount) {
+      return error.badRequest(c, 'Tax payable account not found. Please run seed first.');
     }
 
     await db.insert(journalLines).values(lines);
@@ -1287,8 +1283,15 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
       });
     }
 
-    const totals = calculateInvoiceTotals(lineInputs);
+    const place = await loadPlaceOfSupply(db, entityId, {
+      buyerCountry: order.billingAddress?.country ?? order.shippingAddress?.country,
+      billingProvince:
+        order.billingAddress?.state ??
+        order.shippingAddress?.state,
+    });
+    const totals = await buildTaxTotalsWithRates(db, lineInputs, place);
     const { formatted: invoiceNumber } = await nextEntityNumber(db, entityId, 'invoice');
+    const currency = order.currency || (await resolveEntityBaseCurrency(db, entityId));
 
     const invoiceId = generateId('inv');
     const now = new Date();
@@ -1305,7 +1308,7 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
       contactEmail: order.customerEmail || null,
       issueDate: now,
       dueDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
-      currency: order.currency || 'EUR',
+      currency,
       subtotal: totals.subtotal,
       discountTotal: totals.discountTotal,
       taxTotal: totals.taxTotal,

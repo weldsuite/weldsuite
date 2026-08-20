@@ -42,16 +42,52 @@ crons = []
 
 [[hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "f1b2e092e6b64ade8ea7e7e17a1a0d39"
 localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:5432/weldsuite_master?sslmode=require"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "748b8f38937f4807b3978cacb17e1880"
 
 [[services]]
 binding = "REALTIME"
 service = "weldsuite-realtime"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "helpdesk-workflow-worker-test"
+routes = [
+  { pattern = "helpdesk-workflow-worker-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.durable_objects]
+bindings = [
+  { name = "ASSIGNMENT_ROUTER", class_name = "AssignmentRouter" },
+]
+
+[env.test.triggers]
+crons = []
+
+[env.test.vars]
+ENVIRONMENT = "test"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.workflows]]
+name = "conversation-workflow"
+binding = "CONVERSATION_WORKFLOW"
+class_name = "ConversationWorkflow"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
 
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
@@ -74,11 +110,11 @@ ENVIRONMENT = "production"
 
 [[env.production.hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "2cdec4bef19746d1a2c2e9726ddaacc3"
 
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "99689831a815455ba7f836175e5e17c9"
 
 [[env.production.workflows]]
 name = "conversation-workflow"

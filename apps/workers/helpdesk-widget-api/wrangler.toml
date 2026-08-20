@@ -23,16 +23,16 @@ head_sampling_rate = 1
 [vars]
 ENVIRONMENT = "development"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
-CF_ACCOUNT_ID = "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 
 [[hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "f1b2e092e6b64ade8ea7e7e17a1a0d39"
 localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:5432/weldsuite_master?sslmode=require"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "748b8f38937f4807b3978cacb17e1880"
 
 [[r2_buckets]]
 binding = "STORAGE"
@@ -56,6 +56,47 @@ service = "helpdesk-workflow-worker"
 binding = "REALTIME"
 service = "weldsuite-realtime"
 
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "helpdesk-widget-api-test"
+routes = [
+  { pattern = "helpdesk-widget-api-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
+
+[[env.test.queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events-test"
+
+[[env.test.services]]
+binding = "WORKFLOW_WORKER"
+service = "helpdesk-workflow-worker-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 logpush = true
@@ -67,16 +108,16 @@ routes = [
 [env.production.vars]
 ENVIRONMENT = "production"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
-CF_ACCOUNT_ID = "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 
 
 [[env.production.hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "2cdec4bef19746d1a2c2e9726ddaacc3"
 
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "99689831a815455ba7f836175e5e17c9"
 
 [[env.production.queues.producers]]
 binding = "ENTITY_EVENTS"

@@ -109,9 +109,8 @@ describe('connector_connection', () => {
   });
 
   it('covers the lifecycle transitions the connector routes emit', () => {
-    // Each of these is published from apps/workers/app-api — routes/nango/index.ts
-    // (created, connected, sync_started, paused, resumed, disconnected,
-    // auth_error) and routes/public-nango-webhook.ts (connected, auth_error).
+    // Each of these is published from apps/workers/app-api — routes/connectors/index.ts
+    // (connected, updated, sync_started, paused, resumed, disconnected).
     for (const action of [
       'created',
       'connected',

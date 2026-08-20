@@ -19,13 +19,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
-
-function fmt(value: string | number | null | undefined): string {
-  return new Intl.NumberFormat('nl-NL', {
-    style: 'currency',
-    currency: 'EUR',
-  }).format(Number(value ?? 0));
-}
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 interface TransactionSuggestion {
   type: string;
@@ -47,6 +41,7 @@ export default function BankReconciliationPage() {
   const { t } = useI18n();
   const tbp = t.accounting.bankingPages;
   const tsl = t.accounting.statusLabels;
+  const { formatMoney: fmt, currency: entityCurrency } = useCurrentEntityCurrency();
 
   const { data: txnData, isLoading } = useAccountingBankTransactions(
     selectedAccountId ? { bankAccountId: selectedAccountId, status: 'unreconciled' } : undefined
@@ -60,6 +55,8 @@ export default function BankReconciliationPage() {
     enabled: !!selectedTxnId,
   });
   const suggestions = (suggestionsData?.data ?? []) as TransactionSuggestion[];
+  const selectedAccount = bankAccounts.find((ba) => ba.id === selectedAccountId);
+  const displayCurrency = selectedAccount?.currency || entityCurrency;
 
   const reconcileMutation = useMutation({
     mutationFn: ({ txnId, data }: { txnId: string; data: Record<string, unknown> }) =>
@@ -155,7 +152,7 @@ export default function BankReconciliationPage() {
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium">{txn.counterpartyName || tsl.counterpartyUnknown}</span>
                         <span className={`text-sm font-semibold ${Number(txn.amount) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {fmt(txn.amount)}
+                          {fmt(txn.amount, displayCurrency)}
                         </span>
                       </div>
                       <div className="flex items-center justify-between mt-1">
@@ -212,7 +209,7 @@ export default function BankReconciliationPage() {
                         </Badge>
                       </div>
                       <div className="flex items-center justify-between text-sm">
-                        <span>{tbp.amount.replace('{amount}', fmt(s.amount))}</span>
+                        <span>{tbp.amount.replace('{amount}', fmt(s.amount, displayCurrency))}</span>
                         <span className="text-muted-foreground">
                           {tbp.confidence.replace('{percent}', String(Math.round(s.confidence * 100)))}
                         </span>

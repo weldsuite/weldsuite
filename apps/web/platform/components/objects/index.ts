@@ -27,3 +27,4 @@ import './category';
 import './order';
 import './supplier';
 import './warehouse';
+import './pick-list';

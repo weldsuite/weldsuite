@@ -80,5 +80,19 @@ export * from './domains/chat-agent';
 // Notifications — flat /api/notifications/* surface (list / unread-count / read).
 export * from './domains/notifications';
 
+// Credits — prepaid wallet topup checkout contract.
+export * from './schemas/credits';
+
 // Dashboard — read-only workspace-home reads (installed apps for the WeldChat layout).
 export * from './domains/dashboard';
+
+// WeldStash — products, inventory ledger, warehouses.
+export * from './domains/products';
+export * from './domains/inventory';
+export * from './domains/warehouses';
+export * from './domains/pick-lists';
+export * from './schemas/sendcloud';
+export * from './domains/sendcloud';
+
+// WeldCommerce B2B customer portal (staff invite + buyer-facing schemas).
+export * from './schemas/commerce-portal';

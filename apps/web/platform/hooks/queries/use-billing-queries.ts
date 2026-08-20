@@ -1,10 +1,10 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { billingWorkerApi } from '@/lib/api/billing-worker-client';
 import type {
   BillingPaymentMethodResponse,
   BillingSubscriptionResponse,
+  PhoneSubscriptionResponse,
 } from '@/lib/api/domains/billing';
 import type { Billing } from '@/lib/api/types/apps/billing.types';
 
@@ -116,26 +116,19 @@ export function usePlanLimits() {
 /**
  * Phone-number subscription cost, for the billing page's phone-cost row.
  *
- * `/billing/phone-subscription` never existed on ANY worker, so this 404'd and
- * the row rendered empty. The real implementation is the billing-worker's
- * `GET /api/billing/phone/subscription` — it reads the Stripe subscription off
- * `workspaces.stripePhoneSubscriptionId` and returns exactly the
- * `PhoneSubscriptionResponse` this page consumes. `billingWorkerApi` is already
- * the client for it and is already used in this file (see `useBuyCredits`), so
- * point at it rather than rebuild phone billing in app-api.
- *
- * Not ported to app-api on purpose: `GET /billing/phone-numbers` (tenant DB)
- * has no price column at all, so `totalMonthly` cannot be derived there without
- * inventing prices — and this figure is money shown on a billing page.
+ * Served by app-api `GET /billing/phone-subscription`, which proxies to
+ * billing-worker (Stripe is the source of truth for `totalMonthly`). The
+ * browser never calls billing-worker directly.
  *
  * Kept wrapped in `{ data }` because the billing page reads `phoneSubData?.data`.
  */
 export function usePhoneSubscription() {
+  const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: billingKeys.phoneSubscription(),
     queryFn: async () => {
-      const data = await billingWorkerApi.getPhoneSubscription();
-      return { data };
+      const client = await getClient();
+      return client.get<{ data: PhoneSubscriptionResponse }>('/billing/phone-subscription');
     },
   });
 }
@@ -333,15 +326,20 @@ export function useRemovePaymentMethod() {
 /**
  * Start a prepaid credit topup — redirects the browser to Stripe Checkout.
  * On success the caller receives `{ url }` and should navigate to it.
+ *
+ * Goes through app-api `POST /credits/checkout` (proxied to billing-worker).
  */
 export function useBuyCredits() {
+  const { getClient } = useAppApiClient();
   return useMutation({
     mutationFn: async (packageId: string) => {
-      return billingWorkerApi.createCreditTopupCheckout({
+      const client = await getClient();
+      const res = await client.post<{ data: { url: string } }>('/credits/checkout', {
         packageId,
         successUrl: `${window.location.origin}/settings/billing?credits=success`,
         cancelUrl: `${window.location.origin}/settings/billing?credits=cancelled`,
       });
+      return res.data;
     },
   });
 }

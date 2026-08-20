@@ -92,12 +92,32 @@ export interface Env {
   /** Name of the R2 bucket that holds the Iceberg analytics catalog. */
   R2_ANALYTICS_BUCKET?: string;
 
-  // --- WeldHost (Cloudflare Registrar + Zones + Stripe checkout) ----------
-  /** Cloudflare API token with Zone/Registrar scopes — used by /api/domains. */
+  // --- WeldHost (Realtime Register + Cloudflare Zones + Stripe checkout) --
+  /** Cloudflare API token with Zone (+ legacy Registrar) scopes. */
   CLOUDFLARE_API_TOKEN?: string;
-  /** Cloudflare account that owns the registrar + zones surface. Preferred
-   *  over the legacy `CF_ACCOUNT_ID` name; both are accepted at runtime. */
+  /** Cloudflare account that owns zones (and legacy registrar domains).
+   *  Preferred over the legacy `CF_ACCOUNT_ID` name; both are accepted. */
   CLOUDFLARE_ACCOUNT_ID?: string;
+  /** Realtime Register API key (`Authorization: ApiKey …`). */
+  REALTIME_REGISTER_API_KEY?: string;
+  /** Realtime Register customer handle (single WeldSuite account). */
+  REALTIME_REGISTER_CUSTOMER?: string;
+  /** When `"true"`, use the RTR OTE (test) API base URL. */
+  REALTIME_REGISTER_OTE?: string;
+  /**
+   * ADAC (Advanced Domain Availability Checker) API key from the ADAC
+   * management panel. Different from `REALTIME_REGISTER_API_KEY`. Required
+   * for `/api/domains/search` and `/api/domains/check`.
+   */
+  REALTIME_REGISTER_ADAC_API_KEY?: string;
+  /** Optional ADAC TLD-set token. Omit to use the account default set. */
+  REALTIME_REGISTER_ADAC_TLD_SET_TOKEN?: string;
+  /** Optional platform contact handles for ADMIN/TECH/BILLING roles. */
+  REALTIME_REGISTER_CONTACT_ADMIN?: string;
+  REALTIME_REGISTER_CONTACT_TECH?: string;
+  REALTIME_REGISTER_CONTACT_BILLING?: string;
+  /** Shared secret for `/public/webhooks/realtime-register` (`?token=`). */
+  REALTIME_REGISTER_WEBHOOK_SECRET?: string;
   /** Stripe secret key used to mint domain registration Checkout Sessions. */
   STRIPE_SECRET_KEY?: string;
 
@@ -228,6 +248,11 @@ export interface Env {
    *  and integration-webhook-worker). Must be SET with the same value those
    *  callers send. */
   INTERNAL_API_SECRET?: string;
+  /**
+   * Public HTTPS origin of integration-webhook-worker, used as the delivery
+   * URL when registering WooCommerce / Shopify webhooks. Defaults from ENVIRONMENT.
+   */
+  CONNECTOR_WEBHOOK_BASE_URL?: string;
 
   // --- WeldMail (Cloudflare Email Routing + Email Sending) ----------------
   /** Cloudflare `[[send_email]]` binding for outbound mail. */
@@ -326,20 +351,6 @@ export interface Env {
    */
   POSTPEER_APP_IDS?: string;
 
-  // --- Nango (WeldConnect connector framework) ---------------------------
-  /** Nango secret key. Server-side only — it never reaches a browser; the
-   *  Connect UI gets a short-lived session token instead. Unset means the
-   *  connector routes answer 503 and nothing else changes. */
-  NANGO_SECRET_KEY?: string;
-  /** Nango API base. Defaults to https://api.nango.dev (Nango Cloud); point
-   *  this at a self-hosted origin to move without touching code. */
-  NANGO_HOST?: string;
-  /** Hosted Connect UI base. Defaults to https://connect.nango.dev. */
-  NANGO_CONNECT_URL?: string;
-  /** HMAC secret for `X-Nango-Signature` on /public/nango/webhook. Without it
-   *  every webhook is rejected — the receiver has no development bypass. */
-  NANGO_WEBHOOK_SECRET?: string;
-
   // --- Cloudflare Flagship (feature flags) -------------------------------
   /** Flagship Worker binding — `env.FLAGSHIP.getBooleanValue(key, default, ctx)`.
    *  Configured via `[[flagship]]` in wrangler.toml (test/preview/production).
@@ -390,6 +401,12 @@ export interface Env {
    *  OAuth redirect_uri values (helpdesk Discord/Slack callbacks). Defaults
    *  to the per-environment app-api hostname when unset. */
   APP_API_PUBLIC_URL?: string;
+  /**
+   * Public origin of the B2B commerce portal (no trailing slash), used in
+   * magic-link emails. Defaults: production `https://orders.weldsuite.org`,
+   * test `https://orders-test.weldsuite.org`, otherwise `http://localhost:3021`.
+   */
+  COMMERCE_PORTAL_URL?: string;
 }
 
 /**
@@ -407,4 +424,11 @@ export type Variables = {
   /** Set by `requireCustomObject()` — the resolved `custom_objects` row for
    *  the request's `:slug` param, so handlers never re-query it. */
   customObject?: CustomObjectRow;
+  /** B2B commerce portal buyer session (public `/public/commerce-portal` only). */
+  portalPersonId?: string;
+  portalCompanyId?: string;
+  portalPartyId?: string;
+  portalAccessId?: string;
+  portalEmail?: string;
+  portalSessionToken?: string;
 };

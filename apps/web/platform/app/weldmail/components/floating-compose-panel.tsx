@@ -56,9 +56,13 @@ import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
 import { mailApi } from '../lib/api-client';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAiCreditsToast } from '@/hooks/use-ai-credits-toast';
-
-// Server-side mirror lives in apps/api-worker/src/routes/mail/accounts.ts.
-const MAX_EMAIL_SIZE_BYTES = 5 * 1024 * 1024;
+import { ComposeAttachButton } from '@/app/weldmail/components/compose-attach-button';
+import {
+  MAX_EMAIL_SIZE_BYTES,
+  MailAttachmentUploadError,
+  emailSizeExceedsLimit,
+  uploadMailAttachments,
+} from '@/app/weldmail/lib/upload-attachments';
 
 const AVATAR_COLORS = [
   '#6366f1', '#8b5cf6', '#06b6d4', '#3b82f6', '#10b981',
@@ -105,6 +109,7 @@ export function FloatingComposePanel() {
   const [textAlignment] = useState<'left' | 'center' | 'right'>('left');
   const [scheduledTime, setScheduledTime] = useState<Date | null>(null);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const attachmentsInitializedRef = useRef(false);
 
   // Formatting states
   const [isBold, setIsBold] = useState(false);
@@ -177,6 +182,19 @@ export function FloatingComposePanel() {
       bodyInitializedRef.current = false;
     }
   }, [composeContext?.isComposeOpen, composeContext?.composeData.body]);
+
+  // Hydrate attachments from the compose context when the panel opens (e.g. popping
+  // a reply out of message-detail). Don't re-run while the user is adding files.
+  useEffect(() => {
+    if (composeContext?.isComposeOpen && !attachmentsInitializedRef.current) {
+      setAttachedFiles(composeContext.composeData.attachedFiles ?? []);
+      attachmentsInitializedRef.current = true;
+    }
+    if (!composeContext?.isComposeOpen) {
+      attachmentsInitializedRef.current = false;
+      setAttachedFiles([]);
+    }
+  }, [composeContext?.isComposeOpen, composeContext?.composeData.attachedFiles]);
 
   const saveSelection = () => {
     const selection = window.getSelection();
@@ -365,58 +383,22 @@ export function FloatingComposePanel() {
         const ccAddresses = ccRecipients ? parseRecipients(ccRecipients) : undefined;
         const bccAddresses = bccRecipients ? parseRecipients(bccRecipients) : undefined;
 
-        // Upload attachments to R2 and pass fileKeys (same pattern as immediate send).
         const trimmedBodyScheduled = bodyContent.trim();
         const htmlBodyScheduled = bodyContent.includes('<') ? bodyContent : bodyContent.replace(/\n/g, '<br>');
-        const bodyBytesScheduled = new TextEncoder().encode(trimmedBodyScheduled).byteLength
-          + new TextEncoder().encode(htmlBodyScheduled).byteLength;
-        const attachmentBytesScheduled = attachedFiles.reduce((sum, f) => sum + f.size, 0);
-        if (bodyBytesScheduled + attachmentBytesScheduled > MAX_EMAIL_SIZE_BYTES) {
+        if (emailSizeExceedsLimit(trimmedBodyScheduled, htmlBodyScheduled, attachedFiles)) {
           toast.error(t.mail.floatingCompose.emailSizeExceeded.replace('{mb}', String(MAX_EMAIL_SIZE_BYTES / (1024 * 1024))));
           setIsSending(false);
           return;
         }
 
-        const uploadedAttachments: Array<{
-          filename: string;
-          contentType: string;
-          size: number;
-          fileKey: string;
-        }> = [];
-        for (const file of attachedFiles) {
-          try {
-            const contentType = file.type || 'application/octet-stream';
-            const genResp = await client.post<{
-              success: boolean;
-              uploadUrl: string;
-              uploadToken: string;
-              fileKey: string;
-            }>('/storage/generate-upload-url', {
-              fileName: file.name,
-              contentType,
-              fileSize: file.size,
-              folder: 'mail-attachments',
-              entityType: 'mail-attachment',
-              entityId: accountId,
-              isPublic: false,
-            });
-            const putResp = await fetch(genResp.uploadUrl, {
-              method: 'PUT',
-              body: file,
-              headers: { 'Content-Type': contentType },
-            });
-            if (!putResp.ok) throw new Error(`Upload failed: ${putResp.status}`);
-            uploadedAttachments.push({
-              filename: file.name,
-              contentType,
-              size: file.size,
-              fileKey: genResp.fileKey,
-            });
-          } catch {
-            toast.error(t.mail.floatingCompose.failedToUpload.replace('{filename}', file.name));
-            setIsSending(false);
-            return;
-          }
+        let uploadedAttachments: Awaited<ReturnType<typeof uploadMailAttachments>> = [];
+        try {
+          uploadedAttachments = await uploadMailAttachments(client, accountId, attachedFiles);
+        } catch (err) {
+          const filename = err instanceof MailAttachmentUploadError ? err.filename : 'file';
+          toast.error(t.mail.floatingCompose.failedToUpload.replace('{filename}', filename));
+          setIsSending(false);
+          return;
         }
 
         const result = await mailApi.scheduled.schedule({
@@ -448,60 +430,24 @@ export function FloatingComposePanel() {
 
     setIsSending(true);
     try {
-      // Upload attachments to R2 first, then pass fileKeys to /send.
       const trimmedBody = bodyContent.trim();
       const htmlBody = bodyContent.includes('<') ? bodyContent : bodyContent.replace(/\n/g, '<br>');
-      const bodyBytes = new TextEncoder().encode(trimmedBody).byteLength
-        + new TextEncoder().encode(htmlBody).byteLength;
-      const attachmentBytes = attachedFiles.reduce((sum, f) => sum + f.size, 0);
-      if (bodyBytes + attachmentBytes > MAX_EMAIL_SIZE_BYTES) {
+      if (emailSizeExceedsLimit(trimmedBody, htmlBody, attachedFiles)) {
         toast.error(t.mail.floatingCompose.emailSizeExceeded.replace('{mb}', String(MAX_EMAIL_SIZE_BYTES / (1024 * 1024))));
         setIsSending(false);
         return;
       }
 
-      const uploadedAttachments: Array<{
-        filename: string;
-        contentType: string;
-        size: number;
-        fileKey: string;
-      }> = [];
+      let uploadedAttachments: Awaited<ReturnType<typeof uploadMailAttachments>> = [];
       if (attachedFiles.length > 0) {
-        const client = await getClient();
-        for (const file of attachedFiles) {
-          try {
-            const contentType = file.type || 'application/octet-stream';
-            const genResp = await client.post<{
-              success: boolean;
-              uploadUrl: string;
-              uploadToken: string;
-              fileKey: string;
-            }>('/storage/generate-upload-url', {
-              fileName: file.name,
-              contentType,
-              fileSize: file.size,
-              folder: 'mail-attachments',
-              entityType: 'mail-attachment',
-              entityId: accountId,
-              isPublic: false,
-            });
-            const putResp = await fetch(genResp.uploadUrl, {
-              method: 'PUT',
-              body: file,
-              headers: { 'Content-Type': contentType },
-            });
-            if (!putResp.ok) throw new Error(`Upload failed: ${putResp.status}`);
-            uploadedAttachments.push({
-              filename: file.name,
-              contentType,
-              size: file.size,
-              fileKey: genResp.fileKey,
-            });
-          } catch {
-            toast.error(t.mail.floatingCompose.failedToUpload.replace('{filename}', file.name));
-            setIsSending(false);
-            return;
-          }
+        try {
+          const client = await getClient();
+          uploadedAttachments = await uploadMailAttachments(client, accountId, attachedFiles);
+        } catch (err) {
+          const filename = err instanceof MailAttachmentUploadError ? err.filename : 'file';
+          toast.error(t.mail.floatingCompose.failedToUpload.replace('{filename}', filename));
+          setIsSending(false);
+          return;
         }
       }
 
@@ -1120,22 +1066,11 @@ export function FloatingComposePanel() {
 
             <div className="w-px h-5 bg-border mx-1" />
 
-            {/* Attachment */}
-            <label className="cursor-pointer" onMouseDown={preventFocusLoss}>
-              <input
-                type="file"
-                className="hidden"
-                multiple
-                onChange={(e) => {
-                  if (e.target.files) {
-                    setAttachedFiles(prev => [...prev, ...Array.from(e.target.files!)]);
-                  }
-                }}
-              />
-              <div className="p-1.5 hover:bg-muted rounded-md transition-colors" title={t.mail.toolbar.attachFile}>
-                <Paperclip className="h-4 w-4" />
-              </div>
-            </label>
+            <ComposeAttachButton
+              title={t.mail.toolbar.attachFile}
+              testId="floating-compose-attach-input"
+              onFilesSelected={(files) => setAttachedFiles((prev) => [...prev, ...files])}
+            />
 
             <div className="w-px h-5 bg-border mx-1" />
 

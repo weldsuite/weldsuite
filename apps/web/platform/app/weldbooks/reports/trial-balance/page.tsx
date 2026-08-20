@@ -13,6 +13,7 @@ import {
 } from '@weldsuite/ui/components/table';
 import { useTrialBalanceReport } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 interface TrialBalanceAccountRow {
   accountId?: string;
@@ -28,15 +29,9 @@ interface TrialBalanceReport {
   totalCredit?: string | number | null;
 }
 
-function fmt(value: string | number | null | undefined): string {
-  return new Intl.NumberFormat('nl-NL', {
-    style: 'currency',
-    currency: 'EUR',
-  }).format(Number(value ?? 0));
-}
-
 export default function TrialBalanceReportPage() {
   const { t } = useI18n();
+  const { formatMoney: fmt } = useCurrentEntityCurrency();
   const tr = t.accounting.reports;
 
   const today = new Date();

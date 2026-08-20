@@ -907,6 +907,10 @@ export const accounting = {
         inr: 'INR - Indiase Roepie',
       },
 
+      supportedCurrencyNames: {
+        inr: 'Indiase Roepie',
+      },
+
       // Vendor Categories
       categories: {
         supplier: 'Leverancier',
@@ -1833,7 +1837,7 @@ export const accounting = {
       deleteBankAccount: 'Bankrekening verwijderen',
       autoReconcile: 'Automatisch afstemmen',
       importStatement: 'Afschrift importeren',
-      noTransactionsYet: 'Nog geen transacties. Importeer een bankafschrift om te beginnen.',
+      noTransactionsYet: 'Nog geen transacties. Voeg een transactie toe of importeer een bankafschrift om te beginnen.',
       allTransactions: 'Alle transacties',
       unreconciledFilter: 'Niet afgestemd',
       reconciledFilter: 'Afgestemd',
@@ -1908,7 +1912,8 @@ export const accounting = {
 
       // Transactions page
       transactionsTitle: 'Banktransacties',
-      transactionsSubtitle: 'Geïmporteerde activiteit over al uw bankrekeningen.',
+      transactionsSubtitle: 'Geïmporteerde en handmatig toegevoegde activiteit over al uw bankrekeningen.',
+      addTransactionButton: 'Transactie toevoegen',
       importStatementButton: 'Afschrift importeren',
       accountLabel: 'Rekening',
       statusLabel: 'Status',

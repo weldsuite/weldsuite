@@ -9,8 +9,9 @@ import { useCallback, useMemo } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { useWhiteboardRoom } from '@weldsuite/realtime/react';
 import type { WhiteboardPresence, BatchChange } from '@/lib/realtime/whiteboard/types';
+import { getRealtimeWsOrigin } from '@/lib/api/public-env';
 
-const REALTIME_URL = import.meta.env.VITE_REALTIME_URL?.replace(/\/ws$/, '') || 'ws://localhost:8790';
+const REALTIME_URL = getRealtimeWsOrigin();
 
 export interface UseWhiteboardCollaborationOptions {
   projectId: string;

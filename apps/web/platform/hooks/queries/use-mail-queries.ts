@@ -381,6 +381,15 @@ export function useArchiveThread() {
         labelName: 'ARCHIVE',
         action: 'add',
       });
+      // Archive is a location change: leave the inbox, not just add a
+      // second label. The backend apply-to-thread path also strips INBOX
+      // when adding ARCHIVE; this second call is idempotent and covers
+      // the window where frontend ships before that worker change.
+      await mailLabels.applyToThread({
+        ...vars,
+        labelName: 'INBOX',
+        action: 'remove',
+      });
       return { ...result, archivedCount: result.data?.affected ?? 0 };
     },
     onSuccess: () => {

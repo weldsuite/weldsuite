@@ -29,8 +29,27 @@ import { buildQueryString } from '@weldsuite/core-api-client/types';
 // Row types — shaped to what the app-api routes actually return today.
 // ============================================================================
 
+/** One listing of a catalogue product on an external store. */
+export interface ProductSalesChannel {
+  id: string;
+  productId: string;
+  connectionId: string;
+  provider: string;
+  displayName: string | null;
+  externalId: string;
+  externalUrl: string | null;
+  status: 'active' | 'disconnected' | 'deleted_remote';
+  price: string | null;
+  listingStatus: 'active' | 'inactive' | 'draft';
+  lastSyncedAt: string | null;
+}
+
+export type SalesChannelListingStatus = ProductSalesChannel['listingStatus'];
+
 /** A product as rendered by the WeldCommerce catalogue grid. */
-export type CommerceProduct = WeldstashProduct;
+export type CommerceProduct = WeldstashProduct & {
+  salesChannels?: ProductSalesChannel[];
+};
 
 export interface CommerceCategory {
   id: string;
@@ -57,6 +76,7 @@ export interface CommerceOrder {
   orderNumber: string | null;
   customerId?: string | null;
   websiteId?: string | null;
+  source?: string | null;
   status: string | null;
   currency?: string | null;
   subtotal?: string | number | null;
@@ -114,6 +134,7 @@ export const commerceKeys = {
   category: (id: string) => [...commerceKeys.categories(), 'detail', id] as const,
   categoryProducts: (id: string) => [...commerceKeys.categories(), 'detail', id, 'products'] as const,
   productCategories: (id: string) => [...commerceKeys.products(), 'detail', id, 'categories'] as const,
+  salesChannelTargets: () => [...commerceKeys.products(), 'sales-channel-targets'] as const,
 
   orders: () => [...commerceKeys.all, 'orders'] as const,
   orderList: (params?: OrderListQuery) => [...commerceKeys.orders(), 'list', params ?? {}] as const,
@@ -218,6 +239,95 @@ export function useDeleteCommerceProduct() {
       return client.delete<void>(`/products/${id}`);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: commerceKeys.products() }),
+  });
+}
+
+export interface SalesChannelTarget {
+  id: string;
+  provider: string;
+  label: string;
+  displayName: string | null;
+  status: string;
+  externalAccountId: string | null;
+}
+
+export function useSalesChannelTargets(enabled = true) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: commerceKeys.salesChannelTargets(),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<DataResponse<SalesChannelTarget[]>>('/products/sales-channel-targets');
+    },
+    enabled,
+  });
+}
+
+function invalidateProductSalesChannels(qc: ReturnType<typeof useQueryClient>, productId: string) {
+  qc.invalidateQueries({ queryKey: commerceKeys.products() });
+  qc.invalidateQueries({ queryKey: commerceKeys.product(productId) });
+}
+
+export function useAddProductSalesChannel() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      productId,
+      connectionId,
+      price,
+      listingStatus,
+    }: {
+      productId: string;
+      connectionId: string;
+      price?: string;
+      listingStatus?: SalesChannelListingStatus;
+    }) => {
+      const client = await getClient();
+      return client.post<DataResponse<ProductSalesChannel>>(`/products/${productId}/sales-channels`, {
+        connectionId,
+        price,
+        listingStatus,
+      });
+    },
+    onSuccess: (_, vars) => invalidateProductSalesChannels(qc, vars.productId),
+  });
+}
+
+export function useUpdateProductSalesChannel() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      productId,
+      channelId,
+      price,
+      listingStatus,
+    }: {
+      productId: string;
+      channelId: string;
+      price?: string;
+      listingStatus?: SalesChannelListingStatus;
+    }) => {
+      const client = await getClient();
+      return client.patch<DataResponse<ProductSalesChannel>>(
+        `/products/${productId}/sales-channels/${channelId}`,
+        { price, listingStatus },
+      );
+    },
+    onSuccess: (_, vars) => invalidateProductSalesChannels(qc, vars.productId),
+  });
+}
+
+export function useRemoveProductSalesChannel() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ productId, channelId }: { productId: string; channelId: string }) => {
+      const client = await getClient();
+      return client.delete<void>(`/products/${productId}/sales-channels/${channelId}`);
+    },
+    onSuccess: (_, vars) => invalidateProductSalesChannels(qc, vars.productId),
   });
 }
 
@@ -530,5 +640,104 @@ export function useDeleteCommerceOrder() {
       return client.delete<void>(`/orders/${id}`);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: commerceKeys.orders() }),
+  });
+}
+
+export interface CommercePortalSettings {
+  id: string | null;
+  isEnabled: boolean;
+  displayName: string | null;
+  logo: string | null;
+  primaryColor: string | null;
+  accentColor: string | null;
+  portalUrl: string | null;
+  workspaceSlug: string | null;
+}
+
+export interface CommercePortalAccessRow {
+  id: string;
+  personId: string;
+  companyId: string;
+  email: string;
+  status: 'invited' | 'active' | 'revoked' | string;
+  invitedAt?: string | null;
+  lastLoginAt?: string | null;
+}
+
+const portalKeys = {
+  settings: ['commerce-portal', 'settings'] as const,
+  access: (companyId: string) => ['commerce-portal', 'access', companyId] as const,
+};
+
+export function useCommercePortalSettings() {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: portalKeys.settings,
+    queryFn: async () => {
+      const client = await getClient();
+      const res = await client.get<DataResponse<CommercePortalSettings>>('/commerce-portal/settings');
+      return res.data;
+    },
+  });
+}
+
+export function useUpdateCommercePortalSettings() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: Partial<Pick<CommercePortalSettings, 'isEnabled' | 'displayName' | 'logo' | 'primaryColor' | 'accentColor'>>) => {
+      const client = await getClient();
+      const res = await client.patch<DataResponse<CommercePortalSettings>>('/commerce-portal/settings', data);
+      return res.data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: portalKeys.settings }),
+  });
+}
+
+export function useCommercePortalAccess(companyId: string | undefined) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: portalKeys.access(companyId ?? ''),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<ListResponse<CommercePortalAccessRow>>(`/commerce-portal/access?companyId=${encodeURIComponent(companyId!)}`);
+    },
+    enabled: !!companyId,
+  });
+}
+
+export function useInviteCommercePortalAccess() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { personId: string; companyId: string }) => {
+      const client = await getClient();
+      return client.post<DataResponse<CommercePortalAccessRow>>('/commerce-portal/access/invite', data);
+    },
+    onSuccess: (_, vars) => qc.invalidateQueries({ queryKey: portalKeys.access(vars.companyId) }),
+  });
+}
+
+export function useRevokeCommercePortalAccess(companyId: string) {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const client = await getClient();
+      return client.post<DataResponse<CommercePortalAccessRow>>(`/commerce-portal/access/${id}/revoke`, {});
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: portalKeys.access(companyId) }),
+  });
+}
+
+export function useResendCommercePortalAccess(companyId: string) {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const client = await getClient();
+      return client.post<DataResponse<{ ok: boolean }>>(`/commerce-portal/access/${id}/resend`, {});
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: portalKeys.access(companyId) }),
   });
 }

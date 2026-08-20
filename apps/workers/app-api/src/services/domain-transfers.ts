@@ -1,12 +1,21 @@
 /**
  * Domain transfers service — pure functions backing /api/domain-transfers/*.
+ *
+ * Incoming transfers for Realtime Register call the RTR transfer API and store
+ * the process id. Outgoing transfers remain local bookkeeping (authcode is
+ * fetched via /api/domains/:id/auth-code).
  */
 
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { schema, type Database } from '../db';
 import { generateId } from '../lib/id';
+import {
+  resolvePlatformRegistrarContacts,
+  privacyProtectForDomain,
+  type RealtimeRegistrar,
+} from '@weldsuite/realtime-registrar';
 
-const { hostDomainTransfers } = schema;
+const { hostDomainTransfers, hostDomains } = schema;
 
 export interface ListDomainTransfersParams {
   domainId?: string;
@@ -65,6 +74,28 @@ export async function getDomainTransfer(db: Database, id: string) {
   return row ?? null;
 }
 
+function mapRtrTransferStatus(
+  status: string,
+): typeof schema.hostDomainTransfers.$inferSelect['status'] {
+  switch (status.toLowerCase()) {
+    case 'completed':
+      return 'completed';
+    case 'failed':
+    case 'rejected':
+    case 'cancelled':
+      return 'failed';
+    case 'approved':
+      return 'approved';
+    case 'pendingfoa':
+    case 'pendingwhois':
+    case 'pendingvalidation':
+      return 'pending_approval';
+    case 'pending':
+    default:
+      return 'in_progress';
+  }
+}
+
 export async function createDomainTransfer(
   db: Database,
   data: {
@@ -75,24 +106,180 @@ export async function createDomainTransfer(
     fromRegistrar?: string;
     toRegistrar?: string;
   },
+  opts?: {
+    rtr?: RealtimeRegistrar | null;
+    contactEnv?: {
+      REALTIME_REGISTER_CONTACT_ADMIN?: string;
+      REALTIME_REGISTER_CONTACT_TECH?: string;
+      REALTIME_REGISTER_CONTACT_BILLING?: string;
+    };
+    nameservers?: string[];
+    /** Stored on the tenant domain row only — never sent to Realtime Register. */
+    registrantContact?: Record<string, unknown> | null;
+  },
 ) {
   const id = generateId('txfr');
+  let toRegistrar =
+    data.toRegistrar ?? (data.type === 'incoming' ? 'realtimeregister' : data.toRegistrar);
+  let domainId = data.domainId ?? null;
+
+  // Persist the transfer row first so a registrar outage still leaves a
+  // reconcilable local record.
   await db.insert(hostDomainTransfers).values({
     id,
-    domainId: data.domainId,
-    domainName: data.domainName,
+    domainId,
+    domainName: data.domainName.toLowerCase(),
     type: data.type,
     status: 'pending',
     authCode: data.authCode,
     fromRegistrar: data.fromRegistrar,
-    toRegistrar: data.toRegistrar,
+    toRegistrar,
   });
+
+  if (data.type === 'incoming' && opts?.rtr) {
+    const rtr = opts.rtr;
+
+    try {
+      // Platform handles only — customer emails stay in the tenant DB so the
+      // registry / Realtime Register never mail the end user.
+      const platform = resolvePlatformRegistrarContacts({
+        admin: opts.contactEnv?.REALTIME_REGISTER_CONTACT_ADMIN,
+        tech: opts.contactEnv?.REALTIME_REGISTER_CONTACT_TECH,
+        billing: opts.contactEnv?.REALTIME_REGISTER_CONTACT_BILLING,
+      });
+
+      const privacyProtect = privacyProtectForDomain(data.domainName);
+
+      const result = await rtr.transfer({
+        name: data.domainName.toLowerCase(),
+        registrant: platform.registrant,
+        authCode: data.authCode,
+        contacts: platform.contacts,
+        nameservers: opts.nameservers,
+        privacyProtect,
+        designatedAgent: 'NONE',
+        periodMonths: 12,
+      });
+
+      const status = mapRtrTransferStatus(result.status);
+      const externalTransferId = String(result.processId);
+      const registrarResponse = result as unknown as Record<string, unknown>;
+      toRegistrar = 'realtimeregister';
+      const effectivePrivacy = result.privacyProtect ?? privacyProtect;
+
+      // Ensure a domain row exists for the incoming transfer
+      if (!domainId) {
+        const parts = data.domainName.toLowerCase().split('.');
+        const name = parts[0]!;
+        const tld = parts.slice(1).join('.');
+        domainId = generateId('dom');
+        await db.insert(hostDomains).values({
+          id: domainId,
+          name,
+          tld,
+          fullDomain: data.domainName.toLowerCase(),
+          registrar: 'realtimeregister',
+          status: 'pending',
+          registrationStatus: 'pending_transfer',
+          privacyProtection: effectivePrivacy,
+          rtrRegistrantHandle: platform.registrant,
+          rtrProcessId: externalTransferId,
+          authCode: data.authCode,
+          registrantContact: (opts.registrantContact as never) ?? null,
+        });
+      } else {
+        await db
+          .update(hostDomains)
+          .set({
+            registrationStatus: 'pending_transfer',
+            rtrProcessId: externalTransferId,
+            rtrRegistrantHandle: platform.registrant,
+            privacyProtection: effectivePrivacy,
+            ...(opts.registrantContact
+              ? { registrantContact: opts.registrantContact as never }
+              : {}),
+            updatedAt: new Date(),
+          })
+          .where(eq(hostDomains.id, domainId));
+      }
+
+      await db
+        .update(hostDomainTransfers)
+        .set({
+          domainId,
+          status,
+          toRegistrar,
+          externalTransferId,
+          registrarResponse,
+          updatedAt: new Date(),
+        })
+        .where(eq(hostDomainTransfers.id, id));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await db
+        .update(hostDomainTransfers)
+        .set({
+          status: 'failed',
+          failureReason: message,
+          updatedAt: new Date(),
+        })
+        .where(eq(hostDomainTransfers.id, id));
+      throw err;
+    }
+  }
+
   const [row] = await db
     .select()
     .from(hostDomainTransfers)
     .where(eq(hostDomainTransfers.id, id))
     .limit(1);
   return row!;
+}
+
+export async function syncTransferFromRegistrar(
+  db: Database,
+  rtr: RealtimeRegistrar,
+  transferId: string,
+) {
+  const [transfer] = await db
+    .select()
+    .from(hostDomainTransfers)
+    .where(eq(hostDomainTransfers.id, transferId))
+    .limit(1);
+  if (!transfer?.externalTransferId) return transfer ?? null;
+
+  const processId = Number.parseInt(transfer.externalTransferId, 10);
+  if (!Number.isFinite(processId)) return transfer;
+
+  const outcome = await rtr.pollProcess(processId);
+  if (outcome === 'pending') return transfer;
+
+  if (outcome === 'failed') {
+    return failDomainTransfer(db, transferId, 'Realtime Register process failed');
+  }
+
+  // completed
+  const remote = await rtr.getDomain(transfer.domainName).catch(() => null);
+  if (transfer.domainId) {
+    const patch: Partial<typeof hostDomains.$inferInsert> = {
+      status: 'active',
+      registrationStatus: 'transferred',
+      registrar: 'realtimeregister',
+      externalRegistrarId: remote?.id ?? transfer.domainName,
+      registrarSyncedAt: new Date(),
+      updatedAt: new Date(),
+    };
+    // Only overwrite registrar-derived fields when the lookup succeeded —
+    // a transient getDomain failure must not null out expiresAt / lock state.
+    if (remote) {
+      patch.registrarStatus = remote.status.join(',');
+      if (remote.expiresAt) patch.expiresAt = new Date(remote.expiresAt);
+      patch.locked = remote.locked;
+      patch.autoRenew = remote.autoRenew;
+    }
+    await db.update(hostDomains).set(patch).where(eq(hostDomains.id, transfer.domainId));
+  }
+  return completeDomainTransfer(db, transferId);
 }
 
 export async function completeDomainTransfer(db: Database, id: string) {
