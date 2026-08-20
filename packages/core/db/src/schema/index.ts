@@ -67,6 +67,7 @@ export * from './categories';
 export * from './orders';
 export * from './discounts';
 export * from './product-connections';
+export * from './product-sales-channels';
 export * from './commerce-portal';
 
 // CRM module

@@ -36,6 +36,8 @@ import {
   renewGoogleCalendarWatch,
   type IntegrationsEnv,
 } from '../../services/integrations/connections';
+import { getConnectionById } from '../../services/connectors/connections';
+import { processConnectorWebhook } from '../../services/connectors/webhooks';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -151,6 +153,40 @@ app.post('/connections/:id/renew-watch', async (c, next: Next) => {
   } catch (err) {
     console.error('[app-api/integrations-internal] watch renewal failed:', err);
     return error.internal(c, 'Failed to renew watch channel');
+  }
+});
+
+// ============================================================================
+// POST /connections/:id/connector-event — inbound Woo/Shopify webhook ingest
+// ============================================================================
+
+app.post('/connections/:id/connector-event', async (c, next: Next) => {
+  const resolved = await resolveInternal(c);
+  if (resolved.kind === 'passthrough') return next();
+  if (resolved.kind === 'response') return resolved.response;
+
+  const { db } = resolved.ctx;
+  const id = c.req.param('id');
+  const row = await getConnectionById(db, id);
+  if (!row) return error.notFound(c, 'Connection', id);
+
+  const rawBody = await c.req.text();
+  const workspaceId = c.req.header('X-Internal-Workspace-Id') ?? resolved.ctx.clerkOrgId;
+
+  try {
+    const result = await processConnectorWebhook({
+      db,
+      env: c.env,
+      connection: row,
+      ownerId: 'system',
+      workspaceId,
+      rawBody,
+      headers: c.req.raw.headers,
+    });
+    return c.json({ data: { message: result.message } }, result.status as 200 | 400 | 401 | 500);
+  } catch (err) {
+    console.error('[app-api/integrations-internal] connector webhook failed:', err);
+    return error.internal(c, 'Failed to ingest connector webhook');
   }
 });
 

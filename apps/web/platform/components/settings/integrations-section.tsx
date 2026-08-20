@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils"
 import { useIntegrationConnections } from '@/hooks/queries/use-integration-queries'
 import { useChannelIntegrations } from '@/hooks/queries/use-helpdesk-integration-queries'
 import { useGithubConnection } from '@/hooks/queries/use-github-queries'
+import { useConnectorCatalog } from '@/hooks/queries/use-connector-queries'
 
 interface Integration {
   id: string
@@ -144,9 +145,27 @@ const integrationDefinitions: Omit<Integration, 'connected'>[] = [
     configurable: true,
     href: '/settings/integrations/github',
   },
+  {
+    id: 'woocommerce',
+    name: 'WooCommerce',
+    description: 'Import products, orders, and customers from one or more stores. Updates arrive over webhooks.',
+    category: 'E-Commerce',
+    icon: <BrandLogo slug="woocommerce" alt="WooCommerce" />,
+    configurable: true,
+    href: '/settings/integrations/woocommerce',
+  },
+  {
+    id: 'shopify',
+    name: 'Shopify',
+    description: 'Import products, orders, and customers from one or more shops. Updates arrive over webhooks.',
+    category: 'E-Commerce',
+    icon: <BrandLogo slug="shopify" alt="Shopify" />,
+    configurable: true,
+    href: '/settings/integrations/shopify',
+  },
 ]
 
-const CATEGORY_ORDER = ['CRM', 'Support', 'Calendar', 'AI', 'Developer Tools']
+const CATEGORY_ORDER = ['CRM', 'E-Commerce', 'Support', 'Calendar', 'AI', 'Developer Tools']
 
 export function IntegrationsSection() {
   const router = useRouter()
@@ -155,6 +174,7 @@ export function IntegrationsSection() {
   const { data: integrationConnectionsResult, isLoading: connectionsLoading } = useIntegrationConnections()
   const { data: channelIntegrationsResult, isLoading: channelLoading } = useChannelIntegrations()
   const { data: githubConnectionResult } = useGithubConnection()
+  const { data: connectorCatalogResult } = useConnectorCatalog()
 
   const integrations = React.useMemo(() => {
     const crmConnections = integrationConnectionsResult?.data ?? []
@@ -174,6 +194,8 @@ export function IntegrationsSection() {
     const slackConnected = channelIntegrations.some(c => c.provider === 'slack' && c.status === 'connected')
     const githubConnection = githubConnectionResult?.data
     const githubConnected = !!githubConnection && githubConnection.status === 'active'
+    const connectorConnected = (provider: string) =>
+      (connectorCatalogResult?.data ?? []).some((entry) => entry.provider === provider && entry.connectionCount > 0)
 
     return integrationDefinitions.map(def => {
       let connected = false
@@ -181,10 +203,11 @@ export function IntegrationsSection() {
       else if (def.id === 'slack') connected = slackConnected
       else if (def.id === 'mcp_servers') connected = mcpCount > 0
       else if (def.id === 'github') connected = githubConnected
+      else if (def.id === 'woocommerce' || def.id === 'shopify') connected = connectorConnected(def.id)
       else if (['attio', 'salesforce', 'hubspot', 'google_calendar'].includes(def.id)) connected = isProviderConnected(def.id)
       return { ...def, connected }
     })
-  }, [integrationConnectionsResult, channelIntegrationsResult, githubConnectionResult])
+  }, [integrationConnectionsResult, channelIntegrationsResult, githubConnectionResult, connectorCatalogResult])
 
   const { integrationsByCategory, sortedCategories } = React.useMemo(() => {
     const grouped: Record<string, Integration[]> = {}

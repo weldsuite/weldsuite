@@ -248,6 +248,11 @@ export interface Env {
    *  and integration-webhook-worker). Must be SET with the same value those
    *  callers send. */
   INTERNAL_API_SECRET?: string;
+  /**
+   * Public HTTPS origin of integration-webhook-worker, used as the delivery
+   * URL when registering WooCommerce / Shopify webhooks. Defaults from ENVIRONMENT.
+   */
+  CONNECTOR_WEBHOOK_BASE_URL?: string;
 
   // --- WeldMail (Cloudflare Email Routing + Email Sending) ----------------
   /** Cloudflare `[[send_email]]` binding for outbound mail. */

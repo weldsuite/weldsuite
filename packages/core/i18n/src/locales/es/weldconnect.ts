@@ -14,6 +14,11 @@ export const weldconnect = {
     emptyCatalogHint: '¿Quieres conectar Slack o Google para flujos? Ve a Integraciones.',
     notConfigured: 'El marco de conectores no está configurado en este entorno.',
     connect: 'Conectar',
+    addStore: 'Añadir tienda',
+    noStores: 'Aún no hay tiendas conectadas.',
+    storeCount: '{count} tiendas',
+    webhookHint:
+      'Tras la importación inicial, la tienda envía cambios por webhooks. Sincronizar ahora es solo para un backfill — no sondeamos la base de datos en un temporizador.',
     reconnect: 'Reconectar',
     disconnect: 'Desconectar',
     syncNow: 'Sincronizar ahora',

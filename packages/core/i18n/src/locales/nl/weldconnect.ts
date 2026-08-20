@@ -14,6 +14,11 @@ export const weldconnect = {
     emptyCatalogHint: 'Slack of Google voor workflows verbinden? Ga naar Integraties.',
     notConfigured: 'Het connectorframework is niet geconfigureerd voor deze omgeving.',
     connect: 'Verbinden',
+    addStore: 'Winkel toevoegen',
+    noStores: 'Nog geen winkels verbonden.',
+    storeCount: '{count} winkels',
+    webhookHint:
+      'Na de eerste import pusht de winkel wijzigingen via webhooks. “Nu synchroniseren” is alleen voor een backfill — we pollen de database niet op een timer.',
     reconnect: 'Opnieuw verbinden',
     disconnect: 'Verbinding verbreken',
     syncNow: 'Nu synchroniseren',

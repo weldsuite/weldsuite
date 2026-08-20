@@ -2,8 +2,8 @@
  * Connector connection lifecycle — the tenant-facing half of the first-party
  * connector layer.
  *
- * Credentials are stored encrypted on the row. The provider client (WooCommerce
- * today) is constructed from the decrypted pair at sync/test time.
+ * Credentials are stored encrypted on the row. The provider client
+ * (WooCommerce / Shopify) is constructed from the decrypted pair at sync/test time.
  *
  * Imported rows and their `integration_entity_mappings` survive disconnect:
  * removing a connector must never delete the customer's data, and keeping the
@@ -13,7 +13,7 @@
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { encryptField, maybeDecryptField, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
 import { getConnector } from '@weldsuite/connectors';
-import type { ConnectorSyncRunStatus, ConnectorSyncTrigger } from '@weldsuite/db/schema';
+import type { ConnectorSyncRunStatus, ConnectorSyncTrigger, ConnectorWebhookRegistration } from '@weldsuite/db/schema';
 import { schema, type Database } from '../../db';
 import { generateId } from '../../lib/id';
 
@@ -49,6 +49,18 @@ export async function decryptCredentials(
     decrypted[key] = await maybeDecryptField(value, keyring);
   }
   return decrypted;
+}
+
+export async function encryptWebhookSecret(secret: string, keyring: EncryptionKeyring): Promise<string> {
+  return keyring.v1 || keyring.v2 ? encryptField(secret, keyring) : secret;
+}
+
+export async function maybeDecryptWebhookSecret(
+  secret: string | null | undefined,
+  keyring: EncryptionKeyring,
+): Promise<string | null> {
+  if (!secret) return null;
+  return maybeDecryptField(secret, keyring);
 }
 
 /**
@@ -90,19 +102,39 @@ export function sanitizeConnection(row: ConnectorConnectionRow) {
     connectedAt: row.connectedAt,
     connectedBy: row.connectedBy,
     isConnected: row.status !== 'pending' && !row.deletedAt,
+    webhookCount: row.webhookRegistrations?.length ?? 0,
   };
 }
 
-export async function findConnectionByProvider(
+export async function findConnectionByProviderAccount(
   db: Database,
   provider: string,
+  externalAccountId: string,
 ): Promise<ConnectorConnectionRow | null> {
   const [row] = await db
     .select()
     .from(schema.connectorConnections)
-    .where(and(eq(schema.connectorConnections.provider, provider), isNull(schema.connectorConnections.deletedAt)))
+    .where(
+      and(
+        eq(schema.connectorConnections.provider, provider),
+        eq(schema.connectorConnections.externalAccountId, externalAccountId),
+      ),
+    )
     .limit(1);
   return row ?? null;
+}
+
+export async function listConnectionsByProvider(
+  db: Database,
+  provider: string,
+): Promise<ConnectorConnectionRow[]> {
+  return db
+    .select()
+    .from(schema.connectorConnections)
+    .where(
+      and(eq(schema.connectorConnections.provider, provider), isNull(schema.connectorConnections.deletedAt)),
+    )
+    .orderBy(desc(schema.connectorConnections.createdAt));
 }
 
 export async function getConnectionById(
@@ -133,13 +165,12 @@ export async function upsertConnection(args: {
   credentials: Record<string, string>;
   enabledSyncs: string[];
   externalAccountId: string | null;
+  webhookSecret?: string | null;
 }): Promise<ConnectorConnectionRow> {
   const now = new Date();
-  const [existing] = await args.db
-    .select()
-    .from(schema.connectorConnections)
-    .where(eq(schema.connectorConnections.provider, args.provider))
-    .limit(1);
+  const existing = args.externalAccountId
+    ? await findConnectionByProviderAccount(args.db, args.provider, args.externalAccountId)
+    : null;
 
   if (existing) {
     await args.db
@@ -149,6 +180,7 @@ export async function upsertConnection(args: {
         credentials: args.credentials,
         enabledSyncs: args.enabledSyncs,
         externalAccountId: args.externalAccountId,
+        webhookSecret: args.webhookSecret ?? existing.webhookSecret,
         status: 'active',
         deletedAt: null,
         disconnectedAt: null,
@@ -171,6 +203,7 @@ export async function upsertConnection(args: {
     credentials: args.credentials,
     enabledSyncs: args.enabledSyncs,
     externalAccountId: args.externalAccountId,
+    webhookSecret: args.webhookSecret ?? null,
     status: 'active',
     connectedAt: now,
     connectedBy: args.userId,
@@ -186,6 +219,8 @@ export async function updateConnectionSettings(args: {
   credentials?: Record<string, string>;
   displayName?: string;
   externalAccountId?: string | null;
+  webhookSecret?: string | null;
+  webhookRegistrations?: ConnectorWebhookRegistration[] | null;
 }): Promise<void> {
   const now = new Date();
   await args.db
@@ -195,6 +230,8 @@ export async function updateConnectionSettings(args: {
       ...(args.credentials ? { credentials: args.credentials } : {}),
       ...(args.displayName !== undefined ? { displayName: args.displayName } : {}),
       ...(args.externalAccountId !== undefined ? { externalAccountId: args.externalAccountId } : {}),
+      ...(args.webhookSecret !== undefined ? { webhookSecret: args.webhookSecret } : {}),
+      ...(args.webhookRegistrations !== undefined ? { webhookRegistrations: args.webhookRegistrations } : {}),
       lastError: null,
       lastErrorAt: null,
       status: 'active',
@@ -230,9 +267,15 @@ export async function markConnectionDisconnected(db: Database, connectionId: str
       disconnectedAt: now,
       status: 'paused',
       credentials: null,
+      webhookSecret: null,
+      webhookRegistrations: null,
       updatedAt: now,
     })
     .where(eq(schema.connectorConnections.id, connectionId));
+  await db
+    .update(schema.productSalesChannels)
+    .set({ status: 'disconnected', updatedAt: now })
+    .where(eq(schema.productSalesChannels.connectionId, connectionId));
 }
 
 export async function startSyncRun(args: {

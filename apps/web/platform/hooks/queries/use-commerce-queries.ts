@@ -29,8 +29,23 @@ import { buildQueryString } from '@weldsuite/core-api-client/types';
 // Row types — shaped to what the app-api routes actually return today.
 // ============================================================================
 
+/** One listing of a catalogue product on an external store. */
+export interface ProductSalesChannel {
+  id: string;
+  productId: string;
+  connectionId: string;
+  provider: string;
+  displayName: string | null;
+  externalId: string;
+  externalUrl: string | null;
+  status: 'active' | 'disconnected' | 'deleted_remote';
+  lastSyncedAt: string | null;
+}
+
 /** A product as rendered by the WeldCommerce catalogue grid. */
-export type CommerceProduct = WeldstashProduct;
+export type CommerceProduct = WeldstashProduct & {
+  salesChannels?: ProductSalesChannel[];
+};
 
 export interface CommerceCategory {
   id: string;

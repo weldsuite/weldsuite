@@ -191,6 +191,12 @@ export const commerce = {
         toastCreated: 'Product aangemaakt',
         toastUpdated: 'Product bijgewerkt',
         toastDeleted: 'Product verwijderd',
+        salesChannels: 'Verkoopkanalen',
+        salesChannelsEmpty: 'Dit product staat niet op een externe winkel.',
+        salesChannelExternalId: 'Extern ID {id}',
+        salesChannelActive: 'Actief',
+        salesChannelDisconnected: 'Losgekoppeld',
+        salesChannelDeleted: 'Verwijderd uit de winkel',
       },
 
       categories: {

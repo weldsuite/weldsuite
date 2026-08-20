@@ -10,8 +10,8 @@ import {
 } from './catalog';
 
 describe('connector catalog', () => {
-  it('ships WooCommerce as the first first-party connector', () => {
-    expect(listConnectors().map((c) => c.provider)).toEqual(['woocommerce']);
+  it('ships WooCommerce and Shopify as first-party ecommerce connectors', () => {
+    expect(listConnectors().map((c) => c.provider)).toEqual(['woocommerce', 'shopify']);
   });
 
   it('keeps provider keys unique', () => {
@@ -29,18 +29,21 @@ describe('connector catalog', () => {
   it('exposes credential fields the UI can render as a connect form', () => {
     const woo = getConnector('woocommerce');
     expect(woo?.auth.fields.map((f) => f.key)).toEqual(['storeUrl', 'consumerKey', 'consumerSecret']);
+    const shopify = getConnector('shopify');
+    expect(shopify?.auth.fields.map((f) => f.key)).toEqual(['shopDomain', 'accessToken', 'apiSecret']);
   });
 
   it('resolves a sync from the (provider, syncName) pair', () => {
     const resolved = getConnectorSync('woocommerce', 'woocommerce-products');
     expect(resolved?.sync.internalEntity).toBe('product');
     expect(resolved?.sync.settingKey).toBe('products');
+    expect(getConnectorSync('shopify', 'shopify-orders')?.sync.internalEntity).toBe('order');
   });
 
   it('returns undefined for unknown integrations and syncs', () => {
-    expect(getConnectorSync('shopify', 'shopify-products')).toBeUndefined();
+    expect(getConnectorSync('magento', 'magento-products')).toBeUndefined();
     expect(getConnectorSync('woocommerce', 'woocommerce-coupons')).toBeUndefined();
-    expect(getConnector('shopify')).toBeUndefined();
+    expect(getConnector('magento')).toBeUndefined();
   });
 
   it('filters enabled syncs by setting key or sync name', () => {
@@ -56,10 +59,15 @@ describe('connector catalog', () => {
       'woocommerce-orders',
       'woocommerce-customers',
     ]);
+    expect(connectorSyncNames('shopify')).toEqual([
+      'shopify-products',
+      'shopify-orders',
+      'shopify-customers',
+    ]);
     expect(connectorSyncNames('unknown')).toEqual([]);
   });
 
-  it('defaults every WooCommerce sync on', () => {
+  it('defaults every catalog sync on', () => {
     expect(DEFAULT_ENABLED_SYNCS).toEqual(['products', 'orders', 'customers']);
   });
 });

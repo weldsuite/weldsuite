@@ -77,13 +77,16 @@ export class WooCommerceClient {
     this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
-  private async request<T>(path: string, search?: Record<string, string | undefined>): Promise<{
+  private async request<T>(
+    path: string,
+    init?: { method?: string; search?: Record<string, string | undefined>; body?: unknown },
+  ): Promise<{
     data: T;
     headers: Headers;
   }> {
     const url = new URL(`${this.storeUrl}/wp-json/wc/v3/${path.replace(/^\//, '')}`);
-    if (search) {
-      for (const [key, value] of Object.entries(search)) {
+    if (init?.search) {
+      for (const [key, value] of Object.entries(init.search)) {
         if (value) url.searchParams.set(key, value);
       }
     }
@@ -97,12 +100,15 @@ export class WooCommerceClient {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.timeoutMs);
       try {
+        const method = init?.method ?? 'GET';
         const response = await this.fetchImpl(url.toString(), {
-          method: 'GET',
+          method,
           headers: {
             Authorization: basicAuth(this.consumerKey, this.consumerSecret),
             Accept: 'application/json',
+            ...(init?.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
           },
+          body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
           signal: controller.signal,
         });
         const body = await response.text();
@@ -149,9 +155,11 @@ export class WooCommerceClient {
     const perPage = options.perPage ?? DEFAULT_PER_PAGE;
     try {
       const { data, headers } = await this.request<T[]>(resource, {
-        page: String(page),
-        per_page: String(perPage),
-        modified_after: options.modifiedAfter,
+        search: {
+          page: String(page),
+          per_page: String(perPage),
+          modified_after: options.modifiedAfter,
+        },
       });
       const items = Array.isArray(data) ? data : [];
       const totalPages = Number(headers.get('x-wp-totalpages') ?? 1) || 1;
@@ -169,7 +177,7 @@ export class WooCommerceClient {
   /** Cheap read used to verify credentials before saving a connection. */
   async test(): Promise<{ ok: true; storeUrl: string } | { ok: false; message: string }> {
     try {
-      await this.request('products', { per_page: '1' });
+      await this.request('products', { search: { per_page: '1' } });
       return { ok: true, storeUrl: this.storeUrl };
     } catch (err) {
       const message =
@@ -188,6 +196,44 @@ export class WooCommerceClient {
 
   listCustomers(options?: WooListOptions) {
     return this.listResource<Record<string, unknown>>('customers', options);
+  }
+
+  async getProduct(id: string) {
+    const { data } = await this.request<Record<string, unknown>>(`products/${id}`);
+    return data;
+  }
+
+  async getOrder(id: string) {
+    const { data } = await this.request<Record<string, unknown>>(`orders/${id}`);
+    return data;
+  }
+
+  async getCustomer(id: string) {
+    const { data } = await this.request<Record<string, unknown>>(`customers/${id}`);
+    return data;
+  }
+
+  async createWebhook(args: {
+    name: string;
+    topic: string;
+    deliveryUrl: string;
+    secret: string;
+  }): Promise<{ id: string; topic: string; deliveryUrl: string }> {
+    const { data } = await this.request<{ id: number; topic: string; delivery_url: string }>('webhooks', {
+      method: 'POST',
+      body: {
+        name: args.name,
+        topic: args.topic,
+        delivery_url: args.deliveryUrl,
+        secret: args.secret,
+        status: 'active',
+      },
+    });
+    return { id: String(data.id), topic: data.topic, deliveryUrl: data.delivery_url };
+  }
+
+  async deleteWebhook(id: string): Promise<void> {
+    await this.request(`webhooks/${id}`, { method: 'DELETE', search: { force: 'true' } });
   }
 }
 

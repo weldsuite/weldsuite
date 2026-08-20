@@ -42,11 +42,16 @@ export interface IngestResult extends IngestCounts {
 export interface IngestArgs {
   db: Database;
   connectionId: string;
+  provider: string;
+  displayName?: string | null;
+  storeUrl?: string | null;
   sync: ConnectorSyncDef;
   records: Array<Record<string, unknown>>;
   ownerId: string;
   workspaceId: string;
   env: Record<string, unknown>;
+  /** Webhook delete topics send a stub payload without status=trash. */
+  forceDeleted?: boolean;
 }
 
 const MAX_ERROR_SAMPLES = 5;
@@ -253,6 +258,7 @@ async function softDeleteMapped(db: Database, table: PgTable, internalId: string
 async function replaceOrderItems(
   db: Database,
   connectionId: string,
+  provider: string,
   orderId: string,
   mapped: MappedOrder,
 ): Promise<void> {
@@ -262,7 +268,7 @@ async function replaceOrderItems(
   for (const item of mapped.lineItems) {
     let productId: string | null = null;
     if (item.externalProductId) {
-      const mapping = await findMapping(db, connectionId, 'woocommerce_product', item.externalProductId);
+      const mapping = await findMapping(db, connectionId, `${provider}_product`, item.externalProductId);
       productId = mapping?.internalEntityId ?? null;
     }
     await db.insert(schema.orderItems).values({
@@ -279,10 +285,82 @@ async function replaceOrderItems(
   }
 }
 
+async function upsertSalesChannel(args: {
+  db: Database;
+  productId: string;
+  connectionId: string;
+  provider: string;
+  displayName: string | null | undefined;
+  externalId: string;
+  externalUrl: string | null;
+}): Promise<void> {
+  const now = new Date();
+  const [existing] = await args.db
+    .select({ id: schema.productSalesChannels.id })
+    .from(schema.productSalesChannels)
+    .where(
+      and(
+        eq(schema.productSalesChannels.connectionId, args.connectionId),
+        eq(schema.productSalesChannels.externalId, args.externalId),
+      ),
+    )
+    .limit(1);
+
+  if (existing) {
+    await args.db
+      .update(schema.productSalesChannels)
+      .set({
+        productId: args.productId,
+        displayName: args.displayName ?? null,
+        externalUrl: args.externalUrl,
+        status: 'active',
+        lastSyncedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(schema.productSalesChannels.id, existing.id));
+    return;
+  }
+
+  await args.db.insert(schema.productSalesChannels).values({
+    id: generateId('psch'),
+    productId: args.productId,
+    connectionId: args.connectionId,
+    provider: args.provider,
+    displayName: args.displayName ?? null,
+    externalId: args.externalId,
+    externalUrl: args.externalUrl,
+    status: 'active',
+    lastSyncedAt: now,
+  });
+}
+
+async function markSalesChannelDeleted(db: Database, connectionId: string, externalId: string): Promise<void> {
+  await db
+    .update(schema.productSalesChannels)
+    .set({ status: 'deleted_remote', updatedAt: new Date(), lastSyncedAt: new Date() })
+    .where(
+      and(
+        eq(schema.productSalesChannels.connectionId, connectionId),
+        eq(schema.productSalesChannels.externalId, externalId),
+      ),
+    );
+}
+
+async function activeSalesChannelCount(db: Database, productId: string): Promise<number> {
+  const rows = await db
+    .select({ id: schema.productSalesChannels.id })
+    .from(schema.productSalesChannels)
+    .where(
+      and(eq(schema.productSalesChannels.productId, productId), eq(schema.productSalesChannels.status, 'active')),
+    );
+  return rows.length;
+}
+
 export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
   const counts = emptyCounts();
   const errorSamples: IngestResult['errorSamples'] = [];
   const target = targetFor(args.sync.internalEntity);
+  const customerType = `${args.provider}_customer`;
 
   for (const record of args.records) {
     const externalId = externalIdOf(record);
@@ -292,10 +370,18 @@ export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
     }
 
     try {
-      if (isDeletedRecord(record)) {
+      if (isDeletedRecord(record, args.forceDeleted)) {
         const mapping = await findMapping(args.db, args.connectionId, args.sync.externalEntityType, externalId);
         if (mapping) {
-          await softDeleteMapped(args.db, target.table, mapping.internalEntityId, mapping.id);
+          if (args.sync.internalEntity === 'product') {
+            await markSalesChannelDeleted(args.db, args.connectionId, externalId);
+            const remaining = await activeSalesChannelCount(args.db, mapping.internalEntityId);
+            if (remaining === 0) {
+              await softDeleteMapped(args.db, target.table, mapping.internalEntityId, mapping.id);
+            }
+          } else {
+            await softDeleteMapped(args.db, target.table, mapping.internalEntityId, mapping.id);
+          }
           counts.deleted++;
           await publishEntityEventRaw({
             env: args.env as never,
@@ -313,7 +399,7 @@ export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
         continue;
       }
 
-      const mapped = mapConnectorRecord(args.sync.internalEntity, record);
+      const mapped = mapConnectorRecord(args.sync.internalEntity, record, args.provider);
       if (!mapped) {
         counts.skipped++;
         continue;
@@ -327,12 +413,7 @@ export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
         values.createdBy = values.createdBy ?? args.ownerId;
       }
       if (mapped.entity === 'order' && mapped.customerExternalId) {
-        const customer = await findMapping(
-          args.db,
-          args.connectionId,
-          'woocommerce_customer',
-          mapped.customerExternalId,
-        );
+        const customer = await findMapping(args.db, args.connectionId, customerType, mapped.customerExternalId);
         if (customer) values.personId = customer.internalEntityId;
       }
 
@@ -351,7 +432,26 @@ export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
       });
 
       if (mapped.entity === 'order' && outcome.action !== 'skipped') {
-        await replaceOrderItems(args.db, args.connectionId, outcome.internalId, mapped);
+        await replaceOrderItems(args.db, args.connectionId, args.provider, outcome.internalId, mapped);
+      }
+
+      if (mapped.entity === 'product') {
+        const permalink =
+          mapped.externalUrl
+          ?? (args.storeUrl && args.provider === 'shopify'
+            ? `${args.storeUrl}/products/${String(mapped.values.slug ?? '')}`
+            : args.storeUrl
+              ? `${args.storeUrl}/?p=${externalId}`
+              : null);
+        await upsertSalesChannel({
+          db: args.db,
+          productId: outcome.internalId,
+          connectionId: args.connectionId,
+          provider: args.provider,
+          displayName: args.displayName,
+          externalId,
+          externalUrl: permalink,
+        });
       }
 
       if (outcome.action === 'created') counts.created++;

@@ -112,6 +112,62 @@ export const CONNECTORS: ConnectorDef[] = [
       },
     ],
   },
+  {
+    provider: 'shopify',
+    label: 'Shopify',
+    description: 'Sync products, orders, and customers from a Shopify store into WeldSuite.',
+    category: 'ecommerce',
+    icon: 'store',
+    auth: {
+      kind: 'api_key',
+      fields: [
+        {
+          key: 'shopDomain',
+          label: 'Shop domain',
+          type: 'text',
+          placeholder: 'mystore.myshopify.com',
+          required: true,
+        },
+        {
+          key: 'accessToken',
+          label: 'Admin API access token',
+          type: 'secret',
+          placeholder: 'shpat_...',
+          required: true,
+        },
+        {
+          key: 'apiSecret',
+          label: 'API secret key',
+          type: 'secret',
+          placeholder: 'shpss_...',
+          required: true,
+        },
+      ],
+    },
+    syncs: [
+      {
+        syncName: 'shopify-products',
+        model: 'ShopifyProduct',
+        internalEntity: 'product',
+        externalEntityType: 'shopify_product',
+        settingKey: 'products',
+      },
+      {
+        syncName: 'shopify-orders',
+        model: 'ShopifyOrder',
+        internalEntity: 'order',
+        externalEntityType: 'shopify_order',
+        settingKey: 'orders',
+      },
+      {
+        syncName: 'shopify-customers',
+        model: 'ShopifyCustomer',
+        internalEntity: 'person',
+        externalEntityType: 'shopify_customer',
+        settingKey: 'customers',
+      },
+    ],
+  },
 ];
 
 export function listConnectors(): ConnectorDef[] {

@@ -146,4 +146,49 @@ describe('/api/products · pglite integration', () => {
     const res = await request('/api/products/prod_any/categories');
     expect(res.status).toBe(403);
   });
+
+  it('GET /:id includes sales channels for connector listings', async () => {
+    const { request } = createTestApp('/api/products', productsRoutes, {
+      context: { permissions: permissions('products:create', 'products:read'), tenantDb: db },
+    });
+
+    const created = await request('/api/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Imported helmet', slug: 'imported-helmet-1' }),
+    });
+    const { data: product } = (await created.json()) as { data: { id: string } };
+
+    await db.insert(schema.connectorConnections).values({
+      id: 'conn_sales_ch',
+      provider: 'woocommerce',
+      displayName: 'Main store',
+      status: 'active',
+      externalAccountId: 'https://shop.example',
+    });
+    await db.insert(schema.productSalesChannels).values({
+      id: 'psch_helmet_1',
+      productId: product.id,
+      connectionId: 'conn_sales_ch',
+      provider: 'woocommerce',
+      displayName: 'Main store',
+      externalId: '12',
+      externalUrl: 'https://shop.example/?p=12',
+      status: 'active',
+    });
+
+    const res = await request(`/api/products/${product.id}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: { id: string; salesChannels: Array<{ externalId: string; displayName: string | null }> };
+    };
+    expect(body.data.salesChannels).toHaveLength(1);
+    expect(body.data.salesChannels[0]?.externalId).toBe('12');
+    expect(body.data.salesChannels[0]?.displayName).toBe('Main store');
+
+    const listRes = await request(`/api/products/${product.id}/sales-channels`);
+    expect(listRes.status).toBe(200);
+    const listBody = (await listRes.json()) as { data: Array<{ externalId: string }> };
+    expect(listBody.data.map((row) => row.externalId)).toEqual(['12']);
+  });
 });

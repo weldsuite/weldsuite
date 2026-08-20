@@ -77,7 +77,11 @@ app.get('/:id', requirePermission('products:read'), async (c) => {
   try {
     const [row] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!row) return error.notFound(c, 'Product', id);
-    return success(c, row);
+    const salesChannels = await db
+      .select()
+      .from(schema.productSalesChannels)
+      .where(eq(schema.productSalesChannels.productId, id));
+    return success(c, { ...row, salesChannels });
   } catch (err) {
     console.error('[app-api/products] get failed:', err);
     return error.internal(c, 'Failed to fetch product');
@@ -115,6 +119,27 @@ app.get('/:id/categories', requirePermission('products:read'), async (c) => {
   } catch (err) {
     console.error('[app-api/products] list categories failed:', err);
     return error.internal(c, 'Failed to list product categories');
+  }
+});
+
+app.get('/:id/sales-channels', requirePermission('products:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  try {
+    const [product] = await db
+      .select({ id: t.id })
+      .from(t)
+      .where(and(eq(t.id, id), isNull(t.deletedAt)))
+      .limit(1);
+    if (!product) return error.notFound(c, 'Product', id);
+    const rows = await db
+      .select()
+      .from(schema.productSalesChannels)
+      .where(eq(schema.productSalesChannels.productId, id));
+    return list(c, rows, cursorPagination(rows.length, false, null));
+  } catch (err) {
+    console.error('[app-api/products] list sales channels failed:', err);
+    return error.internal(c, 'Failed to list product sales channels');
   }
 });
 

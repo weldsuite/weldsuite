@@ -703,6 +703,18 @@ export const settings = {
       disconnectConfirmTitle: '{integration} verbreken?',
       disconnectConfirmDescription: 'Weet u zeker dat u deze integratie wilt verbreken? U moet het opnieuw configureren als u het weer wilt gebruiken.',
       comingSoon: '{integration} integratie komt binnenkort',
+      woocommerce: {
+        title: 'WooCommerce',
+        description: 'Importeer producten, orders en klanten uit een of meer WooCommerce-winkels.',
+        overview:
+          'Verbind een winkel met de REST API-consumersleutel. Na de eerste import pusht WooCommerce wijzigingen via webhooks — WeldSuite pollen de database niet op een timer. Je kunt meerdere winkels verbinden; dezelfde SKU’s delen één product met een verkoopkanaal per winkel.',
+      },
+      shopify: {
+        title: 'Shopify',
+        description: 'Importeer producten, orders en klanten uit een of meer Shopify-winkels.',
+        overview:
+          'Verbind een custom app met het Admin API-token en de API-secret. Na de eerste import pusht Shopify wijzigingen via webhooks. Je kunt meerdere shops verbinden; dezelfde SKU’s delen één product met een verkoopkanaal per shop.',
+      },
       configurePrintNode: 'PrintNode configureren',
       printNodeDescription: 'Voer uw PrintNode API-sleutel in om uw printers te koppelen',
       apiKey: 'API-sleutel',

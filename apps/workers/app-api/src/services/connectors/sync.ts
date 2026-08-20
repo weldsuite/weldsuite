@@ -4,12 +4,16 @@
  * Pulls pages from the provider, ingests them, and writes a sync-run row.
  * Page ceiling keeps a Worker invocation bounded; an unfinished run leaves the
  * watermark put so the next pass re-reads (checksums skip unchanged records).
+ *
+ * Ongoing updates do not use this runner — stores push via webhooks. This is
+ * for the initial backfill and an explicit "Sync now".
  */
 
 import {
   ConnectorApiError,
   enabledConnectorSyncs,
   getConnector,
+  ShopifyClient,
   WooCommerceClient,
   type ConnectorSyncDef,
 } from '@weldsuite/connectors';
@@ -17,6 +21,7 @@ import type { Database } from '../../db';
 import type { Env } from '../../types';
 import { ingestRecords, type IngestCounts } from './ingest';
 import { modifiedAtOf } from './mappers';
+import { createConnectorClient, storeUrlOf } from './clients';
 import {
   decryptCredentials,
   finishSyncRun,
@@ -35,7 +40,7 @@ export interface SyncConnectionArgs {
   connection: ConnectorConnectionRow;
   ownerId: string;
   workspaceId: string;
-  trigger: 'manual' | 'initial' | 'schedule';
+  trigger: 'manual' | 'initial' | 'schedule' | 'webhook';
   full?: boolean;
   /** Restrict to these setting keys / sync names. Empty = whatever the connection has enabled. */
   syncs?: string[];
@@ -64,19 +69,50 @@ function latestModified(records: Array<Record<string, unknown>>): string | null 
   return latest;
 }
 
-async function listForSync(
-  client: WooCommerceClient,
-  sync: ConnectorSyncDef,
-  options: { page: number; perPage: number; modifiedAfter?: string },
-) {
-  switch (sync.settingKey) {
-    case 'products':
-      return client.listProducts(options);
-    case 'orders':
-      return client.listOrders(options);
-    case 'customers':
-      return client.listCustomers(options);
+interface ListedPage {
+  items: Array<Record<string, unknown>>;
+  done: boolean;
+  nextCursor: string | null;
+}
+
+async function listPage(args: {
+  client: WooCommerceClient | ShopifyClient;
+  provider: string;
+  sync: ConnectorSyncDef;
+  page: number;
+  cursor: string | null;
+  modifiedAfter?: string;
+}): Promise<ListedPage> {
+  if (args.client instanceof ShopifyClient) {
+    const options = {
+      limit: PER_PAGE,
+      pageInfo: args.cursor ?? undefined,
+      updatedAtMin: args.cursor ? undefined : args.modifiedAfter,
+    };
+    const result =
+      args.sync.settingKey === 'products'
+        ? await args.client.listProducts(options)
+        : args.sync.settingKey === 'orders'
+          ? await args.client.listOrders(options)
+          : await args.client.listCustomers(options);
+    return {
+      items: result.items,
+      done: !result.nextPageInfo,
+      nextCursor: result.nextPageInfo,
+    };
   }
+
+  const result =
+    args.sync.settingKey === 'products'
+      ? await args.client.listProducts({ page: args.page, perPage: PER_PAGE, modifiedAfter: args.modifiedAfter })
+      : args.sync.settingKey === 'orders'
+        ? await args.client.listOrders({ page: args.page, perPage: PER_PAGE, modifiedAfter: args.modifiedAfter })
+        : await args.client.listCustomers({ page: args.page, perPage: PER_PAGE, modifiedAfter: args.modifiedAfter });
+  return {
+    items: result.items,
+    done: args.page >= result.totalPages || result.items.length === 0,
+    nextCursor: null,
+  };
 }
 
 export async function syncConnection(args: SyncConnectionArgs): Promise<{ triggered: string[] }> {
@@ -91,20 +127,11 @@ export async function syncConnection(args: SyncConnectionArgs): Promise<{ trigge
 
   const keyring = keyringFromEnv(args.env);
   const credentials = await decryptCredentials(args.connection.credentials ?? undefined, keyring);
-
-  if (args.connection.provider !== 'woocommerce') {
-    throw new ConnectorApiError({
-      message: `No sync client for provider '${args.connection.provider}'`,
-      status: 400,
-      kind: 'permanent',
-    });
-  }
-
-  const client = new WooCommerceClient({
-    storeUrl: credentials.storeUrl || args.connection.externalAccountId || '',
-    consumerKey: credentials.consumerKey || '',
-    consumerSecret: credentials.consumerSecret || '',
-  });
+  const client = createConnectorClient(
+    args.connection.provider,
+    credentials,
+    args.connection.externalAccountId,
+  );
 
   for (const sync of syncs) {
     const runId = await startSyncRun({
@@ -112,12 +139,13 @@ export async function syncConnection(args: SyncConnectionArgs): Promise<{ trigge
       connectionId: args.connection.id,
       syncName: sync.syncName,
       model: sync.model,
-      trigger: args.trigger,
+      trigger: args.trigger === 'webhook' ? 'webhook' : args.trigger,
       syncType: args.full ? 'FULL' : args.connection.syncWatermarks?.[sync.model] ? 'INCREMENTAL' : 'INITIAL',
     });
 
     const modifiedAfter = args.full ? undefined : args.connection.syncWatermarks?.[sync.model];
     let page = 1;
+    let cursor: string | null = null;
     let truncated = false;
     let lastWatermark: string | null = modifiedAfter ?? null;
     const applied = emptyCounts();
@@ -125,12 +153,22 @@ export async function syncConnection(args: SyncConnectionArgs): Promise<{ trigge
 
     try {
       while (page <= MAX_PAGES) {
-        const result = await listForSync(client, sync, { page, perPage: PER_PAGE, modifiedAfter });
+        const result = await listPage({
+          client,
+          provider: args.connection.provider,
+          sync,
+          page,
+          cursor,
+          modifiedAfter,
+        });
         if (result.items.length === 0) break;
 
         const ingested = await ingestRecords({
           db: args.db,
           connectionId: args.connection.id,
+          provider: args.connection.provider,
+          displayName: args.connection.displayName,
+          storeUrl: storeUrlOf(client),
           sync,
           records: result.items,
           ownerId: args.ownerId,
@@ -143,12 +181,13 @@ export async function syncConnection(args: SyncConnectionArgs): Promise<{ trigge
         const pageWatermark = latestModified(result.items);
         if (pageWatermark) lastWatermark = pageWatermark;
 
-        if (page >= result.totalPages) break;
-        if (page === MAX_PAGES && page < result.totalPages) {
+        if (result.done) break;
+        if (page === MAX_PAGES) {
           truncated = true;
           break;
         }
         page += 1;
+        cursor = result.nextCursor;
       }
 
       const failed = applied.failed > 0;
