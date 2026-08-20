@@ -2,7 +2,8 @@
  * pglite integration tests for the social publishing double-post guards:
  *  - reschedule/publish cancels a pre-existing PostPeer scheduled post first
  *  - publishPost is idempotent (rejects already-published / mid-publish)
- *  - cancelPost cancels the live PostPeer post so it can't still fire
+ *  - cancelPost deletes the live PostPeer post so it can't still fire, fails
+ *    loudly if that delete doesn't land, and keeps the content as a draft
  *
  * The PostPeer API is exercised through a stubbed global `fetch`.
  */
@@ -17,6 +18,7 @@ import {
   cancelPost,
   cancelDeliveryBeforeDelete,
   SocialPublishConflictError,
+  SocialCancelUpstreamError,
   type SocialPublishingContext,
 } from '@weldsuite/social-publishing';
 import type { SocialPlatformContent } from '@weldsuite/db/schema/social-posts';
@@ -52,13 +54,20 @@ const ctx = {
 /**
  * Stub fetch; record (method, path, body) and return canned PostPeer responses.
  *
+ * `deleteStatus` forces DELETE /posts/:id to fail with that HTTP status, which
+ * is how the cancel-must-fail-loudly paths are exercised.
+ *
  * `platformResults` overrides what the create-post call reports per channel.
  * The default mirrors a well-formed publish-now response; tests that care about
  * the schedule path pass their own, because PostPeer does NOT echo `accountId`
  * back there.
  */
 function stubPostPeer(
-  platformResults?: Array<Record<string, unknown>>,
+  opts: {
+    deleteStatus?: number;
+    onDelete?: () => Promise<void>;
+    platformResults?: Array<Record<string, unknown>>;
+  } = {},
 ): Array<{ method: string; path: string; body?: unknown }> {
   const calls: Array<{ method: string; path: string; body?: unknown }> = [];
   vi.stubGlobal(
@@ -70,12 +79,22 @@ function stubPostPeer(
         path,
         ...(init.body ? { body: JSON.parse(init.body) } : {}),
       });
+      // Lets a test land a concurrent DB change in the exact window between
+      // cancelPost's upstream delete and its local update.
+      if (init.method === 'DELETE' && opts.onDelete) await opts.onDelete();
+      if (opts.deleteStatus && init.method === 'DELETE') {
+        return {
+          ok: false,
+          status: opts.deleteStatus,
+          text: async () => JSON.stringify({ message: 'nope' }),
+        };
+      }
       const body =
         init.method === 'POST' && path.endsWith('/posts')
           ? {
               postId: 'new_pp',
               status: 'scheduled',
-              platforms: platformResults ?? [
+              platforms: opts.platformResults ?? [
                 { platform: 'twitter', accountId: 'intg_1', success: true, platformPostUrl: 'https://x/1' },
               ],
             }
@@ -125,6 +144,7 @@ async function seedPost(
   id: string,
   status: string,
   postpeerPostId: string | null,
+  scheduledAt?: Date,
   targetAccountIds: string[] = ['sac_1'],
 ) {
   await db.insert(schema.socialPosts).values({
@@ -134,6 +154,7 @@ async function seedPost(
     status: status as never,
     targetAccountIds,
     postpeerPostId,
+    scheduledAt,
     timezone: 'UTC',
     createdByUserId: 'u1',
     createdAt: new Date(),
@@ -224,10 +245,10 @@ describe('social publishing · double-post guards', () => {
     expect(creates).toHaveLength(1);
   });
 
-  it('cancelPost cancels the live PostPeer post and marks the row cancelled', async () => {
+  it('cancelPost deletes the live PostPeer post and returns the row to draft', async () => {
     if (!available) return;
     await seedAccount();
-    await seedPost('spo_cancel', 'scheduled', 'pp_cancel');
+    await seedPost('spo_cancel', 'scheduled', 'pp_cancel', new Date('2030-06-01T14:00:00Z'));
     const calls = stubPostPeer();
 
     const ok = await cancelPost(db, ctx, 'org_1', 'spo_cancel');
@@ -238,7 +259,103 @@ describe('social publishing · double-post guards', () => {
       .select()
       .from(schema.socialPosts)
       .where(eq(schema.socialPosts.id, 'spo_cancel'));
-    expect(row.status).toBe('cancelled');
+    // The content survives so it can be re-scheduled; the slot and the upstream
+    // handle are both gone.
+    expect(row.status).toBe('draft');
+    expect(row.content).toBe('hello world');
+    expect(row.scheduledAt).toBeNull();
+    expect(row.postpeerPostId).toBeNull();
+  });
+
+  it('cancelPost refuses to blank a schedule replaced by a concurrent reschedule', async () => {
+    if (!available) return;
+    await seedAccount();
+    await seedPost('spo_resched_race', 'scheduled', 'pp_old', new Date('2030-06-01T14:00:00Z'));
+
+    // Simulate a reschedule completing in the window between our upstream
+    // delete and our local update: it mints a NEW PostPeer post and puts the row
+    // back to `scheduled`. Status alone would look unchanged at update time.
+    const newScheduledAt = new Date('2030-07-01T09:00:00Z');
+    stubPostPeer({
+      onDelete: async () => {
+        await db
+          .update(schema.socialPosts)
+          .set({ status: 'scheduled', postpeerPostId: 'pp_new', scheduledAt: newScheduledAt })
+          .where(eq(schema.socialPosts.id, 'spo_resched_race'));
+      },
+    });
+
+    await expect(cancelPost(db, ctx, 'org_1', 'spo_resched_race')).rejects.toBeInstanceOf(
+      SocialPublishConflictError,
+    );
+
+    // pp_new is live upstream, so the row must still say scheduled. Blanking it
+    // would leave us claiming `draft` while PostPeer goes on to publish.
+    const [row] = await db
+      .select()
+      .from(schema.socialPosts)
+      .where(eq(schema.socialPosts.id, 'spo_resched_race'));
+    expect(row.status).toBe('scheduled');
+    expect(row.postpeerPostId).toBe('pp_new');
+    expect(row.scheduledAt).toEqual(newScheduledAt);
+  });
+
+  it('cancelPost fails loudly and leaves the post scheduled when PostPeer errors', async () => {
+    if (!available) return;
+    await seedAccount();
+    const scheduledAt = new Date('2030-06-01T14:00:00Z');
+    await seedPost('spo_cancel_5xx', 'scheduled', 'pp_5xx', scheduledAt);
+    stubPostPeer({ deleteStatus: 500 });
+
+    await expect(cancelPost(db, ctx, 'org_1', 'spo_cancel_5xx')).rejects.toBeInstanceOf(
+      SocialCancelUpstreamError,
+    );
+
+    // The post is still armed upstream, so the row must still say so — anything
+    // else would tell the user it was cancelled when it is about to publish.
+    const [row] = await db
+      .select()
+      .from(schema.socialPosts)
+      .where(eq(schema.socialPosts.id, 'spo_cancel_5xx'));
+    expect(row.status).toBe('scheduled');
+    expect(row.postpeerPostId).toBe('pp_5xx');
+    expect(row.scheduledAt).toEqual(scheduledAt);
+  });
+
+  it('cancelPost treats a PostPeer 404 as already-unscheduled and proceeds', async () => {
+    if (!available) return;
+    await seedAccount();
+    await seedPost('spo_cancel_404', 'scheduled', 'pp_404', new Date('2030-06-01T14:00:00Z'));
+    stubPostPeer({ deleteStatus: 404 });
+
+    const ok = await cancelPost(db, ctx, 'org_1', 'spo_cancel_404');
+    expect(ok).toBe(true);
+
+    const [row] = await db
+      .select()
+      .from(schema.socialPosts)
+      .where(eq(schema.socialPosts.id, 'spo_cancel_404'));
+    expect(row.status).toBe('draft');
+    expect(row.postpeerPostId).toBeNull();
+  });
+
+  it('cancelPost refuses to unschedule when PostPeer is not configured', async () => {
+    if (!available) return;
+    await seedAccount();
+    await seedPost('spo_cancel_nocfg', 'scheduled', 'pp_nocfg', new Date('2030-06-01T14:00:00Z'));
+    const calls = stubPostPeer();
+    const noKeyCtx = { masterDb: () => masterDb } as unknown as SocialPublishingContext;
+
+    await expect(cancelPost(db, noKeyCtx, 'org_1', 'spo_cancel_nocfg')).rejects.toBeInstanceOf(
+      SocialCancelUpstreamError,
+    );
+    expect(calls).toHaveLength(0);
+
+    const [row] = await db
+      .select()
+      .from(schema.socialPosts)
+      .where(eq(schema.socialPosts.id, 'spo_cancel_nocfg'));
+    expect(row.status).toBe('scheduled');
   });
 
   it('cancelPost refuses to cancel an already-published post', async () => {
@@ -267,7 +384,7 @@ describe('social publishing · platform content', () => {
     await seedPost('spo_sched_pc', 'draft', null);
     // PostPeer does not echo `accountId` back on the schedule path — deriving
     // platformContent from the response is what used to leave it empty.
-    const calls = stubPostPeer([{ platform: 'twitter', success: true }]);
+    const calls = stubPostPeer({ platformResults: [{ platform: 'twitter', success: true }] });
 
     const res = await publishPost(db, ctx, 'org_1', 'spo_sched_pc', {
       now: false,
@@ -304,7 +421,9 @@ describe('social publishing · platform content', () => {
     if (!available) return;
     await seedAccount();
     await seedPost('spo_now_pc', 'draft', null);
-    stubPostPeer([{ platform: 'twitter', success: true, platformPostUrl: 'https://x/9' }]);
+    stubPostPeer({
+      platformResults: [{ platform: 'twitter', success: true, platformPostUrl: 'https://x/9' }],
+    });
 
     const res = await publishPost(db, ctx, 'org_1', 'spo_now_pc', { now: true });
 
@@ -320,7 +439,9 @@ describe('social publishing · platform content', () => {
     if (!available) return;
     await seedAccount();
     await seedPost('spo_sched_fail', 'draft', null);
-    stubPostPeer([{ platform: 'twitter', success: false, error: 'channel revoked' }]);
+    stubPostPeer({
+      platformResults: [{ platform: 'twitter', success: false, error: 'channel revoked' }],
+    });
 
     const res = await publishPost(db, ctx, 'org_1', 'spo_sched_fail', {
       now: false,
@@ -344,8 +465,12 @@ describe('social publishing · platform content', () => {
     // order would let sac_1 grab this result via the platform fallback before
     // sac_2 ever gets a chance at its own exact match — attributing sac_2's
     // failure to sac_1 instead.
-    await seedPost('spo_multi_acct', 'draft', null, ['sac_1', 'sac_2']);
-    stubPostPeer([{ platform: 'twitter', accountId: 'intg_2', success: false, error: 'revoked' }]);
+    await seedPost('spo_multi_acct', 'draft', null, undefined, ['sac_1', 'sac_2']);
+    stubPostPeer({
+      platformResults: [
+        { platform: 'twitter', accountId: 'intg_2', success: false, error: 'revoked' },
+      ],
+    });
 
     const res = await publishPost(db, ctx, 'org_1', 'spo_multi_acct', { now: true });
 
@@ -368,7 +493,7 @@ describe('social publishing · delete cancels the pending delivery', () => {
   it('cancels the upstream scheduled post so a deleted post cannot still fire', async () => {
     if (!available) return;
     await seedAccount();
-    await seedPost('spo_del', 'scheduled', 'pp_del');
+    await seedPost('spo_del', 'scheduled', 'pp_del', new Date('2030-06-01T14:00:00Z'));
     const calls = stubPostPeer();
 
     await cancelDeliveryBeforeDelete(db, ctx, 'org_1', 'spo_del');
@@ -378,7 +503,12 @@ describe('social publishing · delete cancels the pending delivery', () => {
       .select()
       .from(schema.socialPosts)
       .where(eq(schema.socialPosts.id, 'spo_del'));
-    expect(row.status).toBe('cancelled');
+    // cancelPost unschedules back to `draft`; the caller stamps `deletedAt`
+    // immediately after, so this status is never user-visible. What matters is
+    // that the upstream handle and the slot are both gone before the delete.
+    expect(row.status).toBe('draft');
+    expect(row.scheduledAt).toBeNull();
+    expect(row.postpeerPostId).toBeNull();
   });
 
   it('stays quiet for an already-published post so the record is still deletable', async () => {

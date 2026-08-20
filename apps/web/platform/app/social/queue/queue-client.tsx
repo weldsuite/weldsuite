@@ -13,6 +13,14 @@ import {
   usePublishSocialPost,
   useRescheduleSocialPost,
 } from '@/hooks/queries/use-social-queries';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from '@weldsuite/ui/components/dialog';
 import { ComposerDialog } from '@/app/social/components/composer-dialog';
 import type { SocialPost } from '@weldsuite/app-api-client/domains/social';
 
@@ -27,6 +35,12 @@ export function QueueClient() {
   const [editPost, setEditPost] = useState<QueuePost | null>(null);
   const [reschedulePostId, setReschedulePostId] = useState<string | null>(null);
   const [rescheduleValue, setRescheduleValue] = useState('');
+  // Cancelling gives up the slot upstream on PostPeer, so it goes through a
+  // confirm step rather than firing on click. The post itself survives as a
+  // draft. `cancelFailed` keeps the dialog open on an upstream failure — the
+  // post is still scheduled in that case, so silently closing would be a lie.
+  const [cancelPostId, setCancelPostId] = useState<string | null>(null);
+  const [cancelFailed, setCancelFailed] = useState(false);
 
   const { data, isLoading } = useSocialPosts({ status: 'scheduled' });
   const cancelPost = useCancelSocialPost();
@@ -50,6 +64,41 @@ export function QueueClient() {
     await reschedulePost.mutateAsync({ id, scheduledAt: new Date(rescheduleValue).toISOString() });
     setReschedulePostId(null);
     setRescheduleValue('');
+  };
+
+  const handleCancel = async () => {
+    if (!cancelPostId) return;
+    setCancelFailed(false);
+    try {
+      await cancelPost.mutateAsync(cancelPostId);
+      setCancelPostId(null);
+    } catch {
+      // Upstream refused — the post is still scheduled. Stay open and say so.
+      setCancelFailed(true);
+    }
+  };
+
+  const closeCancelDialog = () => {
+    setCancelPostId(null);
+    setCancelFailed(false);
+  };
+
+  // The two ways out of the cancel dialog that keep the schedule intact. Both
+  // close the dialog and drop the user straight into the change they actually
+  // wanted, so "I only need a different time/wording" never costs them the slot.
+  const handleRescheduleInstead = () => {
+    if (!cancelPostId) return;
+    setReschedulePostId(cancelPostId);
+    setRescheduleValue('');
+    closeCancelDialog();
+  };
+
+  const handleEditInstead = () => {
+    const post = posts.find((p: QueuePost) => p.id === cancelPostId);
+    if (!post) return;
+    setEditPost(post);
+    setComposeOpen(true);
+    closeCancelDialog();
   };
 
   if (isLoading) {
@@ -119,7 +168,7 @@ export function QueueClient() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => cancelPost.mutate(post.id)}
+                          onClick={() => setCancelPostId(post.id)}
                         >
                           <X className="h-4 w-4" />
                         </Button>
@@ -161,6 +210,74 @@ export function QueueClient() {
         onOpenChange={(v) => { setComposeOpen(v); if (!v) setEditPost(null); }}
         editPost={editPost}
       />
+
+      <Dialog
+        open={cancelPostId !== null}
+        onOpenChange={cancelPost.isPending ? undefined : (v) => { if (!v) closeCancelDialog(); }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t.social.posts.cancelConfirm.title}</DialogTitle>
+            <DialogDescription>
+              {t.social.posts.cancelConfirm.description}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {cancelFailed && (
+              <p
+                role="alert"
+                className="text-sm text-destructive rounded-md border border-destructive/40 bg-destructive/10 p-3"
+              >
+                {t.social.posts.cancelConfirm.failed}
+              </p>
+            )}
+            <p className="text-sm text-muted-foreground">
+              {t.social.posts.cancelConfirm.alternatives}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                disabled={cancelPost.isPending}
+                onClick={handleRescheduleInstead}
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                {t.social.posts.cancelConfirm.reschedule}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                disabled={cancelPost.isPending}
+                onClick={handleEditInstead}
+              >
+                <Edit className="h-4 w-4 mr-2" />
+                {t.social.posts.cancelConfirm.edit}
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={cancelPost.isPending}
+              onClick={closeCancelDialog}
+            >
+              {t.social.posts.cancelConfirm.keep}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={cancelPost.isPending}
+              onClick={handleCancel}
+            >
+              {cancelPost.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {t.social.posts.cancelConfirm.confirm}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
