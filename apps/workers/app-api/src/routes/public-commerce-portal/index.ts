@@ -205,7 +205,7 @@ app.post('/auth/verify', zValidator('json', commercePortalAuthVerifySchema), asy
     if (!presented) return error.unauthorized(c, 'Invalid or expired code');
     const presentedHash = await sha256Hex(presented);
 
-    let email = body.token ? undefined : undefined;
+    let email: string | undefined;
     // Prefer reverse lookup for magic-link tokens.
     const reverse = await kvGetJson<{ email: string }>(c.env, `cportal:tok:${presentedHash}`);
     email = reverse?.email;

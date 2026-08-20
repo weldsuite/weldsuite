@@ -250,14 +250,20 @@ app.post('/:id/ship', requirePermission('picklists:update'), async (c) => {
       },
     });
     if (!result) return error.notFound(c, 'Pick list', id);
-    publishEntityEvent({ c, entityType: 'picklist', entityId: id, action: 'updated', data: result });
+    publishEntityEvent({
+      c,
+      entityType: 'picklist',
+      entityId: id,
+      action: 'updated',
+      data: { ...result },
+    });
     if (result.shipmentId) {
       publishEntityEvent({
         c,
         entityType: 'shipment',
         entityId: result.shipmentId,
         action: 'shipped',
-        data: result,
+        data: { ...result },
       });
     }
     if (result.parcelId) {
@@ -266,7 +272,7 @@ app.post('/:id/ship', requirePermission('picklists:update'), async (c) => {
         entityType: 'parcel',
         entityId: result.parcelId,
         action: 'updated',
-        data: result,
+        data: { ...result },
       });
     }
     return success(c, result);

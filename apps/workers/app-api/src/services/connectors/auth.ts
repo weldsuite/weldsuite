@@ -163,7 +163,7 @@ export async function completeWooCommerceAppAuth(args: {
     credentials: encrypted,
     externalAccountId: storeUrl,
     webhookSecret: encryptedWebhookSecret,
-    enabledSyncs: row.enabledSyncs,
+    enabledSyncs: row.enabledSyncs ?? undefined,
   });
 
   const fresh = await getConnectionById(db, row.id);

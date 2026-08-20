@@ -329,6 +329,8 @@ export interface OrderEventData {
   currency?: string | null;
   customerId?: string | null;
   customerEmail?: string | null;
+  /** Where the order was placed (e.g. `commerce_portal`). */
+  source?: string | null;
 }
 
 export interface ProductEventData {
