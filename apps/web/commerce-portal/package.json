@@ -14,7 +14,7 @@
     "@weldsuite/i18n": "workspace:*",
     "@weldsuite/ui": "workspace:*",
     "lucide-react": "^0.544.0",
-    "next": "15.4.8",
+    "next": "15.5.21",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "sonner": "^1.3.1"
