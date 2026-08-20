@@ -21,6 +21,7 @@ import { createProductsApi } from '@weldsuite/app-api-client/domains/products';
 import { createInventoryApi } from '@weldsuite/app-api-client/domains/inventory';
 import { createWarehousesApi } from '@weldsuite/app-api-client/domains/warehouses';
 import { createPickListsApi } from '@weldsuite/app-api-client/domains/pick-lists';
+import { createSendcloudApi } from '@weldsuite/app-api-client/domains/sendcloud';
 
 /** app-api base URL. Defaults to the local wrangler dev port (`apps/workers/app-api`). */
 export const APP_API_URL = process.env.EXPO_PUBLIC_APP_API_URL || 'http://localhost:8789';
@@ -46,6 +47,7 @@ export const appApi = {
   inventory: createInventoryApi(client),
   warehouses: createWarehousesApi(client),
   pickLists: createPickListsApi(client),
+  sendcloud: createSendcloudApi(client),
 };
 
 /**

@@ -136,8 +136,9 @@ const EXEMPT_ROUTES = new Set<string>([
   // feature-requests — master-global product-feedback table; not a tenant entity.
   'feature-requests',
   // roles — RBAC role definitions: permissions infra, no `role` entity type in the catalog.
-  'roles',
-]);
+  // printnode / sendcloud — singleton integration config, not entity CRUD.
+  'printnode',
+  'sendcloud',
 
 interface Handler {
   method: string;
