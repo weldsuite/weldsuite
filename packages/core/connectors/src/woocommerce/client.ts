@@ -5,9 +5,17 @@
  * those keys through WooCommerce's `/wc-auth/v1/authorize` endpoint (store URL
  * + Connect); they can still paste a pair generated under
  * WooCommerce → Settings → Advanced → REST API.
+ *
+ * REST calls match Postman/curl `-u consumer_key:consumer_secret`: HTTP Basic
+ * Auth only, over HTTPS, no secrets in the query string. Sending Basic Auth
+ * together with `consumer_key`/`consumer_secret` query params makes many WAFs
+ * (ModSecurity, Wordfence) reset the TCP connection — which we used to surface
+ * as "Could not reach the WooCommerce store" even though the same keys work in
+ * Postman. Query-string auth is a fallback for hosts that strip Authorization.
  */
 
 import {
+  bindFetch,
   classifyStatus,
   ConnectorApiError,
   parseRetryAfter,
@@ -38,6 +46,11 @@ export interface WooListResult<T> {
 const DEFAULT_PER_PAGE = 100;
 const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_RETRIES = 2;
+const MAX_REDIRECTS = 5;
+const USER_AGENT = 'WeldSuite-WooCommerce/1.0 (+https://weldsuite.org)';
+
+type ApiStyle = 'pretty' | 'rest_route';
+type AuthMode = 'basic' | 'query';
 
 export function normalizeStoreUrl(url: string): string {
   const trimmed = url.trim();
@@ -69,6 +82,101 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function looksLikeHtml(body: string): boolean {
+  const head = body.trimStart().slice(0, 32).toLowerCase();
+  return head.startsWith('<!doctype') || head.startsWith('<html') || head.startsWith('<head');
+}
+
+function parseWooJson<T>(body: string): T {
+  const trimmed = body.trim();
+  if (!trimmed) return null as T;
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    // PHP notices/warnings often prepend the JSON payload.
+    const brace = trimmed.indexOf('{');
+    const bracket = trimmed.indexOf('[');
+    const starts = [brace, bracket].filter((index) => index >= 0);
+    if (starts.length === 0) {
+      throw new SyntaxError('WooCommerce response was not JSON');
+    }
+    return JSON.parse(trimmed.slice(Math.min(...starts))) as T;
+  }
+}
+
+function unreachableError(err: unknown): ConnectorApiError {
+  const cause = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  const name = err instanceof Error ? err.name : '';
+  const aborted = name === 'AbortError' || name === 'TimeoutError' || /aborted|abort/i.test(cause);
+  if (aborted) {
+    return new ConnectorApiError({
+      message: 'WooCommerce store timed out',
+      status: 504,
+      kind: 'transient',
+    });
+  }
+  const tls = /ssl|tls|certificate|cert|handshake/i.test(`${name} ${cause}`);
+  const suffix = cause ? ` (${cause})` : '';
+  return new ConnectorApiError({
+    message: tls
+      ? `Could not establish a secure connection to the WooCommerce store${suffix}`
+      : `Could not reach the WooCommerce store${suffix}`,
+    status: 503,
+    kind: 'transient',
+  });
+}
+
+function shouldTryRestRoute(err: ConnectorApiError): boolean {
+  if (err.status === 404 || err.status === 405) return true;
+  if (err.body && looksLikeHtml(err.body)) return true;
+  return (
+    err.message.includes('web page instead of JSON') || err.message.includes('was not JSON')
+  );
+}
+
+/**
+ * WooCommerce only accepts Basic Auth (Postman username/password) over HTTPS.
+ * An http→https redirect is a cross-origin hop and the Fetch spec strips
+ * Authorization, so we upgrade before the first request.
+ */
+function restStoreUrl(storeUrl: string): string {
+  return storeUrl.startsWith('http://') ? `https://${storeUrl.slice('http://'.length)}` : storeUrl;
+}
+
+function buildWooUrl(args: {
+  storeUrl: string;
+  path: string;
+  search?: Record<string, string | undefined>;
+  style: ApiStyle;
+  auth: AuthMode;
+  consumerKey: string;
+  consumerSecret: string;
+}): string {
+  const origin = restStoreUrl(args.storeUrl);
+  const resource = args.path.replace(/^\//, '');
+  const url =
+    args.style === 'pretty'
+      ? new URL(`${origin}/wp-json/wc/v3/${resource}`)
+      : (() => {
+          const parsed = new URL(origin);
+          const basePath = parsed.pathname.replace(/\/+$/, '');
+          parsed.pathname = basePath === '' ? '/' : basePath;
+          parsed.searchParams.set('rest_route', `/wc/v3/${resource}`);
+          return parsed;
+        })();
+
+  if (args.search) {
+    for (const [key, value] of Object.entries(args.search)) {
+      if (value) url.searchParams.set(key, value);
+    }
+  }
+  if (args.auth === 'query') {
+    url.searchParams.set('consumer_key', args.consumerKey);
+    url.searchParams.set('consumer_secret', args.consumerSecret);
+  }
+  return url.toString();
+}
+
 export class WooCommerceClient {
   readonly storeUrl: string;
   private readonly consumerKey: string;
@@ -80,8 +188,134 @@ export class WooCommerceClient {
     this.storeUrl = normalizeStoreUrl(creds.storeUrl);
     this.consumerKey = creds.consumerKey.trim();
     this.consumerSecret = creds.consumerSecret.trim();
-    this.fetchImpl = options?.fetchImpl ?? fetch;
+    this.fetchImpl = bindFetch(options?.fetchImpl);
     this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  }
+
+  private requestHeaders(auth: AuthMode, hasBody: boolean): Record<string, string> {
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      'User-Agent': USER_AGENT,
+    };
+    if (auth === 'basic') {
+      headers.Authorization = basicAuth(this.consumerKey, this.consumerSecret);
+    }
+    if (hasBody) headers['Content-Type'] = 'application/json';
+    return headers;
+  }
+
+  /**
+   * Follow redirects ourselves so Authorization survives host changes
+   * (`example.com` → `www.example.com`, http → https). The Fetch spec strips
+   * that header on a cross-origin redirect when `redirect: 'follow'`.
+   */
+  private async fetchFollow(url: string, init: RequestInit, remaining = MAX_REDIRECTS): Promise<Response> {
+    const response = await this.fetchImpl(url, { ...init, redirect: 'manual' });
+    const status = response.status;
+    if (response.type === 'opaqueredirect' || (status === 0 && remaining === MAX_REDIRECTS)) {
+      return this.fetchImpl(url, { ...init, redirect: 'follow' });
+    }
+    const isRedirect = status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+    if (!isRedirect || remaining <= 0) return response;
+    const location = response.headers.get('Location') ?? response.headers.get('location');
+    if (!location) return response;
+    try {
+      await response.arrayBuffer();
+    } catch {
+      /* drain if the runtime requires it */
+    }
+    const next = new URL(location, url).toString();
+    const nextInit: RequestInit = { ...init };
+    if (status === 303) {
+      nextInit.method = 'GET';
+      nextInit.body = undefined;
+    }
+    return this.fetchFollow(next, nextInit, remaining - 1);
+  }
+
+  private async requestWithRetries<T>(
+    path: string,
+    opts: {
+      method: string;
+      search?: Record<string, string | undefined>;
+      body?: unknown;
+      style: ApiStyle;
+      auth: AuthMode;
+    },
+  ): Promise<{ data: T; headers: Headers }> {
+    const url = buildWooUrl({
+      storeUrl: this.storeUrl,
+      path,
+      search: opts.search,
+      style: opts.style,
+      auth: opts.auth,
+      consumerKey: this.consumerKey,
+      consumerSecret: this.consumerSecret,
+    });
+    const headers = this.requestHeaders(opts.auth, opts.body !== undefined);
+
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+      try {
+        const response = await this.fetchFollow(url, {
+          method: opts.method,
+          headers,
+          body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+          signal: controller.signal,
+        });
+        const text = await response.text();
+        if (!response.ok) {
+          const error = new ConnectorApiError({
+            message:
+              response.status === 401 || response.status === 403
+                ? 'WooCommerce rejected the consumer key or secret'
+                : `WooCommerce request failed (${response.status})`,
+            status: response.status,
+            kind: classifyStatus(response.status),
+            body: text.slice(0, 500),
+            retryAfterSeconds: parseRetryAfter(response.headers.get('retry-after')),
+          });
+          if (!error.retryable || attempt === MAX_RETRIES) throw error;
+          lastError = error;
+          await sleep(error.retryAfterSeconds ? error.retryAfterSeconds * 1000 : 400 * 2 ** attempt);
+          continue;
+        }
+        if (looksLikeHtml(text)) {
+          throw new ConnectorApiError({
+            message:
+              'WooCommerce REST API returned a web page instead of JSON. Pretty permalinks may be disabled, or a firewall is blocking /wp-json/.',
+            status: 502,
+            kind: 'permanent',
+            body: text.slice(0, 500),
+          });
+        }
+        try {
+          return { data: parseWooJson<T>(text), headers: response.headers };
+        } catch {
+          throw new ConnectorApiError({
+            message: 'WooCommerce REST API returned a response that was not JSON',
+            status: 502,
+            kind: 'permanent',
+            body: text.slice(0, 500),
+          });
+        }
+      } catch (err) {
+        if (err instanceof ConnectorApiError) {
+          if (!err.retryable || attempt === MAX_RETRIES) throw err;
+          lastError = err;
+          await sleep(err.retryAfterSeconds ? err.retryAfterSeconds * 1000 : 400 * 2 ** attempt);
+          continue;
+        }
+        lastError = err;
+        if (attempt === MAX_RETRIES) throw unreachableError(err);
+        await sleep(400 * 2 ** attempt);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    throw lastError instanceof ConnectorApiError ? lastError : unreachableError(lastError);
   }
 
   private async request<T>(
@@ -91,70 +325,30 @@ export class WooCommerceClient {
     data: T;
     headers: Headers;
   }> {
-    const url = new URL(`${this.storeUrl}/wp-json/wc/v3/${path.replace(/^\//, '')}`);
-    if (init?.search) {
-      for (const [key, value] of Object.entries(init.search)) {
-        if (value) url.searchParams.set(key, value);
-      }
-    }
-    // Some hosts strip the Authorization header; WooCommerce accepts the
-    // consumer key pair as query params as a documented fallback.
-    url.searchParams.set('consumer_key', this.consumerKey);
-    url.searchParams.set('consumer_secret', this.consumerSecret);
+    const method = init?.method ?? 'GET';
+    const search = init?.search;
+    const body = init?.body;
+    const run = (style: ApiStyle, auth: AuthMode) =>
+      this.requestWithRetries<T>(path, { method, search, body, style, auth });
 
-    let lastError: unknown;
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-      try {
-        const method = init?.method ?? 'GET';
-        const response = await this.fetchImpl(url.toString(), {
-          method,
-          headers: {
-            Authorization: basicAuth(this.consumerKey, this.consumerSecret),
-            Accept: 'application/json',
-            ...(init?.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-          },
-          body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
-          signal: controller.signal,
-        });
-        const body = await response.text();
-        if (!response.ok) {
-          const kind = classifyStatus(response.status);
-          const error = new ConnectorApiError({
-            message:
-              response.status === 401 || response.status === 403
-                ? 'WooCommerce rejected the consumer key or secret'
-                : `WooCommerce request failed (${response.status})`,
-            status: response.status,
-            kind,
-            body: body.slice(0, 500),
-            retryAfterSeconds: parseRetryAfter(response.headers.get('retry-after')),
-          });
-          if (!error.retryable || attempt === MAX_RETRIES) throw error;
-          lastError = error;
-          await sleep(error.retryAfterSeconds ? error.retryAfterSeconds * 1000 : 400 * 2 ** attempt);
-          continue;
-        }
-        return { data: (body ? JSON.parse(body) : null) as T, headers: response.headers };
-      } catch (err) {
-        if (err instanceof ConnectorApiError) throw err;
-        lastError = err;
-        if (attempt === MAX_RETRIES) {
-          throw new ConnectorApiError({
-            message: 'Could not reach the WooCommerce store',
-            status: 503,
-            kind: 'transient',
-          });
-        }
-        await sleep(400 * 2 ** attempt);
-      } finally {
-        clearTimeout(timer);
+    try {
+      return await run('pretty', 'basic');
+    } catch (err) {
+      if (err instanceof ConnectorApiError && err.kind === 'auth') {
+        return await run('pretty', 'query');
       }
+      if (err instanceof ConnectorApiError && shouldTryRestRoute(err)) {
+        try {
+          return await run('rest_route', 'basic');
+        } catch (restErr) {
+          if (restErr instanceof ConnectorApiError && restErr.kind === 'auth') {
+            return await run('rest_route', 'query');
+          }
+          throw restErr;
+        }
+      }
+      throw err;
     }
-    throw lastError instanceof Error
-      ? lastError
-      : new ConnectorApiError({ message: 'WooCommerce request failed', status: 503, kind: 'transient' });
   }
 
   private async listResource<T>(resource: string, options: WooListOptions = {}): Promise<WooListResult<T>> {

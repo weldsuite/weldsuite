@@ -6,6 +6,7 @@
  */
 
 import {
+  bindFetch,
   classifyStatus,
   ConnectorApiError,
   parseRetryAfter,
@@ -80,7 +81,7 @@ export class ShopifyClient {
     this.shopDomain = normalizeShopDomain(creds.shopDomain);
     this.accessToken = creds.accessToken.trim();
     this.apiSecret = creds.apiSecret.trim();
-    this.fetchImpl = options?.fetchImpl ?? fetch;
+    this.fetchImpl = bindFetch(options?.fetchImpl);
     this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 

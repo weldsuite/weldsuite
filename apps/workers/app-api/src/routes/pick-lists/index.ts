@@ -17,6 +17,7 @@ import {
   pickItemSchema,
   updatePickListSchema,
 } from '@weldsuite/core-api-client/schemas/pick-lists';
+import { shipPickListSchema } from '@weldsuite/app-api-client/schemas/sendcloud';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
@@ -31,6 +32,7 @@ import {
   getPickListWithItems,
   packPickList,
   PickListError,
+  orderRequiresCarrier,
   renderPackingSlipHtml,
   shipPickList,
   startPickList,
@@ -45,6 +47,8 @@ function mapPickError(c: Parameters<typeof error.badRequest>[0], err: unknown, f
     if (err.code === 'WAREHOUSE_NOT_FOUND') return error.notFound(c, 'Warehouse');
     if (err.code === 'ITEM_NOT_FOUND') return error.notFound(c, 'Pick list item');
     if (err.code === 'ALREADY_PICKING') return error.conflict(c, err.message, { code: err.code });
+    if (err.code === 'SHIPPING_NOT_CONFIGURED') return error.conflict(c, err.message, { code: err.code });
+    if (err.code === 'SENDCLOUD_FAILED') return error.conflict(c, err.message, { code: err.code });
     return error.badRequest(c, err.message, { code: err.code });
   }
   if (err instanceof StockLedgerError) {
@@ -223,10 +227,48 @@ app.post('/:id/pack', requirePermission('picklists:update'), async (c) => {
 app.post('/:id/ship', requirePermission('picklists:update'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
+  let body: { senderId?: number; shippingOptionCode?: string; weightKg?: number } = {};
   try {
-    const result = await shipPickList(db, id, c.get('userId'));
+    const json = await c.req.json();
+    const parsed = shipPickListSchema.partial().safeParse(json);
+    if (!parsed.success) {
+      return error.badRequest(c, 'Invalid ship payload', parsed.error.flatten());
+    }
+    body = parsed.data;
+  } catch {
+    // empty body — inventory-only (requiresShipping=false) shipments still work
+  }
+  try {
+    const result = await shipPickList(db, id, c.get('userId'), {
+      senderId: body.senderId,
+      shippingOptionCode: body.shippingOptionCode,
+      weightKg: body.weightKg,
+      workspaceId: c.get('workspaceId'),
+      keyring: {
+        v1: c.env.DATABASE_ENCRYPTION_KEY,
+        v2: c.env.DATABASE_ENCRYPTION_KEY_V2,
+      },
+    });
     if (!result) return error.notFound(c, 'Pick list', id);
     publishEntityEvent({ c, entityType: 'picklist', entityId: id, action: 'updated', data: result });
+    if (result.shipmentId) {
+      publishEntityEvent({
+        c,
+        entityType: 'shipment',
+        entityId: result.shipmentId,
+        action: 'shipped',
+        data: result,
+      });
+    }
+    if (result.parcelId) {
+      publishEntityEvent({
+        c,
+        entityType: 'parcel',
+        entityId: result.parcelId,
+        action: 'updated',
+        data: result,
+      });
+    }
     return success(c, result);
   } catch (err) {
     return mapPickError(c, err, 'Failed to ship pick list');
@@ -267,7 +309,43 @@ app.get('/:id', requirePermission('picklists:read'), async (c) => {
   try {
     const row = await getPickListWithItems(db, id);
     if (!row) return error.notFound(c, 'Pick list', id);
-    return success(c, row);
+    const orderId = row.orderIds?.[0];
+    let recipient: {
+      name?: string | null;
+      email?: string | null;
+      phone?: string | null;
+      line1?: string | null;
+      line2?: string | null;
+      city?: string | null;
+      postalCode?: string | null;
+      country?: string | null;
+    } | null = null;
+    let requiresShipping = true;
+    if (orderId) {
+      const [order] = await db
+        .select({
+          customerName: schema.orders.customerName,
+          customerEmail: schema.orders.customerEmail,
+          customerPhone: schema.orders.customerPhone,
+          shippingAddress: schema.orders.shippingAddress,
+        })
+        .from(schema.orders)
+        .where(eq(schema.orders.id, orderId))
+        .limit(1);
+      requiresShipping = await orderRequiresCarrier(db, orderId);
+      const shipping = order?.shippingAddress;
+      recipient = {
+        name: shipping?.name || order?.customerName || null,
+        email: order?.customerEmail ?? null,
+        phone: shipping?.phone || order?.customerPhone || null,
+        line1: shipping?.line1 ?? null,
+        line2: shipping?.line2 ?? null,
+        city: shipping?.city ?? null,
+        postalCode: shipping?.postalCode ?? null,
+        country: shipping?.country ?? null,
+      };
+    }
+    return success(c, { ...row, recipient, requiresShipping });
   } catch (err) {
     console.error('[app-api/pick-lists] get failed:', err);
     return error.internal(c, 'Failed to fetch pick list');

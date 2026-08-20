@@ -10,6 +10,7 @@ import { useIntegrationConnections } from '@/hooks/queries/use-integration-queri
 import { useChannelIntegrations } from '@/hooks/queries/use-helpdesk-integration-queries'
 import { useGithubConnection } from '@/hooks/queries/use-github-queries'
 import { useConnectorCatalog } from '@/hooks/queries/use-connector-queries'
+import { useSendcloudSettings } from '@/hooks/queries/use-sendcloud-queries'
 
 interface Integration {
   id: string
@@ -163,9 +164,25 @@ const integrationDefinitions: Omit<Integration, 'connected'>[] = [
     configurable: true,
     href: '/settings/integrations/shopify',
   },
+  {
+    id: 'sendcloud',
+    name: 'Sendcloud',
+    description: 'Create shipping labels from WeldStash pick lists with your own Sendcloud account.',
+    category: 'Shipping',
+    icon: (
+      <img
+        src="https://icons.duckduckgo.com/ip3/sendcloud.com.ico"
+        alt="Sendcloud"
+        className="h-6 w-6 rounded-[4px]"
+        loading="lazy"
+      />
+    ),
+    configurable: true,
+    href: '/settings/integrations/sendcloud',
+  },
 ]
 
-const CATEGORY_ORDER = ['CRM', 'E-Commerce', 'Support', 'Calendar', 'AI', 'Developer Tools']
+const CATEGORY_ORDER = ['CRM', 'E-Commerce', 'Shipping', 'Support', 'Calendar', 'AI', 'Developer Tools']
 
 export function IntegrationsSection() {
   const router = useRouter()
@@ -175,6 +192,7 @@ export function IntegrationsSection() {
   const { data: channelIntegrationsResult, isLoading: channelLoading } = useChannelIntegrations()
   const { data: githubConnectionResult } = useGithubConnection()
   const { data: connectorCatalogResult } = useConnectorCatalog()
+  const { data: sendcloudResult } = useSendcloudSettings()
 
   const integrations = React.useMemo(() => {
     const crmConnections = integrationConnectionsResult?.data ?? []
@@ -204,10 +222,11 @@ export function IntegrationsSection() {
       else if (def.id === 'mcp_servers') connected = mcpCount > 0
       else if (def.id === 'github') connected = githubConnected
       else if (def.id === 'woocommerce' || def.id === 'shopify') connected = connectorConnected(def.id)
+      else if (def.id === 'sendcloud') connected = Boolean(sendcloudResult?.data?.connected)
       else if (['attio', 'salesforce', 'hubspot', 'google_calendar'].includes(def.id)) connected = isProviderConnected(def.id)
       return { ...def, connected }
     })
-  }, [integrationConnectionsResult, channelIntegrationsResult, githubConnectionResult, connectorCatalogResult])
+  }, [integrationConnectionsResult, channelIntegrationsResult, githubConnectionResult, connectorCatalogResult, sendcloudResult])
 
   const { integrationsByCategory, sortedCategories } = React.useMemo(() => {
     const grouped: Record<string, Integration[]> = {}

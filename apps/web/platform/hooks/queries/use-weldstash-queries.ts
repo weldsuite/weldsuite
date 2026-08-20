@@ -519,13 +519,26 @@ export function useShipWeldstashPickList() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async (input: {
+      id: string;
+      senderId?: number;
+      shippingOptionCode?: string;
+      weightKg?: number;
+    }) => {
       const client = await getClient();
-      return client.post<DataResponse<{ id: string; status: string }>>(`/pick-lists/${id}/ship`, {});
+      const { id, ...body } = input;
+      return client.post<DataResponse<{
+        id: string;
+        status: string;
+        trackingNumber?: string | null;
+        trackingUrl?: string | null;
+        labelPdfBase64?: string | null;
+        labelUrl?: string | null;
+      }>>(`/pick-lists/${id}/ship`, body);
     },
-    onSuccess: (_, id) => {
+    onSuccess: (_, input) => {
       qc.invalidateQueries({ queryKey: weldstashKeys.pickLists() });
-      qc.invalidateQueries({ queryKey: weldstashKeys.pickList(id) });
+      qc.invalidateQueries({ queryKey: weldstashKeys.pickList(input.id) });
     },
   });
 }

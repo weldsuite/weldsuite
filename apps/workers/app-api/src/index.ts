@@ -222,6 +222,7 @@ import { digestSettingsRoutes } from './routes/digest-settings';
 import { dashboardRoutes } from './routes/dashboard';
 import { appCatalogRoutes } from './routes/app-catalog';
 import { printNodeRoutes } from './routes/printnode';
+import { sendcloudRoutes } from './routes/sendcloud';
 import { creditsRoutes } from './routes/credits';
 import { aiModelsRoutes } from './routes/ai-models';
 import { aiRoutes } from './routes/ai';
@@ -708,6 +709,7 @@ app.route('/api/app-catalog', appCatalogRoutes);
 // Needs clerkMiddleware() + workspaceDbMiddleware() (reads c.get('tenantDb')),
 // so this must stay BELOW the app.use('/api/*', ...) guard.
 app.route('/api/printnode', printNodeRoutes);
+app.route('/api/sendcloud', sendcloudRoutes);
 app.route('/api/credits', creditsRoutes);
 app.route('/api/ai-models', aiModelsRoutes);
 app.route('/api/ai', aiRoutes);

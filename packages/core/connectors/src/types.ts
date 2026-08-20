@@ -76,3 +76,15 @@ export function parseRetryAfter(header: string | null, now: number = Date.now())
   if (Number.isNaN(asDate)) return undefined;
   return Math.max(0, Math.ceil((asDate - now) / 1000));
 }
+
+/**
+ * Workers' global `fetch` is a method. Storing it on a class and calling
+ * `this.fetchImpl(...)` throws Illegal invocation (wrong `this`). Wrap so
+ * method-style calls stay safe; bind the default to `globalThis`.
+ *
+ * @see https://developers.cloudflare.com/workers/observability/errors/#illegal-invocation-errors
+ */
+export function bindFetch(fetchImpl?: typeof fetch): typeof fetch {
+  const impl = fetchImpl ?? globalThis.fetch.bind(globalThis);
+  return ((input: RequestInfo | URL, init?: RequestInit) => impl(input, init)) as typeof fetch;
+}

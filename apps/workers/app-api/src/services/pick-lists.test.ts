@@ -25,6 +25,7 @@ import {
   shipPickList,
   startPickList,
 } from './pick-lists';
+import { SendcloudError, type SendcloudClient } from './sendcloud/client';
 
 let db: Database;
 
@@ -97,6 +98,16 @@ async function seedShippableOrder(params?: { quantity?: number; stock?: number }
     fulfillmentStatus: 'unfulfilled',
     subtotal: '10.00',
     total: '10.00',
+    customerName: 'Ada Lovelace',
+    customerEmail: 'ada@example.com',
+    shippingAddress: {
+      name: 'Ada Lovelace',
+      line1: 'Insulindelaan 115',
+      city: 'Eindhoven',
+      postalCode: '5642CV',
+      country: 'NL',
+      phone: '+31612345678',
+    },
   });
   await db.insert(schema.orderItems).values({
     id: generateId('oi'),
@@ -117,6 +128,30 @@ async function seedShippableOrder(params?: { quantity?: number; stock?: number }
     orderId,
     sku: product!.sku!,
     barcode: product!.barcode!,
+  };
+}
+
+function mockSendcloud(overrides: Partial<SendcloudClient> = {}): SendcloudClient {
+  return {
+    listSenderAddresses: async () => [],
+    listShippingOptions: async () => [],
+    announceShipment: async () => ({
+      id: 'shp_sc_1',
+      carrierCode: 'postnl',
+      carrierName: 'PostNL',
+      shippingOptionCode: 'postnl:standard',
+      errors: [],
+      parcel: {
+        id: 383707309,
+        trackingNumber: '3SYZXG8498635',
+        trackingUrl: 'https://tracking.sendcloud.sc/3SYZXG8498635',
+        labelPdfBase64: 'JVBERi0x',
+        labelDocumentUrl: 'https://panel.sendcloud.sc/api/v3/parcels/383707309/documents/label',
+        statusCode: 'READY_TO_SEND',
+      },
+    }),
+    getParcelDocument: async () => ({ bytes: new ArrayBuffer(8), contentType: 'application/pdf' }),
+    ...overrides,
   };
 }
 
@@ -208,7 +243,12 @@ describe('pick → pack → ship', () => {
     expect(packed?.status).toBe('packed');
     expect(packed?.parcelId).toBeTruthy();
 
-    const shipped = await shipPickList(db, generated.id, 'user_shipper');
+    const shipped = await shipPickList(db, generated.id, 'user_shipper', {
+      senderId: 12,
+      shippingOptionCode: 'postnl:standard',
+      weightKg: 1,
+      sendcloud: mockSendcloud(),
+    });
     expect(shipped?.status).toBe('shipped');
     expect(shipped?.shipmentId).toBeTruthy();
 
@@ -257,7 +297,12 @@ describe('pick → pack → ship', () => {
 
     await completePickList(db, generated.id);
     await packPickList(db, generated.id);
-    await shipPickList(db, generated.id);
+    await shipPickList(db, generated.id, 'user_shipper', {
+      senderId: 12,
+      shippingOptionCode: 'postnl:standard',
+      weightKg: 1,
+      sendcloud: mockSendcloud(),
+    });
 
     const afterShip = await bucketFor(seed.productId, seed.warehouseId);
     expect(afterShip?.quantityOnHand).toBe(9);
@@ -386,3 +431,110 @@ describe('renderPackingSlipHtml', () => {
     expect(html).not.toContain('Skip me');
   });
 });
+
+async function packReadyList(params?: { requiresShipping?: number; address?: boolean }) {
+  const seed = await seedShippableOrder({ quantity: 2, stock: 5 });
+  await db
+    .update(schema.orders)
+    .set({
+      customerName: 'Ada Lovelace',
+      customerEmail: 'ada@example.com',
+      shippingAddress: params?.address === false
+        ? null
+        : {
+            name: 'Ada Lovelace',
+            line1: 'Insulindelaan 115',
+            city: 'Eindhoven',
+            postalCode: '5642CV',
+            country: 'NL',
+            phone: '+31612345678',
+          },
+    })
+    .where(eq(schema.orders.id, seed.orderId));
+  await db
+    .update(schema.orderItems)
+    .set({ requiresShipping: params?.requiresShipping ?? 1 })
+    .where(eq(schema.orderItems.orderId, seed.orderId));
+  const generated = await generatePickList(db, {
+    orderId: seed.orderId,
+    warehouseId: seed.warehouseId,
+  });
+  const detail = await getPickListWithItems(db, generated.id);
+  const item = detail!.items[0]!;
+  await confirmPickItem(db, {
+    pickListId: generated.id,
+    itemId: item.id,
+    quantity: 2,
+    productBarcode: seed.sku,
+  });
+  await completePickList(db, generated.id);
+  await packPickList(db, generated.id);
+  return { ...seed, pickListId: generated.id };
+}
+
+describe('shipPickList Sendcloud', () => {
+  it('refuses to ship a physical order without a connected Sendcloud account', async () => {
+    const ready = await packReadyList();
+    await expect(shipPickList(db, ready.pickListId, 'user_shipper')).rejects.toMatchObject({
+      code: 'SHIPPING_NOT_CONFIGURED',
+    });
+    const detail = await getPickListWithItems(db, ready.pickListId);
+    expect(detail?.status).toBe('packed');
+    const bucket = await bucketFor(ready.productId, ready.warehouseId);
+    expect(bucket?.quantityAllocated).toBe(2);
+    expect(bucket?.quantityOnHand).toBe(5);
+  });
+
+  it('announces via Sendcloud then fulfills stock and writes tracking', async () => {
+    const ready = await packReadyList();
+    const shipped = await shipPickList(db, ready.pickListId, 'user_shipper', {
+      senderId: 12,
+      shippingOptionCode: 'postnl:standard',
+      weightKg: 1.25,
+      sendcloud: mockSendcloud(),
+    });
+    expect(shipped?.status).toBe('shipped');
+    expect(shipped?.trackingNumber).toBe('3SYZXG8498635');
+    expect(shipped?.labelPdfBase64).toBe('JVBERi0x');
+
+    const [order] = await db
+      .select({
+        fulfillmentStatus: schema.orders.fulfillmentStatus,
+        trackingNumber: schema.orders.trackingNumber,
+        shippingCarrier: schema.orders.shippingCarrier,
+      })
+      .from(schema.orders)
+      .where(eq(schema.orders.id, ready.orderId))
+      .limit(1);
+    expect(order?.fulfillmentStatus).toBe('fulfilled');
+    expect(order?.trackingNumber).toBe('3SYZXG8498635');
+    expect(order?.shippingCarrier).toBe('PostNL');
+
+    const bucket = await bucketFor(ready.productId, ready.warehouseId);
+    expect(bucket?.quantityOnHand).toBe(3);
+    expect(bucket?.quantityAllocated).toBe(0);
+  });
+
+  it('leaves the pick list packed when Sendcloud rejects the announcement', async () => {
+    const ready = await packReadyList();
+    await expect(
+      shipPickList(db, ready.pickListId, 'user_shipper', {
+        senderId: 12,
+        shippingOptionCode: 'postnl:standard',
+        weightKg: 1,
+        sendcloud: mockSendcloud({
+          announceShipment: async () => {
+            throw new SendcloudError('carrier rejected', 400, 'VALIDATION');
+          },
+        }),
+      }),
+    ).rejects.toMatchObject({ code: 'SENDCLOUD_FAILED' });
+
+    const detail = await getPickListWithItems(db, ready.pickListId);
+    expect(detail?.status).toBe('packed');
+    const bucket = await bucketFor(ready.productId, ready.warehouseId);
+    expect(bucket?.quantityAllocated).toBe(2);
+    expect(bucket?.quantityOnHand).toBe(5);
+  });
+});
+
