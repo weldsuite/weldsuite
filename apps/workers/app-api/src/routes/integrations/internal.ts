@@ -203,13 +203,11 @@ app.post('/woocommerce-auth', async (c, next: Next) => {
   const rawBody = await c.req.text();
   try {
     const result = await completeWooCommerceAppAuth({
-      db: resolved.ctx.db,
       env: c.env,
-      clerkOrgId: resolved.ctx.clerkOrgId,
       rawBody,
       waitUntil: (promise) => c.executionCtx.waitUntil(promise),
     });
-    return c.json({ data: { message: result.message } }, result.status as 200 | 400 | 404 | 500);
+    return c.json({ data: { message: result.message } }, result.status as 200 | 400 | 500);
   } catch (err) {
     console.error('[app-api/integrations-internal] WooCommerce auth callback failed:', err);
     return error.internal(c, 'Failed to complete WooCommerce connection');
