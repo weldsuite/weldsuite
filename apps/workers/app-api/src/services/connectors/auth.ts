@@ -35,9 +35,23 @@ import {
 import { syncConnection } from './sync';
 import { putConnectorWebhookMapping, registerConnectionWebhooks } from './webhooks';
 
-function signingSecret(env: Env): string | null {
-  const secret = env.INTERNAL_API_SECRET?.trim();
-  return secret || null;
+/**
+ * HMAC material for the WooCommerce `user_id`. Prefer INTERNAL_API_SECRET,
+ * but local wrangler and some deploys only have DATABASE_ENCRYPTION_KEY
+ * (already required to store connector credentials). Prefix so the
+ * encryption key is not used raw as an HMAC key.
+ */
+export function woocommerceAuthSigningSecret(
+  env: Pick<Env, 'INTERNAL_API_SECRET' | 'DATABASE_ENCRYPTION_KEY' | 'DATABASE_ENCRYPTION_KEY_V2'>,
+): string | null {
+  const raw = [
+    env.INTERNAL_API_SECRET,
+    env.DATABASE_ENCRYPTION_KEY_V2,
+    env.DATABASE_ENCRYPTION_KEY,
+  ]
+    .map((value) => value?.trim())
+    .find((value) => Boolean(value));
+  return raw ? `woocommerce-auth.v1:${raw}` : null;
 }
 
 export async function startWooCommerceAppAuth(args: {
@@ -68,9 +82,9 @@ export async function startWooCommerceAppAuth(args: {
     };
   }
 
-  const secret = signingSecret(args.env);
+  const secret = woocommerceAuthSigningSecret(args.env);
   if (!secret) {
-    return { error: 'WooCommerce connect is not configured (missing internal signing secret)', status: 400 };
+    return { error: 'WooCommerce connect is not configured (missing encryption key)', status: 400 };
   }
 
   let storeUrl: string;
@@ -129,7 +143,7 @@ export async function completeWooCommerceAppAuth(args: {
     return { ok: false, status: 400, message: 'invalid WooCommerce auth payload' };
   }
 
-  const secret = signingSecret(args.env);
+  const secret = woocommerceAuthSigningSecret(args.env);
   const state = secret ? await verifyWooCommerceAuthUserId(payload.userId, secret) : null;
   if (!state) {
     return { ok: false, status: 400, message: 'unknown or expired WooCommerce auth' };

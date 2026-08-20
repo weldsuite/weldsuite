@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { completeWooCommerceAppAuth, startWooCommerceAppAuth } from './auth';
+import {
+  completeWooCommerceAppAuth,
+  startWooCommerceAppAuth,
+  woocommerceAuthSigningSecret,
+} from './auth';
 
 describe('startWooCommerceAppAuth', () => {
   it('rejects a return URL that is not a WeldSuite page', async () => {
@@ -27,6 +31,21 @@ describe('startWooCommerceAppAuth', () => {
     });
     expect(result).toMatchObject({ status: 400 });
     expect('error' in result && result.error).toMatch(/HTTPS callback/);
+  });
+});
+
+describe('woocommerceAuthSigningSecret', () => {
+  it('falls back to DATABASE_ENCRYPTION_KEY when INTERNAL_API_SECRET is unset', () => {
+    expect(woocommerceAuthSigningSecret({})).toBeNull();
+    expect(woocommerceAuthSigningSecret({ DATABASE_ENCRYPTION_KEY: 'enc' })).toBe(
+      'woocommerce-auth.v1:enc',
+    );
+    expect(
+      woocommerceAuthSigningSecret({
+        INTERNAL_API_SECRET: 'internal',
+        DATABASE_ENCRYPTION_KEY: 'enc',
+      }),
+    ).toBe('woocommerce-auth.v1:internal');
   });
 });
 
