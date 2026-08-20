@@ -5,16 +5,19 @@ import { createProductSchema, type CreateProductInput } from '@weldsuite/core-ap
 import {
   useCreateCommerceProduct,
   useUpdateCommerceProduct,
+  useCommerceProduct,
   type CommerceProduct,
 } from '@/hooks/queries/use-commerce-queries';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Textarea } from '@weldsuite/ui/components/textarea';
+import { Badge } from '@weldsuite/ui/components/badge';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
+import { interpolate } from '@/lib/i18n/provider';
 import { ProductImagesField, type ProductImage } from './product-images-field';
 
 type FormValues = z.input<typeof createProductSchema>;
@@ -37,6 +40,8 @@ export function ProductDialog({
   const isEdit = !!product;
   const create = useCreateCommerceProduct();
   const update = useUpdateCommerceProduct();
+  const { data: productDetail } = useCommerceProduct(product?.id ?? '', isEdit);
+  const salesChannels = productDetail?.data?.salesChannels ?? product?.salesChannels ?? [];
 
   const form = useForm<FormValues>({
     resolver: zodResolver(createProductSchema),
@@ -160,6 +165,36 @@ export function ProductDialog({
             value={images}
             onChange={(next) => form.setValue('images', next, { shouldDirty: true })}
           />
+          {isEdit ? (
+            <div className="grid gap-1.5">
+              <Label>{t.products.salesChannels}</Label>
+              {salesChannels.length === 0 ? (
+                <p className="text-muted-foreground text-xs">{t.products.salesChannelsEmpty}</p>
+              ) : (
+                <ul className="space-y-2">
+                  {salesChannels.map((channel) => (
+                    <li key={channel.id} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">
+                          {channel.displayName || channel.provider}
+                        </p>
+                        <p className="text-muted-foreground truncate text-xs">
+                          {interpolate(t.products.salesChannelExternalId, { id: channel.externalId })}
+                        </p>
+                      </div>
+                      <Badge variant="outline" className="shrink-0 text-xs capitalize">
+                        {channel.status === 'deleted_remote'
+                          ? t.products.salesChannelDeleted
+                          : channel.status === 'disconnected'
+                            ? t.products.salesChannelDisconnected
+                            : t.products.salesChannelActive}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : null}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               {tc.actions.cancel}

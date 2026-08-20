@@ -51,6 +51,8 @@ export interface ConnectorConnection {
   connectedAt: string | null;
   connectedBy: string | null;
   isConnected: boolean;
+  webhookCount?: number;
+  warning?: string | null;
 }
 
 export interface ConnectorCatalogEntry {
@@ -61,7 +63,8 @@ export interface ConnectorCatalogEntry {
   icon: string;
   auth: { kind: 'api_key'; fields: ConnectorAuthField[] };
   syncs: ConnectorSyncDef[];
-  connection: ConnectorConnection | null;
+  connections: ConnectorConnection[];
+  connectionCount: number;
 }
 
 export interface ConnectorSyncRun {

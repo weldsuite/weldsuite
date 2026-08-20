@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   varchar,
@@ -41,6 +42,13 @@ export type ConnectorSyncRunStatus = 'running' | 'success' | 'error' | 'partial'
 /** Encrypted provider credentials. Keys match `ConnectorDef.auth.fields`. */
 export type ConnectorCredentials = Record<string, string>;
 
+/** Remote webhook the connector registered so the store can push changes. */
+export interface ConnectorWebhookRegistration {
+  id: string;
+  topic: string;
+  deliveryUrl: string;
+}
+
 export const connectorConnections = pgTable(
   'connector_connections',
   {
@@ -77,11 +85,22 @@ export const connectorConnections = pgTable(
     connectedAt: timestamp('connected_at'),
     connectedBy: varchar('connected_by', { length: 255 }),
     disconnectedAt: timestamp('disconnected_at'),
+
+    /**
+     * HMAC secret used to verify inbound store webhooks. WooCommerce lets us
+     * pick this; Shopify signs with the custom-app API secret instead.
+     */
+    webhookSecret: text('webhook_secret'),
+    /** Remote webhook ids so disconnect can unregister them. */
+    webhookRegistrations: jsonb('webhook_registrations').$type<ConnectorWebhookRegistration[]>(),
   },
   (table) => [
-    // One live connection per provider. Reconnecting reuses the row, which
-    // keeps every `integration_entity_mappings` row pointing at it valid.
-    uniqueIndex('connector_connections_provider_unique').on(table.provider),
+    // Multiple stores of the same type are allowed. The same live store URL
+    // cannot be connected twice; reconnecting a disconnected store reuses the row.
+    uniqueIndex('connector_connections_provider_account_live_unique')
+      .on(table.provider, table.externalAccountId)
+      .where(sql`${table.deletedAt} is null`),
+    index('connector_connections_provider_idx').on(table.provider),
     index('connector_connections_status_idx').on(table.status),
     index('connector_connections_deleted_at_idx').on(table.deletedAt),
   ],

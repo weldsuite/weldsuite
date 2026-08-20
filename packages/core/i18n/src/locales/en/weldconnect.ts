@@ -14,6 +14,11 @@ export const weldconnect = {
     emptyCatalogHint: 'Looking to connect Slack or Google for workflows? Go to Integrations instead.',
     notConfigured: 'The connector framework is not configured for this environment.',
     connect: 'Connect',
+    addStore: 'Add store',
+    noStores: 'No stores connected yet.',
+    storeCount: '{count} stores',
+    webhookHint:
+      'After the first import, the store pushes changes over webhooks. Sync now is only for a backfill — we do not poll the database on a timer.',
     reconnect: 'Reconnect',
     disconnect: 'Disconnect',
     syncNow: 'Sync now',

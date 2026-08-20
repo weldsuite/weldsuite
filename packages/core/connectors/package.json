@@ -7,7 +7,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./catalog": "./src/catalog.ts",
-    "./woocommerce": "./src/woocommerce/client.ts"
+    "./woocommerce": "./src/woocommerce/client.ts",
+    "./shopify": "./src/shopify/client.ts",
+    "./webhooks": "./src/webhooks.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

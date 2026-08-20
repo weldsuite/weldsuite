@@ -191,6 +191,12 @@ export const commerce = {
         toastCreated: 'Product created',
         toastUpdated: 'Product updated',
         toastDeleted: 'Product deleted',
+        salesChannels: 'Sales channels',
+        salesChannelsEmpty: 'This product is not listed on an external store.',
+        salesChannelExternalId: 'External ID {id}',
+        salesChannelActive: 'Active',
+        salesChannelDisconnected: 'Disconnected',
+        salesChannelDeleted: 'Removed from store',
       },
 
       categories: {

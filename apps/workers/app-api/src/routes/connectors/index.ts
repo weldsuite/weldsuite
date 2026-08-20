@@ -17,16 +17,17 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
   ConnectorApiError,
   DEFAULT_ENABLED_SYNCS,
+  generateWebhookSecret,
   getConnector,
   listConnectors,
-  WooCommerceClient,
 } from '@weldsuite/connectors';
 import type { Env, Variables } from '../../types';
 import { error, success } from '../../lib/response';
+import { getWorkspaceForOrg, schema } from '../../db';
 import {
   decryptCredentials,
   encryptCredentials,
-  findConnectionByProvider,
+  encryptWebhookSecret,
   getConnectionById,
   keyringFromEnv,
   listConnections,
@@ -36,8 +37,14 @@ import {
   updateConnectionSettings,
   upsertConnection,
 } from '../../services/connectors/connections';
+import { testConnectorCredentials } from '../../services/connectors/clients';
 import { syncConnection } from '../../services/connectors/sync';
-import { schema } from '../../db';
+import {
+  deleteConnectorWebhookMapping,
+  putConnectorWebhookMapping,
+  registerConnectionWebhooks,
+  unregisterConnectionWebhooks,
+} from '../../services/connectors/webhooks';
 import { eq } from 'drizzle-orm';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -75,25 +82,15 @@ async function testProviderCredentials(
   provider: string,
   credentials: Record<string, string>,
 ): Promise<{ ok: true; storeUrl: string } | { ok: false; message: string }> {
-  if (provider === 'woocommerce') {
-    const client = new WooCommerceClient({
-      storeUrl: credentials.storeUrl ?? '',
-      consumerKey: credentials.consumerKey ?? '',
-      consumerSecret: credentials.consumerSecret ?? '',
-    });
-    return client.test();
-  }
-  return { ok: false, message: `Unknown connector '${provider}'` };
+  return testConnectorCredentials(provider, credentials);
 }
 
 app.get('/catalog', requirePermission('integrations:read'), async (c) => {
   const db = c.get('tenantDb');
   try {
     const connections = await listConnections(db);
-    const byProvider = new Map(connections.map((row) => [row.provider, row]));
-
     const catalog = listConnectors().map((connector) => {
-      const connection = byProvider.get(connector.provider);
+      const rows = connections.filter((row) => row.provider === connector.provider);
       return {
         provider: connector.provider,
         label: connector.label,
@@ -107,7 +104,8 @@ app.get('/catalog', requirePermission('integrations:read'), async (c) => {
           internalEntity: s.internalEntity,
           settingKey: s.settingKey,
         })),
-        connection: connection ? sanitizeConnection(connection) : null,
+        connections: rows.map(sanitizeConnection),
+        connectionCount: rows.length,
       };
     });
 
@@ -153,10 +151,21 @@ app.post('/connect', requirePermission('integrations:create'), zValidator('json'
 
     const db = c.get('tenantDb');
     const userId = c.get('userId');
+    const clerkOrgId = c.get('workspaceId');
     const keyring = keyringFromEnv(c.env);
     const encrypted = await encryptCredentials(credentials, keyring);
     const syncs = normalizeEnabledSyncs(provider, enabledSyncs);
-    const label = displayName?.trim() || connector.label;
+    let hostname = tested.storeUrl;
+    try {
+      hostname = new URL(tested.storeUrl).host;
+    } catch {
+      /* keep storeUrl */
+    }
+    const label = displayName?.trim() || `${connector.label} (${hostname})`;
+    const rawWebhookSecret = provider === 'shopify' ? credentials.apiSecret : generateWebhookSecret();
+    const encryptedWebhookSecret = rawWebhookSecret
+      ? await encryptWebhookSecret(rawWebhookSecret, keyring)
+      : null;
 
     const row = await upsertConnection({
       db,
@@ -165,26 +174,56 @@ app.post('/connect', requirePermission('integrations:create'), zValidator('json'
       userId,
       credentials: encrypted,
       enabledSyncs: syncs,
-      externalAccountId: tested.ok ? tested.storeUrl : credentials.storeUrl ?? null,
+      externalAccountId: tested.storeUrl,
+      webhookSecret: encryptedWebhookSecret,
     });
 
+    let warning: string | null = null;
+    try {
+      const registered = await registerConnectionWebhooks({
+        db,
+        env: c.env,
+        connection: { ...row, enabledSyncs: syncs },
+        credentials,
+        webhookSecret: rawWebhookSecret,
+      });
+      warning = registered.warning;
+    } catch (err) {
+      console.error('[app-api/connectors] webhook registration failed:', err);
+      warning = 'Connected. Webhook registration failed — use Sync now until the store can push updates.';
+    }
+
+    if (clerkOrgId) {
+      try {
+        const { id: internalWorkspaceId } = await getWorkspaceForOrg(c.env, clerkOrgId);
+        await putConnectorWebhookMapping({
+          env: c.env,
+          connectionId: row.id,
+          workspaceId: internalWorkspaceId,
+          provider,
+        });
+      } catch (err) {
+        console.error('[app-api/connectors] webhook KV mapping failed:', err);
+      }
+    }
+
+    const fresh = await getConnectionById(db, row.id);
     publishEntityEvent({
       c,
       entityType: 'connector_connection',
       action: 'connected',
       entityId: row.id,
-      data: sanitizeConnection(row) as unknown as Record<string, unknown>,
+      data: sanitizeConnection(fresh ?? row) as unknown as Record<string, unknown>,
     });
 
-    const workspaceId = c.get('workspaceId');
-    if (workspaceId) {
+    if (clerkOrgId) {
       c.executionCtx.waitUntil(
         syncConnection({
           db,
           env: c.env,
-          connection: row,
+          connection: fresh ?? row,
           ownerId: userId,
-          workspaceId,
+          workspaceId: clerkOrgId,
           trigger: 'initial',
         }).catch((err) => {
           console.error('[app-api/connectors] initial sync failed:', err);
@@ -192,7 +231,7 @@ app.post('/connect', requirePermission('integrations:create'), zValidator('json'
       );
     }
 
-    return success(c, sanitizeConnection(row), 201);
+    return success(c, { ...sanitizeConnection(fresh ?? row), warning }, 201);
   } catch (err) {
     console.error('[app-api/connectors] connect failed:', err);
     return connectorErrorResponse(c, err);
@@ -385,6 +424,14 @@ app.delete('/connections/:id', requirePermission('integrations:delete'), async (
   const db = c.get('tenantDb');
   const row = await getConnectionById(db, c.req.param('id'));
   if (!row) return error.notFound(c, 'Connection', c.req.param('id'));
+  const keyring = keyringFromEnv(c.env);
+  try {
+    const credentials = await decryptCredentials(row.credentials ?? undefined, keyring);
+    await unregisterConnectionWebhooks({ connection: row, credentials });
+  } catch (err) {
+    console.error('[app-api/connectors] unregister webhooks failed:', err);
+  }
+  await deleteConnectorWebhookMapping(c.env, row.id);
   await markConnectionDisconnected(db, row.id);
   publishEntityEvent({
     c,
@@ -397,4 +444,3 @@ app.delete('/connections/:id', requirePermission('integrations:delete'), async (
 });
 
 export { app as connectorRoutes };
-export { findConnectionByProvider };

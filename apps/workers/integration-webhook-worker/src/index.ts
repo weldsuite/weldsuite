@@ -79,7 +79,8 @@ export interface Env {
   REALTIME?: Fetcher;
 }
 
-/** Providers eligible for scheduled auto-sync (cron). */
+/** Providers eligible for scheduled auto-sync (cron). Ecommerce connectors
+ *  (WooCommerce, Shopify) are webhook-only and must not be added here. */
 const SYNCABLE_PROVIDERS = new Set([
   'attio', 'hubspot', 'salesforce', 'pipedrive', 'google_calendar',
 ]);
@@ -137,6 +138,60 @@ app.use('*', cors());
 
 // GitHub App webhook receiver (HMAC-verified) → POST /webhooks/github
 app.route('/webhooks', githubAppWebhookRoutes);
+
+/**
+ * WooCommerce / Shopify push webhooks. KV tells us which tenant; ingest happens
+ * in app-api so this worker never opens a tenant database on a timer.
+ */
+app.post('/webhooks/connectors/:connectionId', async (c) => {
+  const connectionId = c.req.param('connectionId');
+  const cached = await c.env.WORKSPACE_CACHE.get(`connconn:${connectionId}`);
+  if (!cached) {
+    return c.json({ error: 'Unknown connector' }, 404);
+  }
+
+  let entry: { workspaceId: string; provider: string };
+  try {
+    entry = JSON.parse(cached) as { workspaceId: string; provider: string };
+  } catch {
+    return c.json({ error: 'Corrupt connector mapping' }, 500);
+  }
+
+  if (!c.env.APP_API) {
+    console.error('[Webhook/connectors] APP_API binding missing');
+    return c.json({ error: 'Connector ingest unavailable' }, 503);
+  }
+
+  const rawBody = await c.req.text();
+  const headers = new Headers({
+    'Content-Type': c.req.header('content-type') || 'application/json',
+    'X-Internal-Secret': c.env.INTERNAL_API_SECRET || '',
+    'X-Internal-Workspace-Id': entry.workspaceId,
+  });
+  for (const name of [
+    'x-wc-webhook-topic',
+    'x-wc-webhook-signature',
+    'x-shopify-topic',
+    'x-shopify-hmac-sha256',
+  ]) {
+    const value = c.req.header(name);
+    if (value) headers.set(name, value);
+  }
+
+  const res = await c.env.APP_API.fetch(
+    new Request(`https://internal/api/integrations/connections/${connectionId}/connector-event`, {
+      method: 'POST',
+      headers,
+      body: rawBody,
+    }),
+  );
+
+  const body = await res.text();
+  return new Response(body, {
+    status: res.status,
+    headers: { 'Content-Type': res.headers.get('content-type') || 'application/json' },
+  });
+});
 
 // Robots.txt — disallow all indexing
 app.get('/robots.txt', (c) => {
@@ -1351,6 +1406,8 @@ export default {
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     // Branch by cron pattern so the Sheets poll and the (disabled) CRM auto-sync
     // stay decoupled — only the poll cron is enabled in wrangler.toml today.
+    // Ecommerce connectors (WooCommerce / Shopify) are webhook-only: they must
+    // not be added to either sweep. Those paths open every tenant database.
     if (controller.cron === INTEGRATION_POLL_CRON) {
       ctx.waitUntil(runIntegrationPolls(env));
       ctx.waitUntil(runWebhookRetrySweep(env));

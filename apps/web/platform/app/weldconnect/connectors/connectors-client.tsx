@@ -65,6 +65,7 @@ import {
 
 const ICON_MAP: Record<string, React.ElementType> = {
   'shopping-bag': ShoppingBag,
+  store: ShoppingBag,
   plug: Plug,
 };
 
@@ -143,7 +144,7 @@ interface ConnectDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
+export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
   const { t } = useI18n();
   const tc = t.weldconnect.connectors;
   const connect = useConnectConnector();
@@ -242,9 +243,11 @@ function ConnectorCard({ connector, onConnect, onOpenDetails, canConnect }: Conn
   const { t, language } = useI18n();
   const tc = t.weldconnect.connectors;
   const Icon = getIcon(connector.icon);
-  const connection = connector.connection;
-  const status = connection?.status ?? null;
-  const lastSync = formatDateTime(connection?.lastSyncAt, language);
+  const connections = connector.connections ?? [];
+  const live = connections.filter((row) => row.isConnected);
+  const primary = live[0] ?? null;
+  const status = live.length > 1 ? 'active' : primary?.status ?? null;
+  const lastSync = formatDateTime(primary?.lastSyncAt, language);
 
   return (
     <Card className="flex flex-col border-border/50 transition-shadow duration-200 hover:shadow-md">
@@ -263,7 +266,9 @@ function ConnectorCard({ connector, onConnect, onOpenDetails, canConnect }: Conn
                   ) : status === 'auth_error' || status === 'sync_error' ? (
                     <AlertCircle className="mr-1 h-3 w-3" />
                   ) : null}
-                  {tc.status[status]}
+                  {live.length > 1
+                    ? tc.storeCount.replace('{count}', String(live.length))
+                    : tc.status[status]}
                 </Badge>
               ) : null}
             </div>
@@ -276,28 +281,37 @@ function ConnectorCard({ connector, onConnect, onOpenDetails, canConnect }: Conn
         <p>
           {tc.syncsLabel}: {connector.syncs.map((s) => s.settingKey).join(', ')}
         </p>
-        {connection?.externalAccountId ? <p className="truncate">{connection.externalAccountId}</p> : null}
-        {connection?.isConnected ? (
+        {live.length === 0 ? (
+          <p>{tc.noStores}</p>
+        ) : (
+          live.map((connection) => (
+            <button
+              key={connection.id}
+              type="button"
+              className="hover:text-foreground block w-full truncate text-left"
+              onClick={() => onOpenDetails(connection)}
+            >
+              {connection.displayName || connection.externalAccountId || connection.label}
+            </button>
+          ))
+        )}
+        {primary?.isConnected ? (
           <p>
             {tc.lastSync}: {lastSync ?? tc.lastSyncNever}
           </p>
         ) : null}
-        {connection?.lastError ? (
-          <p className="text-red-600 dark:text-red-400">{connection.lastError}</p>
-        ) : null}
       </CardContent>
 
       <CardFooter className="gap-2 pt-0">
-        {connection?.isConnected ? (
-          <Button variant="outline" size="sm" onClick={() => onOpenDetails(connection)}>
+        {primary ? (
+          <Button variant="outline" size="sm" onClick={() => onOpenDetails(primary)}>
             <Settings className="mr-1.5 h-3.5 w-3.5" />
             {tc.viewDetails}
           </Button>
-        ) : (
-          <Button size="sm" disabled={!canConnect} onClick={() => onConnect(connector)}>
-            {tc.connect}
-          </Button>
-        )}
+        ) : null}
+        <Button size="sm" disabled={!canConnect} onClick={() => onConnect(connector)}>
+          {live.length > 0 ? tc.addStore : tc.connect}
+        </Button>
       </CardFooter>
     </Card>
   );
@@ -310,7 +324,7 @@ interface ConnectionDetailsProps {
   canManage: boolean;
 }
 
-function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, canManage }: ConnectionDetailsProps) {
+export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, canManage }: ConnectionDetailsProps) {
   const { t, language, format } = useI18n();
   const tc = t.weldconnect.connectors;
   const { data, isLoading } = useConnectorConnection(connectionId, { pollWhileRunning: true });
@@ -446,6 +460,8 @@ function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, canManage
                 </Button>
               ) : null}
             </div>
+
+            <p className="text-muted-foreground text-xs">{tc.webhookHint}</p>
 
             <Separator />
 

@@ -70,3 +70,59 @@ describe('WooCommerce customer mapper', () => {
     });
   });
 });
+
+describe('Shopify mappers', () => {
+  it('maps a product from title/handle/variants', () => {
+    const mapped = mapConnectorRecord(
+      'product',
+      {
+        id: 101,
+        title: 'Weld helmet',
+        handle: 'weld-helmet',
+        status: 'active',
+        variants: [{ price: '129.00', sku: 'WH-1', compare_at_price: '149.00' }],
+        images: [{ src: 'https://cdn.example/h.jpg', alt: 'Helmet' }],
+      },
+      'shopify',
+    );
+    expect(mapped?.entity).toBe('product');
+    expect(mapped?.values).toMatchObject({
+      name: 'Weld helmet',
+      slug: 'weld-helmet',
+      sku: 'WH-1',
+      price: '129.00',
+      status: 'active',
+    });
+  });
+
+  it('maps an order and stamps source=shopify on the customer', () => {
+    const order = mapConnectorRecord(
+      'order',
+      {
+        id: 88,
+        name: '#1001',
+        financial_status: 'paid',
+        currency: 'EUR',
+        total_price: '50.00',
+        customer: { id: 3, email: 'ada@example.com' },
+        line_items: [{ title: 'Helmet', product_id: 12, quantity: 1, price: '50' }],
+      },
+      'shopify',
+    );
+    expect(order?.entity).toBe('order');
+    if (order?.entity !== 'order') return;
+    expect(order.customerExternalId).toBe('3');
+
+    const person = mapConnectorRecord(
+      'person',
+      { id: 4, email: 'ada@example.com', first_name: 'Ada', last_name: 'Lovelace' },
+      'shopify',
+    );
+    expect(person?.values).toMatchObject({ displayName: 'Ada Lovelace', source: 'shopify' });
+  });
+
+  it('treats a delete webhook stub as deleted', () => {
+    expect(isDeletedRecord({ id: 1 }, true)).toBe(true);
+    expect(isDeletedRecord({ id: 1, status: 'active' })).toBe(false);
+  });
+});

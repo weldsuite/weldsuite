@@ -703,6 +703,18 @@ export const settings = {
       disconnectConfirmTitle: 'Disconnect {integration}?',
       disconnectConfirmDescription: 'Are you sure you want to disconnect this integration? You\'ll need to reconfigure it if you want to use it again.',
       comingSoon: '{integration} integration coming soon',
+      woocommerce: {
+        title: 'WooCommerce',
+        description: 'Import products, orders, and customers from one or more WooCommerce stores.',
+        overview:
+          'Connect a store with its REST API consumer key. After the first import, WooCommerce pushes product, order, and customer changes over webhooks — WeldSuite does not poll the database on a timer. You can connect multiple stores; matching SKUs share one product with a sales-channel record per store.',
+      },
+      shopify: {
+        title: 'Shopify',
+        description: 'Import products, orders, and customers from one or more Shopify stores.',
+        overview:
+          'Connect a custom app with its Admin API token and API secret. After the first import, Shopify pushes changes over webhooks. You can connect multiple shops; matching SKUs share one product with a sales-channel record per shop.',
+      },
       configurePrintNode: 'Configure PrintNode',
       printNodeDescription: 'Enter your PrintNode API key to connect your printers',
       apiKey: 'API Key',
