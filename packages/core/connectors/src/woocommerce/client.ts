@@ -6,11 +6,12 @@
  * + Connect); they can still paste a pair generated under
  * WooCommerce → Settings → Advanced → REST API.
  *
- * Do not send Basic Auth and `consumer_key`/`consumer_secret` query params on
- * the same request. Many WAFs (ModSecurity, Wordfence) treat that as credential
- * smuggling and reset the TCP connection — which we used to surface as
- * "Could not reach the WooCommerce store". Query-string auth is a fallback for
- * hosts that strip the Authorization header.
+ * REST calls match Postman/curl `-u consumer_key:consumer_secret`: HTTP Basic
+ * Auth only, over HTTPS, no secrets in the query string. Sending Basic Auth
+ * together with `consumer_key`/`consumer_secret` query params makes many WAFs
+ * (ModSecurity, Wordfence) reset the TCP connection — which we used to surface
+ * as "Could not reach the WooCommerce store" even though the same keys work in
+ * Postman. Query-string auth is a fallback for hosts that strip Authorization.
  */
 
 import { classifyStatus, ConnectorApiError, parseRetryAfter } from '../types';
@@ -126,6 +127,15 @@ function shouldTryRestRoute(err: ConnectorApiError): boolean {
   );
 }
 
+/**
+ * WooCommerce only accepts Basic Auth (Postman username/password) over HTTPS.
+ * An http→https redirect is a cross-origin hop and the Fetch spec strips
+ * Authorization, so we upgrade before the first request.
+ */
+function restStoreUrl(storeUrl: string): string {
+  return storeUrl.startsWith('http://') ? `https://${storeUrl.slice('http://'.length)}` : storeUrl;
+}
+
 function buildWooUrl(args: {
   storeUrl: string;
   path: string;
@@ -135,12 +145,13 @@ function buildWooUrl(args: {
   consumerKey: string;
   consumerSecret: string;
 }): string {
+  const origin = restStoreUrl(args.storeUrl);
   const resource = args.path.replace(/^\//, '');
   const url =
     args.style === 'pretty'
-      ? new URL(`${args.storeUrl}/wp-json/wc/v3/${resource}`)
+      ? new URL(`${origin}/wp-json/wc/v3/${resource}`)
       : (() => {
-          const parsed = new URL(args.storeUrl);
+          const parsed = new URL(origin);
           const basePath = parsed.pathname.replace(/\/+$/, '');
           parsed.pathname = basePath === '' ? '/' : basePath;
           parsed.searchParams.set('rest_route', `/wc/v3/${resource}`);

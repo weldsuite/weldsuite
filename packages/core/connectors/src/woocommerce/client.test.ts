@@ -58,7 +58,23 @@ describe('WooCommerceClient', () => {
     expect(calls[0]!.url).not.toContain('consumer_key');
     expect(calls[0]!.url).not.toContain('consumer_secret');
     expect(calls[0]!.authorization).toMatch(/^Basic /);
+    expect(atob(calls[0]!.authorization!.slice('Basic '.length))).toBe('ck_a:cs_b');
     expect(calls[0]!.userAgent).toMatch(/WeldSuite-WooCommerce/);
+  });
+
+  it('uses HTTPS and Postman-style Basic Auth even when the stored URL is http', async () => {
+    const calls: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      calls.push(String(input));
+      return jsonResponse([]);
+    };
+    const client = new WooCommerceClient(
+      { storeUrl: 'http://shop.example', consumerKey: 'ck_a', consumerSecret: 'cs_b' },
+      { fetchImpl },
+    );
+    await client.listProducts();
+    expect(calls[0]).toMatch(/^https:\/\/shop\.example\/wp-json\/wc\/v3\/products/);
+    expect(calls[0]).not.toContain('consumer_secret');
   });
 
   it('retries with query-string auth when the host strips Basic Auth (401)', async () => {
