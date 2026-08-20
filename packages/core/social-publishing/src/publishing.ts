@@ -43,6 +43,7 @@ import {
   getPostPeerClient,
   getPostPeerAppId,
   toPostPeerSchedule,
+  PostPeerError,
   type PostPeerCreatePostResult,
   type PostPeerPlatformResult,
   type PostPeerIntegration,
@@ -67,6 +68,30 @@ export class SocialPublishConflictError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'SocialPublishConflictError';
+  }
+}
+
+/**
+ * Thrown when cancelling could not remove the live scheduled post from PostPeer.
+ *
+ * This is deliberately fatal rather than a warning. The local row and the
+ * upstream schedule are only meaningfully "cancelled" together: if we flipped
+ * the row to `cancelled` after a failed upstream delete, the UI would report
+ * success while PostPeer still fired the post at its scheduled time — content
+ * going out to customers' real channels after they were told it wouldn't. A
+ * failed cancel leaves the row untouched (still `scheduled`) so the user can
+ * retry, which is honest and safely repeatable: PostPeer's DELETE is idempotent
+ * and a second attempt on an already-deleted post 404s, which we treat as done.
+ *
+ * Routes map this to 502.
+ */
+export class SocialCancelUpstreamError extends Error {
+  constructor(
+    message: string,
+    readonly cause?: unknown,
+  ) {
+    super(message);
+    this.name = 'SocialCancelUpstreamError';
   }
 }
 
@@ -739,12 +764,18 @@ export async function publishPost(
 }
 
 /**
- * Cancel a post. A post that is already `published` or mid-`publishing` CANNOT
- * be cancelled — its content is (being) live on the channels — so we reject
- * with SocialPublishConflictError rather than silently flipping it to
- * cancelled. If the post has a live PostPeer scheduled post, that is cancelled
- * on PostPeer first (best-effort) so it can't still fire. Returns false if the
- * post doesn't exist.
+ * Cancel a post's schedule, returning it to `draft` so the content is kept and
+ * can be re-scheduled later. Cancelling is about the SCHEDULE, not the post:
+ * the user loses the slot, never the words they wrote.
+ *
+ * A post that is already `published` or mid-`publishing` CANNOT be cancelled —
+ * its content is (being) live on the channels — so we reject with
+ * SocialPublishConflictError rather than silently unscheduling it.
+ *
+ * If the post has a live PostPeer scheduled post, that is deleted on PostPeer
+ * FIRST and a failure there aborts the whole cancel (SocialCancelUpstreamError)
+ * — the local row must never say "not scheduled" while PostPeer still intends
+ * to publish it. Returns false if the post doesn't exist.
  */
 export async function cancelPost(
   db: Database,
@@ -763,35 +794,85 @@ export async function cancelPost(
     throw new SocialPublishConflictError('Cannot cancel a post that is already published or publishing');
   }
 
+  // Remove the live schedule upstream BEFORE touching the local row, and treat
+  // any failure as fatal — see SocialCancelUpstreamError for why this must not
+  // be best-effort.
   if (post.postpeerPostId && post.status === 'scheduled') {
     const client = getPostPeerClient(ctx);
-    if (client) {
-      try {
-        await client.deletePost(post.postpeerPostId);
-      } catch (err) {
+    if (!client) {
+      throw new SocialCancelUpstreamError(
+        `Cannot cancel scheduled post ${postId}: PostPeer is not configured, so its live schedule (${post.postpeerPostId}) cannot be removed`,
+      );
+    }
+    try {
+      await client.deletePost(post.postpeerPostId);
+    } catch (err) {
+      // 404 means the schedule is already gone upstream — the desired end state.
+      // Anything else (network, 5xx, auth) leaves it possibly still armed.
+      if (err instanceof PostPeerError && err.status === 404) {
         console.warn(
-          `[social-publishing] failed to cancel PostPeer post ${post.postpeerPostId}:`,
+          `[social-publishing] PostPeer post ${post.postpeerPostId} already absent — treating cancel as done`,
+        );
+      } else {
+        console.error(
+          `[social-publishing] failed to cancel PostPeer post ${post.postpeerPostId} — post left scheduled:`,
           err instanceof Error ? err.message : err,
+        );
+        throw new SocialCancelUpstreamError(
+          `Failed to remove the scheduled post from PostPeer — it is still scheduled to publish. Please try again.`,
+          err,
         );
       }
     }
   }
 
-  // Atomic guard: only flip to cancelled if it hasn't become published/publishing
-  // in the meantime (mirrors the publishPost claim).
+  // Atomic guard: only unschedule if the row is still the one we just cancelled
+  // upstream (mirrors the publishPost claim).
+  //
+  // Back to `draft`, not `cancelled` — the content survives so the user can
+  // re-schedule it. `scheduledAt` and `postpeerPostId` are cleared because both
+  // are now false: there is no slot, and the upstream post was just deleted.
+  // Leaving a stale `postpeerPostId` would make a later publish of this same row
+  // issue a DELETE against an id that no longer exists.
+  //
+  // The status check alone is NOT enough, and the gap it leaves is the exact
+  // failure this function exists to prevent. A concurrent reschedule can land
+  // entirely between our read and this update: it claims the row (`publishing`),
+  // creates a NEW PostPeer post, and puts the row back to `scheduled` with a new
+  // id. Status is then `scheduled` again — passing a status-only guard — so we
+  // would blank a live schedule that nobody cancelled, leaving the row saying
+  // `draft` while PostPeer still publishes. Pinning `postpeerPostId` to the value
+  // we actually deleted upstream makes the update apply only to that same
+  // schedule; if it changed, we lost the race and must not touch the row.
   const cancelled = await db
     .update(socialPosts)
-    .set({ status: 'cancelled', creditsConsumed: 0, creditTransactionId: null, updatedAt: new Date() })
+    .set({
+      status: 'draft',
+      scheduledAt: null,
+      postpeerPostId: null,
+      creditsConsumed: 0,
+      creditTransactionId: null,
+      updatedAt: new Date(),
+    })
     .where(
       and(
         eq(socialPosts.id, postId),
         isNull(socialPosts.deletedAt),
         notInArray(socialPosts.status, ['published', 'publishing']),
+        post.postpeerPostId
+          ? eq(socialPosts.postpeerPostId, post.postpeerPostId)
+          : isNull(socialPosts.postpeerPostId),
       ),
     )
     .returning({ id: socialPosts.id });
   if (cancelled.length === 0) {
-    throw new SocialPublishConflictError('Cannot cancel a post that is already published or publishing');
+    // Two causes, both of which mean "the row moved under us": it became
+    // published/publishing, or its schedule was replaced by a concurrent
+    // (re)schedule. Either way the safe answer is to refuse and let the caller
+    // reload — never to force the cancel onto whatever is there now.
+    throw new SocialPublishConflictError(
+      'Cannot cancel: the post was published, is publishing, or its schedule changed. Reload and try again.',
+    );
   }
 
   // Refund the credits charged when the post was scheduled. Idempotent on the
