@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { startWooCommerceAppAuth } from './auth';
+import { completeWooCommerceAppAuth, startWooCommerceAppAuth } from './auth';
 
 describe('startWooCommerceAppAuth', () => {
   it('rejects a return URL that is not a WeldSuite page', async () => {
@@ -27,5 +27,29 @@ describe('startWooCommerceAppAuth', () => {
     });
     expect(result).toMatchObject({ status: 400 });
     expect('error' in result && result.error).toMatch(/HTTPS callback/);
+  });
+});
+
+describe('completeWooCommerceAppAuth', () => {
+  it('rejects invalid JSON with 400', async () => {
+    const result = await completeWooCommerceAppAuth({
+      env: { INTERNAL_API_SECRET: 'secret' } as never,
+      rawBody: 'not-json',
+      waitUntil: () => undefined,
+    });
+    expect(result).toEqual({ ok: false, status: 400, message: 'invalid WooCommerce auth payload' });
+  });
+
+  it('rejects an unsigned user_id with 400', async () => {
+    const result = await completeWooCommerceAppAuth({
+      env: { INTERNAL_API_SECRET: 'secret' } as never,
+      rawBody: JSON.stringify({
+        user_id: 'wooa_not_signed',
+        consumer_key: 'ck_aaa',
+        consumer_secret: 'cs_bbb',
+      }),
+      waitUntil: () => undefined,
+    });
+    expect(result).toEqual({ ok: false, status: 400, message: 'unknown or expired WooCommerce auth' });
   });
 });

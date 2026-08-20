@@ -22,10 +22,16 @@ orders, customers, …).
 WooCommerce is the first connector. Merchants enter **only the store URL** and
 click Connect. We send them to WooCommerce's Application Authentication Endpoint
 (`{store}/wc-auth/v1/authorize`, scope `read_write`). After they grant access,
-the shop POSTs `{ consumer_key, consumer_secret }` to our HTTPS callback
-(`POST /webhooks/woocommerce/auth`); the browser return never carries secrets.
-This is **not OAuth 2.0**. Pasting keys generated under WooCommerce → Settings →
-Advanced → REST API still works as a fallback on `POST /connectors/connect`.
+the shop POSTs `{ consumer_key, consumer_secret }` to **app-api**
+(`POST https://app-api[-test].weldsuite.org/webhooks/woocommerce/auth`). The
+callback must return **HTTP 200** immediately after storing the keys — WooCommerce
+deletes them and shows “unable to send the consumer data” on any other status.
+Do not call the shop (credential test, webhook registration) until after that
+200 (`waitUntil`). `user_id` is a signed token (`wooa.<payload>.<mac>`), not KV,
+so the callback does not depend on eventually-consistent KV or a second worker.
+The browser return never carries secrets. This is **not OAuth 2.0**. Pasting keys
+generated under WooCommerce → Settings → Advanced → REST API still works as a
+fallback on `POST /connectors/connect`.
 
 Shopify custom apps (Admin API token + API secret) are the second connector.
 
@@ -62,10 +68,11 @@ connections and Sheets/Gmail workflow polls; they must not grow a connector
 sweep. Do not add `woocommerce` or `shopify` to `SYNCABLE_PROVIDERS`.
 
 Local `wrangler` has no public HTTPS URL. WooCommerce **refuses a non-HTTPS
-callback**, so `POST /connectors/authorize` returns 400 until
-`CONNECTOR_WEBHOOK_BASE_URL` points at the public `integration-webhooks` host.
-Webhook registration on connect is also skipped with a warning when the delivery
-URL is `http://`; Sync now covers import until the store can reach WeldSuite.
+callback**, so `POST /connectors/authorize` returns 400 until this worker is
+reached over HTTPS (`APP_API_PUBLIC_URL`, or the authorize request's own
+`https://` origin). Store-push webhook registration is separate and still uses
+`CONNECTOR_WEBHOOK_BASE_URL` / the `integration-webhooks` host; it is skipped
+with a warning when the delivery URL is `http://`.
 
 ## Consequences
 

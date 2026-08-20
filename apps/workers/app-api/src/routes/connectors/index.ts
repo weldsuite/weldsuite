@@ -269,6 +269,7 @@ app.post('/authorize', requirePermission('integrations:create'), zValidator('jso
       enabledSyncs: normalizeEnabledSyncs(body.provider, body.enabledSyncs),
       displayName: body.displayName,
       returnUrl: body.returnUrl,
+      requestOrigin: new URL(c.req.url).origin,
     });
     if ('error' in result) return error.badRequest(c, result.error);
     return success(c, result);

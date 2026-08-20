@@ -3,34 +3,38 @@ import {
   buildWooCommerceAuthUrl,
   isAllowedConnectorReturnUrl,
   parseWooCommerceAuthCallback,
+  resolveWooCommerceAuthCallbackUrl,
+  signWooCommerceAuthUserId,
+  verifyWooCommerceAuthUserId,
   woocommerceAuthCallbackUrl,
-  woocommerceAuthKvKey,
 } from './auth';
 
 describe('WooCommerce application authentication', () => {
   it('builds an encoded /wc-auth/v1/authorize URL', () => {
     const url = buildWooCommerceAuthUrl({
       storeUrl: 'https://shop.example/',
-      userId: 'wooa_abc',
+      userId: 'wooa.abc.def',
       returnUrl: 'https://app.weldsuite.org/settings/integrations/woocommerce',
-      callbackUrl: 'https://integration-webhooks.weldsuite.org/webhooks/woocommerce/auth',
+      callbackUrl: 'https://app-api.weldsuite.org/webhooks/woocommerce/auth',
     });
     const parsed = new URL(url);
     expect(parsed.origin + parsed.pathname).toBe('https://shop.example/wc-auth/v1/authorize');
     expect(parsed.searchParams.get('app_name')).toBe('WeldSuite');
     expect(parsed.searchParams.get('scope')).toBe('read_write');
-    expect(parsed.searchParams.get('user_id')).toBe('wooa_abc');
+    expect(parsed.searchParams.get('user_id')).toBe('wooa.abc.def');
     expect(parsed.searchParams.get('return_url')).toBe(
       'https://app.weldsuite.org/settings/integrations/woocommerce',
     );
-    expect(parsed.searchParams.get('callback_url')).toContain('/webhooks/woocommerce/auth');
+    expect(parsed.searchParams.get('callback_url')).toBe(
+      'https://app-api.weldsuite.org/webhooks/woocommerce/auth',
+    );
   });
 
   it('parses the JSON keys WooCommerce POSTs to callback_url', () => {
     const parsed = parseWooCommerceAuthCallback(
       JSON.stringify({
         key_id: 12,
-        user_id: 'wooa_abc',
+        user_id: 'wooa.abc.def',
         consumer_key: 'ck_aaa',
         consumer_secret: 'cs_bbb',
         key_permissions: 'read_write',
@@ -38,7 +42,7 @@ describe('WooCommerce application authentication', () => {
     );
     expect(parsed).toEqual({
       keyId: 12,
-      userId: 'wooa_abc',
+      userId: 'wooa.abc.def',
       consumerKey: 'ck_aaa',
       consumerSecret: 'cs_bbb',
       keyPermissions: 'read_write',
@@ -64,10 +68,39 @@ describe('WooCommerce application authentication', () => {
     expect(isAllowedConnectorReturnUrl('https://app.weldsuite.org/settings/billing')).toBe(false);
   });
 
-  it('builds the HTTPS callback path and KV key', () => {
-    expect(woocommerceAuthCallbackUrl('https://integration-webhooks.weldsuite.org/')).toBe(
-      'https://integration-webhooks.weldsuite.org/webhooks/woocommerce/auth',
+  it('resolves the HTTPS callback onto app-api, not the webhook worker', () => {
+    expect(woocommerceAuthCallbackUrl('https://app-api.weldsuite.org/')).toBe(
+      'https://app-api.weldsuite.org/webhooks/woocommerce/auth',
     );
-    expect(woocommerceAuthKvKey('wooa_1')).toBe('wooauth:wooa_1');
+    expect(
+      resolveWooCommerceAuthCallbackUrl({
+        requestOrigin: 'https://app-api-abc.workers.dev',
+        environment: 'test',
+      }),
+    ).toBe('https://app-api-abc.workers.dev/webhooks/woocommerce/auth');
+    expect(resolveWooCommerceAuthCallbackUrl({ environment: 'test' })).toBe(
+      'https://app-api-test.weldsuite.org/webhooks/woocommerce/auth',
+    );
+    expect(resolveWooCommerceAuthCallbackUrl({ requestOrigin: 'http://localhost:8789' })).toBeNull();
+    expect(resolveWooCommerceAuthCallbackUrl({ environment: 'development' })).toBeNull();
+  });
+
+  it('signs and verifies the opaque user_id WooCommerce echoes back', async () => {
+    const secret = 'test-secret';
+    const token = await signWooCommerceAuthUserId(
+      { clerkOrgId: 'org_1', connectionId: 'conn_1', connectedBy: 'user_1' },
+      secret,
+      1_700_000_000,
+    );
+    expect(token.startsWith('wooa.')).toBe(true);
+    await expect(verifyWooCommerceAuthUserId(token, secret, 1_700_000_000)).resolves.toEqual({
+      clerkOrgId: 'org_1',
+      connectionId: 'conn_1',
+      connectedBy: 'user_1',
+      exp: 1_700_000_000 + 15 * 60,
+    });
+    await expect(verifyWooCommerceAuthUserId(token, 'other', 1_700_000_000)).resolves.toBeNull();
+    await expect(verifyWooCommerceAuthUserId(token, secret, 1_700_000_000 + 16 * 60)).resolves.toBeNull();
+    await expect(verifyWooCommerceAuthUserId('wooa.tampered.sig', secret)).resolves.toBeNull();
   });
 });

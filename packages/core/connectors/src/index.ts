@@ -7,12 +7,15 @@ export {
   WOOCOMMERCE_APP_NAME,
   WOOCOMMERCE_AUTH_CALLBACK_PATH,
   WOOCOMMERCE_AUTH_SCOPE,
+  WOOCOMMERCE_AUTH_STATE_TTL_SECONDS,
   buildWooCommerceAuthUrl,
   isAllowedConnectorReturnUrl,
   parseWooCommerceAuthCallback,
+  resolveWooCommerceAuthCallbackUrl,
+  signWooCommerceAuthUserId,
+  verifyWooCommerceAuthUserId,
   woocommerceAuthCallbackUrl,
-  woocommerceAuthKvKey,
 } from './woocommerce/auth';
-export type { WooCommerceAuthCallbackPayload, WooCommerceAuthKvEntry } from './woocommerce/auth';
+export type { WooCommerceAuthCallbackPayload, WooCommerceAuthState } from './woocommerce/auth';
 export { ShopifyClient, createShopifyClient, normalizeShopDomain, SHOPIFY_API_VERSION } from './shopify/client';
 export type { ShopifyCredentials, ShopifyListOptions, ShopifyListResult } from './shopify/client';

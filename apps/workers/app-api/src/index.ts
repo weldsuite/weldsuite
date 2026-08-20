@@ -282,6 +282,7 @@ import { putawayRoutes } from './routes/putaway';
 import { supportRoutes } from './routes/support';
 import { telephonyRoutes } from './routes/telephony';
 import { telnyxWebhookRoutes } from './routes/webhooks-telnyx';
+import { woocommerceAuthWebhookRoutes } from './routes/webhooks-woocommerce-auth';
 import { webhooksCloudflareRealtimeRoutes } from './routes/webhooks-cloudflare-realtime';
 import { webhooksMeetingBotRoutes } from './routes/webhooks-meeting-bot';
 import { realtimeRegisterWebhookRoutes } from './routes/webhooks-realtime-register';
@@ -438,6 +439,10 @@ app.route('/api/internal', internalRoutes);
 // from Telnyx; Ed25519 signature enforcement applies when TELNYX_PUBLIC_KEY
 // is set. Must stay ABOVE the /api/* guard.
 app.route('/public/webhooks/telnyx', telnyxWebhookRoutes);
+
+// WooCommerce /wc-auth/v1 callback — PUBLIC. The shop POSTs API keys here.
+// WooCommerce requires HTTP 200 or it deletes the keys. HMAC `user_id`.
+app.route('/webhooks/woocommerce', woocommerceAuthWebhookRoutes);
 
 // Realtime Register process/notification webhook — PUBLIC. Auth is the shared
 // `?token=` (REALTIME_REGISTER_WEBHOOK_SECRET). Advances pending_workflow
