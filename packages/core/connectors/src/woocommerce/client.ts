@@ -14,7 +14,7 @@
  * Postman. Query-string auth is a fallback for hosts that strip Authorization.
  */
 
-import { classifyStatus, ConnectorApiError, parseRetryAfter } from '../types';
+import { bindFetch, classifyStatus, ConnectorApiError, parseRetryAfter } from '../types';
 
 export interface WooCommerceCredentials {
   storeUrl: string;
@@ -181,7 +181,7 @@ export class WooCommerceClient {
     this.storeUrl = normalizeStoreUrl(creds.storeUrl);
     this.consumerKey = creds.consumerKey.trim();
     this.consumerSecret = creds.consumerSecret.trim();
-    this.fetchImpl = options?.fetchImpl ?? fetch;
+    this.fetchImpl = bindFetch(options?.fetchImpl);
     this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 

@@ -5,7 +5,7 @@
  * domain. Webhook HMAC uses the custom-app API secret (`shpss_…`).
  */
 
-import { classifyStatus, ConnectorApiError, parseRetryAfter } from '../types';
+import { bindFetch, classifyStatus, ConnectorApiError, parseRetryAfter } from '../types';
 
 export const SHOPIFY_API_VERSION = '2024-10';
 
@@ -74,7 +74,7 @@ export class ShopifyClient {
     this.shopDomain = normalizeShopDomain(creds.shopDomain);
     this.accessToken = creds.accessToken.trim();
     this.apiSecret = creds.apiSecret.trim();
-    this.fetchImpl = options?.fetchImpl ?? fetch;
+    this.fetchImpl = bindFetch(options?.fetchImpl);
     this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 

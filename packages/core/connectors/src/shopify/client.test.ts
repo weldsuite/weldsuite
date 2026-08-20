@@ -47,4 +47,23 @@ describe('ShopifyClient', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.message).toMatch(/rejected/i);
   });
+
+  it('does not invoke fetch with the client as this (Cloudflare Workers Illegal invocation)', async () => {
+    function workersFetch(this: unknown) {
+      if (this !== undefined && this !== globalThis) {
+        throw new TypeError(
+          'Illegal invocation: function called with incorrect `this` reference.',
+        );
+      }
+      return new Response(JSON.stringify({ products: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    const client = new ShopifyClient(
+      { shopDomain: 'mystore.myshopify.com', accessToken: 'shpat_a', apiSecret: 'shpss_b' },
+      { fetchImpl: workersFetch as typeof fetch },
+    );
+    await expect(client.listProducts()).resolves.toMatchObject({ items: [] });
+  });
 });
