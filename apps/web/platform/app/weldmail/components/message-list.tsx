@@ -33,6 +33,7 @@ import { format, addHours, addDays, setHours, setMinutes, nextMonday } from 'dat
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { mailApi } from '../lib/api-client';
+import { buildMailItemUrl, buildMailListUrl, currentMailHref } from '../lib/mail-urls';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import type { ThreadSummary } from '../lib/thread-utils';
 import { ConversationList, type ConversationItem } from '@/components/shared/conversation-list';
@@ -319,11 +320,18 @@ export function MessageList({
     [mailLabels]
   );
 
-  // Build pagination URL
-  const getPageUrl = (page: number) => {
-    const basePath = isUnified ? `/weldmail/unified/${folder}` : `/weldmail/${accountId}/${folder}`;
-    return page === 1 ? basePath : `${basePath}?page=${page}`;
-  };
+  const getPageUrl = (page: number) =>
+    buildMailListUrl({ isUnified, accountId, folder, page });
+
+  const getMessageUrl = (messageId: string, threadAccountId?: string) =>
+    buildMailItemUrl({
+      isUnified,
+      accountId,
+      folder,
+      messageId,
+      threadAccountId,
+      page: currentPage,
+    });
 
   // Gmail-style filter state. `draftFilter` is the in-progress form; it is
   // applied to the visible list (`appliedFilter`) only when the user clicks Search.
@@ -375,20 +383,13 @@ export function MessageList({
     return map;
   }, [threads]);
 
-  // URL generation
+  // URL generation. Must keep `page` so opening a message does not reset the list.
   const getItemUrl = (item: ConversationItem) => {
-    const folderPath = folder.toLowerCase() === 'inbox' ? 'inbox' : folder.toLowerCase();
-    if (isUnified && displayMode === 'threads') {
-      const extended = item as ConversationItem & { _latestMessageId?: string; _accountId?: string };
-      const msgId = extended._latestMessageId || item.id;
-      const acctParam = extended._accountId ? `?accountId=${extended._accountId}` : '';
-      return `/weldmail/unified/${folderPath}/${msgId}${acctParam}`;
-    }
     if (displayMode === 'threads') {
-      const extended = item as ConversationItem & { _latestMessageId?: string };
-      return `/weldmail/${accountId}/${folderPath}/${extended._latestMessageId || item.id}`;
+      const extended = item as ConversationItem & { _latestMessageId?: string; _accountId?: string };
+      return getMessageUrl(extended._latestMessageId || item.id, extended._accountId);
     }
-    return `/weldmail/${accountId}/${folderPath}/${item.id}`;
+    return getMessageUrl(item.id);
   };
 
   // Selected item matching
@@ -410,35 +411,35 @@ export function MessageList({
     const starred = thread.isStarred;
     const hasUnread = thread.unreadCount > 0;
     const threadAccountId = (isUnified && thread.accountId) ? thread.accountId : accountId;
-    const basePath = isUnified ? `/weldmail/unified/${folder}` : `/weldmail/${accountId}/${folder}`;
+    const threadMessageUrl = getMessageUrl(thread.latestMessageId, isUnified ? thread.accountId : undefined);
     const threadLabels = thread.labels || [];
 
     return (
       <>
         {/* Reply / Reply all / Forward */}
         <ContextMenuItem onClick={() => {
-          router.push(`${basePath}/${thread.latestMessageId}`);
+          router.push(threadMessageUrl);
           setTimeout(() => window.dispatchEvent(new CustomEvent('mail:action', { detail: { action: 'reply', messageId: thread.latestMessageId } })), 100);
         }}>
           <Reply className="h-4 w-4 mr-0.5" />
           {t.mail.messageList.reply}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
-          router.push(`${basePath}/${thread.latestMessageId}`);
+          router.push(threadMessageUrl);
           setTimeout(() => window.dispatchEvent(new CustomEvent('mail:action', { detail: { action: 'replyAll', messageId: thread.latestMessageId } })), 100);
         }}>
           <ReplyAll className="h-4 w-4 mr-0.5" />
           {t.mail.messageList.replyAll}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
-          router.push(`${basePath}/${thread.latestMessageId}`);
+          router.push(threadMessageUrl);
           setTimeout(() => window.dispatchEvent(new CustomEvent('mail:action', { detail: { action: 'forward', messageId: thread.latestMessageId } })), 100);
         }}>
           <Forward className="h-4 w-4 mr-0.5" />
           {t.mail.messageList.forward}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
-          router.push(`${basePath}/${thread.latestMessageId}`);
+          router.push(threadMessageUrl);
           setTimeout(() => window.dispatchEvent(new CustomEvent('mail:action', { detail: { action: 'forwardAttachment', messageId: thread.latestMessageId } })), 100);
         }}>
           <Paperclip className="h-4 w-4 mr-0.5" />
@@ -645,7 +646,7 @@ export function MessageList({
           {t.mail.messageList.findEmailsFromSender}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
-          window.open(`${basePath}/${thread.latestMessageId}`, '_blank');
+          window.open(threadMessageUrl, '_blank');
         }}>
           <ExternalLink className="h-4 w-4 mr-0.5" />
           {t.mail.messageList.openInNewWindow}
@@ -658,7 +659,7 @@ export function MessageList({
   const getMessageContextMenu = (item: ConversationItem) => {
     const pinned = pinnedEmails.has(item.id);
     const starred = isStarred(item.id);
-    const basePath = isUnified ? `/weldmail/unified/${folder}` : `/weldmail/${accountId}/${folder}`;
+    const itemMessageUrl = getMessageUrl(item.id);
     const msgLabels = item.labels || [];
     const hasUnread = !item.isRead;
 
@@ -666,28 +667,28 @@ export function MessageList({
       <>
         {/* Reply / Reply all / Forward */}
         <ContextMenuItem onClick={() => {
-          router.push(`${basePath}/${item.id}`);
+          router.push(itemMessageUrl);
           setTimeout(() => window.dispatchEvent(new CustomEvent('mail:action', { detail: { action: 'reply', messageId: item.id } })), 100);
         }}>
           <Reply className="h-4 w-4 mr-0.5" />
           {t.mail.messageList.reply}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
-          router.push(`${basePath}/${item.id}`);
+          router.push(itemMessageUrl);
           setTimeout(() => window.dispatchEvent(new CustomEvent('mail:action', { detail: { action: 'replyAll', messageId: item.id } })), 100);
         }}>
           <ReplyAll className="h-4 w-4 mr-0.5" />
           {t.mail.messageList.replyAll}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
-          router.push(`${basePath}/${item.id}`);
+          router.push(itemMessageUrl);
           setTimeout(() => window.dispatchEvent(new CustomEvent('mail:action', { detail: { action: 'forward', messageId: item.id } })), 100);
         }}>
           <Forward className="h-4 w-4 mr-0.5" />
           {t.mail.messageList.forward}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
-          router.push(`${basePath}/${item.id}`);
+          router.push(itemMessageUrl);
           setTimeout(() => window.dispatchEvent(new CustomEvent('mail:action', { detail: { action: 'forwardAttachment', messageId: item.id } })), 100);
         }}>
           <Paperclip className="h-4 w-4 mr-0.5" />
@@ -875,7 +876,7 @@ export function MessageList({
           {t.mail.messageList.findEmailsFromSender}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => {
-          window.open(`${basePath}/${item.id}`, '_blank');
+          window.open(itemMessageUrl, '_blank');
         }}>
           <ExternalLink className="h-4 w-4 mr-0.5" />
           {t.mail.messageList.openInNewWindow}
@@ -1135,7 +1136,7 @@ export function MessageList({
         const base = isUnified
           ? `/weldmail/unified/${folder}/compose`
           : `/weldmail/${accountId}/${folder}/compose`;
-        const ret = encodeURIComponent(window.location.pathname);
+        const ret = encodeURIComponent(currentMailHref());
         router.push(`${base}?returnUrl=${ret}`);
       }}
       isPinned={(id) => pinnedEmails.has(id)}

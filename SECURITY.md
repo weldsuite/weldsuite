@@ -1,6 +1,6 @@
 # Security Policy
 
-We take the security of WeldSuite seriously. Because this is a source-visible business platform that handles customer data, we ask that you report vulnerabilities responsibly.
+We take the security of WeldSuite seriously. Because this platform handles customer data, we ask that you report vulnerabilities privately.
 
 ## Reporting a vulnerability
 

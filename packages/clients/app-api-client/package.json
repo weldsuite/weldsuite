@@ -69,6 +69,7 @@
     "./schemas/weldagent": "./src/schemas/weldagent.ts",
     "./schemas/weldconnect": "./src/schemas/weldconnect.ts",
     "./schemas/app-catalog": "./src/schemas/app-catalog.ts",
+    "./schemas/credits": "./src/schemas/credits.ts",
     "./domains/ai": "./src/domains/ai.ts",
     "./domains/account": "./src/domains/account.ts",
     "./domains/workspace-settings": "./src/domains/workspace-settings.ts",
@@ -111,6 +112,10 @@
     "./domains/chat-agent": "./src/domains/chat-agent.ts",
     "./domains/notifications": "./src/domains/notifications.ts",
     "./domains/dashboard": "./src/domains/dashboard.ts",
+    "./domains/products": "./src/domains/products.ts",
+    "./domains/inventory": "./src/domains/inventory.ts",
+    "./domains/warehouses": "./src/domains/warehouses.ts",
+    "./domains/pick-lists": "./src/domains/pick-lists.ts",
     "./domains/search": "./src/domains/search.ts",
     "./domains/access-requests": "./src/domains/access-requests.ts"
   },

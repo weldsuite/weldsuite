@@ -64,13 +64,17 @@ import { useRouter } from '@/lib/router';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import {
+  isExternalDomainRegistrar,
+  publicDomainRegistrar,
+  type Domain,
+} from '@weldsuite/core-api-client/schemas/domains';
+import {
   useDnsRecords,
   useDnsZones,
   useDomain,
   useRefreshZoneStatus,
   useToggleAutoRenew,
 } from '@/hooks/queries/use-host-queries';
-import type { Domain } from '@weldsuite/core-api-client/schemas/domains';
 import { DomainDnsTab } from './domain-dns-tab';
 import { getDomainTabs, type DomainTab } from './domain-tabs';
 import { useDeleteDomain } from './use-domain-data';
@@ -332,7 +336,7 @@ function DomainDetailsTab({
       <PropertyRow
         icon={Building2}
         label={td.registrar}
-        value={domain.registrar || 'WeldHost'}
+        value={publicDomainRegistrar(domain.registrar)}
         readOnly
       />
       <PropertyRow
@@ -428,7 +432,7 @@ function DomainNameserversTab({
   zoneStatus?: string | null;
   td: DomainDetailTranslations;
 }) {
-  const isExternal = !!(domain.registrar && domain.registrar !== 'WeldHost');
+  const isExternal = isExternalDomainRegistrar(domain.registrar);
   const fullDomain = domain.fullDomain || `${domain.name}.${domain.tld}`;
 
   if (nameservers.length === 0) {
@@ -507,7 +511,7 @@ function DomainSettingsTab({
 }) {
   const [autoRenew, setAutoRenew] = useState(!!domain.autoRenew);
   const toggleAutoRenew = useToggleAutoRenew();
-  const isExternal = !!(domain.registrar && domain.registrar !== 'WeldHost');
+  const isExternal = isExternalDomainRegistrar(domain.registrar);
 
   // Server state wins whenever the record refetches (e.g. after a failed
   // toggle rolls back, or another session changes it).

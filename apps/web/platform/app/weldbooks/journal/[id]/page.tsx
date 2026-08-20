@@ -17,13 +17,7 @@ import {
   usePostJournalEntry,
 } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
-
-function fmt(value: string | number | null | undefined): string {
-  return new Intl.NumberFormat('nl-NL', {
-    style: 'currency',
-    currency: 'EUR',
-  }).format(Number(value ?? 0));
-}
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 export default function JournalEntryDetailPage() {
   const { id } = useParams({ strict: false });
@@ -33,6 +27,7 @@ export default function JournalEntryDetailPage() {
   const { t } = useI18n();
   const tj = t.accounting.journalEntry;
   const tsl = t.accounting.statusLabels.journalEntry;
+  const { formatMoney: fmt } = useCurrentEntityCurrency();
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
@@ -153,10 +148,10 @@ export default function JournalEntryDetailPage() {
                     <TableCell className="font-mono text-sm">{line.accountId}</TableCell>
                     <TableCell className="text-sm">{line.description || '-'}</TableCell>
                     <TableCell className="text-right text-sm">
-                      {Number(line.debit) > 0 ? fmt(line.debit) : '-'}
+                      {Number(line.debit) > 0 ? fmt(line.debit, line.currency) : '-'}
                     </TableCell>
                     <TableCell className="text-right text-sm">
-                      {Number(line.credit) > 0 ? fmt(line.credit) : '-'}
+                      {Number(line.credit) > 0 ? fmt(line.credit, line.currency) : '-'}
                     </TableCell>
                   </TableRow>
                 ))

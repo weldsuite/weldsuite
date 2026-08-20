@@ -14,9 +14,12 @@ import {
   createDomainTransferSchema,
   failDomainTransferSchema,
 } from '@weldsuite/core-api-client/schemas/domain-transfers';
+import { RealtimeRegistrarError } from '@weldsuite/realtime-registrar';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, success } from '../../lib/response';
+import { getRealtimeRegistrar } from '../../lib/realtime-registrar';
 import * as transfersService from '../../services/domain-transfers';
+import * as domainsService from '../../services/domains';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -41,6 +44,8 @@ app.get(
 app.get('/:id', requirePermission('transfers:read'), async (c) => {
   const id = c.req.param('id');
   try {
+    // Reads stay local — registrar sync is PATCH /:id/sync so an RTR outage
+    // cannot break the detail page.
     const row = await transfersService.getDomainTransfer(c.get('tenantDb'), id);
     if (!row) return error.notFound(c, 'Domain transfer', id);
     return success(c, row);
@@ -56,10 +61,47 @@ app.post(
   zValidator('json', createDomainTransferSchema),
   async (c) => {
     try {
+      const input = c.req.valid('json');
+      const rtr = getRealtimeRegistrar(c.env);
+      let registrantContact: Record<string, unknown> | null = null;
+      let nameservers: string[] | undefined;
+      if (input.domainId) {
+        const domain = await domainsService.getDomain(c.get('tenantDb'), input.domainId);
+        registrantContact = (domain?.registrantContact as Record<string, unknown> | null) ?? null;
+        nameservers = (domain?.nameservers as string[] | null) ?? undefined;
+      }
+
       const row = await transfersService.createDomainTransfer(
         c.get('tenantDb'),
-        c.req.valid('json'),
+        input,
+        {
+          rtr: input.type === 'incoming' ? rtr : null,
+          contactEnv: {
+            REALTIME_REGISTER_CONTACT_ADMIN: c.env.REALTIME_REGISTER_CONTACT_ADMIN,
+            REALTIME_REGISTER_CONTACT_TECH: c.env.REALTIME_REGISTER_CONTACT_TECH,
+            REALTIME_REGISTER_CONTACT_BILLING: c.env.REALTIME_REGISTER_CONTACT_BILLING,
+          },
+          registrantContact,
+          nameservers,
+        },
       );
+
+      if (row.externalTransferId && c.env.WORKSPACE_CACHE) {
+        const workspaceId = c.get('workspaceId');
+        if (workspaceId) {
+          await c.env.WORKSPACE_CACHE.put(
+            `rtr:process:${row.externalTransferId}`,
+            JSON.stringify({
+              workspaceId,
+              transferId: row.id,
+              domainId: row.domainId,
+              kind: 'transfer',
+            }),
+            { expirationTtl: 60 * 60 * 24 * 14 },
+          );
+        }
+      }
+
       publishEntityEvent({
         c,
         entityType: 'domain_transfer',
@@ -69,6 +111,10 @@ app.post(
       });
       return success(c, row, 201);
     } catch (err) {
+      if (err instanceof RealtimeRegistrarError) {
+        console.error('[app-api/domain-transfers] RTR create failed:', err.message);
+        return error.badRequest(c, err.message);
+      }
       console.error('[app-api/domain-transfers] create failed:', err);
       return error.internal(c, 'Failed to create domain transfer');
     }
@@ -91,6 +137,32 @@ app.patch('/:id/complete', requirePermission('transfers:update'), async (c) => {
   } catch (err) {
     console.error('[app-api/domain-transfers] complete failed:', err);
     return error.internal(c, 'Failed to complete domain transfer');
+  }
+});
+
+app.patch('/:id/sync', requirePermission('transfers:update'), async (c) => {
+  const id = c.req.param('id');
+  const rtr = getRealtimeRegistrar(c.env);
+  if (!rtr) {
+    return c.json(
+      { error: { code: 'SERVICE_UNAVAILABLE', message: 'Realtime Register is not configured' } },
+      503,
+    );
+  }
+  try {
+    const row = await transfersService.syncTransferFromRegistrar(c.get('tenantDb'), rtr, id);
+    if (!row) return error.notFound(c, 'Domain transfer', id);
+    publishEntityEvent({
+      c,
+      entityType: 'domain_transfer',
+      entityId: row.id,
+      action: 'updated',
+      data: { id: row.id, domainName: row.domainName, type: row.type, status: row.status },
+    });
+    return success(c, row);
+  } catch (err) {
+    console.error('[app-api/domain-transfers] sync failed:', err);
+    return error.internal(c, 'Failed to sync domain transfer');
   }
 });
 

@@ -70,7 +70,7 @@ export default function LabelPanel({ visible, _onLabelSelected, onClosed }: Labe
         onClosed?.();
       });
     }
-  }, [visible]);
+  }, [visible, widthAnim, opacityAnim, onClosed]);
 
   if (!mounted) return null;
 

@@ -526,6 +526,7 @@ export async function processInboundEmail(
           await sendNewEmailPushNotification(env, {
             userId,
             workspaceId: account.workspaceId,
+            clerkOrgId: account.clerkOrgId,
             messageId: result.messageId,
             accountId: account.accountId,
             from: email.from,

@@ -70,17 +70,8 @@ export const COUNTRIES_REQUIRING_ADDRESS = [
   'NL', 'DE', 'BE', 'AT', 'CH', 'FR', 'ES', 'IT', 'PT', 'SE', 'NO', 'DK', 'FI', 'PL', 'CZ', 'HU', 'IE', 'LU',
 ];
 
-/**
- * Resolve the billing-worker base URL for the current environment.
- * Production host matches apps/workers/billing-worker/wrangler.toml
- * (`billing-worker.weldsuite.org`). The old `billing.weldsuite.org` /
- * `billing-preview.weldsuite.org` hostnames do not serve this worker.
- */
-export function billingWorkerUrl(env: Env): string {
-  return env.ENVIRONMENT === 'production' || env.ENVIRONMENT === 'preview'
-    ? 'https://billing-worker.weldsuite.org'
-    : 'http://localhost:8788';
-}
+/** @deprecated Import from `./billing-worker` — re-exported for existing call sites. */
+export { billingWorkerUrl } from './billing-worker';
 
 // ============================================================================
 // Webhook signature verification (Ed25519)

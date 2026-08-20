@@ -46,7 +46,7 @@ bindings = [
 # presence alarm to resolve tenant DB URLs from workspace (Clerk org) IDs.
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "748b8f38937f4807b3978cacb17e1880"
 
 [[migrations]]
 tag = "v1"
@@ -63,6 +63,33 @@ new_classes = ["SupportRoom"]
 [[migrations]]
 tag = "v4"
 new_classes = ["DocumentRoom"]
+
+[env.test]
+name = "weldsuite-realtime-test"
+routes = [
+  { pattern = "realtime-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+CLERK_ISSUER = "https://definite-eagle-3.clerk.accounts.dev"
+
+[env.test.durable_objects]
+bindings = [
+  { name = "WORKSPACE_HUB", class_name = "WorkspaceHub" },
+  { name = "CONVERSATION_ROOM", class_name = "ConversationRoom" },
+  { name = "CHAT_ROOM", class_name = "ChatRoom" },
+  { name = "WHITEBOARD_ROOM", class_name = "WhiteboardRoom" },
+  { name = "DOCUMENT_ROOM", class_name = "DocumentRoom" },
+  { name = "SUPPORT_ROOM", class_name = "SupportRoom" },
+]
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
 
 [env.production]
 name = "weldsuite-realtime-production"
@@ -85,7 +112,7 @@ bindings = [
 
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "99689831a815455ba7f836175e5e17c9"
 
 [env.production.observability]
 enabled = true

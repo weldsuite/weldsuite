@@ -414,6 +414,42 @@ export async function listInvoices(
   return stripeApiRequest(key, 'GET', `/v1/invoices?customer=${customerId}&limit=${limit}`);
 }
 
+export interface StripePaymentIntentResponse {
+  id: string;
+  payment_method: string | { id: string } | null;
+}
+
+export async function retrievePaymentIntent(
+  key: string,
+  paymentIntentId: string,
+): Promise<StripePaymentIntentResponse> {
+  return stripeApiRequest(key, 'GET', `/v1/payment_intents/${paymentIntentId}`);
+}
+
+export interface StripeCustomerResponse {
+  id: string;
+  invoice_settings?: {
+    default_payment_method?: string | { id: string } | null;
+  };
+}
+
+export async function retrieveCustomer(
+  key: string,
+  customerId: string,
+): Promise<StripeCustomerResponse> {
+  return stripeApiRequest(key, 'GET', `/v1/customers/${customerId}`);
+}
+
+export async function setCustomerDefaultPaymentMethod(
+  key: string,
+  customerId: string,
+  paymentMethodId: string,
+): Promise<{ id: string }> {
+  return stripeApiRequest(key, 'POST', `/v1/customers/${customerId}`, {
+    'invoice_settings[default_payment_method]': paymentMethodId,
+  });
+}
+
 // ============================================================================
 // Stripe Product & Price Management
 // ============================================================================

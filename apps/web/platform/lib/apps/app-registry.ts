@@ -48,6 +48,17 @@ function makeLogo(appCode: string, opts?: { iconClassName?: string }): AppLogo {
   };
 }
 
+const WELDSTASH_ASSETS: AppAssets = {
+  lucideIcon: Warehouse,
+  shortName: 'Warehouse',
+  icon: '/assets/images/weldstash/icon.svg',
+  logo: {
+    iconLight: '/assets/images/weldstash/logo-light.svg',
+    iconDark: '/assets/images/weldstash/logo-dark.svg',
+  },
+  sidebarIconClass: 'h-6 w-6 object-contain',
+};
+
 /**
  * Centralized registry of all first-party app visual assets.
  *
@@ -186,9 +197,13 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },
-  wms: {
-    lucideIcon: Warehouse,
-  },
+  // WeldStash (platform + mobile). Icon-only warehouse mark like weldbooks/welddata —
+
+  // wordmark variants need the brand typeface and can be added later.
+  // `wms` is the legacy catalog code; keep both keys so APP_REGISTRY[code]
+  // lookups (settings, member details) resolve without going through aliases.
+  weldstash: WELDSTASH_ASSETS,
+  wms: WELDSTASH_ASSETS,
   parcel: {
     lucideIcon: Truck,
   },
@@ -243,7 +258,8 @@ const LEGACY_CODE_ALIASES: Record<string, string> = {
   desk: 'welddesk',
   mail: 'weldmail',
   host: 'weldhost',
-  stash: 'wms',
+  stash: 'weldstash',
+  weldwms: 'weldstash',
   commerce: 'weldcommerce',
   accounting: 'weldbooks',
   books: 'weldbooks',

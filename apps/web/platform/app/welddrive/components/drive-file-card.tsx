@@ -33,8 +33,9 @@ import { cn } from '@/lib/utils';
 import type { UnifiedFile } from '@/lib/api/domains/welddrive';
 import { useI18n } from '@/lib/i18n/provider';
 import { getTranslations } from '@/lib/i18n';
+import { getAppApiUrl } from '@/lib/api/public-env';
 
-const APP_API_URL = import.meta.env.VITE_APP_API_URL || 'http://localhost:8789';
+const APP_API_URL = getAppApiUrl();
 
 function triggerAnchorDownload(href: string, filename: string, openInNewTab: boolean) {
   const a = document.createElement('a');

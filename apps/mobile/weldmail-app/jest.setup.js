@@ -11,8 +11,9 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 // expo-constants — read in a few config helpers.
-jest.mock('expo-constants', () => ({
-  expoConfig: { extra: {} },
+jest.mock('expo-splash-screen', () => ({
+  preventAutoHideAsync: jest.fn(() => Promise.resolve()),
+  hideAsync: jest.fn(() => Promise.resolve()),
 }));
 
 // Silence the noisy RN/Expo dev warnings so test output stays readable.

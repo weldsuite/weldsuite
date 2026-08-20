@@ -1,9 +1,10 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { useRouter } from '@/lib/router';
+import { usePathname, useRouter } from '@/lib/router';
 import { formatAiBody } from '@/app/weldmail/lib/format-ai-body';
 import {
   Reply,
+  ReplyAll,
   Forward,
   Star,
   Trash,
@@ -61,8 +62,20 @@ import { usePinnedMessagesSafe } from '@/contexts/pinned-messages-context';
 import { useStarredMessagesSafe } from '@/contexts/starred-messages-context';
 import { useCustomerPanel } from '@/contexts/customer-panel-context';
 import { useComposeSafe } from '@/contexts/compose-context';
+import { useMailThreadListSafe } from '@/app/weldmail/contexts/mail-thread-list-context';
+import { getNextThreadHref } from '@/app/weldmail/lib/next-thread';
+import { folderHidesOnArchive } from '@/app/weldmail/lib/optimistic-thread-list';
 import { mailApi } from '../lib/api-client';
+import { currentMailHref } from '../lib/mail-urls';
+import { useAppApiClient } from '@/lib/api/use-app-api';
 import { IsolatedHtmlContent } from './isolated-html-content';
+import { ComposeAttachButton } from './compose-attach-button';
+import {
+  MAX_EMAIL_SIZE_BYTES,
+  MailAttachmentUploadError,
+  emailSizeExceedsLimit,
+  uploadMailAttachments,
+} from '@/app/weldmail/lib/upload-attachments';
 import {
   useArchiveThread,
   useTrashThread,
@@ -71,6 +84,7 @@ import {
   useGenerateAutoDraft,
   useGenerateAIReply,
   useMailAttachments,
+  useMailAccounts,
 } from '@/hooks/queries/use-mail-queries';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import { CustomerDetailPanel } from './customer-detail-panel';
@@ -131,6 +145,36 @@ function addressToEmail(addr: string | MailTypes.EmailAddress | undefined): stri
 
 function addressListToEmails(list?: string[] | MailTypes.EmailAddress[]): string[] {
   return (list || []).map((item) => addressToEmail(item));
+}
+
+// Recipients for a reply. A plain reply goes to the original sender only; a
+// reply-all adds everyone else who was on the To/Cc lines, minus the mailbox
+// we're replying from (replying to yourself is never what's wanted).
+// `replyAndPersist` on the server derives the same set from the stored message,
+// so what we show here matches what actually gets sent.
+function buildReplyRecipients(
+  msg: EmailMessage,
+  { all, selfEmail }: { all: boolean; selfEmail?: string },
+): string[] {
+  const self = selfEmail?.trim().toLowerCase();
+  const seen = new Set<string>();
+  const recipients: string[] = [];
+  const add = (email: string, { allowSelf = false } = {}) => {
+    const trimmed = email.trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key) || (!allowSelf && key === self)) return;
+    seen.add(key);
+    recipients.push(trimmed);
+  };
+  // The sender stays even when it's our own address — replying to a message
+  // you sent yourself should still address it to that thread.
+  add(msg.fromEmail || addressToEmail(msg.from), { allowSelf: true });
+  if (all) {
+    addressListToEmails(msg.to).forEach((email) => add(email));
+    addressListToEmails(msg.cc).forEach((email) => add(email));
+  }
+  return recipients;
 }
 
 // Generate consistent label color based on label name
@@ -409,6 +453,7 @@ interface MessageDetailProps {
 export function MessageDetail({ message, thread = [], accountId, folder, availableLabels = [], onLabelsChange, threadId, drafts = [] }: MessageDetailProps) {
   const { t } = useI18n();
   const router = useRouter();
+  const pathname = usePathname();
   const archiveThreadMutation = useArchiveThread();
   const trashThreadMutation = useTrashThread();
   const markThreadAsSpamMutation = useMarkThreadAsSpam();
@@ -416,10 +461,13 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const generateAutoDraftMutation = useGenerateAutoDraft();
   const generateAIReplyMutation = useGenerateAIReply();
   const handleAiCreditsError = useAiCreditsToast();
+  const { getClient } = useAppApiClient();
   const [isReplying, setIsReplying] = useState(false);
+  const [isReplyingAll, setIsReplyingAll] = useState(false);
   const [isForwarding, setIsForwarding] = useState(false);
   const [replyToMessageId, setReplyToMessageId] = useState<string | null>(null);
   const [composeData, setComposeData] = useState({ to: '', subject: '', body: '' });
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const editorRef = useRef<HTMLDivElement>(null);
   const [activeFormats, setActiveFormats] = useState<Record<string, boolean>>({});
   const [messageLabels, setMessageLabels] = useState<string[]>(message.labels || []);
@@ -445,10 +493,17 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
 
   // Compose context for floating panel
   const composeContext = useComposeSafe();
+  const threadList = useMailThreadListSafe();
 
-  // Navigate back to the message list (for mobile)
+  // Close the detail pane and stay in the current mailbox (unified or
+  // per-account). Never jump to the conversation's own account inbox —
+  // that would yank the user out of the unified view.
+  const isUnifiedView = threadList?.isUnified ?? pathname.startsWith('/weldmail/unified/');
+  const listPath = isUnifiedView
+    ? `/weldmail/unified/${folder}`
+    : `/weldmail/${accountId}/${folder}`;
   const handleBackToList = () => {
-    router.push(`/weldmail/${accountId}/${folder}`);
+    router.push(listPath);
   };
 
   // Track active formatting in the editor
@@ -519,6 +574,20 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     };
   }, [message, localThread]);
 
+  // Our own address on this mailbox — excluded from reply-all recipients.
+  const { data: accountsData } = useMailAccounts();
+  const accountEmail = useMemo(
+    () => (accountsData?.data ?? []).find((a) => a.id === accountId)?.email,
+    [accountsData, accountId],
+  );
+
+  // "Reply all" only earns its place when there is somebody else to include.
+  const replyAllRecipients = useMemo(
+    () => (newestMessage ? buildReplyRecipients(newestMessage, { all: true, selfEmail: accountEmail }) : []),
+    [newestMessage, accountEmail],
+  );
+  const canReplyAll = replyAllRecipients.length > 1;
+
   // The api-worker mail list / thread routes resolve sender avatars from the
   // shared `contacts` table and project them onto `from.avatarUrl` for every
   // message, so we just read them off the message object — no extra fetch.
@@ -567,24 +636,24 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
       if (detail?.messageId && detail.messageId !== message.id && detail.messageId !== newestMessage.id) return;
       const action = detail?.action;
       if (action === 'reply' || action === 'replyAll') {
+        const allRecipients = action === 'replyAll';
         setIsReplying(true);
+        setIsReplyingAll(allRecipients);
         setIsForwarding(false);
         setReplyToMessageId(newestMessage.id);
-        const allRecipients = action === 'replyAll';
-        const to = allRecipients
-          ? [newestMessage.fromEmail || addressToEmail(newestMessage.from), ...addressListToEmails(newestMessage.cc)].filter(Boolean).join(', ')
-          : newestMessage.fromEmail || addressToEmail(newestMessage.from);
+        const to = buildReplyRecipients(newestMessage, { all: allRecipients, selfEmail: accountEmail }).join(', ');
         setComposeData({ to, subject: `Re: ${message.subject}`, body: '' });
       } else if (action === 'forward' || action === 'forwardAttachment') {
         setIsForwarding(true);
         setIsReplying(false);
+        setIsReplyingAll(false);
         setReplyToMessageId(newestMessage.id);
         setComposeData({ to: '', subject: `Fwd: ${message.subject}`, body: '' });
       }
     };
     window.addEventListener('mail:action', handleMailAction);
     return () => window.removeEventListener('mail:action', handleMailAction);
-  }, [message.id, message.subject, newestMessage]);
+  }, [message.id, message.subject, newestMessage, accountEmail]);
 
   const { main: mainContent, quoted: quotedContent } = parseMainContent(newestMessage.bodyHtml, newestMessage.bodyText);
   const isHtml = !!newestMessage.bodyHtml;
@@ -636,6 +705,32 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     setExpandedThreadIds(prev => new Set([...prev, newestMessage.id]));
   };
 
+  const resetCompose = () => {
+    setIsReplying(false);
+    setIsReplyingAll(false);
+    setIsForwarding(false);
+    setReplyToMessageId(null);
+    setComposeData({ to: '', subject: '', body: '' });
+    setAttachedFiles([]);
+    if (editorRef.current) editorRef.current.innerHTML = '';
+  };
+
+  const uploadAttachedFiles = async (textContent: string, htmlContent: string) => {
+    if (emailSizeExceedsLimit(textContent, htmlContent, attachedFiles)) {
+      toast.error(t.mail.composePage.emailSizeExceeded.replace('{mb}', String(MAX_EMAIL_SIZE_BYTES / (1024 * 1024))));
+      return null;
+    }
+    if (attachedFiles.length === 0) return [];
+    try {
+      const client = await getClient();
+      return await uploadMailAttachments(client, accountId, attachedFiles);
+    } catch (err) {
+      const filename = err instanceof MailAttachmentUploadError ? err.filename : 'file';
+      toast.error(t.mail.composePage.failedToUpload.replace('{filename}', filename));
+      return null;
+    }
+  };
+
   const handleSendReply = async () => {
     const htmlContent = editorRef.current?.innerHTML || '';
     const textContent = editorRef.current?.textContent || '';
@@ -645,19 +740,18 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     }
     setIsSending(true);
     try {
-      const toAddresses = composeData.to.split(/[,;]/).map((e: string) => e.trim()).filter((e: string) => e.length > 0);
+      const attachments = await uploadAttachedFiles(textContent, htmlContent);
+      if (attachments === null) return;
       const result = await mailApi.messages.reply(accountId, message.id, {
         body: textContent,
         htmlBody: htmlContent,
-        replyAll: toAddresses.length > 1,
+        replyAll: isReplyingAll,
+        attachments: attachments.length > 0 ? attachments : undefined,
       });
       if (result.success) {
         toast.success(t.mail.messageDetail.replySent);
         addOptimisticMessage(textContent, composeData.to, htmlContent);
-        setIsReplying(false);
-        setReplyToMessageId(null);
-        setComposeData({ to: '', subject: '', body: '' });
-        if (editorRef.current) editorRef.current.innerHTML = '';
+        resetCompose();
       } else {
         toast.error(result.error || t.mail.messageDetail.failedToSendReply);
       }
@@ -678,18 +772,18 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     const textContent = editorRef.current?.textContent || '';
     setIsSending(true);
     try {
+      const attachments = await uploadAttachedFiles(textContent, htmlContent);
+      if (attachments === null) return;
       const result = await mailApi.messages.forward(accountId, message.id, {
         to: toAddresses,
         body: textContent || undefined,
         htmlBody: htmlContent || undefined,
+        attachments: attachments.length > 0 ? attachments : undefined,
       });
       if (result.success) {
         toast.success(t.mail.messageDetail.emailForwarded);
         addOptimisticMessage(textContent || `Forwarded: ${message.subject}`, composeData.to, htmlContent || undefined);
-        setIsForwarding(false);
-        setReplyToMessageId(null);
-        setComposeData({ to: '', subject: '', body: '' });
-        if (editorRef.current) editorRef.current.innerHTML = '';
+        resetCompose();
       } else {
         toast.error(result.error || t.mail.messageDetail.failedToForwardEmail);
       }
@@ -757,35 +851,52 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     }
   };
 
-  const handleArchive = async () => {
+  const handleArchive = async (): Promise<boolean> => {
     if (threadId) {
-      // Thread-level: Archive all messages in the conversation
-      archiveThreadMutation.mutate({ accountId, threadId }, {
-        onSuccess: (result) => {
-          toast.success(t.mail.messageDetail.archivedMessages.replace('{n}', String(result.archivedCount ?? 1)));
-        },
-        onError: () => {
-          toast.error(t.mail.messageDetail.failedToArchive);
-        },
-      });
-      return;
-    } else {
-      // Gmail-style: Remove "inbox" label, add "archive" label
       try {
-        // Remove inbox label
-        if (messageLabels.includes('inbox')) {
-          await mailApi.messages.removeLabel(accountId, message.id, 'inbox');
-        }
-        // Add archive label
-        await mailApi.messages.addLabel(accountId, message.id, 'archive');
-        const newLabels = messageLabels.filter(l => l !== 'inbox').concat('archive');
-        setMessageLabels(newLabels);
-        onLabelsChange?.(newLabels);
-        toast.success(t.mail.messageDetail.archivedSingle);
+        const result = await archiveThreadMutation.mutateAsync({ accountId, threadId });
+        toast.success(t.mail.messageDetail.archivedMessages.replace('{n}', String(result.archivedCount ?? 1)));
+        window.dispatchEvent(new Event('mail:refresh'));
+        return true;
       } catch {
-        toast.error(t.mail.messageDetail.failedToArchiveSingle);
+        toast.error(t.mail.messageDetail.failedToArchive);
+        return false;
       }
     }
+    // Gmail-style: Remove INBOX, add ARCHIVE (system labels are uppercase)
+    try {
+      const hasInbox = messageLabels.some((l) => l.toLowerCase() === 'inbox');
+      if (hasInbox) {
+        await mailApi.messages.removeLabel(accountId, message.id, 'INBOX');
+      }
+      await mailApi.messages.addLabel(accountId, message.id, 'ARCHIVE');
+      const newLabels = messageLabels
+        .filter((l) => l.toLowerCase() !== 'inbox')
+        .concat(messageLabels.some((l) => l.toLowerCase() === 'archive') ? [] : ['ARCHIVE']);
+      setMessageLabels(newLabels);
+      onLabelsChange?.(newLabels);
+      toast.success(t.mail.messageDetail.archivedSingle);
+      window.dispatchEvent(new Event('mail:refresh'));
+      return true;
+    } catch {
+      toast.error(t.mail.messageDetail.failedToArchiveSingle);
+      return false;
+    }
+  };
+
+  // Drop the row from the left list immediately, then open the next
+  // conversation. The archive request runs in the background; a failed
+  // mutation puts the row back. Last item falls back to closing the pane.
+  const handleArchiveAndNext = async () => {
+    const current = { messageId: message.id, threadId };
+    const list = threadList;
+    const nextHref = list ? getNextThreadHref(list.threads, current, list) : null;
+    const shouldHide = !!list && folderHidesOnArchive(list.folder);
+    if (shouldHide) list?.hideThread(current);
+    if (nextHref) router.push(nextHref);
+    else handleBackToList();
+    const archived = await handleArchive();
+    if (!archived && shouldHide) list?.unhideThread(current);
   };
 
   const handleMarkAsSpam = async () => {
@@ -894,9 +1005,11 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     const placeholder = isReply ? t.mail.messageDetail.replyPlaceholder : t.mail.messageDetail.forwardMessagePlaceholder;
     const onCancel = () => {
       setIsReplying(false);
+      setIsReplyingAll(false);
       setIsForwarding(false);
       setReplyToMessageId(null);
       setComposeData({ to: '', subject: '', body: '' });
+      setAttachedFiles([]);
       setIsAutoDraft(false);
       setShowInlineAiInput(false);
       setInlineAiPrompt('');
@@ -947,7 +1060,8 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                   body: htmlContent || textContent,
                   inReplyTo: isReply ? getReplyToRfcMessageId() : undefined,
                   accountId,
-                }, window.location.pathname);
+                  attachedFiles,
+                }, currentMailHref());
                 onCancel();
               }}
             >
@@ -964,19 +1078,20 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                 const textContent = editorRef.current?.textContent || '';
                 const rfcMessageId = isReply ? getReplyToRfcMessageId() : undefined;
                 if (composeContext) {
-                  composeContext.setPreviousUrl(window.location.pathname);
+                  composeContext.setPreviousUrl(currentMailHref());
                   composeContext.updateComposeData({
                     to: composeData.to,
                     subject: composeData.subject || message.subject,
                     body: htmlContent || textContent,
                     inReplyTo: rfcMessageId,
+                    attachedFiles,
                   });
                 }
                 onCancel();
                 // Pass inReplyTo and returnUrl via URL params for reliability
                 const params = new URLSearchParams();
                 if (rfcMessageId) params.set('inReplyTo', rfcMessageId);
-                params.set('returnUrl', window.location.pathname);
+                    params.set('returnUrl', currentMailHref());
                 const qs = params.toString();
                 router.push(`/weldmail/${accountId}/${folder}/compose${qs ? `?${qs}` : ''}`);
               }}
@@ -997,6 +1112,28 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             suppressContentEditableWarning
           />
         </div>
+        {attachedFiles.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-3 pb-2">
+            {attachedFiles.map((file, index) => (
+              <div
+                key={`${file.name}-${index}`}
+                className="flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-xs max-w-[180px]"
+              >
+                <span className="truncate">{file.name}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-4 w-4 p-0 hover:bg-muted-foreground/20"
+                  onClick={() => setAttachedFiles((prev) => prev.filter((_, i) => i !== index))}
+                  title={t.mail.messageDetail.cancel}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
         {/* Actions bar */}
         {isAutoDraft ? (
           <>
@@ -1120,9 +1257,13 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                 <ListOrdered className={cn("h-4 w-4", activeFormats.insertOrderedList ? "text-foreground" : "text-muted-foreground")} />
               </Button>
               <div className="w-px h-5 bg-border mx-0.5" />
-              <Button variant="ghost" size="icon" className="p-2 hover:bg-muted rounded-md transition-colors" title={t.mail.toolbar.attachFile} onMouseDown={(e) => { e.preventDefault(); toast.success(t.mail.messageDetail.attachFile); }}>
-                <Paperclip className="h-4 w-4 text-muted-foreground" />
-              </Button>
+              <ComposeAttachButton
+                title={t.mail.toolbar.attachFile}
+                testId="reply-attach-input"
+                className="p-2 hover:bg-muted rounded-md transition-colors"
+                iconClassName="text-muted-foreground"
+                onFilesSelected={(files) => setAttachedFiles((prev) => [...prev, ...files])}
+              />
               <Button variant="ghost" size="icon" className="p-2 hover:bg-muted rounded-md transition-colors" title={t.mail.toolbar.insertLink} onMouseDown={(e) => {
                 e.preventDefault();
                 const url = prompt('Enter URL:');
@@ -1183,10 +1324,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
               <X className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
             </Button>
             <div className="w-px h-5 bg-border" />
-            <Button variant="ghost" size="icon" className="p-1.5 hover:bg-gray-100 dark:hover:bg-secondary transition-colors" onClick={async () => {
-              await handleArchive();
-              handleBackToList();
-            }}>
+            <Button variant="ghost" size="icon" className="p-1.5 hover:bg-gray-100 dark:hover:bg-secondary transition-colors" onClick={handleArchiveAndNext}>
               <Check className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
             </Button>
           </div>
@@ -1516,7 +1654,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             key={draft.id}
             className="mx-3 md:mx-4 mb-3 group relative border border-orange-200 rounded-lg bg-orange-50/50 cursor-pointer hover:bg-orange-50 transition-colors"
             onClick={() => {
-              router.push(`/weldmail/${accountId}/${folder}/compose?draftId=${draft.id}&returnUrl=${encodeURIComponent(window.location.pathname)}`);
+              router.push(`/weldmail/${accountId}/${folder}/compose?draftId=${draft.id}&returnUrl=${encodeURIComponent(currentMailHref())}`);
             }}
           >
             <div className="px-3 md:px-4 py-4 flex items-center justify-between">
@@ -1839,6 +1977,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                   if (result.success && result.draft) {
                     const wasAlreadyReplying = isReplying && replyToMessageId === newestMessage.id;
                     setIsReplying(true);
+                    setIsReplyingAll(false);
                     setIsForwarding(false);
                     setReplyToMessageId(newestMessage.id);
                     setComposeData({
@@ -1882,12 +2021,17 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             <Button
               variant="ghost"
               onClick={() => {
-                const wasReplying = isReplying && replyToMessageId === newestMessage.id;
+                const wasReplying = isReplying && !isReplyingAll && replyToMessageId === newestMessage.id;
                 setIsReplying(!wasReplying);
+                setIsReplyingAll(false);
                 setIsForwarding(false);
                 setReplyToMessageId(!wasReplying ? newestMessage.id : null);
                 if (!wasReplying) {
-                  setComposeData({ to: newestMessage.fromEmail || addressToEmail(newestMessage.from), subject: `Re: ${message.subject}`, body: '' });
+                  setComposeData({
+                    to: buildReplyRecipients(newestMessage, { all: false, selfEmail: accountEmail }).join(', '),
+                    subject: `Re: ${message.subject}`,
+                    body: '',
+                  });
                 }
               }}
               className="flex-1 md:flex-initial px-3 py-2 md:py-1.5 border border-gray-200 dark:border-border text-gray-600 dark:text-muted-foreground rounded-lg hover:bg-gray-50 dark:hover:bg-secondary transition-colors flex items-center justify-center gap-2"
@@ -1895,12 +2039,32 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
               <Reply className="h-4 w-4" />
               <span className="text-sm">{t.mail.compose.reply}</span>
             </Button>
+            {canReplyAll && (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  const wasReplyingAll = isReplying && isReplyingAll && replyToMessageId === newestMessage.id;
+                  setIsReplying(!wasReplyingAll);
+                  setIsReplyingAll(!wasReplyingAll);
+                  setIsForwarding(false);
+                  setReplyToMessageId(!wasReplyingAll ? newestMessage.id : null);
+                  if (!wasReplyingAll) {
+                    setComposeData({ to: replyAllRecipients.join(', '), subject: `Re: ${message.subject}`, body: '' });
+                  }
+                }}
+                className="flex-1 md:flex-initial px-3 py-2 md:py-1.5 border border-gray-200 dark:border-border text-gray-600 dark:text-muted-foreground rounded-lg hover:bg-gray-50 dark:hover:bg-secondary transition-colors flex items-center justify-center gap-2"
+              >
+                <ReplyAll className="h-4 w-4" />
+                <span className="text-sm">{t.mail.compose.replyAll}</span>
+              </Button>
+            )}
             <Button
               variant="ghost"
               onClick={() => {
                 const wasForwarding = isForwarding && replyToMessageId === newestMessage.id;
                 setIsForwarding(!wasForwarding);
                 setIsReplying(false);
+                setIsReplyingAll(false);
                 setReplyToMessageId(!wasForwarding ? newestMessage.id : null);
                 if (!wasForwarding) {
                   setComposeData({ to: '', subject: `Fwd: ${message.subject}`, body: '' });
@@ -1921,6 +2085,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
               {olderMessages.map((threadMsg) => {
                 const isExpanded = expandedThreadIds.has(threadMsg.id);
                 const isSentMessage = threadMsg.folder?.toLowerCase() === 'sent';
+                const threadReplyAllRecipients = buildReplyRecipients(threadMsg, { all: true, selfEmail: accountEmail });
                 return (
                   <React.Fragment key={threadMsg.id}>
                     {/* Reply/Forward compose - above this thread message */}
@@ -1931,7 +2096,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                         key={draft.id}
                         className="group/draft relative border border-orange-200 rounded-lg bg-orange-50/50 cursor-pointer hover:bg-orange-50 transition-colors mb-2"
                         onClick={() => {
-                          router.push(`/weldmail/${accountId}/${folder}/compose?draftId=${draft.id}&returnUrl=${encodeURIComponent(window.location.pathname)}`);
+                          router.push(`/weldmail/${accountId}/${folder}/compose?draftId=${draft.id}&returnUrl=${encodeURIComponent(currentMailHref())}`);
                         }}
                       >
                         <div className="px-3 md:px-4 py-4 flex items-center justify-between">
@@ -2043,15 +2208,41 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                         onClick={(e) => {
                           e.stopPropagation();
                           setIsReplying(true);
+                          setIsReplyingAll(false);
                           setIsForwarding(false);
                           setReplyToMessageId(threadMsg.id);
-                          setComposeData({ to: threadMsg.fromEmail || addressToEmail(threadMsg.from), subject: `Re: ${threadMsg.subject || message.subject}`, body: '' });
+                          setComposeData({
+                            to: buildReplyRecipients(threadMsg, { all: false, selfEmail: accountEmail }).join(', '),
+                            subject: `Re: ${threadMsg.subject || message.subject}`,
+                            body: '',
+                          });
                         }}
                         className="p-1.5 bg-white dark:bg-card border border-border rounded-md hover:bg-muted transition-colors"
                         title={t.mail.compose.reply}
                       >
                         <Reply className="h-3.5 w-3.5 text-muted-foreground" />
                       </Button>
+                      {threadReplyAllRecipients.length > 1 && (
+                        <Button
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIsReplying(true);
+                            setIsReplyingAll(true);
+                            setIsForwarding(false);
+                            setReplyToMessageId(threadMsg.id);
+                            setComposeData({
+                              to: threadReplyAllRecipients.join(', '),
+                              subject: `Re: ${threadMsg.subject || message.subject}`,
+                              body: '',
+                            });
+                          }}
+                          className="p-1.5 bg-white dark:bg-card border border-border rounded-md hover:bg-muted transition-colors"
+                          title={t.mail.compose.replyAll}
+                        >
+                          <ReplyAll className="h-3.5 w-3.5 text-muted-foreground" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         onClick={(e) => {
@@ -2085,6 +2276,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           onCompose={(email) => {
             customerPanel.closePanel();
             setIsReplying(true);
+            setIsReplyingAll(false);
             setComposeData({ to: email, subject: `Re: ${message.subject}`, body: '' });
           }}
           topOffset="117px"

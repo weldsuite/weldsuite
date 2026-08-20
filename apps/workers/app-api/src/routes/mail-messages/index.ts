@@ -90,6 +90,7 @@ const replyBody = z.object({
   body: z.string().optional(),
   htmlBody: z.string().optional(),
   replyAll: z.boolean().default(false),
+  attachments: z.array(forwardAttachmentSchema).optional(),
 });
 
 const forwardBody = z.object({

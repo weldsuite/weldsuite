@@ -29,7 +29,7 @@ MCP_SERVER_URL = "http://localhost:8789"
 # are already committed in the mobile apps' eas.json. The OAuth discovery
 # documents base64-decode this to derive the Clerk issuer, so a missing value
 # makes /.well-known/* fail. Not a secret; deliberately not in the Doppler
-# manifest. The overlay repo overrides this per environment.
+# manifest. Named environments override this via [env.*.vars].
 CLERK_PUBLISHABLE_KEY = "pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk"
 
 # Shims to prevent bundling Node.js-only packages from @weldsuite/db
@@ -48,6 +48,40 @@ class_name = "RateLimiter"
 tag = "v1"
 new_sqlite_classes = ["RateLimiter"]
 
+# ============ TEST ENVIRONMENT ============
+[env.test]
+name = "weldsuite-mcp-server-test"
+routes = [{ pattern = "mcp-test.weldsuite.org/*", zone_name = "weldsuite.org" }]
+vars = { ENVIRONMENT = "test", MCP_SERVER_URL = "https://mcp-test.weldsuite.org", CLERK_PUBLISHABLE_KEY = "pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk" }
+
+[[env.test.durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+[[env.test.kv_namespaces]]
+binding = "API_CACHE"
+id = "6ffe3c8ea4e041398d84f9f670e93f88"
+
+[[env.test.queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events-test"
+
+[[env.test.queues.producers]]
+binding = "WORKFLOW_EVENTS"
+queue = "workflow-events-test"
+
+[[env.test.queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events-test"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 name = "weldsuite-mcp-server"
@@ -65,13 +99,13 @@ new_sqlite_classes = ["RateLimiter"]
 # Share KV namespace with external-api/app-api for cache coherence
 [[env.production.kv_namespaces]]
 binding = "API_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "f27cfb0a77a24936911ebd762adf3410"
 
 # Master Postgres over Hyperdrive — same binding external-api uses. Read by the
 # ported WeldApps routes (user-apps, app-storage) for the cross-workspace tables.
 [[env.production.hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "2cdec4bef19746d1a2c2e9726ddaacc3"
 
 # Entity-event sinks. Mutations made through MCP publish to the same queues as
 # every other surface so audit/workflow/analytics stay complete. Each binding is

@@ -17,11 +17,25 @@ import {
   retrieveSubscription,
   createStripeSubscription,
   stripeApiRequest,
+  retrievePaymentIntent,
+  retrieveCustomer,
+  setCustomerDefaultPaymentMethod,
 } from '../lib/stripe';
 import { calculateEffectiveSeatLimit, syncClerkSeatLimit, getMemberCount } from '../lib/clerk';
 import { updateSubscriptionCredits } from '../services/credits';
 import { grantCredits } from '@weldsuite/credits';
-import { CloudflareRegistrar, CloudflareApiError } from '@weldsuite/cloudflare-registrar';
+import {
+  RealtimeRegistrar,
+  RealtimeRegistrarError,
+  resolvePlatformRegistrarContacts,
+  privacyProtectForDomain,
+} from '@weldsuite/realtime-registrar';
+import {
+  createCloudflareZone,
+  findZoneIdByName,
+  getCloudflareZone,
+} from '@weldsuite/cloudflare-zones';
+import { generateId } from '../lib/id';
 import type {
   StripeEvent,
   StripeCheckoutSession,
@@ -53,15 +67,49 @@ const GRACE_PERIOD_DAYS = 30;
 // Domain Registration helpers (Task 5b)
 // ============================================================================
 
-/** Issue a Stripe refund for a given payment intent. */
-async function issueRefund(env: Env, paymentIntentId: string): Promise<void> {
+function paymentIntentIdFromSession(session: StripeCheckoutSession): string | null {
+  const pi = session.payment_intent;
+  if (!pi) return null;
+  return typeof pi === 'string' ? pi : pi.id;
+}
+
+function customerIdFromSession(session: StripeCheckoutSession): string | null {
+  const customer = session.customer;
+  if (!customer) return null;
+  return typeof customer === 'string' ? customer : customer.id;
+}
+
+/**
+ * Persist the Checkout payment method as the customer default so the daily
+ * domain auto-renew sweep can raise off-session invoices next year.
+ */
+async function saveCheckoutPaymentMethodAsDefault(
+  env: Env,
+  session: StripeCheckoutSession,
+): Promise<void> {
+  const secret = env.STRIPE_SECRET_KEY;
+  const customerId = customerIdFromSession(session);
+  const paymentIntentId = paymentIntentIdFromSession(session);
+  if (!secret || !customerId || !paymentIntentId) return;
   try {
-    await stripeApiRequest(env.STRIPE_SECRET_KEY, 'POST', '/v1/refunds', {
-      payment_intent: paymentIntentId,
-    });
+    const pi = await retrievePaymentIntent(secret, paymentIntentId);
+    const pm = pi?.payment_method;
+    const paymentMethodId = typeof pm === 'string' ? pm : pm?.id;
+    if (!paymentMethodId) return;
+    const customer = await retrieveCustomer(secret, customerId);
+    const existingDefault = customer.invoice_settings?.default_payment_method;
+    if (existingDefault) {
+      console.log(
+        `[Domain Registration] Customer ${customerId} already has a default payment method, leaving it unchanged`,
+      );
+      return;
+    }
+    await setCustomerDefaultPaymentMethod(secret, customerId, paymentMethodId);
+    console.log(
+      `[Domain Registration] Saved ${paymentMethodId} as default payment method for ${customerId}`,
+    );
   } catch (err) {
-    console.error('[Domain Registration] Stripe refund failed:', err);
-    throw err;
+    console.warn('[Domain Registration] Could not save default payment method:', err);
   }
 }
 
@@ -873,6 +921,11 @@ async function handleInvoicePaid(
   // Always upsert the invoice into the database
   await handleInvoiceUpsert(masterDb, invoice);
 
+  if (invoice.metadata?.kind === 'domain_renewal') {
+    await handleDomainRenewalInvoicePaid(env, invoice);
+    return;
+  }
+
   const subscriptionId = extractSubscriptionId(invoice.subscription);
 
   if (!subscriptionId) {
@@ -1082,6 +1135,14 @@ async function handleInvoicePaymentFailed(
   invoice: StripeInvoice
 ) {
   console.log('[Stripe Webhook] Processing invoice payment failure');
+
+  if (invoice.metadata?.kind === 'domain_renewal') {
+    console.warn(
+      `[Stripe Webhook] Domain renewal invoice ${invoice.id} payment failed for domain ${invoice.metadata.domainId ?? 'unknown'}`,
+    );
+    await handleInvoiceUpsert(masterDb, invoice);
+    return;
+  }
 
   const subscriptionId = extractSubscriptionId(invoice.subscription);
 
@@ -1686,10 +1747,16 @@ async function handleDomainRegistrationCheckout(
 
   if (registrationIds.length === 0) return;
 
+  const rtrKey = env.REALTIME_REGISTER_API_KEY;
+  const rtrCustomer = env.REALTIME_REGISTER_CUSTOMER;
   const cfToken = env.CLOUDFLARE_API_TOKEN;
   const cfAccountId = env.CLOUDFLARE_ACCOUNT_ID;
+  if (!rtrKey || !rtrCustomer) {
+    console.error('[Domain Registration] REALTIME_REGISTER_API_KEY/CUSTOMER not configured');
+    return;
+  }
   if (!cfToken || !cfAccountId) {
-    console.error('[Domain Registration] CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID not configured');
+    console.error('[Domain Registration] CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID not configured (needed for DNS zone)');
     return;
   }
 
@@ -1697,23 +1764,33 @@ async function handleDomainRegistrationCheckout(
   const { getTenantDbForWorkspace, schema: tenantSchema } = await import('../lib/tenant-db');
   const tenantDb = await getTenantDbForWorkspace(env, workspaceId);
 
-  const cf = new CloudflareRegistrar({
-    accountId: cfAccountId,
-    apiToken: cfToken,
+  const rtr = new RealtimeRegistrar({
+    apiKey: rtrKey,
+    customer: rtrCustomer,
+    ote: env.REALTIME_REGISTER_OTE === 'true',
   });
 
-  // Retrieve payment intent for potential refunds
-  let paymentIntentId: string | null = null;
-  try {
-    const fullSession = await stripeApiRequest(
-      env.STRIPE_SECRET_KEY,
-      'GET',
-      `/v1/checkout/sessions/${sessionId}`,
-    ) as { payment_intent?: string | null };
-    paymentIntentId = fullSession.payment_intent ?? null;
-  } catch (err) {
-    console.warn('[Domain Registration] Could not retrieve payment intent:', err);
-  }
+  const paymentIntentId = paymentIntentIdFromSession(session);
+  await saveCheckoutPaymentMethodAsDefault(env, session);
+
+  let registeredCount = 0;
+  let failedCount = 0;
+  let lostToSoftDeleteCount = 0;
+
+  // Validate platform contacts before claiming any paid row. A missing
+  // REALTIME_REGISTER_CONTACT_ADMIN must fail the webhook (Stripe retries)
+  // and leave domains at pending_payment.
+  const platform = resolvePlatformRegistrarContacts({
+    admin: env.REALTIME_REGISTER_CONTACT_ADMIN,
+    tech: env.REALTIME_REGISTER_CONTACT_TECH,
+    billing: env.REALTIME_REGISTER_CONTACT_BILLING,
+  });
+  const registrantHandle = platform.registrant;
+  const contacts = platform.contacts;
+
+  const yearsFromSession = Number(session.metadata?.registrationYears);
+  const sessionYears =
+    Number.isInteger(yearsFromSession) && yearsFromSession >= 1 ? yearsFromSession : null;
 
   for (const domainId of registrationIds) {
     // Fetch the pending row
@@ -1734,8 +1811,12 @@ async function handleDomainRegistrationCheckout(
       continue;
     }
 
-    // Mark as pending_registration before calling CF (so Stripe retries don't double-register)
-    await tenantDb
+    // Atomically claim the row. Only the delivery that transitions
+    // pending_payment → pending_registration may call rtr.register.
+    // `deletedAt IS NULL` blocks completion after unpaid abandon: cancel
+    // soft-deletes first, then best-effort expires Stripe; if expire fails
+    // because the session is already paid, this claim must still lose.
+    const [claimedDomain] = await tenantDb
       .update(tenantSchema.hostDomains)
       .set({
         registrationStatus: 'pending_registration',
@@ -1745,15 +1826,106 @@ async function handleDomainRegistrationCheckout(
         and(
           eq(tenantSchema.hostDomains.id, domainId),
           eq(tenantSchema.hostDomains.registrationStatus, 'pending_payment'),
+          isNull(tenantSchema.hostDomains.deletedAt),
         ),
-      );
+      )
+      .returning({ id: tenantSchema.hostDomains.id });
+
+    if (!claimedDomain) {
+      const [current] = await tenantDb
+        .select({
+          deletedAt: tenantSchema.hostDomains.deletedAt,
+          registrationStatus: tenantSchema.hostDomains.registrationStatus,
+        })
+        .from(tenantSchema.hostDomains)
+        .where(eq(tenantSchema.hostDomains.id, domainId))
+        .limit(1);
+      if (current?.deletedAt && current.registrationStatus === 'pending_payment') {
+        lostToSoftDeleteCount += 1;
+        console.log(
+          `[Domain Registration] Domain ${domainId} was soft-deleted before claim; payment not refunded, manual review required`,
+        );
+      } else {
+        console.log(`[Domain Registration] Domain ${domainId} was already claimed, skipping`);
+      }
+      continue;
+    }
 
     try {
-      const result = await cf.register({
+      const metadataYears =
+        domainRow.metadata &&
+        typeof domainRow.metadata === 'object' &&
+        typeof (domainRow.metadata as { registrationYears?: unknown }).registrationYears === 'number'
+          ? (domainRow.metadata as { registrationYears: number }).registrationYears
+          : null;
+      const years =
+        sessionYears ??
+        (metadataYears !== null && Number.isInteger(metadataYears) && metadataYears >= 1
+          ? metadataYears
+          : 1);
+      const periodMonths = years * 12;
+
+      // 2) Create Cloudflare DNS zone first so we can pass NS into RTR register
+      let nameservers: string[] = [];
+      let zoneId: string | null = null;
+      try {
+        const zone = await createCloudflareZone(cfToken, cfAccountId, domainRow.fullDomain);
+        zoneId = zone.zoneId;
+        nameservers = zone.nameservers;
+      } catch (zoneErr) {
+        // Zone may already exist (retry) — try to find it
+        const existingId = await findZoneIdByName(cfToken, domainRow.fullDomain);
+        if (existingId) {
+          zoneId = existingId;
+          const existing = await getCloudflareZone(cfToken, existingId);
+          nameservers = existing?.nameservers ?? [];
+        } else {
+          throw zoneErr;
+        }
+      }
+
+      // Persist zone row if we created/found one
+      if (zoneId) {
+        const existingZone = await tenantDb
+          .select()
+          .from(tenantSchema.hostDnsZones)
+          .where(eq(tenantSchema.hostDnsZones.domainId, domainId))
+          .limit(1);
+        if (!existingZone[0]) {
+          const dnsZoneId = generateId('zone');
+          await tenantDb.insert(tenantSchema.hostDnsZones).values({
+            id: dnsZoneId,
+            domainId,
+            name: domainRow.fullDomain,
+            provider: 'cloudflare',
+            externalZoneId: zoneId,
+            externalNameservers: nameservers,
+            status: 'pending',
+          });
+        }
+        await tenantDb
+          .update(tenantSchema.hostDomains)
+          .set({
+            nameservers,
+            rtrRegistrantHandle: registrantHandle,
+            updatedAt: new Date(),
+          })
+          .where(eq(tenantSchema.hostDomains.id, domainId));
+      }
+
+      const privacyProtect = privacyProtectForDomain(domainRow.fullDomain);
+
+      // 3) Register at Realtime Register with CF nameservers
+      const result = await rtr.register({
         name: domainRow.fullDomain,
-        contact: (domainRow.registrantContact as Record<string, unknown> | null) ?? undefined,
-        autoRenew: domainRow.autoRenew ?? true,
-        years: 1,
+        registrant: registrantHandle,
+        contacts,
+        nameservers: nameservers.length ? nameservers : undefined,
+        // Stripe invoices auto-renew; keep RTR auto-renew off so the
+        // registrar does not bill WeldSuite independently of the customer.
+        autoRenew: false,
+        privacyProtect,
+        periodMonths,
       });
 
       if (result.status === 'completed') {
@@ -1762,67 +1934,224 @@ async function handleDomainRegistrationCheckout(
           .set({
             status: 'active',
             registrationStatus: 'registered',
+            registrar: 'realtimeregister',
             externalRegistrarId: result.domain.id,
-            registrarStatus: result.domain.status,
+            registrarStatus: result.domain.status.join(','),
             registeredAt: new Date(),
             expiresAt: result.domain.expiresAt ? new Date(result.domain.expiresAt) : null,
             locked: result.domain.locked,
-            autoRenew: result.domain.autoRenew,
+            autoRenew: domainRow.autoRenew ?? true,
+            privacyProtection: result.domain.privacyProtect,
+            rtrRegistrantHandle: registrantHandle,
             registrarSyncedAt: new Date(),
             updatedAt: new Date(),
           })
           .where(eq(tenantSchema.hostDomains.id, domainId));
 
+        registeredCount += 1;
         console.log(`[Domain Registration] Registered ${domainRow.fullDomain} (id=${domainId}) → active`);
       } else if (result.status === 'failed') {
-        // Cloudflare accepted the call, then the registration workflow itself
-        // ended in failure. Same outcome for the customer as a rejected call,
-        // so take the same path below: mark it failed and refund.
         throw new Error(
-          `Cloudflare registration workflow failed (${result.code}): ${result.message}`,
+          `Realtime Register registration failed (${result.code}): ${result.message}`,
         );
       } else {
-        // Registration is always asynchronous — poll the workflow from here.
         await tenantDb
           .update(tenantSchema.hostDomains)
           .set({
             registrationStatus: 'pending_workflow',
-            workflowUrl: result.workflowUrl,
+            registrar: 'realtimeregister',
+            rtrProcessId: String(result.processId),
+            rtrRegistrantHandle: registrantHandle,
+            privacyProtection: result.privacyProtect ?? privacyProtect,
             updatedAt: new Date(),
           })
           .where(eq(tenantSchema.hostDomains.id, domainId));
 
+        // Map process → workspace so the app-api RTR webhook can finish the row.
+        // Status poller can still complete via rtrProcessId on the domain row if
+        // this KV write fails.
+        try {
+          await env.WORKSPACE_CACHE.put(
+            `rtr:process:${result.processId}`,
+            JSON.stringify({
+              workspaceId,
+              domainId,
+              kind: 'registration',
+            }),
+            { expirationTtl: 60 * 60 * 24 * 14 },
+          );
+        } catch (cacheErr) {
+          console.warn('[Domain Registration] Failed to write RTR process cache:', cacheErr);
+        }
+
+        // Async acceptance counts as a successful registrar submission —
+        // do not refund the session for a pending workflow.
+        registeredCount += 1;
         console.log(
-          `[Domain Registration] ${domainRow.fullDomain} pending CF workflow: ${result.workflowUrl}` +
-            (result.actionRequired ? ' — ACTION REQUIRED, polling will not resolve this' : ''),
+          `[Domain Registration] ${domainRow.fullDomain} pending RTR process: ${result.processId}`,
         );
       }
-    } catch (cfErr) {
-      const cfError = cfErr instanceof CloudflareApiError ? cfErr : null;
-      const errMsg = cfError?.message ?? (cfErr instanceof Error ? cfErr.message : String(cfErr));
+    } catch (regErr) {
+      const rtrError = regErr instanceof RealtimeRegistrarError ? regErr : null;
+      const errMsg = rtrError?.message ?? (regErr instanceof Error ? regErr.message : String(regErr));
 
-      console.error(`[Domain Registration] CF registration failed for ${domainRow.fullDomain}:`, errMsg);
+      console.error(`[Domain Registration] RTR registration failed for ${domainRow.fullDomain}:`, errMsg);
+      failedCount += 1;
 
       await tenantDb
         .update(tenantSchema.hostDomains)
         .set({
           status: 'cancelled',
           registrationStatus: 'registration_failed',
-          metadata: { error: errMsg, cfStatus: cfError?.status },
+          metadata: { error: errMsg, rtrStatus: rtrError?.status, rtrCode: rtrError?.code },
+          updatedAt: new Date(),
+        })
+        .where(eq(tenantSchema.hostDomains.id, domainId));
+    }
+  }
+
+  // Never auto-refund a domain Checkout. Registration failures (RTR, DNS,
+  // contacts) and paid sessions that lost every claim to unpaid abandon
+  // need a human look — a live registration can still complete after the
+  // webhook errors, and a refund then cannot be clawed back.
+  if (failedCount > 0 || lostToSoftDeleteCount > 0) {
+    console.error(
+      `[Domain Registration] ${failedCount} failed, ${lostToSoftDeleteCount} lost to delete, ${registeredCount} registered for session ${sessionId}` +
+        `${paymentIntentId ? ` payment ${paymentIntentId}` : ''} — payment not refunded, manual review required`,
+    );
+  }
+}
+
+// ============================================================================
+// Domain Renewal — invoice.paid (kind='domain_renewal')
+// ============================================================================
+//
+// The daily sweep creates and pays the invoice, then tries to renew immediately.
+// This handler is the backup: delayed payment methods, a sweep that charged
+// but failed to reach RTR, or a pay that succeeded after the sweep moved on.
+// Idempotent against an already-extended expiry (RTR renew uses expiryDate
+// as a precondition, so a second call fails closed).
+
+async function handleDomainRenewalInvoicePaid(
+  env: Env,
+  invoice: StripeInvoice,
+): Promise<void> {
+  if (invoice.status !== 'paid') return;
+
+  const workspaceId = invoice.metadata?.workspaceId;
+  const domainId = invoice.metadata?.domainId;
+  if (!workspaceId || !domainId) {
+    console.error('[Domain Renewal] Missing workspaceId or domainId in invoice metadata');
+    return;
+  }
+
+  const rtrKey = env.REALTIME_REGISTER_API_KEY;
+  const rtrCustomer = env.REALTIME_REGISTER_CUSTOMER;
+  if (!rtrKey || !rtrCustomer) {
+    console.error('[Domain Renewal] REALTIME_REGISTER_API_KEY/CUSTOMER not configured');
+    return;
+  }
+
+  const { getTenantDbForWorkspace, schema: tenantSchema } = await import('../lib/tenant-db');
+  const tenantDb = await getTenantDbForWorkspace(env, workspaceId);
+
+  const [domainRow] = await tenantDb
+    .select()
+    .from(tenantSchema.hostDomains)
+    .where(
+      and(eq(tenantSchema.hostDomains.id, domainId), isNull(tenantSchema.hostDomains.deletedAt)),
+    )
+    .limit(1);
+
+  if (!domainRow) {
+    console.error(`[Domain Renewal] Domain row not found: ${domainId}`);
+    return;
+  }
+
+  const processedId = (domainRow.metadata as { stripeRenewalProcessedInvoiceId?: unknown } | null)
+    ?.stripeRenewalProcessedInvoiceId;
+  if (processedId === invoice.id) {
+    console.log(`[Domain Renewal] Invoice ${invoice.id} already applied to ${domainRow.fullDomain}`);
+    return;
+  }
+
+  if (domainRow.registrationStatus === 'pending_renewal' || domainRow.registrationStatus === 'renewed') {
+    const expiresAt = domainRow.expiresAt ? new Date(domainRow.expiresAt).getTime() : 0;
+    if (expiresAt > Date.now() + 30 * 86_400_000) {
+      console.log(`[Domain Renewal] Domain ${domainRow.fullDomain} already extended, skipping`);
+      return;
+    }
+    if (domainRow.registrationStatus === 'pending_renewal') {
+      console.log(`[Domain Renewal] Domain ${domainRow.fullDomain} already submitted to registrar`);
+      return;
+    }
+  }
+
+  const rtr = new RealtimeRegistrar({
+    apiKey: rtrKey,
+    customer: rtrCustomer,
+    ote: env.REALTIME_REGISTER_OTE === 'true',
+  });
+
+  try {
+    const result = await rtr.renew(domainRow.fullDomain, 12, {
+      expiryDate: domainRow.expiresAt ? new Date(domainRow.expiresAt).toISOString().slice(0, 10) : undefined,
+    });
+
+    if (result.status === 'failed') {
+      throw new Error(result.message);
+    }
+
+    const billedExpiry = domainRow.expiresAt
+      ? new Date(domainRow.expiresAt).toISOString().slice(0, 10)
+      : undefined;
+    const metadata = {
+      ...(domainRow.metadata ?? {}),
+      stripeRenewalInvoiceId: invoice.id,
+      ...(billedExpiry ? { stripeRenewalForExpiresAt: billedExpiry } : {}),
+      stripeRenewalProcessedInvoiceId: invoice.id,
+    };
+
+    if (result.status === 'pending') {
+      await tenantDb
+        .update(tenantSchema.hostDomains)
+        .set({
+          registrationStatus: 'pending_renewal',
+          metadata: { ...metadata, rtrRenewalProcessId: String(result.processId) },
           updatedAt: new Date(),
         })
         .where(eq(tenantSchema.hostDomains.id, domainId));
 
-      // Attempt to refund the Stripe payment
-      if (paymentIntentId) {
-        try {
-          await issueRefund(env, paymentIntentId);
-          console.log(`[Domain Registration] Refund issued for payment ${paymentIntentId}`);
-        } catch (refundErr) {
-          console.error('[Domain Registration] Refund failed:', refundErr);
-        }
+      try {
+        await env.WORKSPACE_CACHE.put(
+          `rtr:process:${result.processId}`,
+          JSON.stringify({ workspaceId, domainId, kind: 'renewal' }),
+          { expirationTtl: 60 * 60 * 24 * 14 },
+        );
+      } catch (cacheErr) {
+        console.warn('[Domain Renewal] Failed to write RTR process cache:', cacheErr);
       }
+      console.log(`[Domain Renewal] ${domainRow.fullDomain} pending RTR process: ${result.processId}`);
+      return;
     }
+
+    await tenantDb
+      .update(tenantSchema.hostDomains)
+      .set({
+        status: 'active',
+        registrationStatus: 'renewed',
+        renewedAt: new Date(),
+        expiresAt: result.domain.expiresAt ? new Date(result.domain.expiresAt) : domainRow.expiresAt,
+        registrarStatus: result.domain.status.join(','),
+        registrarSyncedAt: new Date(),
+        metadata,
+        updatedAt: new Date(),
+      })
+      .where(eq(tenantSchema.hostDomains.id, domainId));
+
+    console.log(`[Domain Renewal] Renewed ${domainRow.fullDomain} (invoice ${invoice.id})`);
+  } catch (err) {
+    console.error(`[Domain Renewal] Failed for ${domainRow.fullDomain}:`, err);
   }
 }
 
@@ -1865,8 +2194,7 @@ async function handleDomainCheckoutFailed(
     await tenantDb
       .update(tenantSchema.hostDomains)
       .set({
-        registrationStatus: 'failed',
-        status: 'cancelled',
+        deletedAt: new Date(),
         updatedAt: new Date(),
       })
       .where(

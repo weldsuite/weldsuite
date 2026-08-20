@@ -8,7 +8,9 @@
  * in here by `ApiClientProvider` and `useCurrentAccountingEntity`.
  */
 
-const APP_API_URL = import.meta.env.VITE_APP_API_URL || 'http://localhost:8789';
+import { getAppApiUrl } from '@/lib/api/public-env';
+
+const APP_API_URL = getAppApiUrl();
 const API_PREFIX = '/api';
 
 class WeldbooksApiError extends Error {

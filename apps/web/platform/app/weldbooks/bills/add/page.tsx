@@ -7,6 +7,7 @@ import { ArrowLeft, Sparkles } from 'lucide-react';
 import { PageLoader } from '@/components/page-loader';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 const routeApi = getRouteApi('/weldbooks/bills/add/');
 
@@ -16,6 +17,7 @@ export default function AddBillPage() {
   const search = routeApi.useSearch();
   const { t } = useI18n();
   const tb = t.accounting.billForm;
+  const { entityCurrency } = useCurrentEntityCurrency();
 
   const fromDocument = search.fromDocument;
 
@@ -27,6 +29,9 @@ export default function AddBillPage() {
 
   const handleSubmit = (data: BillFormValues) => {
     const payload: Record<string, unknown> = { ...data };
+    const ocrCurrency = (prefillQuery.data?.data as BillPrefill | undefined)?.currency;
+    const currency = ocrCurrency || entityCurrency;
+    if (currency) payload.currency = currency;
     if (fromDocument) payload.sourceDocumentId = fromDocument;
     createBill.mutate(payload, {
       onSuccess: () => {

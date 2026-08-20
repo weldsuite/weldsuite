@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "pnpm bundle-migrations && wrangler dev",
     "deploy": "pnpm bundle-migrations && wrangler deploy",
+    "deploy:test": "pnpm bundle-migrations && wrangler deploy --env test",
     "deploy:production": "pnpm bundle-migrations && wrangler deploy --env production",
     "bundle-migrations": "tsx scripts/bundle-migrations.ts",
     "type-check": "tsc --noEmit",

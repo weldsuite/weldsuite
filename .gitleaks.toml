@@ -1,4 +1,4 @@
-# gitleaks configuration for the WeldSuite public repo.
+# gitleaks configuration for the WeldSuite repo.
 #
 # Extends the built-in ruleset and suppresses KNOWN, reviewed false-positives
 # and public-by-design values so the secret-scan gate (secret-scan.yml +

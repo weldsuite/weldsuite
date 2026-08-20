@@ -21,7 +21,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema } from '../../db';
-import { resolveEntityId } from '../../lib/entity-context';
+import { resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
 import { writeAccountingAudit } from '../../services/accounting-guards';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -174,6 +174,7 @@ app.post('/', requirePermission('accounts:create'), zValidator('json', createAcc
       id: generateId('acc'),
       entityId,
       ...data,
+      currency: data.currency ?? (await resolveEntityBaseCurrency(db, entityId)),
       isActive: true,
       isSystemAccount: false,
       currentBalance: '0',

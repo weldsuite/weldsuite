@@ -22,6 +22,7 @@ import type { HostDomain } from "@/lib/api/domains/weldhost";
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useObjectPanel, useObjectPanelStack, useObjectPanelUrlSync } from '@/components/object-panel';
 import { useI18n } from '@/lib/i18n/provider';
+import { publicDomainRegistrar } from '@weldsuite/core-api-client/schemas/domains';
 
 interface DomainsClientProps {
   domains: HostDomain[];
@@ -165,7 +166,7 @@ export function DomainsClient({ domains }: DomainsClientProps) {
 
         {/* Registrar */}
         <div className="w-[120px]">
-          <span className="text-sm text-gray-500">{domain.registrar || 'WeldHost'}</span>
+          <span className="text-sm text-gray-500">{publicDomainRegistrar(domain.registrar)}</span>
         </div>
 
         {/* Features */}

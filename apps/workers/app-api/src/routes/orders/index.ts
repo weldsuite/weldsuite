@@ -32,6 +32,9 @@ app.get('/', requirePermission('orders:read'), async (c) => {
   const conditions: any[] = [isNull(t.deletedAt)];
   if (q.customerId !== undefined && q.customerId !== '') conditions.push(eq(t.customerId, q.customerId));
   if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));
+  if (q.fulfillmentStatus !== undefined && q.fulfillmentStatus !== '') {
+    conditions.push(eq(t.fulfillmentStatus, q.fulfillmentStatus));
+  }
   if (q.search) {
     conditions.push(like(t.orderNumber, `%${q.search}%`));
   }

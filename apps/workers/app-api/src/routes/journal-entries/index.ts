@@ -22,7 +22,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema } from '../../db';
-import { nextEntityNumber, resolveEntityId } from '../../lib/entity-context';
+import { nextEntityNumber, resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
 import {
   assertPeriodOpen,
   ClosedPeriodError,
@@ -163,6 +163,7 @@ app.post('/', requirePermission('journal:create'), zValidator('json', createJour
     const { formatted: entryNumber } = await nextEntityNumber(db, entityId, 'journal');
     const entryId = generateId('je');
     const now = new Date();
+    const currency = await resolveEntityBaseCurrency(db, entityId);
 
     await db.insert(journalEntries).values({
       id: entryId,
@@ -192,6 +193,7 @@ app.post('/', requirePermission('journal:create'), zValidator('json', createJour
       taxRateId: line.taxRateId || null,
       taxAmount: line.taxAmount || null,
       contactId: line.contactId || null,
+      currency,
       sortOrder: line.sortOrder ?? idx,
       createdAt: now,
       updatedAt: now,
@@ -204,7 +206,7 @@ app.post('/', requirePermission('journal:create'), zValidator('json', createJour
       entityId: entryId,
       action: 'created',
     });
-    publishEntityEvent({ c, entityType: 'journal_entry', entityId: entryId, action: 'created', data: { id: entryId, entityId, entryNumber, status: 'draft' } });
+    publishEntityEvent({ c, entityType: 'journal_entry', entityId: entryId, action: 'created', data: { id: entryId, entityId, entryNumber, status: 'draft', currency } });
 
     return success(c, { id: entryId, entryNumber, lines: lineRecords }, 201);
   } catch (err) {
@@ -250,7 +252,7 @@ app.patch('/:id', requirePermission('journal:update'), zValidator('json', update
           .map(([k, v]) => [k, { old: (existing as Record<string, unknown>)[k], new: v }]),
       ),
     });
-    publishEntityEvent({ c, entityType: 'journal_entry', entityId: id, action: 'updated', data: { id, entityId: existing.entityId, entryNumber: existing.entryNumber, status: existing.status } });
+    publishEntityEvent({ c, entityType: 'journal_entry', entityId: id, action: 'updated', data: { id, entityId: existing.entityId, entryNumber: existing.entryNumber, status: existing.status, currency: await resolveEntityBaseCurrency(db, existing.entityId) } });
 
     return success(c, { id });
   } catch (err) {
@@ -356,6 +358,7 @@ app.post('/:id/reverse', requirePermission('journal:create'), async (c) => {
       taxRateId: line.taxRateId,
       taxAmount: line.taxAmount,
       contactId: line.contactId,
+      currency: line.currency,
       sortOrder: idx,
       createdAt: now,
       updatedAt: now,

@@ -39,7 +39,7 @@ app.get('/', requirePermission('products:read'), async (c) => {
   if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));
   if (q.search) {
     const term = `%${q.search}%`;
-    conditions.push(or(like(t.name, term), like(t.slug, term), like(t.sku, term))!);
+    conditions.push(or(like(t.name, term), like(t.slug, term), like(t.sku, term), like(t.barcode, term))!);
   }
   if (q.cursor) {
     const [cur] = await db

@@ -25,9 +25,9 @@ import { useTopic } from '@weldsuite/realtime/react';
 import type { WorkspaceEvent } from '@weldsuite/realtime';
 import { usePresenceMaybe } from '@/contexts/presence-context';
 import type { PresenceStatus } from '@weldsuite/ui/components/status-dot';
+import { getAppApiUrl, getRealtimeWsOrigin } from '@/lib/api/public-env';
 
-const REALTIME_BASE_URL =
-  import.meta.env.VITE_REALTIME_URL?.replace(/\/ws\/?$/, '') || 'ws://localhost:8790';
+const REALTIME_BASE_URL = getRealtimeWsOrigin();
 
 // RNNoise noise suppression flag. Default ON; set VITE_NOISE_SUPPRESSION=false
 // (legacy alias VITE_DF3_NOISE_SUPPRESSION=false) to disable.
@@ -295,7 +295,7 @@ export function WeldChatCallProvider({ children }: { children: React.ReactNode }
   // Fire-and-forget leave notification for tab close / disconnect scenarios.
   // Uses fetch with keepalive (supports auth headers, survives page unload).
   const fireLeaveRequest = useCallback((cId: string) => {
-    const baseUrl = import.meta.env.VITE_APP_API_URL ?? '';
+    const baseUrl = getAppApiUrl();
     const url = `${baseUrl}/api/chat-calls/${cId}/leave`;
     const token = authTokenRef.current;
     if (!token) return;

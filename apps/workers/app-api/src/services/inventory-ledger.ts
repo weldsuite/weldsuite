@@ -112,6 +112,8 @@ export class StockLedgerError extends Error {
     readonly code:
       | 'PRODUCT_NOT_FOUND'
       | 'INSUFFICIENT_STOCK'
+      | 'INSUFFICIENT_AVAILABLE'
+      | 'INSUFFICIENT_ALLOCATION'
       | 'LOT_REQUIRED'
       | 'EXPIRY_REQUIRED'
       | 'INVALID_DELTA'
@@ -589,4 +591,254 @@ export async function transferStock(db: Database, params: TransferParams): Promi
   });
 
   return { movementId, movementNumber, out: outResult, in: inResult };
+}
+
+export interface AllocationResult {
+  inventoryId: string;
+  previousAllocated: number;
+  newAllocated: number;
+  quantityOnHand: number;
+  quantityAvailable: number;
+}
+
+/**
+ * Reserve `quantity` units on a bucket. On-hand is unchanged; available
+ * drops by the same amount (`on_hand - allocated`).
+ */
+export async function allocateStock(
+  db: Database,
+  params: { inventoryId: string; quantity: number },
+): Promise<AllocationResult> {
+  if (params.quantity <= 0) {
+    throw new StockLedgerError('Allocation quantity must be positive', 'INVALID_DELTA');
+  }
+
+  const now = new Date();
+  const updated = await db
+    .update(inventory)
+    .set({
+      quantityAllocated: sql`COALESCE(${inventory.quantityAllocated}, 0) + ${params.quantity}`,
+      quantityAvailable: sql`${inventory.quantityOnHand} - (COALESCE(${inventory.quantityAllocated}, 0) + ${params.quantity})`,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(inventory.id, params.inventoryId),
+        isNull(inventory.deletedAt),
+        sql`${inventory.quantityOnHand} - COALESCE(${inventory.quantityAllocated}, 0) >= ${params.quantity}`,
+      ),
+    )
+    .returning({
+      id: inventory.id,
+      quantityOnHand: inventory.quantityOnHand,
+      quantityAllocated: inventory.quantityAllocated,
+      quantityAvailable: inventory.quantityAvailable,
+    });
+
+  if (updated.length === 0) {
+    const [existing] = await db
+      .select({
+        id: inventory.id,
+        quantityOnHand: inventory.quantityOnHand,
+        quantityAllocated: inventory.quantityAllocated,
+      })
+      .from(inventory)
+      .where(and(eq(inventory.id, params.inventoryId), isNull(inventory.deletedAt)))
+      .limit(1);
+    if (!existing) {
+      throw new StockLedgerError(`Inventory ${params.inventoryId} not found`, 'PRODUCT_NOT_FOUND');
+    }
+    const available = (existing.quantityOnHand ?? 0) - (existing.quantityAllocated ?? 0);
+    throw new StockLedgerError(
+      `Insufficient available stock: ${available} available, ${params.quantity} requested`,
+      'INSUFFICIENT_AVAILABLE',
+    );
+  }
+
+  const row = updated[0];
+  const newAllocated = row.quantityAllocated ?? 0;
+  return {
+    inventoryId: row.id,
+    previousAllocated: newAllocated - params.quantity,
+    newAllocated,
+    quantityOnHand: row.quantityOnHand ?? 0,
+    quantityAvailable: row.quantityAvailable ?? 0,
+  };
+}
+
+/**
+ * Release a previous reservation. On-hand is unchanged; available rises.
+ */
+export async function releaseAllocation(
+  db: Database,
+  params: { inventoryId: string; quantity: number },
+): Promise<AllocationResult> {
+  if (params.quantity <= 0) {
+    throw new StockLedgerError('Release quantity must be positive', 'INVALID_DELTA');
+  }
+
+  const now = new Date();
+  const updated = await db
+    .update(inventory)
+    .set({
+      quantityAllocated: sql`COALESCE(${inventory.quantityAllocated}, 0) - ${params.quantity}`,
+      quantityAvailable: sql`${inventory.quantityOnHand} - (COALESCE(${inventory.quantityAllocated}, 0) - ${params.quantity})`,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(inventory.id, params.inventoryId),
+        isNull(inventory.deletedAt),
+        sql`COALESCE(${inventory.quantityAllocated}, 0) >= ${params.quantity}`,
+      ),
+    )
+    .returning({
+      id: inventory.id,
+      quantityOnHand: inventory.quantityOnHand,
+      quantityAllocated: inventory.quantityAllocated,
+      quantityAvailable: inventory.quantityAvailable,
+    });
+
+  if (updated.length === 0) {
+    const [existing] = await db
+      .select({ quantityAllocated: inventory.quantityAllocated })
+      .from(inventory)
+      .where(and(eq(inventory.id, params.inventoryId), isNull(inventory.deletedAt)))
+      .limit(1);
+    throw new StockLedgerError(
+      `Insufficient allocation: ${existing?.quantityAllocated ?? 0} allocated, ${params.quantity} to release`,
+      'INSUFFICIENT_ALLOCATION',
+    );
+  }
+
+  const row = updated[0];
+  const newAllocated = row.quantityAllocated ?? 0;
+  return {
+    inventoryId: row.id,
+    previousAllocated: newAllocated + params.quantity,
+    newAllocated,
+    quantityOnHand: row.quantityOnHand ?? 0,
+    quantityAvailable: row.quantityAvailable ?? 0,
+  };
+}
+
+export interface IssueAllocatedParams {
+  inventoryId: string;
+  quantity: number;
+  sourceType?: string | null;
+  sourceId?: string | null;
+  sourceNumber?: string | null;
+  reason?: string | null;
+  performedBy?: string | null;
+  performedByName?: string | null;
+}
+
+/**
+ * Convert a reservation into a shipment: decrement on-hand and allocated
+ * together so available stays the same. Writes a `shipped` stock adjustment.
+ */
+export async function issueAllocatedStock(
+  db: Database,
+  params: IssueAllocatedParams,
+): Promise<StockChangeResult> {
+  if (params.quantity <= 0) {
+    throw new StockLedgerError('Issue quantity must be positive', 'INVALID_DELTA');
+  }
+
+  const now = new Date();
+  const updated = await db
+    .update(inventory)
+    .set({
+      quantityOnHand: sql`${inventory.quantityOnHand} - ${params.quantity}`,
+      quantityAllocated: sql`COALESCE(${inventory.quantityAllocated}, 0) - ${params.quantity}`,
+      quantityAvailable: sql`(${inventory.quantityOnHand} - ${params.quantity}) - (COALESCE(${inventory.quantityAllocated}, 0) - ${params.quantity})`,
+      totalValue: sql`ROUND(COALESCE(${inventory.unitCost}, 0) * (${inventory.quantityOnHand} - ${params.quantity}::numeric), 2)`,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(inventory.id, params.inventoryId),
+        isNull(inventory.deletedAt),
+        sql`${inventory.quantityOnHand} >= ${params.quantity}`,
+        sql`COALESCE(${inventory.quantityAllocated}, 0) >= ${params.quantity}`,
+      ),
+    )
+    .returning({
+      id: inventory.id,
+      productId: inventory.productId,
+      variantId: inventory.variantId,
+      warehouseId: inventory.warehouseId,
+      locationId: inventory.locationId,
+      lotNumber: inventory.lotNumber,
+      quantityOnHand: inventory.quantityOnHand,
+    });
+
+  if (updated.length === 0) {
+    const [existing] = await db
+      .select({
+        quantityOnHand: inventory.quantityOnHand,
+        quantityAllocated: inventory.quantityAllocated,
+      })
+      .from(inventory)
+      .where(and(eq(inventory.id, params.inventoryId), isNull(inventory.deletedAt)))
+      .limit(1);
+    if (!existing) {
+      throw new StockLedgerError(`Inventory ${params.inventoryId} not found`, 'PRODUCT_NOT_FOUND');
+    }
+    if ((existing.quantityAllocated ?? 0) < params.quantity) {
+      throw new StockLedgerError(
+        `Insufficient allocation: ${existing.quantityAllocated ?? 0} allocated, ${params.quantity} to ship`,
+        'INSUFFICIENT_ALLOCATION',
+      );
+    }
+    throw new StockLedgerError(
+      `Insufficient stock: ${existing.quantityOnHand ?? 0} on hand, ${params.quantity} requested`,
+      'INSUFFICIENT_STOCK',
+    );
+  }
+
+  const row = updated[0];
+  const newQuantity = row.quantityOnHand ?? 0;
+  const previousQuantity = newQuantity + params.quantity;
+  const adjustmentId = generateId('adj');
+
+  await atomically(db, (handle) => [
+    handle.insert(stockAdjustments).values({
+      id: adjustmentId,
+      productId: row.productId,
+      variantId: row.variantId ?? null,
+      warehouseId: row.warehouseId,
+      locationId: row.locationId ?? null,
+      inventoryId: row.id,
+      type: 'shipped',
+      previousQuantity,
+      adjustmentQuantity: -params.quantity,
+      newQuantity,
+      lotNumber: row.lotNumber ?? null,
+      reason: params.reason ?? null,
+      performedBy: params.performedBy ?? null,
+      performedByName: params.performedByName ?? null,
+      sourceType: params.sourceType ?? 'pick_list',
+      sourceId: params.sourceId ?? null,
+      sourceNumber: params.sourceNumber ?? null,
+      requiresApproval: 0,
+      approvalStatus: 'approved',
+      createdAt: now,
+    }),
+    ...rollUpStatements(handle, row.productId, row.variantId, now),
+  ]);
+
+  const [rolled] = await db
+    .select({ inventoryQuantity: products.inventoryQuantity })
+    .from(products)
+    .where(eq(products.id, row.productId))
+    .limit(1);
+
+  return {
+    inventoryId: row.id,
+    adjustmentId,
+    previousQuantity,
+    newQuantity,
+    productQuantity: rolled?.inventoryQuantity ?? 0,
+  };
 }

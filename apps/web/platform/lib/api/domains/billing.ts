@@ -3,14 +3,10 @@
  *
  * Response types for the settings billing surfaces.
  *
- * The `billingApi` client that used to live here is gone. It talked to the
- * obsolete api-worker via the legacy worker client, but it was never exported —
- * nothing in the platform could reach it, so all ten of its calls were dead.
- * The live billing surface runs on app-api `/api/billing/*` through
- * `useAppApiClient()` + `@/hooks/queries/use-billing-queries`; these two
- * interfaces are all any consumer ever imported from this module.
- *
- * Phone billing operations remain in billing-worker-client.ts.
+ * The live billing surface runs on app-api `/api/billing/*` (and credit
+ * topup checkout on `/api/credits/checkout`) through `useAppApiClient()` +
+ * `@/hooks/queries/use-billing-queries`. Phone subscription pricing is
+ * proxied by app-api from billing-worker so the browser never calls it.
  */
 
 // ============================================================================
@@ -42,6 +38,28 @@ export interface BillingSubscriptionResponse {
   trialExpiredAt: string | null;
   scheduledDeletionAt: string | null;
   isLocked: boolean;
+}
+
+/**
+ * Stripe phone-number subscription cost row for the billing page.
+ * Served by app-api `GET /billing/phone-subscription` (proxied from
+ * billing-worker).
+ */
+export interface PhoneSubscriptionResponse {
+  exists: boolean;
+  subscriptionId?: string;
+  status?: string;
+  items?: Array<{
+    id: string;
+    priceId: string;
+    quantity: number;
+    amount: number;
+    currency: string;
+    interval: string;
+  }>;
+  totalMonthly?: number;
+  currentPeriodStart?: string | null;
+  currentPeriodEnd?: string | null;
 }
 
 /**

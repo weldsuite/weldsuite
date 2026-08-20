@@ -6,8 +6,6 @@ body:
     attributes:
       value: |
         Have a question about how something works? Please check the [README](../blob/main/README.md), [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md), and existing issues/discussions first.
-
-        ℹ️ Reminder: WeldSuite is source-visible and **not currently self-hostable**, so we can't help with running the full hosted product yourself.
   - type: textarea
     id: question
     attributes:

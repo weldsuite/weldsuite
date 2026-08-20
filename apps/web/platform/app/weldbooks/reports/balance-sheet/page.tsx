@@ -13,6 +13,7 @@ import {
 } from '@weldsuite/ui/components/table';
 import { useBalanceSheetReport } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 interface BalanceSheetAccountRow {
   accountId: string;
@@ -30,13 +31,6 @@ interface BalanceSheetReport {
   totalEquity?: string | number | null;
 }
 
-function fmt(value: string | number | null | undefined): string {
-  return new Intl.NumberFormat('nl-NL', {
-    style: 'currency',
-    currency: 'EUR',
-  }).format(Number(value ?? 0));
-}
-
 function AccountSection({
   title,
   accounts,
@@ -50,6 +44,7 @@ function AccountSection({
 }) {
   const { t } = useI18n();
   const tr = t.accounting.reports;
+  const { formatMoney: fmt } = useCurrentEntityCurrency();
 
   return (
     <Card>

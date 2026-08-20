@@ -906,6 +906,10 @@ export const accounting = {
         inr: 'INR - Indian Rupee',
       },
 
+      supportedCurrencyNames: {
+        inr: 'Indian Rupee',
+      },
+
       // Vendor Categories
       categories: {
         supplier: 'Supplier',
@@ -1799,7 +1803,7 @@ export const accounting = {
       deleteBankAccount: 'Delete bank account',
       autoReconcile: 'Auto-reconcile',
       importStatement: 'Import statement',
-      noTransactionsYet: 'No transactions yet. Import a bank statement to get started.',
+      noTransactionsYet: 'No transactions yet. Add a transaction or import a bank statement to get started.',
       allTransactions: 'All transactions',
       unreconciledFilter: 'Unreconciled',
       reconciledFilter: 'Reconciled',
@@ -1874,7 +1878,8 @@ export const accounting = {
 
       // Transactions page
       transactionsTitle: 'Bank Transactions',
-      transactionsSubtitle: 'Imported activity across all your bank accounts.',
+      transactionsSubtitle: 'Imported and manually added activity across all your bank accounts.',
+      addTransactionButton: 'Add transaction',
       importStatementButton: 'Import statement',
       accountLabel: 'Account',
       statusLabel: 'Status',
@@ -2721,6 +2726,12 @@ export const accounting = {
     // WeldBooks layout
     layout: {
       appNotInstalled: 'App not installed',
+      noEntityTitle: 'Set up your first entity',
+      noEntityDescription:
+        'Create a legal entity to start using WeldBooks. Chart of accounts and tax rates for the selected jurisdiction are set up automatically.',
+      createFirstEntity: 'Create entity',
+      loadError: 'Failed to load accounting entities. Please try again.',
+      retry: 'Retry',
     },
 
     // WeldBooks breadcrumb header segment labels

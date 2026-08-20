@@ -20,6 +20,7 @@ import {
   type SearchResultGroup,
   type SearchResultItem,
 } from '@weldsuite/app-api-client/schemas/search';
+import { publicDomainRegistrar } from '@weldsuite/core-api-client/schemas/domains';
 
 // ============================================================================
 // Types
@@ -895,6 +896,8 @@ export async function searchDomains(
     .where(
       and(
         isNull(hostDomains.deletedAt),
+        sql`${hostDomains.registrationStatus} IS DISTINCT FROM 'pending_payment'`,
+        sql`NOT (${hostDomains.status} = 'cancelled' AND ${hostDomains.registrationStatus} IS NOT DISTINCT FROM 'failed')`,
         or(
           sql`lower(${hostDomains.fullDomain}) LIKE ${term}`,
           sql`lower(${hostDomains.name}) LIKE ${term}`,
@@ -911,7 +914,7 @@ export async function searchDomains(
     type: 'domain',
     title: r.fullDomain || `${r.name}.${r.tld}`,
     subtitle: r.registrar
-      ? `${r.registrar}${r.status ? ' · ' + r.status : ''}`
+      ? `${publicDomainRegistrar(r.registrar)}${r.status ? ' · ' + r.status : ''}`
       : (r.status || null),
     url: buildResultUrl('domain', r.id),
     score: typeof r.score === 'number' ? r.score : Number(r.score) || null,

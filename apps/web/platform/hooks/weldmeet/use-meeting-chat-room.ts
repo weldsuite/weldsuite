@@ -8,15 +8,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { RoomClient } from '@weldsuite/realtime/client';
+import { getRealtimeWsOrigin } from '@/lib/api/public-env';
 
-const REALTIME_BASE_URL =
-  import.meta.env.VITE_REALTIME_URL?.replace(/\/ws\/?$/, '') || 'ws://localhost:8790';
-
-if (!import.meta.env.VITE_REALTIME_URL) {
-  console.warn(
-    '[weldmeet-chat] HostChat: VITE_REALTIME_URL env var is not set — falling back to ws://localhost:8790. Host will not receive live guest messages in production.',
-  );
-}
+const REALTIME_BASE_URL = getRealtimeWsOrigin();
 
 export function useMeetingChatRoom(meetingId: string | null): {
   client: RoomClient | null;

@@ -110,6 +110,15 @@ export interface Invoice {
   notes: string | null;
   internalNotes: string | null;
   createdAt: string;
+  taxBreakdown?: Array<{
+    taxRateId: string;
+    taxRateName: string;
+    taxRate: number;
+    taxableAmount: number;
+    taxAmount: number;
+    component?: string;
+    accountRole?: string;
+  }> | null;
 }
 
 export interface InvoiceDetail extends Invoice {
@@ -360,6 +369,7 @@ export interface RecurringInvoiceTemplateData {
   paymentTermsDays?: number;
   revenueAccountId?: string;
   reference?: string;
+  currency?: string;
 }
 
 export interface RecurringInvoice {
@@ -504,6 +514,18 @@ export const accountingApi = {
   getTransactionSuggestions: (id: string) => weldbooksApi.get<ApiResponse<unknown[]>>(`/bank-transactions/${id}/suggestions`),
   reconcileTransaction: (id: string, data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<unknown>>(`/bank-transactions/${id}/reconcile`, data),
   excludeTransaction: (id: string) => weldbooksApi.post<ApiResponse<unknown>>(`/bank-transactions/${id}/exclude`),
+  createBankTransaction: (data: {
+    bankAccountId: string;
+    date: string;
+    amount: string | number;
+    description?: string;
+    valueDate?: string;
+    counterpartyName?: string;
+    counterpartyIban?: string;
+    counterpartyBic?: string;
+    reference?: string;
+    notes?: string;
+  }) => weldbooksApi.post<ApiResponse<BankTransaction>>('/bank-transactions', data),
   importBankTransactions: (data: { bankAccountId: string; content: string; fileName: string; format?: string }) =>
     weldbooksApi.post<ApiResponse<{ batchId: string; format: string; totalParsed: number; imported: number; duplicates: number; autoReconciled: number; errors: Array<{ line?: number; message: string }> }>>('/bank-transactions/import', data),
   autoReconcile: (bankAccountId: string) =>

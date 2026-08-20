@@ -3,13 +3,17 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { ChevronUp } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { useI18n } from '@/lib/i18n/provider';
-import { useParams, useSearchParams } from '@/lib/router';
+import { useParams } from '@/lib/router';
+import { useMailListPage } from '../../hooks/use-mail-list-page';
 import { useMailLabelThreads } from '@/hooks/queries/use-mail-queries';
 import { getSystemLabelConfig } from '../../lib/label-config';
 import type { ThreadSummary } from '../../lib/thread-utils';
 import { MailDetailWrapper } from '../../components/mail-detail-wrapper';
 import { MobileMailLayout } from '../../components/mobile-mail-layout';
 import { MessageList } from '../../components/message-list';
+import { MailThreadListProvider } from '../../contexts/mail-thread-list-context';
+import { useOptimisticThreadList } from '../../hooks/use-optimistic-thread-list';
+import { mailThreadListKey } from '../../lib/optimistic-thread-list';
 import { useMailRealtime } from '../../hooks/useMailRealtime';
 import { UNIFIED_ACCOUNT } from '../../lib/mail-preferences';
 import {
@@ -27,8 +31,7 @@ export default function UnifiedLabelLayout({
   const { t } = useI18n();
   const params = useParams<{ labelSlug: string }>();
   const labelSlug = decodeURIComponent(params.labelSlug);
-  const searchParams = useSearchParams();
-  const currentPage = Math.max(1, Number(searchParams?.get('page')) || 1);
+  const currentPage = useMailListPage();
 
   // Remember that the unified inbox was the last view opened (per-user).
   const { data: preferences } = useUserPreferences();
@@ -79,7 +82,19 @@ export default function UnifiedLabelLayout({
     setThreads(mappedThreads);
   }, [mappedThreads]);
 
-  const totalCount = threadsQuery.data?.data?.totalCount ?? 0;
+  // Archive-and-next hides the row immediately so the left list doesn't
+  // wait on the background refetch.
+  const {
+    threads: visibleThreads,
+    hiddenCount,
+    hideThread,
+    unhideThread,
+  } = useOptimisticThreadList(
+    threads,
+    mailThreadListKey({ accountId: 'unified', folder: labelSlug, page: currentPage, pageSize: PAGE_SIZE }),
+  );
+
+  const totalCount = Math.max(0, (threadsQuery.data?.data?.totalCount ?? 0) - hiddenCount);
   const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1;
   const error = threadsQuery.isError ? t.mail.unifiedLayout.failedToLoadConversations : null;
 
@@ -165,7 +180,7 @@ export default function UnifiedLabelLayout({
         </div>
       )}
       <MessageList
-        threads={threads}
+        threads={visibleThreads}
         accountId="unified"
         folder={labelSlug}
         error={error}
@@ -182,11 +197,20 @@ export default function UnifiedLabelLayout({
   const detailContent = <MailDetailWrapper>{children}</MailDetailWrapper>;
 
   return (
-    <MobileMailLayout
-      list={listContent}
-      detail={detailContent}
+    <MailThreadListProvider
+      threads={visibleThreads}
+      isUnified
+      folder={labelSlug}
       accountId="unified"
-      labelSlug={labelSlug}
-    />
+      hideThread={hideThread}
+      unhideThread={unhideThread}
+    >
+      <MobileMailLayout
+        list={listContent}
+        detail={detailContent}
+        accountId="unified"
+        labelSlug={labelSlug}
+      />
+    </MailThreadListProvider>
   );
 }

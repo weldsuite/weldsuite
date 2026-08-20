@@ -25,6 +25,8 @@ interface Jurisdiction {
 const ENTITY_TYPE_VALUES: Array<{ value: string; label?: string }> = [
   { value: 'bv', label: 'BV (Besloten Vennootschap)' },
   { value: 'nv', label: 'NV (Naamloze Vennootschap)' },
+  { value: 'pvt_ltd', label: 'Private Limited (Pvt Ltd)' },
+  { value: 'llp', label: 'LLP' },
   { value: 'gmbh', label: 'GmbH' },
   { value: 'ag', label: 'AG' },
   { value: 'ltd', label: 'Ltd' },
@@ -33,7 +35,12 @@ const ENTITY_TYPE_VALUES: Array<{ value: string; label?: string }> = [
   { value: 'sole' },
 ];
 
-const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'SEK', 'DKK', 'NOK', 'PLN'];
+const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'SEK', 'DKK', 'NOK', 'PLN', 'INR'];
+
+const JURISDICTION_DEFAULTS: Record<string, { baseCurrency: string; locale: string; timezone: string }> = {
+  NL: { baseCurrency: 'EUR', locale: 'nl-NL', timezone: 'Europe/Amsterdam' },
+  IN: { baseCurrency: 'INR', locale: 'en-IN', timezone: 'Asia/Kolkata' },
+};
 
 export default function AddEntityPage() {
   const navigate = useNavigate();
@@ -58,6 +65,9 @@ export default function AddEntityPage() {
   const [isDefault, setIsDefault] = useState(false);
   const [seedDefaults, setSeedDefaults] = useState(true);
 
+  const isIndia = jurisdictionCode === 'IN';
+  const jurisdictionDefaults = JURISDICTION_DEFAULTS[jurisdictionCode];
+
   const { data: jurisdictions = [] } = useQuery<Jurisdiction[]>({
     queryKey: ['accounting', 'jurisdictions'],
     queryFn: async () => {
@@ -76,11 +86,17 @@ export default function AddEntityPage() {
         entityType,
         jurisdictionCode,
         baseCurrency,
+        locale: jurisdictionDefaults?.locale,
+        timezone: jurisdictionDefaults?.timezone,
         taxIdentifiers: {
           vatNumber: vatNumber || undefined,
           registrationNumber: registrationNumber || undefined,
         },
-        bankDetails: iban ? { iban } : undefined,
+        bankDetails: iban
+          ? isIndia
+            ? { accountNumber: iban }
+            : { iban }
+          : undefined,
         isDefault,
         seedDefaults,
       });
@@ -130,7 +146,16 @@ export default function AddEntityPage() {
 
         <div>
           <Label>{te.jurisdiction}</Label>
-          <Select value={jurisdictionCode} onValueChange={setJurisdictionCode}>
+          <Select
+            value={jurisdictionCode}
+            onValueChange={(v) => {
+              setJurisdictionCode(v);
+              const d = JURISDICTION_DEFAULTS[v];
+              if (d) setBaseCurrency(d.baseCurrency);
+              if (v === 'IN' && entityType === 'bv') setEntityType('pvt_ltd');
+              if (v === 'NL' && (entityType === 'pvt_ltd' || entityType === 'llp')) setEntityType('bv');
+            }}
+          >
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               {jurisdictions.map((j) => (
@@ -151,26 +176,34 @@ export default function AddEntityPage() {
         </div>
 
         <div>
-          <Label>{te.vatNumber}</Label>
+          <Label>{isIndia ? st('sweep.weldbooks.createEntity.gstinLabel') : te.vatNumber}</Label>
           <Input
             value={vatNumber}
             onChange={(e) => setVatNumber(e.target.value)}
-            placeholder={te.taxIdPlaceholder}
+            placeholder={
+              isIndia
+                ? st('sweep.weldbooks.createEntity.gstinPlaceholder')
+                : te.taxIdPlaceholder
+            }
           />
         </div>
 
         <div className="col-span-2">
-          <Label>{te.registrationNumber}</Label>
+          <Label>{isIndia ? st('sweep.weldbooks.createEntity.panLabel') : te.registrationNumber}</Label>
           <Input
             value={registrationNumber}
             onChange={(e) => setRegistrationNumber(e.target.value)}
-            placeholder="12345678"
+            placeholder={isIndia ? 'AAAAA9999A' : '12345678'}
           />
         </div>
 
         <div className="col-span-2">
-          <Label>{te.ibanLabel}</Label>
-          <Input value={iban} onChange={(e) => setIban(e.target.value)} placeholder="NL91 ABNA 0417 1643 00" />
+          <Label>{isIndia ? st('sweep.weldbooks.createEntity.bankAccountLabel') : te.ibanLabel}</Label>
+          <Input
+            value={iban}
+            onChange={(e) => setIban(e.target.value)}
+            placeholder={isIndia ? 'Account number / IFSC' : 'NL91 ABNA 0417 1643 00'}
+          />
         </div>
 
         <label className="flex items-center gap-2 col-span-2">

@@ -5,6 +5,7 @@ import {
   TextInput,
   View,
   type StyleProp,
+  type TextInputProps,
   type ViewStyle,
 } from 'react-native';
 import { Search, X } from 'lucide-react-native';
@@ -17,6 +18,10 @@ export interface SearchBarProps {
   placeholder?: string;
   onClear?: () => void;
   autoFocus?: boolean;
+  /** Hardware barcode wedges typically submit with Enter. */
+  onSubmitEditing?: TextInputProps['onSubmitEditing'];
+  autoCorrect?: boolean;
+  autoCapitalize?: TextInputProps['autoCapitalize'];
   containerStyle?: StyleProp<ViewStyle>;
 }
 
@@ -26,6 +31,9 @@ export function SearchBar({
   placeholder = 'Search',
   onClear,
   autoFocus,
+  onSubmitEditing,
+  autoCorrect,
+  autoCapitalize,
   containerStyle,
 }: SearchBarProps) {
   const { colors } = useTheme();
@@ -52,6 +60,10 @@ export function SearchBar({
         autoFocus={autoFocus}
         returnKeyType="search"
         clearButtonMode="never"
+        autoCorrect={autoCorrect}
+        autoCapitalize={autoCapitalize}
+        onSubmitEditing={onSubmitEditing}
+        blurOnSubmit={false}
         style={[styles.input, { color: colors.text }]}
       />
       {value.length > 0 && (

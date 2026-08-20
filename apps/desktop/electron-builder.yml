@@ -81,7 +81,7 @@ protocols:
 # READ-ONLY update feed. electron-builder has no `generic` *publisher* — the
 # only upload-capable providers in v25 are github/s3/spaces/bitbucket/keygen/
 # snapStore — so `--publish always` uploads nothing here by design. The release
-# workflow in weldsuite/deployment-overlay pushes artifacts to the R2 bucket
+# workflow in .github/workflows/release-desktop.yml pushes artifacts to the R2 bucket
 # `weldsuite-desktop-downloads` with wrangler, and electron-updater reads
 # <url>/latest.yml and <url>/latest-mac.yml back out of it.
 publish:

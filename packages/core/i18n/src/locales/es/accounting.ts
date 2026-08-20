@@ -1649,7 +1649,7 @@ export const accounting = {
       deleteBankAccount: 'Eliminar cuenta bancaria',
       autoReconcile: 'Conciliación automática',
       importStatement: 'Importar extracto',
-      noTransactionsYet: 'Aún no hay transacciones. Importa un extracto bancario para comenzar.',
+      noTransactionsYet: 'Aún no hay transacciones. Añade una transacción o importa un extracto bancario para comenzar.',
       allTransactions: 'Todas las transacciones',
       unreconciledFilter: 'Sin conciliar',
       reconciledFilter: 'Conciliadas',
@@ -1720,7 +1720,8 @@ export const accounting = {
       ruleNever: 'Nunca',
 
       transactionsTitle: 'Transacciones Bancarias',
-      transactionsSubtitle: 'Actividad importada de todas tus cuentas bancarias.',
+      transactionsSubtitle: 'Actividad importada y añadida manualmente de todas tus cuentas bancarias.',
+      addTransactionButton: 'Añadir transacción',
       importStatementButton: 'Importar extracto',
       accountLabel: 'Cuenta',
       statusLabel: 'Estado',
@@ -2522,6 +2523,12 @@ export const accounting = {
 
     layout: {
       appNotInstalled: 'Aplicación no instalada',
+      noEntityTitle: 'Configura tu primera entidad',
+      noEntityDescription:
+        'Crea una entidad legal para empezar a usar WeldBooks. El plan de cuentas y las tasas fiscales de la jurisdicción seleccionada se configuran automáticamente.',
+      createFirstEntity: 'Crear entidad',
+      loadError: 'No se pudieron cargar las entidades contables. Inténtalo de nuevo.',
+      retry: 'Reintentar',
     },
 
     header: {

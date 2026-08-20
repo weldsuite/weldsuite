@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, eq, isNull, like, or, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
@@ -12,6 +12,8 @@ import {
   createDomainSchema,
   updateDomainSchema,
   listDomainsQuery,
+  isHiddenUnpaidDomain,
+  toPublicDomain,
 } from '@weldsuite/core-api-client/schemas/domains';
 import {
   createDnsZoneSchema,
@@ -47,8 +49,10 @@ app.get('/', requireScope('domains:read'), zValidator('query', listDomainsQuery)
     where.push(or(like(domainTable.fullDomain, term), like(domainTable.name, term)));
   }
   if (q.status && q.status !== 'all') where.push(eq(domainTable.status, q.status as Exclude<typeof q.status, 'all'>));
+  where.push(sql`${domainTable.registrationStatus} IS DISTINCT FROM 'pending_payment'`);
+  where.push(sql`NOT (${domainTable.status} = 'cancelled' AND ${domainTable.registrationStatus} IS NOT DISTINCT FROM 'failed')`);
   const result = await listWithCursor({ db, table: domainTable, where, cursor: q.cursor, limit: q.limit });
-  return list(c, result.data as Record<string, unknown>[], cursorPagination(result.totalCount, result.hasMore, result.cursor));
+  return list(c, result.data.map(toPublicDomain) as Record<string, unknown>[], cursorPagination(result.totalCount, result.hasMore, result.cursor));
 });
 
 app.get('/:id', requireScope('domains:read'), async (c) => {
@@ -59,8 +63,8 @@ app.get('/:id', requireScope('domains:read'), async (c) => {
     .from(domainTable)
     .where(and(eq(domainTable.id, id), isNull(domainTable.deletedAt)))
     .limit(1);
-  if (!row) return error.notFound(c, 'Domain', id);
-  return success(c, row);
+  if (!row || isHiddenUnpaidDomain(row)) return error.notFound(c, 'Domain', id);
+  return success(c, toPublicDomain(row));
 });
 
 app.post('/', requireScope('domains:write'), zValidator('json', createDomainSchema), async (c) => {
@@ -74,7 +78,7 @@ app.post('/', requireScope('domains:write'), zValidator('json', createDomainSche
     .returning();
   if (!row) return error.internal(c, 'Failed to create domain');
   publishEntityEvent({ c, entityType: 'domain', entityId: id, action: 'created', data: { id, name: row.fullDomain, status: row.status } });
-  return success(c, row, 201);
+  return success(c, toPublicDomain(row), 201);
 });
 
 app.patch('/:id', requireScope('domains:write'), zValidator('json', updateDomainSchema), async (c) => {
@@ -88,7 +92,7 @@ app.patch('/:id', requireScope('domains:write'), zValidator('json', updateDomain
     .returning();
   if (!row) return error.notFound(c, 'Domain', id);
   publishEntityEvent({ c, entityType: 'domain', entityId: id, action: 'updated', data: { id, name: row.fullDomain, status: row.status } });
-  return success(c, row);
+  return success(c, toPublicDomain(row));
 });
 
 app.delete('/:id', requireScope('domains:write'), async (c) => {

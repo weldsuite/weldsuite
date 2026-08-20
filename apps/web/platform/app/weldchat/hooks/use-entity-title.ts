@@ -18,10 +18,9 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import type { EntitySheetType } from '@/components/entity-sheet/types';
+import { getAppApiUrl } from '@/lib/api/public-env';
 
-const APP_API_URL =
-  (import.meta as { env?: { VITE_APP_API_URL?: string } }).env?.VITE_APP_API_URL ||
-  'http://localhost:8789';
+const APP_API_URL = getAppApiUrl();
 
 const API_PREFIX = '/api';
 

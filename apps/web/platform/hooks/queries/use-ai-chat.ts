@@ -13,8 +13,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@clerk/clerk-react';
+import { getAppApiUrl } from '@/lib/api/public-env';
 
-const APP_API_URL = import.meta.env.VITE_APP_API_URL || 'http://localhost:8789';
+const APP_API_URL = getAppApiUrl();
 
 export interface ChatMessage {
   id: string;

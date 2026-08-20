@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
+    "deploy:test": "wrangler deploy --env test",
     "deploy:production": "wrangler deploy --env production",
     "type-check": "tsc --noEmit"
   },

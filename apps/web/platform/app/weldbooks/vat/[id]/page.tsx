@@ -9,13 +9,7 @@ import { toast } from 'sonner';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
-
-function fmt(value: number | null | undefined): string {
-  return new Intl.NumberFormat('nl-NL', {
-    style: 'currency',
-    currency: 'EUR',
-  }).format(value ?? 0);
-}
+import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
 const rubriekLabels: Record<string, string> = {
   r1a: '1a. Leveringen/diensten belast met hoog tarief',
@@ -45,6 +39,7 @@ export default function VatReturnDetailPage() {
   const st = useTranslations();
   const tv = t.accounting.vat;
   const tslVat = { ...t.accounting.vat.statuses, ...t.accounting.statusLabels.vatReturn };
+  const { formatMoney: fmt } = useCurrentEntityCurrency();
 
   const qc = useQueryClient();
 

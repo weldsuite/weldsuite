@@ -6,6 +6,7 @@ import { useDomains } from '@/hooks/queries/use-host-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { HostCard, type DomainRow } from '@/components/home/app-cards';
 import type { HomeWidgetDefinition } from '../types';
+import { publicDomainRegistrar } from '@weldsuite/core-api-client/schemas/domains';
 
 const weldhostDomainsSchema = z.object({
   maxCount: z.number().refine((n) => [5, 10, 20].includes(n)).default(10),
@@ -46,7 +47,7 @@ function mapDomain(api: ApiDomain): DomainRow {
     name: api.name ?? api.domain ?? '—',
     status: mapStatus(api.status, api.expiresAt),
     expires: formatExpiry(api.expiresAt),
-    registrar: api.registrar ?? api.provider ?? '—',
+    registrar: publicDomainRegistrar(api.registrar ?? api.provider),
   };
 }
 

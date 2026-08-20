@@ -29,6 +29,7 @@ import { isNetworkError } from '@weldsuite/api-client/client';
 import { useMailCache } from '@/hooks/useMailCache';
 import { useMailOutbox } from '@/hooks/useMailOutbox';
 import { useMail, getAvatarColor } from '@/contexts/MailContext';
+import { useNotifications } from '@/contexts/NotificationContext';
 import { usePinnedMessages } from '@/contexts/PinnedMessagesContext';
 import { useComposeOverlay } from '@/contexts/ComposeOverlayContext';
 import type { ComposeCloseInfo } from '@/app/compose';
@@ -41,6 +42,11 @@ import { filterDisplayLabels, getLabelColor } from '@/utils/label-utils';
 import { useIsTablet } from '@/utils/tablet';
 import MaterialSpinner from '@/components/MaterialSpinner';
 import type { EmailListItem } from '@/types/mail';
+import {
+  listContainsEmailId,
+  nextNotificationListRetryMs,
+} from '@/utils/notification-target';
+import { hideAppSplash } from '@/utils/splash';
 
 const EMAIL_LIST_WIDTH_TABLET = 400;
 
@@ -276,7 +282,19 @@ export default function MailScreen() {
   const params = useLocalSearchParams<{ draftSaved?: string; draftId?: string; draftAccountId?: string; draftTo?: string; draftCc?: string; draftBcc?: string; draftSubject?: string; draftBody?: string }>();
   const insets = useSafeAreaInsets();
   const { width: _windowWidth } = useWindowDimensions();
-  const { selectedLabel, labels, customLabels, selectedAccount, isUnifiedInbox, accounts, updateLabelCount, mailVersion } = useMail();
+  const {
+    selectedLabel,
+    labels,
+    customLabels,
+    selectedAccount,
+    isUnifiedInbox,
+    accounts,
+    updateLabelCount,
+    mailVersion,
+    pendingNotificationEmailId,
+    clearPendingNotificationEmail,
+  } = useMail();
+  const { launchReady, openingEmailId } = useNotifications();
   const cache = useMailCache();
   const outbox = useMailOutbox();
   const { organizationId } = useClerkAuth();
@@ -336,27 +354,6 @@ export default function MailScreen() {
   const lastDraftIdRef = useRef<string | null>(null);
   const lastDraftDataRef = useRef<any>(null);
 
-  // Show snackbar when returning from compose with draft saved
-  useEffect(() => {
-    if (params.draftSaved === '1') {
-      // Cache draft info for undo/discard
-      if (params.draftId) {
-        lastDraftIdRef.current = params.draftId;
-        lastDraftDataRef.current = {
-          emailAccountId: params.draftAccountId || '',
-          to: params.draftTo || '',
-          cc: params.draftCc || '',
-          bcc: params.draftBcc || '',
-          subject: params.draftSubject || '',
-          body: params.draftBody || '',
-        };
-      }
-      router.setParams({ draftSaved: undefined, draftId: undefined, draftAccountId: undefined, draftTo: undefined, draftCc: undefined, draftBcc: undefined, draftSubject: undefined, draftBody: undefined } as any);
-
-      showSnackbar('Draft saved');
-    }
-  }, [params.draftSaved]);
-
   const currentLabelName = labels.find((l) => l.slug === selectedLabel)?.name || selectedLabel;
 
   const fetchMessages = useCallback(async (search?: string) => {
@@ -403,7 +400,7 @@ export default function MailScreen() {
         setRefreshing(false);
       }
     }
-  }, [selectedLabel, selectedAccount?.id, isUnifiedInbox, scopeId, cache, outbox]);
+  }, [selectedLabel, selectedAccount?.id, isUnifiedInbox, scopeId, cache, outbox, updateLabelCount]);
 
   // Always call the latest fetchMessages from effects/refs without re-subscribing.
   const fetchMessagesRef = useRef(fetchMessages);
@@ -525,6 +522,46 @@ export default function MailScreen() {
     if (organizationId) fetchMessagesRef.current();
   }, [organizationId]);
 
+  // A notification tap can open the app before the new message is in the
+  // inbox list (stale cache, or the list fetch raced the insert). Keep
+  // re-fetching with a short backoff until the row appears or we give up.
+  useEffect(() => {
+    if (
+      pendingNotificationEmailId &&
+      listContainsEmailId(messages, pendingNotificationEmailId)
+    ) {
+      clearPendingNotificationEmail();
+    }
+  }, [pendingNotificationEmailId, messages, clearPendingNotificationEmail]);
+
+  useEffect(() => {
+    if (!pendingNotificationEmailId) return;
+    let cancelled = false;
+    let attempt = 0;
+
+    const tick = async () => {
+      while (!cancelled) {
+        const delay = nextNotificationListRetryMs(attempt);
+        if (delay == null) {
+          if (!cancelled) clearPendingNotificationEmail();
+          return;
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, delay));
+        if (cancelled) return;
+        attempt += 1;
+        await fetchMessagesRef.current();
+      }
+    };
+    tick();
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingNotificationEmailId, clearPendingNotificationEmail]);
+
+  useEffect(() => {
+    if (launchReady && !openingEmailId) hideAppSplash();
+  }, [launchReady, openingEmailId]);
+
 
   const handleRefresh = useCallback(() => {
     if (refreshing) return;
@@ -590,6 +627,38 @@ export default function MailScreen() {
       Animated.timing(fabTranslateY, { toValue: 0, duration: 200, useNativeDriver: true }),
     ]).start(() => setSnackbar(null));
   }, [snackbarTranslateY, fabTranslateY]);
+
+  // Show snackbar when returning from compose with draft saved
+  useEffect(() => {
+    if (params.draftSaved === '1') {
+      // Cache draft info for undo/discard
+      if (params.draftId) {
+        lastDraftIdRef.current = params.draftId;
+        lastDraftDataRef.current = {
+          emailAccountId: params.draftAccountId || '',
+          to: params.draftTo || '',
+          cc: params.draftCc || '',
+          bcc: params.draftBcc || '',
+          subject: params.draftSubject || '',
+          body: params.draftBody || '',
+        };
+      }
+      router.setParams({ draftSaved: undefined, draftId: undefined, draftAccountId: undefined, draftTo: undefined, draftCc: undefined, draftBcc: undefined, draftSubject: undefined, draftBody: undefined } as any);
+
+      showSnackbar('Draft saved');
+    }
+  }, [
+    params.draftSaved,
+    params.draftId,
+    params.draftAccountId,
+    params.draftTo,
+    params.draftCc,
+    params.draftBcc,
+    params.draftSubject,
+    params.draftBody,
+    router,
+    showSnackbar,
+  ]);
 
   // Handle the compose overlay closing — caches the saved draft for undo and
   // surfaces the "Draft saved" snackbar (replaces the old route-param flow).
@@ -1132,6 +1201,12 @@ export default function MailScreen() {
 
     </View>
   );
+
+  // Gmail/Outlook: while a notification tap is opening an email, don't paint
+  // the inbox. The native splash (or the email screen) stays up instead.
+  if (!launchReady || openingEmailId) {
+    return null;
+  }
 
   if (isTablet) {
     return (

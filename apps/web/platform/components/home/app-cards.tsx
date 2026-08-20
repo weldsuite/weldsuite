@@ -2550,11 +2550,11 @@ const DOMAIN_STATUS: Record<'active' | 'pending' | 'expiring', { label: string; 
 
 export type DomainRow = { name: string; status: 'active' | 'pending' | 'expiring'; expires: string; registrar: string };
 const DEMO_DOMAINS: DomainRow[] = [
-  { name: 'weldsuite.com', status: 'expiring', expires: 'Jun 01', registrar: 'Cloudflare' },
-  { name: 'acmelogistics.eu', status: 'active', expires: 'Jun 17', registrar: 'Hetzner' },
+  { name: 'weldsuite.com', status: 'expiring', expires: 'Jun 01', registrar: 'WeldSuite' },
+  { name: 'acmelogistics.eu', status: 'active', expires: 'Jun 17', registrar: 'GoDaddy' },
   { name: 'lumiere.fr', status: 'active', expires: 'Jul 23', registrar: 'Gandi' },
-  { name: 'northwind.io', status: 'active', expires: 'Nov 16', registrar: 'Cloudflare' },
-  { name: 'newshop.be', status: 'pending', expires: '—', registrar: 'Cloudflare' },
+  { name: 'northwind.io', status: 'active', expires: 'Nov 16', registrar: 'WeldSuite' },
+  { name: 'newshop.be', status: 'pending', expires: '—', registrar: 'WeldSuite' },
 ];
 
 export function HostCard({

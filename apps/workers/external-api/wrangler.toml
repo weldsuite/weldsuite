@@ -93,6 +93,40 @@ service = "weldsuite-realtime"
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
+# ============ TEST ENVIRONMENT ============
+[env.test]
+name = "weldsuite-external-api-test"
+routes = [{ pattern = "api-test.weldsuite.org/*", zone_name = "weldsuite.org" }]
+vars = { ENVIRONMENT = "test" }
+
+[[env.test.kv_namespaces]]
+binding = "API_CACHE"
+id = "6ffe3c8ea4e041398d84f9f670e93f88"
+
+[[env.test.queues.producers]]
+binding = "AUDIT_EVENTS"
+queue = "audit-events-test"
+
+[[env.test.queues.producers]]
+binding = "WORKFLOW_EVENTS"
+queue = "workflow-events-test"
+
+[[env.test.queues.producers]]
+binding = "ANALYTICS_EVENTS"
+queue = "analytics-events-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 name = "weldsuite-external-api"
@@ -138,13 +172,13 @@ namespace_id = "3004"
 
 [[env.production.hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "2cdec4bef19746d1a2c2e9726ddaacc3"
 
 # KV namespace for API key registry + workspace caching
 # Create via: wrangler kv namespace create API_CACHE --env production
 [[env.production.kv_namespaces]]
 binding = "API_CACHE"
-id = "REPLACE_WITH_KV_OR_HYPERDRIVE_ID"
+id = "f27cfb0a77a24936911ebd762adf3410"
 
 # Entity-event sinks (production)
 [[env.production.queues.producers]]
