@@ -75,14 +75,8 @@ function sleep(ms: number): Promise<void> {
 }
 
 function looksLikeHtml(body: string): boolean {
-  const head = body.trim().slice(0, 240).toLowerCase();
-  return (
-    head.startsWith('<!doctype') ||
-    head.startsWith('<html') ||
-    head.startsWith('<head') ||
-    head.includes('<html') ||
-    head.includes('<head')
-  );
+  const head = body.trimStart().slice(0, 32).toLowerCase();
+  return head.startsWith('<!doctype') || head.startsWith('<html') || head.startsWith('<head');
 }
 
 function parseWooJson<T>(body: string): T {

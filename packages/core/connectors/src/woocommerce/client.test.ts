@@ -142,6 +142,17 @@ describe('WooCommerceClient', () => {
     expect(urls[1]).not.toContain('/wp-json/');
   });
 
+  it('does not treat product HTML in JSON as a web page', async () => {
+    const fetchImpl: typeof fetch = async () =>
+      jsonResponse([{ id: 2, description: '<html><body>Sale</body></html>' }]);
+    const client = new WooCommerceClient(
+      { storeUrl: 'https://shop.example', consumerKey: 'ck_a', consumerSecret: 'cs_b' },
+      { fetchImpl },
+    );
+    const page = await client.listProducts();
+    expect(page.items).toEqual([{ id: 2, description: '<html><body>Sale</body></html>' }]);
+  });
+
   it('parses JSON that PHP warnings prepended', async () => {
     const fetchImpl: typeof fetch = async () =>
       new Response('Notice: Undefined offset: 0 in wp-includes/foo.php on line 1\n[{"id":4}]', {
