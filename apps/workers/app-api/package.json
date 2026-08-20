@@ -31,7 +31,7 @@
     "@weldsuite/email": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/feature-flags": "workspace:*",
-    "@weldsuite/nango": "workspace:*",
+    "@weldsuite/connectors": "workspace:*",
     "@weldsuite/notifications": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/realtime": "workspace:*",

@@ -1,57 +1,45 @@
 /**
- * Nango error classification.
+ * First-party connector framework types.
  *
- * Every failure the connector layer surfaces is one of four kinds, because the
- * caller's response differs per kind:
- *   - `auth`       → the tenant must re-authorise; stop retrying, flag the UI.
- *   - `rate_limit` → back off and retry; the connection is healthy.
- *   - `transient`  → retry; network blip or Nango 5xx.
- *   - `permanent`  → a bad request on our side; retrying cannot help.
+ * Credentials live in the tenant database (encrypted). Each provider ships its
+ * own client — there is no third-party sync host in the path.
  */
 
-export type NangoErrorKind = 'auth' | 'rate_limit' | 'transient' | 'permanent';
+export type ConnectorErrorKind = 'auth' | 'rate_limit' | 'transient' | 'permanent';
 
-export class NangoApiError extends Error {
-  readonly kind: NangoErrorKind;
+export class ConnectorApiError extends Error {
+  readonly kind: ConnectorErrorKind;
   readonly status: number;
   readonly body: string | undefined;
-  /** Seconds to wait before retrying, when the server told us. */
   readonly retryAfterSeconds: number | undefined;
 
   constructor(args: {
     message: string;
     status: number;
-    kind: NangoErrorKind;
+    kind: ConnectorErrorKind;
     body?: string;
     retryAfterSeconds?: number;
   }) {
     super(args.message);
-    this.name = 'NangoApiError';
+    this.name = 'ConnectorApiError';
     this.status = args.status;
     this.kind = args.kind;
     this.body = args.body;
     this.retryAfterSeconds = args.retryAfterSeconds;
   }
 
-  /** True when another attempt could plausibly succeed. */
   get retryable(): boolean {
     return this.kind === 'rate_limit' || this.kind === 'transient';
   }
 }
 
-/** Map an HTTP status onto a failure kind. */
-export function classifyStatus(status: number): NangoErrorKind {
+export function classifyStatus(status: number): ConnectorErrorKind {
   if (status === 401 || status === 403) return 'auth';
   if (status === 429) return 'rate_limit';
   if (status >= 500) return 'transient';
   return 'permanent';
 }
 
-/**
- * Parse a `Retry-After` header. Accepts both delta-seconds and an HTTP-date;
- * returns undefined when absent or unparseable so callers fall back to the
- * exponential schedule.
- */
 export function parseRetryAfter(header: string | null, now: number = Date.now()): number | undefined {
   if (!header) return undefined;
   const trimmed = header.trim();

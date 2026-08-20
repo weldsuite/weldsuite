@@ -2,7 +2,7 @@
  * AUTO-GENERATED — do not edit manually.
  * Run `pnpm bundle-migrations` to regenerate.
  *
- * Contains 180 tenant database migrations bundled for Cloudflare Workers.
+ * Contains 182 tenant database migrations bundled for Cloudflare Workers.
  * Generated from: packages/core/db/drizzle/tenant-migrations/
  */
 
@@ -187,6 +187,8 @@ export const MIGRATION_JOURNAL = [
   { idx: 177, tag: "0177_project_files_parent", when: 1785671439413 },
   { idx: 178, tag: "0178_workflow_trigger_index", when: 1785875886331 },
   { idx: 179, tag: "0179_flowery_edwin_jarvis", when: 1786609647121 },
+  { idx: 180, tag: "0180_pick_list_pack_ship", when: 1787070000000 },
+  { idx: 181, tag: "0181_first_party_connectors", when: 1787160000000 },
 ] as const;
 
 export const MIGRATION_SQL: Record<string, string> = {
@@ -10178,6 +10180,64 @@ CREATE INDEX "workflow_trigger_index_integration_event_idx" ON "workflow_trigger
 CREATE INDEX "workflow_trigger_index_source_workflow_idx" ON "workflow_trigger_index" USING btree ("source_workflow_id");`,
   "0179_flowery_edwin_jarvis": `ALTER TABLE "domains" ADD COLUMN IF NOT EXISTS "rtr_registrant_handle" varchar(40);--> statement-breakpoint
 ALTER TABLE "domains" ADD COLUMN IF NOT EXISTS "rtr_process_id" varchar(64);`,
+  "0180_pick_list_pack_ship": `ALTER TABLE "pick_lists" ADD COLUMN IF NOT EXISTS "packed_at" timestamp;--> statement-breakpoint
+ALTER TABLE "pick_lists" ADD COLUMN IF NOT EXISTS "packed_by" varchar(255);--> statement-breakpoint
+ALTER TABLE "pick_lists" ADD COLUMN IF NOT EXISTS "shipped_at" timestamp;--> statement-breakpoint
+ALTER TABLE "pick_lists" ADD COLUMN IF NOT EXISTS "shipment_id" varchar(30);--> statement-breakpoint
+ALTER TABLE "pick_lists" ADD COLUMN IF NOT EXISTS "parcel_id" varchar(30);`,
+  "0181_first_party_connectors": `DROP TABLE IF EXISTS "nango_sync_runs";--> statement-breakpoint
+DROP TABLE IF EXISTS "nango_connections";--> statement-breakpoint
+CREATE TABLE "connector_connections" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	"deleted_at" timestamp,
+	"provider" varchar(100) NOT NULL,
+	"display_name" varchar(255),
+	"status" varchar(20) DEFAULT 'pending' NOT NULL,
+	"credentials" jsonb,
+	"external_account_id" varchar(255),
+	"enabled_syncs" jsonb,
+	"sync_watermarks" jsonb,
+	"last_sync_at" timestamp,
+	"last_sync_status" varchar(20),
+	"last_error" text,
+	"last_error_at" timestamp,
+	"records_synced" integer DEFAULT 0 NOT NULL,
+	"connected_at" timestamp,
+	"connected_by" varchar(255),
+	"disconnected_at" timestamp
+);
+--> statement-breakpoint
+CREATE TABLE "connector_sync_runs" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"connection_id" varchar(30) NOT NULL,
+	"sync_name" varchar(100) NOT NULL,
+	"model" varchar(100) NOT NULL,
+	"status" varchar(20) DEFAULT 'running' NOT NULL,
+	"trigger" varchar(20) NOT NULL,
+	"sync_type" varchar(20),
+	"records_added" integer DEFAULT 0 NOT NULL,
+	"records_updated" integer DEFAULT 0 NOT NULL,
+	"records_deleted" integer DEFAULT 0 NOT NULL,
+	"records_created" integer DEFAULT 0 NOT NULL,
+	"records_modified" integer DEFAULT 0 NOT NULL,
+	"records_skipped" integer DEFAULT 0 NOT NULL,
+	"records_failed" integer DEFAULT 0 NOT NULL,
+	"started_at" timestamp DEFAULT now() NOT NULL,
+	"finished_at" timestamp,
+	"duration_ms" integer,
+	"error" text,
+	"error_samples" jsonb
+);
+--> statement-breakpoint
+ALTER TABLE "connector_sync_runs" ADD CONSTRAINT "connector_sync_runs_connection_id_connector_connections_id_fk" FOREIGN KEY ("connection_id") REFERENCES "public"."connector_connections"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "connector_connections_provider_unique" ON "connector_connections" USING btree ("provider");--> statement-breakpoint
+CREATE INDEX "connector_connections_status_idx" ON "connector_connections" USING btree ("status");--> statement-breakpoint
+CREATE INDEX "connector_connections_deleted_at_idx" ON "connector_connections" USING btree ("deleted_at");--> statement-breakpoint
+CREATE INDEX "connector_sync_runs_connection_idx" ON "connector_sync_runs" USING btree ("connection_id","created_at");--> statement-breakpoint
+CREATE INDEX "connector_sync_runs_status_idx" ON "connector_sync_runs" USING btree ("status");`,
 };
 
 export const MIGRATION_HASHES: Record<string, string> = {
@@ -10361,4 +10421,6 @@ export const MIGRATION_HASHES: Record<string, string> = {
   "0177_project_files_parent": "ff9286a98b90cac1d2109d395f5ff52009800f7f4ff1a858b7aeed6146a60bcb",
   "0178_workflow_trigger_index": "5e35021f7180cb599a407a212011aaa755be551792f91896d1ad0249574a947c",
   "0179_flowery_edwin_jarvis": "6f1767e428eea2b75827a677a10b6e2d85a01025c97c1095d3d11a78e5cdab5d",
+  "0180_pick_list_pack_ship": "3fbf1c81e203da2592bda8a646760f4ba7d3d16279fdf557b11e4ee10606f126",
+  "0181_first_party_connectors": "514dbe1a2f78bb94a2d0795485f9bd356f8402e07f9c03c00b889d5051534951",
 };

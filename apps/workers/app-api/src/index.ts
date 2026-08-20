@@ -86,7 +86,6 @@ import { githubRepoLinksRoutes } from './routes/github-repo-links';
 import { githubProjectLinksRoutes } from './routes/github-project-links';
 import { githubCallbackRoutes } from './routes/public-github-callback';
 import { postpeerWebhookRoutes } from './routes/public-postpeer-webhook';
-import { nangoWebhookRoutes } from './routes/public-nango-webhook';
 import { glAccountsRoutes } from './routes/gl-accounts';
 import { helpdeskAgentsRoutes } from './routes/helpdesk-agents';
 import { helpdeskAnalyticsRoutes } from './routes/helpdesk-analytics';
@@ -115,7 +114,7 @@ import { filesRoutes } from './routes/files';
 import { foldersRoutes } from './routes/folders';
 import { storageRoutes, storageUploadTokenRoute } from './routes/storage';
 import { integrationsRoutes } from './routes/integrations';
-import { nangoRoutes } from './routes/nango';
+import { connectorRoutes } from './routes/connectors';
 import { invoicesRoutes } from './routes/invoices';
 import { journalEntriesRoutes } from './routes/journal-entries';
 import { leadsRoutes } from './routes/leads';
@@ -417,11 +416,6 @@ app.route('/api/weldconnect/github', githubCallbackRoutes);
 // from a KV mapping recorded at publish time. Must stay ABOVE the /api/* guard.
 app.route('/public/social/postpeer', postpeerWebhookRoutes);
 
-// Nango connector webhooks — PUBLIC (no Clerk). Auth is the X-Nango-Signature
-// HMAC; the workspace is resolved from the KV mapping written when the
-// connection was authorised. Must stay ABOVE the /api/* guard.
-app.route('/public/nango', nangoWebhookRoutes);
-
 // Onboarding — Clerk-authenticated but org-LESS: creating a NEW workspace must
 // work without an active org (and would resolve the wrong tenant DB if it ran
 // through workspaceDbMiddleware). The router applies clerkMiddleware() itself;
@@ -589,7 +583,7 @@ app.route('/api/domains', domainsRoutes);
 app.route('/api/email-forwards', emailForwardsRoutes);
 app.route('/api/external-webhooks', externalWebhooksRoutes);
 app.route('/api/integrations', integrationsRoutes);
-app.route('/api/nango', nangoRoutes);
+app.route('/api/connectors', connectorRoutes);
 app.route('/api/invoices', invoicesRoutes);
 app.route('/api/journal-entries', journalEntriesRoutes);
 app.route('/api/leads', leadsRoutes);

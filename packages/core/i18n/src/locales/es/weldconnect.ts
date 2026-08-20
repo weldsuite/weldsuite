@@ -3,12 +3,15 @@ export const weldconnect = {
   title: 'WeldConnect',
   description: 'Automatización de flujos de trabajo — acciones, disparadores, flujos, ejecuciones, plantillas, variables, webhooks, análisis',
 
-  // Connectors (marco de conectores basado en Nango)
+  // Connectors (marco de conectores propio)
   connectors: {
     title: 'Conectores',
-    description: 'Conecta aplicaciones externas y sincroniza sus datos con WeldSuite.',
+    description:
+      'Conecta aplicaciones externas y elige qué sincronizar — productos, pedidos, clientes — en cada conexión. Usa Integraciones para OAuth de flujos (Slack, Gmail, …).',
     searchPlaceholder: 'Buscar conectores...',
     empty: 'Ningún conector coincide con tu búsqueda.',
+    emptyCatalog: 'Aún no hay conectores disponibles.',
+    emptyCatalogHint: '¿Quieres conectar Slack o Google para flujos? Ve a Integraciones.',
     notConfigured: 'El marco de conectores no está configurado en este entorno.',
     connect: 'Conectar',
     reconnect: 'Reconectar',
@@ -17,9 +20,9 @@ export const weldconnect = {
     fullResync: 'Resincronización completa',
     pause: 'Pausar sincronizaciones',
     resume: 'Reanudar sincronizaciones',
-    viewDetails: 'Ver detalles',
+    viewDetails: 'Ajustes',
     scopes: 'Acceso solicitado',
-    syncsLabel: 'Sincronizaciones',
+    syncsLabel: 'Puede sincronizar',
     connectedOn: 'Conectado el {date}',
     recordsSynced: '{count} registros sincronizados',
     lastSync: 'Última sincronización',
@@ -37,9 +40,26 @@ export const weldconnect = {
     pauseFailed: 'No se pudieron pausar las sincronizaciones',
     resumeFailed: 'No se pudieron reanudar las sincronizaciones',
     resumedToast: 'Sincronizaciones reanudadas',
+    testConnection: 'Probar conexión',
+    testSuccess: 'La prueba de conexión se realizó correctamente',
+    testFailed: 'La prueba de conexión falló',
     disconnectTitle: '¿Desconectar {name}?',
     disconnectDescription:
       'La sincronización se detiene de inmediato. Los registros ya importados permanecen en WeldSuite, y volver a conectar los actualiza en lugar de crear duplicados.',
+    settings: {
+      title: 'Qué sincronizar',
+      description: 'Elige qué objetos debe importar esta conexión. Puedes cambiarlo en cualquier momento.',
+      connectDescription: 'Introduce las credenciales de la tienda y elige qué objetos sincronizar.',
+      save: 'Guardar ajustes',
+      saved: 'Ajustes de sincronización guardados',
+      saveFailed: 'No se pudieron guardar los ajustes de sincronización',
+      products: 'Productos',
+      productsDescription: 'Artículos y productos del catálogo de la tienda.',
+      orders: 'Pedidos',
+      ordersDescription: 'Pedidos de clientes, totales y líneas.',
+      customers: 'Clientes',
+      customersDescription: 'Clientes de la tienda como personas en WeldSuite.',
+    },
     status: {
       pending: 'Pendiente de autorización',
       active: 'Activo',

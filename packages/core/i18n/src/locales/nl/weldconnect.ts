@@ -3,15 +3,14 @@ export const weldconnect = {
   title: 'WeldConnect',
   description: 'Workflowautomatisering — acties, triggers, workflows, uitvoeringen, sjablonen, variabelen, webhooks, analyses',
 
-  // Connectors (Nango-gebaseerd connectorframework)
+  // Connectors (first-party connectorframework)
   connectors: {
-    title: 'CRM-connectors',
+    title: 'Connectors',
     description:
-      'Synchroniseer bedrijven, contacten en deals vanuit Salesforce of HubSpot naar WeldCRM. Dit is data-import — gebruik Integraties voor workflow-OAuth (Slack, Gmail, …).',
-    searchPlaceholder: 'CRM-connectors zoeken...',
-    empty: 'Geen CRM-connectors gevonden voor je zoekopdracht.',
-    emptyCatalog:
-      'Er zijn nog geen CRM-connectors beschikbaar. Salesforce- en HubSpot-sync verschijnt hier zodra het voor je workspace is ingeschakeld.',
+      'Verbind externe apps en kies per koppeling wat je synchroniseert — producten, orders, klanten. Gebruik Integraties voor workflow-OAuth (Slack, Gmail, …).',
+    searchPlaceholder: 'Connectors zoeken...',
+    empty: 'Geen connectors gevonden voor je zoekopdracht.',
+    emptyCatalog: 'Er zijn nog geen connectors beschikbaar.',
     emptyCatalogHint: 'Slack of Google voor workflows verbinden? Ga naar Integraties.',
     notConfigured: 'Het connectorframework is niet geconfigureerd voor deze omgeving.',
     connect: 'Verbinden',
@@ -21,9 +20,9 @@ export const weldconnect = {
     fullResync: 'Volledige hersynchronisatie',
     pause: 'Synchronisatie pauzeren',
     resume: 'Synchronisatie hervatten',
-    viewDetails: 'Details bekijken',
+    viewDetails: 'Instellingen',
     scopes: 'Gevraagde toegang',
-    syncsLabel: 'Synchronisaties',
+    syncsLabel: 'Kan synchroniseren',
     connectedOn: 'Verbonden op {date}',
     recordsSynced: '{count} records gesynchroniseerd',
     lastSync: 'Laatste synchronisatie',
@@ -41,9 +40,26 @@ export const weldconnect = {
     pauseFailed: 'Kon de synchronisatie niet pauzeren',
     resumeFailed: 'Kon de synchronisatie niet hervatten',
     resumedToast: 'Synchronisatie hervat',
+    testConnection: 'Verbinding testen',
+    testSuccess: 'Verbindingstest geslaagd',
+    testFailed: 'Verbindingstest mislukt',
     disconnectTitle: '{name} loskoppelen?',
     disconnectDescription:
       'Synchroniseren stopt direct. Al geïmporteerde records blijven in WeldSuite staan, en opnieuw verbinden werkt ze bij in plaats van duplicaten aan te maken.',
+    settings: {
+      title: 'Wat synchroniseren',
+      description: 'Kies welke objecten deze koppeling importeert. Je kunt dit later altijd wijzigen.',
+      connectDescription: 'Vul de winkelgegevens in en kies daarna welke objecten je wilt synchroniseren.',
+      save: 'Instellingen opslaan',
+      saved: 'Synchronisatie-instellingen opgeslagen',
+      saveFailed: 'Kon synchronisatie-instellingen niet opslaan',
+      products: 'Producten',
+      productsDescription: 'Artikelen en producten uit de winkelcatalogus.',
+      orders: 'Orders',
+      ordersDescription: 'Klantorders, totalen en regelitems.',
+      customers: 'Klanten',
+      customersDescription: 'Winkelklanten als personen in WeldSuite.',
+    },
     status: {
       pending: 'Wacht op autorisatie',
       active: 'Actief',
