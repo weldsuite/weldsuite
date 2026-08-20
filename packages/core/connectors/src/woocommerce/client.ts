@@ -7,7 +7,13 @@
  * WooCommerce → Settings → Advanced → REST API.
  */
 
-import { classifyStatus, ConnectorApiError, parseRetryAfter } from '../types';
+import {
+  classifyStatus,
+  ConnectorApiError,
+  parseRetryAfter,
+  type ExternalProductRef,
+  type OutboundCatalogProduct,
+} from '../types';
 
 export interface WooCommerceCredentials {
   storeUrl: string;
@@ -204,6 +210,40 @@ export class WooCommerceClient {
     return data;
   }
 
+  /**
+   * Match an existing simple product by SKU so we can link instead of
+   * creating a duplicate listing when the merchant already has the item.
+   */
+  async findProductBySku(sku: string): Promise<ExternalProductRef | null> {
+    const trimmed = sku.trim();
+    if (!trimmed) return null;
+    const { data } = await this.request<Array<Record<string, unknown>>>('products', {
+      search: { sku: trimmed, per_page: '1' },
+    });
+    const match = Array.isArray(data) ? data[0] : undefined;
+    if (!match || match.id === undefined || match.id === null) return null;
+    return {
+      id: String(match.id),
+      url: typeof match.permalink === 'string' ? match.permalink : null,
+    };
+  }
+
+  async createProduct(product: OutboundCatalogProduct): Promise<ExternalProductRef> {
+    const { data } = await this.request<Record<string, unknown>>('products', {
+      method: 'POST',
+      body: toWooProductBody(product),
+    });
+    return wooProductRef(data, this.storeUrl);
+  }
+
+  async updateProduct(id: string, product: OutboundCatalogProduct): Promise<ExternalProductRef> {
+    const { data } = await this.request<Record<string, unknown>>(`products/${id}`, {
+      method: 'PUT',
+      body: toWooProductBody(product),
+    });
+    return wooProductRef(data, this.storeUrl);
+  }
+
   async getOrder(id: string) {
     const { data } = await this.request<Record<string, unknown>>(`orders/${id}`);
     return data;
@@ -236,6 +276,43 @@ export class WooCommerceClient {
   async deleteWebhook(id: string): Promise<void> {
     await this.request(`webhooks/${id}`, { method: 'DELETE', search: { force: 'true' } });
   }
+}
+
+function toWooProductBody(product: OutboundCatalogProduct): Record<string, unknown> {
+  const images = (product.images ?? [])
+    .filter((img) => img.url)
+    .map((img) => ({ src: img.url, alt: img.altText || undefined }));
+  return {
+    name: product.name,
+    type: 'simple',
+    status: product.status === 'active' ? 'publish' : 'draft',
+    description: product.description ?? '',
+    short_description: product.shortDescription ?? '',
+    sku: product.sku?.trim() || undefined,
+    regular_price: product.price,
+    slug: product.slug || undefined,
+    weight: product.weight || undefined,
+    dimensions:
+      product.length || product.width || product.height
+        ? {
+            length: product.length ?? '',
+            width: product.width ?? '',
+            height: product.height ?? '',
+          }
+        : undefined,
+    images: images.length ? images : undefined,
+  };
+}
+
+function wooProductRef(data: Record<string, unknown>, storeUrl: string): ExternalProductRef {
+  const id = data.id !== undefined && data.id !== null ? String(data.id) : '';
+  const url =
+    typeof data.permalink === 'string'
+      ? data.permalink
+      : id
+        ? `${storeUrl}/?p=${id}`
+        : null;
+  return { id, url };
 }
 
 export function createWooCommerceClient(

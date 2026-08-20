@@ -40,6 +40,30 @@ export function classifyStatus(status: number): ConnectorErrorKind {
   return 'permanent';
 }
 
+/** Catalogue product pushed from WeldCommerce onto an external store. */
+export interface OutboundCatalogProduct {
+  name: string;
+  description?: string | null;
+  shortDescription?: string | null;
+  sku?: string | null;
+  slug?: string | null;
+  price: string;
+  status: string;
+  vendor?: string | null;
+  productType?: string | null;
+  images?: Array<{ url: string; altText?: string }>;
+  weight?: string | null;
+  length?: string | null;
+  width?: string | null;
+  height?: string | null;
+}
+
+/** Remote listing created or matched during an outbound product push. */
+export interface ExternalProductRef {
+  id: string;
+  url: string | null;
+}
+
 export function parseRetryAfter(header: string | null, now: number = Date.now()): number | undefined {
   if (!header) return undefined;
   const trimmed = header.trim();
