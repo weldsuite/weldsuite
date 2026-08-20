@@ -140,6 +140,61 @@ app.use('*', cors());
 app.route('/webhooks', githubAppWebhookRoutes);
 
 /**
+ * WooCommerce application authentication callback. The store POSTs generated
+ * REST API keys here (HTTPS). KV `wooauth:{user_id}` maps the grant onto a
+ * pending connection; ingest happens in app-api.
+ */
+app.post('/webhooks/woocommerce/auth', async (c) => {
+  const rawBody = await c.req.text();
+  let userId: string | null = null;
+  try {
+    const parsed = JSON.parse(rawBody) as { user_id?: unknown };
+    userId = typeof parsed.user_id === 'string' ? parsed.user_id : parsed.user_id != null ? String(parsed.user_id) : null;
+  } catch {
+    return c.json({ error: 'Invalid JSON' }, 400);
+  }
+  if (!userId) return c.json({ error: 'Missing user_id' }, 400);
+
+  const cached = await c.env.WORKSPACE_CACHE.get(`wooauth:${userId}`);
+  if (!cached) {
+    return c.json({ error: 'Unknown or expired WooCommerce auth' }, 404);
+  }
+
+  let entry: { workspaceId: string; clerkOrgId?: string };
+  try {
+    entry = JSON.parse(cached) as { workspaceId: string; clerkOrgId?: string };
+  } catch {
+    return c.json({ error: 'Corrupt WooCommerce auth mapping' }, 500);
+  }
+
+  if (!c.env.APP_API) {
+    console.error('[Webhook/woocommerce-auth] APP_API binding missing');
+    return c.json({ error: 'WooCommerce auth ingest unavailable' }, 503);
+  }
+
+  const headers = new Headers({
+    'Content-Type': c.req.header('content-type') || 'application/json',
+    'X-Internal-Secret': c.env.INTERNAL_API_SECRET || '',
+    'X-Internal-Workspace-Id': entry.workspaceId,
+  });
+  if (entry.clerkOrgId) headers.set('X-Workspace-Id', entry.clerkOrgId);
+
+  const res = await c.env.APP_API.fetch(
+    new Request('https://internal/api/integrations/woocommerce-auth', {
+      method: 'POST',
+      headers,
+      body: rawBody,
+    }),
+  );
+
+  const body = await res.text();
+  return new Response(body, {
+    status: res.status,
+    headers: { 'Content-Type': res.headers.get('content-type') || 'application/json' },
+  });
+});
+
+/**
  * WooCommerce / Shopify push webhooks. KV tells us which tenant; ingest happens
  * in app-api so this worker never opens a tenant database on a timer.
  */

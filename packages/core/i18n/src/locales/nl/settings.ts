@@ -707,7 +707,7 @@ export const settings = {
         title: 'WooCommerce',
         description: 'Importeer producten, orders en klanten uit een of meer WooCommerce-winkels.',
         overview:
-          'Verbind een winkel met de REST API-consumersleutel. Na de eerste import pusht WooCommerce wijzigingen via webhooks — WeldSuite pollen de database niet op een timer. Je kunt meerdere winkels verbinden; dezelfde SKU’s delen één product met een verkoopkanaal per winkel.',
+          'Vul de winkel-URL in en klik op Verbinden. Je keurt toegang goed in de winkel; WooCommerce stuurt API-sleutels naar WeldSuite (ze verschijnen nooit in de browser). Na de eerste import pusht de winkel wijzigingen via webhooks — WeldSuite pollen de database niet op een timer. Je kunt meerdere winkels verbinden; dezelfde SKU’s delen één product met een verkoopkanaal per winkel.',
       },
       shopify: {
         title: 'Shopify',

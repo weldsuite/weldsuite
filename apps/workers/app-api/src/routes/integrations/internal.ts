@@ -38,6 +38,7 @@ import {
 } from '../../services/integrations/connections';
 import { getConnectionById } from '../../services/connectors/connections';
 import { processConnectorWebhook } from '../../services/connectors/webhooks';
+import { completeWooCommerceAppAuth } from '../../services/connectors/auth';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -187,6 +188,31 @@ app.post('/connections/:id/connector-event', async (c, next: Next) => {
   } catch (err) {
     console.error('[app-api/integrations-internal] connector webhook failed:', err);
     return error.internal(c, 'Failed to ingest connector webhook');
+  }
+});
+
+// ============================================================================
+// POST /woocommerce-auth — WooCommerce /wc-auth/v1 callback (API keys JSON)
+// ============================================================================
+
+app.post('/woocommerce-auth', async (c, next: Next) => {
+  const resolved = await resolveInternal(c);
+  if (resolved.kind === 'passthrough') return next();
+  if (resolved.kind === 'response') return resolved.response;
+
+  const rawBody = await c.req.text();
+  try {
+    const result = await completeWooCommerceAppAuth({
+      db: resolved.ctx.db,
+      env: c.env,
+      clerkOrgId: resolved.ctx.clerkOrgId,
+      rawBody,
+      waitUntil: (promise) => c.executionCtx.waitUntil(promise),
+    });
+    return c.json({ data: { message: result.message } }, result.status as 200 | 400 | 404 | 500);
+  } catch (err) {
+    console.error('[app-api/integrations-internal] WooCommerce auth callback failed:', err);
+    return error.internal(c, 'Failed to complete WooCommerce connection');
   }
 });
 

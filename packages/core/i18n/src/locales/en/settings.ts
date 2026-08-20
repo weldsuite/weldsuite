@@ -707,7 +707,7 @@ export const settings = {
         title: 'WooCommerce',
         description: 'Import products, orders, and customers from one or more WooCommerce stores.',
         overview:
-          'Connect a store with its REST API consumer key. After the first import, WooCommerce pushes product, order, and customer changes over webhooks — WeldSuite does not poll the database on a timer. You can connect multiple stores; matching SKUs share one product with a sales-channel record per store.',
+          'Enter the store URL and click Connect. You approve access on the shop; WooCommerce sends API keys to WeldSuite (they never appear in the browser). After the first import, the store pushes product, order, and customer changes over webhooks — WeldSuite does not poll the database on a timer. You can connect multiple stores; matching SKUs share one product with a sales-channel record per store.',
       },
       shopify: {
         title: 'Shopify',

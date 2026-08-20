@@ -40,6 +40,8 @@ export interface ConnectorSyncDef {
   settingKey: ConnectorSyncSettingKey;
 }
 
+export type ConnectorAuthKind = 'api_key' | 'app_auth';
+
 export interface ConnectorDef {
   /** Stable WeldSuite id — also the `connector_connections.provider` value. */
   provider: string;
@@ -49,7 +51,13 @@ export interface ConnectorDef {
   /** Icon key resolved to a lucide component by the platform UI. */
   icon: string;
   auth: {
-    kind: 'api_key';
+    /**
+     * `app_auth` — merchant enters a store URL and grants access on the
+     * provider (WooCommerce `/wc-auth/v1/authorize`). Keys arrive on a
+     * server callback; we never ask for them.
+     * `api_key` — merchant pastes credentials (Shopify custom app).
+     */
+    kind: ConnectorAuthKind;
     fields: ConnectorCredentialField[];
   };
   syncs: ConnectorSyncDef[];
@@ -63,27 +71,13 @@ export const CONNECTORS: ConnectorDef[] = [
     category: 'ecommerce',
     icon: 'shopping-bag',
     auth: {
-      kind: 'api_key',
+      kind: 'app_auth',
       fields: [
         {
           key: 'storeUrl',
           label: 'Store URL',
           type: 'url',
           placeholder: 'https://yourstore.com',
-          required: true,
-        },
-        {
-          key: 'consumerKey',
-          label: 'Consumer Key',
-          type: 'secret',
-          placeholder: 'ck_...',
-          required: true,
-        },
-        {
-          key: 'consumerSecret',
-          label: 'Consumer Secret',
-          type: 'secret',
-          placeholder: 'cs_...',
           required: true,
         },
       ],

@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./catalog": "./src/catalog.ts",
     "./woocommerce": "./src/woocommerce/client.ts",
+    "./woocommerce/auth": "./src/woocommerce/auth.ts",
     "./shopify": "./src/shopify/client.ts",
     "./webhooks": "./src/webhooks.ts"
   },

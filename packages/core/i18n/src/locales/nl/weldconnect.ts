@@ -37,6 +37,9 @@ export const weldconnect = {
     connectWindowBlocked: 'Sta pop-ups toe om het verbinden af te ronden.',
     connected: 'Verbonden',
     connectFailed: 'Kon de verbinding niet starten',
+    enterStoreUrl: 'Vul eerst de winkel-URL in',
+    authReturned: 'Winkel verbonden. De import start op de achtergrond.',
+    authDenied: 'Toegang is niet verleend in de winkel.',
     disconnected: 'Connector losgekoppeld',
     disconnectFailed: 'Kon de connector niet loskoppelen',
     syncStarted: 'Synchronisatie gestart — records volgen zo',
@@ -55,6 +58,8 @@ export const weldconnect = {
       title: 'Wat synchroniseren',
       description: 'Kies welke objecten deze koppeling importeert. Je kunt dit later altijd wijzigen.',
       connectDescription: 'Vul de winkelgegevens in en kies daarna welke objecten je wilt synchroniseren.',
+      connectDescriptionAppAuth:
+        'Vul de winkel-URL in en klik op Verbinden. Je keurt toegang goed in de winkel — we vragen nooit om API-sleutels.',
       save: 'Instellingen opslaan',
       saved: 'Synchronisatie-instellingen opgeslagen',
       saveFailed: 'Kon synchronisatie-instellingen niet opslaan',

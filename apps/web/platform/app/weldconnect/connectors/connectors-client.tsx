@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
   CheckCircle2,
@@ -50,6 +51,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Link } from '@/lib/router';
 import {
   useConnectConnector,
+  useAuthorizeConnector,
   useConnectorCatalog,
   useConnectorConnection,
   useConnectorSyncRuns,
@@ -74,6 +76,19 @@ function getIcon(key: string): React.ElementType {
 }
 
 const EMPTY_CATALOG: ConnectorCatalogEntry[] = [];
+
+export function consumeWooCommerceAuthReturn(
+  copy: { authReturned: string; authDenied: string },
+  onSettled?: () => void,
+): void {
+  const params = new URLSearchParams(window.location.search);
+  const success = params.get('success');
+  if (success === null) return;
+  if (success === '1') toast.success(copy.authReturned);
+  else toast.error(copy.authDenied);
+  window.history.replaceState({}, '', window.location.pathname + window.location.hash);
+  onSettled?.();
+}
 
 const STATUS_CLASSES: Record<string, string> = {
   active: 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-300 border-green-200 dark:border-green-800',
@@ -148,11 +163,14 @@ export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
   const { t } = useI18n();
   const tc = t.weldconnect.connectors;
   const connect = useConnectConnector();
+  const authorize = useAuthorizeConnector();
   const test = useTestConnector();
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [enabledSyncs, setEnabledSyncs] = useState<string[]>(['products', 'orders', 'customers']);
 
   const fields = connector?.auth.fields ?? [];
+  const isAppAuth = connector?.auth.kind === 'app_auth';
+  const busy = connect.isPending || authorize.isPending;
 
   const handleOpenChange = (open: boolean) => {
     if (!open) {
@@ -175,6 +193,33 @@ export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
 
   const handleConnect = () => {
     if (!connector) return;
+    if (isAppAuth) {
+      const storeUrl = credentials.storeUrl?.trim();
+      if (!storeUrl) {
+        toast.error(tc.enterStoreUrl);
+        return;
+      }
+      authorize.mutate(
+        {
+          provider: 'woocommerce',
+          storeUrl,
+          enabledSyncs,
+          returnUrl: `${window.location.origin}${window.location.pathname}`,
+        },
+        {
+          onSuccess: (result) => {
+            const url = result.data.authorizeUrl;
+            if (!url) {
+              toast.error(tc.connectFailed);
+              return;
+            }
+            window.location.assign(url);
+          },
+          onError: (err) => toast.error(err instanceof Error ? err.message : tc.connectFailed),
+        },
+      );
+      return;
+    }
     connect.mutate(
       { provider: connector.provider, credentials, enabledSyncs },
       {
@@ -192,7 +237,9 @@ export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{connector ? `${tc.connect} ${connector.label}` : tc.connect}</DialogTitle>
-          <DialogDescription>{tc.settings.connectDescription}</DialogDescription>
+          <DialogDescription>
+            {isAppAuth ? tc.settings.connectDescriptionAppAuth : tc.settings.connectDescription}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
@@ -217,13 +264,15 @@ export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
           </div>
         </div>
 
-        <DialogFooter className="gap-2 sm:justify-between">
-          <Button variant="outline" onClick={handleTest} disabled={test.isPending || connect.isPending}>
-            {test.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-            {tc.testConnection}
-          </Button>
-          <Button onClick={handleConnect} disabled={connect.isPending}>
-            {connect.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+        <DialogFooter className={isAppAuth ? 'gap-2' : 'gap-2 sm:justify-between'}>
+          {isAppAuth ? null : (
+            <Button variant="outline" onClick={handleTest} disabled={test.isPending || busy}>
+              {test.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+              {tc.testConnection}
+            </Button>
+          )}
+          <Button onClick={handleConnect} disabled={busy}>
+            {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
             {tc.connect}
           </Button>
         </DialogFooter>
@@ -524,8 +573,18 @@ export function ConnectorsClient() {
   const [pendingConnect, setPendingConnect] = useState<ConnectorCatalogEntry | null>(null);
   const [pendingDisconnect, setPendingDisconnect] = useState<ConnectorConnection | null>(null);
 
+  const queryClient = useQueryClient();
   const { data, isLoading } = useConnectorCatalog();
   const disconnect = useDisconnectConnector();
+
+  useEffect(() => {
+    consumeWooCommerceAuthReturn(
+      { authReturned: tc.authReturned, authDenied: tc.authDenied },
+      () => {
+        void queryClient.invalidateQueries({ queryKey: ['connectors'] });
+      },
+    );
+  }, [queryClient, tc.authReturned, tc.authDenied]);
 
   useBreadcrumbs([
     { label: t.weldconnect.title, href: '/weldconnect' },

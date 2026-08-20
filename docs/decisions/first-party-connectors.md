@@ -19,9 +19,15 @@ call ourselves. Credentials are stored encrypted on `connector_connections`.
 The tenant chooses **on the connection** which objects to sync (products,
 orders, customers, …).
 
-WooCommerce is the first connector: store URL + REST API consumer key/secret,
-inbound sync into WeldCommerce products, orders, and people. Shopify custom apps
-(Admin API token + API secret) are the second.
+WooCommerce is the first connector. Merchants enter **only the store URL** and
+click Connect. We send them to WooCommerce's Application Authentication Endpoint
+(`{store}/wc-auth/v1/authorize`, scope `read_write`). After they grant access,
+the shop POSTs `{ consumer_key, consumer_secret }` to our HTTPS callback
+(`POST /webhooks/woocommerce/auth`); the browser return never carries secrets.
+This is **not OAuth 2.0**. Pasting keys generated under WooCommerce → Settings →
+Advanced → REST API still works as a fallback on `POST /connectors/connect`.
+
+Shopify custom apps (Admin API token + API secret) are the second connector.
 
 ### Multi-store
 
@@ -55,9 +61,11 @@ the webhook-worker poll cron (`*/10`). Those timers still exist for CRM OAuth
 connections and Sheets/Gmail workflow polls; they must not grow a connector
 sweep. Do not add `woocommerce` or `shopify` to `SYNCABLE_PROVIDERS`.
 
-Local `wrangler` has no public HTTPS URL, so webhook registration is skipped with
-a warning; connect still succeeds and Sync now covers import until the store can
-reach WeldSuite.
+Local `wrangler` has no public HTTPS URL. WooCommerce **refuses a non-HTTPS
+callback**, so `POST /connectors/authorize` returns 400 until
+`CONNECTOR_WEBHOOK_BASE_URL` points at the public `integration-webhooks` host.
+Webhook registration on connect is also skipped with a warning when the delivery
+URL is `http://`; Sync now covers import until the store can reach WeldSuite.
 
 ## Consequences
 

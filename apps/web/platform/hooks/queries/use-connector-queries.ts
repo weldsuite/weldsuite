@@ -61,7 +61,7 @@ export interface ConnectorCatalogEntry {
   description: string;
   category: string;
   icon: string;
-  auth: { kind: 'api_key'; fields: ConnectorAuthField[] };
+  auth: { kind: 'api_key' | 'app_auth'; fields: ConnectorAuthField[] };
   syncs: ConnectorSyncDef[];
   connections: ConnectorConnection[];
   connectionCount: number;
@@ -149,6 +149,26 @@ function invalidateConnectorQueries(queryClient: ReturnType<typeof useQueryClien
     void queryClient.invalidateQueries({ queryKey: connectorKeys.connection(connectionId) });
     void queryClient.invalidateQueries({ queryKey: connectorKeys.runs(connectionId) });
   }
+}
+
+export interface AuthorizeConnectorInput {
+  provider: 'woocommerce';
+  storeUrl: string;
+  displayName?: string;
+  enabledSyncs: string[];
+  returnUrl: string;
+}
+
+export function useAuthorizeConnector() {
+  const { getClient } = useAppApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: AuthorizeConnectorInput) => {
+      const client = await getClient();
+      return client.post<{ data: { authorizeUrl: string; connectionId: string } }>('/connectors/authorize', input);
+    },
+    onSuccess: () => invalidateConnectorQueries(queryClient),
+  });
 }
 
 export function useTestConnector() {

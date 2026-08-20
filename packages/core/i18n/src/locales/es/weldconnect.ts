@@ -37,6 +37,9 @@ export const weldconnect = {
     connectWindowBlocked: 'Permite las ventanas emergentes para completar la conexión.',
     connected: 'Conectado',
     connectFailed: 'No se pudo iniciar la conexión',
+    enterStoreUrl: 'Introduce primero la URL de la tienda',
+    authReturned: 'Tienda conectada. La importación empieza en segundo plano.',
+    authDenied: 'No se concedió acceso en la tienda.',
     disconnected: 'Conector desconectado',
     disconnectFailed: 'No se pudo desconectar el conector',
     syncStarted: 'Sincronización iniciada — los registros llegarán en breve',
@@ -55,6 +58,8 @@ export const weldconnect = {
       title: 'Qué sincronizar',
       description: 'Elige qué objetos debe importar esta conexión. Puedes cambiarlo en cualquier momento.',
       connectDescription: 'Introduce las credenciales de la tienda y elige qué objetos sincronizar.',
+      connectDescriptionAppAuth:
+        'Introduce la URL de la tienda y pulsa Conectar. Autorizarás el acceso en la tienda — no te pedimos claves de API.',
       save: 'Guardar ajustes',
       saved: 'Ajustes de sincronización guardados',
       saveFailed: 'No se pudieron guardar los ajustes de sincronización',
