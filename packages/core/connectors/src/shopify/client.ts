@@ -5,7 +5,14 @@
  * domain. Webhook HMAC uses the custom-app API secret (`shpss_…`).
  */
 
-import { bindFetch, classifyStatus, ConnectorApiError, parseRetryAfter } from '../types';
+import {
+  bindFetch,
+  classifyStatus,
+  ConnectorApiError,
+  parseRetryAfter,
+  type ExternalProductRef,
+  type OutboundCatalogProduct,
+} from '../types';
 
 export const SHOPIFY_API_VERSION = '2024-10';
 
@@ -193,6 +200,52 @@ export class ShopifyClient {
     return data.product;
   }
 
+  /**
+   * SKU lookup goes through GraphQL because Admin REST cannot filter products
+   * by variant SKU. The numeric id is what webhooks and REST writes use.
+   */
+  async findProductBySku(sku: string): Promise<ExternalProductRef | null> {
+    const trimmed = sku.trim();
+    if (!trimmed) return null;
+    const { data } = await this.request<{
+      data?: {
+        products?: {
+          edges?: Array<{ node: { id: string; handle?: string | null; onlineStoreUrl?: string | null } }>;
+        };
+      };
+    }>('graphql.json', {
+      method: 'POST',
+      body: {
+        query:
+          'query($q: String!) { products(first: 1, query: $q) { edges { node { id handle onlineStoreUrl } } } }',
+        variables: { q: `sku:${trimmed}` },
+      },
+    });
+    const node = data?.data?.products?.edges?.[0]?.node;
+    if (!node?.id) return null;
+    const id = shopifyGidToId(node.id);
+    const url =
+      (typeof node.onlineStoreUrl === 'string' && node.onlineStoreUrl) ||
+      (node.handle ? `${this.storeUrl}/products/${node.handle}` : null);
+    return { id, url };
+  }
+
+  async createProduct(product: OutboundCatalogProduct): Promise<ExternalProductRef> {
+    const { data } = await this.request<{ product: Record<string, unknown> }>('products.json', {
+      method: 'POST',
+      body: { product: toShopifyProductBody(product) },
+    });
+    return shopifyProductRef(data.product, this.storeUrl);
+  }
+
+  async updateProduct(id: string, product: OutboundCatalogProduct): Promise<ExternalProductRef> {
+    const { data } = await this.request<{ product: Record<string, unknown> }>(`products/${id}.json`, {
+      method: 'PUT',
+      body: { product: toShopifyProductBody(product) },
+    });
+    return shopifyProductRef(data.product, this.storeUrl);
+  }
+
   async getOrder(id: string) {
     const { data } = await this.request<{ order: Record<string, unknown> }>(`orders/${id}.json`);
     return data.order;
@@ -214,6 +267,42 @@ export class ShopifyClient {
   async deleteWebhook(id: string): Promise<void> {
     await this.request(`webhooks/${id}.json`, { method: 'DELETE' });
   }
+}
+
+function toShopifyProductBody(product: OutboundCatalogProduct): Record<string, unknown> {
+  const images = (product.images ?? [])
+    .filter((img) => img.url)
+    .map((img) => ({ src: img.url, alt: img.altText || undefined }));
+  return {
+    title: product.name,
+    body_html: product.description ?? '',
+    vendor: product.vendor || undefined,
+    product_type: product.productType || undefined,
+    handle: product.slug || undefined,
+    status: product.status === 'active' ? 'active' : 'draft',
+    variants: [
+      {
+        price: product.price,
+        sku: product.sku?.trim() || undefined,
+        weight: product.weight ? Number(product.weight) : undefined,
+      },
+    ],
+    images: images.length ? images : undefined,
+  };
+}
+
+function shopifyGidToId(gid: string): string {
+  const parts = gid.split('/');
+  return parts[parts.length - 1] || gid;
+}
+
+function shopifyProductRef(product: Record<string, unknown> | undefined, storeUrl: string): ExternalProductRef {
+  const id = product?.id !== undefined && product?.id !== null ? String(product.id) : '';
+  const handle = typeof product?.handle === 'string' ? product.handle : null;
+  return {
+    id,
+    url: handle ? `${storeUrl}/products/${handle}` : null,
+  };
 }
 
 export function createShopifyClient(

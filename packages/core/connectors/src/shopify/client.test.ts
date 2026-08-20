@@ -66,4 +66,48 @@ describe('ShopifyClient', () => {
     );
     await expect(client.listProducts()).resolves.toMatchObject({ items: [] });
   });
+
+  it('creates a product and looks one up by SKU via GraphQL', async () => {
+    const calls: Array<{ url: string; method: string; body: string | undefined }> = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = String(input);
+      const method = String(init?.method ?? 'GET');
+      const body = init?.body ? String(init.body) : undefined;
+      calls.push({ url, method, body });
+      if (url.includes('graphql.json')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              products: {
+                edges: [{ node: { id: 'gid://shopify/Product/12', handle: 'helmet', onlineStoreUrl: null } }],
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify({ product: { id: 99, handle: 'helmet' } }), { status: 201 });
+    };
+
+    const client = new ShopifyClient(
+      { shopDomain: 'mystore.myshopify.com', accessToken: 'shpat_a', apiSecret: 'shpss_b' },
+      { fetchImpl },
+    );
+
+    const created = await client.createProduct({ name: 'Helmet', price: '19.00', status: 'active', sku: 'WH-1' });
+    expect(created).toEqual({ id: '99', url: 'https://mystore.myshopify.com/products/helmet' });
+    expect(calls[0]?.method).toBe('POST');
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toMatchObject({
+      product: {
+        title: 'Helmet',
+        status: 'active',
+        variants: [{ price: '19.00', sku: 'WH-1' }],
+      },
+    });
+
+    const found = await client.findProductBySku('WH-1');
+    expect(found).toEqual({ id: '12', url: 'https://mystore.myshopify.com/products/helmet' });
+    expect(calls[1]?.url).toContain('/admin/api/2024-10/graphql.json');
+    expect(await client.findProductBySku('')).toBeNull();
+  });
 });

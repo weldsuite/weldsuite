@@ -230,4 +230,36 @@ describe('WooCommerceClient', () => {
     );
     await expect(client.listProducts()).resolves.toMatchObject({ items: [] });
   });
+
+  it('creates a product and looks one up by SKU', async () => {
+    const calls: Array<{ url: string; method: string; body: string | undefined }> = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = String(input);
+      calls.push({ url, method: String(init?.method ?? 'GET'), body: init?.body ? String(init.body) : undefined });
+      if (url.includes('sku=WH-1')) {
+        return new Response(JSON.stringify([{ id: 12, permalink: 'https://shop.example/?p=12' }]), { status: 200 });
+      }
+      return new Response(JSON.stringify({ id: 99, permalink: 'https://shop.example/?p=99' }), { status: 201 });
+    };
+
+    const client = new WooCommerceClient(
+      { storeUrl: 'https://shop.example', consumerKey: 'ck_a', consumerSecret: 'cs_b' },
+      { fetchImpl },
+    );
+
+    const created = await client.createProduct({ name: 'Helmet', price: '19.00', status: 'active', sku: 'WH-1' });
+    expect(created).toEqual({ id: '99', url: 'https://shop.example/?p=99' });
+    expect(calls[0]?.method).toBe('POST');
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toMatchObject({
+      name: 'Helmet',
+      type: 'simple',
+      status: 'publish',
+      sku: 'WH-1',
+      regular_price: '19.00',
+    });
+
+    const found = await client.findProductBySku('WH-1');
+    expect(found).toEqual({ id: '12', url: 'https://shop.example/?p=12' });
+    expect(await client.findProductBySku('  ')).toBeNull();
+  });
 });

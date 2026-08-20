@@ -191,4 +191,96 @@ describe('/api/products · pglite integration', () => {
     const listBody = (await listRes.json()) as { data: Array<{ externalId: string }> };
     expect(listBody.data.map((row) => row.externalId)).toEqual(['12']);
   });
+
+  it('GET / includes sales channels on each product', async () => {
+    const { request } = createTestApp('/api/products', productsRoutes, {
+      context: { permissions: permissions('products:create', 'products:read'), tenantDb: db },
+    });
+
+    const created = await request('/api/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Listed hat', slug: 'listed-hat-1' }),
+    });
+    const { data: product } = (await created.json()) as { data: { id: string } };
+
+    await db.insert(schema.connectorConnections).values({
+      id: 'conn_list_ch',
+      provider: 'shopify',
+      displayName: 'Shopify shop',
+      status: 'active',
+      externalAccountId: 'shop.myshopify.com',
+    });
+    await db.insert(schema.productSalesChannels).values({
+      id: 'psch_hat_1',
+      productId: product.id,
+      connectionId: 'conn_list_ch',
+      provider: 'shopify',
+      displayName: 'Shopify shop',
+      externalId: '88',
+      status: 'active',
+    });
+
+    const res = await request('/api/products?search=Listed%20hat');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: Array<{ id: string; salesChannels: Array<{ displayName: string | null }> }>;
+    };
+    const row = body.data.find((p) => p.id === product.id);
+    expect(row?.salesChannels.map((c) => c.displayName)).toEqual(['Shopify shop']);
+  });
+
+  it('GET /sales-channel-targets lists active ecommerce connections', async () => {
+    const { request } = createTestApp('/api/products', productsRoutes, {
+      context: { permissions: permissions('products:read'), tenantDb: db },
+    });
+    await db.insert(schema.connectorConnections).values({
+      id: 'conn_target_1',
+      provider: 'woocommerce',
+      displayName: 'Target store',
+      status: 'active',
+      externalAccountId: 'https://target.example',
+    });
+    const res = await request('/api/products/sales-channel-targets');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ id: string; displayName: string | null }> };
+    expect(body.data.some((row) => row.id === 'conn_target_1')).toBe(true);
+  });
+
+  it('DELETE /:id/sales-channels/:channelId unlinks locally', async () => {
+    const { request } = createTestApp('/api/products', productsRoutes, {
+      context: { permissions: permissions('products:create', 'products:read', 'products:update'), tenantDb: db },
+    });
+
+    const created = await request('/api/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Unlink me', slug: 'unlink-me-1' }),
+    });
+    const { data: product } = (await created.json()) as { data: { id: string } };
+
+    await db.insert(schema.connectorConnections).values({
+      id: 'conn_unlink',
+      provider: 'woocommerce',
+      displayName: 'Unlink store',
+      status: 'active',
+      externalAccountId: 'https://unlink.example',
+    });
+    await db.insert(schema.productSalesChannels).values({
+      id: 'psch_unlink_1',
+      productId: product.id,
+      connectionId: 'conn_unlink',
+      provider: 'woocommerce',
+      displayName: 'Unlink store',
+      externalId: '77',
+      status: 'active',
+    });
+
+    const res = await request(`/api/products/${product.id}/sales-channels/psch_unlink_1`, { method: 'DELETE' });
+    expect(res.status).toBe(204);
+
+    const listRes = await request(`/api/products/${product.id}/sales-channels`);
+    const listBody = (await listRes.json()) as { data: Array<{ id: string }> };
+    expect(listBody.data).toHaveLength(0);
+  });
 });

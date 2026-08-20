@@ -18,17 +18,54 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
+import { z } from 'zod';
 import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { createProductSchema, updateProductSchema } from '@weldsuite/core-api-client/schemas/products';
+import { ConnectorApiError } from '@weldsuite/connectors';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '../../db';
+import {
+  attachSalesChannelsToProducts,
+  listSalesChannelTargets,
+  ProductSalesChannelError,
+  publishProductToSalesChannel,
+  unlinkProductSalesChannel,
+} from '../../services/connectors/publish-product';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.products;
+
+const addSalesChannelSchema = z.object({
+  connectionId: z.string().min(1).max(30),
+});
+
+function salesChannelError(
+  c: Parameters<typeof error.internal>[0],
+  err: unknown,
+) {
+  if (err instanceof ProductSalesChannelError) {
+    if (err.code === 'not_found') {
+      return c.json({ error: { code: 'NOT_FOUND', message: err.message } }, 404);
+    }
+    if (err.code === 'conflict') return error.conflict(c, err.message);
+    if (err.code === 'connection_inactive' || err.code === 'unsupported') {
+      return error.badRequest(c, err.message);
+    }
+    return error.internal(c, err.message);
+  }
+  if (err instanceof ConnectorApiError) {
+    if (err.kind === 'auth') {
+      return error.badRequest(c, 'Connector authorisation was rejected — check the stored credentials');
+    }
+    return error.internal(c, err.message);
+  }
+  console.error('[app-api/products] sales channel failed:', err);
+  return error.internal(c, 'Failed to update sales channels');
+}
 
 app.get('/', requirePermission('products:read'), async (c) => {
   const db = c.get('tenantDb');
@@ -64,10 +101,22 @@ app.get('/', requirePermission('products:read'), async (c) => {
     const data = hasMore ? rows.slice(0, limit) : rows;
     const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
     const totalCount = Number(countRes[0]?.count ?? 0);
-    return list(c, data, cursorPagination(totalCount, hasMore, nextCursor));
+    const withChannels = await attachSalesChannelsToProducts(db, data);
+    return list(c, withChannels, cursorPagination(totalCount, hasMore, nextCursor));
   } catch (err) {
     console.error('[app-api/products] list failed:', err);
     return error.internal(c, 'Failed to list products');
+  }
+});
+
+app.get('/sales-channel-targets', requirePermission('products:read'), async (c) => {
+  const db = c.get('tenantDb');
+  try {
+    const targets = await listSalesChannelTargets(db);
+    return success(c, targets);
+  } catch (err) {
+    console.error('[app-api/products] list sales channel targets failed:', err);
+    return error.internal(c, 'Failed to list sales channels');
   }
 });
 
@@ -140,6 +189,56 @@ app.get('/:id/sales-channels', requirePermission('products:read'), async (c) => 
   } catch (err) {
     console.error('[app-api/products] list sales channels failed:', err);
     return error.internal(c, 'Failed to list product sales channels');
+  }
+});
+
+app.post(
+  '/:id/sales-channels',
+  requirePermission('products:update'),
+  zValidator('json', addSalesChannelSchema),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const id = c.req.param('id');
+    const { connectionId } = c.req.valid('json');
+    try {
+      const channel = await publishProductToSalesChannel({
+        db,
+        env: c.env,
+        productId: id,
+        connectionId,
+      });
+      const [existing] = await db.select({ name: t.name }).from(t).where(eq(t.id, id)).limit(1);
+      publishEntityEvent({
+        c,
+        entityType: 'product',
+        entityId: id,
+        action: 'updated',
+        data: { id, name: existing?.name ?? '' },
+      });
+      return success(c, channel, 201);
+    } catch (err) {
+      return salesChannelError(c, err);
+    }
+  },
+);
+
+app.delete('/:id/sales-channels/:channelId', requirePermission('products:update'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  const channelId = c.req.param('channelId');
+  try {
+    await unlinkProductSalesChannel({ db, productId: id, channelId });
+    const [existing] = await db.select({ name: t.name }).from(t).where(eq(t.id, id)).limit(1);
+    publishEntityEvent({
+      c,
+      entityType: 'product',
+      entityId: id,
+      action: 'updated',
+      data: { id, name: existing?.name ?? '' },
+    });
+    return noContent(c);
+  } catch (err) {
+    return salesChannelError(c, err);
   }
 });
 

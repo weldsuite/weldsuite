@@ -674,12 +674,12 @@ export async function shipPickList(
       order,
       options,
     });
-    trackingNumber = announced.trackingNumber;
-    trackingUrl = announced.trackingUrl;
-    labelUrl = announced.labelUrl;
-    labelPdfBase64 = announced.labelPdfBase64;
-    carrierName = announced.carrierName;
-    shippingOptionCode = announced.shippingOptionCode;
+    trackingNumber = announced.trackingNumber ?? null;
+    trackingUrl = announced.trackingUrl ?? null;
+    labelUrl = announced.labelUrl ?? null;
+    labelPdfBase64 = announced.labelPdfBase64 ?? null;
+    carrierName = announced.carrierName ?? null;
+    shippingOptionCode = announced.shippingOptionCode ?? null;
     sendcloudParcelId = announced.sendcloudParcelId;
     sendcloudShipmentId = announced.sendcloudShipmentId;
   }
