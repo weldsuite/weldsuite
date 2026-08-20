@@ -3,15 +3,14 @@ export const weldconnect = {
   title: 'WeldConnect',
   description: 'Workflow automation — actions, triggers, workflows, executions, templates, variables, webhooks, analytics',
 
-  // Connectors (Nango-backed connector framework)
+  // Connectors (first-party connector framework)
   connectors: {
-    title: 'CRM Connectors',
+    title: 'Connectors',
     description:
-      'Sync companies, contacts, and deals from Salesforce or HubSpot into WeldCRM. This is data import — use Integrations for workflow OAuth (Slack, Gmail, …).',
-    searchPlaceholder: 'Search CRM connectors...',
-    empty: 'No CRM connectors match your search.',
-    emptyCatalog:
-      'No CRM connectors are available yet. Salesforce and HubSpot sync will appear here when enabled for your workspace.',
+      'Connect external apps and choose what to sync — products, orders, customers — on each connection. Use Integrations for workflow OAuth (Slack, Gmail, …).',
+    searchPlaceholder: 'Search connectors...',
+    empty: 'No connectors match your search.',
+    emptyCatalog: 'No connectors are available yet.',
     emptyCatalogHint: 'Looking to connect Slack or Google for workflows? Go to Integrations instead.',
     notConfigured: 'The connector framework is not configured for this environment.',
     connect: 'Connect',
@@ -21,9 +20,9 @@ export const weldconnect = {
     fullResync: 'Full resync',
     pause: 'Pause syncs',
     resume: 'Resume syncs',
-    viewDetails: 'View details',
+    viewDetails: 'Settings',
     scopes: 'Requested access',
-    syncsLabel: 'Syncs',
+    syncsLabel: 'Can sync',
     connectedOn: 'Connected {date}',
     recordsSynced: '{count} records synced',
     lastSync: 'Last sync',
@@ -41,9 +40,26 @@ export const weldconnect = {
     pauseFailed: 'Could not pause the syncs',
     resumeFailed: 'Could not resume the syncs',
     resumedToast: 'Syncs resumed',
+    testConnection: 'Test connection',
+    testSuccess: 'Connection test succeeded',
+    testFailed: 'Connection test failed',
     disconnectTitle: 'Disconnect {name}?',
     disconnectDescription:
       'Syncing stops immediately. Records already imported stay in WeldSuite, and reconnecting later updates them instead of creating duplicates.',
+    settings: {
+      title: 'What to sync',
+      description: 'Choose which objects this connection should import. You can change this at any time.',
+      connectDescription: 'Enter store credentials, then choose which objects to sync.',
+      save: 'Save settings',
+      saved: 'Sync settings saved',
+      saveFailed: 'Could not save sync settings',
+      products: 'Products',
+      productsDescription: 'Articles and products from the store catalogue.',
+      orders: 'Orders',
+      ordersDescription: 'Customer orders, totals, and line items.',
+      customers: 'Customers',
+      customersDescription: 'Store customers as people in WeldSuite.',
+    },
     status: {
       pending: 'Awaiting authorisation',
       active: 'Active',

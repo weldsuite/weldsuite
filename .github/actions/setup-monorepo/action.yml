@@ -19,11 +19,9 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Setup pnpm
-      uses: pnpm/action-setup@v4
-      with:
-        version: ${{ inputs.pnpm-version }}
-
+    # setup-node first: pnpm/action-setup's self-installer fails on the
+    # self-hosted box (exit 1) when it runs against the root-owned system Node.
+    # Corepack ships with Node 22 and writes shims into the user-owned toolcache.
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
@@ -31,6 +29,15 @@ runs:
         # Do not set cache: pnpm — setup-node hashes **/pnpm-lock.yaml and that
         # glob times out (120s) walking this monorepo on the Hetzner runners.
         # The explicit cache step below hashes only the root lockfile.
+
+    - name: Setup pnpm
+      shell: bash
+      run: |
+        set -euo pipefail
+        export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+        corepack enable
+        corepack prepare "pnpm@${{ inputs.pnpm-version }}" --activate
+        pnpm --version
 
     - name: Get pnpm store directory
       id: pnpm-cache

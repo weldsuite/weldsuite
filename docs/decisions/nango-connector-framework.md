@@ -1,8 +1,8 @@
 # Nango as the connector framework
 
-Status: **accepted** — start on Nango Cloud, keep self-hosting one env var away.
+Status: **superseded** by `first-party-connectors.md` (2026-08-19).
 Date: 2026-07-28
-Scope: WeldConnect connectors, first proven on Salesforce + HubSpot → WeldCRM.
+Scope: WeldConnect connectors — originally Salesforce + HubSpot via Nango; replaced by first-party clients starting with WooCommerce.
 
 ## Context
 

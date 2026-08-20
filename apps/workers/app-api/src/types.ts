@@ -346,20 +346,6 @@ export interface Env {
    */
   POSTPEER_APP_IDS?: string;
 
-  // --- Nango (WeldConnect connector framework) ---------------------------
-  /** Nango secret key. Server-side only — it never reaches a browser; the
-   *  Connect UI gets a short-lived session token instead. Unset means the
-   *  connector routes answer 503 and nothing else changes. */
-  NANGO_SECRET_KEY?: string;
-  /** Nango API base. Defaults to https://api.nango.dev (Nango Cloud); point
-   *  this at a self-hosted origin to move without touching code. */
-  NANGO_HOST?: string;
-  /** Hosted Connect UI base. Defaults to https://connect.nango.dev. */
-  NANGO_CONNECT_URL?: string;
-  /** HMAC secret for `X-Nango-Signature` on /public/nango/webhook. Without it
-   *  every webhook is rejected — the receiver has no development bypass. */
-  NANGO_WEBHOOK_SECRET?: string;
-
   // --- Cloudflare Flagship (feature flags) -------------------------------
   /** Flagship Worker binding — `env.FLAGSHIP.getBooleanValue(key, default, ctx)`.
    *  Configured via `[[flagship]]` in wrangler.toml (test/preview/production).

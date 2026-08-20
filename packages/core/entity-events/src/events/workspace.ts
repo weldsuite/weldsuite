@@ -19,14 +19,12 @@ export const WORKSPACE_ENTITY_EVENTS = {
    * A tenant's connection to a third-party app through the connector
    * framework (WeldConnect › Connectors).
    *
-   * Named for the capability, not the vendor: the connector provider is a
-   * configuration choice (see docs/decisions/nango-connector-framework.md), and
-   * baking "nango" into the event catalog would make swapping it a breaking
-   * change for every workflow trigger and agent subscription.
+   * Named for the capability, not a vendor: swapping the underlying client
+   * (WooCommerce today, others later) must not be a breaking change for
+   * workflow triggers or agent subscriptions.
    *
-   * `connected` / `disconnected` are the lifecycle transitions worth acting on
-   * — "Salesforce stopped syncing" is the automation people actually want.
-   * `sync_started` fires on a manual sync, not on Nango's own schedule.
+   * `connected` / `disconnected` are the lifecycle transitions worth acting on.
+   * `sync_started` fires on a manual or initial sync.
    */
   connector_connection: [
     'created',
