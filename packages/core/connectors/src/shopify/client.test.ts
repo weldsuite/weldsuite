@@ -105,9 +105,14 @@ describe('ShopifyClient', () => {
       },
     });
 
+    await client.createProduct({ name: 'Gloves', price: '9.00', status: 'inactive' });
+    expect(JSON.parse(calls[1]?.body ?? '{}')).toMatchObject({
+      product: { title: 'Gloves', status: 'archived', variants: [{ price: '9.00' }] },
+    });
+
     const found = await client.findProductBySku('WH-1');
     expect(found).toEqual({ id: '12', url: 'https://mystore.myshopify.com/products/helmet' });
-    expect(calls[1]?.url).toContain('/admin/api/2024-10/graphql.json');
+    expect(calls[2]?.url).toContain('/admin/api/2024-10/graphql.json');
     expect(await client.findProductBySku('')).toBeNull();
   });
 });

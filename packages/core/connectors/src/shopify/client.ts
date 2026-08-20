@@ -269,6 +269,12 @@ export class ShopifyClient {
   }
 }
 
+function toShopifyStatus(status: string): 'active' | 'draft' | 'archived' {
+  if (status === 'active') return 'active';
+  if (status === 'inactive') return 'archived';
+  return 'draft';
+}
+
 function toShopifyProductBody(product: OutboundCatalogProduct): Record<string, unknown> {
   const images = (product.images ?? [])
     .filter((img) => img.url)
@@ -279,7 +285,7 @@ function toShopifyProductBody(product: OutboundCatalogProduct): Record<string, u
     vendor: product.vendor || undefined,
     product_type: product.productType || undefined,
     handle: product.slug || undefined,
-    status: product.status === 'active' ? 'active' : 'draft',
+    status: toShopifyStatus(product.status),
     variants: [
       {
         price: product.price,

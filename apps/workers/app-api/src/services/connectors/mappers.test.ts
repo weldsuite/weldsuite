@@ -24,6 +24,18 @@ describe('WooCommerce product mapper', () => {
       status: 'active',
     });
   });
+
+  it('maps a private WooCommerce product as inactive', () => {
+    const mapped = mapConnectorRecord('product', {
+      id: 13,
+      name: 'Hidden visor',
+      slug: 'hidden-visor',
+      sku: 'HV-1',
+      price: '20.00',
+      status: 'private',
+    });
+    expect(mapped?.values).toMatchObject({ status: 'inactive', price: '20.00' });
+  });
 });
 
 describe('WooCommerce order mapper', () => {

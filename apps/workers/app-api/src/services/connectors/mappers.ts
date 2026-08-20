@@ -85,8 +85,8 @@ const PRODUCT_STATUS: Record<string, string> = {
   active: 'active',
   draft: 'draft',
   pending: 'draft',
-  private: 'draft',
-  archived: 'draft',
+  private: 'inactive',
+  archived: 'inactive',
 };
 
 const ORDER_STATUS: Record<string, string> = {

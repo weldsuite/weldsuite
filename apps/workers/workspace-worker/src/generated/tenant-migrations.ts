@@ -2,7 +2,7 @@
  * AUTO-GENERATED — do not edit manually.
  * Run `pnpm bundle-migrations` to regenerate.
  *
- * Contains 183 tenant database migrations bundled for Cloudflare Workers.
+ * Contains 184 tenant database migrations bundled for Cloudflare Workers.
  * Generated from: packages/core/db/drizzle/tenant-migrations/
  */
 
@@ -190,6 +190,7 @@ export const MIGRATION_JOURNAL = [
   { idx: 180, tag: "0180_pick_list_pack_ship", when: 1787070000000 },
   { idx: 181, tag: "0181_first_party_connectors", when: 1787160000000 },
   { idx: 182, tag: "0182_connector_multi_store_webhooks", when: 1787200000000 },
+  { idx: 183, tag: "0183_product_sales_channel_price_status", when: 1787300000000 },
 ] as const;
 
 export const MIGRATION_SQL: Record<string, string> = {
@@ -10265,6 +10266,8 @@ CREATE UNIQUE INDEX "product_sales_channels_product_connection_unique" ON "produ
 CREATE INDEX "product_sales_channels_product_idx" ON "product_sales_channels" USING btree ("product_id");--> statement-breakpoint
 CREATE INDEX "product_sales_channels_connection_idx" ON "product_sales_channels" USING btree ("connection_id");--> statement-breakpoint
 CREATE INDEX "product_sales_channels_provider_idx" ON "product_sales_channels" USING btree ("provider");`,
+  "0183_product_sales_channel_price_status": `ALTER TABLE "product_sales_channels" ADD COLUMN "price" numeric(18, 2);--> statement-breakpoint
+ALTER TABLE "product_sales_channels" ADD COLUMN "listing_status" varchar(20) DEFAULT 'active' NOT NULL;`,
 };
 
 export const MIGRATION_HASHES: Record<string, string> = {
@@ -10451,4 +10454,5 @@ export const MIGRATION_HASHES: Record<string, string> = {
   "0180_pick_list_pack_ship": "0a29b9184394ca3231b692d1798651d2103cbc2e85479be1e8a1ea4e402b9cf6",
   "0181_first_party_connectors": "d93c995d2f3f076620e1bf2ab66d6aae063b6f4495c02f6cf1c98a4416f1b0c3",
   "0182_connector_multi_store_webhooks": "9d9f8f9a881773612a508238b91ae0ac8cf11946a51d539fa7ff35afbc64a4ce",
+  "0183_product_sales_channel_price_status": "4520314caa55ab6078030ec155ec3bdfd8c6a0a461e5b2a478b6b549d34f5cf7",
 };

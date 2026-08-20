@@ -10,6 +10,7 @@ import type { Env } from '../../types';
 import {
   publishProductToSalesChannel,
   unlinkProductSalesChannel,
+  updateProductSalesChannel,
   type ProductWriteClient,
 } from './publish-product';
 
@@ -59,9 +60,14 @@ describe('publishProductToSalesChannel', () => {
     });
 
     expect(createProduct).toHaveBeenCalledOnce();
+    expect(createProduct).toHaveBeenCalledWith(
+      expect.objectContaining({ price: '19.00', status: 'draft', sku: 'WH-PUB-1' }),
+    );
     expect(channel.connectionId).toBe('conn_pub_woo');
     expect(channel.externalId).toBe('99');
     expect(channel.status).toBe('active');
+    expect(channel.price).toBe('19.00');
+    expect(channel.listingStatus).toBe('draft');
 
     const mappings = await db
       .select()
@@ -99,6 +105,33 @@ describe('publishProductToSalesChannel', () => {
     expect(createProduct).not.toHaveBeenCalled();
     expect(updateProduct).toHaveBeenCalledWith('12', expect.objectContaining({ sku: 'WH-PUB-2' }));
     expect(channel.externalId).toBe('12');
+  });
+
+  it('pushes a channel-specific price and listing status', async () => {
+    await db.insert(schema.products).values({
+      id: 'prod_pub_price',
+      name: 'Visor',
+      slug: 'visor-pub-price',
+      sku: 'WH-PUB-PRICE',
+      price: '19.00',
+      status: 'active',
+    });
+
+    const createProduct = vi.fn(async () => ({ id: '55', url: null }));
+    const channel = await publishProductToSalesChannel({
+      db,
+      env,
+      productId: 'prod_pub_price',
+      connectionId: 'conn_pub_woo',
+      client: fakeClient({ createProduct }),
+      listing: { price: '24.50', listingStatus: 'inactive' },
+    });
+
+    expect(createProduct).toHaveBeenCalledWith(
+      expect.objectContaining({ price: '24.50', status: 'inactive' }),
+    );
+    expect(channel.price).toBe('24.50');
+    expect(channel.listingStatus).toBe('inactive');
   });
 
   it('rejects a second add on the same connection', async () => {
@@ -157,5 +190,46 @@ describe('unlinkProductSalesChannel', () => {
       .where(eq(schema.productSalesChannels.productId, 'prod_pub_4'));
     expect(remaining).toHaveLength(0);
     expect(createProduct).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('updateProductSalesChannel', () => {
+  it('updates the remote listing price and status', async () => {
+    await db.insert(schema.products).values({
+      id: 'prod_pub_5',
+      name: 'Cap',
+      slug: 'cap-pub-5',
+      sku: 'WH-PUB-5',
+      price: '12.00',
+      status: 'active',
+    });
+
+    const updateProduct = vi.fn(async (id: string) => ({ id, url: `https://shop.example/?p=${id}` }));
+    const channel = await publishProductToSalesChannel({
+      db,
+      env,
+      productId: 'prod_pub_5',
+      connectionId: 'conn_pub_woo',
+      client: fakeClient({
+        createProduct: async () => ({ id: '51', url: 'https://shop.example/?p=51' }),
+        updateProduct,
+      }),
+    });
+
+    const updated = await updateProductSalesChannel({
+      db,
+      env,
+      productId: 'prod_pub_5',
+      channelId: channel.id,
+      listing: { price: '15.00', listingStatus: 'draft' },
+      client: fakeClient({ updateProduct }),
+    });
+
+    expect(updateProduct).toHaveBeenCalledWith(
+      '51',
+      expect.objectContaining({ price: '15.00', status: 'draft' }),
+    );
+    expect(updated.price).toBe('15.00');
+    expect(updated.listingStatus).toBe('draft');
   });
 });

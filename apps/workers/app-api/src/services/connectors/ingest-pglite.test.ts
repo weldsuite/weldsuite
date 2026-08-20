@@ -85,6 +85,8 @@ describe('connector ingest · sales channels', () => {
     expect(channels).toHaveLength(2);
     expect(channels.map((row) => row.externalId).sort()).toEqual(['11', '22']);
     expect(channels.every((row) => row.status === 'active')).toBe(true);
+    expect(channels.every((row) => row.price === '10.00')).toBe(true);
+    expect(channels.every((row) => row.listingStatus === 'active')).toBe(true);
 
     const deleteA = await ingestRecords({
       db,

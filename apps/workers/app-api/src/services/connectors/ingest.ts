@@ -293,8 +293,14 @@ async function upsertSalesChannel(args: {
   displayName: string | null | undefined;
   externalId: string;
   externalUrl: string | null;
+  price?: string | null;
+  listingStatus?: string | null;
 }): Promise<void> {
   const now = new Date();
+  const listingStatus =
+    args.listingStatus === 'active' || args.listingStatus === 'inactive' || args.listingStatus === 'draft'
+      ? args.listingStatus
+      : 'active';
   const [existing] = await args.db
     .select({ id: schema.productSalesChannels.id })
     .from(schema.productSalesChannels)
@@ -314,6 +320,8 @@ async function upsertSalesChannel(args: {
         displayName: args.displayName ?? null,
         externalUrl: args.externalUrl,
         status: 'active',
+        price: args.price ?? undefined,
+        listingStatus,
         lastSyncedAt: now,
         updatedAt: now,
       })
@@ -330,6 +338,8 @@ async function upsertSalesChannel(args: {
     externalId: args.externalId,
     externalUrl: args.externalUrl,
     status: 'active',
+    price: args.price ?? null,
+    listingStatus,
     lastSyncedAt: now,
   });
 }
@@ -451,6 +461,8 @@ export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
           displayName: args.displayName,
           externalId,
           externalUrl: permalink,
+          price: mapped.values.price != null ? String(mapped.values.price) : null,
+          listingStatus: typeof mapped.values.status === 'string' ? mapped.values.status : null,
         });
       }
 
