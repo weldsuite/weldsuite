@@ -165,7 +165,13 @@ export function ProductDialog({
             onChange={(next) => form.setValue('images', next, { shouldDirty: true })}
           />
           {isEdit && product ? (
-            <ProductSalesChannelsEditor productId={product.id} channels={salesChannels} />
+            <ProductSalesChannelsEditor
+              productId={product.id}
+              channels={salesChannels}
+              catalogPrice={product.price}
+              catalogStatus={product.status}
+              currency={product.currency}
+            />
           ) : null}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

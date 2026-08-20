@@ -69,12 +69,15 @@ export function buildProductColumns(): ColumnDef<CommerceProduct>[] {
     {
       id: 'salesChannels',
       header: t.products.salesChannels,
-      width: 'w-[220px]',
+      width: 'w-[280px]',
       render: (p) => (
         <ProductSalesChannelsEditor
           productId={p.id}
           channels={p.salesChannels ?? []}
           compact
+          catalogPrice={p.price}
+          catalogStatus={p.status}
+          currency={p.currency}
         />
       ),
     },

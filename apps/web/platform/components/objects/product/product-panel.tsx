@@ -179,7 +179,13 @@ export function ProductPanel(props: ObjectPanelComponentProps) {
     if (tabId === 'channels') {
       return (
         <div className="space-y-2 px-4 py-3">
-          <ProductSalesChannelsEditor productId={id} channels={salesChannels} />
+          <ProductSalesChannelsEditor
+            productId={id}
+            channels={salesChannels}
+            catalogPrice={product?.price}
+            catalogStatus={product?.status}
+            currency={product?.currency}
+          />
         </div>
       );
     }
@@ -255,7 +261,13 @@ export function ProductPanel(props: ObjectPanelComponentProps) {
                 {
                   label: t.products.salesChannels,
                   value: salesChannels.length
-                    ? salesChannels.map((c) => c.displayName || c.provider).join(', ')
+                    ? salesChannels
+                        .map((c) => {
+                          const name = c.displayName || c.provider;
+                          const price = formatPanelMoney(c.price, product.currency);
+                          return `${name} (${price}, ${c.listingStatus ?? 'active'})`;
+                        })
+                        .join(', ')
                     : t.products.salesChannelsNone,
                 },
                 { label: t.fields.created, value: formatPanelDate(product.createdAt) },

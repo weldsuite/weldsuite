@@ -208,6 +208,10 @@ export const commerce = {
         noSalesChannelTargets: 'Aún no hay tiendas conectadas. Conecta WooCommerce o Shopify en WeldConnect.',
         salesChannelAlreadyAdded: 'Añadido',
         salesChannelsNone: '—',
+        salesChannelPrice: 'Precio del canal',
+        salesChannelListingStatus: 'Estado del listado',
+        salesChannelUpdated: '{name} actualizado',
+        editSalesChannel: 'Editar canal de venta',
       },
 
       categories: {

@@ -39,8 +39,12 @@ export interface ProductSalesChannel {
   externalId: string;
   externalUrl: string | null;
   status: 'active' | 'disconnected' | 'deleted_remote';
+  price: string | null;
+  listingStatus: 'active' | 'inactive' | 'draft';
   lastSyncedAt: string | null;
 }
+
+export type SalesChannelListingStatus = ProductSalesChannel['listingStatus'];
 
 /** A product as rendered by the WeldCommerce catalogue grid. */
 export type CommerceProduct = WeldstashProduct & {
@@ -268,11 +272,48 @@ export function useAddProductSalesChannel() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ productId, connectionId }: { productId: string; connectionId: string }) => {
+    mutationFn: async ({
+      productId,
+      connectionId,
+      price,
+      listingStatus,
+    }: {
+      productId: string;
+      connectionId: string;
+      price?: string;
+      listingStatus?: SalesChannelListingStatus;
+    }) => {
       const client = await getClient();
       return client.post<DataResponse<ProductSalesChannel>>(`/products/${productId}/sales-channels`, {
         connectionId,
+        price,
+        listingStatus,
       });
+    },
+    onSuccess: (_, vars) => invalidateProductSalesChannels(qc, vars.productId),
+  });
+}
+
+export function useUpdateProductSalesChannel() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      productId,
+      channelId,
+      price,
+      listingStatus,
+    }: {
+      productId: string;
+      channelId: string;
+      price?: string;
+      listingStatus?: SalesChannelListingStatus;
+    }) => {
+      const client = await getClient();
+      return client.patch<DataResponse<ProductSalesChannel>>(
+        `/products/${productId}/sales-channels/${channelId}`,
+        { price, listingStatus },
+      );
     },
     onSuccess: (_, vars) => invalidateProductSalesChannels(qc, vars.productId),
   });
