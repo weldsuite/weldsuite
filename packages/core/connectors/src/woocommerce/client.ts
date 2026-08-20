@@ -1,9 +1,10 @@
 /**
  * WooCommerce REST API client (v3).
  *
- * Auth is HTTP Basic with the store's consumer key/secret — the same pair a
- * merchant generates under WooCommerce → Settings → Advanced → REST API.
- * There is no OAuth dance and no third-party token store.
+ * Auth is HTTP Basic with the store's consumer key/secret. Merchants grant
+ * those keys through WooCommerce's `/wc-auth/v1/authorize` endpoint (store URL
+ * + Connect); they can still paste a pair generated under
+ * WooCommerce → Settings → Advanced → REST API.
  */
 
 import { classifyStatus, ConnectorApiError, parseRetryAfter } from '../types';

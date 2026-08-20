@@ -28,8 +28,10 @@ describe('connector catalog', () => {
 
   it('exposes credential fields the UI can render as a connect form', () => {
     const woo = getConnector('woocommerce');
-    expect(woo?.auth.fields.map((f) => f.key)).toEqual(['storeUrl', 'consumerKey', 'consumerSecret']);
+    expect(woo?.auth.kind).toBe('app_auth');
+    expect(woo?.auth.fields.map((f) => f.key)).toEqual(['storeUrl']);
     const shopify = getConnector('shopify');
+    expect(shopify?.auth.kind).toBe('api_key');
     expect(shopify?.auth.fields.map((f) => f.key)).toEqual(['shopDomain', 'accessToken', 'apiSecret']);
   });
 

@@ -670,7 +670,7 @@ export const settings = {
         title: 'WooCommerce',
         description: 'Importa productos, pedidos y clientes de una o más tiendas WooCommerce.',
         overview:
-          'Conecta una tienda con su clave de consumidor de la API REST. Tras la importación inicial, WooCommerce envía cambios por webhooks. Puedes conectar varias tiendas; los SKU coincidentes comparten un producto con un canal de venta por tienda.',
+          'Introduce la URL de la tienda y pulsa Conectar. Autorizas el acceso en la tienda; WooCommerce envía las claves de API a WeldSuite (nunca aparecen en el navegador). Tras la importación inicial, la tienda envía cambios por webhooks. Puedes conectar varias tiendas; los SKU coincidentes comparten un producto con un canal de venta por tienda.',
       },
       shopify: {
         title: 'Shopify',

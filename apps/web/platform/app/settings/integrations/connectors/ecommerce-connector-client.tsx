@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Globe, FileText, Plus, Settings } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
@@ -14,7 +15,11 @@ import {
   type ConnectorCatalogEntry,
   type ConnectorConnection,
 } from '@/hooks/queries/use-connector-queries';
-import { ConnectDialog, ConnectionDetails } from '@/app/weldconnect/connectors/connectors-client';
+import {
+  ConnectDialog,
+  ConnectionDetails,
+  consumeWooCommerceAuthReturn,
+} from '@/app/weldconnect/connectors/connectors-client';
 
 function BrandLogo({ slug, alt }: { slug: string; alt: string }) {
   return (
@@ -39,6 +44,7 @@ export function EcommerceConnectorSettingsPage({
   const canConnect = canAny('integrations:create', 'weldconnect:integrations:create');
   const canManage = canAny('integrations:update', 'weldconnect:integrations:update');
 
+  const queryClient = useQueryClient();
   const { data, isLoading } = useConnectorCatalog();
   const disconnect = useDisconnectConnector();
   const [pendingConnect, setPendingConnect] = useState<ConnectorCatalogEntry | null>(null);
@@ -50,6 +56,15 @@ export function EcommerceConnectorSettingsPage({
     [data, provider],
   );
   const connections = connector?.connections ?? [];
+
+  useEffect(() => {
+    consumeWooCommerceAuthReturn(
+      { authReturned: tc.authReturned, authDenied: tc.authDenied },
+      () => {
+        void queryClient.invalidateQueries({ queryKey: ['connectors'] });
+      },
+    );
+  }, [queryClient, tc.authReturned, tc.authDenied]);
 
   const handleDisconnect = () => {
     if (!pendingDisconnect) return;
@@ -81,7 +96,7 @@ export function EcommerceConnectorSettingsPage({
           {
             label: t.settings.integrations.documentation,
             href: provider === 'woocommerce'
-              ? 'https://woocommerce.com/document/woocommerce-rest-api/'
+              ? 'https://developer.woocommerce.com/docs/apis/rest-api/authentication/#auto-generating-api-keys-using-our-application-authentication-endpoint'
               : 'https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/generate-app-access-tokens-admin',
             icon: FileText,
           },

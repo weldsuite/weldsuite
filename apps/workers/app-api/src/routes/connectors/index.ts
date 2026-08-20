@@ -39,6 +39,7 @@ import {
 } from '../../services/connectors/connections';
 import { testConnectorCredentials } from '../../services/connectors/clients';
 import { syncConnection } from '../../services/connectors/sync';
+import { startWooCommerceAppAuth } from '../../services/connectors/auth';
 import {
   deleteConnectorWebhookMapping,
   putConnectorWebhookMapping,
@@ -139,6 +140,13 @@ app.post('/connect', requirePermission('integrations:create'), zValidator('json'
   const connector = getConnector(provider);
   if (!connector) return error.badRequest(c, `Unknown connector '${provider}'`);
 
+  if (connector.auth.kind === 'app_auth' && (!credentials.consumerKey || !credentials.consumerSecret)) {
+    return error.badRequest(
+      c,
+      'Connect this store from the Connect button — WooCommerce creates the API keys after you approve access',
+    );
+  }
+
   for (const field of connector.auth.fields) {
     if ((field.required ?? true) && !credentials[field.key]?.trim()) {
       return error.badRequest(c, `${field.label} is required`);
@@ -234,6 +242,38 @@ app.post('/connect', requirePermission('integrations:create'), zValidator('json'
     return success(c, { ...sanitizeConnection(fresh ?? row), warning }, 201);
   } catch (err) {
     console.error('[app-api/connectors] connect failed:', err);
+    return connectorErrorResponse(c, err);
+  }
+});
+
+const authorizeSchema = z.object({
+  provider: z.literal('woocommerce'),
+  storeUrl: z.string().min(1).max(500),
+  displayName: z.string().min(1).max(255).optional(),
+  enabledSyncs: z.array(z.string().min(1)).optional(),
+  returnUrl: z.string().url(),
+});
+
+app.post('/authorize', requirePermission('integrations:create'), zValidator('json', authorizeSchema), async (c) => {
+  const body = c.req.valid('json');
+  const clerkOrgId = c.get('workspaceId');
+  if (!clerkOrgId) return error.orgRequired(c);
+
+  try {
+    const result = await startWooCommerceAppAuth({
+      db: c.get('tenantDb'),
+      env: c.env,
+      clerkOrgId,
+      userId: c.get('userId'),
+      storeUrl: body.storeUrl,
+      enabledSyncs: normalizeEnabledSyncs(body.provider, body.enabledSyncs),
+      displayName: body.displayName,
+      returnUrl: body.returnUrl,
+    });
+    if ('error' in result) return error.badRequest(c, result.error);
+    return success(c, result);
+  } catch (err) {
+    console.error('[app-api/connectors] authorize failed:', err);
     return connectorErrorResponse(c, err);
   }
 });

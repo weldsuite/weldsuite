@@ -37,6 +37,9 @@ export const weldconnect = {
     connectWindowBlocked: 'Allow pop-ups to finish connecting.',
     connected: 'Connected',
     connectFailed: 'Could not start the connection',
+    enterStoreUrl: 'Enter the store URL first',
+    authReturned: 'Store connected. Import starts in the background.',
+    authDenied: 'Access was not granted on the store.',
     disconnected: 'Connector disconnected',
     disconnectFailed: 'Could not disconnect the connector',
     syncStarted: 'Sync started — records arrive shortly',
@@ -55,6 +58,8 @@ export const weldconnect = {
       title: 'What to sync',
       description: 'Choose which objects this connection should import. You can change this at any time.',
       connectDescription: 'Enter store credentials, then choose which objects to sync.',
+      connectDescriptionAppAuth:
+        'Enter the store URL, then Connect. You will approve access on the shop — we never ask for API keys.',
       save: 'Save settings',
       saved: 'Sync settings saved',
       saveFailed: 'Could not save sync settings',

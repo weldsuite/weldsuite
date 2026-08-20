@@ -212,6 +212,50 @@ export async function upsertConnection(args: {
   return created!;
 }
 
+/** Row used while the merchant is on the WooCommerce grant screen. */
+export async function ensurePendingConnection(args: {
+  db: Database;
+  provider: string;
+  displayName: string;
+  userId: string;
+  enabledSyncs: string[];
+  externalAccountId: string;
+}): Promise<ConnectorConnectionRow> {
+  const now = new Date();
+  const existing = await findConnectionByProviderAccount(args.db, args.provider, args.externalAccountId);
+
+  if (existing) {
+    const revive = Boolean(existing.deletedAt) || existing.status === 'pending';
+    await args.db
+      .update(schema.connectorConnections)
+      .set({
+        displayName: args.displayName,
+        enabledSyncs: args.enabledSyncs,
+        externalAccountId: args.externalAccountId,
+        deletedAt: null,
+        disconnectedAt: null,
+        ...(revive ? { status: 'pending' as const, connectedBy: args.userId } : {}),
+        updatedAt: now,
+      })
+      .where(eq(schema.connectorConnections.id, existing.id));
+    const updated = await getConnectionById(args.db, existing.id);
+    return updated!;
+  }
+
+  const id = generateId('conn');
+  await args.db.insert(schema.connectorConnections).values({
+    id,
+    provider: args.provider,
+    displayName: args.displayName,
+    enabledSyncs: args.enabledSyncs,
+    externalAccountId: args.externalAccountId,
+    status: 'pending',
+    connectedBy: args.userId,
+  });
+  const created = await getConnectionById(args.db, id);
+  return created!;
+}
+
 export async function updateConnectionSettings(args: {
   db: Database;
   connectionId: string;
