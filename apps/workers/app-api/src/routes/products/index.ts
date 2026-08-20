@@ -34,6 +34,7 @@ import {
   ProductSalesChannelError,
   publishProductToSalesChannel,
   unlinkProductSalesChannel,
+  updateProductSalesChannel,
 } from '../../services/connectors/publish-product';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -41,6 +42,15 @@ const t = schema.products;
 
 const addSalesChannelSchema = z.object({
   connectionId: z.string().min(1).max(30),
+  price: z.union([z.string(), z.number()]).optional(),
+  listingStatus: z.enum(['active', 'inactive', 'draft']).optional(),
+});
+
+const updateSalesChannelSchema = z.object({
+  price: z.union([z.string(), z.number()]).optional(),
+  listingStatus: z.enum(['active', 'inactive', 'draft']).optional(),
+}).refine((value) => value.price !== undefined || value.listingStatus !== undefined, {
+  message: 'Provide a price or listing status',
 });
 
 function salesChannelError(
@@ -52,7 +62,7 @@ function salesChannelError(
       return c.json({ error: { code: 'NOT_FOUND', message: err.message } }, 404);
     }
     if (err.code === 'conflict') return error.conflict(c, err.message);
-    if (err.code === 'connection_inactive' || err.code === 'unsupported') {
+    if (err.code === 'connection_inactive' || err.code === 'unsupported' || err.code === 'invalid') {
       return error.badRequest(c, err.message);
     }
     return error.internal(c, err.message);
@@ -199,13 +209,14 @@ app.post(
   async (c) => {
     const db = c.get('tenantDb');
     const id = c.req.param('id');
-    const { connectionId } = c.req.valid('json');
+    const { connectionId, price, listingStatus } = c.req.valid('json');
     try {
       const channel = await publishProductToSalesChannel({
         db,
         env: c.env,
         productId: id,
         connectionId,
+        listing: { price, listingStatus },
       });
       const [existing] = await db.select({ name: t.name }).from(t).where(eq(t.id, id)).limit(1);
       publishEntityEvent({
@@ -216,6 +227,38 @@ app.post(
         data: { id, name: existing?.name ?? '' },
       });
       return success(c, channel, 201);
+    } catch (err) {
+      return salesChannelError(c, err);
+    }
+  },
+);
+
+app.patch(
+  '/:id/sales-channels/:channelId',
+  requirePermission('products:update'),
+  zValidator('json', updateSalesChannelSchema),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const id = c.req.param('id');
+    const channelId = c.req.param('channelId');
+    const listing = c.req.valid('json');
+    try {
+      const channel = await updateProductSalesChannel({
+        db,
+        env: c.env,
+        productId: id,
+        channelId,
+        listing,
+      });
+      const [existing] = await db.select({ name: t.name }).from(t).where(eq(t.id, id)).limit(1);
+      publishEntityEvent({
+        c,
+        entityType: 'product',
+        entityId: id,
+        action: 'updated',
+        data: { id, name: existing?.name ?? '' },
+      });
+      return success(c, channel);
     } catch (err) {
       return salesChannelError(c, err);
     }

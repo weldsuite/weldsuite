@@ -2,6 +2,7 @@ import {
   pgTable,
   varchar,
   timestamp,
+  numeric,
   index,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
@@ -14,8 +15,14 @@ import { connectorConnections } from './connector-connections';
  * The product row is the canonical catalogue item. This sibling record says
  * which connector it came from (or is published to) and the external id on
  * that store — so two WooCommerce shops can share one SKU without colliding.
+ *
+ * `status` is the mapping health (is the connection still live?).
+ * `listingStatus` is the storefront state of this listing (published, draft,
+ * or inactive), which can differ from the catalogue product and from other
+ * channels. `price` is the price pushed to that store.
  */
 export type ProductSalesChannelStatus = 'active' | 'disconnected' | 'deleted_remote';
+export type ProductSalesChannelListingStatus = 'active' | 'inactive' | 'draft';
 
 export const productSalesChannels = pgTable(
   'product_sales_channels',
@@ -41,6 +48,12 @@ export const productSalesChannels = pgTable(
       .notNull()
       .default('active')
       .$type<ProductSalesChannelStatus>(),
+    /** Price on this store. Null means inherit the catalogue product price. */
+    price: numeric('price', { precision: 18, scale: 2 }),
+    listingStatus: varchar('listing_status', { length: 20 })
+      .notNull()
+      .default('active')
+      .$type<ProductSalesChannelListingStatus>(),
     lastSyncedAt: timestamp('last_synced_at'),
   },
   (table) => [

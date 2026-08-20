@@ -472,6 +472,12 @@ export class WooCommerceClient {
   }
 }
 
+function toWooStatus(status: string): 'publish' | 'draft' | 'private' {
+  if (status === 'active') return 'publish';
+  if (status === 'inactive') return 'private';
+  return 'draft';
+}
+
 function toWooProductBody(product: OutboundCatalogProduct): Record<string, unknown> {
   const images = (product.images ?? [])
     .filter((img) => img.url)
@@ -479,7 +485,7 @@ function toWooProductBody(product: OutboundCatalogProduct): Record<string, unkno
   return {
     name: product.name,
     type: 'simple',
-    status: product.status === 'active' ? 'publish' : 'draft',
+    status: toWooStatus(product.status),
     description: product.description ?? '',
     short_description: product.shortDescription ?? '',
     sku: product.sku?.trim() || undefined,

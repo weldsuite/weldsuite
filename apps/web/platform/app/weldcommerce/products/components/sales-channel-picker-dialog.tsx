@@ -1,11 +1,12 @@
 /**
  * Picker for listing a product on a connected store (WooCommerce / Shopify).
  *
- * Adding a channel syncs the product to that store. Connections the product
- * is already on are shown but not selectable.
+ * Adding a channel syncs the product to that store with the chosen price and
+ * listing status. Connections the product is already on are shown but not
+ * selectable.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Check, Loader2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
@@ -16,9 +17,27 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
-import { useSalesChannelTargets } from '@/hooks/queries/use-commerce-queries';
+import { Input } from '@weldsuite/ui/components/input';
+import { Label } from '@weldsuite/ui/components/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
+import {
+  useSalesChannelTargets,
+  type SalesChannelListingStatus,
+} from '@/hooks/queries/use-commerce-queries';
 import { getTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+
+export interface AddSalesChannelPayload {
+  connectionIds: string[];
+  price: string;
+  listingStatus: SalesChannelListingStatus;
+}
+
+function toPriceInput(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === '') return '0.00';
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(2) : '0.00';
+}
 
 export function SalesChannelPickerDialog({
   open,
@@ -26,19 +45,43 @@ export function SalesChannelPickerDialog({
   existingConnectionIds,
   onConfirm,
   isSaving,
+  defaultPrice,
+  defaultListingStatus,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   existingConnectionIds: string[];
-  onConfirm: (connectionIds: string[]) => Promise<void> | void;
+  onConfirm: (payload: AddSalesChannelPayload) => Promise<void> | void;
   isSaving?: boolean;
+  defaultPrice?: string | number | null;
+  defaultListingStatus?: SalesChannelListingStatus | string | null;
 }) {
   const t = getTranslations('commerce').module;
   const tc = getTranslations('common');
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [price, setPrice] = useState(toPriceInput(defaultPrice));
+  const [listingStatus, setListingStatus] = useState<SalesChannelListingStatus>(
+    defaultListingStatus === 'inactive' || defaultListingStatus === 'draft' ? defaultListingStatus : 'active',
+  );
   const { data, isLoading } = useSalesChannelTargets(open);
   const rows = data?.data ?? [];
   const existing = useMemo(() => new Set(existingConnectionIds), [existingConnectionIds]);
+
+  useEffect(() => {
+    if (!open) return;
+    setPrice(toPriceInput(defaultPrice));
+    setListingStatus(
+      defaultListingStatus === 'inactive' || defaultListingStatus === 'draft' ? defaultListingStatus : 'active',
+    );
+  }, [open, defaultPrice, defaultListingStatus]);
+
+  const reset = () => {
+    setSelected(new Set());
+    setPrice(toPriceInput(defaultPrice));
+    setListingStatus(
+      defaultListingStatus === 'inactive' || defaultListingStatus === 'draft' ? defaultListingStatus : 'active',
+    );
+  };
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -51,8 +94,8 @@ export function SalesChannelPickerDialog({
 
   const handleConfirm = async () => {
     if (selected.size === 0) return;
-    await onConfirm([...selected]);
-    setSelected(new Set());
+    await onConfirm({ connectionIds: [...selected], price, listingStatus });
+    reset();
     onOpenChange(false);
   };
 
@@ -60,7 +103,7 @@ export function SalesChannelPickerDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (!next) setSelected(new Set());
+        if (!next) reset();
         onOpenChange(next);
       }}
     >
@@ -107,6 +150,33 @@ export function SalesChannelPickerDialog({
                 </button>
               );
             })}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-1.5">
+            <Label htmlFor="sales-channel-price">{t.products.salesChannelPrice}</Label>
+            <Input
+              id="sales-channel-price"
+              type="number"
+              min="0"
+              step="0.01"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label>{t.products.salesChannelListingStatus}</Label>
+            <Select value={listingStatus} onValueChange={(v) => setListingStatus(v as SalesChannelListingStatus)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">{t.status.active}</SelectItem>
+                <SelectItem value="draft">{t.status.draft}</SelectItem>
+                <SelectItem value="inactive">{t.status.inactive}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         <DialogFooter>

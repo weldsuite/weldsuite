@@ -22,6 +22,7 @@ export type ProductSalesChannelErrorCode =
   | 'conflict'
   | 'connection_inactive'
   | 'unsupported'
+  | 'invalid'
   | 'sync_failed';
 
 export class ProductSalesChannelError extends Error {
@@ -42,13 +43,44 @@ export interface ProductWriteClient {
 }
 
 const WRITABLE_STATUSES = new Set(['active', 'sync_error']);
+const LISTING_STATUSES = new Set(['active', 'inactive', 'draft']);
+
+export type SalesChannelListingStatus = 'active' | 'inactive' | 'draft';
+
+export interface SalesChannelListingInput {
+  price?: string | number | null;
+  listingStatus?: string | null;
+}
 
 function numericString(value: unknown): string {
   if (value === null || value === undefined || value === '') return '0';
   return String(value);
 }
 
-function toOutboundProduct(product: typeof schema.products.$inferSelect): OutboundCatalogProduct {
+function resolvePrice(value: unknown, fallback: string): string {
+  if (value === null || value === undefined || value === '') return fallback;
+  const n = typeof value === 'number' ? value : Number(String(value).replace(',', '.'));
+  if (!Number.isFinite(n) || n < 0) {
+    throw new ProductSalesChannelError('invalid', 'Price must be a non-negative number');
+  }
+  return n.toFixed(2);
+}
+
+function resolveListingStatus(value: unknown, fallback: string): SalesChannelListingStatus {
+  const raw = typeof value === 'string' && value.trim() !== '' ? value.trim() : fallback;
+  if (!LISTING_STATUSES.has(raw)) {
+    throw new ProductSalesChannelError(
+      'invalid',
+      'Listing status must be active, inactive, or draft',
+    );
+  }
+  return raw as SalesChannelListingStatus;
+}
+
+function toOutboundProduct(
+  product: typeof schema.products.$inferSelect,
+  overrides?: { price: string; listingStatus: SalesChannelListingStatus },
+): OutboundCatalogProduct {
   const images = product.images?.filter((img) => img.url) ?? [];
   if (images.length === 0 && product.featuredImageUrl) {
     images.push({ url: product.featuredImageUrl });
@@ -59,8 +91,8 @@ function toOutboundProduct(product: typeof schema.products.$inferSelect): Outbou
     shortDescription: product.shortDescription,
     sku: product.sku,
     slug: product.slug,
-    price: numericString(product.price),
-    status: product.status ?? 'draft',
+    price: overrides?.price ?? numericString(product.price),
+    status: overrides?.listingStatus ?? product.status ?? 'draft',
     vendor: product.vendor,
     productType: product.productType,
     images,
@@ -204,6 +236,8 @@ async function writeSalesChannel(args: {
   productId: string;
   connection: ConnectorConnectionRow;
   remote: ExternalProductRef;
+  price: string;
+  listingStatus: SalesChannelListingStatus;
 }): Promise<ProductSalesChannel> {
   const now = new Date();
   const stolen = await channelByExternalId(args.db, args.connection.id, args.remote.id);
@@ -214,26 +248,30 @@ async function writeSalesChannel(args: {
     );
   }
 
+  const listing = {
+    externalId: args.remote.id,
+    externalUrl: args.remote.url,
+    displayName: args.connection.displayName,
+    provider: args.connection.provider,
+    status: 'active' as const,
+    price: args.price,
+    listingStatus: args.listingStatus,
+    lastSyncedAt: now,
+    updatedAt: now,
+  };
+
   const linked = await existingChannel(args.db, args.productId, args.connection.id);
   if (linked) {
     await args.db
       .update(schema.productSalesChannels)
-      .set({
-        externalId: args.remote.id,
-        externalUrl: args.remote.url,
-        displayName: args.connection.displayName,
-        provider: args.connection.provider,
-        status: 'active',
-        lastSyncedAt: now,
-        updatedAt: now,
-      })
+      .set(listing)
       .where(eq(schema.productSalesChannels.id, linked.id));
     const [updated] = await args.db
       .select()
       .from(schema.productSalesChannels)
       .where(eq(schema.productSalesChannels.id, linked.id))
       .limit(1);
-    return updated ?? { ...linked, externalId: args.remote.id, externalUrl: args.remote.url, status: 'active' };
+    return updated ?? { ...linked, ...listing };
   }
 
   const id = generateId('psch');
@@ -241,12 +279,7 @@ async function writeSalesChannel(args: {
     id,
     productId: args.productId,
     connectionId: args.connection.id,
-    provider: args.connection.provider,
-    displayName: args.connection.displayName,
-    externalId: args.remote.id,
-    externalUrl: args.remote.url,
-    status: 'active',
-    lastSyncedAt: now,
+    ...listing,
   });
   const [inserted] = await args.db
     .select()
@@ -293,6 +326,7 @@ export async function publishProductToSalesChannel(args: {
   productId: string;
   connectionId: string;
   client?: ProductWriteClient;
+  listing?: SalesChannelListingInput;
 }): Promise<ProductSalesChannel> {
   const product = await loadProduct(args.db, args.productId);
   if (!product) {
@@ -310,7 +344,9 @@ export async function publishProductToSalesChannel(args: {
     throw new ProductSalesChannelError('conflict', 'This product is already listed on that sales channel');
   }
 
-  const payload = toOutboundProduct(product);
+  const price = resolvePrice(args.listing?.price, numericString(product.price));
+  const listingStatus = resolveListingStatus(args.listing?.listingStatus, product.status ?? 'draft');
+  const payload = toOutboundProduct(product, { price, listingStatus });
   let client: ProductWriteClient;
   try {
     client = await clientForConnection(connection, args.env, args.client);
@@ -350,6 +386,79 @@ export async function publishProductToSalesChannel(args: {
     productId: product.id,
     connection,
     remote,
+    price,
+    listingStatus,
+  });
+}
+
+/**
+ * Push a new price / listing status to an existing channel listing.
+ */
+export async function updateProductSalesChannel(args: {
+  db: Database;
+  env: Env;
+  productId: string;
+  channelId: string;
+  listing: SalesChannelListingInput;
+  client?: ProductWriteClient;
+}): Promise<ProductSalesChannel> {
+  const product = await loadProduct(args.db, args.productId);
+  if (!product) {
+    throw new ProductSalesChannelError('not_found', 'Product not found');
+  }
+
+  const [channel] = await args.db
+    .select()
+    .from(schema.productSalesChannels)
+    .where(
+      and(
+        eq(schema.productSalesChannels.id, args.channelId),
+        eq(schema.productSalesChannels.productId, args.productId),
+      ),
+    )
+    .limit(1);
+  if (!channel) {
+    throw new ProductSalesChannelError('not_found', 'Sales channel listing not found');
+  }
+
+  const connection = await getConnectionById(args.db, channel.connectionId);
+  if (!connection) {
+    throw new ProductSalesChannelError('not_found', 'Sales channel not found');
+  }
+  assertWritableConnection(connection);
+
+  const price = resolvePrice(args.listing.price, channel.price ?? numericString(product.price));
+  const listingStatus = resolveListingStatus(
+    args.listing.listingStatus,
+    channel.listingStatus || product.status || 'draft',
+  );
+  const payload = toOutboundProduct(product, { price, listingStatus });
+
+  let client: ProductWriteClient;
+  try {
+    client = await clientForConnection(connection, args.env, args.client);
+  } catch (err) {
+    if (err instanceof ConnectorApiError) {
+      throw new ProductSalesChannelError('unsupported', err.message);
+    }
+    throw err;
+  }
+
+  let remote: ExternalProductRef;
+  try {
+    remote = await client.updateProduct(channel.externalId, payload);
+  } catch (err) {
+    const message = err instanceof ConnectorApiError ? err.message : 'Failed to sync the product to the store';
+    throw new ProductSalesChannelError('sync_failed', message);
+  }
+
+  return writeSalesChannel({
+    db: args.db,
+    productId: product.id,
+    connection,
+    remote: { id: remote.id || channel.externalId, url: remote.url ?? channel.externalUrl },
+    price,
+    listingStatus,
   });
 }
 

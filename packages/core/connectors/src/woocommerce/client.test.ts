@@ -258,6 +258,10 @@ describe('WooCommerceClient', () => {
       regular_price: '19.00',
     });
 
+    const draft = await client.createProduct({ name: 'Gloves', price: '9.00', status: 'inactive' });
+    expect(draft.id).toBe('99');
+    expect(JSON.parse(calls[1]?.body ?? '{}')).toMatchObject({ status: 'private', regular_price: '9.00' });
+
     const found = await client.findProductBySku('WH-1');
     expect(found).toEqual({ id: '12', url: 'https://shop.example/?p=12' });
     expect(await client.findProductBySku('  ')).toBeNull();

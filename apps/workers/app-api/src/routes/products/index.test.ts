@@ -60,6 +60,18 @@ describe('/api/products · auth gates', () => {
     expect(res.status).toBe(403);
   });
 
+  it('PATCH /:id/sales-channels/:channelId returns 403 without products:update', async () => {
+    const { request } = createTestApp('/api/products', productsRoutes, {
+      context: { permissions: permissions('products:read') },
+    });
+    const res = await request('/api/products/prod_1/sales-channels/psch_1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ price: '9.00' }),
+    });
+    expect(res.status).toBe(403);
+  });
+
   it('DELETE /:id/sales-channels/:channelId returns 403 without products:update', async () => {
     const { request } = createTestApp('/api/products', productsRoutes, {
       context: { permissions: permissions('products:read') },
