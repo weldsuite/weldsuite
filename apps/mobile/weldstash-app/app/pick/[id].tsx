@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -39,6 +40,12 @@ export default function PickDetailScreen() {
   const [busy, setBusy] = useState(false);
   const [qty, setQty] = useState('');
   const [scannedLocation, setScannedLocation] = useState<string | null>(null);
+  const [senderId, setSenderId] = useState('');
+  const [methodCode, setMethodCode] = useState('');
+  const [weightKg, setWeightKg] = useState('1');
+  const [senders, setSenders] = useState<Array<{ id: number; name: string; enabled: boolean; isDefault: boolean }>>([]);
+  const [methods, setMethods] = useState<Array<{ code: string; name: string; enabled: boolean; isDefault: boolean }>>([]);
+  const [sendcloudConnected, setSendcloudConnected] = useState(false);
 
   const items = list?.items ?? [];
   const current = useMemo(
@@ -62,6 +69,31 @@ export default function PickDetailScreen() {
     await queryClient.invalidateQueries({ queryKey: weldstashKeys.pickList(id) });
     await queryClient.invalidateQueries({ queryKey: weldstashKeys.pickLists() });
   }, [id, queryClient]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void appApi.sendcloud
+      .get()
+      .then((res) => {
+        if (cancelled) return;
+        const data = res.data;
+        setSendcloudConnected(Boolean(data.connected));
+        const nextSenders = (data.senders ?? []).filter((row) => row.enabled);
+        const nextMethods = (data.methods ?? []).filter((row) => row.enabled);
+        setSenders(nextSenders);
+        setMethods(nextMethods);
+        const defaultSender = nextSenders.find((row) => row.isDefault) ?? nextSenders[0];
+        const defaultMethod = nextMethods.find((row) => row.isDefault) ?? nextMethods[0];
+        if (defaultSender) setSenderId(String(defaultSender.id));
+        if (defaultMethod) setMethodCode(defaultMethod.code);
+      })
+      .catch(() => {
+        if (!cancelled) setSendcloudConnected(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const confirmLine = useCallback(
     async (item: PickListItemRow, productBarcode: string, locationBarcode?: string, short = false) => {
@@ -193,7 +225,59 @@ export default function PickDetailScreen() {
 
       {status === 'packed' ? (
         <View style={styles.pad}>
-          <Button title="Ship" onPress={() => runAction(() => appApi.pickLists.ship(id!), 'Shipped')} loading={busy} />
+          {!sendcloudConnected ? (
+            <Text style={{ color: colors.muted, marginBottom: 8 }}>
+              Connect Sendcloud in Settings → Integrations before shipping.
+            </Text>
+          ) : (
+            <View style={{ gap: 8, marginBottom: 12 }}>
+              <Text style={{ color: colors.muted }}>Sender id</Text>
+              <TextInput
+                value={senderId}
+                onChangeText={setSenderId}
+                keyboardType="number-pad"
+                style={[styles.input, { color: colors.text, borderColor: colors.divider }]}
+              />
+              {senders.map((sender) => (
+                <Pressable key={sender.id} onPress={() => setSenderId(String(sender.id))}>
+                  <Text style={{ color: senderId === String(sender.id) ? colors.text : colors.muted }}>
+                    {sender.name}
+                  </Text>
+                </Pressable>
+              ))}
+              <Text style={{ color: colors.muted }}>Parcel type</Text>
+              {methods.map((method) => (
+                <Pressable key={method.code} onPress={() => setMethodCode(method.code)}>
+                  <Text style={{ color: methodCode === method.code ? colors.text : colors.muted }}>
+                    {method.name}
+                  </Text>
+                </Pressable>
+              ))}
+              <Text style={{ color: colors.muted }}>Weight (kg)</Text>
+              <TextInput
+                value={weightKg}
+                onChangeText={setWeightKg}
+                keyboardType="decimal-pad"
+                style={[styles.input, { color: colors.text, borderColor: colors.divider }]}
+              />
+            </View>
+          )}
+          <Button
+            title="Send parcel"
+            disabled={!sendcloudConnected || !senderId || !methodCode || busy}
+            onPress={() =>
+              runAction(async () => {
+                const result = await appApi.pickLists.ship(id!, {
+                  senderId: Number(senderId),
+                  shippingOptionCode: methodCode,
+                  weightKg: Number(weightKg),
+                });
+                const trackingUrl = result.data?.trackingUrl;
+                if (trackingUrl) void Linking.openURL(trackingUrl);
+              }, 'Parcel sent')
+            }
+            loading={busy}
+          />
         </View>
       ) : null}
 

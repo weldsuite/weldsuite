@@ -159,12 +159,6 @@ export const manifest: Record<string, SecretEntry[]> = {
     "REALTIME_REGISTER_CONTACT_BILLING",
     "REALTIME_REGISTER_WEBHOOK_SECRET",
     "STRIPE_SECRET_KEY",
-    // WeldConnect connectors (Nango). The secret key never leaves the worker —
-    // browsers get a short-lived Connect session token. The webhook secret
-    // verifies X-Nango-Signature on /public/nango/webhook; without it every
-    // webhook is rejected, so both must be set in the same env.
-    "NANGO_SECRET_KEY",
-    "NANGO_WEBHOOK_SECRET",
     // WeldSocial (PostPeer). The API key must hold the SAME value here as on
     // external-api and mcp-server below — all three publish through
     // @weldsuite/social-publishing against one WeldSuite-level PostPeer

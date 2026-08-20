@@ -176,7 +176,7 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
       'Templates and AI-assisted workflow drafting',
       'Execution history with step-level logs and retry',
       'Variables, secrets, and inbound webhooks',
-      'OAuth integrations and Nango CRM connectors',
+      'OAuth integrations and first-party connectors (WooCommerce, …)',
     ],
     howItWorks: [
       { title: 'Trigger', description: 'Start from an entity event, schedule, webhook, or connected app.' },

@@ -47,6 +47,39 @@ describe('/api/products · auth gates', () => {
       (await request('/api/products/prod_1', { method: 'DELETE' })).status,
     ).toBe(403);
   });
+
+  it('POST /:id/sales-channels returns 403 without products:update', async () => {
+    const { request } = createTestApp('/api/products', productsRoutes, {
+      context: { permissions: permissions('products:read') },
+    });
+    const res = await request('/api/products/prod_1/sales-channels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ connectionId: 'conn_1' }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('PATCH /:id/sales-channels/:channelId returns 403 without products:update', async () => {
+    const { request } = createTestApp('/api/products', productsRoutes, {
+      context: { permissions: permissions('products:read') },
+    });
+    const res = await request('/api/products/prod_1/sales-channels/psch_1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ price: '9.00' }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('DELETE /:id/sales-channels/:channelId returns 403 without products:update', async () => {
+    const { request } = createTestApp('/api/products', productsRoutes, {
+      context: { permissions: permissions('products:read') },
+    });
+    expect(
+      (await request('/api/products/prod_1/sales-channels/psch_1', { method: 'DELETE' })).status,
+    ).toBe(403);
+  });
 });
 
 describe('/api/products · validation', () => {

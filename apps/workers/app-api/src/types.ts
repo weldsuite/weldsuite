@@ -248,6 +248,11 @@ export interface Env {
    *  and integration-webhook-worker). Must be SET with the same value those
    *  callers send. */
   INTERNAL_API_SECRET?: string;
+  /**
+   * Public HTTPS origin of integration-webhook-worker, used as the delivery
+   * URL when registering WooCommerce / Shopify webhooks. Defaults from ENVIRONMENT.
+   */
+  CONNECTOR_WEBHOOK_BASE_URL?: string;
 
   // --- WeldMail (Cloudflare Email Routing + Email Sending) ----------------
   /** Cloudflare `[[send_email]]` binding for outbound mail. */
@@ -346,20 +351,6 @@ export interface Env {
    */
   POSTPEER_APP_IDS?: string;
 
-  // --- Nango (WeldConnect connector framework) ---------------------------
-  /** Nango secret key. Server-side only — it never reaches a browser; the
-   *  Connect UI gets a short-lived session token instead. Unset means the
-   *  connector routes answer 503 and nothing else changes. */
-  NANGO_SECRET_KEY?: string;
-  /** Nango API base. Defaults to https://api.nango.dev (Nango Cloud); point
-   *  this at a self-hosted origin to move without touching code. */
-  NANGO_HOST?: string;
-  /** Hosted Connect UI base. Defaults to https://connect.nango.dev. */
-  NANGO_CONNECT_URL?: string;
-  /** HMAC secret for `X-Nango-Signature` on /public/nango/webhook. Without it
-   *  every webhook is rejected — the receiver has no development bypass. */
-  NANGO_WEBHOOK_SECRET?: string;
-
   // --- Cloudflare Flagship (feature flags) -------------------------------
   /** Flagship Worker binding — `env.FLAGSHIP.getBooleanValue(key, default, ctx)`.
    *  Configured via `[[flagship]]` in wrangler.toml (test/preview/production).
@@ -410,6 +401,12 @@ export interface Env {
    *  OAuth redirect_uri values (helpdesk Discord/Slack callbacks). Defaults
    *  to the per-environment app-api hostname when unset. */
   APP_API_PUBLIC_URL?: string;
+  /**
+   * Public origin of the B2B commerce portal (no trailing slash), used in
+   * magic-link emails. Defaults: production `https://orders.weldsuite.org`,
+   * test `https://orders-test.weldsuite.org`, otherwise `http://localhost:3021`.
+   */
+  COMMERCE_PORTAL_URL?: string;
 }
 
 /**
@@ -427,4 +424,11 @@ export type Variables = {
   /** Set by `requireCustomObject()` — the resolved `custom_objects` row for
    *  the request's `:slug` param, so handlers never re-query it. */
   customObject?: CustomObjectRow;
+  /** B2B commerce portal buyer session (public `/public/commerce-portal` only). */
+  portalPersonId?: string;
+  portalCompanyId?: string;
+  portalPartyId?: string;
+  portalAccessId?: string;
+  portalEmail?: string;
+  portalSessionToken?: string;
 };

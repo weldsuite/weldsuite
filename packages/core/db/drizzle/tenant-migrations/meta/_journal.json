@@ -1268,6 +1268,27 @@
       "when": 1787070000000,
       "tag": "0180_pick_list_pack_ship",
       "breakpoints": true
+    },
+    {
+      "idx": 181,
+      "version": "7",
+      "when": 1787160000000,
+      "tag": "0181_first_party_connectors",
+      "breakpoints": true
+    },
+    {
+      "idx": 182,
+      "version": "7",
+      "when": 1787200000000,
+      "tag": "0182_connector_multi_store_webhooks",
+      "breakpoints": true
+    },
+    {
+      "idx": 183,
+      "version": "7",
+      "when": 1787300000000,
+      "tag": "0183_product_sales_channel_price_status",
+      "breakpoints": true
     }
   ]
 }

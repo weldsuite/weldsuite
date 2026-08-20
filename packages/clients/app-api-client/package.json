@@ -53,6 +53,7 @@
     "./schemas/parcel-settings": "./src/schemas/parcel-settings.ts",
     "./schemas/parcel-rates": "./src/schemas/parcel-rates.ts",
     "./schemas/parcel-notifications": "./src/schemas/parcel-notifications.ts",
+    "./schemas/sendcloud": "./src/schemas/sendcloud.ts",
     "./schemas/social-settings": "./src/schemas/social-settings.ts",
     "./schemas/chat-status": "./src/schemas/chat-status.ts",
     "./schemas/chat-dm": "./src/schemas/chat-dm.ts",
@@ -63,6 +64,7 @@
     "./schemas/search": "./src/schemas/search.ts",
     "./schemas/workspace-settings": "./src/schemas/workspace-settings.ts",
     "./schemas/auth-desktop": "./src/schemas/auth-desktop.ts",
+    "./schemas/commerce-portal": "./src/schemas/commerce-portal.ts",
     "./schemas/account": "./src/schemas/account.ts",
     "./schemas/feature-flags": "./src/schemas/feature-flags.ts",
     "./schemas/push-tokens": "./src/schemas/push-tokens.ts",
@@ -116,6 +118,7 @@
     "./domains/inventory": "./src/domains/inventory.ts",
     "./domains/warehouses": "./src/domains/warehouses.ts",
     "./domains/pick-lists": "./src/domains/pick-lists.ts",
+    "./domains/sendcloud": "./src/domains/sendcloud.ts",
     "./domains/search": "./src/domains/search.ts",
     "./domains/access-requests": "./src/domains/access-requests.ts"
   },

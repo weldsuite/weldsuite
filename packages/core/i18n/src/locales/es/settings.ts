@@ -666,6 +666,18 @@ export const settings = {
       disconnectConfirmTitle: '¿Desconectar {integration}?',
       disconnectConfirmDescription: '¿Estás seguro de que quieres desconectar esta integración? Tendrás que reconfigurarla si quieres usarla de nuevo.',
       comingSoon: 'Integración con {integration} próximamente',
+      woocommerce: {
+        title: 'WooCommerce',
+        description: 'Importa productos, pedidos y clientes de una o más tiendas WooCommerce.',
+        overview:
+          'Introduce la URL de la tienda y pulsa Conectar. Autorizas el acceso en la tienda; WooCommerce envía las claves de API a WeldSuite (nunca aparecen en el navegador). Tras la importación inicial, la tienda envía cambios por webhooks. Puedes conectar varias tiendas; los SKU coincidentes comparten un producto con un canal de venta por tienda.',
+      },
+      shopify: {
+        title: 'Shopify',
+        description: 'Importa productos, pedidos y clientes de una o más tiendas Shopify.',
+        overview:
+          'Conecta una app personalizada con su token de Admin API y el secreto. Tras la importación inicial, Shopify envía cambios por webhooks. Puedes conectar varias tiendas; los SKU coincidentes comparten un producto con un canal de venta por tienda.',
+      },
       configurePrintNode: 'Configurar PrintNode',
       printNodeDescription: 'Introduce tu clave de API de PrintNode para conectar tus impresoras',
       apiKey: 'Clave de API',

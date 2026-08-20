@@ -115,6 +115,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldcommerce.orders, href: '/weldcommerce/orders', icon: ShoppingCart, permission: 'orders:read' },
           // Customers are companies — see app/weldcommerce/customers/page.tsx.
           { title: t.navigation.moduleSidebar.weldcommerce.customers, href: '/weldcommerce/customers', icon: Building, permission: 'companies:read' },
+          { title: t.navigation.moduleSidebar.weldcommerce.portal, href: '/weldcommerce/settings', icon: Globe, permission: 'companies:read' },
         ],
       },
     ],

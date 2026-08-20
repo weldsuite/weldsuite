@@ -66,6 +66,7 @@ import { chatSectionsRoutes } from './routes/chat-sections';
 import { chatStatusRoutes } from './routes/chat-status';
 import { categoriesRoutes } from './routes/categories';
 import { companiesRoutes } from './routes/companies';
+import { commercePortalStaffRoutes } from './routes/commerce-portal';
 import { crmAnalyticsRoutes } from './routes/crm-analytics';
 import { customerStatusesRoutes } from './routes/customer-statuses';
 import { conversationsRoutes } from './routes/conversations';
@@ -85,7 +86,6 @@ import { githubRepoLinksRoutes } from './routes/github-repo-links';
 import { githubProjectLinksRoutes } from './routes/github-project-links';
 import { githubCallbackRoutes } from './routes/public-github-callback';
 import { postpeerWebhookRoutes } from './routes/public-postpeer-webhook';
-import { nangoWebhookRoutes } from './routes/public-nango-webhook';
 import { glAccountsRoutes } from './routes/gl-accounts';
 import { helpdeskAgentsRoutes } from './routes/helpdesk-agents';
 import { helpdeskAnalyticsRoutes } from './routes/helpdesk-analytics';
@@ -114,7 +114,7 @@ import { filesRoutes } from './routes/files';
 import { foldersRoutes } from './routes/folders';
 import { storageRoutes, storageUploadTokenRoute } from './routes/storage';
 import { integrationsRoutes } from './routes/integrations';
-import { nangoRoutes } from './routes/nango';
+import { connectorRoutes } from './routes/connectors';
 import { invoicesRoutes } from './routes/invoices';
 import { journalEntriesRoutes } from './routes/journal-entries';
 import { leadsRoutes } from './routes/leads';
@@ -222,6 +222,7 @@ import { digestSettingsRoutes } from './routes/digest-settings';
 import { dashboardRoutes } from './routes/dashboard';
 import { appCatalogRoutes } from './routes/app-catalog';
 import { printNodeRoutes } from './routes/printnode';
+import { sendcloudRoutes } from './routes/sendcloud';
 import { creditsRoutes } from './routes/credits';
 import { aiModelsRoutes } from './routes/ai-models';
 import { aiRoutes } from './routes/ai';
@@ -260,6 +261,7 @@ import { workflowWebhooksRoutes } from './routes/workflow-webhooks';
 import { workflowsRoutes } from './routes/workflows';
 import { testFixturesRoutes } from './routes/_test-fixtures';
 import { publicHelpcenterRoutes } from './routes/public-helpcenter';
+import { publicCommercePortalRoutes } from './routes/public-commerce-portal';
 import { publicUserAppsRoutes } from './routes/public-user-apps';
 // Legacy api-worker phase-out (W3/W4) — surfaces ported from apps/api-worker.
 import { appstoreRoutes } from './routes/appstore';
@@ -281,6 +283,7 @@ import { putawayRoutes } from './routes/putaway';
 import { supportRoutes } from './routes/support';
 import { telephonyRoutes } from './routes/telephony';
 import { telnyxWebhookRoutes } from './routes/webhooks-telnyx';
+import { woocommerceAuthWebhookRoutes } from './routes/webhooks-woocommerce-auth';
 import { webhooksCloudflareRealtimeRoutes } from './routes/webhooks-cloudflare-realtime';
 import { webhooksMeetingBotRoutes } from './routes/webhooks-meeting-bot';
 import { realtimeRegisterWebhookRoutes } from './routes/webhooks-realtime-register';
@@ -383,6 +386,11 @@ app.route('/test-fixtures', testFixturesRoutes);
 // own middleware. Must stay ABOVE the app.use('/api/*', ...) guard below.
 app.route('/public/helpcenter', publicHelpcenterRoutes);
 
+// Public B2B commerce portal consumed by apps/web/commerce-portal. No Clerk
+// JWT — tenant DB is resolved from `?slug=` / X-Workspace-Slug, buyer auth is
+// a hashed KV session. Must stay ABOVE the app.use('/api/*', ...) guard below.
+app.route('/public/commerce-portal', publicCommercePortalRoutes);
+
 // Public WeldApps bundle host — PUBLIC (no Clerk). Serves the live R2 bundle
 // of a user-created app so the platform can iframe it at /apps/{code}. Must
 // stay ABOVE the app.use('/api/*', ...) guard below.
@@ -410,11 +418,6 @@ app.route('/api/weldconnect/github', githubCallbackRoutes);
 // from a KV mapping recorded at publish time. Must stay ABOVE the /api/* guard.
 app.route('/public/social/postpeer', postpeerWebhookRoutes);
 
-// Nango connector webhooks — PUBLIC (no Clerk). Auth is the X-Nango-Signature
-// HMAC; the workspace is resolved from the KV mapping written when the
-// connection was authorised. Must stay ABOVE the /api/* guard.
-app.route('/public/nango', nangoWebhookRoutes);
-
 // Onboarding — Clerk-authenticated but org-LESS: creating a NEW workspace must
 // work without an active org (and would resolve the wrong tenant DB if it ran
 // through workspaceDbMiddleware). The router applies clerkMiddleware() itself;
@@ -437,6 +440,10 @@ app.route('/api/internal', internalRoutes);
 // from Telnyx; Ed25519 signature enforcement applies when TELNYX_PUBLIC_KEY
 // is set. Must stay ABOVE the /api/* guard.
 app.route('/public/webhooks/telnyx', telnyxWebhookRoutes);
+
+// WooCommerce /wc-auth/v1 callback — PUBLIC. The shop POSTs API keys here.
+// WooCommerce requires HTTP 200 or it deletes the keys. HMAC `user_id`.
+app.route('/webhooks/woocommerce', woocommerceAuthWebhookRoutes);
 
 // Realtime Register process/notification webhook — PUBLIC. Auth is the shared
 // `?token=` (REALTIME_REGISTER_WEBHOOK_SECRET). Advances pending_workflow
@@ -530,6 +537,7 @@ app.route('/api/chat-search', chatSearchRoutes);
 app.route('/api/chat-sections', chatSectionsRoutes);
 app.route('/api/chat-status', chatStatusRoutes);
 app.route('/api/companies', companiesRoutes);
+app.route('/api/commerce-portal', commercePortalStaffRoutes);
 app.route('/api/crm-analytics', crmAnalyticsRoutes);
 app.route('/api/customer-statuses', customerStatusesRoutes);
 app.route('/api/conversations', conversationsRoutes);
@@ -581,7 +589,7 @@ app.route('/api/domains', domainsRoutes);
 app.route('/api/email-forwards', emailForwardsRoutes);
 app.route('/api/external-webhooks', externalWebhooksRoutes);
 app.route('/api/integrations', integrationsRoutes);
-app.route('/api/nango', nangoRoutes);
+app.route('/api/connectors', connectorRoutes);
 app.route('/api/invoices', invoicesRoutes);
 app.route('/api/journal-entries', journalEntriesRoutes);
 app.route('/api/leads', leadsRoutes);
@@ -701,6 +709,7 @@ app.route('/api/app-catalog', appCatalogRoutes);
 // Needs clerkMiddleware() + workspaceDbMiddleware() (reads c.get('tenantDb')),
 // so this must stay BELOW the app.use('/api/*', ...) guard.
 app.route('/api/printnode', printNodeRoutes);
+app.route('/api/sendcloud', sendcloudRoutes);
 app.route('/api/credits', creditsRoutes);
 app.route('/api/ai-models', aiModelsRoutes);
 app.route('/api/ai', aiRoutes);
