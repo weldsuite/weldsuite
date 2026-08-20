@@ -1,149 +1,85 @@
-import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  SafeAreaView,
-} from 'react-native';
+/**
+ * Report index.
+ */
+
+import React, { useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import { TrendingUp, Scale, ChevronRight } from 'lucide-react-native';
+
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { TrendingUp, Scale, ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { Card } from '@weldsuite/mobile-ui/components/Card';
+import { Divider } from '@weldsuite/mobile-ui/components/Divider';
 
-type ReportCard = {
-  title: string;
-  description: string;
-  icon: React.ComponentType<{ size: number; color: string }>;
-  iconColor: string;
-  iconBg: string;
-  route: string;
-};
+import { ACCENTS } from '@/lib/brand';
+import { Screen, ScreenHeader } from '@/components/screen';
+import { IconTile } from '@/components/detail';
 
-const REPORTS: ReportCard[] = [
+const REPORTS = [
   {
-    title: 'Profit & Loss',
-    description:
-      'View your revenue, expenses, and net profit over a selected period. Track your business performance at a glance.',
+    title: 'Profit & loss',
+    subtitle: 'Revenue, expenses and margin',
     icon: TrendingUp,
-    iconColor: '#F59E0B',
-    iconBg: 'rgba(245,158,11,0.12)',
+    color: ACCENTS.profitLoss,
     route: '/reports/profit-loss',
   },
   {
-    title: 'Balance Sheet',
-    description:
-      'See a snapshot of your assets, liabilities, and equity. Understand your financial position at any point in time.',
+    title: 'Balance sheet',
+    subtitle: 'Assets, liabilities and equity',
     icon: Scale,
-    iconColor: '#EC4899',
-    iconBg: 'rgba(236,72,153,0.12)',
+    color: ACCENTS.balanceSheet,
     route: '/reports/balance-sheet',
   },
 ];
 
-export default function ReportsMenuScreen() {
-  const router = useRouter();
+export default function ReportsScreen() {
   const { colors } = useTheme();
+  const router = useRouter();
 
-  const handlePress = (route: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push(route as any);
-  };
+  const open = useCallback(
+    (route: string) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      router.push(route as never);
+    },
+    [router],
+  );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <ChevronLeft size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Reports</Text>
-        <View style={styles.headerSpacer} />
-      </View>
-
+    <Screen header={<ScreenHeader title="Reports" showBack />}>
       <ScrollView contentContainerStyle={styles.content}>
-        {REPORTS.map((report) => {
-          const Icon = report.icon;
-          return (
-            <TouchableOpacity
-              key={report.route}
-              style={[styles.card, { backgroundColor: colors.cardBackground }]}
-              onPress={() => handlePress(report.route)}
-              activeOpacity={0.6}
-            >
-              <View style={styles.cardHeader}>
-                <View style={[styles.iconCircle, { backgroundColor: report.iconBg }]}>
-                  <Icon size={24} color={report.iconColor} />
+        <Card style={styles.card}>
+          {REPORTS.map((report, index) => (
+            <React.Fragment key={report.route}>
+              {index > 0 ? <Divider inset={62} /> : null}
+              <Pressable
+                onPress={() => open(report.route)}
+                accessibilityRole="button"
+                accessibilityLabel={report.title}
+                style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.pressed }]}
+              >
+                <IconTile icon={report.icon} color={report.color} />
+                <View style={styles.rowText}>
+                  <Text style={[styles.rowTitle, { color: colors.text }]}>{report.title}</Text>
+                  <Text style={[styles.rowSubtitle, { color: colors.mutedForeground }]}>
+                    {report.subtitle}
+                  </Text>
                 </View>
-                <ChevronRight size={20} color={colors.muted} />
-              </View>
-              <Text style={[styles.cardTitle, { color: colors.text }]}>{report.title}</Text>
-              <Text style={[styles.cardDescription, { color: colors.muted }]}>
-                {report.description}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
+                <ChevronRight size={18} color={colors.mutedForeground} />
+              </Pressable>
+            </React.Fragment>
+          ))}
+        </Card>
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  backButton: {
-    width: 32,
-    height: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 17,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  headerSpacer: {
-    width: 32,
-  },
-  content: {
-    paddingHorizontal: 16,
-    paddingBottom: 32,
-    gap: 16,
-  },
-  card: {
-    borderRadius: 16,
-    padding: 20,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  iconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 6,
-  },
-  cardDescription: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
+  content: { paddingTop: 12, paddingBottom: 32 },
+  card: { marginHorizontal: 12, overflow: 'hidden' },
+  row: { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 12 },
+  rowText: { flex: 1 },
+  rowTitle: { fontSize: 15, fontWeight: '600' },
+  rowSubtitle: { fontSize: 13, marginTop: 2 },
 });

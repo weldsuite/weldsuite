@@ -4,7 +4,12 @@
     "strict": true,
     "paths": {
       "@/*": ["./*"]
-    }
+    },
+    // Pinned explicitly: without this, tsc auto-includes every @types/* package
+    // hoisted into the monorepo root, and a stale `@types/minimatch` entry there
+    // fails to resolve ("Cannot find type definition file for 'minimatch'").
+    "types": ["react", "react-native", "jest"]
   },
-  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"]
+  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"],
+  "exclude": ["node_modules", "scripts"]
 }

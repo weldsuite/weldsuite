@@ -1,30 +1,29 @@
 /**
  * app-api client for WeldBooks mobile.
  *
- * Talks to the unified app-api (`/api/*`, apps/workers/app-api) — this app previously
- * hit the retired mobile-api-worker `/v2/weldbooks/*` surface. Built on
+ * Talks to the unified app-api (`/api/*`, apps/workers/app-api). Built on
  * `createClientApi` from `@weldsuite/api-client` (throws on non-2xx; app-api
  * envelopes are `{ data }` for single items and `{ data, pagination }` for
- * lists).
+ * lists — the `/api` prefix is added by the client).
  *
- * The public method surface is kept identical to the legacy service so
- * screens don't change: token wiring still goes through `setAccessToken` /
- * `setOrganizationId` / `setTokenRefreshCallback` (app/_layout.tsx), and each
- * method adapts the app-api response back to the shape its call sites read.
+ * This layer owns every difference between app-api's wire format and the
+ * models the screens consume (types/accounting.ts):
+ *  - Money stays a decimal STRING on entities that round-trip to the API;
+ *    fields the UI only ever displays (balances, report totals) are parsed to
+ *    numbers here so screens don't each re-parse.
+ *  - Invoices/bills REQUIRE a `contactId`; the quick forms collect a free-text
+ *    name, so `resolveContactId()` finds or creates the accounting contact.
+ *  - Status flips map to dedicated endpoints (`PATCH /:id/send`,
+ *    `PATCH /:id/status`, `POST /:id/record-payment`, `PATCH /:id/approve`).
  *
- * Server-side model differences handled inside this layer:
- *  - Invoices/bills on app-api REQUIRE a `contactId`; the mobile forms only
- *    collect a free-text contact/vendor name. `resolveContactId()` finds an
- *    accounting contact by display name or creates one on the fly.
- *  - Line-item numbers (quantity/unitPrice/taxRate) are strings on app-api.
- *  - Invoice status flips map to dedicated endpoints (`PATCH /:id/send`,
- *    `PATCH /:id/status`, `POST /:id/record-payment`); bill actions map to
- *    `PATCH /:id/approve`, `PATCH /:id/reject`, and `POST /api/payments`.
- *    Setting an invoice to "overdue" is no longer possible — app-api computes
- *    overdue from `dueDate` + `balanceDue`.
- *  - "Quick expenses" and offline-queue items become regular bills/documents
- *    (`POST /api/bills`, `POST /api/accounting-documents`) — the worker's
- *    bulk `/offline-queue` endpoint has no app-api equivalent.
+ * Endpoints app-api deliberately does NOT have — do not add wrappers for them:
+ *  - `PUT /invoices/:id` / `PUT /bills/:id`. Issued documents are immutable;
+ *    correct a mistake with a credit note (`POST /invoices/:id/credit-note`)
+ *    or delete the draft and re-create it.
+ *  - Setting an invoice to `overdue`. app-api derives it from dueDate +
+ *    balanceDue.
+ *  - A bulk offline-queue endpoint. `uploadOfflineQueue` replays items one by
+ *    one against the regular routes.
  */
 
 import { createClientApi } from '@weldsuite/api-client/client';
@@ -35,6 +34,31 @@ import type {
   WorkspaceWithMembership,
   InstalledApp,
 } from '@weldsuite/mobile-ui/types';
+import type {
+  AccountingEntity,
+  AppSettings,
+  BalanceSheetData,
+  BankAccount,
+  BankAccountDetail,
+  BankTransaction,
+  Bill,
+  Contact,
+  ContactBalance,
+  DashboardData,
+  GlAccount,
+  Invoice,
+  Jurisdiction,
+  MatchSuggestion,
+  Paged,
+  Payment,
+  ProfitLossData,
+  SearchResult,
+  SearchResultType,
+  TaxRate,
+  UnmatchedTransaction,
+  VatReturn,
+  VatReturnDetail,
+} from '@/types/accounting';
 
 /** app-api base URL. Defaults to the local wrangler dev port (`apps/workers/app-api`). */
 export const APP_API_URL = process.env.EXPO_PUBLIC_APP_API_URL || 'http://localhost:8789';
@@ -52,24 +76,15 @@ interface DataEnvelope<T = Json> {
   data: T;
 }
 
-/** Coerce app-api numeric strings ("123.45") to numbers for the UI. */
+/** Coerce app-api numeric strings ("123.45") to numbers for display. */
 function num(value: unknown): number {
   if (typeof value === 'number') return value;
   const parsed = parseFloat(String(value ?? '0'));
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-/** Legacy `{ items, meta }` pagination block the list screens read. */
-function legacyMeta(page: number, limit: number, totalCount: number) {
-  const totalPages = limit > 0 ? Math.ceil(totalCount / limit) : 0;
-  return {
-    page,
-    limit,
-    total: totalCount,
-    totalPages,
-    hasNext: page < totalPages,
-    hasPrev: page > 1,
-  };
+function str(value: unknown, fallback = ''): string {
+  return value == null ? fallback : String(value);
 }
 
 interface LineItemInput {
@@ -95,8 +110,24 @@ function toApiItems(items: LineItemInput[]) {
   }));
 }
 
+function page<T>(res: ListEnvelope<T>): Paged<T> {
+  return {
+    items: res.data ?? [],
+    totalCount: res.pagination?.totalCount ?? res.data?.length ?? 0,
+    hasMore: res.pagination?.hasMore ?? false,
+  };
+}
+
+function qs(params: Record<string, string | number | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== '') search.set(key, String(value));
+  }
+  return search.toString();
+}
+
 // ---------------------------------------------------------------------------
-// Token wiring (kept from the legacy service so app/_layout.tsx is unchanged)
+// Token wiring
 // ---------------------------------------------------------------------------
 
 let accessToken: string | null = null;
@@ -192,44 +223,102 @@ class WeldBooksApi {
     }
   }
 
+  // ========== Accounting entities ==========
+  // Every accounting endpoint is entity-scoped; without one they all fail with
+  // `400 No accounting entity resolved`. The entity gate (contexts/
+  // AccountingEntityContext) calls these before rendering the app.
+
+  async getEntities(): Promise<AccountingEntity[]> {
+    const res = await client.get<DataEnvelope<Json[]>>('/accounting-entities');
+    return (res.data ?? []).map((row) => ({
+      id: str(row.id),
+      name: str(row.name),
+      legalName: row.legalName ? str(row.legalName) : undefined,
+      jurisdictionCode: str(row.jurisdictionCode ?? row.jurisdiction, 'NL'),
+      baseCurrency: str(row.baseCurrency, 'EUR'),
+      isDefault: Boolean(row.isDefault),
+    }));
+  }
+
+  async getJurisdictions(): Promise<Jurisdiction[]> {
+    const res = await client.get<DataEnvelope<Json[]>>('/accounting-entities/jurisdictions');
+    return (res.data ?? []).map((row) => ({
+      code: str(row.code),
+      name: str(row.name ?? row.code),
+      currency: row.currency ? str(row.currency) : undefined,
+    }));
+  }
+
+  /**
+   * Creates the workspace's first legal entity. `seedDefaults` lets the
+   * jurisdiction adapter install the localized chart of accounts, tax rates and
+   * number sequences — without it the entity exists but can't issue anything.
+   */
+  async createEntity(data: {
+    name: string;
+    legalName?: string;
+    jurisdictionCode: string;
+    baseCurrency?: string;
+    vatNumber?: string;
+    isDefault?: boolean;
+  }): Promise<AccountingEntity> {
+    const res = await client.post<DataEnvelope>('/accounting-entities', {
+      name: data.name,
+      ...(data.legalName ? { legalName: data.legalName } : {}),
+      jurisdictionCode: data.jurisdictionCode,
+      baseCurrency: data.baseCurrency ?? 'EUR',
+      ...(data.vatNumber ? { vatNumber: data.vatNumber } : {}),
+      isDefault: data.isDefault ?? true,
+      seedDefaults: true,
+    });
+    const row = res.data ?? {};
+    return {
+      id: str(row.id),
+      name: str(row.name, data.name),
+      legalName: row.legalName ? str(row.legalName) : undefined,
+      jurisdictionCode: str(row.jurisdictionCode, data.jurisdictionCode),
+      baseCurrency: str(row.baseCurrency, data.baseCurrency ?? 'EUR'),
+      isDefault: Boolean(row.isDefault),
+    };
+  }
+
   // ========== Dashboard ==========
 
   /**
-   * Composes the legacy `/weldbooks/dashboard` payload from
-   * `/api/accounting-dashboard` + `/api/invoices` (recent list and per-status
-   * counts, which the app-api dashboard doesn't break out).
+   * Composes the mobile dashboard from `/accounting-dashboard` (the same payload
+   * the platform's KPI cards read) plus a short recent-invoice list.
    */
-  async getDashboard(): Promise<ApiResponse<Json>> {
-    const [dashboard, recent, sent, paid] = await Promise.all([
+  async getDashboard(): Promise<DashboardData> {
+    const [dashboard, recent] = await Promise.all([
       client.get<DataEnvelope>('/accounting-dashboard'),
-      client.get<ListEnvelope>('/invoices?page=1&pageSize=5'),
-      client.get<ListEnvelope>('/invoices?status=sent&page=1&pageSize=1'),
-      client.get<ListEnvelope>('/invoices?status=paid&page=1&pageSize=1'),
+      client.get<ListEnvelope<Invoice>>(`/invoices?${qs({ page: 1, pageSize: 5 })}`),
     ]);
 
-    const d = dashboard.data;
+    const d = dashboard.data ?? {};
     const revenue = (d.revenue ?? {}) as Json;
+    const expenses = (d.expenses ?? {}) as Json;
+    const profit = (d.profit ?? {}) as Json;
     const receivables = (d.receivables ?? {}) as Json;
     const payables = (d.payables ?? {}) as Json;
 
     return {
-      success: true,
-      data: {
-        invoices: {
-          sent: sent.pagination?.totalCount ?? 0,
-          paid: paid.pagination?.totalCount ?? 0,
-          overdue: num(receivables.overdueCount),
-          totalOutstanding: String(receivables.outstanding ?? '0'),
-          revenueMonth: String(revenue.month ?? '0'),
-        },
-        bills: {
-          total: num(payables.outstandingCount),
-          totalOutstanding: String(payables.outstanding ?? '0'),
-        },
-        bankAccounts: d.bankAccounts ?? [],
-        recentInvoices: recent.data ?? [],
-        pendingDocuments: num(d.pendingDocuments),
+      revenue: { month: num(revenue.month), year: num(revenue.year) },
+      expenses: { month: num(expenses.month), year: num(expenses.year) },
+      profit: { month: num(profit.month), year: num(profit.year) },
+      receivables: {
+        outstanding: num(receivables.outstanding),
+        outstandingCount: num(receivables.outstandingCount),
+        overdue: num(receivables.overdue),
+        overdueCount: num(receivables.overdueCount),
       },
+      payables: {
+        outstanding: num(payables.outstanding),
+        outstandingCount: num(payables.outstandingCount),
+      },
+      pendingDocuments: num(d.pendingDocuments),
+      bankAccounts: ((d.bankAccounts ?? []) as Json[]).map(toBankAccount),
+      recentInvoices: recent.data ?? [],
+      currency: str(d.currency, 'EUR'),
     };
   }
 
@@ -243,29 +332,24 @@ class WeldBooksApi {
     contactId?: string;
     fromDate?: string;
     toDate?: string;
-  }): Promise<ApiResponse<Json>> {
-    const page = params?.page ?? 1;
-    const limit = params?.limit ?? 20;
-    const searchParams = new URLSearchParams({ page: String(page), pageSize: String(limit) });
-    if (params?.search) searchParams.set('search', params.search);
-    if (params?.status) searchParams.set('status', params.status);
-    if (params?.contactId) searchParams.set('contactId', params.contactId);
-    if (params?.fromDate) searchParams.set('from', params.fromDate);
-    if (params?.toDate) searchParams.set('to', params.toDate);
-
-    const res = await client.get<ListEnvelope>(`/invoices?${searchParams.toString()}`);
-    return {
-      success: true,
-      data: {
-        items: res.data,
-        meta: legacyMeta(page, limit, res.pagination?.totalCount ?? res.data.length),
-      },
-    };
+  }): Promise<Paged<Invoice>> {
+    const res = await client.get<ListEnvelope<Invoice>>(
+      `/invoices?${qs({
+        page: params?.page ?? 1,
+        pageSize: params?.limit ?? 20,
+        search: params?.search,
+        status: params?.status,
+        contactId: params?.contactId,
+        from: params?.fromDate,
+        to: params?.toDate,
+      })}`,
+    );
+    return page(res);
   }
 
-  async getInvoice(id: string): Promise<ApiResponse<Json>> {
-    const res = await client.get<DataEnvelope>(`/invoices/${id}`);
-    return { success: true, data: res.data };
+  async getInvoice(id: string): Promise<Invoice> {
+    const res = await client.get<DataEnvelope<Invoice>>(`/invoices/${id}`);
+    return res.data;
   }
 
   async createInvoice(data: {
@@ -278,13 +362,11 @@ class WeldBooksApi {
     notes?: string;
     reference?: string;
     items: LineItemInput[];
-    /** Accepted (legacy callers send it) but ignored — invoices start as drafts. */
-    status?: string;
-  }): Promise<ApiResponse<Json>> {
+  }): Promise<Invoice> {
     const contactId =
       data.contactId ?? (await this.resolveContactId(data.contactName, data.contactEmail));
 
-    const res = await client.post<DataEnvelope>('/invoices', {
+    const res = await client.post<DataEnvelope<Invoice>>('/invoices', {
       contactId,
       contactName: data.contactName,
       ...(data.contactEmail ? { contactEmail: data.contactEmail } : {}),
@@ -295,62 +377,68 @@ class WeldBooksApi {
       ...(data.reference ? { reference: data.reference } : {}),
       items: toApiItems(data.items),
     });
-    return { success: true, data: res.data };
+    return res.data;
   }
 
-  async updateInvoice(
+  /** Locks the draft and assigns its definitive number from the entity sequence. */
+  async finalizeInvoice(id: string): Promise<Invoice> {
+    const res = await client.post<DataEnvelope<Invoice>>(`/invoices/${id}/finalize`, {});
+    return res.data;
+  }
+
+  async sendInvoice(id: string): Promise<Invoice> {
+    const res = await client.patch<DataEnvelope<Invoice>>(`/invoices/${id}/send`);
+    return res.data;
+  }
+
+  /** Only `cancelled` and `uncollectible` are settable; everything else is derived. */
+  async setInvoiceStatus(id: string, status: 'cancelled' | 'uncollectible'): Promise<Invoice> {
+    const res = await client.patch<DataEnvelope<Invoice>>(`/invoices/${id}/status`, { status });
+    return res.data;
+  }
+
+  /** Records a payment against an invoice. Omit `amount` to settle the full balance. */
+  async recordInvoicePayment(
     id: string,
-    data: Partial<{
-      contactId: string;
-      contactName: string;
-      contactEmail: string;
-      issueDate: string;
-      dueDate: string;
-      currency: string;
-      notes: string;
-      reference: string;
-      items: LineItemInput[];
-    }>,
-  ): Promise<ApiResponse<Json>> {
-    const body: Json = {};
-    if (data.contactId !== undefined) body.contactId = data.contactId;
-    if (data.contactName !== undefined) body.contactName = data.contactName;
-    if (data.contactEmail !== undefined) body.contactEmail = data.contactEmail;
-    if (data.issueDate !== undefined) body.issueDate = data.issueDate;
-    if (data.dueDate !== undefined) body.dueDate = data.dueDate;
-    if (data.currency !== undefined) body.currency = data.currency;
-    if (data.notes !== undefined) body.notes = data.notes;
-    if (data.reference !== undefined) body.reference = data.reference;
-    if (data.items) body.items = toApiItems(data.items);
-
-    const res = await client.put<DataEnvelope>(`/invoices/${id}`, body);
-    return { success: true, data: res.data };
+    options?: { amount?: number | string; date?: string; paymentMethod?: string; reference?: string },
+  ): Promise<Payment> {
+    let amount = options?.amount;
+    if (amount === undefined) {
+      const invoice = await this.getInvoice(id);
+      amount = invoice.balanceDue ?? invoice.total ?? '0';
+    }
+    const res = await client.post<DataEnvelope<Payment>>(`/invoices/${id}/record-payment`, {
+      amount: String(amount),
+      date: options?.date ?? new Date().toISOString(),
+      paymentMethod: options?.paymentMethod ?? 'manual',
+      ...(options?.reference ? { reference: options.reference } : {}),
+    });
+    return res.data;
   }
 
-  async updateInvoiceStatus(id: string, status: string): Promise<ApiResponse<Json>> {
-    if (status === 'sent') {
-      const res = await client.patch<DataEnvelope>(`/invoices/${id}/send`);
-      return { success: true, data: res.data };
-    }
-    if (status === 'paid') {
-      // app-api marks invoices paid by recording a payment for the open balance.
-      const { data: invoice } = await client.get<DataEnvelope>(`/invoices/${id}`);
-      const amount = String(invoice.balanceDue ?? invoice.total ?? '0');
-      const res = await client.post<DataEnvelope>(`/invoices/${id}/record-payment`, {
-        amount,
-        date: new Date().toISOString(),
-        paymentMethod: 'manual',
-      });
-      return { success: true, data: res.data };
-    }
-    if (status === 'cancelled' || status === 'uncollectible') {
-      const res = await client.patch<DataEnvelope>(`/invoices/${id}/status`, { status });
-      return { success: true, data: res.data };
-    }
-    // "overdue" (and anything else) is a computed state on app-api.
-    throw new Error(
-      `Invoice status "${status}" cannot be set manually — app-api derives it from the due date and balance.`,
-    );
+  async duplicateInvoice(id: string): Promise<Invoice> {
+    const res = await client.post<DataEnvelope<Invoice>>(`/invoices/${id}/duplicate`, {});
+    return res.data;
+  }
+
+  /** Issues a credit note reversing the invoice — the correct way to fix an issued document. */
+  async createCreditNote(id: string): Promise<Invoice> {
+    const res = await client.post<DataEnvelope<Invoice>>(`/invoices/${id}/credit-note`, {});
+    return res.data;
+  }
+
+  async deleteInvoice(id: string): Promise<void> {
+    await client.delete(`/invoices/${id}`);
+  }
+
+  /**
+   * The rendered invoice document. Despite the `/pdf` path app-api returns
+   * styled HTML, so the caller renders it in a WebView and shares the markup.
+   * Uses `getRaw` because the response is not a JSON envelope.
+   */
+  async getInvoiceDocumentHtml(id: string): Promise<string> {
+    const res = await client.getRaw(`/invoices/${id}/pdf`);
+    return res.text();
   }
 
   // ========== Bills ==========
@@ -360,28 +448,21 @@ class WeldBooksApi {
     limit?: number;
     search?: string;
     status?: string;
-  }): Promise<ApiResponse<Json>> {
-    const page = params?.page ?? 1;
-    const limit = params?.limit ?? 20;
-    const searchParams = new URLSearchParams({ page: String(page), pageSize: String(limit) });
-    if (params?.search) searchParams.set('search', params.search);
-    if (params?.status) searchParams.set('status', params.status);
-
-    const res = await client.get<ListEnvelope>(`/bills?${searchParams.toString()}`);
-    return {
-      success: true,
-      // `bills` alias kept — the expenses screen reads `data.bills || data.data`.
-      data: {
-        items: res.data,
-        bills: res.data,
-        meta: legacyMeta(page, limit, res.pagination?.totalCount ?? res.data.length),
-      },
-    };
+  }): Promise<Paged<Bill>> {
+    const res = await client.get<ListEnvelope<Bill>>(
+      `/bills?${qs({
+        page: params?.page ?? 1,
+        pageSize: params?.limit ?? 20,
+        search: params?.search,
+        status: params?.status,
+      })}`,
+    );
+    return page(res);
   }
 
-  async getBill(id: string): Promise<ApiResponse<Json>> {
-    const res = await client.get<DataEnvelope>(`/bills/${id}`);
-    return { success: true, data: res.data };
+  async getBill(id: string): Promise<Bill> {
+    const res = await client.get<DataEnvelope<Bill>>(`/bills/${id}`);
+    return res.data;
   }
 
   async createBill(data: {
@@ -395,10 +476,10 @@ class WeldBooksApi {
     reference?: string;
     documentId?: string;
     items: LineItemInput[];
-  }): Promise<ApiResponse<Json>> {
+  }): Promise<Bill> {
     const contactId = data.contactId ?? (await this.resolveContactId(data.contactName));
 
-    const res = await client.post<DataEnvelope>('/bills', {
+    const res = await client.post<DataEnvelope<Bill>>('/bills', {
       contactId,
       contactName: data.contactName,
       ...(data.billNumber ? { billNumber: data.billNumber } : {}),
@@ -410,64 +491,44 @@ class WeldBooksApi {
       ...(data.documentId ? { sourceDocumentId: data.documentId } : {}),
       items: toApiItems(data.items),
     });
-    return { success: true, data: res.data };
+    return res.data;
   }
 
-  /**
-   * Field edits go to `PUT /api/bills/:id` (drafts only). The `{ status }`
-   * shortcut the bill-detail screen sends maps to app-api's dedicated
-   * approve / reject / payment endpoints.
-   */
-  async updateBill(
+  async approveBill(id: string): Promise<Bill> {
+    const res = await client.patch<DataEnvelope<Bill>>(`/bills/${id}/approve`);
+    return res.data;
+  }
+
+  async rejectBill(id: string, reason?: string): Promise<Bill> {
+    const res = await client.patch<DataEnvelope<Bill>>(`/bills/${id}/reject`, {
+      reason: reason || 'Rejected from the WeldBooks mobile app',
+    });
+    return res.data;
+  }
+
+  /** Bills are settled by recording an outgoing payment; there is no status flip. */
+  async recordBillPayment(
     id: string,
-    data: Partial<{
-      contactName: string;
-      billNumber: string;
-      issueDate: string;
-      dueDate: string;
-      notes: string;
-      reference: string;
-      status: string;
-      reason: string;
-    }>,
-  ): Promise<ApiResponse<Json>> {
-    if (data.status === 'approved') {
-      const res = await client.patch<DataEnvelope>(`/bills/${id}/approve`);
-      return { success: true, data: res.data };
+    options?: { amount?: number | string; date?: string; paymentMethod?: string },
+  ): Promise<Payment> {
+    const bill = await this.getBill(id);
+    if (!bill.contactId) {
+      throw new Error('Bill has no contact — a contact is required to record a payment.');
     }
-    if (data.status === 'rejected') {
-      const res = await client.patch<DataEnvelope>(`/bills/${id}/reject`, {
-        reason: data.reason || 'Rejected from the WeldBooks mobile app',
-      });
-      return { success: true, data: res.data };
-    }
-    if (data.status === 'paid') {
-      // Bills are marked paid by recording an outgoing payment.
-      const { data: bill } = await client.get<DataEnvelope>(`/bills/${id}`);
-      if (!bill.contactId) {
-        throw new Error('Bill has no contact — a contact is required to record a payment.');
-      }
-      const res = await client.post<DataEnvelope>('/payments', {
-        type: 'sent',
-        amount: String(bill.balanceDue ?? bill.total ?? '0'),
-        date: new Date().toISOString(),
-        billId: id,
-        contactId: bill.contactId,
-        paymentMethod: 'manual',
-      });
-      return { success: true, data: res.data };
-    }
+    const amount = options?.amount ?? bill.balanceDue ?? bill.total ?? '0';
+    const res = await client.post<DataEnvelope<Payment>>('/payments', {
+      type: 'sent',
+      amount: String(amount),
+      date: options?.date ?? new Date().toISOString(),
+      billId: id,
+      contactId: bill.contactId,
+      paymentMethod: options?.paymentMethod ?? 'manual',
+    });
+    return res.data;
+  }
 
-    const body: Json = {};
-    if (data.contactName !== undefined) body.contactName = data.contactName;
-    if (data.billNumber !== undefined) body.billNumber = data.billNumber;
-    if (data.issueDate !== undefined) body.issueDate = data.issueDate;
-    if (data.dueDate !== undefined) body.dueDate = data.dueDate;
-    if (data.notes !== undefined) body.notes = data.notes;
-    if (data.reference !== undefined) body.reference = data.reference;
-
-    const res = await client.put<DataEnvelope>(`/bills/${id}`, body);
-    return { success: true, data: res.data };
+  async deleteBill(id: string): Promise<void> {
+    await client.delete(`/bills/${id}`);
   }
 
   // ========== Quick Expense ==========
@@ -482,9 +543,9 @@ class WeldBooksApi {
     documentId?: string;
     accountId?: string;
     taxRate?: number;
-  }): Promise<ApiResponse<Json>> {
+  }): Promise<Bill> {
     const expenseDate = data.date || new Date().toISOString().split('T')[0];
-    const res = await this.createBill({
+    return this.createBill({
       contactName: data.vendorName || 'Quick Expense',
       issueDate: expenseDate,
       dueDate: expenseDate,
@@ -500,44 +561,91 @@ class WeldBooksApi {
         },
       ],
     });
-    return {
-      success: true,
-      data: { ...(res.data ?? {}), category: data.category },
-    };
   }
 
-  // ========== Documents / Scanning ==========
-  // OCR extraction lives at /api/accounting-documents/:id/process (metered AI
-  // via /api/ai). The scan screen currently hands off to manual entry and
-  // doesn't call it; wire it up there when the flow is re-enabled.
+  // ========== Documents ==========
+  // OCR (`POST /accounting-documents/:id/process`) is stubbed server-side since
+  // the AI teardown — it marks the document processed with an empty result. The
+  // scan screen therefore uploads the image for the record and hands off to
+  // manual entry rather than pretending to extract fields.
+
+  /**
+   * Uploads a local file to R2 through app-api's three-step broker:
+   * `generate-upload-url` → `PUT` the bytes → `confirm-upload`. Returns the
+   * `fileKey` to attach to a document record.
+   */
+  async uploadFile(localUri: string, fileName: string, mimeType = 'image/jpeg'): Promise<string> {
+    const blob = await (await fetch(localUri)).blob();
+
+    const ticket = await client.post<{
+      success: boolean;
+      uploadUrl: string;
+      uploadToken: string;
+      fileKey: string;
+    }>('/storage/generate-upload-url', {
+      fileName,
+      contentType: mimeType,
+      fileSize: blob.size,
+      folder: 'accounting-documents',
+      entityType: 'accounting-document',
+    });
+
+    // The upload URL is token-authenticated and takes no Clerk header.
+    const upload = await fetch(ticket.uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': mimeType },
+      body: blob,
+    });
+    if (!upload.ok) throw new Error(`Upload failed (${upload.status})`);
+
+    await client.post('/storage/confirm-upload', {
+      uploadToken: ticket.uploadToken,
+      fileKey: ticket.fileKey,
+    });
+
+    return ticket.fileKey;
+  }
+
+  async createDocument(data: {
+    type?: string;
+    fileName: string;
+    fileKey?: string;
+    mimeType?: string;
+  }): Promise<{ id: string }> {
+    const res = await client.post<DataEnvelope<{ id: string }>>('/accounting-documents', {
+      type: data.type || 'receipt',
+      fileName: data.fileName,
+      originalFileName: data.fileName,
+      fileKey: data.fileKey || data.fileName,
+      mimeType: data.mimeType || 'image/jpeg',
+      source: 'scan',
+    });
+    return res.data;
+  }
+
+  /** Capture a scanned receipt: upload the image, then register the document. */
+  async uploadScannedDocument(localUri: string, fileName: string): Promise<{ id: string }> {
+    const fileKey = await this.uploadFile(localUri, fileName);
+    return this.createDocument({ type: 'receipt', fileName, fileKey });
+  }
 
   // ========== Bank Accounts ==========
 
-  /** Returns the accounts ARRAY — the bank screens consume it directly. */
-  async getBankAccounts(): Promise<Json[]> {
+  async getBankAccounts(): Promise<BankAccount[]> {
     const res = await client.get<DataEnvelope<Json[]>>('/bank-accounts');
-    return (res.data ?? []).map((account) => ({
-      ...account,
-      // Legacy fields the screens read.
-      balance: num(account.currentBalance),
-      lastSyncedAt: account.lastImportDate ?? null,
-    }));
+    return (res.data ?? []).map(toBankAccount);
   }
 
-  /** Returns the account object with its recent transactions inlined. */
-  async getBankAccount(id: string): Promise<Json> {
+  async getBankAccount(id: string): Promise<BankAccountDetail> {
     const [accountRes, txRes] = await Promise.all([
-      client.get<DataEnvelope>(`/bank-accounts/${id}`),
-      client.get<ListEnvelope>(`/bank-transactions?bankAccountId=${encodeURIComponent(id)}&page=1&pageSize=50`),
+      client.get<DataEnvelope<Json>>(`/bank-accounts/${id}`),
+      client.get<ListEnvelope<Json>>(
+        `/bank-transactions?${qs({ bankAccountId: id, page: 1, pageSize: 50 })}`,
+      ),
     ]);
     return {
-      ...accountRes.data,
-      balance: num(accountRes.data.currentBalance),
-      transactions: (txRes.data ?? []).map((t) => ({
-        ...t,
-        amount: num(t.amount),
-        runningBalance: num(t.runningBalance),
-      })),
+      ...toBankAccount(accountRes.data ?? {}),
+      transactions: (txRes.data ?? []).map(toBankTransaction),
     };
   }
 
@@ -550,32 +658,35 @@ class WeldBooksApi {
     status?: string;
     fromDate?: string;
     toDate?: string;
-  }): Promise<ApiResponse<Json>> {
-    const page = params?.page ?? 1;
-    const limit = params?.limit ?? 50;
-    const searchParams = new URLSearchParams({ page: String(page), pageSize: String(limit) });
-    if (params?.bankAccountId) searchParams.set('bankAccountId', params.bankAccountId);
-    if (params?.status) searchParams.set('status', params.status);
-    if (params?.fromDate) searchParams.set('from', params.fromDate);
-    if (params?.toDate) searchParams.set('to', params.toDate);
-
-    const res = await client.get<ListEnvelope>(`/bank-transactions?${searchParams.toString()}`);
-    return {
-      success: true,
-      data: {
-        items: res.data,
-        meta: legacyMeta(page, limit, res.pagination?.totalCount ?? res.data.length),
-      },
-    };
+  }): Promise<Paged<BankTransaction>> {
+    const res = await client.get<ListEnvelope<Json>>(
+      `/bank-transactions?${qs({
+        page: params?.page ?? 1,
+        pageSize: params?.limit ?? 50,
+        bankAccountId: params?.bankAccountId,
+        status: params?.status,
+        from: params?.fromDate,
+        to: params?.toDate,
+      })}`,
+    );
+    return { ...page(res), items: (res.data ?? []).map(toBankTransaction) };
   }
 
   // ========== Reconciliation ==========
 
-  /** Shape consumed directly by the reconciliation screen. */
-  async getReconciliationStats(): Promise<Json> {
+  async getReconciliationStats(): Promise<{
+    totalUnmatched: number;
+    totalMatched: number;
+    pendingAmount: number;
+    currency: string;
+  }> {
     const [unmatched, matched] = await Promise.all([
-      client.get<ListEnvelope>('/bank-transactions?status=unreconciled&page=1&pageSize=100'),
-      client.get<ListEnvelope>('/bank-transactions?status=reconciled&page=1&pageSize=1'),
+      client.get<ListEnvelope<Json>>(
+        `/bank-transactions?${qs({ status: 'unreconciled', page: 1, pageSize: 100 })}`,
+      ),
+      client.get<ListEnvelope<Json>>(
+        `/bank-transactions?${qs({ status: 'reconciled', page: 1, pageSize: 1 })}`,
+      ),
     ]);
     const pendingAmount = (unmatched.data ?? []).reduce(
       (sum, t) => sum + Math.abs(num(t.amount)),
@@ -590,78 +701,69 @@ class WeldBooksApi {
   }
 
   /**
-   * Returns the unmatched-transactions ARRAY with `suggestedMatches` inlined
-   * (fetched from /api/bank-transactions/:id/suggestions for the first rows).
+   * Unmatched transactions with `suggestedMatches` inlined from
+   * `/bank-transactions/:id/suggestions` (one request per row, failures degrade
+   * to an empty suggestion list rather than failing the screen).
    */
   async getUnmatchedTransactions(params?: {
     page?: number;
     limit?: number;
     bankAccountId?: string;
-  }): Promise<Json[]> {
-    const page = params?.page ?? 1;
-    const limit = params?.limit ?? 20;
-    const searchParams = new URLSearchParams({
-      status: 'unreconciled',
-      page: String(page),
-      pageSize: String(limit),
-    });
-    if (params?.bankAccountId) searchParams.set('bankAccountId', params.bankAccountId);
-
-    const res = await client.get<ListEnvelope>(`/bank-transactions?${searchParams.toString()}`);
+  }): Promise<UnmatchedTransaction[]> {
+    const res = await client.get<ListEnvelope<Json>>(
+      `/bank-transactions?${qs({
+        status: 'unreconciled',
+        page: params?.page ?? 1,
+        pageSize: params?.limit ?? 20,
+        bankAccountId: params?.bankAccountId,
+      })}`,
+    );
     const rows = res.data ?? [];
 
     const suggestionsPerRow = await Promise.all(
-      rows.map(async (row) => {
-        try {
-          const s = await client.get<DataEnvelope<Json[]>>(
-            `/bank-transactions/${row.id}/suggestions`,
-          );
-          return s.data ?? [];
-        } catch {
-          return [];
-        }
-      }),
+      rows.map((row) => this.getSuggestions(str(row.id))),
     );
 
     return rows.map((row, i) => ({
-      ...row,
-      amount: num(row.amount),
-      currency: 'EUR',
-      suggestedMatches: suggestionsPerRow[i].map((s) => ({
-        id: String(s.id),
-        type: String(s.type),
-        description: [String(s.type) === 'invoice' ? 'Invoice' : 'Bill', s.number, s.contactName]
+      ...toBankTransaction(row),
+      suggestedMatches: suggestionsPerRow[i],
+    }));
+  }
+
+  private async getSuggestions(transactionId: string): Promise<MatchSuggestion[]> {
+    try {
+      const res = await client.get<DataEnvelope<Json[]>>(
+        `/bank-transactions/${transactionId}/suggestions`,
+      );
+      return (res.data ?? []).map((s) => ({
+        id: str(s.id),
+        type: str(s.type) === 'invoice' ? 'invoice' : 'bill',
+        description: [str(s.type) === 'invoice' ? 'Invoice' : 'Bill', s.number, s.contactName]
           .filter(Boolean)
           .join(' · '),
         amount: num(s.amount),
         confidence: num(s.confidence),
-      })),
-    }));
+      }));
+    } catch {
+      return [];
+    }
   }
 
   /**
-   * Accepts either the legacy `{ invoiceId? | billId? }` object or a bare
-   * suggestion id string (what the reconciliation screen passes).
+   * Reconciles a transaction. Accepts a suggestion id (the reconciliation
+   * screen's case — its type is looked up) or an explicit invoice/bill id.
    */
   async matchTransaction(
     transactionId: string,
     match: { invoiceId?: string; billId?: string } | string,
-  ): Promise<ApiResponse<Json>> {
+  ): Promise<void> {
     let type: 'invoice' | 'bill' | 'manual' = 'manual';
     let entityId: string | undefined;
 
     if (typeof match === 'string') {
       entityId = match;
-      try {
-        const s = await client.get<DataEnvelope<Json[]>>(
-          `/bank-transactions/${transactionId}/suggestions`,
-        );
-        const found = (s.data ?? []).find((sg) => String(sg.id) === match);
-        const foundType = found ? String(found.type) : '';
-        if (foundType === 'invoice' || foundType === 'bill') type = foundType;
-      } catch {
-        // fall through as manual reconciliation against the given id
-      }
+      const found = (await this.getSuggestions(transactionId)).find((s) => s.id === match);
+      if (found) type = found.type;
     } else if (match?.invoiceId) {
       type = 'invoice';
       entityId = match.invoiceId;
@@ -670,63 +772,65 @@ class WeldBooksApi {
       entityId = match.billId;
     }
 
-    const res = await client.post<DataEnvelope>(`/bank-transactions/${transactionId}/reconcile`, {
+    await client.post(`/bank-transactions/${transactionId}/reconcile`, {
       type,
       ...(entityId ? { entityId } : {}),
     });
-    return { success: true, data: { transactionId, ...res.data } };
   }
 
   // ========== VAT Returns ==========
 
   /** Maps a vat_returns row to the fields the VAT screens read. */
-  private mapVatReturn(row: Json): Json {
+  private mapVatReturn(row: Json): VatReturnDetail {
     const start = row.periodStart ? new Date(String(row.periodStart)) : null;
     const rubrieken = (row.rubrieken ?? {}) as Json;
     const salesTax = num(rubrieken.r5a);
     const purchaseTax = num(rubrieken.r5b);
-    const status = row.status === 'filed' ? 'submitted' : String(row.status ?? 'draft');
+    // app-api calls a filed return `filed`; the screens use `submitted`.
+    const status = row.status === 'filed' ? 'submitted' : str(row.status, 'draft');
     return {
-      ...row,
+      id: str(row.id),
       period:
         (row.periodLabel as string | null) ??
         (start ? `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}` : ''),
       year: start ? start.getFullYear() : 0,
-      status,
+      status: status as VatReturnDetail['status'],
       salesTax,
       purchaseTax,
       netAmount: rubrieken.r5c != null ? num(rubrieken.r5c) : salesTax - purchaseTax,
       currency: 'EUR',
+      periodStart: row.periodStart ? str(row.periodStart) : undefined,
+      periodEnd: row.periodEnd ? str(row.periodEnd) : undefined,
+      filedAt: row.filedAt ? str(row.filedAt) : null,
+      dueDate: row.dueDate ? str(row.dueDate) : null,
+      rubrieken,
     };
   }
 
-  /** Returns the VAT-returns ARRAY — the VAT screens consume it directly. */
-  async getVatReturns(params?: { year?: number; status?: string }): Promise<Json[]> {
+  async getVatReturns(params?: { year?: number; status?: string }): Promise<VatReturn[]> {
     const res = await client.get<DataEnvelope<Json[]>>('/vat-returns');
     let returns = (res.data ?? []).map((r) => this.mapVatReturn(r));
     // app-api's list takes no filters — filter client-side like the old worker did.
-    if (params?.year) returns = returns.filter((r) => num(r.year) === params.year);
-    if (params?.status) returns = returns.filter((r) => String(r.status) === params.status);
+    if (params?.year) returns = returns.filter((r) => r.year === params.year);
+    if (params?.status) returns = returns.filter((r) => r.status === params.status);
     return returns;
   }
 
-  async getVatReturn(id: string): Promise<Json> {
-    const res = await client.get<DataEnvelope>(`/vat-returns/${id}`);
-    return this.mapVatReturn(res.data);
+  async getVatReturn(id: string): Promise<VatReturnDetail> {
+    const res = await client.get<DataEnvelope<Json>>(`/vat-returns/${id}`);
+    return this.mapVatReturn(res.data ?? {});
   }
 
   /** Files the return (SBR/XBRL via Digipoort on app-api — not just a status flip). */
-  async submitVatReturn(id: string): Promise<ApiResponse<Json>> {
-    const res = await client.post<DataEnvelope>(`/vat-returns/${id}/file`, {});
-    return { success: true, data: res.data };
+  async submitVatReturn(id: string): Promise<void> {
+    await client.post(`/vat-returns/${id}/file`, {});
   }
 
   // ========== Reports ==========
 
-  /** Shape consumed directly by the profit & loss screen. */
-  async getProfitLoss(fromDate: string, toDate: string): Promise<Json> {
-    const res = await client.get<DataEnvelope>(
-      `/accounting-reports/profit-loss?from=${encodeURIComponent(fromDate)}&to=${encodeURIComponent(toDate)}`,
+  async getProfitLoss(fromDate: string, toDate: string): Promise<ProfitLossData> {
+    const res = await client.get<DataEnvelope<Json>>(
+      `/accounting-reports/profit-loss?${qs({ from: fromDate, to: toDate })}`,
     );
     const revenue = num(res.data.totalRevenue);
     const expenses = num(res.data.totalExpenses);
@@ -741,14 +845,13 @@ class WeldBooksApi {
     };
   }
 
-  /** Shape consumed directly by the balance-sheet screen. */
-  async getBalanceSheet(): Promise<Json> {
-    const res = await client.get<DataEnvelope>('/accounting-reports/balance-sheet');
+  async getBalanceSheet(): Promise<BalanceSheetData> {
+    const res = await client.get<DataEnvelope<Json>>('/accounting-reports/balance-sheet');
     const section = (label: string, rows: unknown, total: unknown) => ({
       label,
       accounts: ((rows ?? []) as Json[]).map((r) => ({
-        code: String(r.accountCode ?? ''),
-        name: String(r.accountName ?? ''),
+        code: str(r.accountCode),
+        name: str(r.accountName),
         balance: num(r.balance),
       })),
       total: num(total),
@@ -765,167 +868,243 @@ class WeldBooksApi {
 
   // ========== Contacts ==========
 
-  /** Returns the contacts ARRAY — the contacts screen consumes it directly. */
   async getContacts(params?: {
     page?: number;
     limit?: number;
     search?: string;
     type?: string;
-  }): Promise<Json[]> {
-    const page = params?.page ?? 1;
-    const limit = params?.limit ?? 100;
-    const searchParams = new URLSearchParams({ page: String(page), pageSize: String(limit) });
-    if (params?.search) searchParams.set('search', params.search);
+  }): Promise<Contact[]> {
     // Legacy "vendor" naming → app-api accounting role "supplier".
-    if (params?.type === 'customer' || params?.type === 'vendor') {
-      searchParams.set('role', params.type === 'vendor' ? 'supplier' : 'customer');
-    }
+    const role =
+      params?.type === 'vendor' ? 'supplier' : params?.type === 'customer' ? 'customer' : undefined;
 
-    const res = await client.get<ListEnvelope>(`/accounting-contacts?${searchParams.toString()}`);
-    return (res.data ?? []).map((row) => ({
-      ...row,
-      name: String(row.displayName ?? row.name ?? ''),
-      email: String(row.email ?? ''),
-      type: String(row.role ?? 'customer'),
-    }));
+    const res = await client.get<ListEnvelope<Json>>(
+      `/accounting-contacts?${qs({
+        page: params?.page ?? 1,
+        pageSize: params?.limit ?? 100,
+        search: params?.search,
+        role,
+      })}`,
+    );
+    return (res.data ?? []).map(toContact);
+  }
+
+  async getContact(id: string): Promise<Contact> {
+    const res = await client.get<DataEnvelope<Json>>(`/accounting-contacts/${id}`);
+    return toContact(res.data ?? {});
+  }
+
+  async getContactBalance(id: string): Promise<ContactBalance> {
+    const res = await client.get<DataEnvelope<Json>>(`/accounting-contacts/${id}/balance`);
+    const row = res.data ?? {};
+    return {
+      receivable: num(row.receivable ?? row.receivableBalance),
+      payable: num(row.payable ?? row.payableBalance),
+      currency: str(row.currency, 'EUR'),
+    };
+  }
+
+  async getContactInvoices(id: string): Promise<Invoice[]> {
+    const res = await client.get<ListEnvelope<Invoice>>(`/accounting-contacts/${id}/invoices`);
+    return res.data ?? [];
+  }
+
+  async getContactBills(id: string): Promise<Bill[]> {
+    const res = await client.get<ListEnvelope<Bill>>(`/accounting-contacts/${id}/bills`);
+    return res.data ?? [];
+  }
+
+  async createContact(data: {
+    fullName: string;
+    email?: string;
+    phone?: string;
+    vatNumber?: string;
+    role?: string;
+  }): Promise<Contact> {
+    const res = await client.post<DataEnvelope<Json>>('/accounting-contacts', {
+      fullName: data.fullName,
+      ...(data.email ? { email: data.email } : {}),
+      ...(data.phone ? { phone: data.phone } : {}),
+      ...(data.vatNumber ? { vatNumber: data.vatNumber } : {}),
+      ...(data.role ? { role: data.role } : {}),
+    });
+    return toContact(res.data ?? {});
+  }
+
+  async deleteContact(id: string): Promise<void> {
+    await client.delete(`/accounting-contacts/${id}`);
   }
 
   /**
    * Find an accounting contact by display name, or create one. app-api
-   * invoices/bills require a contactId while the mobile forms only collect a
+   * invoices/bills require a contactId while the quick forms only collect a
    * free-text name — this bridges the two.
    */
   private async resolveContactId(name: string, email?: string): Promise<string> {
     const wanted = name.trim();
     try {
-      const res = await client.get<ListEnvelope>(
-        `/accounting-contacts?search=${encodeURIComponent(wanted)}&page=1&pageSize=25`,
+      const res = await client.get<ListEnvelope<Json>>(
+        `/accounting-contacts?${qs({ search: wanted, page: 1, pageSize: 25 })}`,
       );
       const existing = (res.data ?? []).find(
-        (row) => String(row.displayName ?? '').toLowerCase() === wanted.toLowerCase(),
+        (row) => str(row.displayName).toLowerCase() === wanted.toLowerCase(),
       );
-      if (existing?.id) return String(existing.id);
+      if (existing?.id) return str(existing.id);
     } catch {
       // fall through to create
     }
 
-    const created = await client.post<DataEnvelope>('/accounting-contacts', {
-      fullName: wanted,
-      ...(email ? { email } : {}),
-    });
-    return String(created.data.id);
+    const created = await this.createContact({ fullName: wanted, email });
+    return created.id;
   }
 
-  // ========== Chart of Accounts ==========
+  // ========== Chart of Accounts / tax rates ==========
 
-  async getAccounts(): Promise<ApiResponse<Json[]>> {
-    const res = await client.get<DataEnvelope<Json[]>>('/gl-accounts');
-    return { success: true, data: res.data ?? [] };
+  async getAccounts(): Promise<GlAccount[]> {
+    const res = await client.get<DataEnvelope<GlAccount[]>>('/gl-accounts');
+    return res.data ?? [];
   }
 
-  // ========== Tax Rates ==========
-
-  async getTaxRates(): Promise<ApiResponse<Json[]>> {
-    const res = await client.get<DataEnvelope<Json[]>>('/tax-rates');
-    return { success: true, data: res.data ?? [] };
+  async getTaxRates(): Promise<TaxRate[]> {
+    const res = await client.get<DataEnvelope<TaxRate[]>>('/tax-rates');
+    return res.data ?? [];
   }
 
   // ========== Settings ==========
 
-  /** Shape consumed directly by the settings screen. */
-  async getSettings(): Promise<Json> {
-    const res = await client.get<DataEnvelope>('/accounting-settings');
+  async getSettings(): Promise<AppSettings> {
+    const res = await client.get<DataEnvelope<Json>>('/accounting-settings');
     const row = res.data ?? {};
     return {
-      ...row,
-      currency: String(row.baseCurrency ?? row.currency ?? 'EUR'),
-      fiscalYearStart: String(row.fiscalYearStart ?? '1 January'),
+      currency: str(row.baseCurrency ?? row.currency, 'EUR'),
+      fiscalYearStart: str(row.fiscalYearStart, '1 January'),
+      entityName: row.entityName ? str(row.entityName) : undefined,
+      jurisdictionCode: row.jurisdictionCode ? str(row.jurisdictionCode) : undefined,
+      vatNumber: row.vatNumber ? str(row.vatNumber) : undefined,
     };
   }
 
   // ========== Search ==========
 
   /** Cross-entity search composed from the three list endpoints. */
-  async search(query: string, limit?: number): Promise<ApiResponse<Json[]>> {
-    const max = limit ?? 15;
-    const q = encodeURIComponent(query);
+  async search(query: string, limit = 15): Promise<SearchResult[]> {
+    const params = (extra: Record<string, string | number>) => qs({ search: query, ...extra });
     const [invoices, bills, contacts] = await Promise.all([
-      client.get<ListEnvelope>(`/invoices?search=${q}&page=1&pageSize=5`),
-      client.get<ListEnvelope>(`/bills?search=${q}&page=1&pageSize=5`),
-      client.get<ListEnvelope>(`/accounting-contacts?search=${q}&page=1&pageSize=5`),
+      client.get<ListEnvelope<Json>>(`/invoices?${params({ page: 1, pageSize: 5 })}`),
+      client.get<ListEnvelope<Json>>(`/bills?${params({ page: 1, pageSize: 5 })}`),
+      client.get<ListEnvelope<Json>>(`/accounting-contacts?${params({ page: 1, pageSize: 5 })}`),
     ]);
 
-    const results: Json[] = [
-      ...(invoices.data ?? []).map((i) => ({
-        id: i.id,
-        title: String(i.invoiceNumber ?? ''),
-        description: `${i.contactName ?? ''} - ${i.status ?? ''}`,
-        type: 'invoice',
-      })),
-      ...(bills.data ?? []).map((b) => ({
-        id: b.id,
-        title: String(b.billNumber ?? ''),
-        description: `${b.contactName ?? ''} - ${b.status ?? ''}`,
-        type: 'bill',
-      })),
-      ...(contacts.data ?? []).map((ct) => ({
-        id: ct.id,
-        title: String(ct.displayName ?? ''),
-        description: String(ct.email ?? ct.role ?? ''),
-        type: 'contact',
-      })),
-    ];
+    const build = (rows: Json[], type: SearchResultType, title: string, sub: string[]) =>
+      rows.map((row) => ({
+        id: str(row.id),
+        title: str(row[title]),
+        description: sub.map((k) => str(row[k])).filter(Boolean).join(' · '),
+        type,
+      }));
 
-    return { success: true, data: results.slice(0, max) };
+    return [
+      ...build(invoices.data ?? [], 'invoice', 'invoiceNumber', ['contactName', 'status']),
+      ...build(bills.data ?? [], 'bill', 'billNumber', ['contactName', 'status']),
+      ...build(contacts.data ?? [], 'contact', 'displayName', ['email', 'role']),
+    ].slice(0, limit);
   }
 
   // ========== Offline Queue ==========
 
   /**
-   * The worker's bulk `/weldbooks/offline-queue` endpoint has no app-api
-   * equivalent — replay the queued items one by one against the regular
-   * endpoints, preserving the `{ processed, results }` response the
-   * OfflineQueueContext reads (failed indices stay queued).
+   * app-api has no bulk offline-queue endpoint — replay the queued items one by
+   * one against the regular routes, returning the per-item outcome so the
+   * OfflineQueueContext can keep the failures queued.
    */
   async uploadOfflineQueue(
     items: { type: string; data: Json }[],
-  ): Promise<ApiResponse<Json>> {
+  ): Promise<{ index: number; type: string; id?: string; error?: string }[]> {
     const results: { index: number; type: string; id?: string; error?: string }[] = [];
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       try {
         if (item.type === 'document') {
-          const res = await client.post<DataEnvelope>('/accounting-documents', {
-            type: item.data.type || 'receipt',
-            fileName: item.data.fileName || 'offline-scan',
-            originalFileName: item.data.fileName || 'offline-scan',
-            fileKey: item.data.fileKey || 'offline-scan',
-            mimeType: item.data.mimeType || 'image/jpeg',
-            source: 'scan',
+          const doc = await this.createDocument({
+            type: str(item.data.type, 'receipt'),
+            fileName: str(item.data.fileName, 'offline-scan'),
+            fileKey: item.data.fileKey ? str(item.data.fileKey) : undefined,
+            mimeType: item.data.mimeType ? str(item.data.mimeType) : undefined,
           });
-          results.push({ index: i, type: 'document', id: String(res.data.id) });
+          results.push({ index: i, type: 'document', id: doc.id });
         } else if (item.type === 'expense') {
-          const res = await this.createQuickExpense({
+          const bill = await this.createQuickExpense({
             amount: num(item.data.amount),
-            category: String(item.data.category ?? 'Expense'),
+            category: str(item.data.category, 'Expense'),
             description: item.data.description as string | undefined,
             vendorName: item.data.vendorName as string | undefined,
             date: item.data.date as string | undefined,
             documentId: item.data.documentId as string | undefined,
             taxRate: num(item.data.taxRate),
           });
-          results.push({ index: i, type: 'expense', id: String(res.data?.id) });
+          results.push({ index: i, type: 'expense', id: bill.id });
         } else {
           results.push({ index: i, type: item.type, error: 'Unknown item type' });
         }
-      } catch {
-        results.push({ index: i, type: item.type, error: 'Failed to process' });
+      } catch (err) {
+        results.push({
+          index: i,
+          type: item.type,
+          error: err instanceof Error ? err.message : 'Failed to process',
+        });
       }
     }
 
-    return { success: true, data: { processed: results.length, results } };
+    return results;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Row mappers
+// ---------------------------------------------------------------------------
+
+function toBankAccount(row: Json): BankAccount {
+  return {
+    id: str(row.id),
+    name: str(row.name),
+    iban: row.iban ? str(row.iban) : undefined,
+    bankName: row.bankName ? str(row.bankName) : undefined,
+    accountType: str(row.accountType, 'checking'),
+    currency: str(row.currency, 'EUR'),
+    currentBalance: str(row.currentBalance, '0'),
+    balance: num(row.currentBalance),
+    isActive: row.isActive !== false,
+    lastImportDate: row.lastImportDate ? str(row.lastImportDate) : null,
+  };
+}
+
+function toBankTransaction(row: Json): BankTransaction {
+  return {
+    id: str(row.id),
+    bankAccountId: str(row.bankAccountId),
+    date: str(row.date ?? row.transactionDate),
+    description: str(row.description),
+    amount: num(row.amount),
+    currency: str(row.currency, 'EUR'),
+    status: str(row.status, 'unreconciled') as BankTransaction['status'],
+    counterpartyName: row.counterpartyName ? str(row.counterpartyName) : undefined,
+    reference: row.reference ? str(row.reference) : undefined,
+    runningBalance: row.runningBalance != null ? num(row.runningBalance) : undefined,
+  };
+}
+
+function toContact(row: Json): Contact {
+  return {
+    id: str(row.id),
+    name: str(row.displayName ?? row.name),
+    email: str(row.email),
+    type: str(row.role, 'customer') as Contact['type'],
+    phone: row.phone ? str(row.phone) : undefined,
+    vatNumber: row.vatNumber ? str(row.vatNumber) : undefined,
+    city: row.city ? str(row.city) : undefined,
+    country: row.country ? str(row.country) : undefined,
+  };
 }
 
 const api = new WeldBooksApi();

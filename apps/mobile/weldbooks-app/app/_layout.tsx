@@ -20,6 +20,13 @@ import { InstalledAppsProvider } from '@weldsuite/mobile-ui/contexts/InstalledAp
 import api from '@/services/api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { OfflineQueueProvider } from '@/contexts/OfflineQueueContext';
+import {
+  AccountingEntityProvider,
+  useAccountingEntity,
+} from '@/contexts/AccountingEntityContext';
+import { EntityEmptyState } from '@/components/entity-setup';
+import { ErrorState } from '@/components/data-states';
+import { Screen } from '@/components/screen';
 import { useUpdateGate } from '@/hooks/useUpdateGate';
 
 const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
@@ -87,6 +94,46 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/**
+ * Gates the app on the workspace having an accounting entity — the mobile twin
+ * of the platform's AccountingLayoutClient. Without one every accounting
+ * endpoint returns `400 No accounting entity resolved`, so we show the setup
+ * door rather than a stack of broken screens.
+ *
+ * Signed-out users pass straight through; AuthGuard is redirecting them.
+ */
+function EntityGate({ children }: { children: React.ReactNode }) {
+  const { user } = useClerkAuth();
+  const { hasEntity, isLoading, loadError, isRefreshing, refresh } = useAccountingEntity();
+  const { colors } = useTheme();
+
+  if (!user) return <>{children}</>;
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
+        <ActivityIndicator size="large" color="#10B981" />
+      </View>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <Screen>
+        <ErrorState
+          message="Couldn't load your company details. Check your connection and try again."
+          onRetry={refresh}
+          retrying={isRefreshing}
+        />
+      </Screen>
+    );
+  }
+
+  if (!hasEntity) return <EntityEmptyState onCreated={refresh} />;
+
+  return <>{children}</>;
+}
+
 const workspaceApi = {
   getCurrentWorkspace: () => api.getCurrentWorkspace(),
   getUserWorkspaces: () => api.getUserWorkspaces(),
@@ -110,32 +157,38 @@ function AppStack() {
         <OfflineQueueProvider>
           <InstalledAppsProvider api={installedAppsApi}>
             <WorkspaceProvider api={workspaceApi}>
-              <NavigationThemeProvider value={navigationTheme}>
-                <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
-                <AuthGuard>
-                  <Stack screenOptions={{ headerShown: false }}>
-                    <Stack.Screen name="authorisation" />
-                    <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 150 }} />
-                    <Stack.Screen name="invoice/[id]" />
-                    <Stack.Screen name="invoice/new" />
-                    <Stack.Screen name="bill/[id]" />
-                    <Stack.Screen name="bill/new" />
-                    <Stack.Screen name="expense/quick" />
-                    <Stack.Screen name="scan/index" options={{ presentation: 'fullScreenModal' }} />
-                    <Stack.Screen name="bank/index" />
-                    <Stack.Screen name="bank/[id]" />
-                    <Stack.Screen name="reconciliation/index" />
-                    <Stack.Screen name="vat/index" />
-                    <Stack.Screen name="vat/[id]" />
-                    <Stack.Screen name="reports/index" />
-                    <Stack.Screen name="reports/profit-loss" />
-                    <Stack.Screen name="reports/balance-sheet" />
-                    <Stack.Screen name="contacts/index" />
-                    <Stack.Screen name="contacts/[id]" />
-                    <Stack.Screen name="settings/index" />
-                  </Stack>
-                </AuthGuard>
-              </NavigationThemeProvider>
+              <AccountingEntityProvider>
+                <NavigationThemeProvider value={navigationTheme}>
+                  <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
+                  <AuthGuard>
+                    <EntityGate>
+                      <Stack screenOptions={{ headerShown: false }}>
+                        <Stack.Screen name="authorisation" />
+                        <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 150 }} />
+                        <Stack.Screen name="invoice/[id]" />
+                        <Stack.Screen name="invoice/new" />
+                        <Stack.Screen name="invoice/document" options={{ presentation: 'modal' }} />
+                        <Stack.Screen name="bill/[id]" />
+                        <Stack.Screen name="bill/new" />
+                        <Stack.Screen name="expense/quick" />
+                        <Stack.Screen name="scan/index" options={{ presentation: 'fullScreenModal' }} />
+                        <Stack.Screen name="bank/index" />
+                        <Stack.Screen name="bank/[id]" />
+                        <Stack.Screen name="reconciliation/index" />
+                        <Stack.Screen name="vat/index" />
+                        <Stack.Screen name="vat/[id]" />
+                        <Stack.Screen name="reports/index" />
+                        <Stack.Screen name="reports/profit-loss" />
+                        <Stack.Screen name="reports/balance-sheet" />
+                        <Stack.Screen name="contacts/index" />
+                        <Stack.Screen name="contacts/new" />
+                        <Stack.Screen name="contacts/[id]" />
+                        <Stack.Screen name="settings/index" />
+                      </Stack>
+                    </EntityGate>
+                  </AuthGuard>
+                </NavigationThemeProvider>
+              </AccountingEntityProvider>
             </WorkspaceProvider>
           </InstalledAppsProvider>
         </OfflineQueueProvider>

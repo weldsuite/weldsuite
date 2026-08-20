@@ -20,7 +20,9 @@ export interface InputProps extends Omit<TextInputProps, 'style'> {
   /** Node rendered inside the field, after the text (e.g. a clear button). */
   rightElement?: React.ReactNode;
   containerStyle?: StyleProp<ViewStyle>;
-  inputStyle?: StyleProp<TextInputProps['style']>;
+  // `TextInputProps['style']` is already a StyleProp — wrapping it again makes
+  // it unassignable to TextInput's own style prop.
+  inputStyle?: TextInputProps['style'];
 }
 
 export const Input = forwardRef<TextInput, InputProps>(function Input(

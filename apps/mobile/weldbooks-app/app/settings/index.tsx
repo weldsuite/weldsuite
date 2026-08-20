@@ -1,39 +1,50 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
-  SafeAreaView,
-} from 'react-native';
-import { useRouter } from 'expo-router';
+/**
+ * Settings — company, workspace, appearance and sync status.
+ *
+ * Company figures come from `/api/accounting-settings`, which is entity-scoped;
+ * the workspace row reads the Clerk-backed WorkspaceContext.
+ */
+
+import { useCallback, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import Constants from 'expo-constants';
+import { Moon, Sun, LogOut, RefreshCw } from 'lucide-react-native';
+
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
-import api from '@/services/api';
-import { ChevronLeft } from 'lucide-react-native';
-import Constants from 'expo-constants';
+import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
+import { Button } from '@weldsuite/mobile-ui/components/Button';
+import { Switch } from '@weldsuite/mobile-ui/components/Switch';
+import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
 
-type AppSettings = {
-  currency: string;
-  fiscalYearStart: string;
-};
+import api from '@/services/api';
+import { Screen, ScreenHeader } from '@/components/screen';
+import { SectionCard, DetailRow } from '@/components/detail';
+import { DetailSkeleton } from '@/components/data-states';
+import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
+import { useOfflineQueue } from '@/contexts/OfflineQueueContext';
+import type { AppSettings } from '@/types/accounting';
 
 export default function SettingsScreen() {
-  const router = useRouter();
-  const { colors } = useTheme();
-  const workspace = useWorkspace();
+  const { colors, theme, toggleTheme } = useTheme();
+  // useWorkspace() returns the whole context — the workspace itself is on
+  // `currentWorkspace`.
+  const { currentWorkspace } = useWorkspace();
+  const { signOut } = useClerkAuth();
+  const { activeEntity } = useAccountingEntity();
+  const { queue, isOnline, isSyncing, syncQueue } = useOfflineQueue();
+  const toast = useToast();
 
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
 
   const fetchSettings = useCallback(async () => {
     try {
       setError(null);
-      const data = await api.getSettings();
-      setSettings(data);
+      setSettings(await api.getSettings());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load settings');
     } finally {
@@ -45,175 +56,118 @@ export default function SettingsScreen() {
     fetchSettings();
   }, [fetchSettings]);
 
-  const appVersion = Constants.expoConfig?.version || '1.0.0';
-
-  if (loading) {
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <ChevronLeft size={24} color={colors.text} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>Settings</Text>
-          <View style={styles.headerSpacer} />
-        </View>
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#10B981" />
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const appVersion = Constants.expoConfig?.version ?? '1.0.0';
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <ChevronLeft size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Settings</Text>
-        <View style={styles.headerSpacer} />
-      </View>
-
+    <Screen header={<ScreenHeader title="Settings" showBack />}>
       <ScrollView contentContainerStyle={styles.content}>
-        {error && (
-          <View style={styles.errorBanner}>
-            <Text style={styles.errorText}>{error}</Text>
-            <TouchableOpacity onPress={fetchSettings}>
-              <Text style={styles.errorRetry}>Retry</Text>
-            </TouchableOpacity>
-          </View>
+        {loading ? (
+          <DetailSkeleton />
+        ) : (
+          <>
+            <SectionCard title="Company">
+              <DetailRow label="Name" value={activeEntity?.name ?? settings?.entityName ?? '—'} />
+              <DetailRow
+                label="Jurisdiction"
+                value={activeEntity?.jurisdictionCode ?? settings?.jurisdictionCode ?? '—'}
+              />
+              <DetailRow label="Base currency" value={settings?.currency ?? 'EUR'} />
+              <DetailRow label="Fiscal year start" value={settings?.fiscalYearStart ?? '1 January'} />
+              {settings?.vatNumber ? (
+                <DetailRow label="VAT number" value={settings.vatNumber} />
+              ) : null}
+              {error ? (
+                <Text style={[styles.error, { color: colors.destructive }]}>{error}</Text>
+              ) : null}
+            </SectionCard>
+
+            <SectionCard title="Workspace">
+              <DetailRow label="Workspace" value={currentWorkspace?.name ?? '—'} />
+            </SectionCard>
+
+            <SectionCard title="Appearance">
+              <View style={styles.switchRow}>
+                <View style={styles.switchLabel}>
+                  {theme === 'dark' ? (
+                    <Moon size={18} color={colors.mutedForeground} />
+                  ) : (
+                    <Sun size={18} color={colors.mutedForeground} />
+                  )}
+                  <Text style={[styles.switchText, { color: colors.text }]}>Dark mode</Text>
+                </View>
+                <Switch value={theme === 'dark'} onValueChange={() => void toggleTheme()} />
+              </View>
+            </SectionCard>
+
+            <SectionCard title="Sync">
+              <DetailRow label="Connection" value={isOnline ? 'Online' : 'Offline'} />
+              <DetailRow label="Queued items" value={String(queue.length)} />
+              {queue.length > 0 ? (
+                <Button
+                  title="Sync now"
+                  variant="outline"
+                  size="sm"
+                  leftIcon={<RefreshCw size={16} color={colors.text} />}
+                  onPress={() => void syncQueue()}
+                  loading={isSyncing}
+                  disabled={!isOnline}
+                  style={styles.syncButton}
+                />
+              ) : null}
+            </SectionCard>
+
+            <SectionCard title="App">
+              <DetailRow label="Version" value={appVersion} />
+              <DetailRow label="Product" value="WeldBooks" />
+            </SectionCard>
+
+            <Button
+              title="Sign out"
+              variant="outline"
+              leftIcon={<LogOut size={18} color={colors.destructive} />}
+              textStyle={{ color: colors.destructive }}
+              onPress={() => setConfirmSignOut(true)}
+              style={styles.signOut}
+            />
+          </>
         )}
-
-        {/* Account */}
-        <Text style={[styles.sectionTitle, { color: colors.muted }]}>ACCOUNT</Text>
-        <View style={[styles.sectionCard, { backgroundColor: colors.cardBackground }]}>
-          <View style={styles.settingRow}>
-            <Text style={[styles.settingLabel, { color: colors.muted }]}>Workspace</Text>
-            <Text style={[styles.settingValue, { color: colors.text }]}>
-              {workspace?.name || 'Unknown'}
-            </Text>
-          </View>
-        </View>
-
-        {/* Preferences */}
-        <Text style={[styles.sectionTitle, { color: colors.muted }]}>PREFERENCES</Text>
-        <View style={[styles.sectionCard, { backgroundColor: colors.cardBackground }]}>
-          <View style={styles.settingRow}>
-            <Text style={[styles.settingLabel, { color: colors.muted }]}>Currency</Text>
-            <Text style={[styles.settingValue, { color: colors.text }]}>
-              {settings?.currency || 'EUR'}
-            </Text>
-          </View>
-          <View style={[styles.divider, { backgroundColor: colors.divider }]} />
-          <View style={styles.settingRow}>
-            <Text style={[styles.settingLabel, { color: colors.muted }]}>Fiscal Year Start</Text>
-            <Text style={[styles.settingValue, { color: colors.text }]}>
-              {settings?.fiscalYearStart || 'January'}
-            </Text>
-          </View>
-        </View>
-
-        {/* App */}
-        <Text style={[styles.sectionTitle, { color: colors.muted }]}>APP</Text>
-        <View style={[styles.sectionCard, { backgroundColor: colors.cardBackground }]}>
-          <View style={styles.settingRow}>
-            <Text style={[styles.settingLabel, { color: colors.muted }]}>Version</Text>
-            <Text style={[styles.settingValue, { color: colors.text }]}>{appVersion}</Text>
-          </View>
-          <View style={[styles.divider, { backgroundColor: colors.divider }]} />
-          <View style={styles.settingRow}>
-            <Text style={[styles.settingLabel, { color: colors.muted }]}>About</Text>
-            <Text style={[styles.settingValue, { color: colors.text }]}>WeldBooks</Text>
-          </View>
-        </View>
       </ScrollView>
-    </SafeAreaView>
+
+      <ConfirmModal
+        visible={confirmSignOut}
+        title="Sign out?"
+        message={
+          queue.length > 0
+            ? `${queue.length} unsynced item${queue.length === 1 ? '' : 's'} will stay on this device.`
+            : undefined
+        }
+        confirmText="Sign out"
+        variant="destructive"
+        onCancel={() => setConfirmSignOut(false)}
+        onConfirm={async () => {
+          setConfirmSignOut(false);
+          try {
+            await signOut();
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : 'Could not sign out');
+          }
+        }}
+      />
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  backButton: {
-    width: 32,
-    height: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 17,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  headerSpacer: {
-    width: 32,
-  },
-  content: {
-    paddingHorizontal: 16,
-    paddingBottom: 32,
-  },
-  errorBanner: {
+  content: { paddingBottom: 40, paddingTop: 4 },
+  error: { fontSize: 13, marginTop: 8 },
+  switchRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(239,68,68,0.1)',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 16,
+    paddingVertical: 4,
   },
-  errorText: {
-    color: '#EF4444',
-    fontSize: 13,
-    flex: 1,
-  },
-  errorRetry: {
-    color: '#EF4444',
-    fontSize: 13,
-    fontWeight: '600',
-    marginLeft: 12,
-  },
-  sectionTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0.8,
-    marginBottom: 8,
-    marginTop: 20,
-    marginLeft: 4,
-  },
-  sectionCard: {
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  settingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  settingLabel: {
-    fontSize: 14,
-  },
-  settingValue: {
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    marginLeft: 16,
-  },
+  switchLabel: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  switchText: { fontSize: 14, fontWeight: '500' },
+  syncButton: { marginTop: 12, alignSelf: 'flex-start' },
+  signOut: { marginHorizontal: 12, marginTop: 24 },
 });

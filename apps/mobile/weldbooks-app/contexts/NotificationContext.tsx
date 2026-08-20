@@ -17,9 +17,15 @@ const NotificationContext = createContext<NotificationContextType>({
 
 export const useNotifications = () => useContext(NotificationContext);
 
+// expo-notifications on SDK 54 replaced `shouldShowAlert` with the explicit
+// `shouldShowBanner` / `shouldShowList` pair. Omitting them leaves foreground
+// notifications invisible, so both are set here alongside the legacy field
+// (still accepted, and still what older Android builds read).
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
   }),
