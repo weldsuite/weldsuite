@@ -1,4 +1,4 @@
-import { Suspense, useMemo } from 'react';
+import { Suspense, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { PackageCheck } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -10,11 +10,11 @@ import {
   useInfiniteWeldstashPickLists,
   usePackWeldstashPickList,
   usePrintPackingSlip,
-  useShipWeldstashPickList,
   type WeldstashPickList,
 } from '@/hooks/queries/use-weldstash-queries';
 import { getTranslations } from '@/lib/i18n';
 import { buildPickListColumns } from '../pick-lists/config/pick-list-columns';
+import { SendParcelDialog } from './send-parcel-dialog';
 
 function PackingPageContent() {
   const t = getTranslations('common').weldstash;
@@ -23,8 +23,8 @@ function PackingPageContent() {
   const completed = useInfiniteWeldstashPickLists({ limit: 50, status: 'completed' });
   const packed = useInfiniteWeldstashPickLists({ limit: 50, status: 'packed' });
   const pack = usePackWeldstashPickList();
-  const ship = useShipWeldstashPickList();
   const printSlip = usePrintPackingSlip();
+  const [shipId, setShipId] = useState<string | null>(null);
 
   const rows = useMemo<WeldstashPickList[]>(() => {
     const a = completed.data?.pages.flatMap((p) => p.data ?? []) ?? [];
@@ -35,6 +35,7 @@ function PackingPageContent() {
   const columns = useMemo(() => buildPickListColumns(), []);
 
   return (
+    <>
     <PanelEntityList<WeldstashPickList>
       items={rows}
       isLoading={completed.isLoading || packed.isLoading}
@@ -78,13 +79,10 @@ function PackingPageContent() {
                   size="sm"
                   onClick={(e) => {
                     e.stopPropagation();
-                    ship.mutate(row.id, {
-                      onSuccess: () => toast.success(t.pickLists.toastShipped),
-                      onError: (err) => toast.error((err as Error).message),
-                    });
+                    setShipId(row.id);
                   }}
                 >
-                  {t.packing.ship}
+                  {t.packing.sendParcel}
                 </Button>
               ) : null}
             </div>
@@ -102,6 +100,14 @@ function PackingPageContent() {
         description: t.packing.emptyDescription,
       }}
     />
+    <SendParcelDialog
+      pickListId={shipId}
+      open={Boolean(shipId)}
+      onOpenChange={(next) => {
+        if (!next) setShipId(null);
+      }}
+    />
+    </>
   );
 }
 

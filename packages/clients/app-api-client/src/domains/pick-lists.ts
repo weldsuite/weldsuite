@@ -49,6 +49,17 @@ export interface PickListRow {
   createdAt: string;
   updatedAt: string;
   items?: PickListItemRow[];
+  requiresShipping?: boolean;
+  recipient?: {
+    name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    line1?: string | null;
+    line2?: string | null;
+    city?: string | null;
+    postalCode?: string | null;
+    country?: string | null;
+  } | null;
 }
 
 export interface ListPickListsQuery {
@@ -113,8 +124,19 @@ export function createPickListsApi(api: ClientApi) {
       return `/pick-lists/${id}/packing-slip`;
     },
 
-    ship(id: string): Promise<DataResponse<{ id: string; status: string; shipmentId?: string; parcelId?: string }>> {
-      return api.post(`/pick-lists/${id}/ship`, {});
+    ship(id: string, data?: { senderId?: number; shippingOptionCode?: string; weightKg?: number }): Promise<DataResponse<{
+      id: string;
+      status: string;
+      shipmentId?: string | null;
+      parcelId?: string | null;
+      trackingNumber?: string | null;
+      trackingUrl?: string | null;
+      labelUrl?: string | null;
+      labelPdfBase64?: string | null;
+      carrierName?: string | null;
+      shippingOptionCode?: string | null;
+    }>> {
+      return api.post(`/pick-lists/${id}/ship`, data ?? {});
     },
   };
 }

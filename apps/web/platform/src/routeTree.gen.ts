@@ -139,6 +139,7 @@ import { Route as WeldconnectExecutionsIndexRouteImport } from './routes/weldcon
 import { Route as WeldconnectConnectorsIndexRouteImport } from './routes/weldconnect/connectors/index'
 import { Route as WeldconnectAnalyticsIndexRouteImport } from './routes/weldconnect/analytics/index'
 import { Route as WeldconnectActionsIndexRouteImport } from './routes/weldconnect/actions/index'
+import { Route as WeldcommerceSettingsIndexRouteImport } from './routes/weldcommerce/settings/index'
 import { Route as WeldcommerceProductsIndexRouteImport } from './routes/weldcommerce/products/index'
 import { Route as WeldcommerceOrdersIndexRouteImport } from './routes/weldcommerce/orders/index'
 import { Route as WeldcommerceCustomersIndexRouteImport } from './routes/weldcommerce/customers/index'
@@ -316,6 +317,7 @@ import { Route as WeldbooksAccountsIdIndexRouteImport } from './routes/weldbooks
 import { Route as SettingsTeamMemberIdIndexRouteImport } from './routes/settings/team/$memberId/index'
 import { Route as SettingsRolesRoleIdIndexRouteImport } from './routes/settings/roles/$roleId/index'
 import { Route as SettingsIntegrationsSlackIndexRouteImport } from './routes/settings/integrations/slack/index'
+import { Route as SettingsIntegrationsSendcloudIndexRouteImport } from './routes/settings/integrations/sendcloud/index'
 import { Route as SettingsIntegrationsSalesforceIndexRouteImport } from './routes/settings/integrations/salesforce/index'
 import { Route as SettingsIntegrationsMcpServersIndexRouteImport } from './routes/settings/integrations/mcp-servers/index'
 import { Route as SettingsIntegrationsHubspotIndexRouteImport } from './routes/settings/integrations/hubspot/index'
@@ -1065,6 +1067,12 @@ const WeldconnectActionsIndexRoute = WeldconnectActionsIndexRouteImport.update({
   path: '/actions/',
   getParentRoute: () => WeldconnectRouteRoute,
 } as any)
+const WeldcommerceSettingsIndexRoute =
+  WeldcommerceSettingsIndexRouteImport.update({
+    id: '/settings/',
+    path: '/settings/',
+    getParentRoute: () => WeldcommerceRouteRoute,
+  } as any)
 const WeldcommerceProductsIndexRoute =
   WeldcommerceProductsIndexRouteImport.update({
     id: '/products/',
@@ -2029,6 +2037,12 @@ const SettingsIntegrationsSlackIndexRoute =
     path: '/integrations/slack/',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
+const SettingsIntegrationsSendcloudIndexRoute =
+  SettingsIntegrationsSendcloudIndexRouteImport.update({
+    id: '/integrations/sendcloud/',
+    path: '/integrations/sendcloud/',
+    getParentRoute: () => SettingsRouteRoute,
+  } as any)
 const SettingsIntegrationsSalesforceIndexRoute =
   SettingsIntegrationsSalesforceIndexRouteImport.update({
     id: '/integrations/salesforce/',
@@ -2699,6 +2713,7 @@ export interface FileRoutesByFullPath {
   '/weldcommerce/customers/': typeof WeldcommerceCustomersIndexRoute
   '/weldcommerce/orders/': typeof WeldcommerceOrdersIndexRoute
   '/weldcommerce/products/': typeof WeldcommerceProductsIndexRoute
+  '/weldcommerce/settings/': typeof WeldcommerceSettingsIndexRoute
   '/weldconnect/actions/': typeof WeldconnectActionsIndexRoute
   '/weldconnect/analytics/': typeof WeldconnectAnalyticsIndexRoute
   '/weldconnect/connectors/': typeof WeldconnectConnectorsIndexRoute
@@ -2792,6 +2807,7 @@ export interface FileRoutesByFullPath {
   '/settings/integrations/hubspot/': typeof SettingsIntegrationsHubspotIndexRoute
   '/settings/integrations/mcp-servers/': typeof SettingsIntegrationsMcpServersIndexRoute
   '/settings/integrations/salesforce/': typeof SettingsIntegrationsSalesforceIndexRoute
+  '/settings/integrations/sendcloud/': typeof SettingsIntegrationsSendcloudIndexRoute
   '/settings/integrations/slack/': typeof SettingsIntegrationsSlackIndexRoute
   '/settings/roles/$roleId/': typeof SettingsRolesRoleIdIndexRoute
   '/settings/team/$memberId/': typeof SettingsTeamMemberIdIndexRoute
@@ -3060,6 +3076,7 @@ export interface FileRoutesByTo {
   '/weldcommerce/customers': typeof WeldcommerceCustomersIndexRoute
   '/weldcommerce/orders': typeof WeldcommerceOrdersIndexRoute
   '/weldcommerce/products': typeof WeldcommerceProductsIndexRoute
+  '/weldcommerce/settings': typeof WeldcommerceSettingsIndexRoute
   '/weldconnect/actions': typeof WeldconnectActionsIndexRoute
   '/weldconnect/analytics': typeof WeldconnectAnalyticsIndexRoute
   '/weldconnect/connectors': typeof WeldconnectConnectorsIndexRoute
@@ -3152,6 +3169,7 @@ export interface FileRoutesByTo {
   '/settings/integrations/hubspot': typeof SettingsIntegrationsHubspotIndexRoute
   '/settings/integrations/mcp-servers': typeof SettingsIntegrationsMcpServersIndexRoute
   '/settings/integrations/salesforce': typeof SettingsIntegrationsSalesforceIndexRoute
+  '/settings/integrations/sendcloud': typeof SettingsIntegrationsSendcloudIndexRoute
   '/settings/integrations/slack': typeof SettingsIntegrationsSlackIndexRoute
   '/settings/roles/$roleId': typeof SettingsRolesRoleIdIndexRoute
   '/settings/team/$memberId': typeof SettingsTeamMemberIdIndexRoute
@@ -3456,6 +3474,7 @@ export interface FileRoutesById {
   '/weldcommerce/customers/': typeof WeldcommerceCustomersIndexRoute
   '/weldcommerce/orders/': typeof WeldcommerceOrdersIndexRoute
   '/weldcommerce/products/': typeof WeldcommerceProductsIndexRoute
+  '/weldcommerce/settings/': typeof WeldcommerceSettingsIndexRoute
   '/weldconnect/actions/': typeof WeldconnectActionsIndexRoute
   '/weldconnect/analytics/': typeof WeldconnectAnalyticsIndexRoute
   '/weldconnect/connectors/': typeof WeldconnectConnectorsIndexRoute
@@ -3549,6 +3568,7 @@ export interface FileRoutesById {
   '/settings/integrations/hubspot/': typeof SettingsIntegrationsHubspotIndexRoute
   '/settings/integrations/mcp-servers/': typeof SettingsIntegrationsMcpServersIndexRoute
   '/settings/integrations/salesforce/': typeof SettingsIntegrationsSalesforceIndexRoute
+  '/settings/integrations/sendcloud/': typeof SettingsIntegrationsSendcloudIndexRoute
   '/settings/integrations/slack/': typeof SettingsIntegrationsSlackIndexRoute
   '/settings/roles/$roleId/': typeof SettingsRolesRoleIdIndexRoute
   '/settings/team/$memberId/': typeof SettingsTeamMemberIdIndexRoute
@@ -3853,6 +3873,7 @@ export interface FileRouteTypes {
     | '/weldcommerce/customers/'
     | '/weldcommerce/orders/'
     | '/weldcommerce/products/'
+    | '/weldcommerce/settings/'
     | '/weldconnect/actions/'
     | '/weldconnect/analytics/'
     | '/weldconnect/connectors/'
@@ -3946,6 +3967,7 @@ export interface FileRouteTypes {
     | '/settings/integrations/hubspot/'
     | '/settings/integrations/mcp-servers/'
     | '/settings/integrations/salesforce/'
+    | '/settings/integrations/sendcloud/'
     | '/settings/integrations/slack/'
     | '/settings/roles/$roleId/'
     | '/settings/team/$memberId/'
@@ -4214,6 +4236,7 @@ export interface FileRouteTypes {
     | '/weldcommerce/customers'
     | '/weldcommerce/orders'
     | '/weldcommerce/products'
+    | '/weldcommerce/settings'
     | '/weldconnect/actions'
     | '/weldconnect/analytics'
     | '/weldconnect/connectors'
@@ -4306,6 +4329,7 @@ export interface FileRouteTypes {
     | '/settings/integrations/hubspot'
     | '/settings/integrations/mcp-servers'
     | '/settings/integrations/salesforce'
+    | '/settings/integrations/sendcloud'
     | '/settings/integrations/slack'
     | '/settings/roles/$roleId'
     | '/settings/team/$memberId'
@@ -4609,6 +4633,7 @@ export interface FileRouteTypes {
     | '/weldcommerce/customers/'
     | '/weldcommerce/orders/'
     | '/weldcommerce/products/'
+    | '/weldcommerce/settings/'
     | '/weldconnect/actions/'
     | '/weldconnect/analytics/'
     | '/weldconnect/connectors/'
@@ -4702,6 +4727,7 @@ export interface FileRouteTypes {
     | '/settings/integrations/hubspot/'
     | '/settings/integrations/mcp-servers/'
     | '/settings/integrations/salesforce/'
+    | '/settings/integrations/sendcloud/'
     | '/settings/integrations/slack/'
     | '/settings/roles/$roleId/'
     | '/settings/team/$memberId/'
@@ -5804,6 +5830,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldconnect/actions/'
       preLoaderRoute: typeof WeldconnectActionsIndexRouteImport
       parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldcommerce/settings/': {
+      id: '/weldcommerce/settings/'
+      path: '/settings'
+      fullPath: '/weldcommerce/settings/'
+      preLoaderRoute: typeof WeldcommerceSettingsIndexRouteImport
+      parentRoute: typeof WeldcommerceRouteRoute
     }
     '/weldcommerce/products/': {
       id: '/weldcommerce/products/'
@@ -7044,6 +7077,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsIntegrationsSlackIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
+    '/settings/integrations/sendcloud/': {
+      id: '/settings/integrations/sendcloud/'
+      path: '/integrations/sendcloud'
+      fullPath: '/settings/integrations/sendcloud/'
+      preLoaderRoute: typeof SettingsIntegrationsSendcloudIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
     '/settings/integrations/salesforce/': {
       id: '/settings/integrations/salesforce/'
       path: '/integrations/salesforce'
@@ -7768,6 +7808,7 @@ interface SettingsRouteRouteChildren {
   SettingsIntegrationsHubspotIndexRoute: typeof SettingsIntegrationsHubspotIndexRoute
   SettingsIntegrationsMcpServersIndexRoute: typeof SettingsIntegrationsMcpServersIndexRoute
   SettingsIntegrationsSalesforceIndexRoute: typeof SettingsIntegrationsSalesforceIndexRoute
+  SettingsIntegrationsSendcloudIndexRoute: typeof SettingsIntegrationsSendcloudIndexRoute
   SettingsIntegrationsSlackIndexRoute: typeof SettingsIntegrationsSlackIndexRoute
   SettingsRolesRoleIdIndexRoute: typeof SettingsRolesRoleIdIndexRoute
   SettingsTeamMemberIdIndexRoute: typeof SettingsTeamMemberIdIndexRoute
@@ -7824,6 +7865,8 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
     SettingsIntegrationsMcpServersIndexRoute,
   SettingsIntegrationsSalesforceIndexRoute:
     SettingsIntegrationsSalesforceIndexRoute,
+  SettingsIntegrationsSendcloudIndexRoute:
+    SettingsIntegrationsSendcloudIndexRoute,
   SettingsIntegrationsSlackIndexRoute: SettingsIntegrationsSlackIndexRoute,
   SettingsRolesRoleIdIndexRoute: SettingsRolesRoleIdIndexRoute,
   SettingsTeamMemberIdIndexRoute: SettingsTeamMemberIdIndexRoute,
@@ -8063,6 +8106,7 @@ interface WeldcommerceRouteRouteChildren {
   WeldcommerceCustomersIndexRoute: typeof WeldcommerceCustomersIndexRoute
   WeldcommerceOrdersIndexRoute: typeof WeldcommerceOrdersIndexRoute
   WeldcommerceProductsIndexRoute: typeof WeldcommerceProductsIndexRoute
+  WeldcommerceSettingsIndexRoute: typeof WeldcommerceSettingsIndexRoute
 }
 
 const WeldcommerceRouteRouteChildren: WeldcommerceRouteRouteChildren = {
@@ -8071,6 +8115,7 @@ const WeldcommerceRouteRouteChildren: WeldcommerceRouteRouteChildren = {
   WeldcommerceCustomersIndexRoute: WeldcommerceCustomersIndexRoute,
   WeldcommerceOrdersIndexRoute: WeldcommerceOrdersIndexRoute,
   WeldcommerceProductsIndexRoute: WeldcommerceProductsIndexRoute,
+  WeldcommerceSettingsIndexRoute: WeldcommerceSettingsIndexRoute,
 }
 
 const WeldcommerceRouteRouteWithChildren =
