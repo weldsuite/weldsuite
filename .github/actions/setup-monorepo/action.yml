@@ -28,7 +28,9 @@ runs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ inputs.node-version }}
-        cache: 'pnpm'
+        # Do not set cache: pnpm — setup-node hashes **/pnpm-lock.yaml and that
+        # glob times out (120s) walking this monorepo on the Hetzner runners.
+        # The explicit cache step below hashes only the root lockfile.
 
     - name: Get pnpm store directory
       id: pnpm-cache
@@ -40,7 +42,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-        key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+        key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
         restore-keys: |
           ${{ runner.os }}-pnpm-store-
 

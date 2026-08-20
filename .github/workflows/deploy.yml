@@ -60,7 +60,7 @@ concurrency:
 jobs:
   prepare:
     name: Prepare
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     outputs:
       sha: ${{ steps.ctx.outputs.sha }}
       ref: ${{ steps.ctx.outputs.ref }}
@@ -264,7 +264,7 @@ jobs:
     name: Database Migrations
     needs: prepare
     if: needs.prepare.outputs.run_migrations == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
@@ -289,7 +289,7 @@ jobs:
     if: >-
       always() && !failure() && !cancelled() &&
       needs.prepare.outputs.workers != '[]'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     environment: ${{ needs.prepare.outputs.cf_env }}
     strategy:
       fail-fast: false
@@ -315,7 +315,7 @@ jobs:
       always() && !failure() && !cancelled() &&
       (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
       needs.prepare.outputs.release_weldmail == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
@@ -343,7 +343,7 @@ jobs:
       always() && !failure() && !cancelled() &&
       (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
       needs.prepare.outputs.release_weldchat == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
@@ -370,7 +370,7 @@ jobs:
     if: >-
       always() && !failure() && !cancelled() &&
       (needs.workers.result == 'success' || needs.workers.result == 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4

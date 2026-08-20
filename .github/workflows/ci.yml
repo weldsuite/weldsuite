@@ -1,5 +1,9 @@
 name: CI
 
+# Linux jobs run on the Hetzner self-hosted pool (labels self-hosted/linux/x64).
+# Cap org runner-group concurrency at 2 — the box is 16 GB and two tsc heaps
+# already fill it. macOS/Windows desktop packaging stays on GitHub-hosted.
+#
 # Job names are reused verbatim as required status checks in branch
 # protection: "Build", "Lint", "Type Check · app-api",
 # "Type Check · platform", "Unit · app-api", "Unit · platform". Renaming one
@@ -37,7 +41,7 @@ jobs:
   # ────────────────────────────────────────────
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -47,14 +51,14 @@ jobs:
 
   type-check-api:
     name: Type Check · app-api
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 15
     # app-api's schema is clean — this one blocks.
     env:
       # ~565 source files against drizzle-orm's deep generics blow past Node's
       # default ~2 GB heap and tsc OOMs (exit 134) before it can report.
-      # ubuntu-latest has 16 GB, so give tsc room to finish.
-      NODE_OPTIONS: --max-old-space-size=8192
+      # 5 GB leaves room for a second concurrent runner on the 16 GB Hetzner box.
+      NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
@@ -64,12 +68,12 @@ jobs:
 
   type-check-platform:
     name: Type Check · platform
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 20
     # Was informational while ~1300 pre-existing errors were worked down.
     # `tsc --noEmit` is clean as of this change, so it blocks.
     env:
-      NODE_OPTIONS: --max-old-space-size=8192
+      NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
@@ -89,7 +93,7 @@ jobs:
   # ────────────────────────────────────────────
   desktop:
     name: Type Check + Build · desktop
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -109,7 +113,7 @@ jobs:
   # ────────────────────────────────────────────
   unit-api:
     name: Unit · app-api
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -120,7 +124,7 @@ jobs:
 
   unit-platform:
     name: Unit · platform
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -140,10 +144,10 @@ jobs:
   # ────────────────────────────────────────────
   build:
     name: Build
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 35
     env:
-      NODE_OPTIONS: --max-old-space-size=8192
+      NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
