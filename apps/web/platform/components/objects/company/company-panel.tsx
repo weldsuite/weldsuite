@@ -41,6 +41,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { getTranslations } from '@/lib/i18n';
 import { Button } from '@weldsuite/ui/components/button';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import {
@@ -98,6 +99,12 @@ import {
   useCompanyChannel,
 } from './use-company-data';
 import { useUnlinkPersonFromCompany } from '@/hooks/queries/use-person-companies-queries';
+import {
+  useCommercePortalAccess,
+  useInviteCommercePortalAccess,
+  useResendCommercePortalAccess,
+  useRevokeCommercePortalAccess,
+} from '@/hooks/queries/use-commerce-queries';
 import { EntityList } from '@/components/entity-list';
 import { LinkPersonPopover } from './link-person-popover';
 import { CompanyChat } from './company-chat';
@@ -608,7 +615,19 @@ function CompanyPeopleTab({
   onOpenPerson: (personId: string) => void;
 }) {
   const st = useTranslations();
+  const portalT = getTranslations('commerce').module.portal;
   const unlinkMut = useUnlinkPersonFromCompany();
+  const accessQuery = useCommercePortalAccess(companyId);
+  const inviteMut = useInviteCommercePortalAccess();
+  const revokeMut = useRevokeCommercePortalAccess(companyId);
+  const resendMut = useResendCommercePortalAccess(companyId);
+  const accessByPerson = useMemo(() => {
+    const map = new Map<string, { id: string; status: string }>();
+    for (const row of accessQuery.data?.data ?? []) {
+      map.set(row.personId, { id: row.id, status: row.status });
+    }
+    return map;
+  }, [accessQuery.data]);
   const linkedIds = useMemo(
     () => new Set(employments.map((e) => e.personId)),
     [employments],
@@ -655,8 +674,69 @@ function CompanyPeopleTab({
             <span className="flex items-center gap-1 flex-shrink-0">
               {pc.endedAt && <Badge variant="outline" className="text-[10px]">{st('sweep.entities.past')}</Badge>}
               {pc.isPrimary && <Badge variant="default" className="text-[10px]">{st('sweep.entities.primary')}</Badge>}
+              {accessByPerson.get(pc.personId)?.status === 'active' && (
+                <Badge variant="secondary" className="text-[10px]">{portalT.statusActive}</Badge>
+              )}
+              {accessByPerson.get(pc.personId)?.status === 'invited' && (
+                <Badge variant="outline" className="text-[10px]">{portalT.statusInvited}</Badge>
+              )}
             </span>
           </Button>
+          {!pc.endedAt && pc.person?.email ? (
+            accessByPerson.get(pc.personId)?.status === 'revoked' || !accessByPerson.get(pc.personId) ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="opacity-0 group-hover/row:opacity-100 h-7 text-xs"
+                disabled={inviteMut.isPending}
+                onClick={() => {
+                  inviteMut.mutate(
+                    { personId: pc.personId, companyId },
+                    {
+                      onSuccess: () => toast.success(portalT.invitedToast),
+                      onError: () => toast.error(portalT.inviteFailed),
+                    },
+                  );
+                }}
+              >
+                {portalT.invite}
+              </Button>
+            ) : (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="opacity-0 group-hover/row:opacity-100 h-7 text-xs"
+                  disabled={resendMut.isPending}
+                  onClick={() => {
+                    const access = accessByPerson.get(pc.personId);
+                    if (!access) return;
+                    resendMut.mutate(access.id, {
+                      onSuccess: () => toast.success(portalT.resentToast),
+                      onError: () => toast.error(portalT.inviteFailed),
+                    });
+                  }}
+                >
+                  {portalT.resend}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="opacity-0 group-hover/row:opacity-100 h-7 text-xs"
+                  disabled={revokeMut.isPending}
+                  onClick={() => {
+                    const access = accessByPerson.get(pc.personId);
+                    if (!access) return;
+                    revokeMut.mutate(access.id, {
+                      onSuccess: () => toast.success(portalT.revokedToast),
+                    });
+                  }}
+                >
+                  {portalT.revoke}
+                </Button>
+              </>
+            )
+          ) : null}
           <Button
             variant="ghost"
             size="icon"
@@ -676,7 +756,7 @@ function CompanyPeopleTab({
         </div>
       );
     },
-    [companyId, onOpenPerson, unlinkMut, st],
+    [accessByPerson, companyId, inviteMut, onOpenPerson, portalT, resendMut, revokeMut, unlinkMut, st],
   );
 
   return (

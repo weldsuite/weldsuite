@@ -66,6 +66,7 @@ import { chatSectionsRoutes } from './routes/chat-sections';
 import { chatStatusRoutes } from './routes/chat-status';
 import { categoriesRoutes } from './routes/categories';
 import { companiesRoutes } from './routes/companies';
+import { commercePortalStaffRoutes } from './routes/commerce-portal';
 import { crmAnalyticsRoutes } from './routes/crm-analytics';
 import { customerStatusesRoutes } from './routes/customer-statuses';
 import { conversationsRoutes } from './routes/conversations';
@@ -259,6 +260,7 @@ import { workflowWebhooksRoutes } from './routes/workflow-webhooks';
 import { workflowsRoutes } from './routes/workflows';
 import { testFixturesRoutes } from './routes/_test-fixtures';
 import { publicHelpcenterRoutes } from './routes/public-helpcenter';
+import { publicCommercePortalRoutes } from './routes/public-commerce-portal';
 import { publicUserAppsRoutes } from './routes/public-user-apps';
 // Legacy api-worker phase-out (W3/W4) — surfaces ported from apps/api-worker.
 import { appstoreRoutes } from './routes/appstore';
@@ -381,6 +383,11 @@ app.route('/test-fixtures', testFixturesRoutes);
 // JWT — the tenant DB is resolved from the `?domain=` param by the router's
 // own middleware. Must stay ABOVE the app.use('/api/*', ...) guard below.
 app.route('/public/helpcenter', publicHelpcenterRoutes);
+
+// Public B2B commerce portal consumed by apps/web/commerce-portal. No Clerk
+// JWT — tenant DB is resolved from `?slug=` / X-Workspace-Slug, buyer auth is
+// a hashed KV session. Must stay ABOVE the app.use('/api/*', ...) guard below.
+app.route('/public/commerce-portal', publicCommercePortalRoutes);
 
 // Public WeldApps bundle host — PUBLIC (no Clerk). Serves the live R2 bundle
 // of a user-created app so the platform can iframe it at /apps/{code}. Must
@@ -524,6 +531,7 @@ app.route('/api/chat-search', chatSearchRoutes);
 app.route('/api/chat-sections', chatSectionsRoutes);
 app.route('/api/chat-status', chatStatusRoutes);
 app.route('/api/companies', companiesRoutes);
+app.route('/api/commerce-portal', commercePortalStaffRoutes);
 app.route('/api/crm-analytics', crmAnalyticsRoutes);
 app.route('/api/customer-statuses', customerStatusesRoutes);
 app.route('/api/conversations', conversationsRoutes);
