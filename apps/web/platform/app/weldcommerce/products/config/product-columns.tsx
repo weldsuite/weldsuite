@@ -6,9 +6,10 @@
  */
 
 import { Badge } from '@weldsuite/ui/components/badge';
-import type { WeldstashProduct } from '@weldsuite/core-api-client/schemas/weldstash';
 import type { ColumnDef } from '@/components/panel-entity-list';
 import { getTranslations } from '@/lib/i18n';
+import type { CommerceProduct } from '@/hooks/queries/use-commerce-queries';
+import { ProductSalesChannelsEditor } from '../components/product-sales-channels-editor';
 
 export function formatMoney(amount: unknown, currency?: string | null): string {
   if (amount == null || amount === '') return '—';
@@ -19,7 +20,7 @@ export function productStatusVariant(status: string | null | undefined) {
   return status === 'active' ? 'default' : status === 'draft' ? 'outline' : 'secondary';
 }
 
-export function buildProductColumns(): ColumnDef<WeldstashProduct>[] {
+export function buildProductColumns(): ColumnDef<CommerceProduct>[] {
   const t = getTranslations('commerce').module;
   return [
     {
@@ -62,8 +63,20 @@ export function buildProductColumns(): ColumnDef<WeldstashProduct>[] {
     {
       id: 'brand',
       header: t.fields.brand,
-      width: 'w-[150px]',
+      width: 'w-[130px]',
       render: (p) => <span className="text-muted-foreground truncate block">{p.brand ?? '—'}</span>,
+    },
+    {
+      id: 'salesChannels',
+      header: t.products.salesChannels,
+      width: 'w-[220px]',
+      render: (p) => (
+        <ProductSalesChannelsEditor
+          productId={p.id}
+          channels={p.salesChannels ?? []}
+          compact
+        />
+      ),
     },
     {
       id: 'status',

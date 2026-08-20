@@ -130,6 +130,7 @@ export const commerceKeys = {
   category: (id: string) => [...commerceKeys.categories(), 'detail', id] as const,
   categoryProducts: (id: string) => [...commerceKeys.categories(), 'detail', id, 'products'] as const,
   productCategories: (id: string) => [...commerceKeys.products(), 'detail', id, 'categories'] as const,
+  salesChannelTargets: () => [...commerceKeys.products(), 'sales-channel-targets'] as const,
 
   orders: () => [...commerceKeys.all, 'orders'] as const,
   orderList: (params?: OrderListQuery) => [...commerceKeys.orders(), 'list', params ?? {}] as const,
@@ -234,6 +235,58 @@ export function useDeleteCommerceProduct() {
       return client.delete<void>(`/products/${id}`);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: commerceKeys.products() }),
+  });
+}
+
+export interface SalesChannelTarget {
+  id: string;
+  provider: string;
+  label: string;
+  displayName: string | null;
+  status: string;
+  externalAccountId: string | null;
+}
+
+export function useSalesChannelTargets(enabled = true) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: commerceKeys.salesChannelTargets(),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<DataResponse<SalesChannelTarget[]>>('/products/sales-channel-targets');
+    },
+    enabled,
+  });
+}
+
+function invalidateProductSalesChannels(qc: ReturnType<typeof useQueryClient>, productId: string) {
+  qc.invalidateQueries({ queryKey: commerceKeys.products() });
+  qc.invalidateQueries({ queryKey: commerceKeys.product(productId) });
+}
+
+export function useAddProductSalesChannel() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ productId, connectionId }: { productId: string; connectionId: string }) => {
+      const client = await getClient();
+      return client.post<DataResponse<ProductSalesChannel>>(`/products/${productId}/sales-channels`, {
+        connectionId,
+      });
+    },
+    onSuccess: (_, vars) => invalidateProductSalesChannels(qc, vars.productId),
+  });
+}
+
+export function useRemoveProductSalesChannel() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ productId, channelId }: { productId: string; channelId: string }) => {
+      const client = await getClient();
+      return client.delete<void>(`/products/${productId}/sales-channels/${channelId}`);
+    },
+    onSuccess: (_, vars) => invalidateProductSalesChannels(qc, vars.productId),
   });
 }
 
