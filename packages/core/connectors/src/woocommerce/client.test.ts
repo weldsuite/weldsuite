@@ -214,4 +214,20 @@ describe('WooCommerceClient', () => {
     }
     expect(calls).toBe(2);
   });
+
+  it('does not invoke fetch with the client as this (Cloudflare Workers Illegal invocation)', async () => {
+    function workersFetch(this: unknown) {
+      if (this !== undefined && this !== globalThis) {
+        throw new TypeError(
+          'Illegal invocation: function called with incorrect `this` reference.',
+        );
+      }
+      return jsonResponse([]);
+    }
+    const client = new WooCommerceClient(
+      { storeUrl: 'https://shop.example', consumerKey: 'ck_a', consumerSecret: 'cs_b' },
+      { fetchImpl: workersFetch as typeof fetch },
+    );
+    await expect(client.listProducts()).resolves.toMatchObject({ items: [] });
+  });
 });
