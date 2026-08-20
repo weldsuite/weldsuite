@@ -8,8 +8,8 @@
  */
 
 import { Hono } from 'hono';
-import type { Env, Variables } from '../../types';
-import { completeWooCommerceAppAuth } from '../../services/connectors/auth';
+import type { Env, Variables } from '../types';
+import { completeWooCommerceAppAuth } from '../services/connectors/auth';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
