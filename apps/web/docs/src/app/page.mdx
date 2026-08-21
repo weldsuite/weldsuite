@@ -1,0 +1,64 @@
+import { Guides } from '@/components/Guides'
+import { Resources } from '@/components/Resources'
+import { HeroPattern } from '@/components/HeroPattern'
+
+export const sections = [
+  { title: 'Guides', id: 'guides' },
+  { title: 'Apps', id: 'resources' },
+]
+
+<HeroPattern />
+
+# WeldSuite Help
+
+Setup guides for WeldSuite — how to connect domains, manage DNS, and get each app ready for your workspace. {{ className: 'lead' }}
+
+<div className="not-prose mt-6 mb-16 flex gap-3">
+  <Button href="/weldhost" arrow="right">
+    <>WeldHost overview</>
+  </Button>
+  <Button href="/weldhost/manage-dns-records" variant="outline">
+    <>Manage DNS records</>
+  </Button>
+</div>
+
+## Getting started {{ anchor: false }}
+
+These guides walk through product setup in the WeldSuite app. Start with WeldHost if you need a domain and DNS before email, help centers, or commerce sites can go live on your own hostname. {{ className: 'lead' }}
+
+<div className="not-prose">
+  <Button href="/weldhost/manage-dns-records" variant="text" arrow="right">
+    <>Add and edit DNS records in WeldHost</>
+  </Button>
+</div>
+
+---
+
+## What you will find here
+
+<div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 not-prose mt-8">
+  <div className="relative rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6">
+    <h3 className="font-semibold text-zinc-900 dark:text-white">Product setup</h3>
+    <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+      Step-by-step instructions that match what you see in the WeldSuite app, not developer API reference.
+    </div>
+  </div>
+
+  <div className="relative rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6">
+    <h3 className="font-semibold text-zinc-900 dark:text-white">WeldHost first</h3>
+    <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+      Domains and DNS are the foundation for WeldMail, Help Center custom domains, and other hostname-based features.
+    </div>
+  </div>
+
+  <div className="relative rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6">
+    <h3 className="font-semibold text-zinc-900 dark:text-white">Growing library</h3>
+    <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+      More guides for CRM, desk, mail, and the rest of the suite will land under each app section as we publish them.
+    </div>
+  </div>
+</div>
+
+<Guides />
+
+<Resources />

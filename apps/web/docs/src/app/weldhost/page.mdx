@@ -1,0 +1,34 @@
+export const sections = [
+  { title: 'What WeldHost does', id: 'what-weldhost-does' },
+  { title: 'Before you manage DNS', id: 'before-you-manage-dns' },
+  { title: 'Next steps', id: 'next-steps' },
+]
+
+# WeldHost
+
+WeldHost is where you register or connect domains, manage DNS records, and prepare hostnames for the rest of WeldSuite. {{ className: 'lead' }}
+
+## What WeldHost does
+
+With WeldHost you can:
+
+- Register a new domain or connect one you already own
+- Manage DNS for that domain from inside WeldSuite
+- Keep SSL and related zone settings with the domain
+- Point other WeldSuite apps (WeldMail, Help Center, commerce sites) at a WeldHost domain
+
+DNS changes you make in WeldHost apply to the Cloudflare zone WeldSuite creates for the domain. Once nameservers are pointed at WeldHost, you manage records here instead of at your old DNS provider.
+
+## Before you manage DNS
+
+This help site’s first deep guide assumes the domain is **already connected** and its nameservers point at WeldHost (zone status Active). If the DNS tab is empty or says the zone is not ready yet, finish connecting the domain first — including any ownership TXT record and nameserver update at your registrar.
+
+Connecting an external domain (TXT verification and nameserver cutover) will be covered in a separate guide.
+
+## Next steps
+
+<div className="not-prose">
+  <Button href="/weldhost/manage-dns-records" arrow="right">
+    <>Manage DNS records</>
+  </Button>
+</div>
