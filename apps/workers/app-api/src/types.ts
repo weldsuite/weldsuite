@@ -351,6 +351,14 @@ export interface Env {
    */
   POSTPEER_APP_IDS?: string;
 
+  // --- WeldAds (Meta Marketing API) --------------------------------------
+  FACEBOOK_APP_ID?: string;
+  FACEBOOK_APP_SECRET?: string;
+  /** Meta webhook verify token + X-Hub-Signature-256 verification secret. */
+  FACEBOOK_WEBHOOK_VERIFY_TOKEN?: string;
+  /** Public base URL for integration-webhook-worker (Meta ad webhooks). */
+  INTEGRATION_WEBHOOK_BASE_URL?: string;
+
   // --- Cloudflare Flagship (feature flags) -------------------------------
   /** Flagship Worker binding — `env.FLAGSHIP.getBooleanValue(key, default, ctx)`.
    *  Configured via `[[flagship]]` in wrangler.toml (test/preview/production).

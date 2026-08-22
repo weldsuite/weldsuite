@@ -25,7 +25,9 @@ const APP_NAMES: Record<string, string> = {
   weldcalendar: 'WeldCalendar',
   welddrive: 'WeldDrive',
   welddata: 'WeldData',
-  weldknow: 'WeldKnow'
+  weldknow: 'WeldKnow',
+  weldcommerce: 'WeldCommerce',
+  weldads: 'WeldAds',
 };
 
 export const installedAppsKeys = {

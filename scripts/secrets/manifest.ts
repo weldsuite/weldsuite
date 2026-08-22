@@ -118,6 +118,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     "GITHUB_APP_ID",
     "GITHUB_APP_PRIVATE_KEY",
     "GITHUB_WEBHOOK_SECRET",
+    "FACEBOOK_APP_SECRET",
+    "FACEBOOK_WEBHOOK_VERIFY_TOKEN",
     ["BETTERSTACK_TOKEN_INTEGRATION_WEBHOOK_WORKER", "BETTERSTACK_TOKEN"],
   ],
 
@@ -168,6 +170,9 @@ export const manifest: Record<string, SecretEntry[]> = {
     "POSTPEER_API_KEY",
     "POSTPEER_WEBHOOK_SECRET",
     "POSTPEER_APP_IDS",
+    "FACEBOOK_APP_ID",
+    "FACEBOOK_APP_SECRET",
+    "FACEBOOK_WEBHOOK_VERIFY_TOKEN",
   ],
 
   "audit-log-worker": [

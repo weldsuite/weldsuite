@@ -31,6 +31,7 @@ import { DRIVE_ENTITY_EVENTS } from './drive';
 import { WELDDATA_ENTITY_EVENTS } from './welddata';
 import { KNOWLEDGE_ENTITY_EVENTS } from './knowledge';
 import { USER_APPS_ENTITY_EVENTS } from './user-apps';
+import { ADS_ENTITY_EVENTS } from './ads';
 
 export const ENTITY_EVENTS = {
   ...CRM_ENTITY_EVENTS,
@@ -50,6 +51,7 @@ export const ENTITY_EVENTS = {
   ...WELDDATA_ENTITY_EVENTS,
   ...KNOWLEDGE_ENTITY_EVENTS,
   ...USER_APPS_ENTITY_EVENTS,
+  ...ADS_ENTITY_EVENTS,
 } as const;
 
 export type EntityType = keyof typeof ENTITY_EVENTS;
