@@ -35,7 +35,7 @@ const AD_DDL = [
     updated_at timestamp NOT NULL DEFAULT now(),
     deleted_at timestamp,
     ad_account_id varchar(30) NOT NULL,
-    platform_campaign_id varchar(255) NOT NULL,
+    platform_campaign_id varchar(255),
     name varchar(255) NOT NULL,
     status varchar(50),
     objective varchar(100),
@@ -44,7 +44,10 @@ const AD_DDL = [
     currency varchar(10),
     metrics jsonb,
     metrics_synced_at timestamp,
-    content_hash varchar(64)
+    content_hash varchar(64),
+    sync_status text NOT NULL DEFAULT 'local',
+    sync_error text,
+    last_synced_at timestamp
   )`,
 ];
 

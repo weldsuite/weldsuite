@@ -15,6 +15,7 @@ describe('@weldsuite/meta-ads oauth', () => {
     expect(url).toContain('client_id=app123');
     expect(url).toContain('state=state-abc');
     expect(url).toContain('ads_read');
+    expect(url).toContain('ads_management');
   });
 
   it('exchanges code for tokens', async () => {

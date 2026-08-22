@@ -5,6 +5,11 @@ const OAUTH_BASE = `https://www.facebook.com/${GRAPH_VERSION}/dialog/oauth`;
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
 
 export const META_ADS_READ_SCOPES = ['ads_read', 'business_management'] as const;
+export const META_ADS_MANAGEMENT_SCOPES = ['ads_management'] as const;
+export const META_ADS_SCOPES = [
+  ...META_ADS_READ_SCOPES,
+  ...META_ADS_MANAGEMENT_SCOPES,
+] as const;
 
 export interface AuthorizeUrlInput {
   appId: string;
@@ -19,7 +24,7 @@ export function buildAuthorizeUrl(input: AuthorizeUrlInput): string {
     redirect_uri: input.redirectUri,
     response_type: 'code',
     state: input.state,
-    scope: (input.scopes ?? META_ADS_READ_SCOPES).join(','),
+    scope: (input.scopes ?? META_ADS_SCOPES).join(','),
   });
   return `${OAUTH_BASE}?${params.toString()}`;
 }

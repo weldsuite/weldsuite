@@ -1,14 +1,9 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { MetaMarketingClient } from '@weldsuite/meta-ads';
-import { hashCampaignPayload } from '@weldsuite/meta-ads';
 import { decryptField, encryptField, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
-import type { AdCampaignMetrics } from '@weldsuite/db/schema';
 import { schema, type Database } from '../../db';
 import { generateId } from '../../lib/id';
-import {
-  deleteAdAccountKvMapping,
-  writeAdAccountKvMapping,
-} from './meta-oauth';
+import { syncAdConnection } from './campaign-management';
 import { touchAdSyncIndexAfterMetricsSync, upsertAdSyncIndex } from './sync-index';
 import type { Env } from '../../types';
 
@@ -19,9 +14,15 @@ const {
 } = schema;
 
 export interface SyncScope {
-  scope?: 'full' | 'metrics' | 'incremental';
+  scope?: 'full' | 'push' | 'pull' | 'metrics' | 'incremental';
   platformAccountId?: string;
   platformCampaignId?: string;
+}
+
+function normalizeScope(scope?: SyncScope['scope']): 'full' | 'push' | 'pull' {
+  if (scope === 'push') return 'push';
+  if (scope === 'pull' || scope === 'metrics' || scope === 'incremental') return 'pull';
+  return 'full';
 }
 
 function keyringFromEnv(env: Env): EncryptionKeyring {
@@ -42,7 +43,7 @@ export function stripConnectionSecrets<T extends { oauthTokens?: unknown }>(row:
 
 export async function discoverAdAccounts(
   db: Database,
-  env: Env,
+  _env: Env,
   connectionId: string,
   accessToken: string,
 ): Promise<void> {
@@ -98,55 +99,14 @@ export async function syncSelectedAccounts(
   connectionId: string,
   accessToken: string,
   workspaceId: string,
-  clerkOrgId: string,
+  _clerkOrgId: string,
   options: SyncScope = {},
-): Promise<{ syncedCampaigns: number; writtenCampaigns: number }> {
-  const selected = await db
-    .select()
-    .from(adAccounts)
-    .where(
-      and(
-        eq(adAccounts.connectionId, connectionId),
-        eq(adAccounts.isSelected, true),
-        isNull(adAccounts.deletedAt),
-        ...(options.platformAccountId
-          ? [eq(adAccounts.platformAccountId, options.platformAccountId)]
-          : []),
-      ),
-    );
-
-  const client = new MetaMarketingClient({ accessToken });
-  let syncedCampaigns = 0;
-  let writtenCampaigns = 0;
-
-  for (const account of selected) {
-    if (options.scope === 'incremental' && options.platformCampaignId) {
-      const campaign = await client.getCampaign(account.platformAccountId, options.platformCampaignId);
-      if (campaign) {
-        syncedCampaigns += 1;
-        const wrote = await upsertCampaignIfChanged(db, account.id, account.currency, campaign);
-        if (wrote) writtenCampaigns += 1;
-      }
-      continue;
-    }
-
-    const campaigns =
-      options.scope === 'metrics'
-        ? await refreshMetricsForAccount(db, client, account.id, account.platformAccountId)
-        : await client.listCampaignsWithInsights(account.platformAccountId);
-
-    syncedCampaigns += campaigns.length;
-    for (const campaign of campaigns) {
-      const wrote = await upsertCampaignIfChanged(db, account.id, account.currency, campaign);
-      if (wrote) writtenCampaigns += 1;
-    }
-
-    await writeAdAccountKvMapping(env.WORKSPACE_CACHE, account.platformAccountId, {
-      workspaceId,
-      connectionId,
-      clerkOrgId,
-    });
-  }
+): Promise<{ syncedCampaigns: number; writtenCampaigns: number; pushed: number; failed: number; pulled: number }> {
+  const scope = normalizeScope(options.scope);
+  const result = await syncAdConnection(db, env, connectionId, accessToken, scope, {
+    platformAccountId: options.platformAccountId,
+    platformCampaignId: options.platformCampaignId,
+  });
 
   const now = new Date();
   await db
@@ -154,96 +114,17 @@ export async function syncSelectedAccounts(
     .set({ lastSyncAt: now, updatedAt: now, lastError: null })
     .where(eq(adPlatformConnections.id, connectionId));
 
-  if (options.scope === 'metrics' || options.scope === 'full') {
+  if (scope === 'pull' || scope === 'full') {
     await touchAdSyncIndexAfterMetricsSync(env, workspaceId, connectionId);
   }
 
-  return { syncedCampaigns, writtenCampaigns };
-}
-
-async function refreshMetricsForAccount(
-  db: Database,
-  client: MetaMarketingClient,
-  adAccountId: string,
-  platformAccountId: string,
-) {
-  const existing = await db
-    .select()
-    .from(adCampaigns)
-    .where(and(eq(adCampaigns.adAccountId, adAccountId), isNull(adCampaigns.deletedAt)));
-
-  const refreshed = [];
-  for (const row of existing) {
-    const campaign = await client.getCampaign(platformAccountId, row.platformCampaignId);
-    if (campaign) refreshed.push(campaign);
-  }
-  return refreshed;
-}
-
-async function upsertCampaignIfChanged(
-  db: Database,
-  adAccountId: string,
-  currency: string | null | undefined,
-  campaign: {
-    platformCampaignId: string;
-    name: string;
-    status?: string;
-    objective?: string;
-    dailyBudget?: number;
-    lifetimeBudget?: number;
-    metrics?: AdCampaignMetrics;
-  },
-): Promise<boolean> {
-  const contentHash = hashCampaignPayload({
-    name: campaign.name,
-    status: campaign.status ?? null,
-    objective: campaign.objective ?? null,
-    dailyBudget: campaign.dailyBudget ?? null,
-    lifetimeBudget: campaign.lifetimeBudget ?? null,
-    metrics: campaign.metrics ?? null,
-  });
-
-  const [existing] = await db
-    .select({ id: adCampaigns.id, contentHash: adCampaigns.contentHash })
-    .from(adCampaigns)
-    .where(
-      and(
-        eq(adCampaigns.adAccountId, adAccountId),
-        eq(adCampaigns.platformCampaignId, campaign.platformCampaignId),
-        isNull(adCampaigns.deletedAt),
-      ),
-    )
-    .limit(1);
-
-  if (existing?.contentHash === contentHash) return false;
-
-  const now = new Date();
-  const values = {
-    name: campaign.name,
-    status: campaign.status,
-    objective: campaign.objective,
-    dailyBudget: campaign.dailyBudget,
-    lifetimeBudget: campaign.lifetimeBudget,
-    currency: currency ?? undefined,
-    metrics: campaign.metrics,
-    metricsSyncedAt: now,
-    contentHash,
-    updatedAt: now,
+  return {
+    syncedCampaigns: result.pushed + result.pulled,
+    writtenCampaigns: result.pushed + result.pulled,
+    pushed: result.pushed,
+    failed: result.failed,
+    pulled: result.pulled,
   };
-
-  if (existing) {
-    await db.update(adCampaigns).set(values).where(eq(adCampaigns.id, existing.id));
-    return true;
-  }
-
-  await db.insert(adCampaigns).values({
-    id: generateId('adcp'),
-    adAccountId,
-    platformCampaignId: campaign.platformCampaignId,
-    createdAt: now,
-    ...values,
-  });
-  return true;
 }
 
 export async function setAccountSelection(
@@ -255,9 +136,6 @@ export async function setAccountSelection(
     workspaceId: string;
     clerkOrgId: string;
     connectionId: string;
-    accessToken: string;
-    webhookCallbackUrl?: string;
-    webhookVerifyToken?: string;
   },
 ): Promise<void> {
   const now = new Date();
@@ -277,43 +155,12 @@ export async function setAccountSelection(
       ),
     );
 
-  const [account] = await db
-    .select()
-    .from(adAccounts)
-    .where(eq(adAccounts.id, input.accountId))
-    .limit(1);
-  if (!account) return;
-
-  if (input.isSelected) {
-    await writeAdAccountKvMapping(env.WORKSPACE_CACHE, account.platformAccountId, {
-      workspaceId: input.workspaceId,
-      connectionId: input.connectionId,
-      clerkOrgId: input.clerkOrgId,
-    });
-    if (input.webhookCallbackUrl && input.webhookVerifyToken) {
-      const client = new MetaMarketingClient({ accessToken: input.accessToken });
-      await client.subscribeAdAccountWebhooks(
-        account.platformAccountId,
-        input.webhookCallbackUrl,
-        input.webhookVerifyToken,
-      );
-    }
-  } else {
-    await deleteAdAccountKvMapping(env.WORKSPACE_CACHE, account.platformAccountId);
-    try {
-      const client = new MetaMarketingClient({ accessToken: input.accessToken });
-      await client.unsubscribeAdAccountWebhooks(account.platformAccountId);
-    } catch (err) {
-      console.warn('[ads/sync] webhook unsubscribe failed:', err);
-    }
-  }
-
   await upsertAdSyncIndex(env, {
     workspaceId: input.workspaceId,
     connectionId: input.connectionId,
     clerkOrgId: input.clerkOrgId,
     isEnabled: selectedCount.length > 0,
-    webhookSubscribedAt: input.isSelected ? now : null,
+    webhookSubscribedAt: null,
   });
 }
 
@@ -323,13 +170,9 @@ export async function cleanupConnectionMappings(
   connectionId: string,
 ): Promise<void> {
   const accounts = await db
-    .select({ id: adAccounts.id, platformAccountId: adAccounts.platformAccountId })
+    .select({ id: adAccounts.id })
     .from(adAccounts)
     .where(and(eq(adAccounts.connectionId, connectionId), isNull(adAccounts.deletedAt)));
-
-  for (const account of accounts) {
-    await deleteAdAccountKvMapping(env.WORKSPACE_CACHE, account.platformAccountId);
-  }
 
   const now = new Date();
   const accountIds = accounts.map((a) => a.id);

@@ -46,6 +46,9 @@ export interface AdCampaignRow {
     reach?: string;
   } | null;
   metricsSyncedAt?: string | null;
+  syncStatus?: 'local' | 'pending_push' | 'synced' | 'error' | null;
+  syncError?: string | null;
+  lastSyncedAt?: string | null;
   accountName?: string;
   platformAccountId?: string;
 }
@@ -144,10 +147,11 @@ export function useSyncWeldAdsConnection() {
   const { getClient } = useAppApiClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { connectionId: string; scope?: 'full' | 'metrics' | 'incremental' }) => {
+    mutationFn: async (input: { connectionId: string; scope?: 'full' | 'push' | 'pull' | 'metrics' }) => {
       const client = await getClient();
-      const qs = input.scope ? buildQueryString({ scope: input.scope }) : '';
-      return client.post<DataResponse<{ syncedCampaigns: number; writtenCampaigns: number }>>(
+      const scope = input.scope === 'metrics' ? 'pull' : input.scope;
+      const qs = scope ? buildQueryString({ scope }) : '';
+      return client.post<DataResponse<{ syncedCampaigns: number; writtenCampaigns: number; pushed: number; failed: number; pulled: number }>>(
         `/ad-connections/${input.connectionId}/sync${qs}`,
       );
     },
@@ -164,6 +168,64 @@ export function useDeleteWeldAdsConnection() {
     mutationFn: async (connectionId: string) => {
       const client = await getClient();
       await client.delete(`/ad-connections/${connectionId}`);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: weldadsKeys.all });
+    },
+  });
+}
+
+export type AdCampaignObjective =
+  | 'OUTCOME_TRAFFIC'
+  | 'OUTCOME_SALES'
+  | 'OUTCOME_LEADS'
+  | 'OUTCOME_AWARENESS'
+  | 'OUTCOME_ENGAGEMENT'
+  | 'OUTCOME_APP_PROMOTION';
+
+export type AdCampaignStatus = 'ACTIVE' | 'PAUSED';
+
+export interface CreateAdCampaignInput {
+  adAccountId: string;
+  name: string;
+  objective: AdCampaignObjective;
+  status?: AdCampaignStatus;
+  dailyBudget?: number;
+  lifetimeBudget?: number;
+}
+
+export interface UpdateAdCampaignInput {
+  name?: string;
+  objective?: AdCampaignObjective;
+  status?: AdCampaignStatus;
+  dailyBudget?: number;
+  lifetimeBudget?: number;
+}
+
+export function useCreateWeldAdsCampaign() {
+  const { getClient } = useAppApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CreateAdCampaignInput) => {
+      const client = await getClient();
+      const res = await client.post<DataResponse<AdCampaignRow>>('/ad-campaigns', input);
+      return res.data;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: weldadsKeys.all });
+    },
+  });
+}
+
+export function useUpdateWeldAdsCampaign() {
+  const { getClient } = useAppApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: string } & UpdateAdCampaignInput) => {
+      const client = await getClient();
+      const { id, ...body } = input;
+      const res = await client.patch<DataResponse<AdCampaignRow>>(`/ad-campaigns/${id}`, body);
+      return res.data;
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: weldadsKeys.all });

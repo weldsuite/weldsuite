@@ -89,6 +89,13 @@ export const adAccounts = pgTable(
   ],
 );
 
+export const adCampaignSyncStatusEnum = pgEnum('ad_campaign_sync_status', [
+  'local',
+  'pending_push',
+  'synced',
+  'error',
+]);
+
 export const adCampaigns = pgTable(
   'ad_campaigns',
   {
@@ -101,7 +108,8 @@ export const adCampaigns = pgTable(
       .notNull()
       .references(() => adAccounts.id, { onDelete: 'cascade' }),
 
-    platformCampaignId: varchar('platform_campaign_id', { length: 255 }).notNull(),
+    /** Set after the campaign is pushed to the ad platform. Null for local-only rows. */
+    platformCampaignId: varchar('platform_campaign_id', { length: 255 }),
     name: varchar('name', { length: 255 }).notNull(),
     status: varchar('status', { length: 50 }),
     objective: varchar('objective', { length: 100 }),
@@ -111,6 +119,10 @@ export const adCampaigns = pgTable(
     metrics: jsonb('metrics').$type<AdCampaignMetrics>(),
     metricsSyncedAt: timestamp('metrics_synced_at'),
     contentHash: varchar('content_hash', { length: 64 }),
+
+    syncStatus: adCampaignSyncStatusEnum('sync_status').notNull().default('local'),
+    syncError: text('sync_error'),
+    lastSyncedAt: timestamp('last_synced_at'),
   },
   (table) => [
     uniqueIndex('ad_campaigns_account_platform_campaign_idx').on(
@@ -119,6 +131,7 @@ export const adCampaigns = pgTable(
     ),
     index('ad_campaigns_ad_account_idx').on(table.adAccountId),
     index('ad_campaigns_status_idx').on(table.status),
+    index('ad_campaigns_sync_status_idx').on(table.syncStatus),
   ],
 );
 

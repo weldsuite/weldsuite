@@ -252,7 +252,7 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
 
   // ── WeldAds (paid advertising) ────────────────────────────────────────
   objectPermissions('ad_accounts',   'Ad Accounts',          ['read', 'update']),
-  objectPermissions('ad_campaigns',  'Ad Campaigns',         ['read']),
+  objectPermissions('ad_campaigns',  'Ad Campaigns',         ['read', 'create', 'update']),
 
   // ── Hosting (WeldHost) ────────────────────────────────────────────────
   objectPermissions('domains',       'Domains'),
@@ -372,7 +372,7 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   // All app modules (full access)
   'weldcrm:*', 'weldstash:*', 'weldbooks:*',
   'welddesk:*', 'weldparcel:*', 'weldflow:*', 'weldmail:*', 'weldhost:*',
-  'weldchat:*', 'weldconnect:*', 'welddrive:*', 'weldcalendar:*', 'weldmeet:*', 'weldsocial:*',
+  'weldchat:*', 'weldconnect:*', 'welddrive:*', 'weldcalendar:*', 'weldmeet:*', 'weldsocial:*', 'weldads:*',
   // Cross-owner scope grants — admins see and edit all rows, not just their own
   'customers:scope:all', 'contacts:scope:all', 'leads:scope:all',
   'opportunities:scope:all', 'activities:scope:all',
@@ -499,7 +499,7 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   'weldsocial:campaigns:read',
   'weldsocial:analytics:read',
   'weldads:ad_accounts:read', 'weldads:ad_accounts:update',
-  'weldads:ad_campaigns:read',
+  'weldads:ad_campaigns:read', 'weldads:ad_campaigns:create', 'weldads:ad_campaigns:update',
   // WeldApps (user-created apps) — members can use installed apps
   'weldapps:read',
   // WeldObjects — members manage records in any object, but only the ones they

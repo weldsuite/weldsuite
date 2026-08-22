@@ -153,7 +153,7 @@ const RAW_MIGRATION: ReadonlyArray<readonly [string, string, string, readonly st
 
   // ── weldads ─────────────────────────────────────────────────────────────
   ['weldads', 'ad_accounts',  'ad_accounts',  ['read', 'update']],
-  ['weldads', 'ad_campaigns', 'ad_campaigns', ['read']],
+  ['weldads', 'ad_campaigns', 'ad_campaigns', ['read', 'create', 'update']],
 ];
 
 // ---------------------------------------------------------------------------

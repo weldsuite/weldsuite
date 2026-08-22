@@ -12,7 +12,7 @@
 
 import { drizzle as drizzleNeonHttp } from 'drizzle-orm/neon-http';
 import { neon } from '@neondatabase/serverless';
-import { eq, and, isNull } from 'drizzle-orm';
+import { and, eq, isNull, lte } from 'drizzle-orm';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import * as schema from '@weldsuite/db/schema';
 
@@ -185,5 +185,51 @@ export default {
     }
 
     console.log(`[IntegrationScheduler] Done. Triggered: ${totalTriggered}, Skipped (not due): ${totalSkipped}`);
+
+    // WeldAds: poll master ad_sync_index — only touch tenants with due connections.
+    await runAdSyncSweep(env, masterDb, now);
   },
 };
+
+async function runAdSyncSweep(env: Env, masterDb: ReturnType<typeof getMasterDb>, now: Date) {
+  const dueRows = await masterDb
+    .select()
+    .from(masterSchema.adSyncIndex)
+    .where(
+      and(
+        eq(masterSchema.adSyncIndex.isEnabled, true),
+        lte(masterSchema.adSyncIndex.nextMetricsSyncAt, now),
+      ),
+    )
+    .limit(100);
+
+  let triggered = 0;
+  for (const row of dueRows) {
+    if (!row.clerkOrgId) continue;
+    try {
+      const response = await env.APP_API.fetch(
+        `https://internal/api/integrations/ad-connections/${row.connectionId}/sync?scope=full`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Workspace-Id': row.clerkOrgId,
+            'X-Internal-Secret': env.INTERNAL_API_SECRET || '',
+          },
+        },
+      );
+      if (response.ok) {
+        triggered += 1;
+        console.log(`[IntegrationScheduler] Triggered WeldAds sync for connection ${row.connectionId}`);
+      } else {
+        console.error(
+          `[IntegrationScheduler] WeldAds sync failed for ${row.connectionId}: ${response.status}`,
+        );
+      }
+    } catch (err) {
+      console.error(`[IntegrationScheduler] WeldAds sync error for ${row.connectionId}:`, err);
+    }
+  }
+
+  console.log(`[IntegrationScheduler] WeldAds sweep done. Triggered: ${triggered}`);
+}

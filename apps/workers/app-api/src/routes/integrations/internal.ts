@@ -216,6 +216,51 @@ app.post('/woocommerce-auth', async (c, next: Next) => {
   }
 });
 
+// POST /ad-connections/:id/sync — scheduled/manual WeldAds integration sync
+// ============================================================================
+
+app.post('/ad-connections/:id/sync', async (c, next: Next) => {
+  const resolved = await resolveInternal(c);
+  if (resolved.kind === 'passthrough') return next();
+  if (resolved.kind === 'response') return resolved.response;
+
+  const { db, clerkOrgId } = resolved.ctx;
+  const id = c.req.param('id');
+  const scopeParam = c.req.query('scope');
+  const scope =
+    scopeParam === 'push' ? 'push' : scopeParam === 'pull' || scopeParam === 'metrics' ? 'pull' : 'full';
+
+  const [connection] = await db
+    .select()
+    .from(schema.adPlatformConnections)
+    .where(and(eq(schema.adPlatformConnections.id, id), isNull(schema.adPlatformConnections.deletedAt)))
+    .limit(1);
+  if (!connection) return error.notFound(c, 'Ad connection', id);
+
+  const accessToken = await decryptAccessToken(connection.oauthTokens?.accessToken, {
+    v1: c.env.DATABASE_ENCRYPTION_KEY,
+    v2: c.env.DATABASE_ENCRYPTION_KEY_V2,
+  });
+  if (!accessToken) return error.badRequest(c, 'Connection has no valid access token');
+
+  try {
+    const workspace = await getWorkspaceForOrg(c.env, clerkOrgId);
+    const result = await syncSelectedAccounts(
+      db,
+      c.env,
+      id,
+      accessToken,
+      workspace.id,
+      clerkOrgId,
+      { scope },
+    );
+    return success(c, result);
+  } catch (err) {
+    console.error('[app-api/integrations-internal] ad connection sync failed:', err);
+    return error.internal(c, 'Failed to sync ad connection');
+  }
+});
+
 // POST /ad-events — Meta webhook incremental ingest
 // ============================================================================
 
