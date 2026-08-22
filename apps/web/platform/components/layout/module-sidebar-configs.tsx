@@ -395,6 +395,9 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
 };
 
 export function getModuleKey(pathname: string): string | null {
+  if (pathname.startsWith('/preview/help-docs')) {
+    return 'weldhost';
+  }
   if (pathname === '/' || pathname === '' || pathname === '/new-chat' || pathname.startsWith('/new-chat/')) {
     return 'home';
   }

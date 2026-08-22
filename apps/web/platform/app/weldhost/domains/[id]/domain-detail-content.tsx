@@ -68,6 +68,11 @@ interface DomainDetailContentProps {
   dnsTemplates: unknown[];
   zoneSyncMeta?: { id: string; syncedAt: string | null; syncError: string | null } | null;
   onClose?: () => void;
+  /** Help-docs preview only — initial tab / add-record form state for screenshots. */
+  initialUiState?: {
+    activeTab?: 'dns' | 'nameservers' | 'settings';
+    showAddRecord?: boolean;
+  };
 }
 
 const DNS_RECORD_TYPES: DnsRecordInput['type'][] = [
@@ -120,6 +125,7 @@ export function DomainDetailContent({
   dnsZone,
   dnsRecords,
   onClose,
+  initialUiState,
 }: DomainDetailContentProps) {
   const { t } = useI18n();
   const td = t.host.domainDetail;
@@ -139,9 +145,11 @@ export function DomainDetailContent({
 
   const searchParams = useSearchParams();
   const [autoRenew, setAutoRenew] = useState(!!domain.autoRenew);
-  const [activeTab, setActiveTab] = useState<'dns' | 'nameservers' | 'settings'>('dns');
+  const [activeTab, setActiveTab] = useState<'dns' | 'nameservers' | 'settings'>(
+    initialUiState?.activeTab ?? 'dns',
+  );
   const toggleAutoRenewMutation = useToggleAutoRenew();
-  const [showAddRecord, setShowAddRecord] = useState(false);
+  const [showAddRecord, setShowAddRecord] = useState(initialUiState?.showAddRecord ?? false);
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
   const createDnsRecord = useCreateDnsRecord();
   const updateDnsRecord = useUpdateDnsRecord();
