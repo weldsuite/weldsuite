@@ -61,6 +61,9 @@ export interface Env {
   GITHUB_APP_PRIVATE_KEY?: string;
   /** GitHub App-level webhook secret (X-Hub-Signature-256 verification). */
   GITHUB_WEBHOOK_SECRET?: string;
+  /** Meta Marketing API — WeldAds webhook verification + signature checks. */
+  FACEBOOK_APP_SECRET?: string;
+  FACEBOOK_WEBHOOK_VERIFY_TOKEN?: string;
   /** Slack app signing secret — verifies inbound Slack webhooks. */
   SLACK_SIGNING_SECRET?: string;
   /** Google OAuth client — refreshes expired Sheets/Workspace tokens during the poll. */
@@ -218,6 +221,81 @@ app.post('/webhooks/connectors/:connectionId', async (c) => {
     status: res.status,
     headers: { 'Content-Type': res.headers.get('content-type') || 'application/json' },
   });
+});
+
+/**
+ * Meta Marketing API webhooks for WeldAds. KV resolves the tenant; app-api opens
+ * the tenant DB only for incremental ingest of the changed campaign/account.
+ */
+app.get('/webhooks/meta/ads', async (c) => {
+  const mode = c.req.query('hub.mode');
+  const token = c.req.query('hub.verify_token');
+  const challenge = c.req.query('hub.challenge');
+  const expected = c.env.FACEBOOK_WEBHOOK_VERIFY_TOKEN || 'weldsuite-meta-ads';
+  if (mode === 'subscribe' && token === expected && challenge) {
+    return c.text(challenge);
+  }
+  return c.text('Forbidden', 403);
+});
+
+app.post('/webhooks/meta/ads', async (c) => {
+  if (!c.env.APP_API) {
+    console.error('[Webhook/meta/ads] APP_API binding missing');
+    return c.json({ error: 'Ad ingest unavailable' }, 503);
+  }
+
+  const rawBody = await c.req.text();
+  const { verifyMetaWebhookSignature, parseMetaAdsWebhook } = await import('@weldsuite/meta-ads');
+  const appSecret = c.env.FACEBOOK_APP_SECRET;
+  if (appSecret) {
+    const valid = await verifyMetaWebhookSignature(rawBody, c.req.header('X-Hub-Signature-256'), appSecret);
+    if (!valid) return c.json({ error: 'Invalid signature' }, 401);
+  }
+
+  let payload: Parameters<typeof parseMetaAdsWebhook>[0];
+  try {
+    payload = JSON.parse(rawBody) as Parameters<typeof parseMetaAdsWebhook>[0];
+  } catch {
+    return c.json({ error: 'Invalid JSON' }, 400);
+  }
+
+  const events = parseMetaAdsWebhook(payload);
+  const responses = [];
+
+  for (const event of events) {
+    const cached = await c.env.WORKSPACE_CACHE.get(`adsconn:${event.platformAccountId}`);
+    if (!cached) {
+      responses.push({ skipped: true, platformAccountId: event.platformAccountId });
+      continue;
+    }
+
+    let entry: { workspaceId: string; connectionId: string; clerkOrgId: string };
+    try {
+      entry = JSON.parse(cached) as { workspaceId: string; connectionId: string; clerkOrgId: string };
+    } catch {
+      responses.push({ error: 'Corrupt ad account mapping', platformAccountId: event.platformAccountId });
+      continue;
+    }
+
+    const res = await c.env.APP_API.fetch(
+      new Request('https://internal/api/integrations/ad-events', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Internal-Secret': c.env.INTERNAL_API_SECRET || '',
+          'X-Workspace-Id': entry.clerkOrgId,
+        },
+        body: JSON.stringify({
+          platformAccountId: event.platformAccountId,
+          platformCampaignId: event.objectId,
+          objectType: event.objectType,
+        }),
+      }),
+    );
+    responses.push({ platformAccountId: event.platformAccountId, status: res.status });
+  }
+
+  return c.json({ data: { processed: responses.length, responses } });
 });
 
 // Robots.txt — disallow all indexing

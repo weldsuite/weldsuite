@@ -32,6 +32,7 @@
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/feature-flags": "workspace:*",
     "@weldsuite/connectors": "workspace:*",
+    "@weldsuite/meta-ads": "workspace:*",
     "@weldsuite/notifications": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/realtime": "workspace:*",

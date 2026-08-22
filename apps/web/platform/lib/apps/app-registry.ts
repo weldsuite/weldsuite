@@ -19,6 +19,7 @@ import {
   Bot,
   Database,
   Zap,
+  Megaphone,
   type LucideIcon,
 } from 'lucide-react';
 import type { AppLogo } from '@/components/app-sidebar-layout';
@@ -184,6 +185,10 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
       iconLight: '/assets/images/weldcommerce/logo-light.svg',
       iconDark: '/assets/images/weldcommerce/logo-dark.svg',
     },
+  },
+  weldads: {
+    lucideIcon: Megaphone,
+    shortName: 'Ads',
   },
   // WeldKnow (workspace wiki / knowledge base). Icon-only logo like welddata —
   // wordmark variants need the brand typeface and can be added later.

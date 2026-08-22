@@ -26,11 +26,12 @@
  */
 
 import { Hono } from 'hono';
-import { eq } from 'drizzle-orm';
+import { z } from 'zod';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { Context, Next } from 'hono';
 import type { Env, Variables } from '../../types';
 import { error, success } from '../../lib/response';
-import { getMasterDb, getTenantDbForWorkspace, masterSchema, type Database } from '../../db';
+import { getMasterDb, getTenantDbForWorkspace, getWorkspaceForOrg, masterSchema, schema, type Database } from '../../db';
 import {
   triggerConnectionSync,
   renewGoogleCalendarWatch,
@@ -39,6 +40,7 @@ import {
 import { getConnectionById } from '../../services/connectors/connections';
 import { processConnectorWebhook } from '../../services/connectors/webhooks';
 import { completeWooCommerceAppAuth } from '../../services/connectors/auth';
+import { decryptAccessToken, syncSelectedAccounts } from '../../services/ads/sync';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -211,6 +213,81 @@ app.post('/woocommerce-auth', async (c, next: Next) => {
   } catch (err) {
     console.error('[app-api/integrations-internal] WooCommerce auth callback failed:', err);
     return error.internal(c, 'Failed to complete WooCommerce connection');
+  }
+});
+
+// POST /ad-events — Meta webhook incremental ingest
+// ============================================================================
+
+const adEventSchema = z.object({
+  platformAccountId: z.string().min(1),
+  platformCampaignId: z.string().optional(),
+  objectType: z.enum(['campaign', 'adset', 'ad', 'unknown']).optional(),
+});
+
+app.post('/ad-events', async (c, next: Next) => {
+  const resolved = await resolveInternal(c);
+  if (resolved.kind === 'passthrough') return next();
+  if (resolved.kind === 'response') return resolved.response;
+
+  const body = await c.req.json().catch(() => null);
+  const parsed = adEventSchema.safeParse(body);
+  if (!parsed.success) return error.badRequest(c, 'Invalid ad event payload');
+
+  const { db, clerkOrgId } = resolved.ctx;
+  const { platformAccountId, platformCampaignId } = parsed.data;
+
+  try {
+    const [account] = await db
+      .select({
+        id: schema.adAccounts.id,
+        connectionId: schema.adAccounts.connectionId,
+      })
+      .from(schema.adAccounts)
+      .where(
+        and(
+          eq(schema.adAccounts.platformAccountId, platformAccountId),
+          eq(schema.adAccounts.isSelected, true),
+          isNull(schema.adAccounts.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (!account) return success(c, { skipped: true, reason: 'account_not_selected' });
+
+    const [connection] = await db
+      .select()
+      .from(schema.adPlatformConnections)
+      .where(and(eq(schema.adPlatformConnections.id, account.connectionId), isNull(schema.adPlatformConnections.deletedAt)))
+      .limit(1);
+    if (!connection?.oauthTokens?.accessToken) {
+      return success(c, { skipped: true, reason: 'missing_token' });
+    }
+
+    const accessToken = await decryptAccessToken(connection.oauthTokens.accessToken, {
+      v1: c.env.DATABASE_ENCRYPTION_KEY,
+      v2: c.env.DATABASE_ENCRYPTION_KEY_V2,
+    });
+    if (!accessToken) return success(c, { skipped: true, reason: 'invalid_token' });
+
+    const workspace = await getWorkspaceForOrg(c.env, clerkOrgId);
+    const result = await syncSelectedAccounts(
+      db,
+      c.env,
+      account.connectionId,
+      accessToken,
+      workspace.id,
+      clerkOrgId,
+      {
+        scope: 'incremental',
+        platformAccountId,
+        platformCampaignId,
+      },
+    );
+
+    return success(c, result);
+  } catch (err) {
+    console.error('[app-api/integrations-internal] ad event ingest failed:', err);
+    return error.internal(c, 'Failed to ingest ad event');
   }
 });
 

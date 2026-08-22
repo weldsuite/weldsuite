@@ -941,6 +941,39 @@ export type DigestSchedule = typeof digestSchedules.$inferSelect;
 export type NewDigestSchedule = typeof digestSchedules.$inferInsert;
 
 // ============================================================================
+// AD SYNC INDEX (WeldAds)
+// ============================================================================
+
+/**
+ * Master DB timing index for WeldAds metrics refresh. Cron sweeps query this
+ * table only — tenant Neon databases stay asleep until a row is actually due.
+ */
+export const adSyncIndex = pgTable(
+  'ad_sync_index',
+  {
+    id: varchar('id', { length: 30 }).primaryKey(),
+    workspaceId: varchar('workspace_id', { length: 255 })
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    connectionId: varchar('connection_id', { length: 30 }).notNull(),
+    clerkOrgId: varchar('clerk_org_id', { length: 255 }).notNull(),
+    isEnabled: boolean('is_enabled').notNull().default(true),
+    nextMetricsSyncAt: timestamp('next_metrics_sync_at', { withTimezone: true }),
+    metricsIntervalHours: integer('metrics_interval_hours').notNull().default(6),
+    webhookSubscribedAt: timestamp('webhook_subscribed_at', { withTimezone: true }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('ad_sync_index_workspace_connection_idx').on(table.workspaceId, table.connectionId),
+    index('ad_sync_index_next_metrics_sync_at_idx').on(table.nextMetricsSyncAt),
+    index('ad_sync_index_is_enabled_idx').on(table.isEnabled),
+  ],
+);
+
+export type AdSyncIndex = typeof adSyncIndex.$inferSelect;
+export type NewAdSyncIndex = typeof adSyncIndex.$inferInsert;
+
+// ============================================================================
 // HELP CENTER DOMAIN REGISTRY
 // ============================================================================
 

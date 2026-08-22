@@ -36,6 +36,7 @@ const POST_REFACTOR_APPS: Record<string, string[]> = {
   // plus `companies`, which backs the customers tab — the customer surface is
   // a status-flag projection on companies, not a separate object.
   weldcommerce: ['products', 'categories', 'orders', 'companies'],
+  weldads: ['ad_accounts', 'ad_campaigns'],
 };
 
 /**

@@ -273,6 +273,7 @@ export * from './social-analytics';
 export * from './social-team-members';
 export * from './social-approvals';
 export * from './social-campaigns';
+export * from './ad-platform';
 
 // Audit Logs (generic, cross-module)
 export * from './audit-logs';
