@@ -87,3 +87,4 @@ gcp-*-key.json
 
 # TypeScript incremental build artifacts (regenerated on build)
 *.tsbuildinfo
+.env*

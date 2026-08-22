@@ -28,7 +28,7 @@ export interface SeedAppEntry {
   contactUrl: string | null;
 }
 
-const HELP_BASE = 'https://help.weldsuite.com';
+const HELP_BASE = 'https://help.weldsuite.org';
 const SUPPORT_EMAIL = 'mailto:support@weldsuite.com';
 
 export const APP_CATALOG_SEED: SeedAppEntry[] = [

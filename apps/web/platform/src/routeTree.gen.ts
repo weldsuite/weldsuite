@@ -205,6 +205,7 @@ import { Route as SettingsAppearanceIndexRouteImport } from './routes/settings/a
 import { Route as SettingsApiKeysIndexRouteImport } from './routes/settings/api-keys/index'
 import { Route as SettingsAdvancedIndexRouteImport } from './routes/settings/advanced/index'
 import { Route as SettingsActivityIndexRouteImport } from './routes/settings/activity/index'
+import { Route as PreviewHelpDocsIndexRouteImport } from './routes/preview/help-docs/index'
 import { Route as ObjectsSlugIndexRouteImport } from './routes/objects/$slug/index'
 import { Route as InviteAcceptIndexRouteImport } from './routes/invite/accept/index'
 import { Route as AuthSsoCallbackIndexRouteImport } from './routes/auth/sso-callback/index'
@@ -1412,6 +1413,11 @@ const SettingsActivityIndexRoute = SettingsActivityIndexRouteImport.update({
   id: '/activity/',
   path: '/activity/',
   getParentRoute: () => SettingsRouteRoute,
+} as any)
+const PreviewHelpDocsIndexRoute = PreviewHelpDocsIndexRouteImport.update({
+  id: '/preview/help-docs/',
+  path: '/preview/help-docs/',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ObjectsSlugIndexRoute = ObjectsSlugIndexRouteImport.update({
   id: '/objects/$slug/',
@@ -2685,6 +2691,7 @@ export interface FileRoutesByFullPath {
   '/auth/sso-callback/': typeof AuthSsoCallbackIndexRoute
   '/invite/accept/': typeof InviteAcceptIndexRoute
   '/objects/$slug/': typeof ObjectsSlugIndexRoute
+  '/preview/help-docs/': typeof PreviewHelpDocsIndexRoute
   '/settings/activity/': typeof SettingsActivityIndexRoute
   '/settings/advanced/': typeof SettingsAdvancedIndexRoute
   '/settings/api-keys/': typeof SettingsApiKeysIndexRoute
@@ -3052,6 +3059,7 @@ export interface FileRoutesByTo {
   '/auth/sso-callback': typeof AuthSsoCallbackIndexRoute
   '/invite/accept': typeof InviteAcceptIndexRoute
   '/objects/$slug': typeof ObjectsSlugIndexRoute
+  '/preview/help-docs': typeof PreviewHelpDocsIndexRoute
   '/settings/activity': typeof SettingsActivityIndexRoute
   '/settings/advanced': typeof SettingsAdvancedIndexRoute
   '/settings/api-keys': typeof SettingsApiKeysIndexRoute
@@ -3455,6 +3463,7 @@ export interface FileRoutesById {
   '/auth/sso-callback/': typeof AuthSsoCallbackIndexRoute
   '/invite/accept/': typeof InviteAcceptIndexRoute
   '/objects/$slug/': typeof ObjectsSlugIndexRoute
+  '/preview/help-docs/': typeof PreviewHelpDocsIndexRoute
   '/settings/activity/': typeof SettingsActivityIndexRoute
   '/settings/advanced/': typeof SettingsAdvancedIndexRoute
   '/settings/api-keys/': typeof SettingsApiKeysIndexRoute
@@ -3859,6 +3868,7 @@ export interface FileRouteTypes {
     | '/auth/sso-callback/'
     | '/invite/accept/'
     | '/objects/$slug/'
+    | '/preview/help-docs/'
     | '/settings/activity/'
     | '/settings/advanced/'
     | '/settings/api-keys/'
@@ -4226,6 +4236,7 @@ export interface FileRouteTypes {
     | '/auth/sso-callback'
     | '/invite/accept'
     | '/objects/$slug'
+    | '/preview/help-docs'
     | '/settings/activity'
     | '/settings/advanced'
     | '/settings/api-keys'
@@ -4628,6 +4639,7 @@ export interface FileRouteTypes {
     | '/auth/sso-callback/'
     | '/invite/accept/'
     | '/objects/$slug/'
+    | '/preview/help-docs/'
     | '/settings/activity/'
     | '/settings/advanced/'
     | '/settings/api-keys/'
@@ -4977,6 +4989,7 @@ export interface RootRouteChildren {
   AppsManageIndexRoute: typeof AppsManageIndexRoute
   InviteAcceptIndexRoute: typeof InviteAcceptIndexRoute
   ObjectsSlugIndexRoute: typeof ObjectsSlugIndexRoute
+  PreviewHelpDocsIndexRoute: typeof PreviewHelpDocsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -6352,6 +6365,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/activity/'
       preLoaderRoute: typeof SettingsActivityIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
+    }
+    '/preview/help-docs/': {
+      id: '/preview/help-docs/'
+      path: '/preview/help-docs'
+      fullPath: '/preview/help-docs/'
+      preLoaderRoute: typeof PreviewHelpDocsIndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/objects/$slug/': {
       id: '/objects/$slug/'
@@ -9031,6 +9051,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppsManageIndexRoute: AppsManageIndexRoute,
   InviteAcceptIndexRoute: InviteAcceptIndexRoute,
   ObjectsSlugIndexRoute: ObjectsSlugIndexRoute,
+  PreviewHelpDocsIndexRoute: PreviewHelpDocsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

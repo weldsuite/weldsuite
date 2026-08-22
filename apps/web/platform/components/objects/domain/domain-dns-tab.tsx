@@ -336,6 +336,8 @@ interface DomainDnsTabProps {
   canDelete: boolean;
   /** Shown when the tab is entirely read-only — explains why. */
   readOnlyReason?: string;
+  /** Help-doc preview — show the add-record form on first paint. */
+  initialShowAddRecord?: boolean;
 }
 
 export function DomainDnsTab({
@@ -347,13 +349,14 @@ export function DomainDnsTab({
   canEdit,
   canDelete,
   readOnlyReason,
+  initialShowAddRecord,
 }: DomainDnsTabProps) {
   const { t } = useI18n();
   const td = t.host.domainDetail;
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
-  const [isAdding, setIsAdding] = useState(false);
+  const [isAdding, setIsAdding] = useState(initialShowAddRecord ?? false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<HostDnsRecord | null>(null);
 

@@ -5,6 +5,7 @@ import { useAuth } from '@clerk/clerk-react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useInstalledUserApps } from '@/hooks/queries/use-user-apps-queries';
 import { useCustomObjects } from '@/hooks/queries/use-custom-objects-queries';
+import { usePreviewInstalledAppsOverride } from '@/contexts/preview-installed-apps-context';
 import type { InstalledApp } from '@/lib/api/apps';
 
 // Client-side app name mapping (matches server-side APP_CATALOG)
@@ -42,6 +43,11 @@ export const installedAppsKeys = {
  * Fetches app codes from the worker API and constructs InstalledApp objects.
  */
 export function useInstalledApps() {
+  const previewApps = usePreviewInstalledAppsOverride();
+  if (previewApps) {
+    return { data: previewApps, isLoading: false };
+  }
+
   // Reads from app-api (the new unified backend) rather than the legacy
   // api-worker — completing the installed-apps consolidation. app-api serves
   // GET /api/dashboard/installed-apps from the same workspace_installed_apps
