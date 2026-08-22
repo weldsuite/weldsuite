@@ -57,6 +57,24 @@ fans out through Turborepo.
 ### Default dev ports
 platform 3000, app-api 8789, realtime-worker 8790, billing-worker 8788.
 
+### Help docs (`help.weldsuite.com`) + UI screenshots
+
+Product help lives in `apps/web/docs`. Guide images are **Playwright screenshots** of real
+platform UI via `/preview/help-docs?scene=…` — not hand-drawn assets.
+
+**When you change WeldHost UI (or any screen documented in help), you must in the same
+change:**
+
+1. Update Markdoc copy in `apps/web/docs/src/app/` if labels/steps changed
+2. Adjust preview scenes/fixtures in `apps/web/platform/app/preview/help-docs/` if needed
+3. Regenerate PNGs: `pnpm --filter docs capture-screenshots:all`
+4. Commit the updated `apps/web/docs/public/images/help/*.png` with the UI change
+
+Full workflow: [.agents/skills/help-docs/SKILL.md](./.agents/skills/help-docs/SKILL.md)
+
+Do **not** leave docs on stale screenshots. Do **not** use CI to auto-commit images —
+agents and developers regenerate locally as part of the UI task.
+
 ### Automating the login form in tests
 The platform sign-in page (`/auth/login`) is a custom form (fields `#email` /
 `#password`) backed by `react-hook-form`, not Clerk's drop-in `<SignIn>`.

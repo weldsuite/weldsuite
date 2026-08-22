@@ -78,6 +78,7 @@ import {
 import { DomainDnsTab } from './domain-dns-tab';
 import { getDomainTabs, type DomainTab } from './domain-tabs';
 import { useDeleteDomain } from './use-domain-data';
+import { usePreviewHelpDocsUiState } from '@/app/preview/help-docs/preview-help-docs-context';
 
 /** Wide enough for a scannable DNS table (type · name · value · ttl). */
 const DOMAIN_PANEL_WIDTH = 480;
@@ -676,6 +677,7 @@ export function DomainPanel(props: ObjectPanelComponentProps) {
 
   const deleteDomain = useDeleteDomain();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const previewUi = usePreviewHelpDocsUiState();
 
   const shell = useObjectPanelShell({
     ...props,
@@ -788,6 +790,7 @@ export function DomainPanel(props: ObjectPanelComponentProps) {
             canEdit={zoneIsManageable && canUpdateDns}
             canDelete={zoneIsManageable && canDeleteDns}
             readOnlyReason={dnsReadOnlyReason}
+            initialShowAddRecord={previewUi?.initialShowAddRecord}
           />
         )}
         {domain && activeTab === 'nameservers' && (

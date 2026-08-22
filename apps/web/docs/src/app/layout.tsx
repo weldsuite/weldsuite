@@ -1,12 +1,23 @@
-import { Analytics } from '@vercel/analytics/next'
-import glob from 'fast-glob'
 import { type Metadata } from 'next'
+import { Inter, Lexend } from 'next/font/google'
+import clsx from 'clsx'
 
 import { Providers } from '@/app/providers'
 import { Layout } from '@/components/Layout'
-import { type Section } from '@/components/SectionProvider'
 
 import '@/styles/tailwind.css'
+
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-inter',
+})
+
+const lexend = Lexend({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-lexend',
+})
 
 export const metadata: Metadata = {
   title: {
@@ -14,32 +25,24 @@ export const metadata: Metadata = {
     default: 'WeldSuite Help',
   },
   description:
-    'Setup guides for WeldSuite — domains, DNS, email, CRM, and the rest of the suite.',
+    'Step-by-step setup guides for WeldSuite — domains, DNS, email, and more.',
 }
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const pages = await glob('**/*.mdx', { cwd: 'src/app' })
-  const allSectionsEntries = (await Promise.all(
-    pages.map(async (filename) => [
-      '/' + filename.replace(/(^|\/)page\.mdx$/, ''),
-      (await import(`./${filename}`)).sections,
-    ]),
-  )) as Array<[string, Array<Section>]>
-  const allSections = Object.fromEntries(allSectionsEntries)
-
   return (
-    <html lang="en" className="h-full" suppressHydrationWarning>
-      <body className="flex min-h-full bg-white antialiased dark:bg-zinc-900">
+    <html
+      lang="en"
+      className={clsx('h-full antialiased', inter.variable, lexend.variable)}
+      suppressHydrationWarning
+    >
+      <body className="flex min-h-full bg-white dark:bg-slate-900">
         <Providers>
-          <div className="w-full">
-            <Layout allSections={allSections}>{children}</Layout>
-          </div>
+          <Layout>{children}</Layout>
         </Providers>
-        <Analytics />
       </body>
     </html>
   )
