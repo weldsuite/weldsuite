@@ -1,7 +1,7 @@
 ---
 name: help-docs
 description: >-
-  Keep help.weldsuite.com in sync with platform UI. Use when changing WeldHost
+  Keep help.weldsuite.org in sync with platform UI. Use when changing WeldHost
   (or other documented) UI, editing apps/web/docs guides, or when the user asks
   to update help screenshots or product documentation images.
 ---

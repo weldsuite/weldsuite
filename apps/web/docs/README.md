@@ -1,6 +1,6 @@
 # WeldSuite Help (`docs`)
 
-Public product help site for WeldSuite setup guides. Intended production host: **https://help.weldsuite.com**.
+Public product help site for WeldSuite setup guides. Intended production host: **https://help.weldsuite.org**.
 
 Built with Next.js + Markdoc (Tailwind Plus Syntax template).
 

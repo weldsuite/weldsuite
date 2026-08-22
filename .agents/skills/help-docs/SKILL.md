@@ -1,14 +1,14 @@
 ---
 name: help-docs
 description: >-
-  Keep help.weldsuite.com in sync with platform UI. Use when changing WeldHost
+  Keep help.weldsuite.org in sync with platform UI. Use when changing WeldHost
   (or other documented) UI, editing apps/web/docs guides, or when the user asks
   to update help screenshots or product documentation images.
 ---
 
 # Help docs + UI screenshots
 
-Public help site: `apps/web/docs` → **https://help.weldsuite.com**
+Public help site: `apps/web/docs` → **https://help.weldsuite.org**
 
 Guide images must be **real screenshots** of production components, not SVG mockups.
 
@@ -110,7 +110,7 @@ See `help-docs-preview-client.tsx`.
 
 ## Navigation / URLs
 
-Help URLs must match app catalog links (`help.weldsuite.com/weldhost`, etc.):
+Help URLs must match app catalog links (`help.weldsuite.org/weldhost`, etc.):
 
 - `/` — home
 - `/weldhost` — overview

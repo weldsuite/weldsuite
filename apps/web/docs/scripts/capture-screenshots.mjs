@@ -1,5 +1,5 @@
 /**
- * Capture real WeldHost UI screenshots for help.weldsuite.com docs.
+ * Capture real WeldHost UI screenshots for help.weldsuite.org docs.
  *
  * Prerequisites:
  *   Platform preview: http://localhost:3000  (vite preview after build)

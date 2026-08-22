@@ -30,7 +30,7 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - `helpcenter`, Next.js knowledge base, Flexsearch (port 3008)
 - `admin`, Next.js internal admin console
 - `api-docs`, Next.js public API documentation site
-- `docs`, Next.js public product help site (`help.weldsuite.com`, Markdoc / Syntax template)
+- `docs`, Next.js public product help site (`help.weldsuite.org`, Markdoc / Syntax template)
 - `helpdesk-widget`, Embeddable Vite chat widget (port 3100)
 - `booking-portal`, `meeting-portal`, `parcel-tracking-portal` (3018), `parcel-return-portal` (3017), Public-facing Next.js portals
 

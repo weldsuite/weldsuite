@@ -57,7 +57,7 @@ fans out through Turborepo.
 ### Default dev ports
 platform 3000, app-api 8789, realtime-worker 8790, billing-worker 8788.
 
-### Help docs (`help.weldsuite.com`) + UI screenshots
+### Help docs (`help.weldsuite.org`) + UI screenshots
 
 Product help lives in `apps/web/docs`. Guide images are **Playwright screenshots** of real
 platform UI via `/preview/help-docs?scene=…` — not hand-drawn assets.
