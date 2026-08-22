@@ -56,3 +56,17 @@ export async function ensureAdTables(db: Database): Promise<void> {
     await db.execute(sql.raw(statement));
   }
 }
+
+export const AD_TEST_CONNECTION_ID = 'adcn_test';
+
+/** Seed a Facebook connection row required by ad_accounts FK constraints. */
+export async function seedAdTestConnection(
+  db: Database,
+  connectionId = AD_TEST_CONNECTION_ID,
+): Promise<void> {
+  await db.execute(sql.raw(`
+    INSERT INTO ad_platform_connections (id, platform, status, created_at, updated_at)
+    VALUES ('${connectionId}', 'facebook', 'active', now(), now())
+    ON CONFLICT (id) DO NOTHING
+  `));
+}

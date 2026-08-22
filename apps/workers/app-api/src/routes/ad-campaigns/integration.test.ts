@@ -3,26 +3,31 @@ import { sql } from 'drizzle-orm';
 import { adCampaignsRoutes } from './index';
 import { createTestApp, permissions } from '../../test/harness';
 import { createPgliteDb } from '../../test/pglite';
-import { ensureAdTables } from '../../test/ad-ddl';
+import {
+  AD_TEST_CONNECTION_ID,
+  ensureAdTables,
+  seedAdTestConnection,
+} from '../../test/ad-ddl';
 import { generateId } from '../../lib/id';
 import type { Database } from '../../db';
 
 let db: Database;
+let accountId: string;
 
 beforeAll(async () => {
   const handle = await createPgliteDb();
   db = handle.db;
   await ensureAdTables(db);
+  await seedAdTestConnection(db);
+  accountId = generateId('adac');
+  await db.execute(sql.raw(`
+    INSERT INTO ad_accounts (id, connection_id, platform_account_id, name, is_selected, created_at, updated_at)
+    VALUES ('${accountId}', '${AD_TEST_CONNECTION_ID}', 'act_1', 'Main', true, now(), now())
+  `));
 }, 60_000);
 
 describe('/api/ad-campaigns · pglite integration', () => {
   it('GET / lists campaigns for an account', async () => {
-    const accountId = generateId('adac');
-    const now = new Date();
-    await db.execute(sql.raw(`
-      INSERT INTO ad_accounts (id, connection_id, platform_account_id, name, is_selected, created_at, updated_at)
-      VALUES ('${accountId}', 'adcn_test', 'act_1', 'Main', true, now(), now())
-    `));
     await db.execute(sql.raw(`
       INSERT INTO ad_campaigns (id, ad_account_id, platform_campaign_id, name, status, metrics, sync_status, created_at, updated_at)
       VALUES ('${generateId('adcp')}', '${accountId}', 'cmp_1', 'Brand', 'ACTIVE', '{"spend":"5"}', 'synced', now(), now())
@@ -40,12 +45,6 @@ describe('/api/ad-campaigns · pglite integration', () => {
   });
 
   it('POST / creates a local campaign marked pending_push', async () => {
-    const accountId = generateId('adac');
-    await db.execute(sql.raw(`
-      INSERT INTO ad_accounts (id, connection_id, platform_account_id, name, is_selected, created_at, updated_at)
-      VALUES ('${accountId}', 'adcn_test', 'act_1', 'Main', true, now(), now())
-    `));
-
     const { request } = createTestApp('/api/ad-campaigns', adCampaignsRoutes, {
       context: {
         permissions: permissions('ad_campaigns:read', 'ad_campaigns:create'),
@@ -73,15 +72,10 @@ describe('/api/ad-campaigns · pglite integration', () => {
   });
 
   it('PATCH / updates a campaign locally and marks pending_push', async () => {
-    const accountId = generateId('adac');
     const campaignId = generateId('adcp');
     await db.execute(sql.raw(`
-      INSERT INTO ad_accounts (id, connection_id, platform_account_id, name, is_selected, created_at, updated_at)
-      VALUES ('${accountId}', 'adcn_test', 'act_1', 'Main', true, now(), now())
-    `));
-    await db.execute(sql.raw(`
       INSERT INTO ad_campaigns (id, ad_account_id, platform_campaign_id, name, status, objective, sync_status, created_at, updated_at)
-      VALUES ('${campaignId}', '${accountId}', 'cmp_1', 'Old name', 'PAUSED', 'OUTCOME_TRAFFIC', 'synced', now(), now())
+      VALUES ('${campaignId}', '${accountId}', 'cmp_2', 'Old name', 'PAUSED', 'OUTCOME_TRAFFIC', 'synced', now(), now())
     `));
 
     const { request } = createTestApp('/api/ad-campaigns', adCampaignsRoutes, {
