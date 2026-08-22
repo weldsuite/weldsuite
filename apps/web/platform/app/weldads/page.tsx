@@ -32,7 +32,7 @@ function StatCard({
   icon: typeof Megaphone;
 }) {
   return (
-    <Link to={href}>
+    <Link href={href}>
       <Card className="hover:bg-muted/40 transition-colors">
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="text-sm font-medium">{title}</CardTitle>

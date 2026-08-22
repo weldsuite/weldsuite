@@ -4,7 +4,7 @@ export function hashCampaignPayload(input: {
   objective?: string | null;
   dailyBudget?: number | null;
   lifetimeBudget?: number | null;
-  metrics?: Record<string, unknown> | null;
+  metrics?: object | null;
 }): string {
   const normalized = JSON.stringify({
     name: input.name,

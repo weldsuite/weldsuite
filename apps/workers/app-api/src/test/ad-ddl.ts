@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import type { Database } from '../../db';
+import type { Database } from '../db';
 
 const AD_DDL = [
   `CREATE TABLE IF NOT EXISTS ad_platform_connections (
