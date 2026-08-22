@@ -1289,6 +1289,13 @@
       "when": 1787300000000,
       "tag": "0183_product_sales_channel_price_status",
       "breakpoints": true
+    },
+    {
+      "idx": 184,
+      "version": "7",
+      "when": 1787400000000,
+      "tag": "0184_weldads_ad_platform",
+      "breakpoints": true
     }
   ]
 }
