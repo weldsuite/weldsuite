@@ -1,7 +1,5 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { ChevronUp } from 'lucide-react';
-import { Button } from '@weldsuite/ui/components/button';
 import { useI18n } from '@/lib/i18n/provider';
 import { useParams } from '@/lib/router';
 import { useMailListPage } from '../../hooks/use-mail-list-page';
@@ -126,7 +124,7 @@ export default function UnifiedLabelLayout({
     [shouldShowInView, refetchThreads],
   );
 
-  const { newEmailCount, resetNewEmailCount, connectionStatus } = useMailRealtime({
+  const { connectionStatus } = useMailRealtime({
     onNewEmail: handleNewEmail,
     onReadStatusChange: () => refetchThreads(),
     onEmailDeleted: () => refetchThreads(),
@@ -162,21 +160,6 @@ export default function UnifiedLabelLayout({
             <div className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
             {t.mail.unifiedLayout.connecting}
           </div>
-        </div>
-      )}
-      {labelSlug === 'inbox' && newEmailCount > 0 && (
-        <div className="absolute -top-px left-0 right-0 z-10 flex justify-center">
-          <Button
-            variant="ghost"
-            onClick={() => {
-              refetchThreads();
-              resetNewEmailCount();
-            }}
-            className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-b-lg shadow-md hover:bg-gray-50 hover:text-gray-900 transition-colors"
-          >
-            <ChevronUp className="h-3 w-3" />
-            {t.mail.unifiedLayout.newEmails.replace('{count}', String(newEmailCount))}
-          </Button>
         </div>
       )}
       <MessageList

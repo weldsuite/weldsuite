@@ -1,8 +1,6 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from '@/lib/router';
-import { ChevronUp } from 'lucide-react';
-import { Button } from '@weldsuite/ui/components/button';
 import { MessageList } from '../../components/message-list';
 import { useMailRealtime } from '../../hooks/useMailRealtime';
 import { getSystemLabelConfig } from '../../lib/label-config';
@@ -156,7 +154,7 @@ export function LabelRealtimeWrapper({
   );
 
   // Subscribe to real-time mail events
-  const { connectionStatus, newEmailCount, resetNewEmailCount } = useMailRealtime({
+  const { connectionStatus } = useMailRealtime({
     accountId,
     onNewEmail: handleNewEmail,
     onReadStatusChange: handleReadStatusChange,
@@ -175,23 +173,6 @@ export function LabelRealtimeWrapper({
             <div className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
             {t.mail.splitLayout.connecting}
           </div>
-        </div>
-      )}
-
-      {/* New email indicator - only show for inbox */}
-      {labelSlug === 'inbox' && newEmailCount > 0 && (
-        <div className="absolute -top-px left-0 right-0 z-10 flex justify-center">
-          <Button
-            variant="ghost"
-            onClick={() => {
-              onRefetch?.();
-              resetNewEmailCount();
-            }}
-            className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-b-lg shadow-md hover:bg-gray-50 hover:text-gray-900 transition-colors"
-          >
-            <ChevronUp className="h-3 w-3" />
-            {t.mail.splitLayout.newEmails.replace('{count}', String(newEmailCount))}
-          </Button>
         </div>
       )}
 

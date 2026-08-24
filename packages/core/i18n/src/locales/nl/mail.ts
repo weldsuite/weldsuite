@@ -296,7 +296,6 @@ export const mail = {
     // Split layout
     splitLayout: {
       connecting: 'Verbinden...',
-      newEmails: '{count} nieuw',
     },
 
     // Label picker
@@ -966,7 +965,6 @@ export const mail = {
     // Unified layout
     unifiedLayout: {
       connecting: 'Verbinden...',
-      newEmails: '{count} nieuw',
       failedToLoadConversations: 'Laden van gesprekken mislukt',
     },
 
