@@ -296,7 +296,6 @@ export const mail = {
     // Split layout
     splitLayout: {
       connecting: 'Conectando...',
-      newEmails: '{count} nuevos',
     },
 
     // Label picker
@@ -965,7 +964,6 @@ export const mail = {
     // Unified layout
     unifiedLayout: {
       connecting: 'Conectando...',
-      newEmails: '{count} nuevos',
       failedToLoadConversations: 'No se pudieron cargar las conversaciones',
     },
 
