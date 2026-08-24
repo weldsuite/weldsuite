@@ -138,6 +138,6 @@ export default function VatReturnsScreen() {
 
 const styles = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingBottom: 4 },
-  list: { padding: 12, gap: 8 },
+  list: { paddingBottom: 8 },
   listEmpty: { flexGrow: 1, justifyContent: 'center' },
 });

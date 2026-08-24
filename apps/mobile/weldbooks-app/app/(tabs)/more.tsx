@@ -26,7 +26,6 @@ import { Divider } from '@weldsuite/mobile-ui/components/Divider';
 import { ACCENTS } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { IconTile } from '@/components/detail';
-import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
 
 type MenuItem = {
   title: string;
@@ -106,7 +105,6 @@ const SECTIONS: { title: string; items: MenuItem[] }[] = [
 export default function MoreScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { activeEntity } = useAccountingEntity();
 
   const open = useCallback(
     (route: string) => {
@@ -117,14 +115,14 @@ export default function MoreScreen() {
   );
 
   return (
-    <Screen header={<ScreenHeader title="More" subtitle={activeEntity?.name ?? undefined} />}>
+    <Screen header={<ScreenHeader title="More" />}>
       <ScrollView contentContainerStyle={styles.content}>
         {SECTIONS.map((section) => (
           <View key={section.title}>
             <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>
-              {section.title.toUpperCase()}
+              {section.title}
             </Text>
-            <Card style={styles.card}>
+            <Card style={[styles.card, { borderRadius: 20 }]}>
               {section.items.map((item, index) => (
                 <React.Fragment key={item.route}>
                   {index > 0 ? <Divider inset={62} /> : null}
@@ -154,18 +152,17 @@ export default function MoreScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { paddingBottom: 32 },
+  content: { paddingTop: 8, paddingBottom: 24 },
   sectionTitle: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
-    letterSpacing: 0.6,
-    marginTop: 24,
+    marginTop: 20,
     marginBottom: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
   },
-  card: { marginHorizontal: 12, overflow: 'hidden' },
-  row: { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 12 },
+  card: { marginHorizontal: 16, overflow: 'hidden' },
+  row: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
   rowText: { flex: 1 },
-  rowTitle: { fontSize: 15, fontWeight: '600' },
+  rowTitle: { fontSize: 16, fontWeight: '600' },
   rowSubtitle: { fontSize: 13, marginTop: 2 },
 });

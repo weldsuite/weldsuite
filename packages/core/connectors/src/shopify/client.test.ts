@@ -115,4 +115,29 @@ describe('ShopifyClient', () => {
     expect(calls[2]?.url).toContain('/admin/api/2024-10/graphql.json');
     expect(await client.findProductBySku('')).toBeNull();
   });
+
+  it('probes hasUpdatesSince with limit=1 and updated_at_min', async () => {
+    const urls: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      urls.push(String(input));
+      return new Response(JSON.stringify({ products: [] }), { status: 200 });
+    };
+    const client = new ShopifyClient(
+      { shopDomain: 'mystore.myshopify.com', accessToken: 'shpat_a', apiSecret: 'shpss_b' },
+      { fetchImpl },
+    );
+    expect(await client.hasUpdatesSince('products', '2026-01-01T00:00:00Z')).toBe(false);
+    expect(urls[0]).toContain('limit=1');
+    expect(urls[0]).toContain('updated_at_min=2026-01-01T00%3A00%3A00Z');
+  });
+
+  it('reads countResource from the Admin count endpoint', async () => {
+    const fetchImpl: typeof fetch = async () =>
+      new Response(JSON.stringify({ count: 12 }), { status: 200 });
+    const client = new ShopifyClient(
+      { shopDomain: 'mystore.myshopify.com', accessToken: 'shpat_a', apiSecret: 'shpss_b' },
+      { fetchImpl },
+    );
+    expect(await client.countResource('orders')).toBe(12);
+  });
 });

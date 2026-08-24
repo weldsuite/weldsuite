@@ -131,7 +131,7 @@ export default function BankAccountsScreen() {
 }
 
 const styles = StyleSheet.create({
-  list: { padding: 12, gap: 8 },
+  list: { paddingBottom: 8 },
   listEmpty: { flexGrow: 1, justifyContent: 'center' },
   totalCard: { padding: 16, marginBottom: 4 },
   totalLabel: { fontSize: 12, fontWeight: '500' },

@@ -25,6 +25,7 @@ import { formatShortDate, isOverdue } from '@/lib/date';
 import { BRAND } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { RecordRow } from '@/components/record-row';
+import { IconTile } from '@/components/detail';
 import { ListSkeleton, ErrorState } from '@/components/data-states';
 import { BillStatusBadge } from '@/components/status-badge';
 import { usePagedList } from '@/hooks/usePagedList';
@@ -75,7 +76,6 @@ export default function ExpensesScreen() {
   const header = (
     <ScreenHeader
       title="Expenses"
-      subtitle={list.totalCount ? `${list.totalCount} bills` : undefined}
       actions={
         <IconButton
           icon={<Plus size={22} color={colors.text} />}
@@ -89,6 +89,7 @@ export default function ExpensesScreen() {
             value={list.search}
             onChangeText={list.setSearch}
             placeholder="Search bills and expenses"
+            containerStyle={styles.search}
           />
           <View style={styles.chips}>
             {FILTERS.map((f) => (
@@ -134,9 +135,10 @@ export default function ExpensesScreen() {
         onEndReachedThreshold={0.3}
         renderItem={({ item }) => (
           <RecordRow
+            leading={<IconTile icon={Receipt} color={BRAND} />}
             title={item.contactName || 'Unknown vendor'}
             subtitle={item.billNumber || 'Draft'}
-            meta={`Issued ${formatShortDate(item.issueDate)} · Due ${formatShortDate(item.dueDate)}`}
+            meta={`Due ${formatShortDate(item.dueDate)}`}
             amount={formatCurrency(item.total, item.currency)}
             badge={
               <BillStatusBadge
@@ -173,9 +175,10 @@ export default function ExpensesScreen() {
 }
 
 const styles = StyleSheet.create({
-  controls: { gap: 10, paddingBottom: 4 },
+  controls: { gap: 10, paddingBottom: 8 },
+  search: { borderRadius: 12, minHeight: 40 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  list: { padding: 12, gap: 8 },
+  list: { paddingBottom: 8 },
   listEmpty: { flexGrow: 1, justifyContent: 'center' },
   footer: { paddingVertical: 20 },
 });

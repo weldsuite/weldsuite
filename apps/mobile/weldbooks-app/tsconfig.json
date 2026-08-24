@@ -3,7 +3,9 @@
   "compilerOptions": {
     "strict": true,
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "react-native": ["./node_modules/react-native"],
+      "react-native/*": ["./node_modules/react-native/*"]
     },
     // Pinned explicitly: without this, tsc auto-includes every @types/* package
     // hoisted into the monorepo root, and a stale `@types/minimatch` entry there

@@ -18,10 +18,11 @@ import {
   TouchableOpacity,
   Image,
   ActivityIndicator,
-  SafeAreaView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { X, Zap, Images, Receipt, FileText } from 'lucide-react-native';
@@ -41,6 +42,7 @@ export default function ScanScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const toast = useToast();
+  const insets = useSafeAreaInsets();
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const { isOnline, addToQueue } = useOfflineQueue();
@@ -121,7 +123,7 @@ export default function ScanScreen() {
 
   if (!permission) {
     return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.centered, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={BRAND} />
       </View>
     );
@@ -129,7 +131,7 @@ export default function ScanScreen() {
 
   if (!permission.granted) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
         <View style={styles.permission}>
           <Receipt size={40} color={colors.mutedForeground} />
           <Text style={[styles.permissionTitle, { color: colors.text }]}>
@@ -148,69 +150,74 @@ export default function ScanScreen() {
 
   if (phase === 'camera') {
     return (
-      <View style={styles.container}>
-        <CameraView ref={cameraRef} style={styles.camera} facing="back" enableTorch={flashEnabled}>
-          <View style={styles.overlay}>
-            <SafeAreaView style={styles.topBar}>
-              <TouchableOpacity
-                style={styles.topButton}
-                onPress={handleClose}
-                accessibilityRole="button"
-                accessibilityLabel="Close scanner"
-              >
-                <X size={22} color="#fff" />
-              </TouchableOpacity>
-              <Text style={styles.topTitle}>Scan receipt</Text>
-              <TouchableOpacity
-                style={[styles.topButton, flashEnabled && styles.topButtonActive]}
-                onPress={() => setFlashEnabled((on) => !on)}
-                accessibilityRole="button"
-                accessibilityLabel={flashEnabled ? 'Turn flash off' : 'Turn flash on'}
-              >
-                <Zap size={20} color={flashEnabled ? '#000' : '#fff'} />
-              </TouchableOpacity>
-            </SafeAreaView>
-
-            <View style={styles.frameArea}>
-              <View style={styles.frame}>
-                <View style={[styles.corner, styles.cornerTL]} />
-                <View style={[styles.corner, styles.cornerTR]} />
-                <View style={[styles.corner, styles.cornerBL]} />
-                <View style={[styles.corner, styles.cornerBR]} />
-              </View>
-              <Text style={styles.frameHint}>Align the receipt within the frame</Text>
-            </View>
-
-            <SafeAreaView style={styles.bottomBar}>
-              <TouchableOpacity
-                style={styles.sideButton}
-                onPress={handlePickFromGallery}
-                accessibilityRole="button"
-                accessibilityLabel="Pick from gallery"
-              >
-                <Images size={22} color="#fff" />
-                <Text style={styles.sideLabel}>Gallery</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.shutter}
-                onPress={handleCapture}
-                accessibilityRole="button"
-                accessibilityLabel="Take photo"
-              >
-                <View style={styles.shutterInner} />
-              </TouchableOpacity>
-
-              <View style={styles.sideButton} />
-            </SafeAreaView>
+      <View style={styles.cameraRoot}>
+        <StatusBar style="light" />
+        <CameraView
+          ref={cameraRef}
+          style={StyleSheet.absoluteFill}
+          facing="back"
+          enableTorch={flashEnabled}
+        />
+        <View style={styles.overlay} pointerEvents="box-none">
+          <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
+            <TouchableOpacity
+              style={styles.topButton}
+              onPress={handleClose}
+              accessibilityRole="button"
+              accessibilityLabel="Close scanner"
+            >
+              <X size={22} color="#fff" />
+            </TouchableOpacity>
+            <Text style={styles.topTitle}>Scan receipt</Text>
+            <TouchableOpacity
+              style={[styles.topButton, flashEnabled && styles.topButtonActive]}
+              onPress={() => setFlashEnabled((on) => !on)}
+              accessibilityRole="button"
+              accessibilityLabel={flashEnabled ? 'Turn flash off' : 'Turn flash on'}
+            >
+              <Zap size={20} color={flashEnabled ? '#000' : '#fff'} />
+            </TouchableOpacity>
           </View>
-        </CameraView>
+
+          <View style={styles.frameArea} pointerEvents="none">
+            <View style={styles.frame}>
+              <View style={[styles.corner, styles.cornerTL]} />
+              <View style={[styles.corner, styles.cornerTR]} />
+              <View style={[styles.corner, styles.cornerBL]} />
+              <View style={[styles.corner, styles.cornerBR]} />
+            </View>
+            <Text style={styles.frameHint}>Align the receipt within the frame</Text>
+          </View>
+
+          <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+            <TouchableOpacity
+              style={styles.sideButton}
+              onPress={handlePickFromGallery}
+              accessibilityRole="button"
+              accessibilityLabel="Pick from gallery"
+            >
+              <Images size={22} color="#fff" />
+              <Text style={styles.sideLabel}>Gallery</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.shutter}
+              onPress={handleCapture}
+              accessibilityRole="button"
+              accessibilityLabel="Take photo"
+            >
+              <View style={styles.shutterInner} />
+            </TouchableOpacity>
+
+            <View style={styles.sideButton} />
+          </View>
+        </View>
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
       <View style={styles.reviewHeader}>
         <TouchableOpacity
           onPress={() => {
@@ -268,15 +275,19 @@ export default function ScanScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'stretch', justifyContent: 'center' },
-  camera: { flex: 1 },
-  overlay: { flex: 1, justifyContent: 'space-between' },
+  container: { flex: 1 },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  cameraRoot: { flex: 1, backgroundColor: '#000' },
+  overlay: {
+    ...StyleSheet.absoluteFill,
+    justifyContent: 'space-between',
+  },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingBottom: 8,
   },
   topButton: {
     width: 40,

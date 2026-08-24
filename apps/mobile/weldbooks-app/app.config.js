@@ -1,5 +1,5 @@
-/** Set by app.json until `eas init` replaces it with the real project id. */
-const PLACEHOLDER_PROJECT_ID = 'PLACEHOLDER_WELDBOOKS_EAS_PROJECT_ID';
+/** Must match the scaffold placeholder in app.json before `eas init` runs. */
+const PLACEHOLDER_PROJECT_ID = '00000000-0000-0000-0000-000000000000';
 
 /**
  * Resolves the EAS project id and keeps `updates.url` derived from it.

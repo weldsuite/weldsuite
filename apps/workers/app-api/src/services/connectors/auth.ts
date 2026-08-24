@@ -34,6 +34,7 @@ import {
 } from './connections';
 import { syncConnection } from './sync';
 import { putConnectorWebhookMapping, registerConnectionWebhooks } from './webhooks';
+import { upsertConnectorIndexFromRow } from '../../lib/connector-sync-index';
 
 function signingSecret(env: Env): string | null {
   const secret = env.INTERNAL_API_SECRET?.trim();
@@ -169,6 +170,18 @@ export async function completeWooCommerceAppAuth(args: {
   const fresh = await getConnectionById(db, row.id);
   if (!fresh) {
     return { ok: false, status: 500, message: 'connection vanished after save' };
+  }
+
+  try {
+    const { id: workspaceId } = await getWorkspaceForOrg(args.env, state.clerkOrgId);
+    await upsertConnectorIndexFromRow(args.env, {
+      connection: fresh,
+      workspaceId,
+      clerkOrgId: state.clerkOrgId,
+      enabled: true,
+    });
+  } catch (err) {
+    console.warn('[connectors/auth] D1 index upsert failed', err);
   }
 
   args.waitUntil(

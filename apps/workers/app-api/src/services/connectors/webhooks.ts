@@ -35,6 +35,7 @@ import {
   updateConnectionSettings,
 } from './connections';
 import { ingestRecords } from './ingest';
+import { touchConnectorIndexWebhook } from '../../lib/connector-sync-index';
 
 export function connectorWebhookBaseUrl(env: Env): string {
   const explicit = (env as { CONNECTOR_WEBHOOK_BASE_URL?: string }).CONNECTOR_WEBHOOK_BASE_URL;
@@ -259,6 +260,7 @@ export async function processConnectorWebhook(args: {
       error: ingested.failed ? ingested.errorSamples[0]?.message ?? 'ingest failed' : null,
       errorSamples: ingested.errorSamples,
     });
+    await touchConnectorIndexWebhook(args.env, { connectionId: args.connection.id });
     return { ok: true, status: 200, message: 'ingested' };
   } catch (err) {
     const message = err instanceof ConnectorApiError ? err.message : err instanceof Error ? err.message : 'ingest failed';

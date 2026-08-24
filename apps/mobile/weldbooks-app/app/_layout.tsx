@@ -1,5 +1,5 @@
 import { ClerkProvider, ClerkLoaded, useOrganizationList } from '@clerk/expo';
-import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from '@react-navigation/native';
+import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
@@ -75,9 +75,10 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isLoading) return;
     const inAuthGroup = segments[0] === 'authorisation';
-    if (!user && !inAuthGroup) {
+    const inSsoCallback = segments[0] === 'sso-callback';
+    if (!user && !inAuthGroup && !inSsoCallback) {
       router.replace('/authorisation');
-    } else if (user && inAuthGroup) {
+    } else if (user && (inAuthGroup || inSsoCallback)) {
       router.replace('/(tabs)');
     }
   }, [user, isLoading, segments, router]);
@@ -164,6 +165,7 @@ function AppStack() {
                     <EntityGate>
                       <Stack screenOptions={{ headerShown: false }}>
                         <Stack.Screen name="authorisation" />
+                        <Stack.Screen name="sso-callback" />
                         <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 150 }} />
                         <Stack.Screen name="invoice/[id]" />
                         <Stack.Screen name="invoice/new" />

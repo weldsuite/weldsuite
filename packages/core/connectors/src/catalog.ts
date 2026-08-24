@@ -42,6 +42,14 @@ export interface ConnectorSyncDef {
 
 export type ConnectorAuthKind = 'api_key' | 'app_auth';
 
+/**
+ * How the connector receives remote changes after the initial backfill.
+ * `hybrid` = store webhooks for live updates, plus a catch-up poll for misses.
+ * `poll` = no webhooks; the catch-up scheduler is the live path.
+ * `webhook` = webhooks only (no scheduled catch-up).
+ */
+export type ConnectorDelivery = 'webhook' | 'poll' | 'hybrid';
+
 export interface ConnectorDef {
   /** Stable WeldSuite id — also the `connector_connections.provider` value. */
   provider: string;
@@ -50,6 +58,7 @@ export interface ConnectorDef {
   category: ConnectorCategory;
   /** Icon key resolved to a lucide component by the platform UI. */
   icon: string;
+  delivery: ConnectorDelivery;
   auth: {
     /**
      * `app_auth` — merchant enters a store URL and grants access on the
@@ -70,6 +79,7 @@ export const CONNECTORS: ConnectorDef[] = [
     description: 'Sync products, orders, and customers from a WooCommerce store into WeldSuite.',
     category: 'ecommerce',
     icon: 'shopping-bag',
+    delivery: 'hybrid',
     auth: {
       kind: 'app_auth',
       fields: [
@@ -112,6 +122,7 @@ export const CONNECTORS: ConnectorDef[] = [
     description: 'Sync products, orders, and customers from a Shopify store into WeldSuite.',
     category: 'ecommerce',
     icon: 'store',
+    delivery: 'hybrid',
     auth: {
       kind: 'api_key',
       fields: [
@@ -198,3 +209,26 @@ export function connectorSyncNames(provider: string): string[] {
 }
 
 export const DEFAULT_ENABLED_SYNCS: ConnectorSyncSettingKey[] = ['products', 'orders', 'customers'];
+
+export type ConnectorSyncMode = 'webhook_catchup' | 'poll';
+
+/** Catch-up interval for webhook-backed connectors (hours between probes). */
+export const WEBHOOK_CATCHUP_INTERVAL_MINUTES = 6 * 60;
+/** Poll interval for connectors with no webhooks. */
+export const POLL_INTERVAL_MINUTES = 15;
+/** Skip catch-up when a webhook landed within this window. */
+export const WEBHOOK_HEALTHY_SKIP_MINUTES = 60;
+/** Daily reconcile so silent remote deletes are noticed without a 15-minute wake. */
+export const RECONCILE_INTERVAL_MINUTES = 24 * 60;
+
+export function connectorDelivery(provider: string): ConnectorDelivery {
+  return getConnector(provider)?.delivery ?? 'poll';
+}
+
+export function connectorSyncMode(provider: string): ConnectorSyncMode {
+  return connectorDelivery(provider) === 'poll' ? 'poll' : 'webhook_catchup';
+}
+
+export function connectorIntervalMinutes(provider: string): number {
+  return connectorSyncMode(provider) === 'poll' ? POLL_INTERVAL_MINUTES : WEBHOOK_CATCHUP_INTERVAL_MINUTES;
+}

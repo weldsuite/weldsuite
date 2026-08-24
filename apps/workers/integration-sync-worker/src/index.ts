@@ -15,6 +15,7 @@ import { neon } from '@neondatabase/serverless';
 import { and, eq, isNull, lte } from 'drizzle-orm';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import * as schema from '@weldsuite/db/schema';
+import { runConnectorCatchupSweep } from './connector-catchup';
 
 export interface Env {
   HYPERDRIVE_MASTER: Hyperdrive;
@@ -27,6 +28,10 @@ export interface Env {
    * failure branches below only log — a mismatch silently stops all auto-sync.
    */
   INTERNAL_API_SECRET?: string;
+  /** D1 connector catch-up index — due rows only; never scan tenant Neon. */
+  CONNECTOR_SYNC_INDEX?: D1Database;
+  DATABASE_ENCRYPTION_KEY?: string;
+  DATABASE_ENCRYPTION_KEY_V2?: string;
 }
 
 /** Default sync interval if not configured (hours) */
@@ -64,6 +69,19 @@ export default {
     ctx: ExecutionContext,
   ): Promise<void> {
     console.log(`[IntegrationScheduler] Starting sync check (${env.ENVIRONMENT})`);
+
+    if (env.CONNECTOR_SYNC_INDEX) {
+      try {
+        const catchup = await runConnectorCatchupSweep(env.CONNECTOR_SYNC_INDEX, env);
+        console.log(
+          `[IntegrationScheduler] Connector catch-up. Skipped: ${catchup.skipped}, Probed: ${catchup.probed}, Ingested: ${catchup.ingested}, Backed off: ${catchup.backedOff}`,
+        );
+      } catch (err) {
+        console.error('[IntegrationScheduler] Connector catch-up sweep failed:', err);
+      }
+    } else {
+      console.warn('[IntegrationScheduler] CONNECTOR_SYNC_INDEX D1 binding not configured, skipping connector catch-up');
+    }
 
     const masterDb = getMasterDb(env);
 

@@ -1,15 +1,14 @@
 /**
  * The one row shape every WeldBooks list uses.
  *
- * Left: a title and one or two meta lines. Right: an amount and a status pill.
- * Keeping invoices, bills, transactions and contacts on the same row means the
- * lists stay scannable and the density matches the platform's tables.
+ * Full-bleed, like a messaging inbox: leading tile, title + snippet, amount
+ * and status on the right. No per-row card — the floating tab bar is the
+ * chrome, not a stack of bordered tiles.
  */
 
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { Card } from '@weldsuite/mobile-ui/components/Card';
 
 export interface RecordRowProps {
   title: string;
@@ -42,7 +41,7 @@ export function RecordRow({
   const { colors } = useTheme();
 
   const content = (
-    <Card style={styles.card}>
+    <View style={[styles.row, { borderBottomColor: colors.border }]}>
       {leading ? <View style={styles.leading}>{leading}</View> : null}
       <View style={styles.main}>
         <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
@@ -70,7 +69,7 @@ export function RecordRow({
         ) : null}
         {badge ? <View style={styles.badge}>{badge}</View> : null}
       </View>
-    </Card>
+    </View>
   );
 
   if (!onPress && !onLongPress) return content;
@@ -81,7 +80,7 @@ export function RecordRow({
       onLongPress={onLongPress}
       accessibilityRole="button"
       accessibilityLabel={[title, subtitle, amount].filter(Boolean).join(', ')}
-      style={({ pressed }) => (pressed ? styles.pressed : undefined)}
+      style={({ pressed }) => (pressed ? { backgroundColor: colors.pressed } : undefined)}
     >
       {content}
     </Pressable>
@@ -89,19 +88,20 @@ export function RecordRow({
 }
 
 const styles = StyleSheet.create({
-  card: {
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     gap: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  pressed: { opacity: 0.65 },
   leading: { flexShrink: 0 },
   main: { flex: 1, minWidth: 0 },
-  title: { fontSize: 15, fontWeight: '600', letterSpacing: -0.2 },
+  title: { fontSize: 16, fontWeight: '600', letterSpacing: -0.2 },
   subtitle: { fontSize: 13, marginTop: 2 },
-  meta: { fontSize: 12, marginTop: 3 },
-  side: { alignItems: 'flex-end', flexShrink: 0, gap: 6 },
-  amount: { fontSize: 15, fontWeight: '700', letterSpacing: -0.2 },
-  badge: {},
+  meta: { fontSize: 12, marginTop: 2 },
+  side: { alignItems: 'flex-end', flexShrink: 0, gap: 4 },
+  amount: { fontSize: 15, fontWeight: '600', letterSpacing: -0.2 },
+  badge: { marginTop: 2 },
 });

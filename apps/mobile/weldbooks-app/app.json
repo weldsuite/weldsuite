@@ -84,17 +84,12 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "PLACEHOLDER_WELDBOOKS_EAS_PROJECT_ID"
+        "projectId": "7fd15d67-875c-4752-96b1-8a87c0b153b5"
       }
     },
     "owner": "weldsuite",
     "runtimeVersion": {
       "policy": "appVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/PLACEHOLDER_WELDBOOKS_EAS_PROJECT_ID",
-      "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 0
     }
   }
 }

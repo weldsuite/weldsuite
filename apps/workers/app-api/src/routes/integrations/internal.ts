@@ -38,8 +38,10 @@ import {
   type IntegrationsEnv,
 } from '../../services/integrations/connections';
 import { getConnectionById } from '../../services/connectors/connections';
+import { syncConnection } from '../../services/connectors/sync';
 import { processConnectorWebhook } from '../../services/connectors/webhooks';
 import { completeWooCommerceAppAuth } from '../../services/connectors/auth';
+import { touchConnectorIndexIngested } from '../../lib/connector-sync-index';
 import { decryptAccessToken, syncSelectedAccounts } from '../../services/ads/sync';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -190,6 +192,39 @@ app.post('/connections/:id/connector-event', async (c, next: Next) => {
   } catch (err) {
     console.error('[app-api/integrations-internal] connector webhook failed:', err);
     return error.internal(c, 'Failed to ingest connector webhook');
+  }
+});
+
+// ============================================================================
+// POST /connections/:id/catch-up — D1-scheduled probe hit / reconcile drift
+// ============================================================================
+
+app.post('/connections/:id/catch-up', async (c, next: Next) => {
+  const resolved = await resolveInternal(c);
+  if (resolved.kind === 'passthrough') return next();
+  if (resolved.kind === 'response') return resolved.response;
+
+  const { db, clerkOrgId } = resolved.ctx;
+  const id = c.req.param('id');
+  const row = await getConnectionById(db, id);
+  if (!row) return error.notFound(c, 'Connection', id);
+  if (row.status === 'paused') return error.badRequest(c, 'Connection is paused');
+
+  try {
+    await syncConnection({
+      db,
+      env: c.env,
+      connection: row,
+      ownerId: 'system',
+      workspaceId: clerkOrgId,
+      trigger: 'schedule',
+    });
+    const fresh = (await getConnectionById(db, id)) ?? row;
+    await touchConnectorIndexIngested(c.env, { connection: fresh });
+    return success(c, { watermarks: fresh.syncWatermarks ?? {} });
+  } catch (err) {
+    console.error('[app-api/integrations-internal] connector catch-up failed:', err);
+    return error.internal(c, 'Failed to catch up connector');
   }
 });
 

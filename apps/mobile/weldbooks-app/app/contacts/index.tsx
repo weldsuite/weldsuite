@@ -179,6 +179,6 @@ export default function ContactsScreen() {
 const styles = StyleSheet.create({
   controls: { gap: 10, paddingBottom: 4 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  list: { padding: 12, gap: 8 },
+  list: { paddingBottom: 8 },
   listEmpty: { flexGrow: 1, justifyContent: 'center' },
 });

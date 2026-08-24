@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONNECTORS,
+  connectorIntervalMinutes,
+  connectorSyncMode,
   connectorSyncNames,
   DEFAULT_ENABLED_SYNCS,
   enabledConnectorSyncs,
@@ -71,5 +73,13 @@ describe('connector catalog', () => {
 
   it('defaults every catalog sync on', () => {
     expect(DEFAULT_ENABLED_SYNCS).toEqual(['products', 'orders', 'customers']);
+  });
+
+  it('marks WooCommerce and Shopify as hybrid (webhooks plus catch-up)', () => {
+    expect(getConnector('woocommerce')?.delivery).toBe('hybrid');
+    expect(getConnector('shopify')?.delivery).toBe('hybrid');
+    expect(connectorSyncMode('woocommerce')).toBe('webhook_catchup');
+    expect(connectorIntervalMinutes('woocommerce')).toBe(6 * 60);
+    expect(connectorIntervalMinutes('unknown-poller')).toBe(15);
   });
 });

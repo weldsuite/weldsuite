@@ -156,6 +156,12 @@ export interface Env {
    * schedule sweep can poll D1 instead of fanning out to every tenant DB.
    */
   SCHEDULE_INDEX?: D1Database;
+  /**
+   * D1 connector catch-up index (shared with integration-sync-worker). Kept in
+   * sync on connector connect/pause/resume/disconnect and after webhook ingest
+   * so the sweep can probe stores without opening tenant Neon.
+   */
+  CONNECTOR_SYNC_INDEX?: D1Database;
   /** CF Workflow for WeldConnect entity_event triggers (hosted in workflow-worker). */
   EXECUTE_WORKFLOW?: Workflow;
   /** CF Workflow for CRM sequence step execution. Hosted in app-api itself

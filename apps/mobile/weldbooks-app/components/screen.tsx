@@ -1,10 +1,10 @@
 /**
  * Screen chrome shared by every WeldBooks route.
  *
- * `ScreenHeader` mirrors the platform's WeldBooks header: a hairline-separated
- * bar with an optional back affordance, a title/subtitle stack, and an actions
- * slot on the right. `Screen` pairs it with the safe-area container so routes
- * only describe their content.
+ * Tab screens use a large messaging-app title and an optional pill of icon
+ * actions — the same chrome as the floating bottom nav. Detail screens keep a
+ * compact title next to the back chevron. There is no hairline under the
+ * header; the floating pill is the primary piece of chrome.
  */
 
 import React from 'react';
@@ -40,10 +40,11 @@ export function ScreenHeader({
   const { colors } = useTheme();
   const router = useRouter();
   const withBack = showBack ?? onBack !== undefined;
+  const large = !withBack;
 
   return (
-    <View style={[styles.header, { borderBottomColor: colors.border }, style]}>
-      <View style={styles.headerRow}>
+    <View style={[styles.header, style]}>
+      <View style={[styles.headerRow, large && styles.headerRowLarge]}>
         {withBack ? (
           <IconButton
             icon={<ChevronLeft size={24} color={colors.text} />}
@@ -53,7 +54,13 @@ export function ScreenHeader({
           />
         ) : null}
         <View style={styles.titles}>
-          <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
+          <Text
+            style={[
+              large ? styles.titleLarge : styles.title,
+              { color: colors.text },
+            ]}
+            numberOfLines={1}
+          >
             {title}
           </Text>
           {subtitle ? (
@@ -62,7 +69,11 @@ export function ScreenHeader({
             </Text>
           ) : null}
         </View>
-        {actions ? <View style={styles.actions}>{actions}</View> : null}
+        {actions ? (
+          <View style={[styles.actionGroup, { backgroundColor: colors.secondary }]}>
+            {actions}
+          </View>
+        ) : null}
       </View>
       {below ? <View style={styles.below}>{below}</View> : null}
     </View>
@@ -91,7 +102,7 @@ export function Screen({ children, header, edges = ['top'], style }: ScreenProps
   );
 }
 
-/** Small uppercase label that opens a group of rows, as on the platform. */
+/** Small uppercase label that opens a group of rows. */
 export function SectionLabel({ children }: { children: React.ReactNode }) {
   const { colors } = useTheme();
   return (
@@ -102,8 +113,7 @@ export function SectionLabel({ children }: { children: React.ReactNode }) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   header: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingBottom: 8,
+    paddingBottom: 4,
   },
   headerRow: {
     flexDirection: 'row',
@@ -112,18 +122,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     gap: 4,
   },
+  headerRowLarge: {
+    minHeight: 52,
+    paddingHorizontal: 16,
+    paddingTop: 4,
+  },
   back: { marginLeft: -4 },
-  titles: { flex: 1, paddingHorizontal: 8, justifyContent: 'center' },
+  titles: { flex: 1, justifyContent: 'center', minWidth: 0 },
   title: { fontSize: 20, fontWeight: '700', letterSpacing: -0.3 },
-  subtitle: { fontSize: 13, marginTop: 1 },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  below: { paddingHorizontal: 16, paddingTop: 4 },
-  sectionLabel: {
-    fontSize: 12,
+  titleLarge: {
+    fontSize: 26,
     fontWeight: '600',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    marginBottom: 8,
+    lineHeight: 32,
+    letterSpacing: -0.4,
+  },
+  subtitle: { fontSize: 13, marginTop: 1 },
+  actionGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 20,
+    paddingHorizontal: 2,
+    height: 40,
+  },
+  below: { paddingHorizontal: 16, paddingTop: 8 },
+  sectionLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 4,
     marginTop: 20,
     paddingHorizontal: 16,
   },

@@ -156,7 +156,7 @@ export default function BankAccountDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  list: { padding: 12, gap: 8 },
+  list: { paddingBottom: 8 },
   balanceCard: { padding: 16, marginBottom: 4 },
   balanceRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   balanceText: { flex: 1 },

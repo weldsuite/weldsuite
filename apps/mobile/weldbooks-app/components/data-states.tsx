@@ -46,19 +46,21 @@ export function ErrorState({
 
 /** Card-shaped placeholder rows, matching the density of the list screens. */
 export function ListSkeleton({ count = 6 }: { count?: number }) {
+  const { colors } = useTheme();
   return (
-    <View style={styles.list}>
+    <View>
       {Array.from({ length: count }, (_, i) => (
-        <Card key={i} style={styles.row}>
+        <View key={i} style={[styles.row, { borderBottomColor: colors.border }]}>
+          <Skeleton width={38} height={38} borderRadius={12} />
           <View style={styles.rowMain}>
             <Skeleton width="45%" height={14} />
             <Skeleton width="65%" height={11} style={styles.gapSm} />
           </View>
           <View style={styles.rowSide}>
             <Skeleton width={70} height={14} />
-            <Skeleton width={54} height={18} borderRadius={9} style={styles.gapSm} />
+            <Skeleton width={54} height={16} borderRadius={8} style={styles.gapSm} />
           </View>
-        </Card>
+        </View>
       ))}
     </View>
   );
@@ -93,8 +95,15 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   errorText: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
-  list: { padding: 12, gap: 8 },
-  row: { flexDirection: 'row', alignItems: 'center', padding: 14 },
+  list: { padding: 16, gap: 12 },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
   rowMain: { flex: 1 },
   rowSide: { alignItems: 'flex-end' },
   block: { padding: 16 },

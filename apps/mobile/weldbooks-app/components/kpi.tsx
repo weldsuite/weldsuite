@@ -1,15 +1,13 @@
 /**
- * KPI tiles for the dashboard.
+ * Compact KPI chips for the dashboard.
  *
- * Deliberately the same set and ordering as the platform's
- * `app/weldbooks/dashboard/components/kpi-cards.tsx`, laid out two-up instead
- * of the web's four-up grid.
+ * A horizontal strip of figures — the messaging-app equivalent of a stats
+ * row — rather than a web-style card grid sitting above the floating nav.
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { Card } from '@weldsuite/mobile-ui/components/Card';
 import { Skeleton } from '@weldsuite/mobile-ui/components/Skeleton';
 
 export interface KpiCardProps {
@@ -26,7 +24,7 @@ export function KpiCard({ label, value, sub, warn, onPress }: KpiCardProps) {
   const { colors } = useTheme();
 
   const body = (
-    <Card style={styles.card}>
+    <View style={[styles.chip, { backgroundColor: colors.secondary }]}>
       <Text style={[styles.label, { color: colors.mutedForeground }]} numberOfLines={1}>
         {label}
       </Text>
@@ -34,7 +32,7 @@ export function KpiCard({ label, value, sub, warn, onPress }: KpiCardProps) {
         style={[styles.value, { color: warn ? colors.destructive : colors.text }]}
         numberOfLines={1}
         adjustsFontSizeToFit
-        minimumFontScale={0.75}
+        minimumFontScale={0.7}
       >
         {value}
       </Text>
@@ -43,57 +41,73 @@ export function KpiCard({ label, value, sub, warn, onPress }: KpiCardProps) {
           {sub}
         </Text>
       ) : null}
-    </Card>
+    </View>
   );
 
-  if (!onPress) return <View style={styles.cell}>{body}</View>;
+  if (!onPress) return body;
 
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`${label}: ${value}`}
-      style={({ pressed }) => [styles.cell, pressed && styles.pressed]}
+      style={({ pressed }) => pressed && styles.pressed}
     >
       {body}
     </Pressable>
   );
 }
 
-/** Two-column KPI grid. */
+/** Horizontal strip of KPI chips. */
 export function KpiGrid({ children }: { children: React.ReactNode }) {
-  return <View style={styles.grid}>{children}</View>;
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.strip}
+      style={styles.stripWrap}
+    >
+      {children}
+    </ScrollView>
+  );
 }
 
-export function KpiSkeletonGrid({ count = 6 }: { count?: number }) {
+export function KpiSkeletonGrid({ count = 4 }: { count?: number }) {
+  const { colors } = useTheme();
   return (
-    <View style={styles.grid}>
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.strip}
+      style={styles.stripWrap}
+    >
       {Array.from({ length: count }, (_, i) => (
-        <View key={i} style={styles.cell}>
-          <Card style={styles.card}>
-            <Skeleton width="60%" height={12} />
-            <Skeleton width="80%" height={24} style={styles.skeletonValue} />
-            <Skeleton width="40%" height={10} />
-          </Card>
+        <View key={i} style={[styles.chip, { backgroundColor: colors.secondary }]}>
+          <Skeleton width="60%" height={11} />
+          <Skeleton width="80%" height={20} style={styles.skeletonValue} />
         </View>
       ))}
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 12,
+  stripWrap: { flexGrow: 0 },
+  strip: {
+    paddingHorizontal: 16,
     gap: 8,
   },
-  // Two per row, accounting for the 8px gap.
-  cell: { width: '48.4%' },
-  pressed: { opacity: 0.7 },
-  card: { padding: 14, minHeight: 92, justifyContent: 'center' },
+  chip: {
+    width: 148,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 16,
+    minHeight: 78,
+    justifyContent: 'center',
+  },
+  pressed: { opacity: 0.75 },
   label: { fontSize: 12, fontWeight: '500' },
-  value: { fontSize: 22, fontWeight: '700', marginTop: 6, letterSpacing: -0.5 },
+  value: { fontSize: 20, fontWeight: '700', marginTop: 4, letterSpacing: -0.4 },
   sub: { fontSize: 11, marginTop: 2 },
-  skeletonValue: { marginTop: 8, marginBottom: 6 },
+  skeletonValue: { marginTop: 8 },
 });
