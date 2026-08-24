@@ -331,6 +331,9 @@ GitHub Environments `test` and `production` (see `.github/SECRETS.md`).
 
 - Test SPA: Pages project `weldsuite-test` → `app-test.weldsuite.org` (push to `develop`)
 - Production SPA: Pages project `weldsuite` → `app.weldsuite.org` (push to `main`)
+- Admin console: Vercel project `weldsuite-admin` → `admin-test.weldsuite.org`
+  (`develop` / Preview) and `admin.weldsuite.org` (`main` / Production). Config:
+  `apps/web/admin/vercel.json`. Env vars: `.github/SECRETS.md`.
 
 Keep Cloudflare Pages **Git auto-deploy off** for production so GitHub Actions is the only releaser. PR preview deployments (`*.weldsuite.pages.dev`) can stay on.
 

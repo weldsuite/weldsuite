@@ -1,5 +1,12 @@
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Include workspace packages in the Vercel serverless bundle (@weldsuite/db, etc.)
+  outputFileTracingRoot: path.join(__dirname, '../../..'),
   // Workspace packages ship raw TS (no build step), so Next has to transpile
   // them itself — otherwise `next build` can't resolve '@weldsuite/ui/components/*'
   // or the extensioned relative re-exports inside transactional-email
