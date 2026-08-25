@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WeldBooks store screens</title>
+  <style>
+    :root {
+      --bg: #fff;
+      --text: #000;
+      --muted: #6b7280;
+      --subtle: #8e8e93;
+      --secondary: #f2f2f7;
+      --border: #e5e5ea;
+      --brand: #10b981;
+      --brand-tint: rgba(16, 185, 129, 0.12);
+      --destructive: #dc2626;
+      --warning: #f59e0b;
+      --success: #10b981;
+      --tab-muted: #999;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: #111; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+    .phone {
+      width: 100%;
+      height: 100%;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+    .status {
+      height: 54px;
+      padding: 14px 28px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 15px;
+      font-weight: 600;
+      flex-shrink: 0;
+      letter-spacing: -0.2px;
+    }
+    .status.dark { color: #fff; }
+    .status-right { display: flex; gap: 7px; align-items: center; font-size: 13px; }
+    .header { padding: 8px 20px 4px; flex-shrink: 0; }
+    .header.compact {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 8px 8px 10px;
+    }
+    .title-lg { font-size: 34px; font-weight: 700; letter-spacing: -0.7px; }
+    .title-sm { font-size: 17px; font-weight: 600; flex: 1; text-align: center; }
+    .subtitle { font-size: 13px; color: var(--muted); font-weight: 400; margin-top: 2px; text-align: center; }
+    .chev { color: var(--muted); font-size: 28px; width: 44px; text-align: center; line-height: 1; font-weight: 300; }
+    .header-actions { display: flex; gap: 4px; width: 88px; justify-content: flex-end; }
+    .icon-btn {
+      width: 40px; height: 40px; border-radius: 20px;
+      display: flex; align-items: center; justify-content: center; color: var(--text);
+    }
+    .icon-btn svg { width: 20px; height: 20px; }
+    .kpis {
+      display: flex;
+      gap: 8px;
+      padding: 8px 16px 4px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .kpi {
+      background: var(--secondary);
+      border-radius: 16px;
+      padding: 12px 14px;
+      width: 148px;
+      min-height: 78px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .kpi .l { font-size: 12px; font-weight: 500; color: var(--muted); }
+    .kpi .v { font-size: 20px; font-weight: 700; margin-top: 4px; letter-spacing: -0.4px; }
+    .kpi .v.warn { color: var(--destructive); }
+    .kpi .s { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .actions {
+      display: flex;
+      padding: 20px 8px 12px;
+      flex-shrink: 0;
+    }
+    .action { flex: 1; text-align: center; }
+    .action-icon {
+      width: 52px; height: 52px; border-radius: 16px;
+      background: var(--brand-tint); color: var(--brand);
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .action-icon svg { width: 22px; height: 22px; }
+    .action span { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 8px; }
+    .scroll { flex: 1; overflow: hidden; padding-bottom: 88px; }
+    .row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 16px;
+      border-bottom: 0.5px solid var(--border);
+    }
+    .tile {
+      width: 38px; height: 38px; border-radius: 12px;
+      background: var(--brand-tint); color: var(--brand);
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .tile svg { width: 19px; height: 19px; }
+    .main { flex: 1; min-width: 0; }
+    .main .t { font-size: 16px; font-weight: 600; letter-spacing: -0.2px; }
+    .main .u { font-size: 13px; color: var(--muted); margin-top: 2px; }
+    .main .m { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .side { text-align: right; flex-shrink: 0; }
+    .side .amt { font-size: 15px; font-weight: 600; letter-spacing: -0.2px; }
+    .badge {
+      display: inline-block; margin-top: 4px; font-size: 11px; font-weight: 600;
+      padding: 2px 8px; border-radius: 999px; color: #fff;
+    }
+    .badge.sent { background: #000; }
+    .badge.paid { background: var(--success); }
+    .badge.overdue { background: var(--destructive); }
+    .badge.draft { background: var(--secondary); color: #000; }
+    .badge.pending { background: var(--warning); }
+    .tabwrap {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      display: flex; justify-content: center;
+      padding: 0 20px 28px;
+      pointer-events: none;
+    }
+    .tabbar {
+      width: 100%; max-width: 420px; height: 56px; border-radius: 28px;
+      background: rgba(255,255,255,0.94);
+      border: 0.5px solid rgba(0,0,0,0.06);
+      box-shadow: 0 8px 16px rgba(0,0,0,0.18);
+      display: flex; align-items: center;
+      padding: 0 6px;
+      position: relative;
+    }
+    .tab {
+      flex: 1; height: 44px; margin: 6px 2px; border-radius: 20px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--tab-muted);
+    }
+    .tab.active { color: var(--text); background: rgba(0,0,0,0.06); }
+    .tab svg { width: 22px; height: 22px; }
+    .tab.scan svg { width: 24px; height: 24px; }
+    .home-bar {
+      position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+      width: 134px; height: 5px; background: #000; border-radius: 3px;
+    }
+    .home-bar.light { background: #fff; }
+    .chips { display: flex; gap: 8px; padding: 8px 16px 4px; overflow: hidden; }
+    .chip {
+      padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 600;
+      background: var(--secondary); color: var(--muted); white-space: nowrap;
+    }
+    .chip.on { background: #000; color: #fff; }
+    .search {
+      margin: 8px 16px 0; background: var(--secondary); border-radius: 12px;
+      padding: 10px 14px; color: #9ca3af; font-size: 16px;
+    }
+    .card {
+      margin: 8px 12px 0; background: #fff; border: 0.5px solid var(--border);
+      border-radius: 16px; padding: 16px;
+    }
+    .card h3 { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
+    .summary { display: flex; justify-content: space-between; align-items: flex-start; }
+    .summary .sl { font-size: 13px; color: var(--muted); }
+    .summary .sv { font-size: 32px; font-weight: 700; letter-spacing: -0.8px; margin-top: 2px; }
+    .due { font-size: 13px; color: var(--muted); margin-top: 8px; }
+    .drow { display: flex; justify-content: space-between; padding: 8px 0; font-size: 15px; gap: 16px; }
+    .drow span { color: var(--muted); }
+    .item { padding: 8px 0; }
+    .item .d { font-size: 15px; font-weight: 500; }
+    .item .q { display: flex; justify-content: space-between; margin-top: 4px; font-size: 13px; color: var(--muted); }
+    .item .q b { color: var(--text); font-weight: 600; }
+    .hr { height: 0.5px; background: var(--border); margin: 6px 0; }
+    .btns { display: flex; flex-direction: column; gap: 10px; padding: 16px 12px; }
+    .btn {
+      text-align: center; padding: 14px; border-radius: 14px;
+      font-size: 16px; font-weight: 600;
+    }
+    .btn.primary { background: #000; color: #fff; }
+    .btn.ghost { background: var(--secondary); }
+    .login {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; padding: 24px 28px 48px;
+    }
+    .login-inner { width: 100%; max-width: 440px; }
+    .login-logo { display: flex; justify-content: center; margin-bottom: 30px; }
+    .welcome { text-align: center; margin-bottom: 40px; }
+    .welcome h1 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+    .welcome p { font-size: 15px; color: var(--subtle); line-height: 22px; }
+    .field {
+      width: 100%; height: 44px; border: 1px solid #e5e7eb; border-radius: 8px;
+      padding: 0 16px; color: #9ca3af; font-size: 16px;
+      display: flex; align-items: center; margin-bottom: 14px; background: #fff;
+    }
+    .field.pw { justify-content: space-between; }
+    .forgot { text-align: right; font-size: 13px; color: var(--subtle); margin: -6px 0 28px; }
+    .signin {
+      width: 100%; height: 48px; background: #000; color: #fff; border-radius: 12px;
+      font-weight: 600; font-size: 17px; display: flex; align-items: center; justify-content: center;
+      letter-spacing: 0.3px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .or {
+      display: flex; align-items: center; gap: 12px; margin: 20px 0; color: var(--subtle); font-size: 14px; font-weight: 500;
+    }
+    .or::before, .or::after { content: ""; flex: 1; height: 1px; background: #e5e7eb; }
+    .oauth {
+      width: 100%; height: 48px; border: 1px solid #e5e7eb; border-radius: 12px;
+      font-weight: 600; font-size: 16px;
+      display: flex; align-items: center; justify-content: center; gap: 12px;
+      margin-bottom: 10px; background: #fff;
+    }
+    .oauth.apple { background: #000; color: #fff; border: 0; }
+    .g { width: 20px; height: 20px; }
+    .scan { flex: 1; background: #111; position: relative; overflow: hidden; }
+    .scan-bg {
+      position: absolute; inset: 0;
+      background:
+        radial-gradient(ellipse at 50% 40%, #2a2a2a 0%, #111 70%),
+        repeating-linear-gradient(180deg, transparent, transparent 28px, rgba(255,255,255,0.03) 29px);
+    }
+    .paper {
+      position: absolute; left: 18%; right: 18%; top: 22%; bottom: 28%;
+      background: #f6f1e8;
+      border-radius: 4px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+      padding: 18px 16px;
+      color: #3a3328;
+      font-size: 11px;
+      line-height: 1.45;
+      transform: rotate(-1.5deg);
+    }
+    .paper .shop { font-size: 15px; font-weight: 700; letter-spacing: 0.4px; margin-bottom: 8px; }
+    .paper .line { display: flex; justify-content: space-between; }
+    .paper .tot { margin-top: 10px; font-weight: 700; border-top: 1px dashed #b9ae9c; padding-top: 8px; }
+    .overlay { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; }
+    .scan-top {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 62px 16px 8px;
+    }
+    .top-btn {
+      width: 40px; height: 40px; border-radius: 20px;
+      background: rgba(0,0,0,0.45); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .top-btn svg { width: 22px; height: 22px; }
+    .scan-title { color: #fff; font-size: 16px; font-weight: 600; }
+    .frame-area { align-self: center; width: 78%; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+    .frame { width: 100%; aspect-ratio: 0.72; position: relative; }
+    .corner { position: absolute; width: 32px; height: 32px; border-color: #fff; }
+    .tl { top: 0; left: 0; border-top: 3px solid #fff; border-left: 3px solid #fff; border-top-left-radius: 8px; }
+    .tr { top: 0; right: 0; border-top: 3px solid #fff; border-right: 3px solid #fff; border-top-right-radius: 8px; }
+    .bl { bottom: 0; left: 0; border-bottom: 3px solid #fff; border-left: 3px solid #fff; border-bottom-left-radius: 8px; }
+    .br { bottom: 0; right: 0; border-bottom: 3px solid #fff; border-right: 3px solid #fff; border-bottom-right-radius: 8px; }
+    .hint { color: rgba(255,255,255,0.85); font-size: 13px; }
+    .scan-bottom {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 32px 48px;
+    }
+    .side-btn { width: 64px; text-align: center; color: #fff; }
+    .side-btn svg { width: 22px; height: 22px; }
+    .side-btn span { display: block; font-size: 11px; margin-top: 4px; }
+    .shutter {
+      width: 72px; height: 72px; border-radius: 36px; border: 4px solid #fff;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .shutter i { width: 56px; height: 56px; border-radius: 28px; background: #fff; display: block; }
+    .mark { width: 72px; height: 72px; }
+    .mark.lg { width: 120px; height: 120px; }
+    .feature {
+      width: 100%; height: 100%;
+      background: linear-gradient(135deg, #ecfdf5 0%, #fff 48%, #d1fae5 100%);
+      display: flex; align-items: center; padding: 40px 48px; gap: 32px;
+    }
+    .feature h1 { font-size: 48px; font-weight: 800; letter-spacing: -1.2px; }
+    .feature p { font-size: 20px; color: var(--muted); margin-top: 8px; max-width: 520px; line-height: 1.35; }
+  </style>
+</head>
+<body>
+  <div class="phone" id="app"></div>
+  <script>
+    const MARK = `<svg class="mark" viewBox="0 0 520 680" xmlns="http://www.w3.org/2000/svg"><path fill="#10B981" fill-rule="evenodd" d="M120,0h280c66.27,0,120,53.73,120,120v440c0,66.27-53.73,120-120,120H120C53.73,680,0,626.27,0,560V120C0,53.73,53.73,0,120,0Z M80,92h360c22.09,0,40,17.91,40,40v104c0,22.09-17.91,40-40,40H80c-22.09,0-40-17.91-40-40V132c0-22.09,17.91-40,40-40Z M100,400m-52,0a52,52 0 1,1 104,0a52,52 0 1,1 -104,0Z M260,400m-52,0a52,52 0 1,1 104,0a52,52 0 1,1 -104,0Z M420,400m-52,0a52,52 0 1,1 104,0a52,52 0 1,1 -104,0Z M100,560m-52,0a52,52 0 1,1 104,0a52,52 0 1,1 -104,0Z M260,560m-52,0a52,52 0 1,1 104,0a52,52 0 1,1 -104,0Z M420,560m-52,0a52,52 0 1,1 104,0a52,52 0 1,1 -104,0Z"/></svg>`;
+    const params = new URLSearchParams(location.search);
+    const scene = params.get('scene') || 'home';
+    const isIos = params.get('platform') !== 'android';
+    const svg = (d, w = 24) => `<svg viewBox="0 0 24 24" width="${w}" height="${w}" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+    const I = {
+      dash: svg('<rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>'),
+      file: svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>'),
+      cam: svg('<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>'),
+      rec: svg('<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1z"/><path d="M16 8H8M16 12H8M12 16H8"/>'),
+      more: svg('<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>'),
+      plus: svg('<path d="M12 5v14M5 12h14"/>'),
+      x: svg('<path d="M18 6 6 18M6 6l12 12"/>'),
+      zap: svg('<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>'),
+      images: svg('<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>'),
+      eye: svg('<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M1 1l22 22"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/>'),
+      chart: svg('<path d="M3 3v18h18"/><path d="M7 16V9M12 16V5M17 16v-7"/>'),
+      g: `<svg class="g" viewBox="0 0 24 24"><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5c-.3 1.5-1.1 2.8-2.4 3.6v3h3.9c2.3-2.1 3.5-5.2 3.5-8.7z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-2.9l-3.9-3c-1.1.7-2.5 1.2-4.1 1.2-3.2 0-5.8-2.1-6.8-5H1.2v3.1C3.2 21.4 7.3 24 12 24z"/><path fill="#FBBC05" d="M5.2 14.3A7.2 7.2 0 0 1 4.8 12c0-.8.1-1.6.4-2.3V6.6H1.2A12 12 0 0 0 0 12c0 1.9.5 3.8 1.2 5.4l4-3.1z"/><path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4C18 1.2 15.2 0 12 0 7.3 0 3.2 2.6 1.2 6.6l4 3.1c1-2.9 3.6-4.9 6.8-4.9z"/></svg>`,
+      apple: `<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.2-2.8.9-3.5.9s-1.8-.8-3-.8c-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.3 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7 2-.1 2.9-2.2c1.1-1.5 1.5-2.9 1.5-3 0-.1-2.8-1.1-2.8-4.5zM14.6 5.8c.6-.8 1.1-1.8.9-2.8-.9 0-2 .6-2.6 1.3-.6.7-1.1 1.8-.9 2.8 1 .1 2-.5 2.6-1.3z"/></svg>`,
+    };
+
+    const status = (dark) => `<div class="status${dark ? ' dark' : ''}"><span>9:41</span><span class="status-right">●●●● ▲ 100%</span></div>`;
+    const tabbar = (active) => `
+      <div class="tabwrap">
+        <div class="tabbar">
+          <div class="tab ${active===0?'active':''}">${I.dash}</div>
+          <div class="tab ${active===1?'active':''}">${I.file}</div>
+          <div class="tab scan">${I.cam}</div>
+          <div class="tab ${active===3?'active':''}">${I.rec}</div>
+          <div class="tab ${active===4?'active':''}">${I.more}</div>
+        </div>
+      </div>
+      <div class="home-bar"></div>`;
+
+    function row(title, sub, meta, amt, st) {
+      const label = st.charAt(0).toUpperCase() + st.slice(1);
+      return `<div class="row">
+        <div class="tile">${I.file}</div>
+        <div class="main"><div class="t">${title}</div><div class="u">${sub}</div><div class="m">${meta}</div></div>
+        <div class="side"><div class="amt">${amt}</div><div class="badge ${st}">${label}</div></div>
+      </div>`;
+    }
+
+    const scenes = {
+      login: () => `
+        ${status()}
+        <div class="login">
+          <div class="login-inner">
+            <div class="login-logo">${MARK}</div>
+            <div class="welcome">
+              <h1>Sign in to your account</h1>
+              <p>Accounting on the go</p>
+            </div>
+            <div class="field">Email address</div>
+            <div class="field pw"><span>Password</span>${I.eye}</div>
+            <div class="forgot">Forgot password?</div>
+            <div class="signin">Sign In</div>
+            <div class="or">or</div>
+            <div class="oauth">${I.g} Continue with Google</div>
+            ${isIos ? `<div class="oauth apple">${I.apple} Continue with Apple</div>` : ''}
+          </div>
+        </div>
+        <div class="home-bar"></div>`,
+      home: () => `
+        ${status()}
+        <div class="header"><div class="title-lg">WeldBooks</div></div>
+        <div class="kpis">
+          <div class="kpi"><div class="l">Outstanding</div><div class="v">€12,480</div><div class="s">8 invoices</div></div>
+          <div class="kpi"><div class="l">Overdue</div><div class="v warn">€2,140</div><div class="s">2 invoices</div></div>
+          <div class="kpi"><div class="l">Payables</div><div class="v">€4,320</div><div class="s">5 bills</div></div>
+          <div class="kpi"><div class="l">Profit</div><div class="v">€8,910</div><div class="s">This month</div></div>
+        </div>
+        <div class="actions">
+          <div class="action"><div class="action-icon">${I.file}</div><span>Invoice</span></div>
+          <div class="action"><div class="action-icon">${I.rec}</div><span>Expense</span></div>
+          <div class="action"><div class="action-icon">${I.cam}</div><span>Scan</span></div>
+          <div class="action"><div class="action-icon">${I.chart}</div><span>Reports</span></div>
+        </div>
+        <div class="scroll">
+          ${row('Nordhaven BV','INV-1042','Due 28 Aug','€3,630.00','sent')}
+          ${row('Acme Design','INV-1041','Due 12 Aug','€1,210.00','overdue')}
+          ${row('Harbor Lights','INV-1040','Due 4 Aug','€890.00','paid')}
+          ${row('Studio Kite','INV-1039','Due 1 Aug','€2,420.00','sent')}
+          ${row('Lumen Press','INV-1038','Due 22 Jul','€540.00','draft')}
+          ${row('Oak & Pine','INV-1037','Due 18 Jul','€1,780.00','paid')}
+        </div>
+        ${tabbar(0)}`,
+      invoices: () => `
+        ${status()}
+        <div class="header" style="display:flex;align-items:center;justify-content:space-between">
+          <div class="title-lg">Invoices</div>
+          <div class="icon-btn">${I.plus}</div>
+        </div>
+        <div class="search">Search invoices</div>
+        <div class="chips">
+          <div class="chip on">All</div>
+          <div class="chip">Draft</div>
+          <div class="chip">Sent</div>
+          <div class="chip">Overdue</div>
+          <div class="chip">Paid</div>
+        </div>
+        <div class="scroll">
+          ${row('Nordhaven BV','INV-1042','Due 28 Aug','€3,630.00','sent')}
+          ${row('Acme Design','INV-1041','Due 12 Aug','€1,210.00','overdue')}
+          ${row('Harbor Lights','INV-1040','Due 4 Aug','€890.00','paid')}
+          ${row('Studio Kite','INV-1039','Due 1 Aug','€2,420.00','sent')}
+          ${row('Lumen Press','INV-1038','Due 22 Jul','€540.00','draft')}
+          ${row('Oak & Pine','INV-1037','Due 18 Jul','€1,780.00','paid')}
+        </div>
+        ${tabbar(1)}`,
+      invoice: () => `
+        ${status()}
+        <div class="header compact">
+          <div class="chev">‹</div>
+          <div>
+            <div class="title-sm">INV-1042</div>
+            <div class="subtitle">Nordhaven BV</div>
+          </div>
+          <div class="header-actions">
+            <div class="icon-btn">${I.file}</div>
+            <div class="icon-btn">${I.more}</div>
+          </div>
+        </div>
+        <div class="scroll" style="padding-bottom:24px">
+          <div class="card">
+            <div class="summary">
+              <div>
+                <div class="sl">Balance due</div>
+                <div class="sv">€3,630.00</div>
+              </div>
+              <div class="badge sent" style="font-size:12px;padding:3px 10px">Sent</div>
+            </div>
+            <div class="due">Due in 3 days</div>
+          </div>
+          <div class="card">
+            <h3>Details</h3>
+            <div class="drow"><span>Customer</span><b>Nordhaven BV</b></div>
+            <div class="drow"><span>Email</span><b>ap@nordhaven.nl</b></div>
+            <div class="drow"><span>Issue date</span><b>14 Aug 2026</b></div>
+            <div class="drow"><span>Due date</span><b>28 Aug 2026</b></div>
+          </div>
+          <div class="card">
+            <h3>Line items</h3>
+            <div class="item">
+              <div class="d">Brand site, 20h</div>
+              <div class="q"><span>20 × €150.00  ·  21% VAT</span><b>€3,000.00</b></div>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Totals</h3>
+            <div class="drow"><span>Subtotal</span><b>€3,000.00</b></div>
+            <div class="drow"><span>VAT</span><b>€630.00</b></div>
+            <div class="hr"></div>
+            <div class="drow"><span>Total</span><b>€3,630.00</b></div>
+          </div>
+          <div class="btns">
+            <div class="btn ghost">Record payment</div>
+            <div class="btn primary">Send</div>
+          </div>
+        </div>
+        <div class="home-bar"></div>`,
+      scan: () => `
+        <div class="scan">
+          ${status(true)}
+          <div class="scan-bg"></div>
+          <div class="paper">
+            <div class="shop">OFFICE DEPOT</div>
+            <div>Amsterdam · 18 Aug 2026</div>
+            <div class="line" style="margin-top:12px"><span>A4 paper 5-pack</span><span>12.50</span></div>
+            <div class="line"><span>Ink cartridge BK</span><span>34.90</span></div>
+            <div class="line"><span>Notebooks × 4</span><span>11.60</span></div>
+            <div class="line tot"><span>TOTAL</span><span>€59.00</span></div>
+            <div class="line"><span>VAT 21%</span><span>10.24</span></div>
+          </div>
+          <div class="overlay">
+            <div class="scan-top">
+              <div class="top-btn">${I.x}</div>
+              <div class="scan-title">Scan receipt</div>
+              <div class="top-btn">${I.zap}</div>
+            </div>
+            <div class="frame-area">
+              <div class="frame">
+                <div class="corner tl"></div><div class="corner tr"></div>
+                <div class="corner bl"></div><div class="corner br"></div>
+              </div>
+              <div class="hint">Align the receipt within the frame</div>
+            </div>
+            <div class="scan-bottom">
+              <div class="side-btn">${I.images}<span>Gallery</span></div>
+              <div class="shutter"><i></i></div>
+              <div class="side-btn"></div>
+            </div>
+          </div>
+          <div class="home-bar light"></div>
+        </div>`,
+      expenses: () => `
+        ${status()}
+        <div class="header" style="display:flex;align-items:center;justify-content:space-between">
+          <div class="title-lg">Expenses</div>
+          <div class="icon-btn">${I.plus}</div>
+        </div>
+        <div class="search">Search bills</div>
+        <div class="chips">
+          <div class="chip on">All</div>
+          <div class="chip">Pending</div>
+          <div class="chip">Paid</div>
+        </div>
+        <div class="scroll">
+          ${row('Office Depot','BILL-220','Due 30 Aug','€186.40','pending')}
+          ${row('NS Business','BILL-219','Due 20 Aug','€94.00','paid')}
+          ${row('LeasePlan','BILL-218','Due 15 Aug','€620.00','pending')}
+          ${row('Bol.com','BILL-217','Due 9 Aug','€48.90','paid')}
+          ${row('Coolblue','BILL-216','Due 2 Aug','€129.00','paid')}
+          ${row('KPN Zakelijk','BILL-215','Due 28 Jul','€47.50','pending')}
+        </div>
+        ${tabbar(3)}`,
+      feature: () => `
+        <div class="feature">
+          ${MARK.replace('class="mark"', 'class="mark lg"')}
+          <div>
+            <h1>WeldBooks</h1>
+            <p>Scan receipts and send invoices from your phone.</p>
+          </div>
+        </div>`,
+    };
+
+    document.getElementById('app').innerHTML = (scenes[scene] || scenes.home)();
+  </script>
+</body>
+</html>

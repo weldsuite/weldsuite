@@ -1,4 +1,4 @@
-import React, { useState, useCallback, Component, type ReactNode, type ErrorInfo } from 'react';
+import React, { useState, useCallback, useEffect, Component, type ReactNode, type ErrorInfo } from 'react';
 import {
   View,
   StyleSheet,
@@ -23,6 +23,43 @@ import { useToast } from '../contexts/ToastContext';
 
 // Always use light theme for login screen
 const theme = Colors.light;
+
+/** Android Custom Tabs drop the OAuth return if the browser isn't warmed up. */
+function useWarmUpBrowser() {
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    void WebBrowser.warmUpAsync();
+    return () => {
+      void WebBrowser.coolDownAsync();
+    };
+  }, []);
+}
+
+function ssoRedirectUrl() {
+  return AuthSession.makeRedirectUri({ path: 'sso-callback' });
+}
+
+type SsoResult = {
+  createdSessionId: string | null;
+  setActive?: (params: { session: string }) => Promise<void>;
+  signIn?: { status?: string | null; createdSessionId?: string | null } | null;
+  signUp?: { status?: string | null; createdSessionId?: string | null } | null;
+};
+
+async function activateSsoSession(
+  result: SsoResult,
+  onOrgSelect: () => Promise<void>,
+): Promise<boolean> {
+  const sessionId =
+    result.createdSessionId ||
+    (result.signIn?.status === 'complete' ? result.signIn.createdSessionId : null) ||
+    (result.signUp?.status === 'complete' ? result.signUp.createdSessionId : null);
+
+  if (!sessionId || !result.setActive) return false;
+  await result.setActive({ session: sessionId });
+  await onOrgSelect();
+  return true;
+}
 
 // Silent error boundary — hides children if a hook throws during render
 class OAuthErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
@@ -66,12 +103,11 @@ function GoogleSignInButton({
     setIsLoading(true);
     setFormError(null);
     try {
-      const redirectUrl = AuthSession.makeRedirectUri({ path: 'sso-callback' });
-      const { createdSessionId, setActive } = await startSSOFlow({ strategy: 'oauth_google', redirectUrl });
-      if (createdSessionId && setActive) {
-        await setActive({ session: createdSessionId });
-        await onOrgSelect();
-      } else {
+      const result = await startSSOFlow({
+        strategy: 'oauth_google',
+        redirectUrl: ssoRedirectUrl(),
+      });
+      if (!(await activateSsoSession(result, onOrgSelect))) {
         setFormError(noAccount);
       }
     } catch (e: any) {
@@ -148,12 +184,11 @@ function AppleSignInButton({
     setIsLoading(true);
     setFormError(null);
     try {
-      const redirectUrl = AuthSession.makeRedirectUri({ path: 'sso-callback' });
-      const { createdSessionId, setActive } = await startSSOFlow({ strategy: 'oauth_apple', redirectUrl });
-      if (createdSessionId && setActive) {
-        await setActive({ session: createdSessionId });
-        await onOrgSelect();
-      } else {
+      const result = await startSSOFlow({
+        strategy: 'oauth_apple',
+        redirectUrl: ssoRedirectUrl(),
+      });
+      if (!(await activateSsoSession(result, onOrgSelect))) {
         setFormError(noAccount);
       }
     } catch (e: any) {
@@ -305,6 +340,7 @@ export function LoginScreen({
   showAppleLogin = true,
   accentColor = '#3B82F6',
 }: LoginScreenProps) {
+  useWarmUpBrowser();
   const clerk = useClerk();
   const { isSignedIn } = useAuth();
   const { userMemberships, setActive: setOrgActive, isLoaded: isOrgListLoaded } = useOrganizationList({
