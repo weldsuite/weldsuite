@@ -34,13 +34,12 @@ service = "weldsuite-app-api"
 
 # D1 connector catch-up index — shared with app-api. The sweep probes store
 # APIs from rows here and only calls app-api when the remote has new data.
-# Create with: wrangler d1 create weldsuite-connector-sync-index-test
 # DATABASE_ENCRYPTION_KEY / DATABASE_ENCRYPTION_KEY_V2 must match app-api
 # (wrangler secret put) so probes can decrypt the D1 credential copy.
 [[d1_databases]]
 binding = "CONNECTOR_SYNC_INDEX"
 database_name = "weldsuite-connector-sync-index-test"
-database_id = "c0ffee00-0001-4000-8000-000000000001"
+database_id = "5d4f220f-a1cc-4ec0-9e4c-dbaca5647370"
 
 # ============ TEST ENVIRONMENT ============
 [env.test]
@@ -56,7 +55,7 @@ service = "weldsuite-app-api-test"
 [[env.test.d1_databases]]
 binding = "CONNECTOR_SYNC_INDEX"
 database_name = "weldsuite-connector-sync-index-test"
-database_id = "c0ffee00-0001-4000-8000-000000000001"
+database_id = "5d4f220f-a1cc-4ec0-9e4c-dbaca5647370"
 
 [env.test.observability]
 enabled = true
@@ -81,7 +80,7 @@ service = "weldsuite-app-api"
 [[env.production.d1_databases]]
 binding = "CONNECTOR_SYNC_INDEX"
 database_name = "weldsuite-connector-sync-index-production"
-database_id = "c0ffee00-0001-4000-8000-000000000002"
+database_id = "bcf01cc5-c2a0-4a29-9881-ecb380e94832"
 
 [observability]
 enabled = true

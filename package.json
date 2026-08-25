@@ -52,8 +52,10 @@
     "onlyBuiltDependencies": [
       "electron",
       "electron-builder",
-      "sharp",
       "@parcel/watcher"
+    ],
+    "ignoredBuiltDependencies": [
+      "sharp"
     ]
   },
   "dependencies": {

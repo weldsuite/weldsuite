@@ -5,11 +5,8 @@
 --
 -- Apply with: wrangler d1 execute weldsuite-connector-sync-index-<env> --remote \
 --   --file apps/workers/integration-sync-worker/migrations/d1/0001_connector_sync_index.sql
---
--- Create the databases first (once per account):
---   wrangler d1 create weldsuite-connector-sync-index-test
---   wrangler d1 create weldsuite-connector-sync-index-production
--- then paste the returned database_id into wrangler.toml.
+-- (already applied to test + production at creation time; database_id values
+-- live in app-api and integration-sync-worker wrangler.toml).
 
 CREATE TABLE IF NOT EXISTS connector_sync_index (
   connection_id          TEXT PRIMARY KEY,
