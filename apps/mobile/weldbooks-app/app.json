@@ -11,6 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.weldsuite.weldbooks",
+      "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "WeldBooks needs camera access to scan receipts and documents."
@@ -23,6 +24,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.weldsuite.weldbooks",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.POST_NOTIFICATIONS"
