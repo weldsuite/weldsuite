@@ -30,6 +30,7 @@ import {
   encryptWebhookSecret,
   getConnectionById,
   keyringFromEnv,
+  listConnectionRecords,
   listConnections,
   listSyncRuns,
   markConnectionDisconnected,
@@ -407,6 +408,15 @@ app.get('/connections/:id/runs', requirePermission('integrations:read'), async (
   const limit = Math.min(Number(c.req.query('limit') ?? 25) || 25, 100);
   const runs = await listSyncRuns(db, row.id, limit);
   return success(c, runs);
+});
+
+app.get('/connections/:id/records', requirePermission('integrations:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const row = await getConnectionById(db, c.req.param('id'));
+  if (!row) return error.notFound(c, 'Connection', c.req.param('id'));
+  const limit = Math.min(Number(c.req.query('limit') ?? 50) || 50, 100);
+  const records = await listConnectionRecords(db, row.id, limit);
+  return success(c, records);
 });
 
 const patchSchema = z.object({

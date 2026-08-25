@@ -100,7 +100,7 @@ export const weldconnect = {
       partial: 'Parcial',
     },
     runs: {
-      title: 'Ejecuciones recientes',
+      title: 'Actividad',
       empty: 'Aún no hay ejecuciones registradas.',
       created: 'creados',
       updated: 'actualizados',
@@ -108,7 +108,26 @@ export const weldconnect = {
       failed: 'fallidos',
       trigger: 'Disparador',
       duration: 'Duración',
+      initial: 'Inicial',
+      manual: 'Manual',
+      webhook: 'Webhook',
+      schedule: 'Programada',
     },
+    records: {
+      title: 'Registros',
+      empty: 'Aún no hay nada importado. Sincroniza ahora para traer los primeros registros.',
+      showingRecent: 'Mostrando los {count} registros más recientes',
+    },
+    types: {
+      contacts: 'Contacto',
+      invoices: 'Factura',
+      products: 'Producto',
+      bills: 'Factura de compra',
+      receipts: 'Recibo',
+      orders: 'Pedido',
+      customers: 'Cliente',
+    },
+    moreActions: 'Más acciones',
   },
 
   // Not installed screen

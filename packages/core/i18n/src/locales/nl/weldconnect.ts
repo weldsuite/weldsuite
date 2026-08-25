@@ -100,7 +100,7 @@ export const weldconnect = {
       partial: 'Gedeeltelijk',
     },
     runs: {
-      title: 'Recente uitvoeringen',
+      title: 'Activiteit',
       empty: 'Nog geen uitvoeringen vastgelegd.',
       created: 'aangemaakt',
       updated: 'bijgewerkt',
@@ -108,7 +108,26 @@ export const weldconnect = {
       failed: 'mislukt',
       trigger: 'Trigger',
       duration: 'Duur',
+      initial: 'Eerste import',
+      manual: 'Handmatig',
+      webhook: 'Webhook',
+      schedule: 'Gepland',
     },
+    records: {
+      title: 'Records',
+      empty: 'Nog niets geïmporteerd. Synchroniseer om de eerste records op te halen.',
+      showingRecent: 'De {count} meest recente records',
+    },
+    types: {
+      contacts: 'Contact',
+      invoices: 'Factuur',
+      products: 'Product',
+      bills: 'Inkoopfactuur',
+      receipts: 'Bon',
+      orders: 'Order',
+      customers: 'Klant',
+    },
+    moreActions: 'Meer acties',
   },
 
   // Niet geïnstalleerd scherm

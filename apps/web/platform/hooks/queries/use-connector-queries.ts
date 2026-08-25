@@ -11,6 +11,7 @@ const connectorKeys = {
   connections: () => [...connectorKeys.all, 'connections'] as const,
   connection: (id: string) => [...connectorKeys.all, 'connection', id] as const,
   runs: (id: string) => [...connectorKeys.all, 'runs', id] as const,
+  records: (id: string) => [...connectorKeys.all, 'records', id] as const,
 };
 
 export type ConnectorConnectionStatus = 'pending' | 'active' | 'auth_error' | 'sync_error' | 'paused';
@@ -86,7 +87,18 @@ export interface ConnectorSyncRun {
   finishedAt: string | null;
   durationMs: number | null;
   error: string | null;
+  errorSamples?: Array<{ externalId: string; message: string }> | null;
   createdAt: string;
+}
+
+export interface ConnectorSyncedRecord {
+  id: string;
+  externalEntityType: string;
+  externalEntityId: string;
+  internalEntityType: string;
+  internalEntityId: string;
+  label: string;
+  lastSyncedAt: string | null;
 }
 
 export interface ConnectConnectorInput {
@@ -130,14 +142,28 @@ export function useConnectorConnection(id: string | null, options?: { pollWhileR
   });
 }
 
-export function useConnectorSyncRuns(id: string | null, limit = 25) {
+export function useConnectorSyncRuns(id: string | null, options?: { pollWhileRunning?: boolean }) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: connectorKeys.runs(id ?? ''),
     enabled: Boolean(id),
+    refetchInterval: options?.pollWhileRunning ? 4000 : false,
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: ConnectorSyncRun[] }>(`/connectors/connections/${id}/runs?limit=${limit}`);
+      return client.get<{ data: ConnectorSyncRun[] }>(`/connectors/connections/${id}/runs?limit=25`);
+    },
+  });
+}
+
+export function useConnectorRecords(id: string | null, options?: { pollWhileRunning?: boolean }) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: connectorKeys.records(id ?? ''),
+    enabled: Boolean(id),
+    refetchInterval: options?.pollWhileRunning ? 4000 : false,
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<{ data: ConnectorSyncedRecord[] }>(`/connectors/connections/${id}/records?limit=50`);
     },
   });
 }
@@ -148,6 +174,7 @@ function invalidateConnectorQueries(queryClient: ReturnType<typeof useQueryClien
   if (connectionId) {
     void queryClient.invalidateQueries({ queryKey: connectorKeys.connection(connectionId) });
     void queryClient.invalidateQueries({ queryKey: connectorKeys.runs(connectionId) });
+    void queryClient.invalidateQueries({ queryKey: connectorKeys.records(connectionId) });
   }
 }
 
