@@ -15,27 +15,29 @@ import { Divider } from '@weldsuite/mobile-ui/components/Divider';
 import { ACCENTS } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { IconTile } from '@/components/detail';
-
-const REPORTS = [
-  {
-    title: 'Profit & loss',
-    subtitle: 'Revenue, expenses and margin',
-    icon: TrendingUp,
-    color: ACCENTS.profitLoss,
-    route: '/reports/profit-loss',
-  },
-  {
-    title: 'Balance sheet',
-    subtitle: 'Assets, liabilities and equity',
-    icon: Scale,
-    color: ACCENTS.balanceSheet,
-    route: '/reports/balance-sheet',
-  },
-];
+import { useI18n } from '@/lib/i18n';
 
 export default function ReportsScreen() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { t } = useI18n();
+
+  const REPORTS = [
+    {
+      title: t.reports.profitLoss,
+      subtitle: t.reports.profitLossSub,
+      icon: TrendingUp,
+      color: ACCENTS.profitLoss,
+      route: '/reports/profit-loss',
+    },
+    {
+      title: t.reports.balanceSheet,
+      subtitle: t.reports.balanceSheetSub,
+      icon: Scale,
+      color: ACCENTS.balanceSheet,
+      route: '/reports/balance-sheet',
+    },
+  ];
 
   const open = useCallback(
     (route: string) => {
@@ -46,7 +48,7 @@ export default function ReportsScreen() {
   );
 
   return (
-    <Screen header={<ScreenHeader title="Reports" showBack />}>
+    <Screen header={<ScreenHeader title={t.reports.title} showBack />}>
       <ScrollView contentContainerStyle={styles.content}>
         <Card style={styles.card}>
           {REPORTS.map((report, index) => (

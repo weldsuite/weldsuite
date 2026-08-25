@@ -13,21 +13,24 @@ import { SegmentedControl } from '@weldsuite/mobile-ui/components/SegmentedContr
 import { Card } from '@weldsuite/mobile-ui/components/Card';
 
 import api from '@/services/api';
-import { formatCurrency, formatPercent } from '@/lib/currency';
-import { currentMonthRange, currentYearRange, formatDate } from '@/lib/date';
+import { formatPercent } from '@/lib/currency';
+import { currentMonthRange, currentYearRange } from '@/lib/date';
 import { ACCENTS } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard, TotalsBlock } from '@/components/detail';
 import { DetailSkeleton, ErrorState } from '@/components/data-states';
+import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import type { ProfitLossData } from '@/types/accounting';
-
-const PERIODS = [
-  { label: 'This month', value: 'month' },
-  { label: 'This year', value: 'year' },
-];
 
 export default function ProfitLossScreen() {
   const { colors } = useTheme();
+  const { t } = useI18n();
+  const { formatCurrency, formatDate } = useLocaleFormatters();
+
+  const PERIODS = [
+    { label: t.profitLoss.thisMonth, value: 'month' },
+    { label: t.profitLoss.thisYear, value: 'year' },
+  ];
 
   const [period, setPeriod] = useState('month');
   const [data, setData] = useState<ProfitLossData | null>(null);
@@ -58,7 +61,7 @@ export default function ProfitLossScreen() {
 
   const header = (
     <ScreenHeader
-      title="Profit & loss"
+      title={t.profitLoss.title}
       subtitle={`${formatDate(range.from)} – ${formatDate(range.to)}`}
       showBack
       below={
@@ -84,7 +87,7 @@ export default function ProfitLossScreen() {
     return (
       <Screen header={header}>
         <ErrorState
-          message="Couldn't load the profit & loss report."
+          message={t.profitLoss.loadError}
           onRetry={() => {
             setLoading(true);
             load();
@@ -113,7 +116,7 @@ export default function ProfitLossScreen() {
       >
         <Card style={styles.hero}>
           <Text style={[styles.heroLabel, { color: colors.mutedForeground }]}>
-            {profitable ? 'Net profit' : 'Net loss'}
+            {profitable ? t.profitLoss.netProfit : t.profitLoss.netLoss}
           </Text>
           <Text
             style={[styles.heroValue, { color: profitable ? colors.success : colors.destructive }]}
@@ -127,14 +130,14 @@ export default function ProfitLossScreen() {
           </Text>
         </Card>
 
-        <SectionCard title="Breakdown">
+        <SectionCard title={t.profitLoss.breakdown}>
           <TotalsBlock
             rows={[
-              { label: 'Revenue', value: formatCurrency(data.revenue, data.currency) },
-              { label: 'Expenses', value: `−${formatCurrency(data.expenses, data.currency)}` },
+              { label: t.profitLoss.revenue, value: formatCurrency(data.revenue, data.currency) },
+              { label: t.profitLoss.expenses, value: `−${formatCurrency(data.expenses, data.currency)}` },
             ]}
             total={{
-              label: profitable ? 'Net profit' : 'Net loss',
+              label: profitable ? t.profitLoss.netProfit : t.profitLoss.netLoss,
               value: formatCurrency(data.netProfit, data.currency),
             }}
           />

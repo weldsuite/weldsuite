@@ -23,23 +23,31 @@ import { Screen, ScreenHeader } from '@/components/screen';
 import { RecordRow } from '@/components/record-row';
 import { IconTile } from '@/components/detail';
 import { ListSkeleton, ErrorState } from '@/components/data-states';
+import { useI18n } from '@/lib/i18n';
 import type { Contact } from '@/types/accounting';
 
-const FILTERS: { key: string; label: string; value?: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'customer', label: 'Customers', value: 'customer' },
-  { key: 'vendor', label: 'Suppliers', value: 'vendor' },
+const FILTER_KEYS = [
+  { key: 'all', value: undefined },
+  { key: 'customer', value: 'customer' as const },
+  { key: 'vendor', value: 'vendor' as const },
 ];
-
-const ROLE_LABELS: Record<string, string> = {
-  customer: 'Customer',
-  supplier: 'Supplier',
-  both: 'Customer & supplier',
-};
 
 export default function ContactsScreen() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { t, format } = useI18n();
+
+  const FILTERS = [
+    { key: 'all', label: t.contacts.filterAll },
+    { key: 'customer', label: t.contacts.filterCustomers },
+    { key: 'vendor', label: t.contacts.filterSuppliers },
+  ];
+
+  const ROLE_LABELS: Record<string, string> = {
+    customer: t.contacts.customer,
+    supplier: t.contacts.supplier,
+    both: t.contacts.both,
+  };
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [search, setSearch] = useState('');
@@ -57,7 +65,7 @@ export default function ContactsScreen() {
   const load = useCallback(async () => {
     try {
       setError(false);
-      const type = FILTERS.find((f) => f.key === filter)?.value;
+      const type = FILTER_KEYS.find((f) => f.key === filter)?.value;
       setContacts(await api.getContacts({ search: debounced || undefined, type }));
     } catch (err) {
       console.error('Failed to load contacts:', err);
@@ -86,19 +94,23 @@ export default function ContactsScreen() {
 
   const header = (
     <ScreenHeader
-      title="Contacts"
-      subtitle={contacts.length ? `${contacts.length} shown` : undefined}
+      title={t.contacts.title}
+      subtitle={contacts.length ? format(t.contacts.shown, { count: contacts.length }) : undefined}
       showBack
       actions={
         <IconButton
           icon={<Plus size={22} color={colors.text} />}
-          accessibilityLabel="New contact"
+          accessibilityLabel={t.contacts.newContact}
           onPress={() => open('/contacts/new')}
         />
       }
       below={
         <View style={styles.controls}>
-          <SearchBar value={search} onChangeText={setSearch} placeholder="Search contacts" />
+          <SearchBar
+            value={search}
+            onChangeText={setSearch}
+            placeholder={t.contacts.searchPlaceholder}
+          />
           <View style={styles.chips}>
             {FILTERS.map((f) => (
               <Chip
@@ -125,7 +137,7 @@ export default function ContactsScreen() {
   if (error && contacts.length === 0) {
     return (
       <Screen header={header}>
-        <ErrorState message="Couldn't load contacts." onRetry={load} />
+        <ErrorState message={t.contacts.loadError} onRetry={load} />
       </Screen>
     );
   }
@@ -149,7 +161,7 @@ export default function ContactsScreen() {
         renderItem={({ item }) => (
           <RecordRow
             leading={<IconTile icon={Building2} color={ACCENTS.contacts} />}
-            title={item.name || 'Unnamed contact'}
+            title={item.name || t.contacts.unnamed}
             subtitle={item.email || undefined}
             meta={ROLE_LABELS[item.type] ?? item.type}
             onPress={() => open(`/contacts/${item.id}`)}
@@ -158,15 +170,13 @@ export default function ContactsScreen() {
         ListEmptyComponent={
           <EmptyState
             icon={<Users size={32} color={colors.mutedForeground} />}
-            title={search ? 'No matching contacts' : 'No contacts yet'}
+            title={search ? t.contacts.noMatchTitle : t.contacts.emptyTitle}
             description={
-              search
-                ? 'Try a different search term.'
-                : 'Add the customers you invoice and the suppliers you buy from.'
+              search ? t.contacts.noMatchDescription : t.contacts.emptyDescription
             }
             action={
               search ? undefined : (
-                <Button title="New contact" onPress={() => open('/contacts/new')} />
+                <Button title={t.contacts.newContact} onPress={() => open('/contacts/new')} />
               )
             }
           />
