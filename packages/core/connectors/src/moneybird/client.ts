@@ -34,7 +34,6 @@ export interface MoneybirdListOptions {
 const DEFAULT_PER_PAGE = 100;
 const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_RETRIES = 2;
-const WIDE_PERIOD = '20000101..20991231';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -54,10 +53,16 @@ function parseNextPage(linkHeader: string | null, currentPage: number, itemCount
   };
 }
 
-function updatedAfterFilter(updatedAfter?: string, extra?: string): string | undefined {
+/**
+ * Moneybird list `filter` is comma-separated `key:value` terms. Any value we
+ * send replaces the server default (`period:this_year` on invoices/documents),
+ * so pass `state:all` and omit period to backfill every year. A synthetic
+ * `YYYYMMDD..YYYYMMDD` spanning decades is rejected with HTTP 400.
+ */
+function listFilter(options: { updatedAfter?: string; extra?: string }): string | undefined {
   const parts: string[] = [];
-  if (extra) parts.push(extra);
-  if (updatedAfter) parts.push(`updated_after:${updatedAfter}`);
+  if (options.extra) parts.push(options.extra);
+  if (options.updatedAfter) parts.push(`updated_after:${options.updatedAfter}`);
   return parts.length ? parts.join(',') : undefined;
 }
 
@@ -121,11 +126,14 @@ export class MoneybirdClient implements ConnectorProviderClient {
         const text = await response.text();
         if (!response.ok) {
           const kind = classifyStatus(response.status);
+          const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 200);
           const error = new ConnectorApiError({
             message:
               response.status === 401 || response.status === 403
                 ? 'Moneybird rejected the access token'
-                : `Moneybird request failed (${response.status})`,
+                : snippet
+                  ? `Moneybird request failed (${response.status}): ${snippet}`
+                  : `Moneybird request failed (${response.status})`,
             status: response.status,
             kind,
             body: text.slice(0, 500),
@@ -204,26 +212,26 @@ export class MoneybirdClient implements ConnectorProviderClient {
   }
 
   listContacts(options: MoneybirdListOptions = {}) {
-    return this.listPath('contacts', options, updatedAfterFilter(options.updatedAfter));
+    return this.listPath('contacts', options, listFilter({ updatedAfter: options.updatedAfter }));
   }
 
   listSalesInvoices(options: MoneybirdListOptions = {}) {
     return this.listPath(
       'sales_invoices',
       options,
-      updatedAfterFilter(options.updatedAfter, `period:${WIDE_PERIOD}`),
+      listFilter({ updatedAfter: options.updatedAfter, extra: 'state:all' }),
     );
   }
 
   listProducts(options: MoneybirdListOptions = {}) {
-    return this.listPath('products', options, updatedAfterFilter(options.updatedAfter));
+    return this.listPath('products', options, listFilter({ updatedAfter: options.updatedAfter }));
   }
 
   listPurchaseInvoices(options: MoneybirdListOptions = {}) {
     return this.listPath(
       'documents/purchase_invoices',
       options,
-      updatedAfterFilter(options.updatedAfter, `period:${WIDE_PERIOD},state:all`),
+      listFilter({ updatedAfter: options.updatedAfter, extra: 'state:all' }),
     );
   }
 
@@ -231,7 +239,7 @@ export class MoneybirdClient implements ConnectorProviderClient {
     return this.listPath(
       'documents/receipts',
       options,
-      updatedAfterFilter(options.updatedAfter, `period:${WIDE_PERIOD},state:all`),
+      listFilter({ updatedAfter: options.updatedAfter, extra: 'state:all' }),
     );
   }
 

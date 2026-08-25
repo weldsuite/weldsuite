@@ -1511,6 +1511,13 @@ export { GithubProjectOutboundSyncWorkflow } from './workflows/github-project-ou
 export default {
   fetch: app.fetch,
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    // Parked until a due-index rewrite: polls + webhook-retry opened every tenant
+    // Neon. wrangler.toml crons = [] as well. Inbound webhooks (fetch) are unaffected.
+    const disabled = true as boolean;
+    if (disabled) {
+      console.log(`[Cron] Disabled (${env.ENVIRONMENT}); ignoring ${controller.cron}`);
+      return;
+    }
     // Branch by cron pattern so the Sheets poll and the (disabled) CRM auto-sync
     // stay decoupled — only the poll cron is enabled in wrangler.toml today.
     // Ecommerce connectors (WooCommerce / Shopify) are webhook-only: they must

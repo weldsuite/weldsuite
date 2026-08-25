@@ -71,8 +71,9 @@ name = "github-project-outbound-int-dev"
 binding = "GITHUB_PROJECT_OUTBOUND"
 class_name = "GithubProjectOutboundSyncWorkflow"
 
-# Cron stays disabled until cutover (the old integration-sync-worker is still
-# active; enabling here too would double-trigger). Enabled at Stage-2 S2.5.
+# Cron parked: */10 opened every tenant Neon (Sheets/Gmail/Calendar/Airtable
+# polls + outbound webhook retries). Re-enable after a due-index rewrite.
+# Inbound webhooks (fetch) are unaffected.
 [triggers]
 crons = []
 
@@ -176,7 +177,7 @@ class_name = "ExecuteWorkflowWorkflow"
 script_name = "weldsuite-workflow"
 
 [env.production.triggers]
-crons = ["*/10 * * * *"]
+crons = []
 
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"

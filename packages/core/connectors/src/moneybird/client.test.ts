@@ -33,6 +33,42 @@ describe('MoneybirdClient', () => {
     expect(calls[0]).toContain('filter=updated_after');
   });
 
+  it('lists invoices and documents with state:all and no century-wide period', async () => {
+    const calls: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      calls.push(String(input));
+      return jsonResponse([]);
+    };
+    const client = new MoneybirdClient(
+      { accessToken: 'tok', administrationId: '123' },
+      { fetchImpl },
+    );
+    await client.listSalesInvoices();
+    await client.listPurchaseInvoices({ updatedAfter: '2026-01-01T00:00:00Z' });
+    await client.listReceipts();
+    expect(calls[0]).toContain('/sales_invoices.json');
+    expect(decodeURIComponent(calls[0] ?? '')).toContain('filter=state:all');
+    expect(calls[0]).not.toContain('period:');
+    expect(decodeURIComponent(calls[1] ?? '')).toContain('filter=state:all,updated_after:2026-01-01T00:00:00Z');
+    expect(calls[1]).toContain('/documents/purchase_invoices.json');
+    expect(calls[2]).toContain('/documents/receipts.json');
+    expect(decodeURIComponent(calls[2] ?? '')).toContain('filter=state:all');
+    expect(calls.some((url) => url.includes('20000101') || url.includes('20991231'))).toBe(false);
+  });
+
+  it('includes the Moneybird response body in 400 errors', async () => {
+    const fetchImpl: typeof fetch = async () =>
+      new Response('{"error":"period is invalid"}', { status: 400 });
+    const client = new MoneybirdClient(
+      { accessToken: 'tok', administrationId: '123' },
+      { fetchImpl },
+    );
+    await expect(client.listSalesInvoices()).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringContaining('period is invalid'),
+    });
+  });
+
   it('registers one webhook with enabled_events and returns the create-time secret', async () => {
     const fetchImpl: typeof fetch = async (_input, init) => {
       const body = JSON.parse(String(init?.body ?? '{}')) as { url?: string; enabled_events?: string[] };

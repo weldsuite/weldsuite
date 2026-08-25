@@ -1,11 +1,9 @@
 # Integration Sync Scheduler Worker
 #
-# Runs on a cron trigger, checks all workspaces for integration connections
-# that are due for a sync, and calls app-api's internal sync endpoint via
-# service binding. Works for any integration type (CRM, e-commerce, etc.).
-#
-# The user configures the sync interval per connection via
-# syncSettings.syncIntervalHours (default: 6 hours, minimum: 1 hour).
+# Cron is parked: the previous */15 sweep opened every tenant Neon DB to check
+# CRM due-ness (and ran D1 connector catch-up on the same tick). Re-enable only
+# after a due-index rewrite that opens a tenant when a row is actually due.
+# Manual sync via app-api is unaffected.
 
 name = "integration-sync-scheduler"
 main = "src/index.ts"
@@ -13,7 +11,7 @@ compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
 
 [triggers]
-crons = ["*/15 * * * *"]  # Every 15 minutes — connector catch-up probes D1; CRM still only syncs when due
+crons = []
 
 [vars]
 ENVIRONMENT = "development"
@@ -57,6 +55,9 @@ binding = "CONNECTOR_SYNC_INDEX"
 database_name = "weldsuite-connector-sync-index-test"
 database_id = "5d4f220f-a1cc-4ec0-9e4c-dbaca5647370"
 
+[env.test.triggers]
+crons = []
+
 [env.test.observability]
 enabled = true
 head_sampling_rate = 1
@@ -81,6 +82,9 @@ service = "weldsuite-app-api"
 binding = "CONNECTOR_SYNC_INDEX"
 database_name = "weldsuite-connector-sync-index-production"
 database_id = "bcf01cc5-c2a0-4a29-9881-ecb380e94832"
+
+[env.production.triggers]
+crons = []
 
 [observability]
 enabled = true
