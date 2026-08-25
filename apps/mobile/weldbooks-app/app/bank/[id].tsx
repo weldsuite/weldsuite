@@ -13,18 +13,19 @@ import { Card } from '@weldsuite/mobile-ui/components/Card';
 import { Badge } from '@weldsuite/mobile-ui/components/Badge';
 
 import api from '@/services/api';
-import { formatCurrency } from '@/lib/currency';
-import { formatShortDate } from '@/lib/date';
 import { ACCENTS } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { RecordRow } from '@/components/record-row';
 import { IconTile } from '@/components/detail';
 import { ListSkeleton, ErrorState } from '@/components/data-states';
+import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import type { BankAccountDetail } from '@/types/accounting';
 
 export default function BankAccountDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
+  const { t } = useI18n();
+  const { formatCurrency, formatShortDate } = useLocaleFormatters();
 
   const [account, setAccount] = useState<BankAccountDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -50,7 +51,7 @@ export default function BankAccountDetailScreen() {
   }, [load]);
 
   const header = (
-    <ScreenHeader title={account?.name || 'Account'} subtitle={account?.iban} showBack />
+    <ScreenHeader title={account?.name || t.bankDetail.title} subtitle={account?.iban} showBack />
   );
 
   if (loading) {
@@ -65,7 +66,7 @@ export default function BankAccountDetailScreen() {
     return (
       <Screen header={header}>
         <ErrorState
-          message="Couldn't load this account."
+          message={t.bankDetail.loadError}
           onRetry={() => {
             setLoading(true);
             load();
@@ -97,7 +98,7 @@ export default function BankAccountDetailScreen() {
               <IconTile icon={Landmark} color={ACCENTS.banking} size={44} />
               <View style={styles.balanceText}>
                 <Text style={[styles.balanceLabel, { color: colors.mutedForeground }]}>
-                  Current balance
+                  {t.bankDetail.currentBalance}
                 </Text>
                 <Text
                   style={[
@@ -127,16 +128,16 @@ export default function BankAccountDetailScreen() {
                   size={32}
                 />
               }
-              title={item.description || item.counterpartyName || 'Transaction'}
+              title={item.description || item.counterpartyName || t.bankDetail.transaction}
               subtitle={item.counterpartyName && item.description ? item.counterpartyName : undefined}
               meta={formatShortDate(item.date)}
               amount={`${incoming ? '+' : ''}${formatCurrency(item.amount, item.currency)}`}
               amountColor={incoming ? colors.success : colors.text}
               badge={
                 item.status === 'reconciled' ? (
-                  <Badge variant="success" size="sm" label="Reconciled" />
+                  <Badge variant="success" size="sm" label={t.bankDetail.reconciled} />
                 ) : (
-                  <Badge variant="secondary" size="sm" label="Unmatched" />
+                  <Badge variant="secondary" size="sm" label={t.bankDetail.unmatched} />
                 )
               }
             />
@@ -145,8 +146,8 @@ export default function BankAccountDetailScreen() {
         ListEmptyComponent={
           <EmptyState
             icon={<Landmark size={32} color={colors.mutedForeground} />}
-            title="No transactions"
-            description="Import a bank statement to see transactions for this account."
+            title={t.bankDetail.emptyTitle}
+            description={t.bankDetail.emptyDescription}
             style={styles.empty}
           />
         }

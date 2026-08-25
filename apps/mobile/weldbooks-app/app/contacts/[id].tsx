@@ -19,27 +19,28 @@ import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
 import { Badge } from '@weldsuite/mobile-ui/components/Badge';
 
 import api from '@/services/api';
-import { formatCurrency } from '@/lib/currency';
-import { formatShortDate } from '@/lib/date';
 import { ACCENTS } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard, DetailRow, IconTile } from '@/components/detail';
 import { RecordRow } from '@/components/record-row';
 import { DetailSkeleton, ErrorState } from '@/components/data-states';
 import { InvoiceStatusBadge, BillStatusBadge } from '@/components/status-badge';
+import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import type { Bill, Contact, ContactBalance, Invoice } from '@/types/accounting';
-
-const ROLE_LABELS: Record<string, string> = {
-  customer: 'Customer',
-  supplier: 'Supplier',
-  both: 'Customer & supplier',
-};
 
 export default function ContactDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
   const router = useRouter();
   const toast = useToast();
+  const { t } = useI18n();
+  const { formatCurrency, formatShortDate } = useLocaleFormatters();
+
+  const ROLE_LABELS: Record<string, string> = {
+    customer: t.contacts.customer,
+    supplier: t.contacts.supplier,
+    both: t.contacts.both,
+  };
 
   const [contact, setContact] = useState<Contact | null>(null);
   const [balance, setBalance] = useState<ContactBalance | null>(null);
@@ -90,14 +91,14 @@ export default function ContactDetailScreen() {
 
   const header = (
     <ScreenHeader
-      title={contact?.name || 'Contact'}
+      title={contact?.name || t.contactDetail.title}
       subtitle={contact ? ROLE_LABELS[contact.type] : undefined}
       showBack
       actions={
         contact ? (
           <IconButton
             icon={<Trash2 size={20} color={colors.destructive} />}
-            accessibilityLabel="Delete contact"
+            accessibilityLabel={t.contactDetail.deleteContact}
             onPress={() => setConfirmDelete(true)}
           />
         ) : null
@@ -117,7 +118,7 @@ export default function ContactDetailScreen() {
     return (
       <Screen header={header}>
         <ErrorState
-          message="Couldn't load this contact."
+          message={t.contactDetail.loadError}
           onRetry={() => {
             setLoading(true);
             load();
@@ -162,15 +163,15 @@ export default function ContactDetailScreen() {
         </SectionCard>
 
         {balance ? (
-          <SectionCard title="Balance">
+          <SectionCard title={t.contactDetail.balance}>
             <DetailRow
-              label="Receivable"
+              label={t.contactDetail.receivable}
               value={formatCurrency(balance.receivable, currency)}
               valueColor={balance.receivable > 0 ? colors.warning : undefined}
               strong
             />
             <DetailRow
-              label="Payable"
+              label={t.contactDetail.payable}
               value={formatCurrency(balance.payable, currency)}
               valueColor={balance.payable > 0 ? colors.warning : undefined}
               strong
@@ -179,22 +180,30 @@ export default function ContactDetailScreen() {
         ) : null}
 
         {contact.email || contact.phone || contact.vatNumber ? (
-          <SectionCard title="Details">
-            {contact.email ? <DetailRow label="Email" value={contact.email} /> : null}
-            {contact.phone ? <DetailRow label="Phone" value={contact.phone} /> : null}
-            {contact.vatNumber ? <DetailRow label="VAT number" value={contact.vatNumber} /> : null}
-            {contact.city ? <DetailRow label="City" value={contact.city} /> : null}
+          <SectionCard title={t.contactDetail.details}>
+            {contact.email ? (
+              <DetailRow label={t.contactDetail.email} value={contact.email} />
+            ) : null}
+            {contact.phone ? (
+              <DetailRow label={t.contactDetail.phone} value={contact.phone} />
+            ) : null}
+            {contact.vatNumber ? (
+              <DetailRow label={t.contactDetail.vatNumber} value={contact.vatNumber} />
+            ) : null}
+            {contact.city ? (
+              <DetailRow label={t.contactDetail.city} value={contact.city} />
+            ) : null}
           </SectionCard>
         ) : null}
 
         {invoices.length ? (
-          <SectionCard title="Invoices" padded={false}>
+          <SectionCard title={t.contactDetail.invoices} padded={false}>
             <View style={styles.related}>
               {invoices.slice(0, 5).map((invoice) => (
                 <RecordRow
                   key={invoice.id}
                   leading={<IconTile icon={FileText} color={ACCENTS.vat} size={32} />}
-                  title={invoice.invoiceNumber || 'Draft'}
+                  title={invoice.invoiceNumber || t.common.draft}
                   subtitle={formatShortDate(invoice.issueDate)}
                   amount={formatCurrency(invoice.total, invoice.currency || currency)}
                   badge={
@@ -212,13 +221,13 @@ export default function ContactDetailScreen() {
         ) : null}
 
         {bills.length ? (
-          <SectionCard title="Bills" padded={false}>
+          <SectionCard title={t.contactDetail.bills} padded={false}>
             <View style={styles.related}>
               {bills.slice(0, 5).map((bill) => (
                 <RecordRow
                   key={bill.id}
                   leading={<IconTile icon={Receipt} color={ACCENTS.profitLoss} size={32} />}
-                  title={bill.billNumber || 'Draft'}
+                  title={bill.billNumber || t.common.draft}
                   subtitle={formatShortDate(bill.issueDate)}
                   amount={formatCurrency(bill.total, bill.currency || currency)}
                   badge={
@@ -238,9 +247,9 @@ export default function ContactDetailScreen() {
 
       <ConfirmModal
         visible={confirmDelete}
-        title="Delete this contact?"
-        message="Contacts with invoices or bills cannot be deleted."
-        confirmText="Delete"
+        title={t.contactDetail.deleteTitle}
+        message={t.contactDetail.deleteMessage}
+        confirmText={t.common.delete}
         variant="destructive"
         loading={deleting}
         onCancel={() => setConfirmDelete(false)}
@@ -249,10 +258,10 @@ export default function ContactDetailScreen() {
           setDeleting(true);
           try {
             await api.deleteContact(contact.id);
-            toast.success('Contact deleted');
+            toast.success(t.contactDetail.deleted);
             router.back();
           } catch (err) {
-            toast.error(err instanceof Error ? err.message : 'Could not delete the contact');
+            toast.error(err instanceof Error ? err.message : t.contactDetail.deleteFailed);
           } finally {
             setDeleting(false);
           }

@@ -20,8 +20,8 @@ import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
 
 import api from '@/services/api';
-import { formatCurrency, toNumber } from '@/lib/currency';
-import { formatShortDate, isOverdue } from '@/lib/date';
+import { toNumber } from '@/lib/currency';
+import { isOverdue } from '@/lib/date';
 import { BRAND } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { RecordRow } from '@/components/record-row';
@@ -30,23 +30,26 @@ import { ListSkeleton, ErrorState } from '@/components/data-states';
 import { BillStatusBadge } from '@/components/status-badge';
 import { usePagedList } from '@/hooks/usePagedList';
 import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
+import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import type { Bill } from '@/types/accounting';
-
-/** `value: undefined` = no filter; `overdue` is derived client-side. */
-const FILTERS: { key: string; label: string; value?: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'draft', label: 'Draft', value: 'draft' },
-  { key: 'pending', label: 'Pending', value: 'pending' },
-  { key: 'approved', label: 'Approved', value: 'approved' },
-  { key: 'overdue', label: 'Overdue' },
-  { key: 'paid', label: 'Paid', value: 'paid' },
-];
 
 export default function ExpensesScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const { activeEntity } = useAccountingEntity();
   const [filter, setFilter] = useState('all');
+  const { t, format } = useI18n();
+  const { formatCurrency, formatShortDate } = useLocaleFormatters();
+
+  /** `value: undefined` = no filter; `overdue` is derived client-side. */
+  const FILTERS: { key: string; label: string; value?: string }[] = [
+    { key: 'all', label: t.expenses.filterAll },
+    { key: 'draft', label: t.expenses.filterDraft, value: 'draft' },
+    { key: 'pending', label: t.expenses.filterPending, value: 'pending' },
+    { key: 'approved', label: t.expenses.filterApproved, value: 'approved' },
+    { key: 'overdue', label: t.expenses.filterOverdue },
+    { key: 'paid', label: t.expenses.filterPaid, value: 'paid' },
+  ];
 
   const activeFilter = FILTERS.find((f) => f.key === filter) ?? FILTERS[0];
 
@@ -78,11 +81,11 @@ export default function ExpensesScreen() {
 
   const header = (
     <ScreenHeader
-      title="Expenses"
+      title={t.expenses.title}
       actions={
         <IconButton
           icon={<Plus size={22} color={colors.text} />}
-          accessibilityLabel="New expense"
+          accessibilityLabel={t.expenses.newExpense}
           onPress={() => open('/expense/quick')}
         />
       }
@@ -91,7 +94,7 @@ export default function ExpensesScreen() {
           <SearchBar
             value={list.search}
             onChangeText={list.setSearch}
-            placeholder="Search bills and expenses"
+            placeholder={t.expenses.searchPlaceholder}
             containerStyle={styles.search}
           />
           <View style={styles.chips}>
@@ -120,7 +123,7 @@ export default function ExpensesScreen() {
   if (list.error && visible.length === 0) {
     return (
       <Screen header={header}>
-        <ErrorState message="Couldn't load expenses." onRetry={list.refresh} />
+        <ErrorState message={t.expenses.loadError} onRetry={list.refresh} />
       </Screen>
     );
   }
@@ -139,9 +142,9 @@ export default function ExpensesScreen() {
         renderItem={({ item }) => (
           <RecordRow
             leading={<IconTile icon={Receipt} color={BRAND} />}
-            title={item.contactName || 'Unknown vendor'}
-            subtitle={item.billNumber || 'Draft'}
-            meta={`Due ${formatShortDate(item.dueDate)}`}
+            title={item.contactName || t.expenses.unknownVendor}
+            subtitle={item.billNumber || t.common.draft}
+            meta={format(t.common.dueOn, { date: formatShortDate(item.dueDate) })}
             amount={formatCurrency(item.total, item.currency)}
             badge={
               <BillStatusBadge
@@ -159,15 +162,13 @@ export default function ExpensesScreen() {
         ListEmptyComponent={
           <EmptyState
             icon={<Receipt size={32} color={colors.mutedForeground} />}
-            title={list.search ? 'No matching expenses' : 'No expenses yet'}
+            title={list.search ? t.expenses.noMatchTitle : t.expenses.emptyTitle}
             description={
-              list.search
-                ? 'Try a different search term or clear the filter.'
-                : 'Scan a receipt or add an expense to start tracking costs.'
+              list.search ? t.expenses.noMatchDescription : t.expenses.emptyDescription
             }
             action={
               list.search ? undefined : (
-                <Button title="Add expense" onPress={() => open('/expense/quick')} />
+                <Button title={t.expenses.addExpense} onPress={() => open('/expense/quick')} />
               )
             }
           />

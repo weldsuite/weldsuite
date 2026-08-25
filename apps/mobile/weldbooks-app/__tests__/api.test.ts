@@ -421,3 +421,23 @@ describe('document OCR', () => {
     });
   });
 });
+
+describe('getUserPreferences', () => {
+  it('reads the profile language the platform appearance picker stores', async () => {
+    client.get.mockResolvedValue({
+      data: { language: 'nl', theme: 'dark', dateFormat: 'DD/MM/YYYY' },
+    });
+
+    const prefs = await api.getUserPreferences();
+
+    expect(client.get.mock.calls[0][0]).toBe('/user-preferences');
+    expect(prefs.language).toBe('nl');
+    expect(prefs.theme).toBe('dark');
+  });
+
+  it('defaults to English when the profile has no language set', async () => {
+    client.get.mockResolvedValue({ data: {} });
+    const prefs = await api.getUserPreferences();
+    expect(prefs.language).toBe('en');
+  });
+});

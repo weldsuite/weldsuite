@@ -5,7 +5,7 @@
  * flip — hence the deliberate confirmation copy about it being irreversible.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, RefreshControl } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -18,30 +18,20 @@ import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
 import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 
 import api from '@/services/api';
-import { formatCurrency } from '@/lib/currency';
-import { formatDate } from '@/lib/date';
 import { ACCENTS } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard, DetailRow, TotalsBlock } from '@/components/detail';
 import { DetailSkeleton, ErrorState } from '@/components/data-states';
 import { VatStatusBadge } from '@/components/status-badge';
+import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import type { VatReturnDetail } from '@/types/accounting';
-
-/** The rubrieken worth showing on a phone, in Belastingdienst order. */
-const RUBRIEKEN: { key: string; label: string }[] = [
-  { key: 'r1a', label: '1a — Supplies at the high rate' },
-  { key: 'r1b', label: '1b — Supplies at the low rate' },
-  { key: 'r2a', label: '2a — Reverse charge to you' },
-  { key: 'r3a', label: '3a — Supplies to non-EU' },
-  { key: 'r3b', label: '3b — Supplies to EU' },
-  { key: 'r4a', label: '4a — Acquisitions from non-EU' },
-  { key: 'r4b', label: '4b — Acquisitions from EU' },
-];
 
 export default function VatReturnDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
   const toast = useToast();
+  const { t, format } = useI18n();
+  const { formatCurrency, formatDate } = useLocaleFormatters();
 
   const [vatReturn, setVatReturn] = useState<VatReturnDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,8 +58,22 @@ export default function VatReturnDetailScreen() {
     load();
   }, [load]);
 
+  /** The rubrieken worth showing on a phone, in Belastingdienst order. */
+  const RUBRIEKEN = useMemo(
+    () => [
+      { key: 'r1a', label: t.vatDetail.r1a },
+      { key: 'r1b', label: t.vatDetail.r1b },
+      { key: 'r2a', label: t.vatDetail.r2a },
+      { key: 'r3a', label: t.vatDetail.r3a },
+      { key: 'r3b', label: t.vatDetail.r3b },
+      { key: 'r4a', label: t.vatDetail.r4a },
+      { key: 'r4b', label: t.vatDetail.r4b },
+    ],
+    [t],
+  );
+
   const header = (
-    <ScreenHeader title={vatReturn?.period || 'VAT return'} showBack />
+    <ScreenHeader title={vatReturn?.period || t.vatDetail.title} showBack />
   );
 
   if (loading) {
@@ -84,7 +88,7 @@ export default function VatReturnDetailScreen() {
     return (
       <Screen header={header}>
         <ErrorState
-          message="Couldn't load this VAT return."
+          message={t.vatDetail.loadError}
           onRetry={() => {
             setLoading(true);
             load();
@@ -117,7 +121,7 @@ export default function VatReturnDetailScreen() {
           <View style={styles.summary}>
             <View>
               <Text style={[styles.summaryLabel, { color: colors.mutedForeground }]}>
-                {payable ? 'To pay' : 'To reclaim'}
+                {payable ? t.vatDetail.toPay : t.vatDetail.toReclaim}
               </Text>
               <Text
                 style={[styles.summaryValue, { color: payable ? colors.text : colors.success }]}
@@ -131,38 +135,40 @@ export default function VatReturnDetailScreen() {
 
         {vatReturn.status === 'submitted' || vatReturn.status === 'accepted' ? (
           <Banner variant="success" style={styles.banner}>
-            Filed{vatReturn.filedAt ? ` on ${formatDate(vatReturn.filedAt)}` : ''}.
+            {vatReturn.filedAt
+              ? format(t.vatDetail.filedOn, { date: formatDate(vatReturn.filedAt) })
+              : t.vatDetail.filed}
           </Banner>
         ) : null}
 
-        <SectionCard title="Period">
-          <DetailRow label="Period" value={vatReturn.period || '—'} />
+        <SectionCard title={t.vatDetail.period}>
+          <DetailRow label={t.vatDetail.period} value={vatReturn.period || t.common.dash} />
           {vatReturn.periodStart ? (
-            <DetailRow label="From" value={formatDate(vatReturn.periodStart)} />
+            <DetailRow label={t.vatDetail.from} value={formatDate(vatReturn.periodStart)} />
           ) : null}
           {vatReturn.periodEnd ? (
-            <DetailRow label="To" value={formatDate(vatReturn.periodEnd)} />
+            <DetailRow label={t.vatDetail.to} value={formatDate(vatReturn.periodEnd)} />
           ) : null}
           {vatReturn.dueDate ? (
-            <DetailRow label="Filing deadline" value={formatDate(vatReturn.dueDate)} />
+            <DetailRow label={t.vatDetail.filingDeadline} value={formatDate(vatReturn.dueDate)} />
           ) : null}
         </SectionCard>
 
-        <SectionCard title="Summary">
+        <SectionCard title={t.vatDetail.summary}>
           <TotalsBlock
             rows={[
-              { label: 'Output VAT (5a)', value: formatCurrency(vatReturn.salesTax, currency) },
-              { label: 'Input VAT (5b)', value: formatCurrency(vatReturn.purchaseTax, currency) },
+              { label: t.vatDetail.outputVat, value: formatCurrency(vatReturn.salesTax, currency) },
+              { label: t.vatDetail.inputVat, value: formatCurrency(vatReturn.purchaseTax, currency) },
             ]}
             total={{
-              label: payable ? 'Payable (5c)' : 'Reclaimable (5c)',
+              label: payable ? t.vatDetail.payable : t.vatDetail.reclaimable,
               value: formatCurrency(Math.abs(netAmount), currency),
             }}
           />
         </SectionCard>
 
         {rubriekRows.length ? (
-          <SectionCard title="Rubrieken">
+          <SectionCard title={t.vatDetail.rubrieken}>
             {rubriekRows.map((r) => (
               <DetailRow
                 key={r.key}
@@ -176,7 +182,7 @@ export default function VatReturnDetailScreen() {
         {vatReturn.status === 'draft' ? (
           <View style={styles.actions}>
             <Button
-              title="File return"
+              title={t.vatDetail.fileReturn}
               leftIcon={<Send size={18} color={colors.primaryForeground} />}
               onPress={() => setConfirmFile(true)}
               loading={filing}
@@ -188,9 +194,10 @@ export default function VatReturnDetailScreen() {
 
       <ConfirmModal
         visible={confirmFile}
-        title="File this VAT return?"
-        message="This submits the return to the tax authority. It cannot be undone from the app."
-        confirmText="File return"
+        title={t.vatDetail.fileTitle}
+        message={t.vatDetail.fileMessage}
+        confirmText={t.vatDetail.fileReturn}
+        cancelText={t.common.cancel}
         loading={filing}
         onCancel={() => setConfirmFile(false)}
         onConfirm={async () => {
@@ -199,10 +206,10 @@ export default function VatReturnDetailScreen() {
           try {
             await api.submitVatReturn(vatReturn.id);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            toast.success('VAT return filed');
+            toast.success(t.vatDetail.filedSuccess);
             await load();
           } catch (err) {
-            toast.error(err instanceof Error ? err.message : 'Could not file the return');
+            toast.error(err instanceof Error ? err.message : t.vatDetail.fileFailed);
           } finally {
             setFiling(false);
           }

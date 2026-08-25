@@ -14,6 +14,7 @@ import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { Card } from '@weldsuite/mobile-ui/components/Card';
 import { Skeleton } from '@weldsuite/mobile-ui/components/Skeleton';
 import { Spinner } from '@weldsuite/mobile-ui/components/Spinner';
+import { useI18n } from '@/lib/i18n';
 
 export function LoadingState({ label }: { label?: string }) {
   return (
@@ -24,7 +25,7 @@ export function LoadingState({ label }: { label?: string }) {
 }
 
 export function ErrorState({
-  message = 'Something went wrong.',
+  message,
   onRetry,
   retrying = false,
 }: {
@@ -33,12 +34,15 @@ export function ErrorState({
   retrying?: boolean;
 }) {
   const { colors } = useTheme();
+  const { t } = useI18n();
   return (
     <View style={styles.center}>
       <AlertCircle size={40} color={colors.destructive} />
-      <Text style={[styles.errorText, { color: colors.mutedForeground }]}>{message}</Text>
+      <Text style={[styles.errorText, { color: colors.mutedForeground }]}>
+        {message ?? t.common.somethingWentWrong}
+      </Text>
       {onRetry ? (
-        <Button title="Try again" variant="outline" size="sm" onPress={onRetry} loading={retrying} />
+        <Button title={t.common.tryAgain} variant="outline" size="sm" onPress={onRetry} loading={retrying} />
       ) : null}
     </View>
   );

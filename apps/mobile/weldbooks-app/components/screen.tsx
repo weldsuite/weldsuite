@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import { ChevronDown, ChevronLeft } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
+import { useI18n } from '@/lib/i18n';
 
 export interface ScreenHeaderProps {
   title: string;
@@ -44,6 +45,7 @@ export function ScreenHeader({
 }: ScreenHeaderProps) {
   const { colors } = useTheme();
   const router = useRouter();
+  const { t, format } = useI18n();
   const withBack = showBack ?? onBack !== undefined;
   const large = !withBack;
 
@@ -66,7 +68,9 @@ export function ScreenHeader({
         <Pressable
           onPress={onTitlePress}
           accessibilityRole="button"
-          accessibilityLabel={titlePressAccessibilityLabel ?? `Switch administration, currently ${title}`}
+          accessibilityLabel={
+            titlePressAccessibilityLabel ?? format(t.screen.switchAdministration, { name: title })
+          }
           hitSlop={8}
           style={({ pressed }) => [styles.titlePress, pressed && { opacity: 0.7 }]}
         >
@@ -90,7 +94,7 @@ export function ScreenHeader({
         {withBack ? (
           <IconButton
             icon={<ChevronLeft size={24} color={colors.text} />}
-            accessibilityLabel="Go back"
+            accessibilityLabel={t.screen.goBack}
             onPress={onBack ?? (() => router.back())}
             style={styles.back}
           />

@@ -148,9 +148,19 @@ export interface MatchSuggestion {
   id: string;
   type: 'invoice' | 'bill';
   description: string;
+  number?: string;
+  contactName?: string;
   amount: number;
   /** 0–1 match confidence from app-api's suggestion scorer. */
   confidence: number;
+}
+
+export interface UserPreferences {
+  language: string;
+  theme?: string;
+  dateFormat?: string;
+  timeFormat?: string;
+  timezone?: string;
 }
 
 export interface UnmatchedTransaction extends BankTransaction {

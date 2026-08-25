@@ -19,6 +19,7 @@ import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
 import { IconTile } from '@/components/detail';
 import { ACCENTS, BRAND } from '@/lib/brand';
 import type { AccountingEntity } from '@/types/accounting';
+import { useI18n } from '@/lib/i18n';
 
 function entityMeta(entity: AccountingEntity): string {
   const parts = [entity.jurisdictionCode, entity.baseCurrency];
@@ -28,6 +29,7 @@ function entityMeta(entity: AccountingEntity): string {
 
 export function AdministrationSheet() {
   const { colors } = useTheme();
+  const { t } = useI18n();
   const { entities, activeEntity, setActiveEntity, switcherOpen, closeSwitcher } =
     useAccountingEntity();
 
@@ -40,7 +42,7 @@ export function AdministrationSheet() {
   );
 
   return (
-    <Sheet visible={switcherOpen} onClose={closeSwitcher} title="Administrations" heightRatio={0.55}>
+    <Sheet visible={switcherOpen} onClose={closeSwitcher} title={t.administrations.title} heightRatio={0.55}>
       {entities.map((entity, index) => {
         const selected = entity.id === activeEntity?.id;
         return (
@@ -60,7 +62,7 @@ export function AdministrationSheet() {
                 </Text>
                 <Text style={[styles.rowSubtitle, { color: colors.mutedForeground }]} numberOfLines={1}>
                   {entityMeta(entity)}
-                  {entity.isDefault ? ' · Default' : ''}
+                  {entity.isDefault ? ` · ${t.common.default}` : ''}
                 </Text>
               </View>
               {selected ? <Check size={18} color={BRAND} /> : <View style={styles.checkSlot} />}

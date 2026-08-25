@@ -12,6 +12,7 @@ import type { BadgeProps } from '@weldsuite/mobile-ui/components/Badge';
 import type { BillStatus, InvoiceStatus, VatReturnStatus } from '@/types/accounting';
 import { isOverdue } from '@/lib/date';
 import { toNumber } from '@/lib/currency';
+import { statusLabel, useI18n } from '@/lib/i18n';
 
 type Variant = NonNullable<BadgeProps['variant']>;
 
@@ -43,12 +44,6 @@ const VAT_VARIANTS: Record<VatReturnStatus, Variant> = {
   rejected: 'destructive',
 };
 
-/** "partially_paid" → "Partially paid". */
-export function humanizeStatus(status: string): string {
-  const spaced = status.replace(/_/g, ' ');
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-}
-
 export function InvoiceStatusBadge({
   status,
   dueDate,
@@ -60,6 +55,7 @@ export function InvoiceStatusBadge({
   balanceDue?: string | number;
   size?: BadgeProps['size'];
 }) {
+  const { t } = useI18n();
   // app-api never returns `overdue`; derive it so the pill matches the platform.
   const derived: InvoiceStatus =
     (status === 'sent' || status === 'viewed' || status === 'partially_paid') &&
@@ -71,7 +67,7 @@ export function InvoiceStatusBadge({
     <Badge
       variant={INVOICE_VARIANTS[derived] ?? 'secondary'}
       size={size}
-      label={humanizeStatus(derived)}
+      label={statusLabel(t, derived)}
     />
   );
 }
@@ -87,6 +83,7 @@ export function BillStatusBadge({
   balanceDue?: string | number;
   size?: BadgeProps['size'];
 }) {
+  const { t } = useI18n();
   const derived: BillStatus =
     (status === 'approved' || status === 'partially_paid') &&
     isOverdue(dueDate, toNumber(balanceDue))
@@ -97,7 +94,7 @@ export function BillStatusBadge({
     <Badge
       variant={BILL_VARIANTS[derived] ?? 'secondary'}
       size={size}
-      label={humanizeStatus(derived)}
+      label={statusLabel(t, derived)}
     />
   );
 }
@@ -109,11 +106,12 @@ export function VatStatusBadge({
   status: VatReturnStatus;
   size?: BadgeProps['size'];
 }) {
+  const { t } = useI18n();
   return (
     <Badge
       variant={VAT_VARIANTS[status] ?? 'secondary'}
       size={size}
-      label={humanizeStatus(status)}
+      label={statusLabel(t, status)}
     />
   );
 }

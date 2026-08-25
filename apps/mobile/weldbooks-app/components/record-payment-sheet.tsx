@@ -14,16 +14,9 @@ import { Sheet } from '@weldsuite/mobile-ui/components/Sheet';
 import { Input } from '@weldsuite/mobile-ui/components/Input';
 import { Select } from '@weldsuite/mobile-ui/components/Select';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
-import { formatCurrency, parseAmount } from '@/lib/currency';
+import { parseAmount } from '@/lib/currency';
 import { today } from '@/lib/date';
-
-const METHODS = [
-  { label: 'Bank transfer', value: 'bank_transfer' },
-  { label: 'Card', value: 'card' },
-  { label: 'Cash', value: 'cash' },
-  { label: 'Direct debit', value: 'direct_debit' },
-  { label: 'Other', value: 'manual' },
-];
+import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 
 export interface RecordPaymentSheetProps {
   visible: boolean;
@@ -44,10 +37,20 @@ export function RecordPaymentSheet({
   onSubmit,
 }: RecordPaymentSheetProps) {
   const { colors } = useTheme();
+  const { t, format } = useI18n();
+  const { formatCurrency: money } = useLocaleFormatters();
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(today());
   const [method, setMethod] = useState('bank_transfer');
   const [error, setError] = useState<string | undefined>();
+
+  const methods = [
+    { label: t.payments.bankTransfer, value: 'bank_transfer' },
+    { label: t.payments.card, value: 'card' },
+    { label: t.payments.cash, value: 'cash' },
+    { label: t.payments.directDebit, value: 'direct_debit' },
+    { label: t.payments.other, value: 'manual' },
+  ];
 
   // Reset to the full balance each time the sheet opens.
   useEffect(() => {
@@ -61,11 +64,11 @@ export function RecordPaymentSheet({
   const handleSubmit = async () => {
     const value = parseAmount(amount);
     if (!value || value <= 0) {
-      setError('Enter an amount greater than zero');
+      setError(t.payments.amountError);
       return;
     }
     if (balanceDue > 0 && value > balanceDue + 0.005) {
-      setError(`Cannot exceed the open balance of ${formatCurrency(balanceDue, currency)}`);
+      setError(format(t.payments.exceedBalance, { amount: money(balanceDue, currency) }));
       return;
     }
     setError(undefined);
@@ -75,21 +78,23 @@ export function RecordPaymentSheet({
   const remaining = balanceDue - parseAmount(amount || '0');
 
   return (
-    <Sheet visible={visible} onClose={onClose} title="Record payment" heightRatio={0.7}>
+    <Sheet visible={visible} onClose={onClose} title={t.payments.title} heightRatio={0.7}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.body}
       >
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
           <View style={[styles.balance, { backgroundColor: colors.secondary }]}>
-            <Text style={[styles.balanceLabel, { color: colors.mutedForeground }]}>Open balance</Text>
+            <Text style={[styles.balanceLabel, { color: colors.mutedForeground }]}>
+              {t.payments.openBalance}
+            </Text>
             <Text style={[styles.balanceValue, { color: colors.text }]}>
-              {formatCurrency(balanceDue, currency)}
+              {money(balanceDue, currency)}
             </Text>
           </View>
 
           <Input
-            label="Amount"
+            label={t.payments.amount}
             value={amount}
             onChangeText={(text) => {
               setAmount(text);
@@ -100,24 +105,24 @@ export function RecordPaymentSheet({
             error={error}
             helperText={
               !error && remaining > 0.005
-                ? `${formatCurrency(remaining, currency)} will remain outstanding`
+                ? format(t.payments.remaining, { amount: money(remaining, currency) })
                 : undefined
             }
           />
 
           <Input
-            label="Payment date"
+            label={t.payments.paymentDate}
             value={date}
             onChangeText={setDate}
-            placeholder="YYYY-MM-DD"
+            placeholder={t.payments.datePlaceholder}
             autoCapitalize="none"
             autoCorrect={false}
           />
 
-          <Select label="Method" value={method} onValueChange={setMethod} options={METHODS} />
+          <Select label={t.payments.method} value={method} onValueChange={setMethod} options={methods} />
 
           <Button
-            title="Record payment"
+            title={t.payments.title}
             onPress={handleSubmit}
             loading={submitting}
             fullWidth

@@ -29,6 +29,14 @@ import { AdministrationSheet } from '@/components/administration-switcher';
 import { ErrorState } from '@/components/data-states';
 import { Screen } from '@/components/screen';
 import { useUpdateGate } from '@/hooks/useUpdateGate';
+import {
+  I18nProvider,
+  ProfileLanguageSync,
+  useI18n,
+  usePersistedLanguage,
+} from '@/lib/i18n';
+import { en } from '@/lib/i18n/locales/en';
+import { nl } from '@/lib/i18n/locales/nl';
 
 const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
@@ -84,11 +92,13 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [user, isLoading, segments, router]);
 
+  const { t } = useI18n();
+
   if (isLoading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
         <ActivityIndicator size="large" color="#10B981" />
-        <Text style={{ marginTop: 16, color: '#666' }}>Loading...</Text>
+        <Text style={{ marginTop: 16, color: '#666' }}>{t.common.loading}</Text>
       </View>
     );
   }
@@ -109,6 +119,7 @@ function EntityGate({ children }: { children: React.ReactNode }) {
   const { hasEntity, isLoading, loadError, isRefreshing, refresh, activeEntity } =
     useAccountingEntity();
   const { colors } = useTheme();
+  const { t } = useI18n();
 
   if (!user) return <>{children}</>;
 
@@ -124,7 +135,7 @@ function EntityGate({ children }: { children: React.ReactNode }) {
     return (
       <Screen>
         <ErrorState
-          message="Couldn't load your company details. Check your connection and try again."
+          message={t.layout.companyLoadError}
           onRetry={refresh}
           retrying={isRefreshing}
         />
@@ -214,6 +225,7 @@ function AuthenticatedApp() {
     <ClerkAuthProvider>
       <AnalyticsProvider>
         <ThemeProvider>
+          <ProfileLanguageSync />
           <AppStack />
         </ThemeProvider>
       </AnalyticsProvider>
@@ -221,31 +233,39 @@ function AuthenticatedApp() {
   );
 }
 
+function Splash({ label }: { label: string }) {
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+      <ActivityIndicator size="large" color="#10B981" />
+      <Text style={{ marginTop: 16, color: '#666' }}>{label}</Text>
+    </View>
+  );
+}
+
 export default function RootLayout() {
   // First-launch OTA gate: check for and apply the latest update before the app
   // renders, so first-time installers never see the stale embedded bundle.
   const checkingUpdate = useUpdateGate();
+  const persisted = usePersistedLanguage();
 
-  if (checkingUpdate) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
-        <ActivityIndicator size="large" color="#10B981" />
-        <Text style={{ marginTop: 16, color: '#666' }}>Updating…</Text>
-      </View>
-    );
+  if (checkingUpdate || !persisted.ready) {
+    const catalog = persisted.language === 'nl' ? nl : en;
+    return <Splash label={catalog.common.updating} />;
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <KeyboardProvider>
-        <ErrorBoundary>
-          <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY || ''} tokenCache={tokenCache}>
-            <ClerkLoaded>
-              <AuthenticatedApp />
-            </ClerkLoaded>
-          </ClerkProvider>
-        </ErrorBoundary>
-      </KeyboardProvider>
-    </GestureHandlerRootView>
+    <I18nProvider initialLanguage={persisted.language}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <KeyboardProvider>
+          <ErrorBoundary>
+            <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY || ''} tokenCache={tokenCache}>
+              <ClerkLoaded>
+                <AuthenticatedApp />
+              </ClerkLoaded>
+            </ClerkProvider>
+          </ErrorBoundary>
+        </KeyboardProvider>
+      </GestureHandlerRootView>
+    </I18nProvider>
   );
 }
