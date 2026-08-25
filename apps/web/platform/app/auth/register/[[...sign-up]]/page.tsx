@@ -6,7 +6,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@weldsuite/ui/components/input-otp';
 import { Label } from '@weldsuite/ui/components/label';
-import { Loader2, Mail, Lock, User, Eye, EyeOff, ChevronLeft } from 'lucide-react';
+import { Loader2, Mail, Lock, User, Eye, EyeOff, ChevronLeft, CheckCircle } from 'lucide-react';
 import { getClerkErrorMessage } from '../../utils';
 import { getTranslations } from '@/lib/i18n';
 
@@ -83,6 +83,13 @@ export default function RegisterPage() {
       setIsGoogleLoading(false);
     }
   };
+
+  const requirementKeys = [
+    t.auth.resetPassword.requirements.atLeast8Chars,
+    t.auth.resetPassword.requirements.oneUppercase,
+    t.auth.resetPassword.requirements.oneLowercase,
+    t.auth.resetPassword.requirements.oneNumber,
+  ];
 
   const validatePassword = (pwd: string) => {
     const errors: string[] = [];
@@ -431,6 +438,27 @@ export default function RegisterPage() {
                 </Button>
               </div>
 
+              {/* Password requirements — same checklist as reset-password so users
+                  know why Create Account stays disabled (e.g. missing uppercase). */}
+              <div className="mt-2 space-y-1" data-testid="password-requirements">
+                {requirementKeys.map((req, i) => {
+                  const checks = [
+                    password.length >= 8,
+                    /[A-Z]/.test(password),
+                    /[a-z]/.test(password),
+                    /[0-9]/.test(password),
+                  ];
+                  const isValid = checks[i];
+                  return (
+                    <div key={req} className="flex items-center gap-2 text-xs">
+                      <CheckCircle
+                        className={`h-3 w-3 ${isValid ? 'text-green-500' : 'text-gray-300'}`}
+                      />
+                      <span className={isValid ? 'text-gray-700' : 'text-gray-400'}>{req}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             <div>
