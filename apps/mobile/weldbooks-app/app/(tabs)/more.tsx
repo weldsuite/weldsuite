@@ -17,6 +17,7 @@ import {
   Users,
   Settings,
   ChevronRight,
+  Building2,
 } from 'lucide-react-native';
 
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
@@ -26,6 +27,7 @@ import { Divider } from '@weldsuite/mobile-ui/components/Divider';
 import { ACCENTS } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { IconTile } from '@/components/detail';
+import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
 
 type MenuItem = {
   title: string;
@@ -105,6 +107,7 @@ const SECTIONS: { title: string; items: MenuItem[] }[] = [
 export default function MoreScreen() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { activeEntity, canSwitch, openSwitcher } = useAccountingEntity();
 
   const open = useCallback(
     (route: string) => {
@@ -117,6 +120,40 @@ export default function MoreScreen() {
   return (
     <Screen header={<ScreenHeader title="More" />}>
       <ScrollView contentContainerStyle={styles.content}>
+        {activeEntity ? (
+          <View>
+            <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>
+              Administration
+            </Text>
+            <Card style={[styles.card, { borderRadius: 20 }]}>
+              <Pressable
+                onPress={canSwitch ? openSwitcher : undefined}
+                disabled={!canSwitch}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  canSwitch
+                    ? `Switch administration, currently ${activeEntity.name}`
+                    : activeEntity.name
+                }
+                style={({ pressed }) => [
+                  styles.row,
+                  canSwitch && pressed && { backgroundColor: colors.pressed },
+                ]}
+              >
+                <IconTile icon={Building2} color={ACCENTS.settings} />
+                <View style={styles.rowText}>
+                  <Text style={[styles.rowTitle, { color: colors.text }]}>{activeEntity.name}</Text>
+                  <Text style={[styles.rowSubtitle, { color: colors.mutedForeground }]}>
+                    {canSwitch
+                      ? `${activeEntity.jurisdictionCode} · ${activeEntity.baseCurrency} · Tap to switch`
+                      : `${activeEntity.jurisdictionCode} · ${activeEntity.baseCurrency}`}
+                  </Text>
+                </View>
+                {canSwitch ? <ChevronRight size={18} color={colors.mutedForeground} /> : null}
+              </Pressable>
+            </Card>
+          </View>
+        ) : null}
         {SECTIONS.map((section) => (
           <View key={section.title}>
             <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>

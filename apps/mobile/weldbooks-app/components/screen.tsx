@@ -8,10 +8,10 @@
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, StyleProp, ViewStyle } from 'react-native';
+import { View, Text, StyleSheet, StyleProp, ViewStyle, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronDown, ChevronLeft } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
 
@@ -21,6 +21,9 @@ export interface ScreenHeaderProps {
   /** Shows a back chevron. Defaults to true on any screen given an onBack. */
   onBack?: () => void;
   showBack?: boolean;
+  /** Makes the title tappable (e.g. to switch administration). Shows a chevron. */
+  onTitlePress?: () => void;
+  titlePressAccessibilityLabel?: string;
   /** Rendered right-aligned — usually one or two IconButtons. */
   actions?: React.ReactNode;
   /** Rendered full-width beneath the title row (search bars, filter chips). */
@@ -33,6 +36,8 @@ export function ScreenHeader({
   subtitle,
   onBack,
   showBack,
+  onTitlePress,
+  titlePressAccessibilityLabel,
   actions,
   below,
   style,
@@ -41,6 +46,43 @@ export function ScreenHeader({
   const router = useRouter();
   const withBack = showBack ?? onBack !== undefined;
   const large = !withBack;
+
+  const titleText = (
+    <Text
+      style={[
+        large ? styles.titleLarge : styles.title,
+        { color: colors.text },
+        onTitlePress && styles.titleShrink,
+      ]}
+      numberOfLines={1}
+    >
+      {title}
+    </Text>
+  );
+
+  const titles = (
+    <>
+      {onTitlePress ? (
+        <Pressable
+          onPress={onTitlePress}
+          accessibilityRole="button"
+          accessibilityLabel={titlePressAccessibilityLabel ?? `Switch administration, currently ${title}`}
+          hitSlop={8}
+          style={({ pressed }) => [styles.titlePress, pressed && { opacity: 0.7 }]}
+        >
+          {titleText}
+          <ChevronDown size={large ? 20 : 18} color={colors.mutedForeground} />
+        </Pressable>
+      ) : (
+        titleText
+      )}
+      {subtitle ? (
+        <Text style={[styles.subtitle, { color: colors.mutedForeground }]} numberOfLines={1}>
+          {subtitle}
+        </Text>
+      ) : null}
+    </>
+  );
 
   return (
     <View style={[styles.header, style]}>
@@ -53,22 +95,7 @@ export function ScreenHeader({
             style={styles.back}
           />
         ) : null}
-        <View style={styles.titles}>
-          <Text
-            style={[
-              large ? styles.titleLarge : styles.title,
-              { color: colors.text },
-            ]}
-            numberOfLines={1}
-          >
-            {title}
-          </Text>
-          {subtitle ? (
-            <Text style={[styles.subtitle, { color: colors.mutedForeground }]} numberOfLines={1}>
-              {subtitle}
-            </Text>
-          ) : null}
-        </View>
+        <View style={styles.titles}>{titles}</View>
         {actions ? (
           <View style={[styles.actionGroup, { backgroundColor: colors.secondary }]}>
             {actions}
@@ -129,6 +156,7 @@ const styles = StyleSheet.create({
   },
   back: { marginLeft: -4 },
   titles: { flex: 1, justifyContent: 'center', minWidth: 0 },
+  titlePress: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 0, alignSelf: 'flex-start' },
   title: { fontSize: 20, fontWeight: '700', letterSpacing: -0.3 },
   titleLarge: {
     fontSize: 26,
@@ -136,6 +164,7 @@ const styles = StyleSheet.create({
     lineHeight: 32,
     letterSpacing: -0.4,
   },
+  titleShrink: { flexShrink: 1 },
   subtitle: { fontSize: 13, marginTop: 1 },
   actionGroup: {
     flexDirection: 'row',

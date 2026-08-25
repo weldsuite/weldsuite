@@ -27,6 +27,8 @@ export interface QueueItem {
   type: 'expense' | 'document';
   data: Record<string, unknown>;
   createdAt: string;
+  /** Administration the item was captured against — replay uses this, not the current selection. */
+  entityId?: string;
 }
 
 interface OfflineQueueContextType {
@@ -77,7 +79,7 @@ export function OfflineQueueProvider({ children }: { children: React.ReactNode }
 
     try {
       const results = await api.uploadOfflineQueue(
-        items.map((item) => ({ type: item.type, data: item.data })),
+        items.map((item) => ({ type: item.type, data: item.data, entityId: item.entityId })),
       );
 
       // Keep only the items that failed; everything else made it to app-api.
@@ -127,6 +129,7 @@ export function OfflineQueueProvider({ children }: { children: React.ReactNode }
         ...item,
         id: `oq_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
         createdAt: new Date().toISOString(),
+        entityId: item.entityId ?? api.getAccountingEntityId() ?? undefined,
       };
       await persist([...queueRef.current, newItem]);
     },

@@ -29,6 +29,7 @@ import { IconTile } from '@/components/detail';
 import { ListSkeleton, ErrorState } from '@/components/data-states';
 import { BillStatusBadge } from '@/components/status-badge';
 import { usePagedList } from '@/hooks/usePagedList';
+import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
 import type { Bill } from '@/types/accounting';
 
 /** `value: undefined` = no filter; `overdue` is derived client-side. */
@@ -44,6 +45,7 @@ const FILTERS: { key: string; label: string; value?: string }[] = [
 export default function ExpensesScreen() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { activeEntity } = useAccountingEntity();
   const [filter, setFilter] = useState('all');
 
   const activeFilter = FILTERS.find((f) => f.key === filter) ?? FILTERS[0];
@@ -51,6 +53,7 @@ export default function ExpensesScreen() {
   const list = usePagedList<Bill>({
     fetcher: (params) => api.getBills(params),
     status: activeFilter.value,
+    resetKey: activeEntity?.id,
   });
 
   const { reload } = list;

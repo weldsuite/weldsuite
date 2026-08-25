@@ -16,6 +16,11 @@ export interface PagedListOptions<T> {
   limit?: number;
   /** Undefined means "no status filter" — the `all` tab. */
   status?: string;
+  /**
+   * When this changes the list resets to page 1. Used to reload after switching
+   * administration so invoices/bills from the previous entity don't linger.
+   */
+  resetKey?: string;
 }
 
 export interface PagedListState<T> {
@@ -37,6 +42,7 @@ export function usePagedList<T>({
   fetcher,
   limit = 20,
   status,
+  resetKey,
 }: PagedListOptions<T>): PagedListState<T> {
   const [items, setItems] = useState<T[]>([]);
   const [page, setPage] = useState(1);
@@ -84,7 +90,7 @@ export function usePagedList<T>({
         setRefreshing(false);
       }
     },
-    [limit, debouncedSearch, status],
+    [limit, debouncedSearch, status, resetKey],
   );
 
   // Reset to page 1 whenever the query or filter changes.

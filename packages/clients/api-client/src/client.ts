@@ -91,7 +91,11 @@ function formatErrorMessage(error: Record<string, unknown>, status: number): str
 }
 
 export function createClientApi(options: ClientApiOptions): ClientApi {
-  const { getToken, baseUrl, apiPrefix = '/api' } = options;
+  const { getToken, baseUrl, apiPrefix = '/api', getExtraHeaders } = options;
+
+  async function extraHeaders(): Promise<Record<string, string>> {
+    return (await getExtraHeaders?.()) ?? {};
+  }
 
   async function getAuthHeaders(): Promise<Record<string, string>> {
     const token = await getToken();
@@ -101,6 +105,7 @@ export function createClientApi(options: ClientApiOptions): ClientApi {
     return {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
+      ...(await extraHeaders()),
     };
   }
 
@@ -115,6 +120,7 @@ export function createClientApi(options: ClientApiOptions): ClientApi {
     }
     return {
       Authorization: `Bearer ${token}`,
+      ...(await extraHeaders()),
     };
   }
 

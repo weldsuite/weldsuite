@@ -237,6 +237,7 @@ export interface AccountingEntity {
   jurisdictionCode: string;
   baseCurrency: string;
   isDefault?: boolean;
+  isActive?: boolean;
 }
 
 export interface Jurisdiction {
@@ -346,6 +347,28 @@ export interface QuickExpense {
   documentId?: string;
   accountId?: string;
   taxRate?: number;
+}
+
+/** Prefill payload from `POST /bills/from-document/:id` after OCR. */
+export interface BillPrefill {
+  contactName: string | null;
+  externalReference: string | null;
+  issueDate: string | null;
+  dueDate: string | null;
+  currency: string | null;
+  items: Array<{
+    description: string;
+    quantity: string;
+    unitPrice: string;
+    taxRate: string | null;
+    sortOrder: number;
+  }>;
+  subtotal: number | null;
+  taxTotal: number | null;
+  total: number | null;
+  sourceDocumentId: string;
+  matchedContactId: string | null;
+  confidence?: { overall: number; fields: Record<string, number> };
 }
 
 export type ExpenseCategory =

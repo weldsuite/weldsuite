@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   backoffUntil,
+  ConnectorApiError,
   type ConnectorSyncIndexRow,
+  type ConnectorSyncSettingKey,
 } from '@weldsuite/connectors';
 import { processConnectorCatchupRow, type ConnectorCatchupStore } from './connector-catchup';
 
@@ -80,7 +82,7 @@ describe('processConnectorCatchupRow', () => {
       now: NOW,
       store,
       decryptCredentials: async () => ({ consumerKey: 'ck' }),
-      probe: async () => ({ hasUpdates: true, resources: ['products'] }),
+      probe: async () => ({ hasUpdates: true, resources: ['products'] as const }),
       fingerprint: async () => ({ products: 1 }),
       catchUp,
     });
@@ -92,18 +94,20 @@ describe('processConnectorCatchupRow', () => {
   it('skips catch-up when a webhook landed recently', async () => {
     const store = memoryStore();
     const catchUp = vi.fn(async () => ({ ok: true, status: 200, watermarks: {} }));
-    const probe = vi.fn(async () => ({ hasUpdates: true, resources: ['products'] }));
-    const outcome = await processConnectorCatchupRow(
-      row({ last_webhook_at: NOW - 10 * 60_000 }),
-      {
-        now: NOW,
-        store,
-        decryptCredentials: async () => ({ consumerKey: 'ck' }),
-        probe,
-        fingerprint: async () => ({ products: 1 }),
-        catchUp,
-      },
+    const probe = vi.fn(
+      async (): Promise<{ hasUpdates: boolean; resources: ConnectorSyncSettingKey[] }> => ({
+        hasUpdates: true,
+        resources: ['products'],
+      }),
     );
+    const outcome = await processConnectorCatchupRow(row({ last_webhook_at: NOW - 10 * 60_000 }), {
+      now: NOW,
+      store,
+      decryptCredentials: async () => ({ consumerKey: 'ck' }),
+      probe,
+      fingerprint: async () => ({ products: 1 }),
+      catchUp,
+    });
     expect(outcome).toBe('skipped');
     expect(probe).not.toHaveBeenCalled();
     expect(catchUp).not.toHaveBeenCalled();
@@ -112,7 +116,6 @@ describe('processConnectorCatchupRow', () => {
 
   it('backs off in D1 when the store returns an auth error', async () => {
     const store = memoryStore();
-    const { ConnectorApiError } = await import('@weldsuite/connectors');
     const outcome = await processConnectorCatchupRow(row(), {
       now: NOW,
       store,
@@ -126,6 +129,30 @@ describe('processConnectorCatchupRow', () => {
     expect(outcome).toBe('backed_off');
     expect(store.calls[0]).toMatch(/^backoff:conn_1:/);
     expect(backoffUntil('auth', NOW)).toBeGreaterThan(NOW);
+  });
+
+  it('backs off in D1 on rate-limit without opening the tenant', async () => {
+    const store = memoryStore();
+    const catchUp = vi.fn(async () => ({ ok: true, status: 200, watermarks: {} }));
+    const outcome = await processConnectorCatchupRow(row(), {
+      now: NOW,
+      store,
+      decryptCredentials: async () => ({ consumerKey: 'ck' }),
+      probe: async () => {
+        throw new ConnectorApiError({
+          message: 'slow down',
+          status: 429,
+          kind: 'rate_limit',
+          retryAfterSeconds: 30,
+        });
+      },
+      fingerprint: async () => ({ products: 1 }),
+      catchUp,
+    });
+    expect(outcome).toBe('backed_off');
+    expect(catchUp).not.toHaveBeenCalled();
+    expect(store.calls[0]).toMatch(/^backoff:conn_1:/);
+    expect(backoffUntil('rate_limit', NOW, 30)).toBe(NOW + 30_000);
   });
 
   it('opens the tenant for reconcile only when remote counts drift', async () => {
@@ -142,7 +169,7 @@ describe('processConnectorCatchupRow', () => {
         now: NOW,
         store,
         decryptCredentials: async () => ({ consumerKey: 'ck' }),
-        probe: async () => ({ hasUpdates: true, resources: ['products'] }),
+        probe: async () => ({ hasUpdates: true, resources: ['products'] as const }),
         fingerprint: async () => ({ products: 3, orders: 2, customers: 1 }),
         catchUp,
       },
@@ -165,7 +192,7 @@ describe('processConnectorCatchupRow', () => {
         now: NOW,
         store,
         decryptCredentials: async () => ({ consumerKey: 'ck' }),
-        probe: async () => ({ hasUpdates: true, resources: ['products'] }),
+        probe: async () => ({ hasUpdates: true, resources: ['products'] as const }),
         fingerprint: async () => ({ products: 4 }),
         catchUp,
       },

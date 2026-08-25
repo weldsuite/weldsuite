@@ -2,7 +2,7 @@ import { ClerkProvider, ClerkLoaded, useOrganizationList } from '@clerk/expo';
 import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { Fragment, useEffect } from 'react';
 import { View, ActivityIndicator, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -25,6 +25,7 @@ import {
   useAccountingEntity,
 } from '@/contexts/AccountingEntityContext';
 import { EntityEmptyState } from '@/components/entity-setup';
+import { AdministrationSheet } from '@/components/administration-switcher';
 import { ErrorState } from '@/components/data-states';
 import { Screen } from '@/components/screen';
 import { useUpdateGate } from '@/hooks/useUpdateGate';
@@ -105,7 +106,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
  */
 function EntityGate({ children }: { children: React.ReactNode }) {
   const { user } = useClerkAuth();
-  const { hasEntity, isLoading, loadError, isRefreshing, refresh } = useAccountingEntity();
+  const { hasEntity, isLoading, loadError, isRefreshing, refresh, activeEntity } =
+    useAccountingEntity();
   const { colors } = useTheme();
 
   if (!user) return <>{children}</>;
@@ -132,7 +134,15 @@ function EntityGate({ children }: { children: React.ReactNode }) {
 
   if (!hasEntity) return <EntityEmptyState onCreated={refresh} />;
 
-  return <>{children}</>;
+  // Remount the navigator when the administration changes so every tab and
+  // stacked screen refetches against the new `X-Accounting-Entity-Id` instead
+  // of showing the previous entity's invoices, KPIs and reports.
+  return (
+    <>
+      <Fragment key={activeEntity?.id}>{children}</Fragment>
+      <AdministrationSheet />
+    </>
+  );
 }
 
 const workspaceApi = {

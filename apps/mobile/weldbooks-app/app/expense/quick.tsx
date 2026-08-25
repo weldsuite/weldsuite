@@ -6,7 +6,7 @@
  * syncs when connectivity returns.
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -46,7 +46,7 @@ import { BRAND, tint } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard } from '@/components/detail';
 import { useOfflineQueue } from '@/contexts/OfflineQueueContext';
-import type { ExpenseCategory } from '@/types/accounting';
+import type { BillPrefill, ExpenseCategory } from '@/types/accounting';
 
 const CATEGORIES: { key: ExpenseCategory; label: string; icon: typeof Utensils }[] = [
   { key: 'food', label: 'Food', icon: Utensils },
@@ -58,6 +58,21 @@ const CATEGORIES: { key: ExpenseCategory; label: string; icon: typeof Utensils }
   { key: 'insurance', label: 'Insurance', icon: Shield },
   { key: 'other', label: 'Other', icon: Tag },
 ];
+
+function exclusiveFromPrefill(prefill: BillPrefill): number | null {
+  if (prefill.items.length > 0) {
+    const sum = prefill.items.reduce((acc, item) => {
+      return acc + parseAmount(item.quantity || '1') * parseAmount(item.unitPrice || '0');
+    }, 0);
+    if (sum > 0) return sum;
+  }
+  if (prefill.subtotal != null && prefill.subtotal > 0) return prefill.subtotal;
+  return prefill.total;
+}
+
+function amountInput(value: number): string {
+  return String(Math.round(value * 100) / 100);
+}
 
 export default function QuickExpenseScreen() {
   const { colors } = useTheme();
@@ -75,6 +90,35 @@ export default function QuickExpenseScreen() {
   const [taxRate, setTaxRate] = useState('21');
   const [saving, setSaving] = useState(false);
   const [amountError, setAmountError] = useState<string | undefined>();
+  const [ocrState, setOcrState] = useState<'idle' | 'loading' | 'ready' | 'failed'>(
+    params.documentId ? 'loading' : 'idle',
+  );
+
+  useEffect(() => {
+    if (!params.documentId) return;
+    let cancelled = false;
+    setOcrState('loading');
+    void (async () => {
+      try {
+        const prefill = await api.getBillFromDocument(params.documentId!);
+        if (cancelled) return;
+        if (prefill.contactName) setVendorName(prefill.contactName);
+        if (prefill.issueDate) setDate(prefill.issueDate);
+        const exclusive = exclusiveFromPrefill(prefill);
+        if (exclusive != null && exclusive > 0) setAmount(amountInput(exclusive));
+        const rate = prefill.items.find((item) => item.taxRate)?.taxRate;
+        if (rate) setTaxRate(rate);
+        const firstLine = prefill.items[0]?.description?.trim();
+        if (firstLine && firstLine !== prefill.contactName) setDescription(firstLine);
+        setOcrState('ready');
+      } catch {
+        if (!cancelled) setOcrState('failed');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [params.documentId]);
 
   const handleSave = useCallback(async () => {
     const value = parseAmount(amount);
@@ -151,6 +195,21 @@ export default function QuickExpenseScreen() {
               You&apos;re offline. This expense will be queued and synced later.
             </Banner>
           ) : null}
+          {ocrState === 'loading' ? (
+            <Banner variant="info" style={styles.banner}>
+              Filling in fields from the scan…
+            </Banner>
+          ) : null}
+          {ocrState === 'ready' ? (
+            <Banner variant="success" style={styles.banner}>
+              Prefilled from the scan — check the figures before saving.
+            </Banner>
+          ) : null}
+          {ocrState === 'failed' ? (
+            <Banner variant="warning" style={styles.banner}>
+              Could not read the receipt. Enter the details — the image is still attached.
+            </Banner>
+          ) : null}
 
           <Card style={styles.amountCard}>
             <Text style={[styles.amountLabel, { color: colors.mutedForeground }]}>Amount</Text>
@@ -166,15 +225,16 @@ export default function QuickExpenseScreen() {
                 placeholder="0.00"
                 placeholderTextColor={colors.placeholder}
                 style={[styles.amountInput, { color: colors.text }]}
-                autoFocus
+                autoFocus={!params.documentId}
               />
             </Pressable>
             {amountError ? (
               <Text style={[styles.amountError, { color: colors.destructive }]}>{amountError}</Text>
             ) : (
               <Text style={[styles.amountHint, { color: colors.mutedForeground }]}>
-                incl. {parseAmount(taxRate || '0')}% VAT ·{' '}
-                {formatCurrency(parseAmount(amount || '0'))}
+                excl. {parseAmount(taxRate || '0')}% VAT ·{' '}
+                {formatCurrency(parseAmount(amount || '0') * (1 + parseAmount(taxRate || '0') / 100))}{' '}
+                incl.
               </Text>
             )}
           </Card>

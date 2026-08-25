@@ -29,6 +29,7 @@ import { IconTile } from '@/components/detail';
 import { ListSkeleton, ErrorState } from '@/components/data-states';
 import { InvoiceStatusBadge } from '@/components/status-badge';
 import { usePagedList } from '@/hooks/usePagedList';
+import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
 import type { Invoice } from '@/types/accounting';
 
 /** `value: undefined` = no filter; `overdue` is filtered client-side. */
@@ -43,6 +44,7 @@ const FILTERS: { key: string; label: string; value?: string }[] = [
 export default function InvoicesScreen() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { activeEntity } = useAccountingEntity();
   const [filter, setFilter] = useState('all');
 
   const activeFilter = FILTERS.find((f) => f.key === filter) ?? FILTERS[0];
@@ -50,6 +52,7 @@ export default function InvoicesScreen() {
   const list = usePagedList<Invoice>({
     fetcher: (params) => api.getInvoices(params),
     status: activeFilter.value,
+    resetKey: activeEntity?.id,
   });
 
   const { reload } = list;

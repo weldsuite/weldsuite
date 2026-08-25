@@ -35,6 +35,7 @@ import {
   updateConnectionSettings,
 } from './connections';
 import { ingestRecords } from './ingest';
+import { modifiedAtOf } from './mappers';
 import { touchConnectorIndexWebhook } from '../../lib/connector-sync-index';
 
 export function connectorWebhookBaseUrl(env: Env): string {
@@ -260,7 +261,13 @@ export async function processConnectorWebhook(args: {
       error: ingested.failed ? ingested.errorSamples[0]?.message ?? 'ingest failed' : null,
       errorSamples: ingested.errorSamples,
     });
-    await touchConnectorIndexWebhook(args.env, { connectionId: args.connection.id });
+    const watermark = modifiedAtOf(payload);
+    await touchConnectorIndexWebhook(args.env, {
+      connectionId: args.connection.id,
+      watermarks: watermark
+        ? { ...(args.connection.syncWatermarks ?? {}), [sync.model]: watermark }
+        : args.connection.syncWatermarks,
+    });
     return { ok: true, status: 200, message: 'ingested' };
   } catch (err) {
     const message = err instanceof ConnectorApiError ? err.message : err instanceof Error ? err.message : 'ingest failed';

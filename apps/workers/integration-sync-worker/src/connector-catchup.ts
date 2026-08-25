@@ -181,7 +181,12 @@ export async function processConnectorCatchupRow(
     if (hasUpdates || fingerprintDrift) {
       const result = await args.catchUp(row);
       if (!result.ok) {
-        const kind = result.status === 401 || result.status === 403 ? 'auth' : result.status === 429 ? 'rate_limit' : 'transient';
+        const kind =
+          result.status === 401 || result.status === 403
+            ? 'auth'
+            : result.status === 429
+              ? 'rate_limit'
+              : 'transient';
         await args.store.markBackoff(
           row.connection_id,
           result.error ?? `catch-up HTTP ${result.status}`,

@@ -39,7 +39,7 @@ const QUICK_ACTIONS = [
 export default function DashboardScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { activeEntity } = useAccountingEntity();
+  const { activeEntity, canSwitch, openSwitcher } = useAccountingEntity();
   const { queue, isOnline } = useOfflineQueue();
 
   const [data, setData] = useState<DashboardData | null>(null);
@@ -58,9 +58,11 @@ export default function DashboardScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [activeEntity?.id]);
 
   useEffect(() => {
+    setLoading(true);
+    setData(null);
     fetchDashboard();
   }, [fetchDashboard]);
 
@@ -78,7 +80,10 @@ export default function DashboardScreen() {
   );
 
   const header = (
-    <ScreenHeader title={activeEntity?.name || 'WeldBooks'} />
+    <ScreenHeader
+      title={activeEntity?.name || 'WeldBooks'}
+      onTitlePress={canSwitch ? openSwitcher : undefined}
+    />
   );
 
   if (error && !data) {

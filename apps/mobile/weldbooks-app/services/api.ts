@@ -42,6 +42,7 @@ import type {
   BankAccountDetail,
   BankTransaction,
   Bill,
+  BillPrefill,
   Contact,
   ContactBalance,
   DashboardData,
@@ -85,6 +86,45 @@ function num(value: unknown): number {
 
 function str(value: unknown, fallback = ''): string {
   return value == null ? fallback : String(value);
+}
+
+function nullableStr(value: unknown): string | null {
+  if (value == null || value === '') return null;
+  return String(value);
+}
+
+function toBillPrefill(raw: Json): BillPrefill {
+  const items = Array.isArray(raw.items) ? raw.items : [];
+  const confidence = raw.confidence as Json | undefined;
+  return {
+    contactName: nullableStr(raw.contactName),
+    externalReference: nullableStr(raw.externalReference),
+    issueDate: nullableStr(raw.issueDate)?.slice(0, 10) ?? null,
+    dueDate: nullableStr(raw.dueDate)?.slice(0, 10) ?? null,
+    currency: nullableStr(raw.currency),
+    items: items.map((item, idx) => {
+      const row = (item ?? {}) as Json;
+      return {
+        description: str(row.description),
+        quantity: str(row.quantity ?? '1'),
+        unitPrice: str(row.unitPrice ?? '0'),
+        taxRate: row.taxRate == null || row.taxRate === '' ? null : str(row.taxRate),
+        sortOrder: typeof row.sortOrder === 'number' ? row.sortOrder : idx,
+      };
+    }),
+    subtotal: raw.subtotal == null ? null : num(raw.subtotal),
+    taxTotal: raw.taxTotal == null ? null : num(raw.taxTotal),
+    total: raw.total == null ? null : num(raw.total),
+    sourceDocumentId: str(raw.sourceDocumentId),
+    matchedContactId: nullableStr(raw.matchedContactId),
+    confidence:
+      confidence && typeof confidence === 'object'
+        ? {
+            overall: num(confidence.overall),
+            fields: (confidence.fields as Record<string, number>) ?? {},
+          }
+        : undefined,
+  };
 }
 
 interface LineItemInput {
@@ -133,6 +173,8 @@ function qs(params: Record<string, string | number | undefined>): string {
 let accessToken: string | null = null;
 let organizationId: string | null = null;
 let tokenRefreshCallback: (() => Promise<string | null>) | null = null;
+/** Selected administration — sent as `X-Accounting-Entity-Id` on every request. */
+let accountingEntityId: string | null = null;
 
 async function getToken(): Promise<string | null> {
   if (tokenRefreshCallback) {
@@ -149,6 +191,10 @@ async function getToken(): Promise<string | null> {
 const client = createClientApi({
   baseUrl: APP_API_URL,
   getToken,
+  getExtraHeaders: (): Record<string, string> => {
+    if (!accountingEntityId) return {};
+    return { 'X-Accounting-Entity-Id': accountingEntityId };
+  },
 });
 
 const workspacesApi = createWorkspacesApi(client);
@@ -168,6 +214,19 @@ class WeldBooksApi {
 
   getOrganizationId(): string | null {
     return organizationId;
+  }
+
+  /**
+   * Scopes subsequent accounting calls to this legal entity. Mirrors the
+   * platform weldbooks-client: app-api reads `X-Accounting-Entity-Id` and
+   * falls back to the workspace default when it is unset.
+   */
+  setAccountingEntityId(id: string | null) {
+    accountingEntityId = id;
+  }
+
+  getAccountingEntityId(): string | null {
+    return accountingEntityId;
   }
 
   setTokenRefreshCallback(callback: (() => Promise<string | null>) | null) {
@@ -237,6 +296,7 @@ class WeldBooksApi {
       jurisdictionCode: str(row.jurisdictionCode ?? row.jurisdiction, 'NL'),
       baseCurrency: str(row.baseCurrency, 'EUR'),
       isDefault: Boolean(row.isDefault),
+      isActive: row.isActive !== false,
     }));
   }
 
@@ -474,6 +534,7 @@ class WeldBooksApi {
     currency?: string;
     notes?: string;
     reference?: string;
+    externalReference?: string;
     documentId?: string;
     items: LineItemInput[];
   }): Promise<Bill> {
@@ -488,6 +549,7 @@ class WeldBooksApi {
       ...(data.currency ? { currency: data.currency } : {}),
       ...(data.notes ? { notes: data.notes } : {}),
       ...(data.reference ? { reference: data.reference } : {}),
+      ...(data.externalReference ? { externalReference: data.externalReference } : {}),
       ...(data.documentId ? { sourceDocumentId: data.documentId } : {}),
       items: toApiItems(data.items),
     });
@@ -564,10 +626,8 @@ class WeldBooksApi {
   }
 
   // ========== Documents ==========
-  // OCR (`POST /accounting-documents/:id/process`) is stubbed server-side since
-  // the AI teardown — it marks the document processed with an empty result. The
-  // scan screen therefore uploads the image for the record and hands off to
-  // manual entry rather than pretending to extract fields.
+  // Scan flow: upload the image → `POST /accounting-documents/:id/process`
+  // (vision OCR) → `POST /bills/from-document/:id` for the bill/expense prefill.
 
   /**
    * Uploads a local file to R2 through app-api's three-step broker:
@@ -627,6 +687,20 @@ class WeldBooksApi {
   async uploadScannedDocument(localUri: string, fileName: string): Promise<{ id: string }> {
     const fileKey = await this.uploadFile(localUri, fileName);
     return this.createDocument({ type: 'receipt', fileName, fileKey });
+  }
+
+  /** Run vision OCR on an uploaded document. Throws if credits/gateway fail. */
+  async processDocument(id: string): Promise<{ id: string; status: string; matchedContactId: string | null }> {
+    const res = await client.post<DataEnvelope<{ id: string; status: string; matchedContactId: string | null }>>(
+      `/accounting-documents/${id}/process`,
+    );
+    return res.data;
+  }
+
+  /** Bill-form prefill from a processed OCR document. */
+  async getBillFromDocument(id: string): Promise<BillPrefill> {
+    const res = await client.post<DataEnvelope<Json>>(`/bills/from-document/${id}`);
+    return toBillPrefill(res.data ?? {});
   }
 
   // ========== Bank Accounts ==========
@@ -1018,12 +1092,14 @@ class WeldBooksApi {
    * OfflineQueueContext can keep the failures queued.
    */
   async uploadOfflineQueue(
-    items: { type: string; data: Json }[],
+    items: { type: string; data: Json; entityId?: string }[],
   ): Promise<{ index: number; type: string; id?: string; error?: string }[]> {
     const results: { index: number; type: string; id?: string; error?: string }[] = [];
+    const previousEntityId = accountingEntityId;
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
+      accountingEntityId = item.entityId ?? previousEntityId;
       try {
         if (item.type === 'document') {
           const doc = await this.createDocument({
@@ -1056,6 +1132,7 @@ class WeldBooksApi {
       }
     }
 
+    accountingEntityId = previousEntityId;
     return results;
   }
 }

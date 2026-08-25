@@ -342,6 +342,82 @@ describe('getEntities', () => {
       name: 'Acme',
       jurisdictionCode: 'NL',
       baseCurrency: 'EUR',
+      isActive: true,
+    });
+  });
+
+  it('treats an explicit isActive: false as inactive', async () => {
+    routeGet({
+      '/accounting-entities': { data: [{ id: 'ent_1', name: 'Acme', isActive: false }] },
+    });
+
+    const [entity] = await api.getEntities();
+
+    expect(entity.isActive).toBe(false);
+  });
+});
+
+describe('accounting entity header', () => {
+  afterEach(() => {
+    api.setAccountingEntityId(null);
+  });
+
+  it('createClientApi receives a getter that emits X-Accounting-Entity-Id', async () => {
+    // The service captured createClientApi at import time; the stub records that call.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createClientApi } = require('@weldsuite/api-client/client') as {
+      createClientApi: jest.Mock;
+    };
+    const opts = createClientApi.mock.calls[0][0] as {
+      getExtraHeaders: () => Record<string, string>;
+    };
+
+    expect(opts.getExtraHeaders()).toEqual({});
+
+    api.setAccountingEntityId('ent_2');
+    expect(opts.getExtraHeaders()).toEqual({ 'X-Accounting-Entity-Id': 'ent_2' });
+  });
+});
+
+describe('document OCR', () => {
+  it('processDocument posts to the process route', async () => {
+    client.post.mockResolvedValue({ data: { id: 'doc_1', status: 'processed', matchedContactId: 'con_1' } });
+
+    const result = await api.processDocument('doc_1');
+
+    expect(client.post.mock.calls[0][0]).toBe('/accounting-documents/doc_1/process');
+    expect(result).toMatchObject({ id: 'doc_1', status: 'processed', matchedContactId: 'con_1' });
+  });
+
+  it('getBillFromDocument maps OCR prefill onto the form shape', async () => {
+    client.post.mockResolvedValue({
+      data: {
+        contactName: 'Shell',
+        externalReference: 'INV-9',
+        issueDate: '2026-08-24T00:00:00.000Z',
+        dueDate: null,
+        currency: 'EUR',
+        items: [{ description: 'Fuel', quantity: '1', unitPrice: '10', taxRate: '21', sortOrder: 0 }],
+        subtotal: 10,
+        taxTotal: 2.1,
+        total: '12.10',
+        sourceDocumentId: 'doc_1',
+        matchedContactId: null,
+        confidence: { overall: 0.9, fields: { vendor: 0.95 } },
+      },
+    });
+
+    const prefill = await api.getBillFromDocument('doc_1');
+
+    expect(client.post.mock.calls[0][0]).toBe('/bills/from-document/doc_1');
+    expect(prefill).toMatchObject({
+      contactName: 'Shell',
+      externalReference: 'INV-9',
+      issueDate: '2026-08-24',
+      dueDate: null,
+      items: [{ description: 'Fuel', unitPrice: '10', taxRate: '21' }],
+      total: 12.1,
+      sourceDocumentId: 'doc_1',
     });
   });
 });

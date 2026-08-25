@@ -1,11 +1,12 @@
 /**
  * New bill.
  *
- * Optionally linked to a scanned document via `?documentId=`, which app-api
- * stores as the bill's `sourceDocumentId` so the receipt stays attached.
+ * Optionally linked to a scanned document via `?documentId=`. After OCR the
+ * vendor, supplier invoice number, dates and line items are filled in for
+ * review. The receipt stays attached as `sourceDocumentId`.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -14,6 +15,7 @@ import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { Input } from '@weldsuite/mobile-ui/components/Input';
 import { Textarea } from '@weldsuite/mobile-ui/components/Textarea';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
+import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 
 import api from '@/services/api';
 import { parseAmount } from '@/lib/currency';
@@ -26,6 +28,24 @@ import {
   validLineItems,
   type LineItemDraft,
 } from '@/components/line-items';
+import type { BillPrefill } from '@/types/accounting';
+
+function dueFromIssue(issueDate: string): string {
+  const [year, month, day] = issueDate.split('-').map(Number);
+  if (!year || !month || !day) return addDays(30);
+  return addDays(30, new Date(year, month - 1, day));
+}
+
+function itemsFromPrefill(prefill: BillPrefill): LineItemDraft[] {
+  if (!prefill.items.length) return [createEmptyLineItem()];
+  return prefill.items.map((item, index) => ({
+    key: `ocr_${index}_${item.sortOrder}`,
+    description: item.description,
+    quantity: item.quantity || '1',
+    unitPrice: item.unitPrice === '0' ? '' : item.unitPrice,
+    taxRate: item.taxRate ?? '21',
+  }));
+}
 
 export default function NewBillScreen() {
   const { documentId } = useLocalSearchParams<{ documentId?: string }>();
@@ -40,7 +60,37 @@ export default function NewBillScreen() {
   const [notes, setNotes] = useState('');
   const [reference, setReference] = useState('');
   const [saving, setSaving] = useState(false);
+  const [ocrState, setOcrState] = useState<'idle' | 'loading' | 'ready' | 'failed'>(
+    documentId ? 'loading' : 'idle',
+  );
   const [errors, setErrors] = useState<{ contactName?: string; items?: string }>({});
+
+  useEffect(() => {
+    if (!documentId) return;
+    let cancelled = false;
+    setOcrState('loading');
+    void (async () => {
+      try {
+        const prefill = await api.getBillFromDocument(documentId);
+        if (cancelled) return;
+        if (prefill.contactName) setContactName(prefill.contactName);
+        if (prefill.externalReference) setReference(prefill.externalReference);
+        if (prefill.issueDate) {
+          setIssueDate(prefill.issueDate);
+          setDueDate(prefill.dueDate || dueFromIssue(prefill.issueDate));
+        } else if (prefill.dueDate) {
+          setDueDate(prefill.dueDate);
+        }
+        if (prefill.items.length > 0) setItems(itemsFromPrefill(prefill));
+        setOcrState('ready');
+      } catch {
+        if (!cancelled) setOcrState('failed');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId]);
 
   const handleSave = useCallback(async () => {
     const name = contactName.trim();
@@ -61,6 +111,7 @@ export default function NewBillScreen() {
         dueDate,
         notes: notes.trim() || undefined,
         reference: reference.trim() || undefined,
+        externalReference: reference.trim() || undefined,
         documentId,
         items: usable.map((item, index) => ({
           description: item.description.trim(),
@@ -87,6 +138,22 @@ export default function NewBillScreen() {
         style={styles.flex}
       >
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+          {ocrState === 'loading' ? (
+            <Banner variant="info" style={styles.banner}>
+              Filling in fields from the scan…
+            </Banner>
+          ) : null}
+          {ocrState === 'ready' ? (
+            <Banner variant="success" style={styles.banner}>
+              Prefilled from the scan — check the figures before saving.
+            </Banner>
+          ) : null}
+          {ocrState === 'failed' ? (
+            <Banner variant="warning" style={styles.banner}>
+              Could not read the receipt. Enter the details — the image is still attached.
+            </Banner>
+          ) : null}
+
           <SectionCard title="Vendor">
             <Input
               label="Name"
@@ -152,7 +219,7 @@ export default function NewBillScreen() {
               label="Reference"
               value={reference}
               onChangeText={setReference}
-              placeholder="PO number or reference"
+              placeholder="Supplier invoice number"
             />
           </SectionCard>
 
@@ -172,5 +239,6 @@ export default function NewBillScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { paddingBottom: 40, paddingTop: 4 },
+  banner: { marginHorizontal: 12, marginBottom: 8 },
   submit: { marginHorizontal: 12, marginTop: 20 },
 });

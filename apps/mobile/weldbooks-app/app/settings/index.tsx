@@ -6,9 +6,9 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import Constants from 'expo-constants';
-import { Moon, Sun, LogOut, RefreshCw } from 'lucide-react-native';
+import { Moon, Sun, LogOut, RefreshCw, ChevronRight } from 'lucide-react-native';
 
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
@@ -32,7 +32,7 @@ export default function SettingsScreen() {
   // `currentWorkspace`.
   const { currentWorkspace } = useWorkspace();
   const { signOut } = useClerkAuth();
-  const { activeEntity } = useAccountingEntity();
+  const { activeEntity, canSwitch, openSwitcher } = useAccountingEntity();
   const { queue, isOnline, isSyncing, syncQueue } = useOfflineQueue();
   const toast = useToast();
 
@@ -50,7 +50,7 @@ export default function SettingsScreen() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeEntity?.id]);
 
   useEffect(() => {
     fetchSettings();
@@ -66,7 +66,28 @@ export default function SettingsScreen() {
         ) : (
           <>
             <SectionCard title="Company">
-              <DetailRow label="Name" value={activeEntity?.name ?? settings?.entityName ?? '—'} />
+              {canSwitch ? (
+                <Pressable
+                  onPress={openSwitcher}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Switch administration, currently ${activeEntity?.name ?? 'unknown'}`}
+                  style={({ pressed }) => [styles.switchRow, pressed && { opacity: 0.7 }]}
+                >
+                  <View style={styles.switchLabel}>
+                    <View>
+                      <Text style={[styles.adminLabel, { color: colors.mutedForeground }]}>
+                        Administration
+                      </Text>
+                      <Text style={[styles.adminValue, { color: colors.text }]}>
+                        {activeEntity?.name ?? settings?.entityName ?? '—'}
+                      </Text>
+                    </View>
+                  </View>
+                  <ChevronRight size={18} color={colors.mutedForeground} />
+                </Pressable>
+              ) : (
+                <DetailRow label="Name" value={activeEntity?.name ?? settings?.entityName ?? '—'} />
+              )}
               <DetailRow
                 label="Jurisdiction"
                 value={activeEntity?.jurisdictionCode ?? settings?.jurisdictionCode ?? '—'}
@@ -168,6 +189,8 @@ const styles = StyleSheet.create({
   },
   switchLabel: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   switchText: { fontSize: 14, fontWeight: '500' },
+  adminLabel: { fontSize: 13 },
+  adminValue: { fontSize: 16, fontWeight: '600', marginTop: 2 },
   syncButton: { marginTop: 12, alignSelf: 'flex-start' },
   signOut: { marginHorizontal: 12, marginTop: 24 },
 });

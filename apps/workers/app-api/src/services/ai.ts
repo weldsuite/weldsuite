@@ -6,12 +6,10 @@
  * route and `services/ai/billing.ts` for the current, live integration).
  * This particular file is a narrower, older adapter shape (a
  * generate/stream/generateWithTools facade with its own credit-gating hooks)
- * that predates the gateway rewrite; it's kept as a no-op/throwing stub only
- * because `services/accounting-ocr.ts` (its sole remaining importer) still
- * references these exact symbol names. New AI call sites should go through
- * `@weldsuite/ai` directly (see `services/ai/index.ts`, `services/mail/ai.ts`,
- * `services/workflow-generation.ts`), not through this file. If
- * accounting-ocr is ever rebuilt on the gateway, this file can be deleted.
+ * that predates the gateway rewrite. Accounting OCR now calls `@weldsuite/ai`
+ * directly (`services/accounting-ocr.ts`). New AI call sites should go through
+ * `@weldsuite/ai` (see `services/ai/index.ts`, `services/mail/ai.ts`,
+ * `services/workflow-generation.ts`), not through this file.
  */
 
 import type { Env } from '../types';

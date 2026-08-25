@@ -1,13 +1,10 @@
 /**
  * Receipt scanner.
  *
- * Captures (or picks) an image, uploads it to R2 through app-api's storage
- * broker and registers an accounting document, then hands the resulting
- * `documentId` to the bill or expense form so the receipt stays attached.
- *
- * Automatic field extraction is NOT available: `processDocumentOcr` in app-api
- * has been a no-op since the AI teardown, so this flow deliberately goes to
- * manual entry rather than pretending to read the receipt.
+ * Captures (or picks) an image, uploads it to R2, runs vision OCR, then hands
+ * the `documentId` to the bill or expense form so vendor, dates and amounts
+ * are already filled. If OCR fails the image still attaches and the user
+ * enters the figures by hand.
  */
 
 import { useCallback, useRef, useState } from 'react';
@@ -34,9 +31,22 @@ import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 
 import api from '@/services/api';
 import { BRAND } from '@/lib/brand';
+import { formatCurrency } from '@/lib/currency';
 import { useOfflineQueue } from '@/contexts/OfflineQueueContext';
+import type { BillPrefill } from '@/types/accounting';
 
 type Phase = 'camera' | 'review';
+type ScanStatus = 'uploading' | 'reading' | 'ready' | 'failed' | 'offline';
+
+function summarisePrefill(prefill: BillPrefill): string {
+  const currency = prefill.currency || 'EUR';
+  const parts: string[] = [];
+  if (prefill.contactName) parts.push(prefill.contactName);
+  if (prefill.total != null) parts.push(formatCurrency(prefill.total, currency));
+  else if (prefill.subtotal != null) parts.push(formatCurrency(prefill.subtotal, currency));
+  if (parts.length === 0) return 'Fields extracted — review them on the next screen.';
+  return `Found ${parts.join(' · ')}. Review on the next screen.`;
+}
 
 export default function ScanScreen() {
   const router = useRouter();
@@ -44,6 +54,7 @@ export default function ScanScreen() {
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const cameraRef = useRef<CameraView>(null);
+  const requestIdRef = useRef(0);
   const [permission, requestPermission] = useCameraPermissions();
   const { isOnline, addToQueue } = useOfflineQueue();
 
@@ -51,32 +62,50 @@ export default function ScanScreen() {
   const [flashEnabled, setFlashEnabled] = useState(false);
   const [capturedUri, setCapturedUri] = useState<string | null>(null);
   const [documentId, setDocumentId] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const [prefill, setPrefill] = useState<BillPrefill | null>(null);
+  const [scanStatus, setScanStatus] = useState<ScanStatus>('uploading');
+
+  const busy = scanStatus === 'uploading' || scanStatus === 'reading';
 
   /**
-   * Uploads in the background so the user can start typing immediately. A
-   * failure is non-fatal — the record is still creatable, just without the
-   * image attached.
+   * Upload, then OCR. A later retake increments `requestIdRef` so a stale
+   * response cannot overwrite the current review.
    */
   const upload = useCallback(
     async (uri: string) => {
+      const requestId = ++requestIdRef.current;
+      const stillCurrent = () => requestId === requestIdRef.current;
       const fileName = `receipt-${Date.now()}.jpg`;
 
       if (!isOnline) {
         await addToQueue({ type: 'document', data: { fileName, type: 'receipt' } });
+        if (!stillCurrent()) return;
+        setScanStatus('offline');
         toast.info('Offline — the receipt will upload when you reconnect');
         return;
       }
 
-      setUploading(true);
+      setScanStatus('uploading');
+      let uploadedId: string | null = null;
       try {
         const doc = await api.uploadScannedDocument(uri, fileName);
+        uploadedId = doc.id;
+        if (!stillCurrent()) return;
         setDocumentId(doc.id);
+        setScanStatus('reading');
+
+        await api.processDocument(doc.id);
+        const extracted = await api.getBillFromDocument(doc.id);
+        if (!stillCurrent()) return;
+        setPrefill(extracted);
+        setScanStatus('ready');
       } catch (err) {
-        console.error('Failed to upload scan:', err);
-        toast.error('Could not upload the image — you can still enter the details');
-      } finally {
-        setUploading(false);
+        console.error('Failed to scan receipt:', err);
+        if (!stillCurrent()) return;
+        setScanStatus('failed');
+        if (!uploadedId) {
+          toast.error('Could not upload the image — you can still enter the details');
+        }
       }
     },
     [isOnline, addToQueue, toast],
@@ -86,6 +115,8 @@ export default function ScanScreen() {
     (uri: string) => {
       setCapturedUri(uri);
       setDocumentId(null);
+      setPrefill(null);
+      setScanStatus('uploading');
       setPhase('review');
       void upload(uri);
     },
@@ -113,12 +144,21 @@ export default function ScanScreen() {
 
   const handleClose = useCallback(() => router.back(), [router]);
 
+  const handleRetake = useCallback(() => {
+    requestIdRef.current += 1;
+    setCapturedUri(null);
+    setDocumentId(null);
+    setPrefill(null);
+    setPhase('camera');
+  }, []);
+
   const goTo = useCallback(
     (path: '/bill/new' | '/expense/quick') => {
+      if (busy) return;
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       router.replace({ pathname: path, params: documentId ? { documentId } : {} } as never);
     },
-    [router, documentId],
+    [router, documentId, busy],
   );
 
   if (!permission) {
@@ -219,14 +259,7 @@ export default function ScanScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
       <View style={styles.reviewHeader}>
-        <TouchableOpacity
-          onPress={() => {
-            setCapturedUri(null);
-            setDocumentId(null);
-            setPhase('camera');
-          }}
-          accessibilityRole="button"
-        >
+        <TouchableOpacity onPress={handleRetake} accessibilityRole="button">
           <Text style={[styles.reviewAction, { color: BRAND }]}>Retake</Text>
         </TouchableOpacity>
         <Text style={[styles.reviewTitle, { color: colors.text }]}>Receipt</Text>
@@ -242,24 +275,37 @@ export default function ScanScreen() {
       ) : null}
 
       <View style={styles.reviewBody}>
-        {uploading ? (
+        {scanStatus === 'uploading' ? (
           <Banner variant="info" style={styles.banner}>
             Uploading the image…
           </Banner>
-        ) : documentId ? (
-          <Banner variant="success" style={styles.banner}>
-            Receipt attached. Enter the amounts to book it.
-          </Banner>
-        ) : (
+        ) : null}
+        {scanStatus === 'reading' ? (
           <Banner variant="info" style={styles.banner}>
-            Automatic extraction isn&apos;t available. Enter the details to book this receipt.
+            Reading the receipt…
           </Banner>
-        )}
+        ) : null}
+        {scanStatus === 'ready' ? (
+          <Banner variant="success" style={styles.banner}>
+            {prefill ? summarisePrefill(prefill) : 'Receipt attached. Enter the amounts to book it.'}
+          </Banner>
+        ) : null}
+        {scanStatus === 'failed' ? (
+          <Banner variant="warning" style={styles.banner}>
+            Could not read the receipt. Enter the details — the image is still attached.
+          </Banner>
+        ) : null}
+        {scanStatus === 'offline' ? (
+          <Banner variant="info" style={styles.banner}>
+            You&apos;re offline. Enter the details; the image will upload when you reconnect.
+          </Banner>
+        ) : null}
 
         <Button
           title="Quick expense"
           leftIcon={<Receipt size={18} color={colors.primaryForeground} />}
           onPress={() => goTo('/expense/quick')}
+          disabled={busy}
           fullWidth
         />
         <Button
@@ -267,6 +313,7 @@ export default function ScanScreen() {
           variant="outline"
           leftIcon={<FileText size={18} color={colors.text} />}
           onPress={() => goTo('/bill/new')}
+          disabled={busy}
           fullWidth
         />
       </View>

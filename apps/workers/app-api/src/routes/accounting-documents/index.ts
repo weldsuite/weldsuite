@@ -25,10 +25,11 @@ import { writeAccountingAudit } from '../../services/accounting-guards';
 import {
   processDocumentOcr,
   matchVendorToContact,
-  InsufficientCreditsError,
+  AccountingOcrError,
   OCR_MODEL_ID,
   type OcrResult,
 } from '../../services/accounting-ocr';
+import { resolveAiMetering, InsufficientAiCreditsError } from '../../services/ai/billing';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.documents;
@@ -175,13 +176,14 @@ app.post('/:id/process', requirePermission('invoices:update'), async (c) => {
     await db.update(t).set({ status: 'processing', updatedAt: new Date() }).where(eq(t.id, id));
 
     try {
+      const metering = await resolveAiMetering(c.env, workspaceId, userId);
       const ocrResult = await processDocumentOcr(c.env, {
         fileKey: doc.fileKey,
         mimeType: doc.mimeType,
         workspaceId,
         userId,
         documentId: id,
-        tenantDb: db,
+        metering,
       });
 
       const matchedContactId = await matchVendorToContact(db, schema, ocrResult);
@@ -217,8 +219,18 @@ app.post('/:id/process', requirePermission('invoices:update'), async (c) => {
     } catch (ocrErr) {
       await db.update(t).set({ status: 'failed', updatedAt: new Date() }).where(eq(t.id, id));
 
-      if (ocrErr instanceof InsufficientCreditsError) {
-        return error.insufficientCredits(c, { currentBalance: ocrErr.currentBalance });
+      if (ocrErr instanceof InsufficientAiCreditsError) {
+        return error.insufficientCredits(c, {
+          currentBalance: ocrErr.currentBalance,
+          required: ocrErr.required,
+          shortfall: ocrErr.shortfall,
+        });
+      }
+      if (ocrErr instanceof AccountingOcrError) {
+        if (ocrErr.code === 'AI_NOT_CONFIGURED' || ocrErr.code === 'AI_REQUEST_FAILED') {
+          return error.badGateway(c, ocrErr.message);
+        }
+        return error.badRequest(c, ocrErr.message);
       }
       const message = ocrErr instanceof Error ? ocrErr.message : String(ocrErr);
       return error.internal(c, `OCR processing failed: ${message}`);
