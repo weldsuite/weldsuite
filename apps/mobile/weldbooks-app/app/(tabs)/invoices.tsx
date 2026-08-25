@@ -20,8 +20,8 @@ import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
 
 import api from '@/services/api';
-import { formatCurrency, toNumber } from '@/lib/currency';
-import { formatShortDate, isOverdue } from '@/lib/date';
+import { toNumber } from '@/lib/currency';
+import { isOverdue } from '@/lib/date';
 import { BRAND } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { RecordRow } from '@/components/record-row';
@@ -30,22 +30,25 @@ import { ListSkeleton, ErrorState } from '@/components/data-states';
 import { InvoiceStatusBadge } from '@/components/status-badge';
 import { usePagedList } from '@/hooks/usePagedList';
 import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
+import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import type { Invoice } from '@/types/accounting';
-
-/** `value: undefined` = no filter; `overdue` is filtered client-side. */
-const FILTERS: { key: string; label: string; value?: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'draft', label: 'Draft', value: 'draft' },
-  { key: 'sent', label: 'Sent', value: 'sent' },
-  { key: 'overdue', label: 'Overdue' },
-  { key: 'paid', label: 'Paid', value: 'paid' },
-];
 
 export default function InvoicesScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const { activeEntity } = useAccountingEntity();
   const [filter, setFilter] = useState('all');
+  const { t, format } = useI18n();
+  const { formatCurrency, formatShortDate } = useLocaleFormatters();
+
+  /** `value: undefined` = no filter; `overdue` is filtered client-side. */
+  const FILTERS: { key: string; label: string; value?: string }[] = [
+    { key: 'all', label: t.invoices.filterAll },
+    { key: 'draft', label: t.invoices.filterDraft, value: 'draft' },
+    { key: 'sent', label: t.invoices.filterSent, value: 'sent' },
+    { key: 'overdue', label: t.invoices.filterOverdue },
+    { key: 'paid', label: t.invoices.filterPaid, value: 'paid' },
+  ];
 
   const activeFilter = FILTERS.find((f) => f.key === filter) ?? FILTERS[0];
 
@@ -80,11 +83,11 @@ export default function InvoicesScreen() {
 
   const header = (
     <ScreenHeader
-      title="Invoices"
+      title={t.invoices.title}
       actions={
         <IconButton
           icon={<Plus size={22} color={colors.text} />}
-          accessibilityLabel="New invoice"
+          accessibilityLabel={t.invoices.newInvoice}
           onPress={() => open('/invoice/new')}
         />
       }
@@ -93,7 +96,7 @@ export default function InvoicesScreen() {
           <SearchBar
             value={list.search}
             onChangeText={list.setSearch}
-            placeholder="Search invoices"
+            placeholder={t.invoices.searchPlaceholder}
             containerStyle={styles.search}
           />
           <View style={styles.chips}>
@@ -122,7 +125,7 @@ export default function InvoicesScreen() {
   if (list.error && visible.length === 0) {
     return (
       <Screen header={header}>
-        <ErrorState message="Couldn't load invoices." onRetry={list.refresh} />
+        <ErrorState message={t.invoices.loadError} onRetry={list.refresh} />
       </Screen>
     );
   }
@@ -141,9 +144,9 @@ export default function InvoicesScreen() {
         renderItem={({ item }) => (
           <RecordRow
             leading={<IconTile icon={FileText} color={BRAND} />}
-            title={item.contactName || item.invoiceNumber || 'Draft'}
-            subtitle={item.invoiceNumber || 'Draft'}
-            meta={`Due ${formatShortDate(item.dueDate)}`}
+            title={item.contactName || item.invoiceNumber || t.common.draft}
+            subtitle={item.invoiceNumber || t.common.draft}
+            meta={format(t.common.dueOn, { date: formatShortDate(item.dueDate) })}
             amount={formatCurrency(item.total, item.currency)}
             badge={
               <InvoiceStatusBadge
@@ -163,15 +166,13 @@ export default function InvoicesScreen() {
         ListEmptyComponent={
           <EmptyState
             icon={<FileText size={32} color={colors.mutedForeground} />}
-            title={list.search ? 'No matching invoices' : 'No invoices yet'}
+            title={list.search ? t.invoices.noMatchTitle : t.invoices.emptyTitle}
             description={
-              list.search
-                ? 'Try a different search term or clear the filter.'
-                : 'Create your first invoice to start tracking revenue.'
+              list.search ? t.invoices.noMatchDescription : t.invoices.emptyDescription
             }
             action={
               list.search ? undefined : (
-                <Button title="New invoice" onPress={() => open('/invoice/new')} />
+                <Button title={t.invoices.newInvoice} onPress={() => open('/invoice/new')} />
               )
             }
           />

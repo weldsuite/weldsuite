@@ -28,6 +28,7 @@ import { ACCENTS } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { IconTile } from '@/components/detail';
 import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
+import { useI18n } from '@/lib/i18n';
 
 type MenuItem = {
   title: string;
@@ -37,77 +38,78 @@ type MenuItem = {
   route: string;
 };
 
-const SECTIONS: { title: string; items: MenuItem[] }[] = [
-  {
-    title: 'Financial',
-    items: [
-      {
-        title: 'Bank accounts',
-        subtitle: 'Balances and transactions',
-        icon: Landmark,
-        color: ACCENTS.banking,
-        route: '/bank',
-      },
-      {
-        title: 'Reconciliation',
-        subtitle: 'Match bank transactions',
-        icon: GitMerge,
-        color: ACCENTS.reconciliation,
-        route: '/reconciliation',
-      },
-      {
-        title: 'VAT returns',
-        subtitle: 'Review and file',
-        icon: FileCheck,
-        color: ACCENTS.vat,
-        route: '/vat',
-      },
-    ],
-  },
-  {
-    title: 'Reports',
-    items: [
-      {
-        title: 'Profit & loss',
-        subtitle: 'Revenue and expense overview',
-        icon: TrendingUp,
-        color: ACCENTS.profitLoss,
-        route: '/reports/profit-loss',
-      },
-      {
-        title: 'Balance sheet',
-        subtitle: 'Assets, liabilities and equity',
-        icon: Scale,
-        color: ACCENTS.balanceSheet,
-        route: '/reports/balance-sheet',
-      },
-    ],
-  },
-  {
-    title: 'Other',
-    items: [
-      {
-        title: 'Contacts',
-        subtitle: 'Customers and suppliers',
-        icon: Users,
-        color: ACCENTS.contacts,
-        route: '/contacts',
-      },
-      {
-        title: 'Settings',
-        subtitle: 'App and company preferences',
-        icon: Settings,
-        color: ACCENTS.settings,
-        route: '/settings',
-      },
-    ],
-  },
-];
-
 export default function MoreScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const { activeEntity, canSwitch, openSwitcher } = useAccountingEntity();
+  const { t, format } = useI18n();
+
+  const SECTIONS: { title: string; items: MenuItem[] }[] = [
+    {
+      title: t.more.financial,
+      items: [
+        {
+          title: t.more.bankAccounts,
+          subtitle: t.more.bankAccountsSub,
+          icon: Landmark,
+          color: ACCENTS.banking,
+          route: '/bank',
+        },
+        {
+          title: t.more.reconciliation,
+          subtitle: t.more.reconciliationSub,
+          icon: GitMerge,
+          color: ACCENTS.reconciliation,
+          route: '/reconciliation',
+        },
+        {
+          title: t.more.vatReturns,
+          subtitle: t.more.vatReturnsSub,
+          icon: FileCheck,
+          color: ACCENTS.vat,
+          route: '/vat',
+        },
+      ],
+    },
+    {
+      title: t.more.reports,
+      items: [
+        {
+          title: t.more.profitLoss,
+          subtitle: t.more.profitLossSub,
+          icon: TrendingUp,
+          color: ACCENTS.profitLoss,
+          route: '/reports/profit-loss',
+        },
+        {
+          title: t.more.balanceSheet,
+          subtitle: t.more.balanceSheetSub,
+          icon: Scale,
+          color: ACCENTS.balanceSheet,
+          route: '/reports/balance-sheet',
+        },
+      ],
+    },
+    {
+      title: t.more.other,
+      items: [
+        {
+          title: t.more.contacts,
+          subtitle: t.more.contactsSub,
+          icon: Users,
+          color: ACCENTS.contacts,
+          route: '/contacts',
+        },
+        {
+          title: t.more.settings,
+          subtitle: t.more.settingsSub,
+          icon: Settings,
+          color: ACCENTS.settings,
+          route: '/settings',
+        },
+      ],
+    },
+  ];
 
   const open = useCallback(
     (route: string) => {
@@ -118,12 +120,12 @@ export default function MoreScreen() {
   );
 
   return (
-    <Screen header={<ScreenHeader title="More" />}>
+    <Screen header={<ScreenHeader title={t.more.title} />}>
       <ScrollView contentContainerStyle={styles.content}>
         {activeEntity ? (
           <View>
             <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>
-              Administration
+              {t.more.administration}
             </Text>
             <Card style={[styles.card, { borderRadius: 20 }]}>
               <Pressable
@@ -132,7 +134,7 @@ export default function MoreScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={
                   canSwitch
-                    ? `Switch administration, currently ${activeEntity.name}`
+                    ? format(t.screen.switchAdministration, { name: activeEntity.name })
                     : activeEntity.name
                 }
                 style={({ pressed }) => [
@@ -145,7 +147,7 @@ export default function MoreScreen() {
                   <Text style={[styles.rowTitle, { color: colors.text }]}>{activeEntity.name}</Text>
                   <Text style={[styles.rowSubtitle, { color: colors.mutedForeground }]}>
                     {canSwitch
-                      ? `${activeEntity.jurisdictionCode} · ${activeEntity.baseCurrency} · Tap to switch`
+                      ? `${activeEntity.jurisdictionCode} · ${activeEntity.baseCurrency} · ${t.more.tapToSwitch}`
                       : `${activeEntity.jurisdictionCode} · ${activeEntity.baseCurrency}`}
                   </Text>
                 </View>

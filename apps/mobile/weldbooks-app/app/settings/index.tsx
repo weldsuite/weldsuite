@@ -24,6 +24,7 @@ import { SectionCard, DetailRow } from '@/components/detail';
 import { DetailSkeleton } from '@/components/data-states';
 import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
 import { useOfflineQueue } from '@/contexts/OfflineQueueContext';
+import { useI18n } from '@/lib/i18n';
 import type { AppSettings } from '@/types/accounting';
 
 export default function SettingsScreen() {
@@ -35,6 +36,7 @@ export default function SettingsScreen() {
   const { activeEntity, canSwitch, openSwitcher } = useAccountingEntity();
   const { queue, isOnline, isSyncing, syncQueue } = useOfflineQueue();
   const toast = useToast();
+  const { t, format, plural, language } = useI18n();
 
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -46,7 +48,7 @@ export default function SettingsScreen() {
       setError(null);
       setSettings(await api.getSettings());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load settings');
+      setError(err instanceof Error ? err.message : t.settings.loadFailed);
     } finally {
       setLoading(false);
     }
@@ -59,54 +61,65 @@ export default function SettingsScreen() {
   const appVersion = Constants.expoConfig?.version ?? '1.0.0';
 
   return (
-    <Screen header={<ScreenHeader title="Settings" showBack />}>
+    <Screen header={<ScreenHeader title={t.settings.title} showBack />}>
       <ScrollView contentContainerStyle={styles.content}>
         {loading ? (
           <DetailSkeleton />
         ) : (
           <>
-            <SectionCard title="Company">
+            <SectionCard title={t.settings.company}>
               {canSwitch ? (
                 <Pressable
                   onPress={openSwitcher}
                   accessibilityRole="button"
-                  accessibilityLabel={`Switch administration, currently ${activeEntity?.name ?? 'unknown'}`}
+                  accessibilityLabel={format(t.screen.switchAdministration, {
+                    name: activeEntity?.name ?? '',
+                  })}
                   style={({ pressed }) => [styles.switchRow, pressed && { opacity: 0.7 }]}
                 >
                   <View style={styles.switchLabel}>
                     <View>
                       <Text style={[styles.adminLabel, { color: colors.mutedForeground }]}>
-                        Administration
+                        {t.settings.administration}
                       </Text>
                       <Text style={[styles.adminValue, { color: colors.text }]}>
-                        {activeEntity?.name ?? settings?.entityName ?? '—'}
+                        {activeEntity?.name ?? settings?.entityName ?? t.common.dash}
                       </Text>
                     </View>
                   </View>
                   <ChevronRight size={18} color={colors.mutedForeground} />
                 </Pressable>
               ) : (
-                <DetailRow label="Name" value={activeEntity?.name ?? settings?.entityName ?? '—'} />
+                <DetailRow
+                  label={t.settings.name}
+                  value={activeEntity?.name ?? settings?.entityName ?? t.common.dash}
+                />
               )}
               <DetailRow
-                label="Jurisdiction"
-                value={activeEntity?.jurisdictionCode ?? settings?.jurisdictionCode ?? '—'}
+                label={t.settings.jurisdiction}
+                value={activeEntity?.jurisdictionCode ?? settings?.jurisdictionCode ?? t.common.dash}
               />
-              <DetailRow label="Base currency" value={settings?.currency ?? 'EUR'} />
-              <DetailRow label="Fiscal year start" value={settings?.fiscalYearStart ?? '1 January'} />
+              <DetailRow label={t.settings.baseCurrency} value={settings?.currency ?? 'EUR'} />
+              <DetailRow
+                label={t.settings.fiscalYearStart}
+                value={settings?.fiscalYearStart ?? t.settings.fiscalYearFallback}
+              />
               {settings?.vatNumber ? (
-                <DetailRow label="VAT number" value={settings.vatNumber} />
+                <DetailRow label={t.settings.vatNumber} value={settings.vatNumber} />
               ) : null}
               {error ? (
                 <Text style={[styles.error, { color: colors.destructive }]}>{error}</Text>
               ) : null}
             </SectionCard>
 
-            <SectionCard title="Workspace">
-              <DetailRow label="Workspace" value={currentWorkspace?.name ?? '—'} />
+            <SectionCard title={t.settings.workspace}>
+              <DetailRow
+                label={t.settings.workspace}
+                value={currentWorkspace?.name ?? t.common.dash}
+              />
             </SectionCard>
 
-            <SectionCard title="Appearance">
+            <SectionCard title={t.settings.appearance}>
               <View style={styles.switchRow}>
                 <View style={styles.switchLabel}>
                   {theme === 'dark' ? (
@@ -114,18 +127,30 @@ export default function SettingsScreen() {
                   ) : (
                     <Sun size={18} color={colors.mutedForeground} />
                   )}
-                  <Text style={[styles.switchText, { color: colors.text }]}>Dark mode</Text>
+                  <Text style={[styles.switchText, { color: colors.text }]}>
+                    {t.settings.darkMode}
+                  </Text>
                 </View>
                 <Switch value={theme === 'dark'} onValueChange={() => void toggleTheme()} />
               </View>
+              <DetailRow
+                label={t.settings.language}
+                value={t.languageNames[language]}
+              />
+              <Text style={[styles.hint, { color: colors.mutedForeground }]}>
+                {t.settings.languageHint}
+              </Text>
             </SectionCard>
 
-            <SectionCard title="Sync">
-              <DetailRow label="Connection" value={isOnline ? 'Online' : 'Offline'} />
-              <DetailRow label="Queued items" value={String(queue.length)} />
+            <SectionCard title={t.settings.sync}>
+              <DetailRow
+                label={t.settings.connection}
+                value={isOnline ? t.settings.online : t.settings.offline}
+              />
+              <DetailRow label={t.settings.queuedItems} value={String(queue.length)} />
               {queue.length > 0 ? (
                 <Button
-                  title="Sync now"
+                  title={t.settings.syncNow}
                   variant="outline"
                   size="sm"
                   leftIcon={<RefreshCw size={16} color={colors.text} />}
@@ -137,13 +162,13 @@ export default function SettingsScreen() {
               ) : null}
             </SectionCard>
 
-            <SectionCard title="App">
-              <DetailRow label="Version" value={appVersion} />
-              <DetailRow label="Product" value="WeldBooks" />
+            <SectionCard title={t.settings.app}>
+              <DetailRow label={t.settings.version} value={appVersion} />
+              <DetailRow label={t.settings.product} value="WeldBooks" />
             </SectionCard>
 
             <Button
-              title="Sign out"
+              title={t.settings.signOut}
               variant="outline"
               leftIcon={<LogOut size={18} color={colors.destructive} />}
               textStyle={{ color: colors.destructive }}
@@ -156,13 +181,12 @@ export default function SettingsScreen() {
 
       <ConfirmModal
         visible={confirmSignOut}
-        title="Sign out?"
+        title={t.settings.signOutTitle}
         message={
-          queue.length > 0
-            ? `${queue.length} unsynced item${queue.length === 1 ? '' : 's'} will stay on this device.`
-            : undefined
+          queue.length > 0 ? plural(queue.length, t.settings.signOutQueued) : undefined
         }
-        confirmText="Sign out"
+        confirmText={t.settings.signOut}
+        cancelText={t.common.cancel}
         variant="destructive"
         onCancel={() => setConfirmSignOut(false)}
         onConfirm={async () => {
@@ -170,7 +194,7 @@ export default function SettingsScreen() {
           try {
             await signOut();
           } catch (err) {
-            toast.error(err instanceof Error ? err.message : 'Could not sign out');
+            toast.error(err instanceof Error ? err.message : t.settings.signOutFailed);
           }
         }}
       />
@@ -181,6 +205,7 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   content: { paddingBottom: 40, paddingTop: 4 },
   error: { fontSize: 13, marginTop: 8 },
+  hint: { fontSize: 12, marginTop: 2, marginBottom: 4 },
   switchRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -16,8 +16,6 @@ import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 
 import api from '@/services/api';
-import { formatCompactCurrency, formatCurrency } from '@/lib/currency';
-import { formatShortDate } from '@/lib/date';
 import { BRAND, tint } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { KpiCard, KpiGrid, KpiSkeletonGrid } from '@/components/kpi';
@@ -27,20 +25,23 @@ import { ErrorState } from '@/components/data-states';
 import { InvoiceStatusBadge } from '@/components/status-badge';
 import { useOfflineQueue } from '@/contexts/OfflineQueueContext';
 import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
+import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import type { DashboardData } from '@/types/accounting';
-
-const QUICK_ACTIONS = [
-  { label: 'Invoice', icon: FileText, route: '/invoice/new' },
-  { label: 'Expense', icon: Receipt, route: '/expense/quick' },
-  { label: 'Scan', icon: Camera, route: '/scan' },
-  { label: 'Reports', icon: BarChart3, route: '/reports' },
-] as const;
 
 export default function DashboardScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const { activeEntity, canSwitch, openSwitcher } = useAccountingEntity();
   const { queue, isOnline } = useOfflineQueue();
+  const { t, format, plural } = useI18n();
+  const { formatCompactCurrency, formatCurrency, formatShortDate } = useLocaleFormatters();
+
+  const QUICK_ACTIONS = [
+    { label: t.dashboard.invoice, icon: FileText, route: '/invoice/new' },
+    { label: t.dashboard.expense, icon: Receipt, route: '/expense/quick' },
+    { label: t.dashboard.scan, icon: Camera, route: '/scan' },
+    { label: t.dashboard.reports, icon: BarChart3, route: '/reports' },
+  ] as const;
 
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -90,7 +91,7 @@ export default function DashboardScreen() {
     return (
       <Screen header={header}>
         <ErrorState
-          message="Couldn't load your dashboard."
+          message={t.dashboard.loadError}
           onRetry={() => {
             setLoading(true);
             fetchDashboard();
@@ -102,7 +103,6 @@ export default function DashboardScreen() {
 
   const currency = data?.currency ?? 'EUR';
   const money = (value: number) => formatCompactCurrency(value, currency);
-  const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
   return (
     <Screen header={header}>
@@ -119,8 +119,8 @@ export default function DashboardScreen() {
             style={styles.banner}
           >
             {isOnline
-              ? `${count(queue.length, 'item')} waiting to sync.`
-              : `Offline. ${count(queue.length, 'item')} queued.`}
+              ? plural(queue.length, t.dashboard.itemsWaiting)
+              : plural(queue.length, t.dashboard.offlineQueued)}
           </Banner>
         ) : null}
 
@@ -129,28 +129,28 @@ export default function DashboardScreen() {
         ) : data ? (
           <KpiGrid>
             <KpiCard
-              label="Outstanding"
+              label={t.dashboard.outstanding}
               value={money(data.receivables.outstanding)}
-              sub={count(data.receivables.outstandingCount, 'invoice')}
+              sub={plural(data.receivables.outstandingCount, t.dashboard.invoiceCount)}
               onPress={() => navigate('/(tabs)/invoices')}
             />
             <KpiCard
-              label="Overdue"
+              label={t.dashboard.overdue}
               value={money(data.receivables.overdue)}
-              sub={count(data.receivables.overdueCount, 'invoice')}
+              sub={plural(data.receivables.overdueCount, t.dashboard.invoiceCount)}
               warn={data.receivables.overdue > 0}
               onPress={() => navigate('/(tabs)/invoices')}
             />
             <KpiCard
-              label="Payables"
+              label={t.dashboard.payables}
               value={money(data.payables.outstanding)}
-              sub={count(data.payables.outstandingCount, 'bill')}
+              sub={plural(data.payables.outstandingCount, t.dashboard.billCount)}
               onPress={() => navigate('/(tabs)/expenses')}
             />
             <KpiCard
-              label="Profit"
+              label={t.dashboard.profit}
               value={money(data.profit.month)}
-              sub="This month"
+              sub={t.dashboard.thisMonth}
             />
           </KpiGrid>
         ) : null}
@@ -177,8 +177,8 @@ export default function DashboardScreen() {
         {data && data.recentInvoices.length === 0 ? (
           <EmptyState
             icon={<FileText size={32} color={colors.mutedForeground} />}
-            title="No invoices yet"
-            description="Create your first invoice to start tracking revenue."
+            title={t.dashboard.noInvoicesTitle}
+            description={t.dashboard.noInvoicesDescription}
             style={styles.empty}
           />
         ) : (
@@ -186,9 +186,9 @@ export default function DashboardScreen() {
             <RecordRow
               key={invoice.id}
               leading={<IconTile icon={FileText} color={BRAND} />}
-              title={invoice.contactName || invoice.invoiceNumber || 'Draft'}
-              subtitle={invoice.invoiceNumber || 'Draft'}
-              meta={`Due ${formatShortDate(invoice.dueDate)}`}
+              title={invoice.contactName || invoice.invoiceNumber || t.common.draft}
+              subtitle={invoice.invoiceNumber || t.common.draft}
+              meta={format(t.common.dueOn, { date: formatShortDate(invoice.dueDate) })}
               amount={formatCurrency(invoice.total, invoice.currency || currency)}
               badge={
                 <InvoiceStatusBadge
