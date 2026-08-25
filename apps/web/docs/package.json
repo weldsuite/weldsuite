@@ -1,0 +1,49 @@
+{
+  "name": "docs",
+  "license": "AGPL-3.0-only",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --webpack --port 3010",
+    "build": "next build --webpack",
+    "start": "next start",
+    "lint": "eslint",
+    "capture-screenshots": "node scripts/capture-screenshots.mjs",
+    "capture-screenshots:all": "node scripts/capture-screenshots-all.mjs"
+  },
+  "browserslist": "defaults, not ie <= 11",
+  "dependencies": {
+    "@algolia/autocomplete-core": "^1.19.2",
+    "@headlessui/react": "^2.2.10",
+    "@markdoc/markdoc": "^0.5.4",
+    "@markdoc/next.js": "^0.5.0",
+    "@sindresorhus/slugify": "^2.2.1",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@tailwindcss/typography": "^0.5.16",
+    "@types/react-highlight-words": "^0.20.0",
+    "clsx": "^2.1.1",
+    "fast-glob": "^3.3.3",
+    "flexsearch": "^0.8.205",
+    "js-yaml": "^4.1.0",
+    "next": "16.2.6",
+    "next-themes": "^0.4.6",
+    "prism-react-renderer": "^2.4.1",
+    "react": "^19",
+    "react-dom": "^19",
+    "react-highlight-words": "^0.21.0",
+    "simple-functional-loader": "^1.2.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.8.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@types/node": "^24.1.0",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@weldsuite/eslint-config": "workspace:*",
+    "eslint": "^9.32.0",
+    "prettier": "^3.6.2",
+    "prettier-plugin-tailwindcss": "^0.6.14",
+    "sharp": "0.35.0"
+  }
+}

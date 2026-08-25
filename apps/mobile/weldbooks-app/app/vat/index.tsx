@@ -1,55 +1,50 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  ActivityIndicator,
-  SafeAreaView,
-  RefreshControl,
-} from 'react-native';
-import { useRouter } from 'expo-router';
+/**
+ * VAT returns.
+ *
+ * app-api's list takes no filters, so the year/status narrowing happens
+ * client-side (in the API adapter) over the full set.
+ */
+
+import { useCallback, useEffect, useState } from 'react';
+import { View, FlatList, RefreshControl, StyleSheet } from 'react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import { FileCheck } from 'lucide-react-native';
+
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
+import { Chip } from '@weldsuite/mobile-ui/components/Chip';
+
 import api from '@/services/api';
 import { formatCurrency } from '@/lib/currency';
-import { ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { ACCENTS } from '@/lib/brand';
+import { Screen, ScreenHeader } from '@/components/screen';
+import { RecordRow } from '@/components/record-row';
+import { IconTile } from '@/components/detail';
+import { ListSkeleton, ErrorState } from '@/components/data-states';
+import { VatStatusBadge } from '@/components/status-badge';
+import type { VatReturn } from '@/types/accounting';
 
-type VatReturn = {
-  id: string;
-  period: string;
-  year: number;
-  status: 'draft' | 'submitted' | 'accepted' | 'rejected';
-  netAmount: number;
-  currency: string;
-};
-
-const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  draft: { bg: 'rgba(107,114,128,0.12)', text: '#6B7280' },
-  submitted: { bg: 'rgba(59,130,246,0.12)', text: '#3B82F6' },
-  accepted: { bg: 'rgba(16,185,129,0.12)', text: '#10B981' },
-  rejected: { bg: 'rgba(239,68,68,0.12)', text: '#EF4444' },
-};
+const CURRENT_YEAR = new Date().getFullYear();
+const YEARS = [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2];
 
 export default function VatReturnsScreen() {
-  const router = useRouter();
   const { colors } = useTheme();
+  const router = useRouter();
 
-  const currentYear = new Date().getFullYear();
-  const [year, setYear] = useState(currentYear);
   const [returns, setReturns] = useState<VatReturn[]>([]);
+  const [year, setYear] = useState<number | null>(CURRENT_YEAR);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState(false);
 
-  const fetchReturns = useCallback(async () => {
+  const load = useCallback(async () => {
     try {
-      setError(null);
-      const data = await api.getVatReturns({ year });
-      setReturns(data);
+      setError(false);
+      setReturns(await api.getVatReturns(year ? { year } : undefined));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load VAT returns');
+      console.error('Failed to load VAT returns:', err);
+      setError(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -58,219 +53,91 @@ export default function VatReturnsScreen() {
 
   useEffect(() => {
     setLoading(true);
-    fetchReturns();
-  }, [fetchReturns]);
+    load();
+  }, [load]);
 
-  const handleRefresh = useCallback(() => {
-    setRefreshing(true);
-    fetchReturns();
-  }, [fetchReturns]);
+  // A return filed on the detail screen should show its new status on return.
+  useFocusEffect(useCallback(() => void load(), [load]));
 
-  const handleYearChange = (delta: number) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setYear((prev) => prev + delta);
-  };
+  const header = (
+    <ScreenHeader
+      title="VAT returns"
+      showBack
+      below={
+        <View style={styles.chips}>
+          <Chip label="All years" selected={year === null} onPress={() => setYear(null)} />
+          {YEARS.map((y) => (
+            <Chip key={y} label={String(y)} selected={year === y} onPress={() => setYear(y)} />
+          ))}
+        </View>
+      }
+    />
+  );
 
-  const handleReturnPress = (id: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push(`/vat/${id}` as any);
-  };
-
-  const renderReturn = ({ item }: { item: VatReturn }) => {
-    const statusStyle = STATUS_COLORS[item.status] || STATUS_COLORS.draft;
+  if (loading) {
     return (
-      <TouchableOpacity
-        style={[styles.returnCard, { backgroundColor: colors.cardBackground }]}
-        onPress={() => handleReturnPress(item.id)}
-        activeOpacity={0.6}
-      >
-        <View style={styles.returnLeft}>
-          <Text style={[styles.returnPeriod, { color: colors.text }]}>{item.period}</Text>
-          <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
-            <Text style={[styles.statusText, { color: statusStyle.text }]}>
-              {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
-            </Text>
-          </View>
-        </View>
-        <View style={styles.returnRight}>
-          <Text style={[styles.returnAmount, { color: colors.text }]}>
-            {formatCurrency(item.netAmount, item.currency)}
-          </Text>
-          <ChevronRight size={16} color={colors.muted} />
-        </View>
-      </TouchableOpacity>
+      <Screen header={header}>
+        <ListSkeleton count={4} />
+      </Screen>
     );
-  };
+  }
+
+  if (error && returns.length === 0) {
+    return (
+      <Screen header={header}>
+        <ErrorState message="Couldn't load VAT returns." onRetry={load} />
+      </Screen>
+    );
+  }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <ChevronLeft size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>VAT Returns</Text>
-        <View style={styles.headerSpacer} />
-      </View>
-
-      {/* Year selector */}
-      <View style={styles.yearSelector}>
-        <TouchableOpacity onPress={() => handleYearChange(-1)} style={styles.yearButton}>
-          <ChevronLeft size={20} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.yearText, { color: colors.text }]}>{year}</Text>
-        <TouchableOpacity
-          onPress={() => handleYearChange(1)}
-          style={styles.yearButton}
-          disabled={year >= currentYear}
-        >
-          <ChevronRight size={20} color={year >= currentYear ? colors.muted : colors.text} />
-        </TouchableOpacity>
-      </View>
-
-      {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#10B981" />
-        </View>
-      ) : error ? (
-        <View style={styles.centered}>
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={fetchReturns}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <FlatList
-          data={returns}
-          keyExtractor={(item) => item.id}
-          renderItem={renderReturn}
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#10B981" />
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text style={[styles.emptyText, { color: colors.muted }]}>
-                No VAT returns for {year}
-              </Text>
-            </View>
-          }
-        />
-      )}
-    </SafeAreaView>
+    <Screen header={header}>
+      <FlatList
+        data={returns}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={returns.length ? styles.list : styles.listEmpty}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              load();
+            }}
+            tintColor={ACCENTS.vat}
+          />
+        }
+        renderItem={({ item }) => (
+          <RecordRow
+            leading={<IconTile icon={FileCheck} color={ACCENTS.vat} />}
+            title={item.period || String(item.year)}
+            subtitle={`Output ${formatCurrency(item.salesTax, item.currency)} · Input ${formatCurrency(item.purchaseTax, item.currency)}`}
+            amount={formatCurrency(item.netAmount, item.currency)}
+            amountColor={item.netAmount < 0 ? colors.success : undefined}
+            badge={<VatStatusBadge status={item.status} />}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push(`/vat/${item.id}` as never);
+            }}
+          />
+        )}
+        ListEmptyComponent={
+          <EmptyState
+            icon={<FileCheck size={32} color={colors.mutedForeground} />}
+            title="No VAT returns"
+            description={
+              year
+                ? `No returns for ${year}. Try another year.`
+                : 'Returns appear here once a VAT period closes.'
+            }
+          />
+        }
+      />
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 12,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  backButton: {
-    width: 32,
-    height: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 17,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  headerSpacer: {
-    width: 32,
-  },
-  yearSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    gap: 24,
-  },
-  yearButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  yearText: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 32,
-  },
-  returnCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 10,
-  },
-  returnLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  returnPeriod: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  returnRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  returnAmount: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  emptyContainer: {
-    paddingVertical: 40,
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: 15,
-  },
-  errorText: {
-    color: '#EF4444',
-    fontSize: 15,
-    textAlign: 'center',
-    paddingHorizontal: 32,
-  },
-  retryButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    backgroundColor: '#10B981',
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingBottom: 4 },
+  list: { paddingBottom: 8 },
+  listEmpty: { flexGrow: 1, justifyContent: 'center' },
 });

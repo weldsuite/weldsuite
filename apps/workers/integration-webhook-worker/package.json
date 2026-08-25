@@ -14,6 +14,7 @@
     "@neondatabase/serverless": "^1.0.1",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/meta-ads": "workspace:*",
     "@weldsuite/workflow-integrations": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
     "drizzle-orm": "^0.45.2",

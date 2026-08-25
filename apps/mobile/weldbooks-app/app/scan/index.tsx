@@ -1,4 +1,13 @@
-import React, { useState, useRef, useCallback } from 'react';
+/**
+ * Receipt scanner.
+ *
+ * Captures (or picks) an image, uploads it to R2, runs vision OCR, then hands
+ * the `documentId` to the bill or expense form so vendor, dates and amounts
+ * are already filled. If OCR fails the image still attaches and the user
+ * enters the figures by hand.
+ */
+
+import { useCallback, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -6,499 +15,379 @@ import {
   TouchableOpacity,
   Image,
   ActivityIndicator,
-  SafeAreaView,
-  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
-import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { X, Zap, Images, Receipt, FileText } from 'lucide-react-native';
 
-// AI-powered document scanning (auto-upload + OCR extraction) has been
-// removed along with the AI backend. The camera capture flow is kept so the
-// screen stays navigable, but it now hands off to manual entry instead of
-// calling the (removed) `/weldbooks/documents/ocr` endpoints.
-type ScanPhase = 'camera' | 'unavailable';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
+import { Button } from '@weldsuite/mobile-ui/components/Button';
+import { Banner } from '@weldsuite/mobile-ui/components/Banner';
+
+import api from '@/services/api';
+import { BRAND } from '@/lib/brand';
+import { formatCurrency } from '@/lib/currency';
+import { useOfflineQueue } from '@/contexts/OfflineQueueContext';
+import type { BillPrefill } from '@/types/accounting';
+
+type Phase = 'camera' | 'review';
+type ScanStatus = 'uploading' | 'reading' | 'ready' | 'failed' | 'offline';
+
+function summarisePrefill(prefill: BillPrefill): string {
+  const currency = prefill.currency || 'EUR';
+  const parts: string[] = [];
+  if (prefill.contactName) parts.push(prefill.contactName);
+  if (prefill.total != null) parts.push(formatCurrency(prefill.total, currency));
+  else if (prefill.subtotal != null) parts.push(formatCurrency(prefill.subtotal, currency));
+  if (parts.length === 0) return 'Fields extracted — review them on the next screen.';
+  return `Found ${parts.join(' · ')}. Review on the next screen.`;
+}
 
 export default function ScanScreen() {
   const router = useRouter();
   const { colors } = useTheme();
+  const toast = useToast();
+  const insets = useSafeAreaInsets();
   const cameraRef = useRef<CameraView>(null);
+  const requestIdRef = useRef(0);
   const [permission, requestPermission] = useCameraPermissions();
+  const { isOnline, addToQueue } = useOfflineQueue();
 
-  const [phase, setPhase] = useState<ScanPhase>('camera');
+  const [phase, setPhase] = useState<Phase>('camera');
   const [flashEnabled, setFlashEnabled] = useState(false);
   const [capturedUri, setCapturedUri] = useState<string | null>(null);
+  const [documentId, setDocumentId] = useState<string | null>(null);
+  const [prefill, setPrefill] = useState<BillPrefill | null>(null);
+  const [scanStatus, setScanStatus] = useState<ScanStatus>('uploading');
 
-  const processImage = useCallback((uri: string) => {
-    setCapturedUri(uri);
-    setPhase('unavailable');
-  }, []);
+  const busy = scanStatus === 'uploading' || scanStatus === 'reading';
+
+  /**
+   * Upload, then OCR. A later retake increments `requestIdRef` so a stale
+   * response cannot overwrite the current review.
+   */
+  const upload = useCallback(
+    async (uri: string) => {
+      const requestId = ++requestIdRef.current;
+      const stillCurrent = () => requestId === requestIdRef.current;
+      const fileName = `receipt-${Date.now()}.jpg`;
+
+      if (!isOnline) {
+        await addToQueue({ type: 'document', data: { fileName, type: 'receipt' } });
+        if (!stillCurrent()) return;
+        setScanStatus('offline');
+        toast.info('Offline — the receipt will upload when you reconnect');
+        return;
+      }
+
+      setScanStatus('uploading');
+      let uploadedId: string | null = null;
+      try {
+        const doc = await api.uploadScannedDocument(uri, fileName);
+        uploadedId = doc.id;
+        if (!stillCurrent()) return;
+        setDocumentId(doc.id);
+        setScanStatus('reading');
+
+        await api.processDocument(doc.id);
+        const extracted = await api.getBillFromDocument(doc.id);
+        if (!stillCurrent()) return;
+        setPrefill(extracted);
+        setScanStatus('ready');
+      } catch (err) {
+        console.error('Failed to scan receipt:', err);
+        if (!stillCurrent()) return;
+        setScanStatus('failed');
+        if (!uploadedId) {
+          toast.error('Could not upload the image — you can still enter the details');
+        }
+      }
+    },
+    [isOnline, addToQueue, toast],
+  );
+
+  const processImage = useCallback(
+    (uri: string) => {
+      setCapturedUri(uri);
+      setDocumentId(null);
+      setPrefill(null);
+      setScanStatus('uploading');
+      setPhase('review');
+      void upload(uri);
+    },
+    [upload],
+  );
 
   const handleCapture = useCallback(async () => {
     if (!cameraRef.current) return;
-
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
-      if (photo?.uri) {
-        processImage(photo.uri);
-      }
+      if (photo?.uri) processImage(photo.uri);
     } catch {
-      Alert.alert('Error', 'Failed to capture photo');
+      toast.error('Failed to capture the photo');
     }
-  }, [processImage]);
+  }, [processImage, toast]);
 
   const handlePickFromGallery = useCallback(async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       quality: 0.8,
     });
-
-    if (!result.canceled && result.assets[0]) {
-      processImage(result.assets[0].uri);
-    }
+    if (!result.canceled && result.assets[0]) processImage(result.assets[0].uri);
   }, [processImage]);
 
-  const handlePickDocument = useCallback(async () => {
-    // Use image picker with camera roll as a simple document source
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.8,
-    });
-
-    if (!result.canceled && result.assets[0]) {
-      processImage(result.assets[0].uri);
-    }
-  }, [processImage]);
-
-  // No OCR data to prefill anymore — hand off to the manual entry forms.
-  const handleCreateBill = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push({ pathname: '/bill/new', params: {} });
-  }, [router]);
-
-  const handleQuickExpense = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push({ pathname: '/expense/quick', params: {} });
-  }, [router]);
+  const handleClose = useCallback(() => router.back(), [router]);
 
   const handleRetake = useCallback(() => {
+    requestIdRef.current += 1;
     setCapturedUri(null);
+    setDocumentId(null);
+    setPrefill(null);
     setPhase('camera');
   }, []);
 
-  const handleClose = useCallback(() => {
-    router.back();
-  }, [router]);
+  const goTo = useCallback(
+    (path: '/bill/new' | '/expense/quick') => {
+      if (busy) return;
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      router.replace({ pathname: path, params: documentId ? { documentId } : {} } as never);
+    },
+    [router, documentId, busy],
+  );
 
-  // Permission not yet determined
   if (!permission) {
     return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color="#10B981" />
+      <View style={[styles.centered, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={BRAND} />
       </View>
     );
   }
 
-  // Permission denied
   if (!permission.granted) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.permissionContainer}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+        <View style={styles.permission}>
+          <Receipt size={40} color={colors.mutedForeground} />
           <Text style={[styles.permissionTitle, { color: colors.text }]}>
-            Camera Permission Required
+            Camera access needed
           </Text>
-          <Text style={[styles.permissionText, { color: colors.muted }]}>
-            WeldBooks needs camera access to scan documents, receipts, and invoices.
+          <Text style={[styles.permissionText, { color: colors.mutedForeground }]}>
+            WeldBooks uses the camera to scan receipts and invoices.
           </Text>
-          <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
-            <Text style={styles.permissionButtonText}>Grant Permission</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.closeTextButton} onPress={handleClose}>
-            <Text style={[styles.closeTextButtonLabel, { color: colors.muted }]}>Go Back</Text>
-          </TouchableOpacity>
+          <Button title="Grant permission" onPress={requestPermission} style={styles.permissionCta} />
+          <Button title="Pick from gallery" variant="ghost" onPress={handlePickFromGallery} />
+          <Button title="Go back" variant="ghost" onPress={handleClose} />
         </View>
       </SafeAreaView>
     );
   }
 
-  // Camera phase
   if (phase === 'camera') {
     return (
-      <View style={styles.container}>
+      <View style={styles.cameraRoot}>
+        <StatusBar style="light" />
         <CameraView
           ref={cameraRef}
-          style={styles.camera}
+          style={StyleSheet.absoluteFill}
           facing="back"
           enableTorch={flashEnabled}
-        >
-          {/* Overlay frame */}
-          <View style={styles.overlay}>
-            <SafeAreaView style={styles.topBar}>
-              <TouchableOpacity style={styles.topBarButton} onPress={handleClose}>
-                <Text style={styles.topBarButtonText}>✕</Text>
-              </TouchableOpacity>
-              <Text style={styles.topBarTitle}>Scan Document</Text>
-              <TouchableOpacity
-                style={styles.topBarButton}
-                onPress={() => setFlashEnabled(!flashEnabled)}
-              >
-                <Text style={styles.topBarButtonText}>{flashEnabled ? '⚡' : '⚡'}</Text>
-                {flashEnabled && <View style={styles.flashIndicator} />}
-              </TouchableOpacity>
-            </SafeAreaView>
-
-            {/* Document frame */}
-            <View style={styles.frameContainer}>
-              <View style={styles.documentFrame}>
-                <View style={[styles.corner, styles.cornerTL]} />
-                <View style={[styles.corner, styles.cornerTR]} />
-                <View style={[styles.corner, styles.cornerBL]} />
-                <View style={[styles.corner, styles.cornerBR]} />
-              </View>
-              <Text style={styles.frameHint}>Align document within the frame</Text>
-            </View>
-
-            {/* Bottom bar */}
-            <SafeAreaView style={styles.bottomBar}>
-              <TouchableOpacity style={styles.bottomBarSideButton} onPress={handlePickFromGallery}>
-                <View style={styles.galleryIcon}>
-                  <Text style={styles.galleryIconText}>🖼</Text>
-                </View>
-                <Text style={styles.bottomBarLabel}>Gallery</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.captureButton} onPress={handleCapture}>
-                <View style={styles.captureButtonInner} />
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.bottomBarSideButton} onPress={handlePickDocument}>
-                <View style={styles.galleryIcon}>
-                  <Text style={styles.galleryIconText}>📄</Text>
-                </View>
-                <Text style={styles.bottomBarLabel}>Files</Text>
-              </TouchableOpacity>
-            </SafeAreaView>
+        />
+        <View style={styles.overlay} pointerEvents="box-none">
+          <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
+            <TouchableOpacity
+              style={styles.topButton}
+              onPress={handleClose}
+              accessibilityRole="button"
+              accessibilityLabel="Close scanner"
+            >
+              <X size={22} color="#fff" />
+            </TouchableOpacity>
+            <Text style={styles.topTitle}>Scan receipt</Text>
+            <TouchableOpacity
+              style={[styles.topButton, flashEnabled && styles.topButtonActive]}
+              onPress={() => setFlashEnabled((on) => !on)}
+              accessibilityRole="button"
+              accessibilityLabel={flashEnabled ? 'Turn flash off' : 'Turn flash on'}
+            >
+              <Zap size={20} color={flashEnabled ? '#000' : '#fff'} />
+            </TouchableOpacity>
           </View>
-        </CameraView>
+
+          <View style={styles.frameArea} pointerEvents="none">
+            <View style={styles.frame}>
+              <View style={[styles.corner, styles.cornerTL]} />
+              <View style={[styles.corner, styles.cornerTR]} />
+              <View style={[styles.corner, styles.cornerBL]} />
+              <View style={[styles.corner, styles.cornerBR]} />
+            </View>
+            <Text style={styles.frameHint}>Align the receipt within the frame</Text>
+          </View>
+
+          <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+            <TouchableOpacity
+              style={styles.sideButton}
+              onPress={handlePickFromGallery}
+              accessibilityRole="button"
+              accessibilityLabel="Pick from gallery"
+            >
+              <Images size={22} color="#fff" />
+              <Text style={styles.sideLabel}>Gallery</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.shutter}
+              onPress={handleCapture}
+              accessibilityRole="button"
+              accessibilityLabel="Take photo"
+            >
+              <View style={styles.shutterInner} />
+            </TouchableOpacity>
+
+            <View style={styles.sideButton} />
+          </View>
+        </View>
       </View>
     );
   }
 
-  // Preview / unavailable phase — auto-extraction (OCR) is no longer
-  // available, so we just show the captured photo and hand off to manual entry.
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
-      <View style={styles.previewHeader}>
-        <TouchableOpacity onPress={handleRetake}>
-          <Text style={styles.retakeText}>Retake</Text>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+      <View style={styles.reviewHeader}>
+        <TouchableOpacity onPress={handleRetake} accessibilityRole="button">
+          <Text style={[styles.reviewAction, { color: BRAND }]}>Retake</Text>
         </TouchableOpacity>
-        <Text style={[styles.previewTitle, { color: colors.text }]}>Scan Document</Text>
-        <TouchableOpacity onPress={handleClose}>
-          <Text style={[styles.closeText, { color: colors.muted }]}>Close</Text>
+        <Text style={[styles.reviewTitle, { color: colors.text }]}>Receipt</Text>
+        <TouchableOpacity onPress={handleClose} accessibilityRole="button">
+          <Text style={[styles.reviewAction, { color: colors.mutedForeground }]}>Close</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Image preview */}
-      {capturedUri && (
-        <View style={styles.imagePreviewContainer}>
-          <Image source={{ uri: capturedUri }} style={styles.imagePreview} resizeMode="contain" />
+      {capturedUri ? (
+        <View style={styles.previewWrap}>
+          <Image source={{ uri: capturedUri }} style={styles.preview} resizeMode="contain" />
         </View>
-      )}
+      ) : null}
 
-      {/* AI unavailable message */}
-      <View style={styles.errorContainer}>
-        <Text style={[styles.errorText, { color: colors.muted }]}>
-          AI is currently unavailable. Automatic data extraction from this photo
-          isn&apos;t possible right now — you can still add the expense or bill manually.
-        </Text>
-      </View>
+      <View style={styles.reviewBody}>
+        {scanStatus === 'uploading' ? (
+          <Banner variant="info" style={styles.banner}>
+            Uploading the image…
+          </Banner>
+        ) : null}
+        {scanStatus === 'reading' ? (
+          <Banner variant="info" style={styles.banner}>
+            Reading the receipt…
+          </Banner>
+        ) : null}
+        {scanStatus === 'ready' ? (
+          <Banner variant="success" style={styles.banner}>
+            {prefill ? summarisePrefill(prefill) : 'Receipt attached. Enter the amounts to book it.'}
+          </Banner>
+        ) : null}
+        {scanStatus === 'failed' ? (
+          <Banner variant="warning" style={styles.banner}>
+            Could not read the receipt. Enter the details — the image is still attached.
+          </Banner>
+        ) : null}
+        {scanStatus === 'offline' ? (
+          <Banner variant="info" style={styles.banner}>
+            You&apos;re offline. Enter the details; the image will upload when you reconnect.
+          </Banner>
+        ) : null}
 
-      <View style={styles.resultsContainer}>
-        <View style={styles.actionButtons}>
-          <TouchableOpacity style={styles.createBillButton} onPress={handleCreateBill}>
-            <Text style={styles.createBillButtonText}>Create Bill</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.quickExpenseButton, { borderColor: '#10B981' }]}
-            onPress={handleQuickExpense}
-          >
-            <Text style={styles.quickExpenseButtonText}>Quick Expense</Text>
-          </TouchableOpacity>
-        </View>
+        <Button
+          title="Quick expense"
+          leftIcon={<Receipt size={18} color={colors.primaryForeground} />}
+          onPress={() => goTo('/expense/quick')}
+          disabled={busy}
+          fullWidth
+        />
+        <Button
+          title="Create bill"
+          variant="outline"
+          leftIcon={<FileText size={18} color={colors.text} />}
+          onPress={() => goTo('/bill/new')}
+          disabled={busy}
+          fullWidth
+        />
       </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  camera: {
-    flex: 1,
-  },
+  container: { flex: 1 },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  cameraRoot: { flex: 1, backgroundColor: '#000' },
   overlay: {
-    flex: 1,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'space-between',
   },
   topBar: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingBottom: 8,
   },
-  topBarButton: {
+  topButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  topBarButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  topBarTitle: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  flashIndicator: {
-    position: 'absolute',
-    bottom: 4,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#10B981',
-  },
-  frameContainer: {
+    backgroundColor: 'rgba(0,0,0,0.45)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  documentFrame: {
-    width: 300,
-    height: 400,
-    position: 'relative',
-  },
-  corner: {
-    position: 'absolute',
-    width: 40,
-    height: 40,
-    borderColor: '#10B981',
-  },
-  cornerTL: {
-    top: 0,
-    left: 0,
-    borderTopWidth: 3,
-    borderLeftWidth: 3,
-    borderTopLeftRadius: 8,
-  },
-  cornerTR: {
-    top: 0,
-    right: 0,
-    borderTopWidth: 3,
-    borderRightWidth: 3,
-    borderTopRightRadius: 8,
-  },
-  cornerBL: {
-    bottom: 0,
-    left: 0,
-    borderBottomWidth: 3,
-    borderLeftWidth: 3,
-    borderBottomLeftRadius: 8,
-  },
-  cornerBR: {
-    bottom: 0,
-    right: 0,
-    borderBottomWidth: 3,
-    borderRightWidth: 3,
-    borderBottomRightRadius: 8,
-  },
-  frameHint: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 14,
-    marginTop: 16,
-  },
+  topButtonActive: { backgroundColor: '#FBBF24' },
+  topTitle: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  frameArea: { alignItems: 'center', gap: 16 },
+  frame: { width: '78%', aspectRatio: 0.72 },
+  corner: { position: 'absolute', width: 32, height: 32, borderColor: '#fff' },
+  cornerTL: { top: 0, left: 0, borderTopWidth: 3, borderLeftWidth: 3, borderTopLeftRadius: 8 },
+  cornerTR: { top: 0, right: 0, borderTopWidth: 3, borderRightWidth: 3, borderTopRightRadius: 8 },
+  cornerBL: { bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: 8 },
+  cornerBR: { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: 8 },
+  frameHint: { color: 'rgba(255,255,255,0.85)', fontSize: 13 },
   bottomBar: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 32,
     paddingBottom: 16,
   },
-  bottomBarSideButton: {
-    alignItems: 'center',
-    gap: 4,
-  },
-  galleryIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  galleryIconText: {
-    fontSize: 20,
-  },
-  bottomBarLabel: {
-    color: '#fff',
-    fontSize: 11,
-  },
-  captureButton: {
+  sideButton: { width: 64, alignItems: 'center', gap: 4 },
+  sideLabel: { color: '#fff', fontSize: 11 },
+  shutter: {
     width: 72,
     height: 72,
     borderRadius: 36,
     borderWidth: 4,
     borderColor: '#fff',
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
   },
-  captureButtonInner: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: '#fff',
-  },
-  // Preview / Results styles
-  previewHeader: {
+  shutterInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#fff' },
+  permission: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 8 },
+  permissionTitle: { fontSize: 17, fontWeight: '600', marginTop: 12 },
+  permissionText: { fontSize: 14, textAlign: 'center', lineHeight: 20, marginBottom: 12 },
+  permissionCta: { minWidth: 200 },
+  reviewHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  retakeText: {
-    color: '#10B981',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  previewTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-  },
-  closeText: {
-    fontSize: 16,
-  },
-  imagePreviewContainer: {
-    height: 240,
-    marginHorizontal: 16,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: '#000',
-  },
-  imagePreview: {
-    width: '100%',
-    height: '100%',
-  },
-  errorContainer: {
-    marginHorizontal: 16,
-    marginTop: 16,
-    padding: 16,
-    backgroundColor: 'rgba(107,114,128,0.1)',
-    borderRadius: 12,
-    alignItems: 'center',
-    gap: 8,
-  },
-  errorText: {
-    fontSize: 14,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  resultsContainer: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-  },
-  resultCard: {
-    borderRadius: 12,
-    padding: 16,
-  },
-  resultRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  resultLabel: {
-    fontSize: 14,
-  },
-  resultValue: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  resultDivider: {
-    height: StyleSheet.hairlineWidth,
-  },
-  actionButtons: {
-    marginTop: 24,
-    gap: 12,
-  },
-  createBillButton: {
-    backgroundColor: '#10B981',
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  createBillButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  quickExpenseButton: {
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-    borderWidth: 1.5,
-  },
-  quickExpenseButtonText: {
-    color: '#10B981',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  permissionContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 32,
-    gap: 12,
-  },
-  permissionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  permissionText: {
-    fontSize: 15,
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  permissionButton: {
-    marginTop: 12,
-    backgroundColor: '#10B981',
-    borderRadius: 12,
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-  },
-  permissionButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  closeTextButton: {
-    marginTop: 8,
-    padding: 8,
-  },
-  closeTextButtonLabel: {
-    fontSize: 15,
-  },
+  reviewTitle: { fontSize: 16, fontWeight: '600' },
+  reviewAction: { fontSize: 15, fontWeight: '600' },
+  previewWrap: { flex: 1, margin: 16, borderRadius: 12, overflow: 'hidden' },
+  preview: { flex: 1 },
+  reviewBody: { padding: 16, gap: 8 },
+  banner: { marginBottom: 4 },
 });

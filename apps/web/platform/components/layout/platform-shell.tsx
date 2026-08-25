@@ -12,9 +12,11 @@ import { AppAccessGuard } from '@/components/app-access-guard';
 
 interface PlatformShellProps {
   children: React.ReactNode;
+  /** Render inside a fixed-size frame (help doc screenshots) instead of full viewport. */
+  embedded?: boolean;
 }
 
-export function PlatformShell({ children }: PlatformShellProps) {
+export function PlatformShell({ children, embedded }: PlatformShellProps) {
   const { data: installedApps = [] } = useInstalledApps();
   const { user } = useUser();
   const { organization } = useOrganization();
@@ -49,7 +51,11 @@ export function PlatformShell({ children }: PlatformShellProps) {
           on top as a rounded card. The two color-mix tones derive from the
           theme tokens so this tracks light/dark automatically. */}
       <div
-        className="relative h-screen overflow-hidden bg-[var(--shell-chrome)]"
+        className={
+          embedded
+            ? 'relative h-full overflow-hidden bg-[var(--shell-chrome)]'
+            : 'relative h-screen overflow-hidden bg-[var(--shell-chrome)]'
+        }
         style={
           {
             '--shell-panel':
@@ -60,13 +66,17 @@ export function PlatformShell({ children }: PlatformShellProps) {
         }
       >
         {/* Global AppSidebar on the far left - fixed, hidden on mobile */}
-        <div className="hidden md:block fixed left-0 top-0 h-screen z-50">
+        <div
+          className={
+            embedded
+              ? 'fixed left-0 top-0 z-50 h-full'
+              : 'hidden md:block fixed left-0 top-0 h-screen z-50'
+          }
+        >
           <AppSidebarClient installedApps={installedApps} />
         </div>
 
-        {/* Content area - no margin on mobile, ml-16 on desktop */}
-        {/* pt-14 on mobile for header, pt-0 on desktop */}
-        <MainContentArea>
+        <MainContentArea embedded={embedded}>
           <SidebarProvider className="min-h-0 h-full">
             <div className="flex h-full w-full overflow-hidden">
               <UnifiedModuleSidebar

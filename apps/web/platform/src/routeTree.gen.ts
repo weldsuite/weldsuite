@@ -28,6 +28,7 @@ import { Route as WeldchatRouteRouteImport } from './routes/weldchat/route'
 import { Route as WeldcallRouteRouteImport } from './routes/weldcall/route'
 import { Route as WeldcalendarRouteRouteImport } from './routes/weldcalendar/route'
 import { Route as WeldbooksRouteRouteImport } from './routes/weldbooks/route'
+import { Route as WeldadsRouteRouteImport } from './routes/weldads/route'
 import { Route as SocialRouteRouteImport } from './routes/social/route'
 import { Route as SettingsRouteRouteImport } from './routes/settings/route'
 import { Route as AuthRouteRouteImport } from './routes/auth/route'
@@ -51,6 +52,7 @@ import { Route as WeldchatIndexRouteImport } from './routes/weldchat/index'
 import { Route as WeldcallIndexRouteImport } from './routes/weldcall/index'
 import { Route as WeldcalendarIndexRouteImport } from './routes/weldcalendar/index'
 import { Route as WeldbooksIndexRouteImport } from './routes/weldbooks/index'
+import { Route as WeldadsIndexRouteImport } from './routes/weldads/index'
 import { Route as WelcomeIndexRouteImport } from './routes/welcome/index'
 import { Route as SocialIndexRouteImport } from './routes/social/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
@@ -169,6 +171,8 @@ import { Route as WeldbooksCreditNotesIndexRouteImport } from './routes/weldbook
 import { Route as WeldbooksBillsIndexRouteImport } from './routes/weldbooks/bills/index'
 import { Route as WeldbooksBankingIndexRouteImport } from './routes/weldbooks/banking/index'
 import { Route as WeldbooksAccountsIndexRouteImport } from './routes/weldbooks/accounts/index'
+import { Route as WeldadsCampaignsIndexRouteImport } from './routes/weldads/campaigns/index'
+import { Route as WeldadsAccountsIndexRouteImport } from './routes/weldads/accounts/index'
 import { Route as SocialTeamIndexRouteImport } from './routes/social/team/index'
 import { Route as SocialSettingsIndexRouteImport } from './routes/social/settings/index'
 import { Route as SocialQueueIndexRouteImport } from './routes/social/queue/index'
@@ -201,6 +205,7 @@ import { Route as SettingsAppearanceIndexRouteImport } from './routes/settings/a
 import { Route as SettingsApiKeysIndexRouteImport } from './routes/settings/api-keys/index'
 import { Route as SettingsAdvancedIndexRouteImport } from './routes/settings/advanced/index'
 import { Route as SettingsActivityIndexRouteImport } from './routes/settings/activity/index'
+import { Route as PreviewHelpDocsIndexRouteImport } from './routes/preview/help-docs/index'
 import { Route as ObjectsSlugIndexRouteImport } from './routes/objects/$slug/index'
 import { Route as InviteAcceptIndexRouteImport } from './routes/invite/accept/index'
 import { Route as AuthSsoCallbackIndexRouteImport } from './routes/auth/sso-callback/index'
@@ -314,6 +319,7 @@ import { Route as WeldbooksBankingImportIndexRouteImport } from './routes/weldbo
 import { Route as WeldbooksBankingIdIndexRouteImport } from './routes/weldbooks/banking/$id/index'
 import { Route as WeldbooksAccountsAddIndexRouteImport } from './routes/weldbooks/accounts/add/index'
 import { Route as WeldbooksAccountsIdIndexRouteImport } from './routes/weldbooks/accounts/$id/index'
+import { Route as WeldadsConnectCallbackIndexRouteImport } from './routes/weldads/connect/callback/index'
 import { Route as SettingsTeamMemberIdIndexRouteImport } from './routes/settings/team/$memberId/index'
 import { Route as SettingsRolesRoleIdIndexRouteImport } from './routes/settings/roles/$roleId/index'
 import { Route as SettingsIntegrationsSlackIndexRouteImport } from './routes/settings/integrations/slack/index'
@@ -501,6 +507,11 @@ const WeldbooksRouteRoute = WeldbooksRouteRouteImport.update({
   path: '/weldbooks',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WeldadsRouteRoute = WeldadsRouteRouteImport.update({
+  id: '/weldads',
+  path: '/weldads',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SocialRouteRoute = SocialRouteRouteImport.update({
   id: '/social',
   path: '/social',
@@ -614,6 +625,11 @@ const WeldbooksIndexRoute = WeldbooksIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldadsIndexRoute = WeldadsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldadsRouteRoute,
 } as any)
 const WelcomeIndexRoute = WelcomeIndexRouteImport.update({
   id: '/welcome/',
@@ -1223,6 +1239,16 @@ const WeldbooksAccountsIndexRoute = WeldbooksAccountsIndexRouteImport.update({
   path: '/accounts/',
   getParentRoute: () => WeldbooksRouteRoute,
 } as any)
+const WeldadsCampaignsIndexRoute = WeldadsCampaignsIndexRouteImport.update({
+  id: '/campaigns/',
+  path: '/campaigns/',
+  getParentRoute: () => WeldadsRouteRoute,
+} as any)
+const WeldadsAccountsIndexRoute = WeldadsAccountsIndexRouteImport.update({
+  id: '/accounts/',
+  path: '/accounts/',
+  getParentRoute: () => WeldadsRouteRoute,
+} as any)
 const SocialTeamIndexRoute = SocialTeamIndexRouteImport.update({
   id: '/team/',
   path: '/team/',
@@ -1387,6 +1413,11 @@ const SettingsActivityIndexRoute = SettingsActivityIndexRouteImport.update({
   id: '/activity/',
   path: '/activity/',
   getParentRoute: () => SettingsRouteRoute,
+} as any)
+const PreviewHelpDocsIndexRoute = PreviewHelpDocsIndexRouteImport.update({
+  id: '/preview/help-docs/',
+  path: '/preview/help-docs/',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ObjectsSlugIndexRoute = ObjectsSlugIndexRouteImport.update({
   id: '/objects/$slug/',
@@ -2019,6 +2050,12 @@ const WeldbooksAccountsIdIndexRoute =
     path: '/accounts/$id/',
     getParentRoute: () => WeldbooksRouteRoute,
   } as any)
+const WeldadsConnectCallbackIndexRoute =
+  WeldadsConnectCallbackIndexRouteImport.update({
+    id: '/connect/callback/',
+    path: '/connect/callback/',
+    getParentRoute: () => WeldadsRouteRoute,
+  } as any)
 const SettingsTeamMemberIdIndexRoute =
   SettingsTeamMemberIdIndexRouteImport.update({
     id: '/team/$memberId/',
@@ -2570,6 +2607,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRouteRouteWithChildren
   '/settings': typeof SettingsRouteRouteWithChildren
   '/social': typeof SocialRouteRouteWithChildren
+  '/weldads': typeof WeldadsRouteRouteWithChildren
   '/weldbooks': typeof WeldbooksRouteRouteWithChildren
   '/weldcalendar': typeof WeldcalendarRouteRouteWithChildren
   '/weldcall': typeof WeldcallRouteRouteWithChildren
@@ -2607,6 +2645,7 @@ export interface FileRoutesByFullPath {
   '/settings/': typeof SettingsIndexRoute
   '/social/': typeof SocialIndexRoute
   '/welcome/': typeof WelcomeIndexRoute
+  '/weldads/': typeof WeldadsIndexRoute
   '/weldbooks/': typeof WeldbooksIndexRoute
   '/weldcalendar/': typeof WeldcalendarIndexRoute
   '/weldcall/': typeof WeldcallIndexRoute
@@ -2652,6 +2691,7 @@ export interface FileRoutesByFullPath {
   '/auth/sso-callback/': typeof AuthSsoCallbackIndexRoute
   '/invite/accept/': typeof InviteAcceptIndexRoute
   '/objects/$slug/': typeof ObjectsSlugIndexRoute
+  '/preview/help-docs/': typeof PreviewHelpDocsIndexRoute
   '/settings/activity/': typeof SettingsActivityIndexRoute
   '/settings/advanced/': typeof SettingsAdvancedIndexRoute
   '/settings/api-keys/': typeof SettingsApiKeysIndexRoute
@@ -2684,6 +2724,8 @@ export interface FileRoutesByFullPath {
   '/social/queue/': typeof SocialQueueIndexRoute
   '/social/settings/': typeof SocialSettingsIndexRoute
   '/social/team/': typeof SocialTeamIndexRoute
+  '/weldads/accounts/': typeof WeldadsAccountsIndexRoute
+  '/weldads/campaigns/': typeof WeldadsCampaignsIndexRoute
   '/weldbooks/accounts/': typeof WeldbooksAccountsIndexRoute
   '/weldbooks/banking/': typeof WeldbooksBankingIndexRoute
   '/weldbooks/bills/': typeof WeldbooksBillsIndexRoute
@@ -2811,6 +2853,7 @@ export interface FileRoutesByFullPath {
   '/settings/integrations/slack/': typeof SettingsIntegrationsSlackIndexRoute
   '/settings/roles/$roleId/': typeof SettingsRolesRoleIdIndexRoute
   '/settings/team/$memberId/': typeof SettingsTeamMemberIdIndexRoute
+  '/weldads/connect/callback/': typeof WeldadsConnectCallbackIndexRoute
   '/weldbooks/accounts/$id/': typeof WeldbooksAccountsIdIndexRoute
   '/weldbooks/accounts/add/': typeof WeldbooksAccountsAddIndexRoute
   '/weldbooks/banking/$id/': typeof WeldbooksBankingIdIndexRoute
@@ -2979,6 +3022,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsIndexRoute
   '/social': typeof SocialIndexRoute
   '/welcome': typeof WelcomeIndexRoute
+  '/weldads': typeof WeldadsIndexRoute
   '/weldbooks': typeof WeldbooksIndexRoute
   '/weldcalendar': typeof WeldcalendarIndexRoute
   '/weldcall': typeof WeldcallIndexRoute
@@ -3015,6 +3059,7 @@ export interface FileRoutesByTo {
   '/auth/sso-callback': typeof AuthSsoCallbackIndexRoute
   '/invite/accept': typeof InviteAcceptIndexRoute
   '/objects/$slug': typeof ObjectsSlugIndexRoute
+  '/preview/help-docs': typeof PreviewHelpDocsIndexRoute
   '/settings/activity': typeof SettingsActivityIndexRoute
   '/settings/advanced': typeof SettingsAdvancedIndexRoute
   '/settings/api-keys': typeof SettingsApiKeysIndexRoute
@@ -3047,6 +3092,8 @@ export interface FileRoutesByTo {
   '/social/queue': typeof SocialQueueIndexRoute
   '/social/settings': typeof SocialSettingsIndexRoute
   '/social/team': typeof SocialTeamIndexRoute
+  '/weldads/accounts': typeof WeldadsAccountsIndexRoute
+  '/weldads/campaigns': typeof WeldadsCampaignsIndexRoute
   '/weldbooks/accounts': typeof WeldbooksAccountsIndexRoute
   '/weldbooks/banking': typeof WeldbooksBankingIndexRoute
   '/weldbooks/bills': typeof WeldbooksBillsIndexRoute
@@ -3173,6 +3220,7 @@ export interface FileRoutesByTo {
   '/settings/integrations/slack': typeof SettingsIntegrationsSlackIndexRoute
   '/settings/roles/$roleId': typeof SettingsRolesRoleIdIndexRoute
   '/settings/team/$memberId': typeof SettingsTeamMemberIdIndexRoute
+  '/weldads/connect/callback': typeof WeldadsConnectCallbackIndexRoute
   '/weldbooks/accounts/$id': typeof WeldbooksAccountsIdIndexRoute
   '/weldbooks/accounts/add': typeof WeldbooksAccountsAddIndexRoute
   '/weldbooks/banking/$id': typeof WeldbooksBankingIdIndexRoute
@@ -3331,6 +3379,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRouteRouteWithChildren
   '/settings': typeof SettingsRouteRouteWithChildren
   '/social': typeof SocialRouteRouteWithChildren
+  '/weldads': typeof WeldadsRouteRouteWithChildren
   '/weldbooks': typeof WeldbooksRouteRouteWithChildren
   '/weldcalendar': typeof WeldcalendarRouteRouteWithChildren
   '/weldcall': typeof WeldcallRouteRouteWithChildren
@@ -3368,6 +3417,7 @@ export interface FileRoutesById {
   '/settings/': typeof SettingsIndexRoute
   '/social/': typeof SocialIndexRoute
   '/welcome/': typeof WelcomeIndexRoute
+  '/weldads/': typeof WeldadsIndexRoute
   '/weldbooks/': typeof WeldbooksIndexRoute
   '/weldcalendar/': typeof WeldcalendarIndexRoute
   '/weldcall/': typeof WeldcallIndexRoute
@@ -3413,6 +3463,7 @@ export interface FileRoutesById {
   '/auth/sso-callback/': typeof AuthSsoCallbackIndexRoute
   '/invite/accept/': typeof InviteAcceptIndexRoute
   '/objects/$slug/': typeof ObjectsSlugIndexRoute
+  '/preview/help-docs/': typeof PreviewHelpDocsIndexRoute
   '/settings/activity/': typeof SettingsActivityIndexRoute
   '/settings/advanced/': typeof SettingsAdvancedIndexRoute
   '/settings/api-keys/': typeof SettingsApiKeysIndexRoute
@@ -3445,6 +3496,8 @@ export interface FileRoutesById {
   '/social/queue/': typeof SocialQueueIndexRoute
   '/social/settings/': typeof SocialSettingsIndexRoute
   '/social/team/': typeof SocialTeamIndexRoute
+  '/weldads/accounts/': typeof WeldadsAccountsIndexRoute
+  '/weldads/campaigns/': typeof WeldadsCampaignsIndexRoute
   '/weldbooks/accounts/': typeof WeldbooksAccountsIndexRoute
   '/weldbooks/banking/': typeof WeldbooksBankingIndexRoute
   '/weldbooks/bills/': typeof WeldbooksBillsIndexRoute
@@ -3572,6 +3625,7 @@ export interface FileRoutesById {
   '/settings/integrations/slack/': typeof SettingsIntegrationsSlackIndexRoute
   '/settings/roles/$roleId/': typeof SettingsRolesRoleIdIndexRoute
   '/settings/team/$memberId/': typeof SettingsTeamMemberIdIndexRoute
+  '/weldads/connect/callback/': typeof WeldadsConnectCallbackIndexRoute
   '/weldbooks/accounts/$id/': typeof WeldbooksAccountsIdIndexRoute
   '/weldbooks/accounts/add/': typeof WeldbooksAccountsAddIndexRoute
   '/weldbooks/banking/$id/': typeof WeldbooksBankingIdIndexRoute
@@ -3730,6 +3784,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/settings'
     | '/social'
+    | '/weldads'
     | '/weldbooks'
     | '/weldcalendar'
     | '/weldcall'
@@ -3767,6 +3822,7 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/social/'
     | '/welcome/'
+    | '/weldads/'
     | '/weldbooks/'
     | '/weldcalendar/'
     | '/weldcall/'
@@ -3812,6 +3868,7 @@ export interface FileRouteTypes {
     | '/auth/sso-callback/'
     | '/invite/accept/'
     | '/objects/$slug/'
+    | '/preview/help-docs/'
     | '/settings/activity/'
     | '/settings/advanced/'
     | '/settings/api-keys/'
@@ -3844,6 +3901,8 @@ export interface FileRouteTypes {
     | '/social/queue/'
     | '/social/settings/'
     | '/social/team/'
+    | '/weldads/accounts/'
+    | '/weldads/campaigns/'
     | '/weldbooks/accounts/'
     | '/weldbooks/banking/'
     | '/weldbooks/bills/'
@@ -3971,6 +4030,7 @@ export interface FileRouteTypes {
     | '/settings/integrations/slack/'
     | '/settings/roles/$roleId/'
     | '/settings/team/$memberId/'
+    | '/weldads/connect/callback/'
     | '/weldbooks/accounts/$id/'
     | '/weldbooks/accounts/add/'
     | '/weldbooks/banking/$id/'
@@ -4139,6 +4199,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/social'
     | '/welcome'
+    | '/weldads'
     | '/weldbooks'
     | '/weldcalendar'
     | '/weldcall'
@@ -4175,6 +4236,7 @@ export interface FileRouteTypes {
     | '/auth/sso-callback'
     | '/invite/accept'
     | '/objects/$slug'
+    | '/preview/help-docs'
     | '/settings/activity'
     | '/settings/advanced'
     | '/settings/api-keys'
@@ -4207,6 +4269,8 @@ export interface FileRouteTypes {
     | '/social/queue'
     | '/social/settings'
     | '/social/team'
+    | '/weldads/accounts'
+    | '/weldads/campaigns'
     | '/weldbooks/accounts'
     | '/weldbooks/banking'
     | '/weldbooks/bills'
@@ -4333,6 +4397,7 @@ export interface FileRouteTypes {
     | '/settings/integrations/slack'
     | '/settings/roles/$roleId'
     | '/settings/team/$memberId'
+    | '/weldads/connect/callback'
     | '/weldbooks/accounts/$id'
     | '/weldbooks/accounts/add'
     | '/weldbooks/banking/$id'
@@ -4490,6 +4555,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/settings'
     | '/social'
+    | '/weldads'
     | '/weldbooks'
     | '/weldcalendar'
     | '/weldcall'
@@ -4527,6 +4593,7 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/social/'
     | '/welcome/'
+    | '/weldads/'
     | '/weldbooks/'
     | '/weldcalendar/'
     | '/weldcall/'
@@ -4572,6 +4639,7 @@ export interface FileRouteTypes {
     | '/auth/sso-callback/'
     | '/invite/accept/'
     | '/objects/$slug/'
+    | '/preview/help-docs/'
     | '/settings/activity/'
     | '/settings/advanced/'
     | '/settings/api-keys/'
@@ -4604,6 +4672,8 @@ export interface FileRouteTypes {
     | '/social/queue/'
     | '/social/settings/'
     | '/social/team/'
+    | '/weldads/accounts/'
+    | '/weldads/campaigns/'
     | '/weldbooks/accounts/'
     | '/weldbooks/banking/'
     | '/weldbooks/bills/'
@@ -4731,6 +4801,7 @@ export interface FileRouteTypes {
     | '/settings/integrations/slack/'
     | '/settings/roles/$roleId/'
     | '/settings/team/$memberId/'
+    | '/weldads/connect/callback/'
     | '/weldbooks/accounts/$id/'
     | '/weldbooks/accounts/add/'
     | '/weldbooks/banking/$id/'
@@ -4889,6 +4960,7 @@ export interface RootRouteChildren {
   AuthRouteRoute: typeof AuthRouteRouteWithChildren
   SettingsRouteRoute: typeof SettingsRouteRouteWithChildren
   SocialRouteRoute: typeof SocialRouteRouteWithChildren
+  WeldadsRouteRoute: typeof WeldadsRouteRouteWithChildren
   WeldbooksRouteRoute: typeof WeldbooksRouteRouteWithChildren
   WeldcalendarRouteRoute: typeof WeldcalendarRouteRouteWithChildren
   WeldcallRouteRoute: typeof WeldcallRouteRouteWithChildren
@@ -4917,6 +4989,7 @@ export interface RootRouteChildren {
   AppsManageIndexRoute: typeof AppsManageIndexRoute
   InviteAcceptIndexRoute: typeof InviteAcceptIndexRoute
   ObjectsSlugIndexRoute: typeof ObjectsSlugIndexRoute
+  PreviewHelpDocsIndexRoute: typeof PreviewHelpDocsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -5052,6 +5125,13 @@ declare module '@tanstack/react-router' {
       path: '/weldbooks'
       fullPath: '/weldbooks'
       preLoaderRoute: typeof WeldbooksRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldads': {
+      id: '/weldads'
+      path: '/weldads'
+      fullPath: '/weldads'
+      preLoaderRoute: typeof WeldadsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/social': {
@@ -5214,6 +5294,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldbooks/'
       preLoaderRoute: typeof WeldbooksIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldads/': {
+      id: '/weldads/'
+      path: '/'
+      fullPath: '/weldads/'
+      preLoaderRoute: typeof WeldadsIndexRouteImport
+      parentRoute: typeof WeldadsRouteRoute
     }
     '/welcome/': {
       id: '/welcome/'
@@ -6041,6 +6128,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldbooksAccountsIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
     }
+    '/weldads/campaigns/': {
+      id: '/weldads/campaigns/'
+      path: '/campaigns'
+      fullPath: '/weldads/campaigns/'
+      preLoaderRoute: typeof WeldadsCampaignsIndexRouteImport
+      parentRoute: typeof WeldadsRouteRoute
+    }
+    '/weldads/accounts/': {
+      id: '/weldads/accounts/'
+      path: '/accounts'
+      fullPath: '/weldads/accounts/'
+      preLoaderRoute: typeof WeldadsAccountsIndexRouteImport
+      parentRoute: typeof WeldadsRouteRoute
+    }
     '/social/team/': {
       id: '/social/team/'
       path: '/team'
@@ -6264,6 +6365,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/activity/'
       preLoaderRoute: typeof SettingsActivityIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
+    }
+    '/preview/help-docs/': {
+      id: '/preview/help-docs/'
+      path: '/preview/help-docs'
+      fullPath: '/preview/help-docs/'
+      preLoaderRoute: typeof PreviewHelpDocsIndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/objects/$slug/': {
       id: '/objects/$slug/'
@@ -7055,6 +7163,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldbooks/accounts/$id/'
       preLoaderRoute: typeof WeldbooksAccountsIdIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldads/connect/callback/': {
+      id: '/weldads/connect/callback/'
+      path: '/connect/callback'
+      fullPath: '/weldads/connect/callback/'
+      preLoaderRoute: typeof WeldadsConnectCallbackIndexRouteImport
+      parentRoute: typeof WeldadsRouteRoute
     }
     '/settings/team/$memberId/': {
       id: '/settings/team/$memberId/'
@@ -7912,6 +8027,24 @@ const SocialRouteRouteChildren: SocialRouteRouteChildren = {
 
 const SocialRouteRouteWithChildren = SocialRouteRoute._addFileChildren(
   SocialRouteRouteChildren,
+)
+
+interface WeldadsRouteRouteChildren {
+  WeldadsIndexRoute: typeof WeldadsIndexRoute
+  WeldadsAccountsIndexRoute: typeof WeldadsAccountsIndexRoute
+  WeldadsCampaignsIndexRoute: typeof WeldadsCampaignsIndexRoute
+  WeldadsConnectCallbackIndexRoute: typeof WeldadsConnectCallbackIndexRoute
+}
+
+const WeldadsRouteRouteChildren: WeldadsRouteRouteChildren = {
+  WeldadsIndexRoute: WeldadsIndexRoute,
+  WeldadsAccountsIndexRoute: WeldadsAccountsIndexRoute,
+  WeldadsCampaignsIndexRoute: WeldadsCampaignsIndexRoute,
+  WeldadsConnectCallbackIndexRoute: WeldadsConnectCallbackIndexRoute,
+}
+
+const WeldadsRouteRouteWithChildren = WeldadsRouteRoute._addFileChildren(
+  WeldadsRouteRouteChildren,
 )
 
 interface WeldbooksRouteRouteChildren {
@@ -8889,6 +9022,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRouteRoute: AuthRouteRouteWithChildren,
   SettingsRouteRoute: SettingsRouteRouteWithChildren,
   SocialRouteRoute: SocialRouteRouteWithChildren,
+  WeldadsRouteRoute: WeldadsRouteRouteWithChildren,
   WeldbooksRouteRoute: WeldbooksRouteRouteWithChildren,
   WeldcalendarRouteRoute: WeldcalendarRouteRouteWithChildren,
   WeldcallRouteRoute: WeldcallRouteRouteWithChildren,
@@ -8917,6 +9051,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppsManageIndexRoute: AppsManageIndexRoute,
   InviteAcceptIndexRoute: InviteAcceptIndexRoute,
   ObjectsSlugIndexRoute: ObjectsSlugIndexRoute,
+  PreviewHelpDocsIndexRoute: PreviewHelpDocsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

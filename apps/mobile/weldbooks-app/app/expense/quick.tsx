@@ -1,21 +1,25 @@
-import { useState, useEffect, useRef } from 'react';
+/**
+ * Quick expense capture — the fastest path from a receipt to a booked cost.
+ *
+ * Saves as a one-line bill (app-api has no separate expense entity). When the
+ * device is offline the entry goes to the offline queue instead of failing, and
+ * syncs when connectivity returns.
+ */
+
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
-  TouchableOpacity,
   ScrollView,
   StyleSheet,
-  ActivityIndicator,
-  Alert,
-  Image,
+  Pressable,
   KeyboardAvoidingView,
   Platform,
+  TextInput,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 import {
-  ArrowLeft,
   Utensils,
   Car,
   Briefcase,
@@ -24,23 +28,27 @@ import {
   Zap,
   Shield,
   Tag,
-  Calendar,
-  Camera,
-  X,
+  WifiOff,
 } from 'lucide-react-native';
-import * as Haptics from 'expo-haptics';
-import * as ImagePicker from 'expo-image-picker';
+
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
+import { Input } from '@weldsuite/mobile-ui/components/Input';
+import { Textarea } from '@weldsuite/mobile-ui/components/Textarea';
+import { Button } from '@weldsuite/mobile-ui/components/Button';
+import { Card } from '@weldsuite/mobile-ui/components/Card';
+import { Banner } from '@weldsuite/mobile-ui/components/Banner';
+
 import api from '@/services/api';
-import type { ExpenseCategory } from '@/types/accounting';
+import { formatCurrency, parseAmount } from '@/lib/currency';
+import { today } from '@/lib/date';
+import { BRAND, tint } from '@/lib/brand';
+import { Screen, ScreenHeader } from '@/components/screen';
+import { SectionCard } from '@/components/detail';
+import { useOfflineQueue } from '@/contexts/OfflineQueueContext';
+import type { BillPrefill, ExpenseCategory } from '@/types/accounting';
 
-interface CategoryOption {
-  key: ExpenseCategory;
-  label: string;
-  icon: typeof Utensils;
-}
-
-const CATEGORIES: CategoryOption[] = [
+const CATEGORIES: { key: ExpenseCategory; label: string; icon: typeof Utensils }[] = [
   { key: 'food', label: 'Food', icon: Utensils },
   { key: 'transport', label: 'Transport', icon: Car },
   { key: 'office', label: 'Office', icon: Briefcase },
@@ -51,484 +59,294 @@ const CATEGORIES: CategoryOption[] = [
   { key: 'other', label: 'Other', icon: Tag },
 ];
 
+function exclusiveFromPrefill(prefill: BillPrefill): number | null {
+  if (prefill.items.length > 0) {
+    const sum = prefill.items.reduce((acc, item) => {
+      return acc + parseAmount(item.quantity || '1') * parseAmount(item.unitPrice || '0');
+    }, 0);
+    if (sum > 0) return sum;
+  }
+  if (prefill.subtotal != null && prefill.subtotal > 0) return prefill.subtotal;
+  return prefill.total;
+}
+
+function amountInput(value: number): string {
+  return String(Math.round(value * 100) / 100);
+}
+
 export default function QuickExpenseScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
-  const amountInputRef = useRef<TextInput>(null);
-  const params = useLocalSearchParams<{
-    amount?: string;
-    vendorName?: string;
-    date?: string;
-    documentId?: string;
-  }>();
+  const toast = useToast();
+  const amountRef = useRef<TextInput>(null);
+  const { isOnline, addToQueue } = useOfflineQueue();
+  const params = useLocalSearchParams<{ amount?: string; vendorName?: string; documentId?: string }>();
 
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState(params.amount ?? '');
   const [category, setCategory] = useState<ExpenseCategory>('other');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [vendorName, setVendorName] = useState('');
+  const [vendorName, setVendorName] = useState(params.vendorName ?? '');
   const [description, setDescription] = useState('');
-  const [documentId, setDocumentId] = useState<string | null>(null);
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [date, setDate] = useState(today());
+  const [taxRate, setTaxRate] = useState('21');
   const [saving, setSaving] = useState(false);
+  const [amountError, setAmountError] = useState<string | undefined>();
+  const [ocrState, setOcrState] = useState<'idle' | 'loading' | 'ready' | 'failed'>(
+    params.documentId ? 'loading' : 'idle',
+  );
 
-  // Pre-fill from OCR/scan route params
   useEffect(() => {
-    if (params.amount) setAmount(params.amount);
-    if (params.vendorName) setVendorName(params.vendorName);
-    if (params.date) setDate(params.date);
-    if (params.documentId) setDocumentId(params.documentId);
-  }, [params.amount, params.date, params.documentId, params.vendorName]);
+    if (!params.documentId) return;
+    let cancelled = false;
+    setOcrState('loading');
+    void (async () => {
+      try {
+        const prefill = await api.getBillFromDocument(params.documentId!);
+        if (cancelled) return;
+        if (prefill.contactName) setVendorName(prefill.contactName);
+        if (prefill.issueDate) setDate(prefill.issueDate);
+        const exclusive = exclusiveFromPrefill(prefill);
+        if (exclusive != null && exclusive > 0) setAmount(amountInput(exclusive));
+        const rate = prefill.items.find((item) => item.taxRate)?.taxRate;
+        if (rate) setTaxRate(rate);
+        const firstLine = prefill.items[0]?.description?.trim();
+        if (firstLine && firstLine !== prefill.contactName) setDescription(firstLine);
+        setOcrState('ready');
+      } catch {
+        if (!cancelled) setOcrState('failed');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [params.documentId]);
 
-  // Focus amount input on mount
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      amountInputRef.current?.focus();
-    }, 300);
-    return () => clearTimeout(timer);
-  }, []);
+  const handleSave = useCallback(async () => {
+    const value = parseAmount(amount);
+    if (value <= 0) {
+      setAmountError('Enter an amount greater than zero');
+      return;
+    }
+    setAmountError(undefined);
 
-  const formatDisplayAmount = (value: string): string => {
-    if (!value) return '0.00';
-    const numeric = value.replace(/[^0-9]/g, '');
-    if (!numeric) return '0.00';
-    const cents = parseInt(numeric, 10);
-    return (cents / 100).toFixed(2);
-  };
+    const payload = {
+      amount: value,
+      category,
+      description: description.trim() || undefined,
+      vendorName: vendorName.trim() || undefined,
+      date,
+      documentId: params.documentId || undefined,
+      taxRate: parseAmount(taxRate || '0'),
+    };
 
-  const handleAmountChange = (value: string) => {
-    // Only allow digits; we treat input as cents
-    const digits = value.replace(/[^0-9]/g, '');
-    setAmount(digits);
-  };
-
-  const getNumericAmount = (): number => {
-    if (!amount) return 0;
-    return parseInt(amount, 10) / 100;
-  };
-
-  const handleCategorySelect = (cat: ExpenseCategory) => {
-    setCategory(cat);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
-  const handlePickPhoto = async () => {
+    setSaving(true);
     try {
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert('Permission needed', 'Camera permission is required to take a photo.');
+      if (!isOnline) {
+        await addToQueue({ type: 'expense', data: payload });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        toast.info('Saved offline — it will sync when you reconnect');
+        router.back();
         return;
       }
 
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['images'],
-        quality: 0.8,
-        allowsEditing: true,
-      });
-
-      if (!result.canceled && result.assets[0]) {
-        setPhotoUri(result.assets[0].uri);
-      }
-    } catch {
-      Alert.alert('Error', 'Failed to open camera.');
-    }
-  };
-
-  const handleRemovePhoto = () => {
-    setPhotoUri(null);
-  };
-
-  const handleSave = async () => {
-    const numericAmount = getNumericAmount();
-    if (numericAmount <= 0) {
-      Alert.alert('Required', 'Please enter an amount.');
-      return;
-    }
-
-    try {
-      setSaving(true);
-
-      const data = {
-        amount: numericAmount,
-        category,
-        description: description.trim() || undefined,
-        vendorName: vendorName.trim() || undefined,
-        date,
-        documentId: documentId || undefined,
-      };
-
-      await api.createQuickExpense(data);
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await api.createQuickExpense(payload);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      toast.success('Expense saved');
       router.back();
-    } catch {
-      Alert.alert('Error', 'Failed to save expense. Please try again.');
+    } catch (err) {
+      // A request that failed while nominally online is still worth keeping —
+      // queue it rather than losing what was typed.
+      try {
+        await addToQueue({ type: 'expense', data: payload });
+        toast.info('Saved to the offline queue — we’ll retry shortly');
+        router.back();
+      } catch {
+        toast.error(err instanceof Error ? err.message : 'Could not save the expense');
+      }
     } finally {
       setSaving(false);
     }
-  };
-
-  const displayAmount = formatDisplayAmount(amount);
+  }, [
+    amount,
+    category,
+    description,
+    vendorName,
+    date,
+    taxRate,
+    params.documentId,
+    isOnline,
+    addToQueue,
+    router,
+    toast,
+  ]);
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
-      <View
-        style={[
-          styles.header,
-          { paddingTop: insets.top + 8, backgroundColor: colors.background },
-        ]}
-      >
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backButton}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <ArrowLeft size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Quick Expense</Text>
-        <View style={{ width: 24 }} />
-      </View>
-
+    <Screen header={<ScreenHeader title="Quick expense" showBack />}>
       <KeyboardAvoidingView
-        style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
+        style={styles.flex}
       >
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* Amount Input — Hero Element */}
-          <View style={styles.amountContainer}>
-            <Text style={[styles.currencySymbol, { color: colors.muted }]}>EUR</Text>
-            <View style={styles.amountRow}>
-              <Text style={[styles.currencySign, { color: colors.text }]}>
-                {'\u20AC'}
-              </Text>
-              <Text style={[styles.amountDisplay, { color: colors.text }]}>
-                {displayAmount}
-              </Text>
-            </View>
-            <TextInput
-              ref={amountInputRef}
-              style={styles.hiddenInput}
-              value={amount}
-              onChangeText={handleAmountChange}
-              keyboardType="number-pad"
-              caretHidden
-            />
-          </View>
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+          {!isOnline ? (
+            <Banner
+              variant="warning"
+              icon={<WifiOff size={18} color={colors.warning} />}
+              style={styles.banner}
+            >
+              You&apos;re offline. This expense will be queued and synced later.
+            </Banner>
+          ) : null}
+          {ocrState === 'loading' ? (
+            <Banner variant="info" style={styles.banner}>
+              Filling in fields from the scan…
+            </Banner>
+          ) : null}
+          {ocrState === 'ready' ? (
+            <Banner variant="success" style={styles.banner}>
+              Prefilled from the scan — check the figures before saving.
+            </Banner>
+          ) : null}
+          {ocrState === 'failed' ? (
+            <Banner variant="warning" style={styles.banner}>
+              Could not read the receipt. Enter the details — the image is still attached.
+            </Banner>
+          ) : null}
 
-          {/* Category Selector */}
-          <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
-            <Text style={[styles.sectionLabel, { color: colors.muted }]}>Category</Text>
-            <View style={styles.categoryGrid}>
-              {CATEGORIES.map((cat) => {
-                const IconComponent = cat.icon;
-                const isSelected = category === cat.key;
+          <Card style={styles.amountCard}>
+            <Text style={[styles.amountLabel, { color: colors.mutedForeground }]}>Amount</Text>
+            <Pressable onPress={() => amountRef.current?.focus()} style={styles.amountPress}>
+              <TextInput
+                ref={amountRef}
+                value={amount}
+                onChangeText={(text) => {
+                  setAmount(text);
+                  if (amountError) setAmountError(undefined);
+                }}
+                keyboardType="decimal-pad"
+                placeholder="0.00"
+                placeholderTextColor={colors.placeholder}
+                style={[styles.amountInput, { color: colors.text }]}
+                autoFocus={!params.documentId}
+              />
+            </Pressable>
+            {amountError ? (
+              <Text style={[styles.amountError, { color: colors.destructive }]}>{amountError}</Text>
+            ) : (
+              <Text style={[styles.amountHint, { color: colors.mutedForeground }]}>
+                excl. {parseAmount(taxRate || '0')}% VAT ·{' '}
+                {formatCurrency(parseAmount(amount || '0') * (1 + parseAmount(taxRate || '0') / 100))}{' '}
+                incl.
+              </Text>
+            )}
+          </Card>
+
+          <SectionCard title="Category" padded={false}>
+            <View style={styles.categories}>
+              {CATEGORIES.map(({ key, label, icon: Icon }) => {
+                const selected = category === key;
                 return (
-                  <TouchableOpacity
-                    key={cat.key}
+                  <Pressable
+                    key={key}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setCategory(key);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={label}
                     style={[
-                      styles.categoryButton,
-                      { backgroundColor: colors.background },
-                      isSelected && styles.categoryButtonSelected,
+                      styles.category,
+                      {
+                        borderColor: selected ? BRAND : colors.border,
+                        backgroundColor: selected ? tint(BRAND) : 'transparent',
+                      },
                     ]}
-                    activeOpacity={0.7}
-                    onPress={() => handleCategorySelect(cat.key)}
                   >
-                    <IconComponent
-                      size={22}
-                      color={isSelected ? '#10B981' : colors.muted}
-                      strokeWidth={isSelected ? 2.5 : 2}
-                    />
+                    <Icon size={20} color={selected ? BRAND : colors.mutedForeground} />
                     <Text
                       style={[
                         styles.categoryLabel,
-                        { color: isSelected ? '#10B981' : colors.muted },
-                        isSelected && styles.categoryLabelSelected,
+                        { color: selected ? BRAND : colors.mutedForeground },
                       ]}
                     >
-                      {cat.label}
+                      {label}
                     </Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 );
               })}
             </View>
-          </View>
+          </SectionCard>
 
-          {/* Date */}
-          <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
-            <Text style={[styles.sectionLabel, { color: colors.muted }]}>Date</Text>
-            <View style={[styles.dateInputContainer, { borderColor: colors.divider }]}>
-              <Calendar size={16} color={colors.muted} />
-              <TextInput
-                style={[styles.dateInput, { color: colors.text }]}
-                value={date}
-                onChangeText={setDate}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={colors.muted}
-              />
-            </View>
-          </View>
-
-          {/* Vendor */}
-          <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
-            <Text style={[styles.sectionLabel, { color: colors.muted }]}>Vendor</Text>
-            <TextInput
-              style={[styles.textInput, { color: colors.text, borderColor: colors.divider }]}
+          <SectionCard title="Details">
+            <Input
+              label="Vendor"
               value={vendorName}
               onChangeText={setVendorName}
-              placeholder="e.g. Starbucks, Shell, Amazon"
-              placeholderTextColor={colors.muted}
+              placeholder="e.g. Shell, Amazon"
+              autoCapitalize="words"
             />
-          </View>
-
-          {/* Description */}
-          <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
-            <Text style={[styles.sectionLabel, { color: colors.muted }]}>Description</Text>
-            <TextInput
-              style={[styles.textInput, { color: colors.text, borderColor: colors.divider }]}
+            <Input
+              label="Date"
+              value={date}
+              onChangeText={setDate}
+              placeholder="YYYY-MM-DD"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Input
+              label="VAT %"
+              value={taxRate}
+              onChangeText={setTaxRate}
+              keyboardType="decimal-pad"
+              placeholder="21"
+            />
+            <Textarea
+              label="Description"
               value={description}
               onChangeText={setDescription}
-              placeholder="What was this expense for?"
-              placeholderTextColor={colors.muted}
+              placeholder="What was this for?"
+              numberOfLines={3}
             />
-          </View>
+          </SectionCard>
 
-          {/* Photo Attachment */}
-          <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
-            <Text style={[styles.sectionLabel, { color: colors.muted }]}>Receipt Photo</Text>
-            {photoUri ? (
-              <View style={styles.photoContainer}>
-                <Image source={{ uri: photoUri }} style={styles.photoThumbnail} />
-                <TouchableOpacity style={styles.removePhotoButton} onPress={handleRemovePhoto}>
-                  <X size={14} color="#fff" />
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <TouchableOpacity
-                style={[styles.cameraButton, { borderColor: colors.divider }]}
-                activeOpacity={0.7}
-                onPress={handlePickPhoto}
-              >
-                <Camera size={24} color={colors.muted} />
-                <Text style={[styles.cameraButtonText, { color: colors.muted }]}>
-                  Take a photo of receipt
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </ScrollView>
-
-        {/* Save Button */}
-        <View
-          style={[
-            styles.saveContainer,
-            { paddingBottom: insets.bottom + 16, backgroundColor: colors.background, borderTopColor: colors.divider },
-          ]}
-        >
-          <TouchableOpacity
-            style={[styles.saveButton, saving && styles.saveButtonDisabled]}
-            activeOpacity={0.8}
+          <Button
+            title={isOnline ? 'Save expense' : 'Queue expense'}
             onPress={handleSave}
-            disabled={saving}
-          >
-            {saving ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text style={styles.saveButtonText}>Save Expense</Text>
-            )}
-          </TouchableOpacity>
-        </View>
+            loading={saving}
+            fullWidth
+            style={styles.submit}
+          />
+        </ScrollView>
       </KeyboardAvoidingView>
-    </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  flex: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-  },
-  backButton: {
-    marginRight: 12,
-  },
-  headerTitle: {
-    fontSize: 18,
+  flex: { flex: 1 },
+  content: { paddingBottom: 40, paddingTop: 8 },
+  banner: { marginHorizontal: 12, marginBottom: 4 },
+  amountCard: { marginHorizontal: 12, padding: 20, alignItems: 'center' },
+  amountLabel: { fontSize: 12, fontWeight: '600', letterSpacing: 0.5 },
+  amountPress: { width: '100%' },
+  amountInput: {
+    fontSize: 44,
     fontWeight: '700',
-    flex: 1,
     textAlign: 'center',
+    letterSpacing: -1,
+    paddingVertical: 4,
   },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-  },
-  // Amount Hero
-  amountContainer: {
-    alignItems: 'center',
-    paddingVertical: 32,
-    marginBottom: 8,
-  },
-  currencySymbol: {
-    fontSize: 14,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 8,
-  },
-  amountRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  currencySign: {
-    fontSize: 28,
-    fontWeight: '300',
-    marginTop: 8,
-    marginRight: 4,
-  },
-  amountDisplay: {
-    fontSize: 56,
-    fontWeight: '700',
-    letterSpacing: -2,
-    lineHeight: 64,
-  },
-  hiddenInput: {
-    position: 'absolute',
-    opacity: 0,
-    height: 1,
-    width: 1,
-  },
-  // Cards
-  card: {
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-  },
-  sectionLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 12,
-  },
-  // Category Grid
-  categoryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  categoryButton: {
-    width: '22.5%',
+  amountError: { fontSize: 13, marginTop: 4 },
+  amountHint: { fontSize: 12, marginTop: 4 },
+  categories: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 16, paddingTop: 12 },
+  category: {
+    width: '23%',
     aspectRatio: 1,
+    borderWidth: 1,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: 'transparent',
     gap: 4,
   },
-  categoryButtonSelected: {
-    borderColor: '#10B981',
-    backgroundColor: '#F0FDF4',
-  },
-  categoryLabel: {
-    fontSize: 11,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  categoryLabelSelected: {
-    fontWeight: '700',
-  },
-  // Date
-  dateInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    gap: 8,
-  },
-  dateInput: {
-    flex: 1,
-    paddingVertical: 10,
-    fontSize: 15,
-  },
-  // Text inputs
-  textInput: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-  },
-  // Photo
-  cameraButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 24,
-    borderWidth: 1,
-    borderRadius: 10,
-    borderStyle: 'dashed',
-    gap: 10,
-  },
-  cameraButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  photoContainer: {
-    position: 'relative',
-    alignSelf: 'flex-start',
-  },
-  photoThumbnail: {
-    width: 120,
-    height: 120,
-    borderRadius: 10,
-  },
-  removePhotoButton: {
-    position: 'absolute',
-    top: -6,
-    right: -6,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#EF4444',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  // Save
-  saveContainer: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  saveButton: {
-    backgroundColor: '#10B981',
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  saveButtonDisabled: {
-    opacity: 0.6,
-  },
-  saveButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
+  categoryLabel: { fontSize: 10, fontWeight: '600' },
+  submit: { marginHorizontal: 12, marginTop: 20 },
 });

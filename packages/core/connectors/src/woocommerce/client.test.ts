@@ -266,4 +266,29 @@ describe('WooCommerceClient', () => {
     expect(found).toEqual({ id: '12', url: 'https://shop.example/?p=12' });
     expect(await client.findProductBySku('  ')).toBeNull();
   });
+
+  it('probes hasUpdatesSince with per_page=1 and treats an empty page as no changes', async () => {
+    const urls: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      urls.push(String(input));
+      return jsonResponse([]);
+    };
+    const client = new WooCommerceClient(
+      { storeUrl: 'https://shop.example', consumerKey: 'ck_a', consumerSecret: 'cs_b' },
+      { fetchImpl },
+    );
+    expect(await client.hasUpdatesSince('products', '2026-01-01T00:00:00')).toBe(false);
+    expect(urls[0]).toContain('per_page=1');
+    expect(urls[0]).toContain('modified_after=2026-01-01T00%3A00%3A00');
+  });
+
+  it('does not treat unsupported modified_after as "everything changed"', async () => {
+    const fetchImpl: typeof fetch = async () =>
+      new Response('{"code":"rest_invalid_param"}', { status: 400, headers: { 'content-type': 'application/json' } });
+    const client = new WooCommerceClient(
+      { storeUrl: 'https://shop.example', consumerKey: 'ck_a', consumerSecret: 'cs_b' },
+      { fetchImpl },
+    );
+    expect(await client.hasUpdatesSince('customers', '2026-01-01T00:00:00')).toBe(false);
+  });
 });

@@ -30,6 +30,7 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - `helpcenter`, Next.js knowledge base, Flexsearch (port 3008)
 - `admin`, Next.js internal admin console
 - `api-docs`, Next.js public API documentation site
+- `docs`, Next.js public product help site (`help.weldsuite.org`, Markdoc / Syntax template)
 - `helpdesk-widget`, Embeddable Vite chat widget (port 3100)
 - `booking-portal`, `meeting-portal`, `parcel-tracking-portal` (3018), `parcel-return-portal` (3017), Public-facing Next.js portals
 
@@ -363,7 +364,9 @@ Environments: local wrangler → **test** (`develop`) → **production** (`main`
 - **Zod v3 only** in app code. Root `package.json` may show v4 in overrides; ignore, do not upgrade app imports.
 - **Tailwind v4** via `@tailwindcss/vite`.
 - **Helpdesk widget SDK + test page**: changes to `packages/sdk/helpdesk-widget-sdk/src/core/IframeManager.ts` must be mirrored in `apps/web/helpdesk-widget/test-local.html` (and vice versa). The test page replicates the SDK's iframe + postMessage protocol.
-- **Sites / helpcenter / portals are Next.js** (not the platform).
+- **Help docs screenshots**: when changing platform UI that appears in `apps/web/docs`
+  guides, regenerate PNGs with `pnpm --filter docs capture-screenshots:all` and commit
+  them together. See [AGENTS.md](./AGENTS.md) and `.agents/skills/help-docs/SKILL.md`.
 - Run `pnpm install` after pulling to sync workspaces.
 
 ---

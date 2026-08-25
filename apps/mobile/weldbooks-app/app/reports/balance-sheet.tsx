@@ -1,328 +1,187 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ActivityIndicator,
-  SafeAreaView,
-  ScrollView,
-} from 'react-native';
-import { useRouter } from 'expo-router';
+/**
+ * Balance sheet.
+ *
+ * Flags when assets don't equal liabilities + equity — a genuine books problem
+ * worth surfacing rather than quietly rounding away.
+ */
+
+import { useCallback, useEffect, useState } from 'react';
+import { View, Text, ScrollView, StyleSheet, RefreshControl } from 'react-native';
+
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { Card } from '@weldsuite/mobile-ui/components/Card';
+import { Banner } from '@weldsuite/mobile-ui/components/Banner';
+import { Divider } from '@weldsuite/mobile-ui/components/Divider';
+
 import api from '@/services/api';
 import { formatCurrency } from '@/lib/currency';
-import { ChevronLeft } from 'lucide-react-native';
+import { ACCENTS } from '@/lib/brand';
+import { Screen, ScreenHeader } from '@/components/screen';
+import { SectionCard } from '@/components/detail';
+import { DetailSkeleton, ErrorState } from '@/components/data-states';
+import type { BalanceSheetData, BalanceSheetSection } from '@/types/accounting';
 
-type AccountLine = {
-  code: string;
-  name: string;
-  balance: number;
-};
-
-type BalanceSheetSection = {
-  label: string;
-  accounts: AccountLine[];
-  total: number;
-};
-
-type BalanceSheetData = {
-  assets: BalanceSheetSection;
-  liabilities: BalanceSheetSection;
-  equity: BalanceSheetSection;
+function Section({
+  section,
+  currency,
+}: {
+  section: BalanceSheetSection;
   currency: string;
-};
+}) {
+  const { colors } = useTheme();
+  if (section.accounts.length === 0 && section.total === 0) return null;
+
+  return (
+    <SectionCard title={section.label}>
+      {section.accounts.map((account) => (
+        <View key={`${account.code}-${account.name}`} style={styles.accountRow}>
+          <View style={styles.accountText}>
+            <Text style={[styles.accountName, { color: colors.text }]} numberOfLines={1}>
+              {account.name}
+            </Text>
+            {account.code ? (
+              <Text style={[styles.accountCode, { color: colors.mutedForeground }]}>
+                {account.code}
+              </Text>
+            ) : null}
+          </View>
+          <Text style={[styles.accountBalance, { color: colors.text }]}>
+            {formatCurrency(account.balance, currency)}
+          </Text>
+        </View>
+      ))}
+      <Divider style={styles.sectionDivider} />
+      <View style={styles.accountRow}>
+        <Text style={[styles.sectionTotalLabel, { color: colors.text }]}>
+          Total {section.label.toLowerCase()}
+        </Text>
+        <Text style={[styles.sectionTotalValue, { color: colors.text }]}>
+          {formatCurrency(section.total, currency)}
+        </Text>
+      </View>
+    </SectionCard>
+  );
+}
 
 export default function BalanceSheetScreen() {
-  const router = useRouter();
   const { colors } = useTheme();
 
   const [data, setData] = useState<BalanceSheetData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(false);
 
-  const fetchData = useCallback(async () => {
+  const load = useCallback(async () => {
     try {
-      setError(null);
-      const result = await api.getBalanceSheet();
-      setData(result);
+      setError(false);
+      setData(await api.getBalanceSheet());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load balance sheet');
+      console.error('Failed to load balance sheet:', err);
+      setError(true);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    load();
+  }, [load]);
 
-  const renderSection = (section: BalanceSheetSection, currency: string) => (
-    <View style={[styles.sectionCard, { backgroundColor: colors.cardBackground }]}>
-      <Text style={[styles.sectionTitle, { color: colors.text }]}>{section.label}</Text>
-      {section.accounts.map((account, index) => (
-        <React.Fragment key={account.code}>
-          {index > 0 && (
-            <View style={[styles.accountDivider, { backgroundColor: colors.divider }]} />
-          )}
-          <View style={styles.accountRow}>
-            <View style={styles.accountInfo}>
-              <Text style={[styles.accountCode, { color: colors.muted }]}>{account.code}</Text>
-              <Text style={[styles.accountName, { color: colors.text }]}>{account.name}</Text>
-            </View>
-            <Text style={[styles.accountBalance, { color: colors.text }]}>
-              {formatCurrency(account.balance, currency)}
-            </Text>
-          </View>
-        </React.Fragment>
-      ))}
-      <View style={[styles.totalDivider, { backgroundColor: colors.divider }]} />
-      <View style={styles.totalRow}>
-        <Text style={[styles.totalLabel, { color: colors.text }]}>Total {section.label}</Text>
-        <Text style={[styles.totalValue, { color: colors.text }]}>
-          {formatCurrency(section.total, currency)}
-        </Text>
-      </View>
-    </View>
-  );
+  const header = <ScreenHeader title="Balance sheet" showBack />;
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <ChevronLeft size={24} color={colors.text} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>Balance Sheet</Text>
-          <View style={styles.headerSpacer} />
-        </View>
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#10B981" />
-        </View>
-      </SafeAreaView>
+      <Screen header={header}>
+        <DetailSkeleton />
+      </Screen>
     );
   }
 
   if (error || !data) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <ChevronLeft size={24} color={colors.text} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>Balance Sheet</Text>
-          <View style={styles.headerSpacer} />
-        </View>
-        <View style={styles.centered}>
-          <Text style={styles.errorText}>{error || 'Failed to load data'}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={fetchData}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+      <Screen header={header}>
+        <ErrorState
+          message="Couldn't load the balance sheet."
+          onRetry={() => {
+            setLoading(true);
+            load();
+          }}
+        />
+      </Screen>
     );
   }
 
-  const totalLiabilitiesEquity = data.liabilities.total + data.equity.total;
-  const isBalanced = Math.abs(data.assets.total - totalLiabilitiesEquity) < 0.01;
+  // Tolerate sub-cent rounding, flag anything larger.
+  const balanced = Math.abs(data.totalAssets - data.totalLiabilitiesAndEquity) < 0.01;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <ChevronLeft size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Balance Sheet</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+    <Screen header={header}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              load();
+            }}
+            tintColor={ACCENTS.balanceSheet}
+          />
+        }
+      >
+        <Card style={styles.hero}>
+          <Text style={[styles.heroLabel, { color: colors.mutedForeground }]}>Total assets</Text>
+          <Text style={[styles.heroValue, { color: colors.text }]} numberOfLines={1} adjustsFontSizeToFit>
+            {formatCurrency(data.totalAssets, data.currency)}
+          </Text>
+        </Card>
 
-      <ScrollView contentContainerStyle={styles.content}>
-        {renderSection(data.assets, data.currency)}
-        {renderSection(data.liabilities, data.currency)}
-        {renderSection(data.equity, data.currency)}
+        {!balanced ? (
+          <Banner variant="warning" title="Books don't balance" style={styles.banner}>
+            Assets are {formatCurrency(data.totalAssets, data.currency)} but liabilities plus equity
+            are {formatCurrency(data.totalLiabilitiesAndEquity, data.currency)}. Review your journal
+            entries in WeldBooks on the web.
+          </Banner>
+        ) : null}
 
-        {/* Comparison */}
-        <View style={[styles.comparisonCard, { backgroundColor: colors.cardBackground }]}>
-          <View style={styles.comparisonRow}>
-            <Text style={[styles.comparisonLabel, { color: colors.text }]}>Total Assets</Text>
-            <Text style={[styles.comparisonValue, { color: colors.text }]}>
-              {formatCurrency(data.assets.total, data.currency)}
+        <Section section={data.assets} currency={data.currency} />
+        <Section section={data.liabilities} currency={data.currency} />
+        <Section section={data.equity} currency={data.currency} />
+
+        <SectionCard>
+          <View style={styles.accountRow}>
+            <Text style={[styles.sectionTotalLabel, { color: colors.text }]}>
+              Liabilities + equity
+            </Text>
+            <Text style={[styles.sectionTotalValue, { color: colors.text }]}>
+              {formatCurrency(data.totalLiabilitiesAndEquity, data.currency)}
             </Text>
           </View>
-          <View style={[styles.accountDivider, { backgroundColor: colors.divider }]} />
-          <View style={styles.comparisonRow}>
-            <Text style={[styles.comparisonLabel, { color: colors.text }]}>
-              Total Liabilities + Equity
-            </Text>
-            <Text style={[styles.comparisonValue, { color: colors.text }]}>
-              {formatCurrency(totalLiabilitiesEquity, data.currency)}
-            </Text>
-          </View>
-          <View style={[styles.accountDivider, { backgroundColor: colors.divider }]} />
-          <View style={styles.comparisonRow}>
-            <Text style={[styles.comparisonLabel, { color: colors.muted }]}>Status</Text>
-            <View
-              style={[
-                styles.balanceBadge,
-                {
-                  backgroundColor: isBalanced
-                    ? 'rgba(16,185,129,0.12)'
-                    : 'rgba(239,68,68,0.12)',
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.balanceBadgeText,
-                  { color: isBalanced ? '#10B981' : '#EF4444' },
-                ]}
-              >
-                {isBalanced ? 'Balanced' : 'Unbalanced'}
-              </Text>
-            </View>
-          </View>
-        </View>
+        </SectionCard>
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 12,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  backButton: {
-    width: 32,
-    height: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 17,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  headerSpacer: {
-    width: 32,
-  },
-  content: {
-    paddingHorizontal: 16,
-    paddingBottom: 32,
-    gap: 16,
-  },
-  sectionCard: {
-    borderRadius: 12,
-    padding: 16,
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    marginBottom: 12,
-  },
+  content: { paddingBottom: 40, paddingTop: 8 },
+  hero: { marginHorizontal: 12, padding: 20, alignItems: 'center' },
+  heroLabel: { fontSize: 13, fontWeight: '500' },
+  heroValue: { fontSize: 32, fontWeight: '700', marginTop: 4, letterSpacing: -0.8 },
+  banner: { marginHorizontal: 12, marginTop: 8 },
   accountRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 6,
+    gap: 16,
   },
-  accountInfo: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginRight: 12,
-  },
-  accountCode: {
-    fontSize: 12,
-    fontFamily: 'monospace',
-    minWidth: 40,
-  },
-  accountName: {
-    fontSize: 14,
-    flex: 1,
-  },
-  accountBalance: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  accountDivider: {
-    height: StyleSheet.hairlineWidth,
-  },
-  totalDivider: {
-    height: 1,
-    marginTop: 4,
-  },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: 12,
-  },
-  totalLabel: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  totalValue: {
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  comparisonCard: {
-    borderRadius: 12,
-    padding: 16,
-  },
-  comparisonRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  comparisonLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    flex: 1,
-  },
-  comparisonValue: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  balanceBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 6,
-  },
-  balanceBadgeText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  errorText: {
-    color: '#EF4444',
-    fontSize: 15,
-    textAlign: 'center',
-    paddingHorizontal: 32,
-  },
-  retryButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    backgroundColor: '#10B981',
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  accountText: { flex: 1, minWidth: 0 },
+  accountName: { fontSize: 14, fontWeight: '500' },
+  accountCode: { fontSize: 12, marginTop: 1 },
+  accountBalance: { fontSize: 14, fontWeight: '500' },
+  sectionDivider: { marginVertical: 8 },
+  sectionTotalLabel: { fontSize: 14, fontWeight: '700' },
+  sectionTotalValue: { fontSize: 16, fontWeight: '700' },
 });

@@ -13,7 +13,7 @@ compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
 
 [triggers]
-crons = ["*/30 * * * *"]  # Every 30 minutes — only syncs connections that are actually due
+crons = ["*/15 * * * *"]  # Every 15 minutes — connector catch-up probes D1; CRM still only syncs when due
 
 [vars]
 ENVIRONMENT = "development"
@@ -32,6 +32,16 @@ localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:
 binding = "APP_API"
 service = "weldsuite-app-api"
 
+# D1 connector catch-up index — shared with app-api. The sweep probes store
+# APIs from rows here and only calls app-api when the remote has new data.
+# Create with: wrangler d1 create weldsuite-connector-sync-index-test
+# DATABASE_ENCRYPTION_KEY / DATABASE_ENCRYPTION_KEY_V2 must match app-api
+# (wrangler secret put) so probes can decrypt the D1 credential copy.
+[[d1_databases]]
+binding = "CONNECTOR_SYNC_INDEX"
+database_name = "weldsuite-connector-sync-index-test"
+database_id = "c0ffee00-0001-4000-8000-000000000001"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 name = "integration-sync-scheduler-test"
@@ -42,6 +52,11 @@ ENVIRONMENT = "test"
 [[env.test.services]]
 binding = "APP_API"
 service = "weldsuite-app-api-test"
+
+[[env.test.d1_databases]]
+binding = "CONNECTOR_SYNC_INDEX"
+database_name = "weldsuite-connector-sync-index-test"
+database_id = "c0ffee00-0001-4000-8000-000000000001"
 
 [env.test.observability]
 enabled = true
@@ -62,6 +77,11 @@ id = "2cdec4bef19746d1a2c2e9726ddaacc3"
 [[env.production.services]]
 binding = "APP_API"
 service = "weldsuite-app-api"
+
+[[env.production.d1_databases]]
+binding = "CONNECTOR_SYNC_INDEX"
+database_name = "weldsuite-connector-sync-index-production"
+database_id = "c0ffee00-0001-4000-8000-000000000002"
 
 [observability]
 enabled = true

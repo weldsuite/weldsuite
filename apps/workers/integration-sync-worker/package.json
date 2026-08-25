@@ -8,16 +8,20 @@
     "dev": "wrangler dev",
     "deploy:test": "wrangler deploy --env test",
     "deploy:production": "wrangler deploy --env production",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.1",
+    "@weldsuite/connectors": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
     "typescript": "^5.7",
+    "vitest": "^3.2.6",
     "wrangler": "^4.0.0"
   }
 }

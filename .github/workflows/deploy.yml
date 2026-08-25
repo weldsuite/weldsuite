@@ -68,6 +68,7 @@ jobs:
       run_migrations: ${{ steps.changes.outputs.migrations }}
       release_weldmail: ${{ steps.changes.outputs.weldmail }}
       release_weldchat: ${{ steps.changes.outputs.weldchat }}
+      release_weldbooks: ${{ steps.changes.outputs.weldbooks }}
       workers: ${{ steps.matrix.outputs.workers }}
     steps:
       - name: Resolve deploy context
@@ -129,6 +130,11 @@ jobs:
               - 'packages/clients/api-client/**'
               - 'packages/design/mobile-ui/**'
               - 'packages/core/realtime/**'
+            weldbooks:
+              - 'apps/mobile/weldbooks-app/**'
+              - 'packages/clients/app-api-client/**'
+              - 'packages/clients/api-client/**'
+              - 'packages/design/mobile-ui/**'
             all_workers:
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
@@ -356,6 +362,35 @@ jobs:
         working-directory: apps/mobile/weldchat-app
         env:
           EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
+        run: |
+          CHANNEL="${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}"
+          eas update \
+            --channel "$CHANNEL" \
+            --environment "$CHANNEL" \
+            --message "deploy ${{ needs.prepare.outputs.sha }} ($CHANNEL)" \
+            --non-interactive
+
+  mobile-weldbooks:
+    name: Release WeldBooks (OTA)
+    needs: [prepare, workers]
+    if: >-
+      always() && !failure() && !cancelled() &&
+      (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
+      needs.prepare.outputs.release_weldbooks == 'true'
+    runs-on: [self-hosted, linux, x64]
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Publish OTA update
+        working-directory: apps/mobile/weldbooks-app
+        env:
+          EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
         run: |
           CHANNEL="${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}"
           eas update \

@@ -15,7 +15,7 @@ import { getAppPermissionObjects } from '@/lib/apps/app-permission-objects';
 // code, so both would otherwise trip the "app not installed" redirect below.
 // The host page does its own is-installed check against useInstalledUserApps,
 // and /apps/manage gates itself on the weldapps:develop permission.
-const ALWAYS_ALLOWED_PREFIXES = ['/settings', '/appstore', '/onboarding', '/agents', '/new-chat', '/documents', '/apps'];
+const ALWAYS_ALLOWED_PREFIXES = ['/settings', '/appstore', '/onboarding', '/agents', '/new-chat', '/documents', '/apps', '/preview'];
 
 /**
  * Path prefixes EXTERNAL_GUEST users can navigate to in v1. Anything else

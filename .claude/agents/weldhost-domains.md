@@ -25,6 +25,7 @@ You are the WeldHost (Domains) specialist for WeldSuite.
 - **DNS record validation**, reject invalid record types/values server-side. Never trust client validation alone.
 - **DMARC/SPF/DKIM** interact with WeldMail sending domains (see `weldmail`). Changes to these records must update the sending domain's verification status.
 - **Registrar integration**, transfer codes, EPP codes, privacy whois, auto-renew toggles. Never expose an EPP code to the client beyond the moment the user requests it.
+- **Help docs screenshots**, UI changes that affect documented screens must regenerate help PNGs (`pnpm --filter docs capture-screenshots:all`) and update Markdoc if copy/steps changed. See `.agents/skills/help-docs/SKILL.md`.
 - **TTL defaults**, 3600 (1h) for most records unless user overrides. Propagation warnings in the UI.
 - **Idempotent registrar calls**, the registrar API may partial-fail; retries must not double-register.
 

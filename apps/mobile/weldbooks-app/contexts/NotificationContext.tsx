@@ -1,7 +1,11 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+
+const EAS_PROJECT_ID =
+  Constants.expoConfig?.extra?.eas?.projectId || process.env.EXPO_PUBLIC_EAS_PROJECT_ID || '';
 
 interface NotificationContextType {
   badgeCount: number;
@@ -17,9 +21,15 @@ const NotificationContext = createContext<NotificationContextType>({
 
 export const useNotifications = () => useContext(NotificationContext);
 
+// expo-notifications on SDK 54 replaced `shouldShowAlert` with the explicit
+// `shouldShowBanner` / `shouldShowList` pair. Omitting them leaves foreground
+// notifications invisible, so both are set here alongside the legacy field
+// (still accepted, and still what older Android builds read).
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
   }),
@@ -50,7 +60,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       });
     }
 
-    const token = await Notifications.getExpoPushTokenAsync();
+    const token = await Notifications.getExpoPushTokenAsync(
+      EAS_PROJECT_ID ? { projectId: EAS_PROJECT_ID } : undefined,
+    );
     return token.data;
   }, []);
 

@@ -107,15 +107,27 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       {
         group: t.navigation.moduleSidebar.groups.general,
         items: [
-          // Overview reads every list's totalCount, so it needs no permission of
-          // its own — each count query is gated by its own endpoint.
           { title: t.navigation.moduleSidebar.weldcommerce.overview, href: '/weldcommerce', icon: LayoutDashboard },
           { title: t.navigation.moduleSidebar.weldcommerce.products, href: '/weldcommerce/products', icon: Package, permission: 'products:read' },
           { title: t.navigation.moduleSidebar.weldcommerce.categories, href: '/weldcommerce/categories', icon: FolderTree, permission: 'categories:read' },
           { title: t.navigation.moduleSidebar.weldcommerce.orders, href: '/weldcommerce/orders', icon: ShoppingCart, permission: 'orders:read' },
-          // Customers are companies — see app/weldcommerce/customers/page.tsx.
           { title: t.navigation.moduleSidebar.weldcommerce.customers, href: '/weldcommerce/customers', icon: Building, permission: 'companies:read' },
           { title: t.navigation.moduleSidebar.weldcommerce.portal, href: '/weldcommerce/settings', icon: Globe, permission: 'companies:read' },
+        ],
+      },
+    ],
+  },
+  weldads: {
+    appName: 'WeldAds',
+    appIcon: Megaphone,
+    appLogo: getAppLogoConfig('weldads'),
+    getMenuItems: (t) => [
+      {
+        group: t.navigation.moduleSidebar.groups.general,
+        items: [
+          { title: t.navigation.moduleSidebar.weldads.overview, href: '/weldads', icon: LayoutDashboard },
+          { title: t.navigation.moduleSidebar.weldads.campaigns, href: '/weldads/campaigns', icon: Megaphone, permission: 'ad_campaigns:read' },
+          { title: t.navigation.moduleSidebar.weldads.accounts, href: '/weldads/accounts', icon: Link2, permission: 'ad_accounts:read' },
         ],
       },
     ],
@@ -395,6 +407,9 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
 };
 
 export function getModuleKey(pathname: string): string | null {
+  if (pathname.startsWith('/preview/help-docs')) {
+    return 'weldhost';
+  }
   if (pathname === '/' || pathname === '' || pathname === '/new-chat' || pathname.startsWith('/new-chat/')) {
     return 'home';
   }

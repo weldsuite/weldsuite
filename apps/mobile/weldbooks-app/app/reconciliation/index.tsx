@@ -1,69 +1,62 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  ActivityIndicator,
-  SafeAreaView,
-  RefreshControl,
-  Alert,
-} from 'react-native';
-import { useRouter } from 'expo-router';
+/**
+ * Bank reconciliation.
+ *
+ * Each unmatched transaction carries app-api's ranked match suggestions; tapping
+ * one calls `POST /bank-transactions/:id/reconcile`. Confidence is shown so a
+ * weak suggestion reads as a guess rather than an instruction.
+ */
+
+import { useCallback, useEffect, useState } from 'react';
+import { View, Text, FlatList, RefreshControl, StyleSheet, Pressable } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { GitMerge, ArrowDownLeft, ArrowUpRight, Check } from 'lucide-react-native';
+
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
+import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
+import { Card } from '@weldsuite/mobile-ui/components/Card';
+import { Badge } from '@weldsuite/mobile-ui/components/Badge';
+import { Divider } from '@weldsuite/mobile-ui/components/Divider';
+
 import api from '@/services/api';
 import { formatCurrency } from '@/lib/currency';
-import { ChevronLeft, Check } from 'lucide-react-native';
+import { formatShortDate } from '@/lib/date';
+import { ACCENTS } from '@/lib/brand';
+import { Screen, ScreenHeader } from '@/components/screen';
+import { IconTile } from '@/components/detail';
+import { ListSkeleton, ErrorState } from '@/components/data-states';
+import type { ReconciliationStats, UnmatchedTransaction } from '@/types/accounting';
 
-type ReconciliationStats = {
-  totalUnmatched: number;
-  totalMatched: number;
-  pendingAmount: number;
-  currency: string;
-};
-
-type SuggestedMatch = {
-  id: string;
-  description: string;
-  amount: number;
-  type: string;
-  confidence: number;
-};
-
-type UnmatchedTransaction = {
-  id: string;
-  date: string;
-  description: string;
-  amount: number;
-  currency: string;
-  suggestedMatches: SuggestedMatch[];
-};
+/** app-api scores 0–1; anything under 0.6 is presented as a weak guess. */
+function confidenceVariant(confidence: number): 'success' | 'warning' | 'secondary' {
+  if (confidence >= 0.8) return 'success';
+  if (confidence >= 0.6) return 'warning';
+  return 'secondary';
+}
 
 export default function ReconciliationScreen() {
-  const router = useRouter();
   const { colors } = useTheme();
+  const toast = useToast();
 
   const [stats, setStats] = useState<ReconciliationStats | null>(null);
   const [transactions, setTransactions] = useState<UnmatchedTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [error, setError] = useState(false);
   const [matchingId, setMatchingId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  const fetchData = useCallback(async () => {
+  const load = useCallback(async () => {
     try {
-      setError(null);
-      const [statsData, txData] = await Promise.all([
+      setError(false);
+      const [statsResult, rows] = await Promise.all([
         api.getReconciliationStats(),
-        api.getUnmatchedTransactions(),
+        api.getUnmatchedTransactions({ limit: 20 }),
       ]);
-      setStats(statsData);
-      setTransactions(txData);
+      setStats(statsResult);
+      setTransactions(rows);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load reconciliation data');
+      console.error('Failed to load reconciliation:', err);
+      setError(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -71,345 +64,207 @@ export default function ReconciliationScreen() {
   }, []);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    load();
+  }, [load]);
 
-  const handleRefresh = useCallback(() => {
-    setRefreshing(true);
-    fetchData();
-  }, [fetchData]);
+  const handleMatch = useCallback(
+    async (transactionId: string, suggestionId: string) => {
+      setMatchingId(transactionId);
+      try {
+        await api.matchTransaction(transactionId, suggestionId);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        toast.success('Transaction reconciled');
+        // Drop it locally so the list doesn't jump while the counts refresh.
+        setTransactions((prev) => prev.filter((t) => t.id !== transactionId));
+        setStats((prev) =>
+          prev
+            ? {
+                ...prev,
+                totalUnmatched: Math.max(0, prev.totalUnmatched - 1),
+                totalMatched: prev.totalMatched + 1,
+              }
+            : prev,
+        );
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Could not reconcile');
+      } finally {
+        setMatchingId(null);
+      }
+    },
+    [toast],
+  );
 
-  const handleToggleExpand = (id: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setExpandedId(expandedId === id ? null : id);
-  };
-
-  const handleAcceptMatch = async (transactionId: string, matchId: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setMatchingId(matchId);
-    try {
-      await api.matchTransaction(transactionId, matchId);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setTransactions((prev) => prev.filter((tx) => tx.id !== transactionId));
-      setExpandedId(null);
-      // Refresh stats
-      const updatedStats = await api.getReconciliationStats();
-      setStats(updatedStats);
-    } catch {
-      Alert.alert('Error', 'Failed to match transaction. Please try again.');
-    } finally {
-      setMatchingId(null);
-    }
-  };
-
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  };
-
-  const renderTransaction = ({ item }: { item: UnmatchedTransaction }) => {
-    const isExpanded = expandedId === item.id;
-    const isPositive = item.amount >= 0;
-
-    return (
-      <View style={[styles.txCard, { backgroundColor: colors.cardBackground }]}>
-        <TouchableOpacity
-          style={styles.txHeader}
-          onPress={() => handleToggleExpand(item.id)}
-          activeOpacity={0.6}
-        >
-          <View style={styles.txLeft}>
-            <Text style={[styles.txDate, { color: colors.muted }]}>{formatDate(item.date)}</Text>
-            <Text style={[styles.txDesc, { color: colors.text }]} numberOfLines={1}>
-              {item.description}
-            </Text>
-          </View>
-          <View style={styles.txRight}>
-            <Text
-              style={[
-                styles.txAmount,
-                { color: isPositive ? '#10B981' : '#EF4444' },
-              ]}
-            >
-              {isPositive ? '+' : ''}
-              {formatCurrency(item.amount, item.currency)}
-            </Text>
-            {item.suggestedMatches.length > 0 && (
-              <Text style={[styles.matchCount, { color: colors.muted }]}>
-                {item.suggestedMatches.length} suggestion
-                {item.suggestedMatches.length !== 1 ? 's' : ''}
-              </Text>
-            )}
-          </View>
-        </TouchableOpacity>
-
-        {isExpanded && (
-          <View style={styles.matchesContainer}>
-            <View style={[styles.matchesDivider, { backgroundColor: colors.divider }]} />
-            {item.suggestedMatches.length === 0 ? (
-              <Text style={[styles.noMatchesText, { color: colors.muted }]}>
-                No suggested matches
-              </Text>
-            ) : (
-              item.suggestedMatches.map((match) => (
-                <View key={match.id} style={styles.matchRow}>
-                  <View style={styles.matchInfo}>
-                    <Text style={[styles.matchDesc, { color: colors.text }]}>
-                      {match.description}
-                    </Text>
-                    <Text style={[styles.matchMeta, { color: colors.muted }]}>
-                      {match.type} &middot; {Math.round(match.confidence * 100)}% match
-                    </Text>
-                  </View>
-                  <Text style={[styles.matchAmount, { color: colors.text }]}>
-                    {formatCurrency(match.amount, item.currency)}
-                  </Text>
-                  <TouchableOpacity
-                    style={styles.acceptButton}
-                    onPress={() => handleAcceptMatch(item.id, match.id)}
-                    disabled={matchingId === match.id}
-                  >
-                    {matchingId === match.id ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <Check size={16} color="#fff" />
-                    )}
-                  </TouchableOpacity>
-                </View>
-              ))
-            )}
-          </View>
-        )}
-      </View>
-    );
-  };
+  const header = <ScreenHeader title="Reconciliation" showBack />;
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#10B981" />
-        </View>
-      </SafeAreaView>
+      <Screen header={header}>
+        <ListSkeleton />
+      </Screen>
+    );
+  }
+
+  if (error && transactions.length === 0) {
+    return (
+      <Screen header={header}>
+        <ErrorState message="Couldn't load reconciliation." onRetry={load} />
+      </Screen>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <ChevronLeft size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Reconciliation</Text>
-        <View style={styles.headerSpacer} />
-      </View>
-
-      {error ? (
-        <View style={styles.centered}>
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={fetchData}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <FlatList
-          data={transactions}
-          keyExtractor={(item) => item.id}
-          renderItem={renderTransaction}
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#10B981" />
-          }
-          ListHeaderComponent={
-            stats ? (
-              <View style={styles.statsRow}>
-                <View style={[styles.statCard, { backgroundColor: colors.cardBackground }]}>
-                  <Text style={[styles.statValue, { color: '#EF4444' }]}>
-                    {stats.totalUnmatched}
-                  </Text>
-                  <Text style={[styles.statLabel, { color: colors.muted }]}>Unmatched</Text>
-                </View>
-                <View style={[styles.statCard, { backgroundColor: colors.cardBackground }]}>
-                  <Text style={[styles.statValue, { color: '#10B981' }]}>
-                    {stats.totalMatched}
-                  </Text>
-                  <Text style={[styles.statLabel, { color: colors.muted }]}>Matched</Text>
-                </View>
-                <View style={[styles.statCard, { backgroundColor: colors.cardBackground }]}>
-                  <Text style={[styles.statValue, { color: '#F59E0B' }]}>
-                    {formatCurrency(stats.pendingAmount, stats.currency)}
-                  </Text>
-                  <Text style={[styles.statLabel, { color: colors.muted }]}>Pending</Text>
-                </View>
-              </View>
-            ) : null
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text style={[styles.emptyText, { color: colors.muted }]}>
-                All transactions are matched
-              </Text>
+    <Screen header={header}>
+      <FlatList
+        data={transactions}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.list}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              load();
+            }}
+            tintColor={ACCENTS.reconciliation}
+          />
+        }
+        ListHeaderComponent={
+          stats ? (
+            <View style={styles.stats}>
+              <Card style={styles.statCard}>
+                <Text style={[styles.statValue, { color: colors.text }]}>
+                  {stats.totalUnmatched}
+                </Text>
+                <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Unmatched</Text>
+              </Card>
+              <Card style={styles.statCard}>
+                <Text style={[styles.statValue, { color: colors.success }]}>
+                  {stats.totalMatched}
+                </Text>
+                <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Reconciled</Text>
+              </Card>
+              <Card style={styles.statCard}>
+                <Text style={[styles.statValue, { color: colors.text }]} numberOfLines={1}>
+                  {formatCurrency(stats.pendingAmount, stats.currency)}
+                </Text>
+                <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Pending</Text>
+              </Card>
             </View>
-          }
-        />
-      )}
-    </SafeAreaView>
+          ) : null
+        }
+        renderItem={({ item }) => {
+          const incoming = item.amount >= 0;
+          const busy = matchingId === item.id;
+          return (
+            <Card style={[styles.txCard, busy && styles.busy]}>
+              <View style={styles.txHeader}>
+                <IconTile
+                  icon={incoming ? ArrowDownLeft : ArrowUpRight}
+                  color={incoming ? colors.success : colors.destructive}
+                  size={34}
+                />
+                <View style={styles.txMain}>
+                  <Text style={[styles.txTitle, { color: colors.text }]} numberOfLines={1}>
+                    {item.description || item.counterpartyName || 'Transaction'}
+                  </Text>
+                  <Text style={[styles.txMeta, { color: colors.mutedForeground }]}>
+                    {formatShortDate(item.date)}
+                  </Text>
+                </View>
+                <Text style={[styles.txAmount, { color: colors.text }]}>
+                  {incoming ? '+' : ''}
+                  {formatCurrency(item.amount, item.currency)}
+                </Text>
+              </View>
+
+              {item.suggestedMatches.length > 0 ? (
+                <>
+                  <Divider style={styles.txDivider} />
+                  <Text style={[styles.suggestLabel, { color: colors.mutedForeground }]}>
+                    SUGGESTED MATCHES
+                  </Text>
+                  {item.suggestedMatches.map((suggestion) => (
+                    <Pressable
+                      key={suggestion.id}
+                      disabled={busy}
+                      onPress={() => handleMatch(item.id, suggestion.id)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Match with ${suggestion.description}`}
+                      style={({ pressed }) => [
+                        styles.suggestion,
+                        { borderColor: colors.border },
+                        pressed && { backgroundColor: colors.pressed },
+                      ]}
+                    >
+                      <View style={styles.suggestionMain}>
+                        <Text
+                          style={[styles.suggestionText, { color: colors.text }]}
+                          numberOfLines={1}
+                        >
+                          {suggestion.description}
+                        </Text>
+                        <Text style={[styles.suggestionAmount, { color: colors.mutedForeground }]}>
+                          {formatCurrency(suggestion.amount, item.currency)}
+                        </Text>
+                      </View>
+                      <Badge
+                        variant={confidenceVariant(suggestion.confidence)}
+                        size="sm"
+                        label={`${Math.round(suggestion.confidence * 100)}%`}
+                      />
+                      <Check size={16} color={colors.mutedForeground} />
+                    </Pressable>
+                  ))}
+                </>
+              ) : (
+                <Text style={[styles.noSuggestions, { color: colors.mutedForeground }]}>
+                  No suggested matches. Reconcile this one in WeldBooks on the web.
+                </Text>
+              )}
+            </Card>
+          );
+        }}
+        ListEmptyComponent={
+          <EmptyState
+            icon={<GitMerge size={32} color={colors.mutedForeground} />}
+            title="Everything reconciled"
+            description="No unmatched bank transactions right now."
+            style={styles.empty}
+          />
+        }
+      />
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 12,
-  },
-  header: {
+  list: { padding: 12, gap: 8 },
+  stats: { flexDirection: 'row', gap: 8, marginBottom: 4 },
+  statCard: { flex: 1, padding: 12, alignItems: 'center' },
+  statValue: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
+  statLabel: { fontSize: 11, marginTop: 2 },
+  txCard: { padding: 14 },
+  busy: { opacity: 0.5 },
+  txHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  txMain: { flex: 1, minWidth: 0 },
+  txTitle: { fontSize: 15, fontWeight: '600' },
+  txMeta: { fontSize: 12, marginTop: 2 },
+  txAmount: { fontSize: 15, fontWeight: '700' },
+  txDivider: { marginVertical: 12 },
+  suggestLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 0.5, marginBottom: 8 },
+  suggestion: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  backButton: {
-    width: 32,
-    height: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 17,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  headerSpacer: {
-    width: 32,
-  },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 32,
-  },
-  statsRow: {
-    flexDirection: 'row',
     gap: 10,
-    marginBottom: 20,
-  },
-  statCard: {
-    flex: 1,
-    borderRadius: 12,
-    padding: 14,
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  statLabel: {
-    fontSize: 12,
-    marginTop: 4,
-  },
-  txCard: {
-    borderRadius: 12,
-    marginBottom: 10,
-    overflow: 'hidden',
-  },
-  txHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-  },
-  txLeft: {
-    flex: 1,
-    marginRight: 12,
-  },
-  txDate: {
-    fontSize: 12,
-    marginBottom: 2,
-  },
-  txDesc: {
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  txRight: {
-    alignItems: 'flex-end',
-  },
-  txAmount: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  matchCount: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-  matchesContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-  },
-  matchesDivider: {
-    height: StyleSheet.hairlineWidth,
-    marginBottom: 10,
-  },
-  noMatchesText: {
-    fontSize: 13,
-    textAlign: 'center',
-    paddingVertical: 8,
-  },
-  matchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    gap: 10,
-  },
-  matchInfo: {
-    flex: 1,
-  },
-  matchDesc: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  matchMeta: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-  matchAmount: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  acceptButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#10B981',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyContainer: {
-    paddingVertical: 40,
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: 15,
-  },
-  errorText: {
-    color: '#EF4444',
-    fontSize: 15,
-    textAlign: 'center',
-    paddingHorizontal: 32,
-  },
-  retryButton: {
-    paddingHorizontal: 20,
     paddingVertical: 10,
-    backgroundColor: '#10B981',
-    borderRadius: 8,
+    paddingHorizontal: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+    marginBottom: 6,
   },
-  retryButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  suggestionMain: { flex: 1, minWidth: 0 },
+  suggestionText: { fontSize: 14, fontWeight: '500' },
+  suggestionAmount: { fontSize: 12, marginTop: 2 },
+  noSuggestions: { fontSize: 13, marginTop: 12, lineHeight: 18 },
+  empty: { marginTop: 40 },
 });

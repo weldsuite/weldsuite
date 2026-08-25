@@ -42,6 +42,8 @@ const APP_NAMES: Record<string, string> = {
   weldcalendar: 'WeldCalendar',
   welddrive: 'WeldDrive',
   welddata: 'WeldData',
+  weldcommerce: 'WeldCommerce',
+  weldads: 'WeldAds',
 };
 
 /**

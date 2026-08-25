@@ -83,6 +83,11 @@ export const navigation = {
         customers: 'Klanten',
         portal: 'Klantenportaal',
       },
+      weldads: {
+        overview: 'Overzicht',
+        campaigns: 'Campagnes',
+        accounts: 'Advertentieaccounts',
+      },
       weldstash: {
         overview: 'Overzicht',
         products: 'Producten',

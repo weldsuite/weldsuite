@@ -110,6 +110,14 @@ const FALLBACK_CATALOG: Record<string, AppDefinition> = {
     category: 'Sales & Marketing',
     path: '/welddata',
   },
+  weldads: {
+    code: 'weldads',
+    name: 'WeldAds',
+    description: 'Manage paid advertising campaigns across Facebook Ads and Google Ads',
+    icon: 'Megaphone',
+    category: 'Sales & Marketing',
+    path: '/weldads',
+  },
   weldknow: {
     code: 'weldknow',
     name: 'WeldKnow',

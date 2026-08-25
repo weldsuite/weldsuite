@@ -6,6 +6,11 @@ export interface ClientApiOptions {
   getToken: () => Promise<string | null>;
   baseUrl: string;
   apiPrefix?: string;
+  /**
+   * Extra headers merged into every request after auth. Used by WeldBooks to
+   * send `X-Accounting-Entity-Id` when the user has switched administration.
+   */
+  getExtraHeaders?: () => Record<string, string> | Promise<Record<string, string>>;
 }
 
 export interface ClientApi {

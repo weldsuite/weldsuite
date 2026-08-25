@@ -47,6 +47,11 @@ import {
   unregisterConnectionWebhooks,
 } from '../../services/connectors/webhooks';
 import { eq } from 'drizzle-orm';
+import {
+  removeConnectorIndex,
+  setConnectorIndexEnabled,
+  upsertConnectorIndexFromRow,
+} from '../../lib/connector-sync-index';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -210,6 +215,12 @@ app.post('/connect', requirePermission('integrations:create'), zValidator('json'
           workspaceId: internalWorkspaceId,
           provider,
         });
+        await upsertConnectorIndexFromRow(c.env, {
+          connection: row,
+          workspaceId: internalWorkspaceId,
+          clerkOrgId,
+          enabled: true,
+        });
       } catch (err) {
         console.error('[app-api/connectors] webhook KV mapping failed:', err);
       }
@@ -352,6 +363,20 @@ app.patch(
       });
 
       const updated = await getConnectionById(db, row.id);
+      const clerkOrgId = c.get('workspaceId');
+      if (updated && clerkOrgId) {
+        try {
+          const { id: internalWorkspaceId } = await getWorkspaceForOrg(c.env, clerkOrgId);
+          await upsertConnectorIndexFromRow(c.env, {
+            connection: updated,
+            workspaceId: internalWorkspaceId,
+            clerkOrgId,
+            enabled: updated.status !== 'paused',
+          });
+        } catch (err) {
+          console.warn('[app-api/connectors] D1 index upsert after patch failed:', err);
+        }
+      }
       publishEntityEvent({
         c,
         entityType: 'connector_connection',
@@ -433,6 +458,7 @@ app.post('/connections/:id/pause', requirePermission('integrations:update'), asy
     .update(schema.connectorConnections)
     .set({ status: 'paused', updatedAt: new Date() })
     .where(eq(schema.connectorConnections.id, row.id));
+  await setConnectorIndexEnabled(c.env, row.id, false);
   publishEntityEvent({
     c,
     entityType: 'connector_connection',
@@ -451,6 +477,7 @@ app.post('/connections/:id/resume', requirePermission('integrations:update'), as
     .update(schema.connectorConnections)
     .set({ status: 'active', updatedAt: new Date() })
     .where(eq(schema.connectorConnections.id, row.id));
+  await setConnectorIndexEnabled(c.env, row.id, true);
   publishEntityEvent({
     c,
     entityType: 'connector_connection',
@@ -474,6 +501,7 @@ app.delete('/connections/:id', requirePermission('integrations:delete'), async (
   }
   await deleteConnectorWebhookMapping(c.env, row.id);
   await markConnectionDisconnected(db, row.id);
+  await removeConnectorIndex(c.env, row.id);
   publishEntityEvent({
     c,
     entityType: 'connector_connection',

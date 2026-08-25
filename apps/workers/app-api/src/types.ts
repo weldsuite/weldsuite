@@ -156,6 +156,12 @@ export interface Env {
    * schedule sweep can poll D1 instead of fanning out to every tenant DB.
    */
   SCHEDULE_INDEX?: D1Database;
+  /**
+   * D1 connector catch-up index (shared with integration-sync-worker). Kept in
+   * sync on connector connect/pause/resume/disconnect and after webhook ingest
+   * so the sweep can probe stores without opening tenant Neon.
+   */
+  CONNECTOR_SYNC_INDEX?: D1Database;
   /** CF Workflow for WeldConnect entity_event triggers (hosted in workflow-worker). */
   EXECUTE_WORKFLOW?: Workflow;
   /** CF Workflow for CRM sequence step execution. Hosted in app-api itself
@@ -350,6 +356,14 @@ export interface Env {
    * shows PostPeer's branding rather than WeldSuite's.
    */
   POSTPEER_APP_IDS?: string;
+
+  // --- WeldAds (Meta Marketing API) --------------------------------------
+  FACEBOOK_APP_ID?: string;
+  FACEBOOK_APP_SECRET?: string;
+  /** Meta webhook verify token + X-Hub-Signature-256 verification secret. */
+  FACEBOOK_WEBHOOK_VERIFY_TOKEN?: string;
+  /** Public base URL for integration-webhook-worker (Meta ad webhooks). */
+  INTEGRATION_WEBHOOK_BASE_URL?: string;
 
   // --- Cloudflare Flagship (feature flags) -------------------------------
   /** Flagship Worker binding — `env.FLAGSHIP.getBooleanValue(key, default, ctx)`.

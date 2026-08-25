@@ -34,6 +34,12 @@ export interface WooListOptions {
   perPage?: number;
   /** ISO timestamp — products and orders honour `modified_after`. */
   modifiedAfter?: string;
+  /**
+   * When true, a 400 from `modified_after` is raised instead of retrying
+   * unfiltered (used by catch-up probes so customers without that filter
+   * do not look like "everything changed").
+   */
+  strictModifiedAfter?: boolean;
 }
 
 export interface WooListResult<T> {
@@ -368,11 +374,46 @@ export class WooCommerceClient {
       return { items, page, totalPages, total };
     } catch (err) {
       // Customers (and some older WC versions) reject `modified_after`.
-      if (err instanceof ConnectorApiError && err.status === 400 && options.modifiedAfter) {
+      if (
+        err instanceof ConnectorApiError &&
+        err.status === 400 &&
+        options.modifiedAfter &&
+        !options.strictModifiedAfter
+      ) {
         return this.listResource(resource, { ...options, modifiedAfter: undefined });
       }
       throw err;
     }
+  }
+
+  /**
+   * Cheap incremental probe: one row newer than `modifiedAfter`.
+   * Returns false when the filter is unsupported (do not treat as "new data").
+   */
+  async hasUpdatesSince(
+    resource: 'products' | 'orders' | 'customers',
+    modifiedAfter?: string,
+  ): Promise<boolean> {
+    try {
+      const page = await this.listResource(resource, {
+        page: 1,
+        perPage: 1,
+        modifiedAfter,
+        strictModifiedAfter: Boolean(modifiedAfter),
+      });
+      return page.items.length > 0;
+    } catch (err) {
+      if (err instanceof ConnectorApiError && err.status === 400 && modifiedAfter) {
+        return false;
+      }
+      throw err;
+    }
+  }
+
+  /** Remote object count — used by the daily reconcile fingerprint. */
+  async countResource(resource: 'products' | 'orders' | 'customers'): Promise<number> {
+    const page = await this.listResource(resource, { page: 1, perPage: 1 });
+    return page.total;
   }
 
   /** Cheap read used to verify credentials before saving a connection. */

@@ -1,6 +1,8 @@
 export * from './types';
 export * from './catalog';
 export * from './webhooks';
+export * from './probe';
+export * from './sync-index';
 export { WooCommerceClient, createWooCommerceClient, normalizeStoreUrl } from './woocommerce/client';
 export type { WooCommerceCredentials, WooListOptions, WooListResult } from './woocommerce/client';
 export {

@@ -11,6 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.weldsuite.weldbooks",
+      "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "WeldBooks needs camera access to scan receipts and documents."
@@ -18,10 +19,12 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#10B981"
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.weldsuite.weldbooks",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.POST_NOTIFICATIONS"
@@ -83,17 +86,12 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "PLACEHOLDER_WELDBOOKS_EAS_PROJECT_ID"
+        "projectId": "7fd15d67-875c-4752-96b1-8a87c0b153b5"
       }
     },
     "owner": "weldsuite",
     "runtimeVersion": {
       "policy": "appVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/PLACEHOLDER_WELDBOOKS_EAS_PROJECT_ID",
-      "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 0
     }
   }
 }

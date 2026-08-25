@@ -166,6 +166,15 @@ binding = "SCHEDULE_INDEX"
 database_name = "weldsuite-schedule-index-test"
 database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
 
+# D1 connector catch-up index — shared with integration-sync-worker. app-api
+# upserts a row on connect/pause/disconnect so the sweep can probe stores
+# without opening tenant Neon. Dev uses the test database.
+# Create with: wrangler d1 create weldsuite-connector-sync-index-test
+[[d1_databases]]
+binding = "CONNECTOR_SYNC_INDEX"
+database_name = "weldsuite-connector-sync-index-test"
+database_id = "c0ffee00-0001-4000-8000-000000000001"
+
 # R2 bucket for avatars / customer logos (shared with api-worker).
 [[r2_buckets]]
 binding = "STORAGE"
@@ -340,6 +349,11 @@ binding = "SCHEDULE_INDEX"
 database_name = "weldsuite-schedule-index-test"
 database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
 
+[[env.test.d1_databases]]
+binding = "CONNECTOR_SYNC_INDEX"
+database_name = "weldsuite-connector-sync-index-test"
+database_id = "c0ffee00-0001-4000-8000-000000000001"
+
 [[env.test.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage-test"
@@ -481,6 +495,11 @@ id = "99689831a815455ba7f836175e5e17c9"
 binding = "SCHEDULE_INDEX"
 database_name = "weldsuite-schedule-index-production"
 database_id = "d44f8243-eff7-4039-ab37-3ed51094ef39"
+
+[[env.production.d1_databases]]
+binding = "CONNECTOR_SYNC_INDEX"
+database_name = "weldsuite-connector-sync-index-production"
+database_id = "c0ffee00-0001-4000-8000-000000000002"
 
 [[env.production.r2_buckets]]
 binding = "STORAGE"

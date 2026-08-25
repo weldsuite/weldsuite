@@ -32,6 +32,7 @@ import {
   writeAccountingAudit,
 } from '../../services/accounting-guards';
 import { buildTaxTotalsWithRates, loadPlaceOfSupply } from '../../services/accounting-tax-resolve';
+import { lineItemsForBill, normalizeOcrResult } from '../../services/accounting-ocr';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -307,22 +308,16 @@ app.post('/from-document/:documentId', requirePermission('bills:create'), async 
     if (!doc) return error.notFound(c, 'Document', documentId);
     if (!doc.ocrResult) return error.badRequest(c, 'Document has not been processed yet');
 
-    const ocr = doc.ocrResult;
+    const ocr = normalizeOcrResult(doc.ocrResult as Record<string, unknown>);
 
     // Return pre-filled bill data for the frontend to review before creating
     return success(c, {
-      contactName: ocr.vendor?.name || null,
+      contactName: ocr.vendor.name || null,
       externalReference: ocr.invoiceNumber || null,
       issueDate: ocr.invoiceDate || null,
       dueDate: ocr.dueDate || null,
       currency: ocr.currency || null,
-      items: (ocr.lineItems || []).map((li, idx) => ({
-        description: li.description || '',
-        quantity: String(li.quantity || 1),
-        unitPrice: String(li.unitPrice || 0),
-        taxRate: li.taxRate ? String(li.taxRate) : null,
-        sortOrder: idx,
-      })),
+      items: lineItemsForBill(ocr),
       subtotal: ocr.subtotal,
       taxTotal: ocr.totalTax,
       total: ocr.total,

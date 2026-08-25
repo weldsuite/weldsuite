@@ -17,7 +17,9 @@ export interface TextareaProps extends Omit<TextInputProps, 'style'> {
   helperText?: string;
   numberOfLines?: number;
   containerStyle?: StyleProp<ViewStyle>;
-  inputStyle?: StyleProp<TextInputProps['style']>;
+  // `TextInputProps['style']` is already a StyleProp — wrapping it again makes
+  // it unassignable to TextInput's own style prop.
+  inputStyle?: TextInputProps['style'];
 }
 
 export const Textarea = forwardRef<TextInput, TextareaProps>(function Textarea(

@@ -195,6 +195,28 @@ export class ShopifyClient {
     return this.listResource<Record<string, unknown>>('customers.json', 'customers', options);
   }
 
+  async hasUpdatesSince(
+    resource: 'products' | 'orders' | 'customers',
+    updatedAtMin?: string,
+  ): Promise<boolean> {
+    const options: ShopifyListOptions = { limit: 1, updatedAtMin };
+    const result =
+      resource === 'products'
+        ? await this.listProducts(options)
+        : resource === 'orders'
+          ? await this.listOrders(options)
+          : await this.listCustomers(options);
+    return result.items.length > 0;
+  }
+
+  async countResource(resource: 'products' | 'orders' | 'customers'): Promise<number> {
+    const path = `${resource}/count.json`;
+    const { data } = await this.request<{ count?: number }>(path, {
+      search: resource === 'orders' ? { status: 'any' } : undefined,
+    });
+    return Number(data?.count ?? 0);
+  }
+
   async getProduct(id: string) {
     const { data } = await this.request<{ product: Record<string, unknown> }>(`products/${id}.json`);
     return data.product;

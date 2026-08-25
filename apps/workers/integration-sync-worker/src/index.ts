@@ -12,9 +12,10 @@
 
 import { drizzle as drizzleNeonHttp } from 'drizzle-orm/neon-http';
 import { neon } from '@neondatabase/serverless';
-import { eq, and, isNull } from 'drizzle-orm';
+import { and, eq, isNull, lte } from 'drizzle-orm';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import * as schema from '@weldsuite/db/schema';
+import { runConnectorCatchupSweep } from './connector-catchup';
 
 export interface Env {
   HYPERDRIVE_MASTER: Hyperdrive;
@@ -27,6 +28,10 @@ export interface Env {
    * failure branches below only log — a mismatch silently stops all auto-sync.
    */
   INTERNAL_API_SECRET?: string;
+  /** D1 connector catch-up index — due rows only; never scan tenant Neon. */
+  CONNECTOR_SYNC_INDEX?: D1Database;
+  DATABASE_ENCRYPTION_KEY?: string;
+  DATABASE_ENCRYPTION_KEY_V2?: string;
 }
 
 /** Default sync interval if not configured (hours) */
@@ -64,6 +69,19 @@ export default {
     ctx: ExecutionContext,
   ): Promise<void> {
     console.log(`[IntegrationScheduler] Starting sync check (${env.ENVIRONMENT})`);
+
+    if (env.CONNECTOR_SYNC_INDEX) {
+      try {
+        const catchup = await runConnectorCatchupSweep(env.CONNECTOR_SYNC_INDEX, env);
+        console.log(
+          `[IntegrationScheduler] Connector catch-up. Skipped: ${catchup.skipped}, Probed: ${catchup.probed}, Ingested: ${catchup.ingested}, Backed off: ${catchup.backedOff}`,
+        );
+      } catch (err) {
+        console.error('[IntegrationScheduler] Connector catch-up sweep failed:', err);
+      }
+    } else {
+      console.warn('[IntegrationScheduler] CONNECTOR_SYNC_INDEX D1 binding not configured, skipping connector catch-up');
+    }
 
     const masterDb = getMasterDb(env);
 
@@ -185,5 +203,51 @@ export default {
     }
 
     console.log(`[IntegrationScheduler] Done. Triggered: ${totalTriggered}, Skipped (not due): ${totalSkipped}`);
+
+    // WeldAds: poll master ad_sync_index — only touch tenants with due connections.
+    await runAdSyncSweep(env, masterDb, now);
   },
 };
+
+async function runAdSyncSweep(env: Env, masterDb: ReturnType<typeof getMasterDb>, now: Date) {
+  const dueRows = await masterDb
+    .select()
+    .from(masterSchema.adSyncIndex)
+    .where(
+      and(
+        eq(masterSchema.adSyncIndex.isEnabled, true),
+        lte(masterSchema.adSyncIndex.nextMetricsSyncAt, now),
+      ),
+    )
+    .limit(100);
+
+  let triggered = 0;
+  for (const row of dueRows) {
+    if (!row.clerkOrgId) continue;
+    try {
+      const response = await env.APP_API.fetch(
+        `https://internal/api/integrations/ad-connections/${row.connectionId}/sync?scope=full`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Workspace-Id': row.clerkOrgId,
+            'X-Internal-Secret': env.INTERNAL_API_SECRET || '',
+          },
+        },
+      );
+      if (response.ok) {
+        triggered += 1;
+        console.log(`[IntegrationScheduler] Triggered WeldAds sync for connection ${row.connectionId}`);
+      } else {
+        console.error(
+          `[IntegrationScheduler] WeldAds sync failed for ${row.connectionId}: ${response.status}`,
+        );
+      }
+    } catch (err) {
+      console.error(`[IntegrationScheduler] WeldAds sync error for ${row.connectionId}:`, err);
+    }
+  }
+
+  console.log(`[IntegrationScheduler] WeldAds sweep done. Triggered: ${triggered}`);
+}

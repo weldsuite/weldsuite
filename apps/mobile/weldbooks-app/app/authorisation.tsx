@@ -7,7 +7,7 @@ export default function AuthorisationScreen() {
       logoSize={{ width: 72, height: 72 }}
       appName="WeldBooks"
       subtitle="Accounting on the go"
-      showEmailLogin={false}
+      showEmailLogin={true}
     />
   );
 }
