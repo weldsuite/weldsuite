@@ -31,8 +31,34 @@ const withEasProject = (config) => {
   return {
     ...config,
     extra: { ...config.extra, eas: { ...config.extra?.eas, projectId } },
-    updates: { ...config.updates, url: `https://u.expo.dev/${projectId}` },
+    updates: {
+      ...config.updates,
+      url: `https://u.expo.dev/${projectId}`,
+      checkAutomatically: 'ON_LOAD',
+      fallbackToCacheTimeout: 0,
+    },
   };
 };
 
-module.exports = ({ config }) => withEasProject(config);
+/** Store builds must not allow plaintext HTTP. Dev/preview keep it for local app-api. */
+const withProductionCleartext = (config) => {
+  if (process.env.EAS_BUILD_PROFILE !== 'production') return config;
+
+  const plugins = (config.plugins || []).map((plugin) => {
+    if (!Array.isArray(plugin) || plugin[0] !== 'expo-build-properties') return plugin;
+    return [
+      'expo-build-properties',
+      {
+        ...plugin[1],
+        android: {
+          ...plugin[1]?.android,
+          usesCleartextTraffic: false,
+        },
+      },
+    ];
+  });
+
+  return { ...config, plugins };
+};
+
+module.exports = ({ config }) => withProductionCleartext(withEasProject(config));

@@ -15,7 +15,7 @@ Doppler's master DB URL is `DATABASE_URL_MASTER`; the workflow reads
 | `NEON_API_KEY` | `NEON_API_KEY` | Tenant migrations |
 | `CLOUDFLARE_API_TOKEN` | `CLOUDFLARE_API_TOKEN` | Workers + Pages |
 | `CLOUDFLARE_ACCOUNT_ID` | `cfcf560df8dc675d15337abcfbf6d9bd` | Workers + Pages |
-| `EXPO_TOKEN` | not in Doppler | WeldMail / WeldChat OTA (repo-level is fine) |
+| `EXPO_TOKEN` | not in Doppler | WeldMail / WeldChat / WeldBooks OTA (repo-level is fine) |
 
 Copy from Doppler without printing values:
 
