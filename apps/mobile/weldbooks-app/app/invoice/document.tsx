@@ -18,6 +18,7 @@ import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
 
 import api from '@/services/api';
+import { useI18n } from '@/lib/i18n';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { LoadingState, ErrorState } from '@/components/data-states';
 
@@ -25,6 +26,7 @@ export default function InvoiceDocumentScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
   const toast = useToast();
+  const { t } = useI18n();
 
   const [html, setHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -52,19 +54,19 @@ export default function InvoiceDocumentScreen() {
     try {
       await Share.share({ message: html });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not share the document');
+      toast.error(err instanceof Error ? err.message : t.invoiceDocument.shareFailed);
     }
-  }, [html, toast]);
+  }, [html, toast, t]);
 
   const header = (
     <ScreenHeader
-      title="Invoice document"
+      title={t.invoiceDocument.title}
       showBack
       actions={
         html ? (
           <IconButton
             icon={<Share2 size={20} color={colors.text} />}
-            accessibilityLabel="Share document"
+            accessibilityLabel={t.invoiceDocument.share}
             onPress={handleShare}
           />
         ) : null
@@ -75,7 +77,7 @@ export default function InvoiceDocumentScreen() {
   if (loading) {
     return (
       <Screen header={header}>
-        <LoadingState label="Rendering document…" />
+        <LoadingState label={t.invoiceDocument.rendering} />
       </Screen>
     );
   }
@@ -84,7 +86,7 @@ export default function InvoiceDocumentScreen() {
     return (
       <Screen header={header}>
         <ErrorState
-          message="Couldn't render this invoice."
+          message={t.invoiceDocument.loadError}
           onRetry={() => {
             setLoading(true);
             load();

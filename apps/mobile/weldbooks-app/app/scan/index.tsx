@@ -31,22 +31,12 @@ import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 
 import api from '@/services/api';
 import { BRAND } from '@/lib/brand';
-import { formatCurrency } from '@/lib/currency';
+import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import { useOfflineQueue } from '@/contexts/OfflineQueueContext';
 import type { BillPrefill } from '@/types/accounting';
 
 type Phase = 'camera' | 'review';
 type ScanStatus = 'uploading' | 'reading' | 'ready' | 'failed' | 'offline';
-
-function summarisePrefill(prefill: BillPrefill): string {
-  const currency = prefill.currency || 'EUR';
-  const parts: string[] = [];
-  if (prefill.contactName) parts.push(prefill.contactName);
-  if (prefill.total != null) parts.push(formatCurrency(prefill.total, currency));
-  else if (prefill.subtotal != null) parts.push(formatCurrency(prefill.subtotal, currency));
-  if (parts.length === 0) return 'Fields extracted — review them on the next screen.';
-  return `Found ${parts.join(' · ')}. Review on the next screen.`;
-}
 
 export default function ScanScreen() {
   const router = useRouter();
@@ -57,6 +47,8 @@ export default function ScanScreen() {
   const requestIdRef = useRef(0);
   const [permission, requestPermission] = useCameraPermissions();
   const { isOnline, addToQueue } = useOfflineQueue();
+  const { t, format } = useI18n();
+  const { formatCurrency } = useLocaleFormatters();
 
   const [phase, setPhase] = useState<Phase>('camera');
   const [flashEnabled, setFlashEnabled] = useState(false);
@@ -66,6 +58,19 @@ export default function ScanScreen() {
   const [scanStatus, setScanStatus] = useState<ScanStatus>('uploading');
 
   const busy = scanStatus === 'uploading' || scanStatus === 'reading';
+
+  const summarisePrefill = useCallback(
+    (pf: BillPrefill): string => {
+      const currency = pf.currency || 'EUR';
+      const parts: string[] = [];
+      if (pf.contactName) parts.push(pf.contactName);
+      if (pf.total != null) parts.push(formatCurrency(pf.total, currency));
+      else if (pf.subtotal != null) parts.push(formatCurrency(pf.subtotal, currency));
+      if (parts.length === 0) return t.scan.extracted;
+      return format(t.scan.found, { summary: parts.join(' · ') });
+    },
+    [t, format, formatCurrency],
+  );
 
   /**
    * Upload, then OCR. A later retake increments `requestIdRef` so a stale
@@ -81,7 +86,7 @@ export default function ScanScreen() {
         await addToQueue({ type: 'document', data: { fileName, type: 'receipt' } });
         if (!stillCurrent()) return;
         setScanStatus('offline');
-        toast.info('Offline — the receipt will upload when you reconnect');
+        toast.info(t.scan.offlineQueued);
         return;
       }
 
@@ -104,11 +109,11 @@ export default function ScanScreen() {
         if (!stillCurrent()) return;
         setScanStatus('failed');
         if (!uploadedId) {
-          toast.error('Could not upload the image — you can still enter the details');
+          toast.error(t.scan.uploadFailed);
         }
       }
     },
-    [isOnline, addToQueue, toast],
+    [isOnline, addToQueue, toast, t],
   );
 
   const processImage = useCallback(
@@ -130,9 +135,9 @@ export default function ScanScreen() {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
       if (photo?.uri) processImage(photo.uri);
     } catch {
-      toast.error('Failed to capture the photo');
+      toast.error(t.scan.captureFailed);
     }
-  }, [processImage, toast]);
+  }, [processImage, toast, t]);
 
   const handlePickFromGallery = useCallback(async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -175,14 +180,14 @@ export default function ScanScreen() {
         <View style={styles.permission}>
           <Receipt size={40} color={colors.mutedForeground} />
           <Text style={[styles.permissionTitle, { color: colors.text }]}>
-            Camera access needed
+            {t.scan.cameraNeeded}
           </Text>
           <Text style={[styles.permissionText, { color: colors.mutedForeground }]}>
-            WeldBooks uses the camera to scan receipts and invoices.
+            {t.scan.cameraDescription}
           </Text>
-          <Button title="Grant permission" onPress={requestPermission} style={styles.permissionCta} />
-          <Button title="Pick from gallery" variant="ghost" onPress={handlePickFromGallery} />
-          <Button title="Go back" variant="ghost" onPress={handleClose} />
+          <Button title={t.scan.grantPermission} onPress={requestPermission} style={styles.permissionCta} />
+          <Button title={t.scan.pickFromGallery} variant="ghost" onPress={handlePickFromGallery} />
+          <Button title={t.scan.goBack} variant="ghost" onPress={handleClose} />
         </View>
       </SafeAreaView>
     );
@@ -204,16 +209,16 @@ export default function ScanScreen() {
               style={styles.topButton}
               onPress={handleClose}
               accessibilityRole="button"
-              accessibilityLabel="Close scanner"
+              accessibilityLabel={t.scan.closeScanner}
             >
               <X size={22} color="#fff" />
             </TouchableOpacity>
-            <Text style={styles.topTitle}>Scan receipt</Text>
+            <Text style={styles.topTitle}>{t.scan.scanReceipt}</Text>
             <TouchableOpacity
               style={[styles.topButton, flashEnabled && styles.topButtonActive]}
               onPress={() => setFlashEnabled((on) => !on)}
               accessibilityRole="button"
-              accessibilityLabel={flashEnabled ? 'Turn flash off' : 'Turn flash on'}
+              accessibilityLabel={flashEnabled ? t.scan.flashOn : t.scan.flashOff}
             >
               <Zap size={20} color={flashEnabled ? '#000' : '#fff'} />
             </TouchableOpacity>
@@ -226,7 +231,7 @@ export default function ScanScreen() {
               <View style={[styles.corner, styles.cornerBL]} />
               <View style={[styles.corner, styles.cornerBR]} />
             </View>
-            <Text style={styles.frameHint}>Align the receipt within the frame</Text>
+            <Text style={styles.frameHint}>{t.scan.alignHint}</Text>
           </View>
 
           <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) }]}>
@@ -234,17 +239,17 @@ export default function ScanScreen() {
               style={styles.sideButton}
               onPress={handlePickFromGallery}
               accessibilityRole="button"
-              accessibilityLabel="Pick from gallery"
+              accessibilityLabel={t.scan.pickFromGallery}
             >
               <Images size={22} color="#fff" />
-              <Text style={styles.sideLabel}>Gallery</Text>
+              <Text style={styles.sideLabel}>{t.scan.pickFromGallery}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.shutter}
               onPress={handleCapture}
               accessibilityRole="button"
-              accessibilityLabel="Take photo"
+              accessibilityLabel={t.scan.takePhoto}
             >
               <View style={styles.shutterInner} />
             </TouchableOpacity>
@@ -260,11 +265,11 @@ export default function ScanScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
       <View style={styles.reviewHeader}>
         <TouchableOpacity onPress={handleRetake} accessibilityRole="button">
-          <Text style={[styles.reviewAction, { color: BRAND }]}>Retake</Text>
+          <Text style={[styles.reviewAction, { color: BRAND }]}>{t.scan.retake}</Text>
         </TouchableOpacity>
-        <Text style={[styles.reviewTitle, { color: colors.text }]}>Receipt</Text>
+        <Text style={[styles.reviewTitle, { color: colors.text }]}>{t.scan.receipt}</Text>
         <TouchableOpacity onPress={handleClose} accessibilityRole="button">
-          <Text style={[styles.reviewAction, { color: colors.mutedForeground }]}>Close</Text>
+          <Text style={[styles.reviewAction, { color: colors.mutedForeground }]}>{t.scan.close}</Text>
         </TouchableOpacity>
       </View>
 
@@ -277,39 +282,39 @@ export default function ScanScreen() {
       <View style={styles.reviewBody}>
         {scanStatus === 'uploading' ? (
           <Banner variant="info" style={styles.banner}>
-            Uploading the image…
+            {t.scan.uploading}
           </Banner>
         ) : null}
         {scanStatus === 'reading' ? (
           <Banner variant="info" style={styles.banner}>
-            Reading the receipt…
+            {t.scan.reading}
           </Banner>
         ) : null}
         {scanStatus === 'ready' ? (
           <Banner variant="success" style={styles.banner}>
-            {prefill ? summarisePrefill(prefill) : 'Receipt attached. Enter the amounts to book it.'}
+            {prefill ? summarisePrefill(prefill) : t.scan.attached}
           </Banner>
         ) : null}
         {scanStatus === 'failed' ? (
           <Banner variant="warning" style={styles.banner}>
-            Could not read the receipt. Enter the details — the image is still attached.
+            {t.scan.ocrFailed}
           </Banner>
         ) : null}
         {scanStatus === 'offline' ? (
           <Banner variant="info" style={styles.banner}>
-            You&apos;re offline. Enter the details; the image will upload when you reconnect.
+            {t.scan.offlineBanner}
           </Banner>
         ) : null}
 
         <Button
-          title="Quick expense"
+          title={t.scan.quickExpense}
           leftIcon={<Receipt size={18} color={colors.primaryForeground} />}
           onPress={() => goTo('/expense/quick')}
           disabled={busy}
           fullWidth
         />
         <Button
-          title="Create bill"
+          title={t.scan.createBill}
           variant="outline"
           leftIcon={<FileText size={18} color={colors.text} />}
           onPress={() => goTo('/bill/new')}

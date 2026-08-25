@@ -19,6 +19,7 @@ import { Button } from '@weldsuite/mobile-ui/components/Button';
 import api from '@/services/api';
 import { parseAmount } from '@/lib/currency';
 import { today, addDays } from '@/lib/date';
+import { useI18n } from '@/lib/i18n';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard } from '@/components/detail';
 import {
@@ -31,6 +32,7 @@ import {
 export default function NewInvoiceScreen() {
   const router = useRouter();
   const toast = useToast();
+  const { t } = useI18n();
 
   const [contactName, setContactName] = useState('');
   const [contactEmail, setContactEmail] = useState('');
@@ -47,8 +49,8 @@ export default function NewInvoiceScreen() {
     const usable = validLineItems(items);
 
     const nextErrors: typeof errors = {};
-    if (!name) nextErrors.contactName = 'Enter a customer name';
-    if (usable.length === 0) nextErrors.items = 'Add at least one item with a description and price';
+    if (!name) nextErrors.contactName = t.invoiceNew.nameError;
+    if (usable.length === 0) nextErrors.items = t.invoiceNew.itemsError;
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
 
@@ -70,62 +72,60 @@ export default function NewInvoiceScreen() {
         })),
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      toast.success('Draft invoice created');
+      toast.success(t.invoiceNew.created);
       router.replace(`/invoice/${invoice.id}` as never);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not create the invoice');
+      toast.error(err instanceof Error ? err.message : t.invoiceNew.createFailed);
     } finally {
       setSaving(false);
     }
-  }, [contactName, contactEmail, issueDate, dueDate, items, notes, reference, router, toast]);
+  }, [contactName, contactEmail, issueDate, dueDate, items, notes, reference, router, toast, t]);
 
   return (
-    <Screen header={<ScreenHeader title="New invoice" showBack />}>
+    <Screen header={<ScreenHeader title={t.invoiceNew.title} showBack />}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.flex}
       >
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
-          <SectionCard title="Customer">
+          <SectionCard title={t.invoiceNew.customer}>
             <Input
-              label="Name"
+              label={t.invoiceNew.name}
               value={contactName}
               onChangeText={(text) => {
                 setContactName(text);
                 if (errors.contactName) setErrors((e) => ({ ...e, contactName: undefined }));
               }}
-              placeholder="Acme B.V."
+              placeholder={t.invoiceNew.namePlaceholder}
               error={errors.contactName}
-              helperText={
-                errors.contactName ? undefined : 'A matching contact is created if none exists'
-              }
+              helperText={errors.contactName ? undefined : t.invoiceNew.nameHint}
               autoCapitalize="words"
             />
             <Input
-              label="Email"
+              label={t.invoiceNew.email}
               value={contactEmail}
               onChangeText={setContactEmail}
-              placeholder="billing@acme.com"
+              placeholder={t.invoiceNew.emailPlaceholder}
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
             />
           </SectionCard>
 
-          <SectionCard title="Dates">
+          <SectionCard title={t.invoiceNew.dates}>
             <Input
-              label="Issue date"
+              label={t.invoiceNew.issueDate}
               value={issueDate}
               onChangeText={setIssueDate}
-              placeholder="YYYY-MM-DD"
+              placeholder={t.invoiceNew.datePlaceholder}
               autoCapitalize="none"
               autoCorrect={false}
             />
             <Input
-              label="Due date"
+              label={t.invoiceNew.dueDate}
               value={dueDate}
               onChangeText={setDueDate}
-              placeholder="YYYY-MM-DD"
+              placeholder={t.invoiceNew.datePlaceholder}
               autoCapitalize="none"
               autoCorrect={false}
             />
@@ -140,24 +140,24 @@ export default function NewInvoiceScreen() {
             }}
           />
 
-          <SectionCard title="Extras">
+          <SectionCard title={t.invoiceNew.extras}>
             <Textarea
-              label="Notes"
+              label={t.invoiceNew.notes}
               value={notes}
               onChangeText={setNotes}
-              placeholder="Notes shown to the customer"
+              placeholder={t.invoiceNew.notesPlaceholder}
               numberOfLines={3}
             />
             <Input
-              label="Reference"
+              label={t.invoiceNew.reference}
               value={reference}
               onChangeText={setReference}
-              placeholder="PO number or reference"
+              placeholder={t.invoiceNew.referencePlaceholder}
             />
           </SectionCard>
 
           <Button
-            title="Create draft"
+            title={t.invoiceNew.createDraft}
             onPress={handleSave}
             loading={saving}
             fullWidth

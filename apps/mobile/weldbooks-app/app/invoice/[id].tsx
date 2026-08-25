@@ -21,8 +21,9 @@ import { Divider } from '@weldsuite/mobile-ui/components/Divider';
 import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
 
 import api from '@/services/api';
-import { formatCurrency, toNumber } from '@/lib/currency';
-import { formatDate, daysUntil } from '@/lib/date';
+import { toNumber } from '@/lib/currency';
+import { daysUntil } from '@/lib/date';
+import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import { BRAND } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard, DetailRow, TotalsBlock } from '@/components/detail';
@@ -38,6 +39,8 @@ export default function InvoiceDetailScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const toast = useToast();
+  const { t, format, plural } = useI18n();
+  const { formatCurrency, formatDate } = useLocaleFormatters();
 
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
@@ -75,12 +78,12 @@ export default function InvoiceDetailScreen() {
         toast.success(successMessage);
         await load();
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Action failed');
+        toast.error(err instanceof Error ? err.message : t.common.actionFailed);
       } finally {
         setBusy(false);
       }
     },
-    [load, toast],
+    [load, toast, t],
   );
 
   const handleMore = useCallback(() => {
@@ -89,30 +92,30 @@ export default function InvoiceDetailScreen() {
 
     const options: { text: string; style?: 'destructive' | 'cancel'; onPress?: () => void }[] = [
       {
-        text: 'Duplicate',
+        text: t.invoiceDetail.duplicate,
         onPress: () =>
           run(async () => {
             const copy = await api.duplicateInvoice(invoice.id);
             router.replace(`/invoice/${copy.id}`);
-          }, 'Invoice duplicated'),
+          }, t.invoiceDetail.duplicated),
       },
     ];
 
     if (invoice.status !== 'draft' && invoice.status !== 'cancelled') {
-      options.push({ text: 'Create credit note', onPress: () => setConfirm('creditNote') });
-      options.push({ text: 'Cancel invoice', style: 'destructive', onPress: () => setConfirm('cancel') });
+      options.push({ text: t.invoiceDetail.createCreditNote, onPress: () => setConfirm('creditNote') });
+      options.push({ text: t.invoiceDetail.cancelInvoice, style: 'destructive', onPress: () => setConfirm('cancel') });
     }
     if (invoice.status === 'draft') {
-      options.push({ text: 'Delete draft', style: 'destructive', onPress: () => setConfirm('delete') });
+      options.push({ text: t.invoiceDetail.deleteDraft, style: 'destructive', onPress: () => setConfirm('delete') });
     }
-    options.push({ text: 'Dismiss', style: 'cancel' });
+    options.push({ text: t.common.dismiss, style: 'cancel' });
 
-    Alert.alert('Invoice actions', undefined, options);
-  }, [invoice, run, router]);
+    Alert.alert(t.invoiceDetail.actionsTitle, undefined, options);
+  }, [invoice, run, router, t]);
 
   const header = (
     <ScreenHeader
-      title={invoice?.invoiceNumber || 'Invoice'}
+      title={invoice?.invoiceNumber || t.invoiceDetail.title}
       subtitle={invoice?.contactName}
       showBack
       actions={
@@ -120,12 +123,12 @@ export default function InvoiceDetailScreen() {
           <>
             <IconButton
               icon={<FileText size={20} color={colors.text} />}
-              accessibilityLabel="View document"
+              accessibilityLabel={t.invoiceDetail.viewDocument}
               onPress={() => router.push(`/invoice/document?id=${invoice.id}` as never)}
             />
             <IconButton
               icon={<MoreHorizontal size={22} color={colors.text} />}
-              accessibilityLabel="More actions"
+              accessibilityLabel={t.invoiceDetail.moreActions}
               onPress={handleMore}
             />
           </>
@@ -146,7 +149,7 @@ export default function InvoiceDetailScreen() {
     return (
       <Screen header={header}>
         <ErrorState
-          message="Couldn't load this invoice."
+          message={t.invoiceDetail.loadError}
           onRetry={() => {
             setLoading(true);
             load();
@@ -182,7 +185,7 @@ export default function InvoiceDetailScreen() {
           <View style={styles.summary}>
             <View>
               <Text style={[styles.summaryLabel, { color: colors.mutedForeground }]}>
-                {balanceDue > 0 ? 'Balance due' : 'Total'}
+                {balanceDue > 0 ? t.invoiceDetail.balanceDue : t.invoiceDetail.total}
               </Text>
               <Text style={[styles.summaryValue, { color: colors.text }]}>
                 {formatCurrency(balanceDue > 0 ? balanceDue : invoice.total, currency)}
@@ -203,24 +206,24 @@ export default function InvoiceDetailScreen() {
               ]}
             >
               {due < 0
-                ? `Overdue by ${Math.abs(due)} day${Math.abs(due) === 1 ? '' : 's'}`
+                ? plural(Math.abs(due), t.invoiceDetail.overdueBy)
                 : due === 0
-                  ? 'Due today'
-                  : `Due in ${due} day${due === 1 ? '' : 's'}`}
+                  ? t.invoiceDetail.dueToday
+                  : plural(due, t.invoiceDetail.dueIn)}
             </Text>
           ) : null}
         </SectionCard>
 
-        <SectionCard title="Details">
-          <DetailRow label="Customer" value={invoice.contactName} />
-          {invoice.contactEmail ? <DetailRow label="Email" value={invoice.contactEmail} /> : null}
-          <DetailRow label="Issue date" value={formatDate(invoice.issueDate)} />
-          <DetailRow label="Due date" value={formatDate(invoice.dueDate)} />
-          {invoice.reference ? <DetailRow label="Reference" value={invoice.reference} /> : null}
+        <SectionCard title={t.invoiceDetail.details}>
+          <DetailRow label={t.invoiceDetail.customer} value={invoice.contactName} />
+          {invoice.contactEmail ? <DetailRow label={t.invoiceDetail.email} value={invoice.contactEmail} /> : null}
+          <DetailRow label={t.invoiceDetail.issueDate} value={formatDate(invoice.issueDate)} />
+          <DetailRow label={t.invoiceDetail.dueDate} value={formatDate(invoice.dueDate)} />
+          {invoice.reference ? <DetailRow label={t.invoiceDetail.reference} value={invoice.reference} /> : null}
         </SectionCard>
 
         {invoice.items?.length ? (
-          <SectionCard title="Line items">
+          <SectionCard title={t.invoiceDetail.lineItems}>
             {invoice.items.map((item, index) => (
               <View key={item.id ?? index}>
                 {index > 0 ? <Divider style={styles.itemDivider} /> : null}
@@ -230,7 +233,9 @@ export default function InvoiceDetailScreen() {
                 <View style={styles.itemMeta}>
                   <Text style={[styles.itemQty, { color: colors.mutedForeground }]}>
                     {toNumber(item.quantity)} × {formatCurrency(item.unitPrice, currency)}
-                    {toNumber(item.taxRate) > 0 ? `  ·  ${toNumber(item.taxRate)}% VAT` : ''}
+                    {toNumber(item.taxRate) > 0
+                      ? `  ·  ${format(t.invoiceDetail.vatRate, { rate: toNumber(item.taxRate) })}`
+                      : ''}
                   </Text>
                   <Text style={[styles.itemTotal, { color: colors.text }]}>
                     {formatCurrency(item.lineTotal, currency)}
@@ -241,24 +246,24 @@ export default function InvoiceDetailScreen() {
           </SectionCard>
         ) : null}
 
-        <SectionCard title="Totals">
+        <SectionCard title={t.invoiceDetail.totals}>
           <TotalsBlock
             rows={[
-              { label: 'Subtotal', value: formatCurrency(invoice.subtotal, currency) },
-              { label: 'VAT', value: formatCurrency(invoice.taxTotal, currency) },
+              { label: t.invoiceDetail.subtotal, value: formatCurrency(invoice.subtotal, currency) },
+              { label: t.invoiceDetail.vat, value: formatCurrency(invoice.taxTotal, currency) },
               ...(amountPaid > 0
-                ? [{ label: 'Paid', value: `−${formatCurrency(amountPaid, currency)}` }]
+                ? [{ label: t.invoiceDetail.paid, value: `−${formatCurrency(amountPaid, currency)}` }]
                 : []),
             ]}
             total={{
-              label: balanceDue > 0 && amountPaid > 0 ? 'Balance due' : 'Total',
+              label: balanceDue > 0 && amountPaid > 0 ? t.invoiceDetail.balanceDue : t.invoiceDetail.total,
               value: formatCurrency(balanceDue > 0 && amountPaid > 0 ? balanceDue : invoice.total, currency),
             }}
           />
         </SectionCard>
 
         {invoice.notes ? (
-          <SectionCard title="Notes">
+          <SectionCard title={t.invoiceDetail.notes}>
             <Text style={[styles.notes, { color: colors.mutedForeground }]}>{invoice.notes}</Text>
           </SectionCard>
         ) : null}
@@ -266,9 +271,9 @@ export default function InvoiceDetailScreen() {
         <View style={styles.actions}>
           {invoice.status === 'draft' ? (
             <Button
-              title="Finalise invoice"
+              title={t.invoiceDetail.finalise}
               leftIcon={<Lock size={18} color={colors.primaryForeground} />}
-              onPress={() => run(() => api.finalizeInvoice(invoice.id), 'Invoice finalised')}
+              onPress={() => run(() => api.finalizeInvoice(invoice.id), t.invoiceDetail.finalised)}
               loading={busy}
               fullWidth
             />
@@ -276,10 +281,10 @@ export default function InvoiceDetailScreen() {
 
           {invoice.status !== 'draft' && !isSettled ? (
             <Button
-              title="Send invoice"
+              title={t.invoiceDetail.send}
               variant="outline"
               leftIcon={<Send size={18} color={colors.text} />}
-              onPress={() => run(() => api.sendInvoice(invoice.id), 'Invoice sent')}
+              onPress={() => run(() => api.sendInvoice(invoice.id), t.invoiceDetail.sent)}
               loading={busy}
               fullWidth
             />
@@ -287,7 +292,7 @@ export default function InvoiceDetailScreen() {
 
           {balanceDue > 0 && invoice.status !== 'draft' && invoice.status !== 'cancelled' ? (
             <Button
-              title="Record payment"
+              title={t.invoiceDetail.recordPayment}
               leftIcon={<CreditCard size={18} color={colors.primaryForeground} />}
               onPress={() => setPaymentOpen(true)}
               disabled={busy}
@@ -296,7 +301,7 @@ export default function InvoiceDetailScreen() {
           ) : null}
 
           <Button
-            title="View document"
+            title={t.invoiceDetail.viewDocument}
             variant="ghost"
             leftIcon={<FileText size={18} color={colors.text} />}
             onPress={() => router.push(`/invoice/document?id=${invoice.id}` as never)}
@@ -314,7 +319,7 @@ export default function InvoiceDetailScreen() {
         onSubmit={async (payment) => {
           await run(
             () => api.recordInvoicePayment(invoice.id, payment),
-            'Payment recorded',
+            t.invoiceDetail.paymentRecorded,
           );
           setPaymentOpen(false);
         }}
@@ -322,9 +327,9 @@ export default function InvoiceDetailScreen() {
 
       <ConfirmModal
         visible={confirm === 'delete'}
-        title="Delete this draft?"
-        message="The draft invoice will be removed. This cannot be undone."
-        confirmText="Delete"
+        title={t.invoiceDetail.deleteTitle}
+        message={t.invoiceDetail.deleteMessage}
+        confirmText={t.common.delete}
         variant="destructive"
         loading={busy}
         onCancel={() => setConfirm(null)}
@@ -333,10 +338,10 @@ export default function InvoiceDetailScreen() {
           setBusy(true);
           try {
             await api.deleteInvoice(invoice.id);
-            toast.success('Draft deleted');
+            toast.success(t.invoiceDetail.deleted);
             router.back();
           } catch (err) {
-            toast.error(err instanceof Error ? err.message : 'Could not delete the draft');
+            toast.error(err instanceof Error ? err.message : t.invoiceDetail.deleteFailed);
           } finally {
             setBusy(false);
           }
@@ -345,24 +350,24 @@ export default function InvoiceDetailScreen() {
 
       <ConfirmModal
         visible={confirm === 'cancel'}
-        title="Cancel this invoice?"
-        message="It stays in your books for the audit trail but is no longer collectable."
-        confirmText="Cancel invoice"
-        cancelText="Keep"
+        title={t.invoiceDetail.cancelTitle}
+        message={t.invoiceDetail.cancelMessage}
+        confirmText={t.invoiceDetail.cancelInvoice}
+        cancelText={t.common.keep}
         variant="destructive"
         loading={busy}
         onCancel={() => setConfirm(null)}
         onConfirm={() => {
           setConfirm(null);
-          run(() => api.setInvoiceStatus(invoice.id, 'cancelled'), 'Invoice cancelled');
+          run(() => api.setInvoiceStatus(invoice.id, 'cancelled'), t.invoiceDetail.cancelled);
         }}
       />
 
       <ConfirmModal
         visible={confirm === 'creditNote'}
-        title="Create a credit note?"
-        message="This issues a document reversing the invoice — the correct way to correct an issued invoice."
-        confirmText="Create"
+        title={t.invoiceDetail.creditNoteTitle}
+        message={t.invoiceDetail.creditNoteMessage}
+        confirmText={t.common.create}
         loading={busy}
         onCancel={() => setConfirm(null)}
         onConfirm={() => {
@@ -370,7 +375,7 @@ export default function InvoiceDetailScreen() {
           run(async () => {
             const note = await api.createCreditNote(invoice.id);
             router.replace(`/invoice/${note.id}`);
-          }, 'Credit note created');
+          }, t.invoiceDetail.creditNoteCreated);
         }}
       />
     </Screen>

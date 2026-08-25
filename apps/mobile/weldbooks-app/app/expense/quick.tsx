@@ -40,23 +40,24 @@ import { Card } from '@weldsuite/mobile-ui/components/Card';
 import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 
 import api from '@/services/api';
-import { formatCurrency, parseAmount } from '@/lib/currency';
+import { parseAmount } from '@/lib/currency';
 import { today } from '@/lib/date';
+import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import { BRAND, tint } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard } from '@/components/detail';
 import { useOfflineQueue } from '@/contexts/OfflineQueueContext';
 import type { BillPrefill, ExpenseCategory } from '@/types/accounting';
 
-const CATEGORIES: { key: ExpenseCategory; label: string; icon: typeof Utensils }[] = [
-  { key: 'food', label: 'Food', icon: Utensils },
-  { key: 'transport', label: 'Transport', icon: Car },
-  { key: 'office', label: 'Office', icon: Briefcase },
-  { key: 'travel', label: 'Travel', icon: Plane },
-  { key: 'supplies', label: 'Supplies', icon: Package },
-  { key: 'utilities', label: 'Utilities', icon: Zap },
-  { key: 'insurance', label: 'Insurance', icon: Shield },
-  { key: 'other', label: 'Other', icon: Tag },
+const CATEGORY_KEYS: { key: ExpenseCategory; icon: typeof Utensils }[] = [
+  { key: 'food', icon: Utensils },
+  { key: 'transport', icon: Car },
+  { key: 'office', icon: Briefcase },
+  { key: 'travel', icon: Plane },
+  { key: 'supplies', icon: Package },
+  { key: 'utilities', icon: Zap },
+  { key: 'insurance', icon: Shield },
+  { key: 'other', icon: Tag },
 ];
 
 function exclusiveFromPrefill(prefill: BillPrefill): number | null {
@@ -81,6 +82,19 @@ export default function QuickExpenseScreen() {
   const amountRef = useRef<TextInput>(null);
   const { isOnline, addToQueue } = useOfflineQueue();
   const params = useLocalSearchParams<{ amount?: string; vendorName?: string; documentId?: string }>();
+  const { t, format } = useI18n();
+  const { formatCurrency } = useLocaleFormatters();
+
+  const categoryLabels: Record<ExpenseCategory, string> = {
+    food: t.expenseQuick.food,
+    transport: t.expenseQuick.transport,
+    office: t.expenseQuick.office,
+    travel: t.expenseQuick.travel,
+    supplies: t.expenseQuick.supplies,
+    utilities: t.expenseQuick.utilities,
+    insurance: t.expenseQuick.insurance,
+    other: t.expenseQuick.other,
+  };
 
   const [amount, setAmount] = useState(params.amount ?? '');
   const [category, setCategory] = useState<ExpenseCategory>('other');
@@ -123,7 +137,7 @@ export default function QuickExpenseScreen() {
   const handleSave = useCallback(async () => {
     const value = parseAmount(amount);
     if (value <= 0) {
-      setAmountError('Enter an amount greater than zero');
+      setAmountError(t.expenseQuick.amountError);
       return;
     }
     setAmountError(undefined);
@@ -143,24 +157,24 @@ export default function QuickExpenseScreen() {
       if (!isOnline) {
         await addToQueue({ type: 'expense', data: payload });
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        toast.info('Saved offline — it will sync when you reconnect');
+        toast.info(t.expenseQuick.savedOffline);
         router.back();
         return;
       }
 
       await api.createQuickExpense(payload);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      toast.success('Expense saved');
+      toast.success(t.expenseQuick.saved);
       router.back();
     } catch (err) {
       // A request that failed while nominally online is still worth keeping —
       // queue it rather than losing what was typed.
       try {
         await addToQueue({ type: 'expense', data: payload });
-        toast.info('Saved to the offline queue — we’ll retry shortly');
+        toast.info(t.expenseQuick.queuedRetry);
         router.back();
       } catch {
-        toast.error(err instanceof Error ? err.message : 'Could not save the expense');
+        toast.error(err instanceof Error ? err.message : t.expenseQuick.saveFailed);
       }
     } finally {
       setSaving(false);
@@ -177,10 +191,11 @@ export default function QuickExpenseScreen() {
     addToQueue,
     router,
     toast,
+    t,
   ]);
 
   return (
-    <Screen header={<ScreenHeader title="Quick expense" showBack />}>
+    <Screen header={<ScreenHeader title={t.expenseQuick.title} showBack />}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.flex}
@@ -192,27 +207,29 @@ export default function QuickExpenseScreen() {
               icon={<WifiOff size={18} color={colors.warning} />}
               style={styles.banner}
             >
-              You&apos;re offline. This expense will be queued and synced later.
+              {t.expenseQuick.offlineBanner}
             </Banner>
           ) : null}
           {ocrState === 'loading' ? (
             <Banner variant="info" style={styles.banner}>
-              Filling in fields from the scan…
+              {t.expenseQuick.ocrLoading}
             </Banner>
           ) : null}
           {ocrState === 'ready' ? (
             <Banner variant="success" style={styles.banner}>
-              Prefilled from the scan — check the figures before saving.
+              {t.expenseQuick.ocrReady}
             </Banner>
           ) : null}
           {ocrState === 'failed' ? (
             <Banner variant="warning" style={styles.banner}>
-              Could not read the receipt. Enter the details — the image is still attached.
+              {t.expenseQuick.ocrFailed}
             </Banner>
           ) : null}
 
           <Card style={styles.amountCard}>
-            <Text style={[styles.amountLabel, { color: colors.mutedForeground }]}>Amount</Text>
+            <Text style={[styles.amountLabel, { color: colors.mutedForeground }]}>
+              {t.expenseQuick.amount}
+            </Text>
             <Pressable onPress={() => amountRef.current?.focus()} style={styles.amountPress}>
               <TextInput
                 ref={amountRef}
@@ -232,17 +249,21 @@ export default function QuickExpenseScreen() {
               <Text style={[styles.amountError, { color: colors.destructive }]}>{amountError}</Text>
             ) : (
               <Text style={[styles.amountHint, { color: colors.mutedForeground }]}>
-                excl. {parseAmount(taxRate || '0')}% VAT ·{' '}
-                {formatCurrency(parseAmount(amount || '0') * (1 + parseAmount(taxRate || '0') / 100))}{' '}
-                incl.
+                {format(t.expenseQuick.amountHint, {
+                  rate: parseAmount(taxRate || '0'),
+                  total: formatCurrency(
+                    parseAmount(amount || '0') * (1 + parseAmount(taxRate || '0') / 100),
+                  ),
+                })}
               </Text>
             )}
           </Card>
 
-          <SectionCard title="Category" padded={false}>
+          <SectionCard title={t.expenseQuick.category} padded={false}>
             <View style={styles.categories}>
-              {CATEGORIES.map(({ key, label, icon: Icon }) => {
+              {CATEGORY_KEYS.map(({ key, icon: Icon }) => {
                 const selected = category === key;
+                const label = categoryLabels[key];
                 return (
                   <Pressable
                     key={key}
@@ -276,40 +297,40 @@ export default function QuickExpenseScreen() {
             </View>
           </SectionCard>
 
-          <SectionCard title="Details">
+          <SectionCard title={t.expenseQuick.details}>
             <Input
-              label="Vendor"
+              label={t.expenseQuick.vendor}
               value={vendorName}
               onChangeText={setVendorName}
-              placeholder="e.g. Shell, Amazon"
+              placeholder={t.expenseQuick.vendorPlaceholder}
               autoCapitalize="words"
             />
             <Input
-              label="Date"
+              label={t.expenseQuick.date}
               value={date}
               onChangeText={setDate}
-              placeholder="YYYY-MM-DD"
+              placeholder={t.expenseQuick.datePlaceholder}
               autoCapitalize="none"
               autoCorrect={false}
             />
             <Input
-              label="VAT %"
+              label={t.expenseQuick.vatPercent}
               value={taxRate}
               onChangeText={setTaxRate}
               keyboardType="decimal-pad"
               placeholder="21"
             />
             <Textarea
-              label="Description"
+              label={t.expenseQuick.description}
               value={description}
               onChangeText={setDescription}
-              placeholder="What was this for?"
+              placeholder={t.expenseQuick.descriptionPlaceholder}
               numberOfLines={3}
             />
           </SectionCard>
 
           <Button
-            title={isOnline ? 'Save expense' : 'Queue expense'}
+            title={isOnline ? t.expenseQuick.save : t.expenseQuick.queue}
             onPress={handleSave}
             loading={saving}
             fullWidth
