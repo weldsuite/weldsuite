@@ -52,7 +52,7 @@ export default function SettingsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [activeEntity?.id]);
+  }, [activeEntity?.id, t]);
 
   useEffect(() => {
     fetchSettings();

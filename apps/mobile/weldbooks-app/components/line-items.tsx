@@ -16,8 +16,9 @@ import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
 import { Divider } from '@weldsuite/mobile-ui/components/Divider';
 
-import { formatCurrency, parseAmount } from '@/lib/currency';
+import { parseAmount } from '@/lib/currency';
 import { SectionCard, TotalsBlock } from '@/components/detail';
+import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 
 export interface LineItemDraft {
   key: string;
@@ -74,6 +75,8 @@ export function LineItemsEditor({
   error?: string;
 }) {
   const { colors } = useTheme();
+  const { t, format } = useI18n();
+  const { formatCurrency: money } = useLocaleFormatters();
   const totals = calculateTotals(items);
 
   const update = (key: string, patch: Partial<LineItemDraft>) =>
@@ -84,10 +87,10 @@ export function LineItemsEditor({
   return (
     <>
       <SectionCard
-        title="Line items"
+        title={t.lineItems.title}
         action={
           <Button
-            title="Add"
+            title={t.lineItems.add}
             variant="ghost"
             size="sm"
             leftIcon={<Plus size={16} color={colors.text} />}
@@ -103,12 +106,12 @@ export function LineItemsEditor({
               {index > 0 ? <Divider style={styles.divider} /> : null}
               <View style={styles.itemHeader}>
                 <Text style={[styles.itemIndex, { color: colors.mutedForeground }]}>
-                  Item {index + 1}
+                  {format(t.lineItems.item, { index: index + 1 })}
                 </Text>
                 {items.length > 1 ? (
                   <IconButton
                     icon={<Trash2 size={16} color={colors.destructive} />}
-                    accessibilityLabel={`Remove item ${index + 1}`}
+                    accessibilityLabel={format(t.lineItems.remove, { index: index + 1 })}
                     size="sm"
                     onPress={() => remove(item.key)}
                   />
@@ -118,12 +121,12 @@ export function LineItemsEditor({
               <Input
                 value={item.description}
                 onChangeText={(text) => update(item.key, { description: text })}
-                placeholder="Description"
+                placeholder={t.lineItems.description}
               />
 
               <View style={styles.numbers}>
                 <Input
-                  label="Qty"
+                  label={t.lineItems.qty}
                   value={item.quantity}
                   onChangeText={(text) => update(item.key, { quantity: text })}
                   keyboardType="decimal-pad"
@@ -131,7 +134,7 @@ export function LineItemsEditor({
                   containerStyle={styles.numberField}
                 />
                 <Input
-                  label="Unit price"
+                  label={t.lineItems.unitPrice}
                   value={item.unitPrice}
                   onChangeText={(text) => update(item.key, { unitPrice: text })}
                   keyboardType="decimal-pad"
@@ -139,7 +142,7 @@ export function LineItemsEditor({
                   containerStyle={styles.numberFieldWide}
                 />
                 <Input
-                  label="VAT %"
+                  label={t.lineItems.vatPercent}
                   value={item.taxRate}
                   onChangeText={(text) => update(item.key, { taxRate: text })}
                   keyboardType="decimal-pad"
@@ -149,7 +152,7 @@ export function LineItemsEditor({
               </View>
 
               <Text style={[styles.lineTotal, { color: colors.mutedForeground }]}>
-                Line total {formatCurrency(lineTotal, currency)}
+                {format(t.lineItems.lineTotal, { amount: money(lineTotal, currency) })}
               </Text>
             </View>
           );
@@ -160,13 +163,13 @@ export function LineItemsEditor({
         ) : null}
       </SectionCard>
 
-      <SectionCard title="Totals">
+      <SectionCard title={t.lineItems.totals}>
         <TotalsBlock
           rows={[
-            { label: 'Subtotal', value: formatCurrency(totals.subtotal, currency) },
-            { label: 'VAT', value: formatCurrency(totals.taxTotal, currency) },
+            { label: t.lineItems.subtotal, value: money(totals.subtotal, currency) },
+            { label: t.lineItems.vat, value: money(totals.taxTotal, currency) },
           ]}
-          total={{ label: 'Total', value: formatCurrency(totals.total, currency) }}
+          total={{ label: t.lineItems.total, value: money(totals.total, currency) }}
         />
       </SectionCard>
     </>
