@@ -8,8 +8,7 @@ import {
   getConnector,
   type ConnectorSyncSettingKey,
 } from './catalog';
-import { ShopifyClient } from './shopify/client';
-import { WooCommerceClient } from './woocommerce/client';
+import { createConnectorProviderClient } from './factory';
 import { ConnectorApiError } from './types';
 
 export type ConnectorProbeResource = ConnectorSyncSettingKey;
@@ -23,33 +22,20 @@ export function createProbeClient(
   provider: string,
   credentials: Record<string, string>,
 ): ConnectorProbeClient {
-  if (provider === 'woocommerce') {
-    const client = new WooCommerceClient({
-      storeUrl: credentials.storeUrl || '',
-      consumerKey: credentials.consumerKey || '',
-      consumerSecret: credentials.consumerSecret || '',
-    });
+  try {
+    const client = createConnectorProviderClient(provider, credentials);
     return {
       hasUpdatesSince: (resource, since) => client.hasUpdatesSince(resource, since),
       countResource: (resource) => client.countResource(resource),
     };
-  }
-  if (provider === 'shopify') {
-    const client = new ShopifyClient({
-      shopDomain: credentials.shopDomain || '',
-      accessToken: credentials.accessToken || '',
-      apiSecret: credentials.apiSecret || '',
+  } catch (err) {
+    if (err instanceof ConnectorApiError) throw err;
+    throw new ConnectorApiError({
+      message: `No probe client for provider '${provider}'`,
+      status: 400,
+      kind: 'permanent',
     });
-    return {
-      hasUpdatesSince: (resource, since) => client.hasUpdatesSince(resource, since),
-      countResource: (resource) => client.countResource(resource),
-    };
   }
-  throw new ConnectorApiError({
-    message: `No probe client for provider '${provider}'`,
-    status: 400,
-    kind: 'permanent',
-  });
 }
 
 function resourcesFor(
@@ -58,7 +44,7 @@ function resourcesFor(
 ): ConnectorProbeResource[] {
   const connector = getConnector(provider);
   if (!connector) return [];
-  return enabledConnectorSyncs(connector, enabledSyncs).map((sync) => sync.settingKey);
+  return [...new Set(enabledConnectorSyncs(connector, enabledSyncs).map((sync) => sync.settingKey))];
 }
 
 function watermarkFor(

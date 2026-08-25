@@ -40,6 +40,11 @@ export const weldconnect = {
     enterStoreUrl: 'Vul eerst de winkel-URL in',
     authReturned: 'Winkel verbonden. De import start op de achtergrond.',
     authDenied: 'Toegang is niet verleend in de winkel.',
+    pickAdministration: 'Kies een Moneybird-administratie',
+    pickAdministrationHint: 'Dit Moneybird-account heeft meer dan één administratie. Kies welke je wilt synchroniseren.',
+    callbackConnecting: 'Moneybird verbinden…',
+    callbackConnectingHint: 'Autorisatie afronden en de eerste records importeren.',
+    callbackMissingParams: 'De Moneybird-callback mist code of state.',
     disconnected: 'Connector losgekoppeld',
     disconnectFailed: 'Kon de connector niet loskoppelen',
     syncStarted: 'Synchronisatie gestart — records volgen zo',
@@ -60,6 +65,8 @@ export const weldconnect = {
       connectDescription: 'Vul de winkelgegevens in en kies daarna welke objecten je wilt synchroniseren.',
       connectDescriptionAppAuth:
         'Vul de winkel-URL in en klik op Verbinden. Je keurt toegang goed in de winkel — we vragen nooit om API-sleutels.',
+      connectDescriptionOAuth:
+        'Kies wat je wilt synchroniseren en klik op Verbinden. Je keurt toegang goed in Moneybird — WeldSuite vraagt nooit om tokens.',
       save: 'Instellingen opslaan',
       saved: 'Synchronisatie-instellingen opgeslagen',
       saveFailed: 'Kon synchronisatie-instellingen niet opslaan',
@@ -69,6 +76,12 @@ export const weldconnect = {
       ordersDescription: 'Klantorders, totalen en regelitems.',
       customers: 'Klanten',
       customersDescription: 'Winkelklanten als personen in WeldSuite.',
+      contacts: 'Contacten',
+      contactsDescription: 'Moneybird-contacten als bedrijven of personen, gewrapt als WeldBooks-partijen.',
+      invoices: 'Verkoopfacturen',
+      invoicesDescription: 'Verkoopfacturen en regels. Moneybird blijft de boekhouding — geen journaalposten.',
+      bills: 'Inkoopfacturen',
+      billsDescription: 'Inkoopfacturen en bonnen als WeldBooks-rekeningen. Geen journaalposten.',
     },
     status: {
       pending: 'Wacht op autorisatie',

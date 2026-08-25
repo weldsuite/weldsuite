@@ -39,7 +39,7 @@ import {
 } from '../../services/connectors/connections';
 import { testConnectorCredentials } from '../../services/connectors/clients';
 import { syncConnection } from '../../services/connectors/sync';
-import { startWooCommerceAppAuth } from '../../services/connectors/auth';
+import { startWooCommerceAppAuth, startMoneybirdOAuth, completeMoneybirdOAuth, selectMoneybirdAdministration } from '../../services/connectors/auth';
 import {
   deleteConnectorWebhookMapping,
   putConnectorWebhookMapping,
@@ -144,6 +144,13 @@ app.post('/connect', requirePermission('integrations:create'), zValidator('json'
   const { provider, displayName, credentials, enabledSyncs } = c.req.valid('json');
   const connector = getConnector(provider);
   if (!connector) return error.badRequest(c, `Unknown connector '${provider}'`);
+
+  if (connector.auth.kind === 'oauth2') {
+    return error.badRequest(
+      c,
+      'Connect this administration from the Connect button — Moneybird authorises via OAuth',
+    );
+  }
 
   if (connector.auth.kind === 'app_auth' && (!credentials.consumerKey || !credentials.consumerSecret)) {
     return error.badRequest(
@@ -257,13 +264,21 @@ app.post('/connect', requirePermission('integrations:create'), zValidator('json'
   }
 });
 
-const authorizeSchema = z.object({
-  provider: z.literal('woocommerce'),
-  storeUrl: z.string().min(1).max(500),
-  displayName: z.string().min(1).max(255).optional(),
-  enabledSyncs: z.array(z.string().min(1)).optional(),
-  returnUrl: z.string().url(),
-});
+const authorizeSchema = z.discriminatedUnion('provider', [
+  z.object({
+    provider: z.literal('woocommerce'),
+    storeUrl: z.string().min(1).max(500),
+    displayName: z.string().min(1).max(255).optional(),
+    enabledSyncs: z.array(z.string().min(1)).optional(),
+    returnUrl: z.string().url(),
+  }),
+  z.object({
+    provider: z.literal('moneybird'),
+    displayName: z.string().min(1).max(255).optional(),
+    enabledSyncs: z.array(z.string().min(1)).optional(),
+    returnUrl: z.string().url(),
+  }),
+]);
 
 app.post('/authorize', requirePermission('integrations:create'), zValidator('json', authorizeSchema), async (c) => {
   const body = c.req.valid('json');
@@ -271,6 +286,19 @@ app.post('/authorize', requirePermission('integrations:create'), zValidator('jso
   if (!clerkOrgId) return error.orgRequired(c);
 
   try {
+    if (body.provider === 'moneybird') {
+      const result = await startMoneybirdOAuth({
+        env: c.env,
+        clerkOrgId,
+        userId: c.get('userId'),
+        enabledSyncs: normalizeEnabledSyncs(body.provider, body.enabledSyncs),
+        displayName: body.displayName,
+        returnUrl: body.returnUrl,
+      });
+      if ('error' in result) return error.badRequest(c, result.error);
+      return success(c, result);
+    }
+
     const result = await startWooCommerceAppAuth({
       db: c.get('tenantDb'),
       env: c.env,
@@ -289,6 +317,64 @@ app.post('/authorize', requirePermission('integrations:create'), zValidator('jso
     return connectorErrorResponse(c, err);
   }
 });
+
+const oauthCallbackSchema = z.object({
+  provider: z.literal('moneybird'),
+  code: z.string().min(1),
+  state: z.string().min(1),
+});
+
+app.post('/oauth/callback', requirePermission('integrations:create'), zValidator('json', oauthCallbackSchema), async (c) => {
+  const body = c.req.valid('json');
+  try {
+    const result = await completeMoneybirdOAuth({
+      env: c.env,
+      code: body.code,
+      state: body.state,
+      waitUntil: (promise) => c.executionCtx.waitUntil(promise),
+    });
+    if ('error' in result) {
+      return c.json({ error: { code: 'BAD_REQUEST', message: result.error } }, result.status as 400);
+    }
+    return success(c, result);
+  } catch (err) {
+    console.error('[app-api/connectors] oauth callback failed:', err);
+    return connectorErrorResponse(c, err);
+  }
+});
+
+const selectAccountSchema = z.object({
+  administrationId: z.string().min(1).max(100),
+});
+
+app.post(
+  '/connections/:id/select-account',
+  requirePermission('integrations:create'),
+  zValidator('json', selectAccountSchema),
+  async (c) => {
+    const clerkOrgId = c.get('workspaceId');
+    if (!clerkOrgId) return error.orgRequired(c);
+    try {
+      const result = await selectMoneybirdAdministration({
+        db: c.get('tenantDb'),
+        env: c.env,
+        connectionId: c.req.param('id'),
+        administrationId: c.req.valid('json').administrationId,
+        clerkOrgId,
+        userId: c.get('userId'),
+        waitUntil: (promise) => c.executionCtx.waitUntil(promise),
+      });
+      if ('error' in result) {
+        if (result.status === 404) return error.notFound(c, 'Connection', c.req.param('id'));
+        return error.badRequest(c, result.error);
+      }
+      return success(c, result);
+    } catch (err) {
+      console.error('[app-api/connectors] select-account failed:', err);
+      return connectorErrorResponse(c, err);
+    }
+  },
+);
 
 const testSchema = z.object({
   provider: z.string().min(1).max(100),

@@ -40,6 +40,11 @@ export const weldconnect = {
     enterStoreUrl: 'Enter the store URL first',
     authReturned: 'Store connected. Import starts in the background.',
     authDenied: 'Access was not granted on the store.',
+    pickAdministration: 'Choose a Moneybird administration',
+    pickAdministrationHint: 'This Moneybird account has more than one administration. Pick the one to sync.',
+    callbackConnecting: 'Connecting Moneybird…',
+    callbackConnectingHint: 'Exchanging authorisation and importing the first records.',
+    callbackMissingParams: 'The Moneybird callback is missing code or state.',
     disconnected: 'Connector disconnected',
     disconnectFailed: 'Could not disconnect the connector',
     syncStarted: 'Sync started — records arrive shortly',
@@ -60,6 +65,8 @@ export const weldconnect = {
       connectDescription: 'Enter store credentials, then choose which objects to sync.',
       connectDescriptionAppAuth:
         'Enter the store URL, then Connect. You will approve access on the shop — we never ask for API keys.',
+      connectDescriptionOAuth:
+        'Choose what to sync, then Connect. You will approve access in Moneybird — WeldSuite never asks for tokens.',
       save: 'Save settings',
       saved: 'Sync settings saved',
       saveFailed: 'Could not save sync settings',
@@ -69,6 +76,12 @@ export const weldconnect = {
       ordersDescription: 'Customer orders, totals, and line items.',
       customers: 'Customers',
       customersDescription: 'Store customers as people in WeldSuite.',
+      contacts: 'Contacts',
+      contactsDescription: 'Moneybird contacts as companies or people, wrapped as WeldBooks parties.',
+      invoices: 'Sales invoices',
+      invoicesDescription: 'Sales invoices and line items. Moneybird stays the book of record — no ledger posting.',
+      bills: 'Bills',
+      billsDescription: 'Purchase invoices and receipts as WeldBooks bills. No ledger posting.',
     },
     status: {
       pending: 'Awaiting authorisation',

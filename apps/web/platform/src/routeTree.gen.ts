@@ -220,6 +220,7 @@ import { Route as WeldmeetJoinJoinCodeRouteImport } from './routes/weldmeet/join
 import { Route as WeldmeetMeetingIdRoomRouteImport } from './routes/weldmeet/$meetingId/room'
 import { Route as WelddeskWeldagentNewRouteImport } from './routes/welddesk/weldagent/new'
 import { Route as WeldconnectIntegrationsCallbackRouteImport } from './routes/weldconnect/integrations/callback'
+import { Route as WeldconnectConnectorsCallbackRouteImport } from './routes/weldconnect/connectors/callback'
 import { Route as WeldchatDmUserIdRouteImport } from './routes/weldchat/dm/$userId'
 import { Route as SettingsCustomObjectsObjectIdRouteImport } from './routes/settings/custom-objects/$objectId'
 import { Route as SettingsAppsWeldcrmRouteImport } from './routes/settings/apps/weldcrm'
@@ -1490,6 +1491,12 @@ const WeldconnectIntegrationsCallbackRoute =
     path: '/integrations/callback',
     getParentRoute: () => WeldconnectRouteRoute,
   } as any)
+const WeldconnectConnectorsCallbackRoute =
+  WeldconnectConnectorsCallbackRouteImport.update({
+    id: '/connectors/callback',
+    path: '/connectors/callback',
+    getParentRoute: () => WeldconnectRouteRoute,
+  } as any)
 const WeldchatDmUserIdRoute = WeldchatDmUserIdRouteImport.update({
   id: '/dm/$userId',
   path: '/dm/$userId',
@@ -2678,6 +2685,7 @@ export interface FileRoutesByFullPath {
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
+  '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/welddesk/weldagent/new': typeof WelddeskWeldagentNewRoute
   '/weldmeet/$meetingId/room': typeof WeldmeetMeetingIdRoomRoute
   '/weldmeet/join/$joinCode': typeof WeldmeetJoinJoinCodeRoute
@@ -3046,6 +3054,7 @@ export interface FileRoutesByTo {
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
+  '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/welddesk/weldagent/new': typeof WelddeskWeldagentNewRoute
   '/weldmeet/$meetingId/room': typeof WeldmeetMeetingIdRoomRoute
   '/weldmeet/join/$joinCode': typeof WeldmeetJoinJoinCodeRoute
@@ -3450,6 +3459,7 @@ export interface FileRoutesById {
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
+  '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/welddesk/weldagent/new': typeof WelddeskWeldagentNewRoute
   '/weldmeet/$meetingId/room': typeof WeldmeetMeetingIdRoomRoute
   '/weldmeet/join/$joinCode': typeof WeldmeetJoinJoinCodeRoute
@@ -3855,6 +3865,7 @@ export interface FileRouteTypes {
     | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
     | '/weldconnect/integrations/callback'
+    | '/weldconnect/connectors/callback'
     | '/welddesk/weldagent/new'
     | '/weldmeet/$meetingId/room'
     | '/weldmeet/join/$joinCode'
@@ -4223,6 +4234,7 @@ export interface FileRouteTypes {
     | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
     | '/weldconnect/integrations/callback'
+    | '/weldconnect/connectors/callback'
     | '/welddesk/weldagent/new'
     | '/weldmeet/$meetingId/room'
     | '/weldmeet/join/$joinCode'
@@ -4626,6 +4638,7 @@ export interface FileRouteTypes {
     | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
     | '/weldconnect/integrations/callback'
+    | '/weldconnect/connectors/callback'
     | '/welddesk/weldagent/new'
     | '/weldmeet/$meetingId/room'
     | '/weldmeet/join/$joinCode'
@@ -6471,6 +6484,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldconnectIntegrationsCallbackRouteImport
       parentRoute: typeof WeldconnectRouteRoute
     }
+    '/weldconnect/connectors/callback': {
+      id: '/weldconnect/connectors/callback'
+      path: '/connectors/callback'
+      fullPath: '/weldconnect/connectors/callback'
+      preLoaderRoute: typeof WeldconnectConnectorsCallbackRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
     '/weldchat/dm/$userId': {
       id: '/weldchat/dm/$userId'
       path: '/dm/$userId'
@@ -8257,6 +8277,7 @@ const WeldcommerceRouteRouteWithChildren =
 interface WeldconnectRouteRouteChildren {
   WeldconnectIndexRoute: typeof WeldconnectIndexRoute
   WeldconnectIntegrationsCallbackRoute: typeof WeldconnectIntegrationsCallbackRoute
+  WeldconnectConnectorsCallbackRoute: typeof WeldconnectConnectorsCallbackRoute
   WeldconnectActionsIndexRoute: typeof WeldconnectActionsIndexRoute
   WeldconnectAnalyticsIndexRoute: typeof WeldconnectAnalyticsIndexRoute
   WeldconnectConnectorsIndexRoute: typeof WeldconnectConnectorsIndexRoute
@@ -8278,6 +8299,7 @@ interface WeldconnectRouteRouteChildren {
 const WeldconnectRouteRouteChildren: WeldconnectRouteRouteChildren = {
   WeldconnectIndexRoute: WeldconnectIndexRoute,
   WeldconnectIntegrationsCallbackRoute: WeldconnectIntegrationsCallbackRoute,
+  WeldconnectConnectorsCallbackRoute: WeldconnectConnectorsCallbackRoute,
   WeldconnectActionsIndexRoute: WeldconnectActionsIndexRoute,
   WeldconnectAnalyticsIndexRoute: WeldconnectAnalyticsIndexRoute,
   WeldconnectConnectorsIndexRoute: WeldconnectConnectorsIndexRoute,

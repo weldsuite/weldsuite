@@ -13,6 +13,7 @@ import {
   Link as LinkIcon,
   ShoppingBag,
   Settings,
+  BookOpen,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -68,6 +69,7 @@ import {
 const ICON_MAP: Record<string, React.ElementType> = {
   'shopping-bag': ShoppingBag,
   store: ShoppingBag,
+  'book-open': BookOpen,
   plug: Plug,
 };
 
@@ -126,11 +128,16 @@ function SyncToggles({
     products: { title: ts.products, description: ts.productsDescription },
     orders: { title: ts.orders, description: ts.ordersDescription },
     customers: { title: ts.customers, description: ts.customersDescription },
+    contacts: { title: ts.contacts, description: ts.contactsDescription },
+    invoices: { title: ts.invoices, description: ts.invoicesDescription },
+    bills: { title: ts.bills, description: ts.billsDescription },
   };
+
+  const uniqueSyncs = [...new Map(syncs.map((sync) => [sync.settingKey, sync])).values()];
 
   return (
     <div className="space-y-3">
-      {syncs.map((sync) => {
+      {uniqueSyncs.map((sync) => {
         const on = settingEnabled(enabled, sync);
         const copy = labels[sync.settingKey];
         return (
@@ -159,6 +166,11 @@ interface ConnectDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+function defaultSyncKeys(connector: ConnectorCatalogEntry | null): string[] {
+  if (!connector) return ['products', 'orders', 'customers'];
+  return [...new Set(connector.syncs.map((sync) => sync.settingKey))];
+}
+
 export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
   const { t } = useI18n();
   const tc = t.weldconnect.connectors;
@@ -166,16 +178,21 @@ export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
   const authorize = useAuthorizeConnector();
   const test = useTestConnector();
   const [credentials, setCredentials] = useState<Record<string, string>>({});
-  const [enabledSyncs, setEnabledSyncs] = useState<string[]>(['products', 'orders', 'customers']);
+  const [enabledSyncs, setEnabledSyncs] = useState<string[]>(defaultSyncKeys(connector));
 
   const fields = connector?.auth.fields ?? [];
   const isAppAuth = connector?.auth.kind === 'app_auth';
+  const isOAuth2 = connector?.auth.kind === 'oauth2';
   const busy = connect.isPending || authorize.isPending;
+
+  useEffect(() => {
+    if (connector) setEnabledSyncs(defaultSyncKeys(connector));
+  }, [connector]);
 
   const handleOpenChange = (open: boolean) => {
     if (!open) {
       setCredentials({});
-      setEnabledSyncs(['products', 'orders', 'customers']);
+      setEnabledSyncs(defaultSyncKeys(connector));
     }
     onOpenChange(open);
   };
@@ -220,6 +237,27 @@ export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
       );
       return;
     }
+    if (isOAuth2) {
+      authorize.mutate(
+        {
+          provider: 'moneybird',
+          enabledSyncs,
+          returnUrl: `${window.location.origin}${window.location.pathname}`,
+        },
+        {
+          onSuccess: (result) => {
+            const url = result.data.authorizeUrl;
+            if (!url) {
+              toast.error(tc.connectFailed);
+              return;
+            }
+            window.location.assign(url);
+          },
+          onError: (err) => toast.error(err instanceof Error ? err.message : tc.connectFailed),
+        },
+      );
+      return;
+    }
     connect.mutate(
       { provider: connector.provider, credentials, enabledSyncs },
       {
@@ -238,7 +276,11 @@ export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
         <DialogHeader>
           <DialogTitle>{connector ? `${tc.connect} ${connector.label}` : tc.connect}</DialogTitle>
           <DialogDescription>
-            {isAppAuth ? tc.settings.connectDescriptionAppAuth : tc.settings.connectDescription}
+            {isOAuth2
+              ? tc.settings.connectDescriptionOAuth
+              : isAppAuth
+                ? tc.settings.connectDescriptionAppAuth
+                : tc.settings.connectDescription}
           </DialogDescription>
         </DialogHeader>
 
@@ -264,8 +306,8 @@ export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
           </div>
         </div>
 
-        <DialogFooter className={isAppAuth ? 'gap-2' : 'gap-2 sm:justify-between'}>
-          {isAppAuth ? null : (
+        <DialogFooter className={isAppAuth || isOAuth2 ? 'gap-2' : 'gap-2 sm:justify-between'}>
+          {isAppAuth || isOAuth2 ? null : (
             <Button variant="outline" onClick={handleTest} disabled={test.isPending || busy}>
               {test.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
               {tc.testConnection}

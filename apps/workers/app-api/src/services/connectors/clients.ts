@@ -4,34 +4,32 @@
 
 import {
   ConnectorApiError,
+  createConnectorProviderClient,
   ShopifyClient,
   WooCommerceClient,
+  type ConnectorProviderClient,
 } from '@weldsuite/connectors';
 import type { ConnectorConnectionRow } from './connections';
 
-export type ConnectorClient = WooCommerceClient | ShopifyClient;
+export type ConnectorClient = ConnectorProviderClient;
 
 export function createConnectorClient(
   provider: string,
   credentials: Record<string, string>,
   fallbackAccountId?: string | null,
 ): ConnectorClient {
-  if (provider === 'woocommerce') {
-    return new WooCommerceClient({
-      storeUrl: credentials.storeUrl || fallbackAccountId || '',
-      consumerKey: credentials.consumerKey || '',
-      consumerSecret: credentials.consumerSecret || '',
-    });
-  }
-  if (provider === 'shopify') {
-    return new ShopifyClient({
-      shopDomain: credentials.shopDomain || fallbackAccountId || '',
-      accessToken: credentials.accessToken || '',
-      apiSecret: credentials.apiSecret || '',
-    });
-  }
+  return createConnectorProviderClient(provider, credentials, fallbackAccountId);
+}
+
+export function createProductWriteClient(
+  provider: string,
+  credentials: Record<string, string>,
+  fallbackAccountId?: string | null,
+): ShopifyClient | WooCommerceClient {
+  const client = createConnectorClient(provider, credentials, fallbackAccountId);
+  if (client instanceof ShopifyClient || client instanceof WooCommerceClient) return client;
   throw new ConnectorApiError({
-    message: `No sync client for provider '${provider}'`,
+    message: `Provider '${provider}' does not support pushing catalog products`,
     status: 400,
     kind: 'permanent',
   });

@@ -35,7 +35,7 @@ function BrandLogo({ slug, alt }: { slug: string; alt: string }) {
 export function EcommerceConnectorSettingsPage({
   provider,
 }: {
-  provider: 'woocommerce' | 'shopify';
+  provider: 'woocommerce' | 'shopify' | 'moneybird';
 }) {
   const { t, format } = useI18n();
   const copy = t.settings.integrations[provider];
@@ -87,8 +87,18 @@ export function EcommerceConnectorSettingsPage({
       <IntegrationDetailLayout
         name={copy.title}
         description={copy.description}
-        category="E-Commerce"
-        icon={<BrandLogo slug={provider === 'woocommerce' ? 'woocommerce' : 'shopify'} alt={copy.title} />}
+        category={provider === 'moneybird' ? 'Accounting' : 'E-Commerce'}
+        icon={
+          provider === 'moneybird' ? (
+            <img
+              src="https://icons.duckduckgo.com/ip3/moneybird.com.ico"
+              alt={copy.title}
+              className="h-7 w-7 rounded-[4px]"
+            />
+          ) : (
+            <BrandLogo slug={provider === 'woocommerce' ? 'woocommerce' : 'shopify'} alt={copy.title} />
+          )
+        }
         connected={connections.length > 0}
         canManage={false}
         overview={copy.overview}
@@ -97,12 +107,18 @@ export function EcommerceConnectorSettingsPage({
             label: t.settings.integrations.documentation,
             href: provider === 'woocommerce'
               ? 'https://developer.woocommerce.com/docs/apis/rest-api/authentication/#auto-generating-api-keys-using-our-application-authentication-endpoint'
-              : 'https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/generate-app-access-tokens-admin',
+              : provider === 'shopify'
+                ? 'https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/generate-app-access-tokens-admin'
+                : 'https://developer.moneybird.com/authentication/',
             icon: FileText,
           },
           {
             label: t.settings.integrations.website,
-            href: provider === 'woocommerce' ? 'https://woocommerce.com' : 'https://www.shopify.com',
+            href: provider === 'woocommerce'
+              ? 'https://woocommerce.com'
+              : provider === 'shopify'
+                ? 'https://www.shopify.com'
+                : 'https://www.moneybird.com',
             icon: Globe,
           },
         ]}

@@ -398,6 +398,9 @@ export interface Env {
   /** HubSpot OAuth app credentials. */
   HUBSPOT_CLIENT_ID?: string;
   HUBSPOT_CLIENT_SECRET?: string;
+  /** Moneybird OAuth app credentials (first-party WeldConnect connector). */
+  MONEYBIRD_CLIENT_ID?: string;
+  MONEYBIRD_CLIENT_SECRET?: string;
   /** Google Calendar OAuth app credentials (distinct from GOOGLE_CLIENT_ID,
    *  which belongs to the WeldConnect workflow-integrations app). */
   GOOGLE_CALENDAR_CLIENT_ID?: string;

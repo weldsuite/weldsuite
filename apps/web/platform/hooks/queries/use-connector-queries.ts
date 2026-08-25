@@ -27,8 +27,8 @@ export interface ConnectorAuthField {
 export interface ConnectorSyncDef {
   syncName: string;
   model: string;
-  internalEntity: 'product' | 'order' | 'person';
-  settingKey: 'products' | 'orders' | 'customers';
+  internalEntity: 'product' | 'order' | 'person' | 'party' | 'invoice' | 'bill';
+  settingKey: 'products' | 'orders' | 'customers' | 'contacts' | 'invoices' | 'bills';
 }
 
 export interface ConnectorConnection {
@@ -61,7 +61,7 @@ export interface ConnectorCatalogEntry {
   description: string;
   category: string;
   icon: string;
-  auth: { kind: 'api_key' | 'app_auth'; fields: ConnectorAuthField[] };
+  auth: { kind: 'api_key' | 'app_auth' | 'oauth2'; fields: ConnectorAuthField[]; scopes?: string[] };
   syncs: ConnectorSyncDef[];
   connections: ConnectorConnection[];
   connectionCount: number;
@@ -152,10 +152,24 @@ function invalidateConnectorQueries(queryClient: ReturnType<typeof useQueryClien
 }
 
 export interface AuthorizeConnectorInput {
-  provider: 'woocommerce';
-  storeUrl: string;
+  provider: 'woocommerce' | 'moneybird';
+  storeUrl?: string;
   displayName?: string;
   enabledSyncs: string[];
+  returnUrl: string;
+}
+
+export interface MoneybirdAdministration {
+  id: string;
+  name: string;
+  language?: string | null;
+  currency?: string | null;
+}
+
+export interface ConnectorOAuthCallbackResult {
+  connection: ConnectorConnection;
+  administrations: MoneybirdAdministration[];
+  needsPicker: boolean;
   returnUrl: string;
 }
 
@@ -165,9 +179,36 @@ export function useAuthorizeConnector() {
   return useMutation({
     mutationFn: async (input: AuthorizeConnectorInput) => {
       const client = await getClient();
-      return client.post<{ data: { authorizeUrl: string; connectionId: string } }>('/connectors/authorize', input);
+      return client.post<{ data: { authorizeUrl: string; connectionId?: string } }>('/connectors/authorize', input);
     },
     onSuccess: () => invalidateConnectorQueries(queryClient),
+  });
+}
+
+export function useConnectorOAuthCallback() {
+  const { getClient } = useAppApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { provider: 'moneybird'; code: string; state: string }) => {
+      const client = await getClient();
+      return client.post<{ data: ConnectorOAuthCallbackResult }>('/connectors/oauth/callback', input);
+    },
+    onSuccess: () => invalidateConnectorQueries(queryClient),
+  });
+}
+
+export function useSelectConnectorAccount() {
+  const { getClient } = useAppApiClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { connectionId: string; administrationId: string }) => {
+      const client = await getClient();
+      return client.post<{ data: { connection: ConnectorConnection } }>(
+        `/connectors/connections/${input.connectionId}/select-account`,
+        { administrationId: input.administrationId },
+      );
+    },
+    onSuccess: (_data, vars) => invalidateConnectorQueries(queryClient, vars.connectionId),
   });
 }
 

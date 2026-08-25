@@ -203,11 +203,11 @@ export function isAllowedConnectorReturnUrl(url: string): boolean {
   if (!allowedHost) return false;
   const path = parsed.pathname;
   return (
-    path === '/settings/integrations/woocommerce' ||
-    path === '/settings/integrations/woocommerce/' ||
     path === '/weldconnect/connectors' ||
     path === '/weldconnect/connectors/' ||
-    path.startsWith('/settings/integrations/woocommerce/') ||
-    path.startsWith('/weldconnect/connectors/')
+    path.startsWith('/weldconnect/connectors/') ||
+    path.startsWith('/settings/integrations/woocommerce') ||
+    path.startsWith('/settings/integrations/shopify') ||
+    path.startsWith('/settings/integrations/moneybird')
   );
 }

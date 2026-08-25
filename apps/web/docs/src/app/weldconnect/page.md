@@ -22,6 +22,17 @@ The sidebar lists workflows, templates, variables, and analytics.
 
 ---
 
+## Connectors
+
+WeldConnect **Connectors** import live data from first-party apps (Shopify, WooCommerce, Moneybird). After the first import, the provider pushes changes over webhooks; a periodic catch-up fills gaps.
+
+- **Shopify / WooCommerce** — products, orders, and customers.
+- **Moneybird** — contacts, sales invoices, products, and purchase invoices/receipts into WeldBooks. Moneybird stays the book of record: imported invoices and bills do not post to the WeldSuite ledger.
+
+Connect from WeldConnect → Connectors, or from Settings → Integrations.
+
+---
+
 ## Typical flow
 
 1. Create a **workflow** from blank or template.

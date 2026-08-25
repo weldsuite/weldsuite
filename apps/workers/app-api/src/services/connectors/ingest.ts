@@ -16,15 +16,18 @@
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
-import type { ConnectorSyncDef } from '@weldsuite/connectors';
+import { getConnector, type ConnectorSyncDef } from '@weldsuite/connectors';
 import { schema, type Database } from '../../db';
 import { generateId } from '../../lib/id';
+import { promoteAccountingRole } from '../accounting-roles';
 import {
   externalIdOf,
   isDeletedRecord,
   mapConnectorRecord,
+  type MappedBill,
+  type MappedInvoice,
   type MappedOrder,
-  type MappedRecord,
+  type MappedParty,
 } from './mappers';
 
 export interface IngestCounts {
@@ -87,7 +90,7 @@ export function sanitiseErrorMessage(err: unknown): string {
     .slice(0, MAX_ERROR_MESSAGE_LENGTH);
 }
 
-function targetFor(entity: MappedRecord['entity']): {
+function targetFor(entity: 'product' | 'order' | 'person'): {
   table: PgTable;
   idPrefix: string;
   dedupColumn: string | null;
@@ -366,10 +369,495 @@ async function activeSalesChannelCount(db: Database, productId: string): Promise
   return rows.length;
 }
 
-export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
+async function loadDefaultEntityId(db: Database): Promise<string | null> {
+  const [settings] = await db.select({ defaultEntityId: schema.settings.defaultEntityId }).from(schema.settings).limit(1);
+  return settings?.defaultEntityId ?? null;
+}
+
+function partySyncExternalType(provider: string): string {
+  return getConnector(provider)?.syncs.find((sync) => sync.internalEntity === 'party')?.externalEntityType
+    ?? `${provider}_contact`;
+}
+
+async function findIdentityByEmail(
+  db: Database,
+  table: typeof schema.companies | typeof schema.people,
+  email: string,
+): Promise<string | null> {
+  const cols = table as unknown as Record<string, any>;
+  const [row] = await db
+    .select({ id: cols.id })
+    .from(table)
+    .where(and(eq(cols.email, email), isNull(cols.deletedAt)))
+    .orderBy(asc(cols.createdAt), asc(cols.id))
+    .limit(1);
+  return row?.id ?? null;
+}
+
+async function findCompanyByVat(db: Database, vatNumber: string): Promise<string | null> {
+  const [row] = await db
+    .select({ id: schema.companies.id })
+    .from(schema.companies)
+    .where(and(eq(schema.companies.vatNumber, vatNumber), isNull(schema.companies.deletedAt)))
+    .orderBy(asc(schema.companies.createdAt), asc(schema.companies.id))
+    .limit(1);
+  return row?.id ?? null;
+}
+
+async function wrappingPartyId(db: Database, kind: 'company' | 'person', identityId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ id: schema.parties.id })
+    .from(schema.parties)
+    .where(
+      and(
+        kind === 'company' ? eq(schema.parties.companyId, identityId) : eq(schema.parties.personId, identityId),
+        isNull(schema.parties.deletedAt),
+      ),
+    )
+    .limit(1);
+  return row?.id ?? null;
+}
+
+async function upsertParty(args: {
+  db: Database;
+  connectionId: string;
+  provider: string;
+  ownerId: string;
+  mapped: MappedParty;
+  checksum: string;
+}): Promise<UpsertOutcome> {
+  const externalType = partySyncExternalType(args.provider);
+  const mapping = await findMapping(args.db, args.connectionId, externalType, args.mapped.externalId);
+  const identityTable = args.mapped.kind === 'company' ? schema.companies : schema.people;
+  const identityCols = identityTable as unknown as Record<string, any>;
+  const identityValues = {
+    ...args.mapped.identity,
+    ownerId: args.ownerId,
+    updatedAt: new Date(),
+  };
+
+  if (mapping) {
+    if (
+      (
+        await args.db
+          .select({ syncChecksum: schema.integrationEntityMappings.syncChecksum })
+          .from(schema.integrationEntityMappings)
+          .where(eq(schema.integrationEntityMappings.id, mapping.id))
+          .limit(1)
+      )[0]?.syncChecksum === args.checksum
+    ) {
+      return { action: 'skipped', internalId: mapping.internalEntityId };
+    }
+    const [party] = await args.db
+      .select({ companyId: schema.parties.companyId, personId: schema.parties.personId })
+      .from(schema.parties)
+      .where(eq(schema.parties.id, mapping.internalEntityId))
+      .limit(1);
+    const identityId = args.mapped.kind === 'company' ? party?.companyId : party?.personId;
+    await atomically(args.db, (h) => {
+      const statements: unknown[] = [
+        h
+          .update(schema.parties)
+          .set({ ...args.mapped.values, deletedAt: null, updatedAt: new Date() } as never)
+          .where(eq(schema.parties.id, mapping.internalEntityId)),
+        h
+          .update(schema.integrationEntityMappings)
+          .set({ syncChecksum: args.checksum, lastSyncedAt: new Date(), updatedAt: new Date() })
+          .where(eq(schema.integrationEntityMappings.id, mapping.id)),
+      ];
+      if (identityId) {
+        statements.unshift(
+          h
+            .update(identityTable)
+            .set({ ...identityValues, deletedAt: null } as never)
+            .where(eq(identityCols.id, identityId)),
+        );
+      }
+      return statements;
+    });
+    return { action: 'updated', internalId: mapping.internalEntityId };
+  }
+
+  const email = typeof args.mapped.identity.email === 'string' ? args.mapped.identity.email : null;
+  const vatNumber = typeof args.mapped.identity.vatNumber === 'string' ? args.mapped.identity.vatNumber : null;
+  let identityId =
+    (email ? await findIdentityByEmail(args.db, identityTable, email) : null)
+    ?? (args.mapped.kind === 'company' && vatNumber ? await findCompanyByVat(args.db, vatNumber) : null);
+
+  if (!identityId) {
+    identityId = generateId(args.mapped.kind === 'company' ? 'company' : 'person');
+    const displayName = String(args.mapped.identity.displayName ?? args.mapped.values.displayName ?? 'Contact');
+    await args.db.insert(identityTable).values({
+      id: identityId,
+      displayName,
+      ...identityValues,
+    } as never);
+  } else {
+    await args.db
+      .update(identityTable)
+      .set({ ...identityValues, deletedAt: null } as never)
+      .where(eq(identityCols.id, identityId));
+  }
+
+  let createdParty = false;
+  let partyId = await wrappingPartyId(args.db, args.mapped.kind, identityId);
+  if (!partyId) {
+    createdParty = true;
+    partyId = generateId('party');
+    await args.db.insert(schema.parties).values({
+      id: partyId,
+      kind: args.mapped.kind,
+      companyId: args.mapped.kind === 'company' ? identityId : null,
+      personId: args.mapped.kind === 'person' ? identityId : null,
+      ownerId: args.ownerId,
+      ...args.mapped.values,
+    } as never);
+  } else {
+    await args.db
+      .update(schema.parties)
+      .set({ ...args.mapped.values, deletedAt: null, updatedAt: new Date() } as never)
+      .where(eq(schema.parties.id, partyId));
+  }
+
+  await args.db.insert(schema.integrationEntityMappings).values({
+    id: generateId('iem'),
+    connectionId: args.connectionId,
+    externalEntityType: externalType,
+    externalEntityId: args.mapped.externalId,
+    internalEntityType: 'party',
+    internalEntityId: partyId,
+    lastSyncedAt: new Date(),
+    syncChecksum: args.checksum,
+  });
+
+  return { action: createdParty ? 'created' : 'updated', internalId: partyId };
+}
+
+async function softDeleteParty(db: Database, partyId: string, mappingId: string): Promise<void> {
+  const [party] = await db
+    .select({ companyId: schema.parties.companyId, personId: schema.parties.personId })
+    .from(schema.parties)
+    .where(eq(schema.parties.id, partyId))
+    .limit(1);
+  const now = new Date();
+  await atomically(db, (h) => {
+    const statements: unknown[] = [
+      h.update(schema.parties).set({ deletedAt: now, updatedAt: now }).where(eq(schema.parties.id, partyId)),
+      h
+        .update(schema.integrationEntityMappings)
+        .set({ syncChecksum: null, lastSyncedAt: now, updatedAt: now })
+        .where(eq(schema.integrationEntityMappings.id, mappingId)),
+    ];
+    if (party?.companyId) {
+      statements.push(
+        h.update(schema.companies).set({ deletedAt: now, updatedAt: now }).where(eq(schema.companies.id, party.companyId)),
+      );
+    }
+    if (party?.personId) {
+      statements.push(
+        h.update(schema.people).set({ deletedAt: now, updatedAt: now }).where(eq(schema.people.id, party.personId)),
+      );
+    }
+    return statements;
+  });
+}
+
+async function ingestNestedContact(args: {
+  db: Database;
+  connectionId: string;
+  provider: string;
+  ownerId: string;
+  contact: Record<string, unknown>;
+}): Promise<string | null> {
+  const mapped = mapConnectorRecord('party', args.contact, args.provider);
+  if (!mapped || mapped.entity !== 'party') return null;
+  const checksum = await recordChecksum(args.contact);
+  const outcome = await upsertParty({
+    db: args.db,
+    connectionId: args.connectionId,
+    provider: args.provider,
+    ownerId: args.ownerId,
+    mapped,
+    checksum,
+  });
+  return outcome.internalId;
+}
+
+async function resolveContactId(args: {
+  db: Database;
+  connectionId: string;
+  provider: string;
+  ownerId: string;
+  contactExternalId: string | null;
+  nestedContact: Record<string, unknown> | null;
+}): Promise<string | null> {
+  const externalType = partySyncExternalType(args.provider);
+  if (args.contactExternalId) {
+    const mapped = await findMapping(args.db, args.connectionId, externalType, args.contactExternalId);
+    if (mapped) return mapped.internalEntityId;
+  }
+  if (args.nestedContact) {
+    return ingestNestedContact({
+      db: args.db,
+      connectionId: args.connectionId,
+      provider: args.provider,
+      ownerId: args.ownerId,
+      contact: args.nestedContact,
+    });
+  }
+  return null;
+}
+
+async function replaceDocumentItems(args: {
+  db: Database;
+  connectionId: string;
+  provider: string;
+  entityId: string;
+  parentId: string;
+  kind: 'invoice' | 'bill';
+  items: Array<{
+    externalProductId: string | null;
+    description: string;
+    quantity: string;
+    unitPrice: string;
+    taxRate: string | null;
+    taxAmount: string | null;
+    lineTotal: string | null;
+    lineTotalWithTax: string | null;
+    sortOrder: number;
+  }>;
+}): Promise<void> {
+  if (args.kind === 'invoice') {
+    await args.db.delete(schema.invoiceItems).where(eq(schema.invoiceItems.invoiceId, args.parentId));
+  } else {
+    await args.db.delete(schema.billItems).where(eq(schema.billItems.billId, args.parentId));
+  }
+  const productType = getConnector(args.provider)?.syncs.find((sync) => sync.internalEntity === 'product')?.externalEntityType
+    ?? `${args.provider}_product`;
+  for (const item of args.items) {
+    let productId: string | null = null;
+    if (item.externalProductId) {
+      productId = (await findMapping(args.db, args.connectionId, productType, item.externalProductId))?.internalEntityId ?? null;
+    }
+    if (args.kind === 'invoice') {
+      await args.db.insert(schema.invoiceItems).values({
+        id: generateId('ili'),
+        entityId: args.entityId,
+        invoiceId: args.parentId,
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        taxRate: item.taxRate,
+        taxAmount: item.taxAmount,
+        lineTotal: item.lineTotal,
+        lineTotalWithTax: item.lineTotalWithTax,
+        productId,
+        sortOrder: item.sortOrder,
+      });
+    } else {
+      await args.db.insert(schema.billItems).values({
+        id: generateId('bli'),
+        entityId: args.entityId,
+        billId: args.parentId,
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        taxRate: item.taxRate,
+        taxAmount: item.taxAmount,
+        lineTotal: item.lineTotal,
+        lineTotalWithTax: item.lineTotalWithTax,
+        productId,
+        sortOrder: item.sortOrder,
+      });
+    }
+  }
+}
+
+async function ingestAccountingRecords(args: IngestArgs): Promise<IngestResult> {
   const counts = emptyCounts();
   const errorSamples: IngestResult['errorSamples'] = [];
-  const target = targetFor(args.sync.internalEntity);
+  const entityId = args.sync.internalEntity === 'party' ? null : await loadDefaultEntityId(args.db);
+
+  for (const record of args.records) {
+    const externalId = externalIdOf(record);
+    if (!externalId) {
+      counts.skipped++;
+      continue;
+    }
+
+    try {
+      if (isDeletedRecord(record, args.forceDeleted)) {
+        const mapping = await findMapping(args.db, args.connectionId, args.sync.externalEntityType, externalId);
+        if (!mapping) {
+          counts.skipped++;
+          continue;
+        }
+        if (args.sync.internalEntity === 'party') {
+          const [party] = await args.db
+            .select({ kind: schema.parties.kind })
+            .from(schema.parties)
+            .where(eq(schema.parties.id, mapping.internalEntityId))
+            .limit(1);
+          await softDeleteParty(args.db, mapping.internalEntityId, mapping.id);
+          counts.deleted++;
+          await publishEntityEventRaw({
+            env: args.env as never,
+            db: args.db as never,
+            workspaceId: args.workspaceId,
+            userId: args.ownerId,
+            entityType: party?.kind === 'person' ? 'person' : 'company',
+            action: 'deleted',
+            entityId: mapping.internalEntityId,
+            data: { id: mapping.internalEntityId },
+          });
+          continue;
+        }
+        const table = args.sync.internalEntity === 'invoice' ? schema.invoices : schema.bills;
+        await softDeleteMapped(args.db, table, mapping.internalEntityId, mapping.id);
+        counts.deleted++;
+        await publishEntityEventRaw({
+          env: args.env as never,
+          db: args.db as never,
+          workspaceId: args.workspaceId,
+          userId: args.ownerId,
+          entityType: args.sync.internalEntity,
+          action: 'deleted',
+          entityId: mapping.internalEntityId,
+          data: { id: mapping.internalEntityId },
+        });
+        continue;
+      }
+
+      const mapped = mapConnectorRecord(args.sync.internalEntity, record, args.provider);
+      if (!mapped) {
+        counts.skipped++;
+        continue;
+      }
+
+      const checksum = await recordChecksum(record);
+
+      if (mapped.entity === 'party') {
+        const outcome = await upsertParty({
+          db: args.db,
+          connectionId: args.connectionId,
+          provider: args.provider,
+          ownerId: args.ownerId,
+          mapped,
+          checksum,
+        });
+        if (outcome.action === 'created') counts.created++;
+        else if (outcome.action === 'updated') counts.modified++;
+        else counts.skipped++;
+        if (outcome.action !== 'skipped') {
+          await publishEntityEventRaw({
+            env: args.env as never,
+            db: args.db as never,
+            workspaceId: args.workspaceId,
+            userId: args.ownerId,
+            entityType: mapped.kind,
+            action: outcome.action === 'created' ? 'created' : 'updated',
+            entityId: outcome.internalId,
+            data: { id: outcome.internalId },
+          });
+        }
+        continue;
+      }
+
+      if (!entityId) {
+        throw new Error('Workspace has no default accounting entity — set one in WeldBooks settings');
+      }
+
+      const document = mapped as MappedInvoice | MappedBill;
+      const contactId = await resolveContactId({
+        db: args.db,
+        connectionId: args.connectionId,
+        provider: args.provider,
+        ownerId: args.ownerId,
+        contactExternalId: document.contactExternalId,
+        nestedContact: document.nestedContact,
+      });
+      if (!contactId) {
+        throw new Error('Invoice/bill contact is not mapped — sync contacts first');
+      }
+
+      const values: Record<string, unknown> = {
+        ...document.values,
+        entityId,
+        contactId,
+        counterpartyId: contactId,
+        createdBy: args.ownerId,
+        journalEntryId: null,
+      };
+
+      const table = document.entity === 'invoice' ? schema.invoices : schema.bills;
+      const idPrefix = document.entity === 'invoice' ? 'inv' : 'bil';
+      const outcome = await upsertByMapping({
+        db: args.db,
+        connectionId: args.connectionId,
+        externalEntityType: args.sync.externalEntityType,
+        externalEntityId: externalId,
+        internalEntityType: document.entity,
+        table,
+        idPrefix,
+        dedupColumn: null,
+        values,
+        checksum,
+      });
+
+      if (outcome.action !== 'skipped') {
+        await replaceDocumentItems({
+          db: args.db,
+          connectionId: args.connectionId,
+          provider: args.provider,
+          entityId,
+          parentId: outcome.internalId,
+          kind: document.entity,
+          items: document.lineItems,
+        });
+        await promoteAccountingRole(
+          args.db,
+          contactId,
+          document.entity === 'invoice' ? 'customer' : 'supplier',
+        );
+        await publishEntityEventRaw({
+          env: args.env as never,
+          db: args.db as never,
+          workspaceId: args.workspaceId,
+          userId: args.ownerId,
+          entityType: document.entity,
+          action: outcome.action === 'created' ? 'created' : 'updated',
+          entityId: outcome.internalId,
+          data: { id: outcome.internalId },
+        });
+      }
+
+      if (outcome.action === 'created') counts.created++;
+      else if (outcome.action === 'updated') counts.modified++;
+      else counts.skipped++;
+    } catch (err) {
+      counts.failed++;
+      if (errorSamples.length < MAX_ERROR_SAMPLES) {
+        errorSamples.push({ externalId, message: sanitiseErrorMessage(err) });
+      }
+      console.error(`[connectors/ingest] record ${externalId} failed: ${sanitiseErrorMessage(err)}`);
+    }
+  }
+
+  return { ...counts, errorSamples };
+}
+
+export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
+  if (
+    args.sync.internalEntity === 'party'
+    || args.sync.internalEntity === 'invoice'
+    || args.sync.internalEntity === 'bill'
+  ) {
+    return ingestAccountingRecords(args);
+  }
+
+  const counts = emptyCounts();
+  const errorSamples: IngestResult['errorSamples'] = [];
+  const target = targetFor(args.sync.internalEntity as 'product' | 'order' | 'person');
   const customerType = `${args.provider}_customer`;
 
   for (const record of args.records) {

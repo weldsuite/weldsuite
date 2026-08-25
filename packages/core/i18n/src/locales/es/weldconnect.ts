@@ -40,6 +40,11 @@ export const weldconnect = {
     enterStoreUrl: 'Introduce primero la URL de la tienda',
     authReturned: 'Tienda conectada. La importación empieza en segundo plano.',
     authDenied: 'No se concedió acceso en la tienda.',
+    pickAdministration: 'Elige una administración de Moneybird',
+    pickAdministrationHint: 'Esta cuenta de Moneybird tiene más de una administración. Elige cuál sincronizar.',
+    callbackConnecting: 'Conectando Moneybird…',
+    callbackConnectingHint: 'Intercambiando la autorización e importando los primeros registros.',
+    callbackMissingParams: 'El callback de Moneybird no incluye code o state.',
     disconnected: 'Conector desconectado',
     disconnectFailed: 'No se pudo desconectar el conector',
     syncStarted: 'Sincronización iniciada — los registros llegarán en breve',
@@ -60,6 +65,8 @@ export const weldconnect = {
       connectDescription: 'Introduce las credenciales de la tienda y elige qué objetos sincronizar.',
       connectDescriptionAppAuth:
         'Introduce la URL de la tienda y pulsa Conectar. Autorizarás el acceso en la tienda — no te pedimos claves de API.',
+      connectDescriptionOAuth:
+        'Elige qué sincronizar y pulsa Conectar. Autorizarás el acceso en Moneybird — WeldSuite no pide tokens.',
       save: 'Guardar ajustes',
       saved: 'Ajustes de sincronización guardados',
       saveFailed: 'No se pudieron guardar los ajustes de sincronización',
@@ -69,6 +76,12 @@ export const weldconnect = {
       ordersDescription: 'Pedidos de clientes, totales y líneas.',
       customers: 'Clientes',
       customersDescription: 'Clientes de la tienda como personas en WeldSuite.',
+      contacts: 'Contactos',
+      contactsDescription: 'Contactos de Moneybird como empresas o personas, envueltos como parties de WeldBooks.',
+      invoices: 'Facturas de venta',
+      invoicesDescription: 'Facturas de venta y líneas. Moneybird sigue siendo el libro contable — sin asientos.',
+      bills: 'Facturas de compra',
+      billsDescription: 'Facturas de compra y tickets como facturas de WeldBooks. Sin asientos.',
     },
     status: {
       pending: 'Pendiente de autorización',

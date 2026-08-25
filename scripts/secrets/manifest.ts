@@ -173,6 +173,10 @@ export const manifest: Record<string, SecretEntry[]> = {
     "FACEBOOK_APP_ID",
     "FACEBOOK_APP_SECRET",
     "FACEBOOK_WEBHOOK_VERIFY_TOKEN",
+    // Moneybird first-party connector (WeldConnect). Test app redirect:
+    // `{PUBLIC_APP_URL}/weldconnect/connectors/callback`.
+    "MONEYBIRD_CLIENT_ID",
+    "MONEYBIRD_CLIENT_SECRET",
   ],
 
   "audit-log-worker": [

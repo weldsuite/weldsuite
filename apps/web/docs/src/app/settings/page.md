@@ -17,7 +17,7 @@ nextjs:
 | **Team** | Members, roles, invites |
 | **Permissions** | Fine-grained access per app |
 | **Billing** | Plan, payment method, invoices |
-| **Integrations** | Google, Shopify, CRM sync, webhooks |
+| **Integrations** | Google, Shopify, WooCommerce, Moneybird, CRM sync, webhooks |
 | **Notifications** | Email and in-app preferences |
 | **Appearance** | Theme and display options |
 | **API keys** | Programmatic access for developers |

@@ -77,6 +77,10 @@ head_sampling_rate = 1
 #   (WeldDesk helpdesk Discord channel OAuth callback)
 # - ATTIO_CLIENT_ID + ATTIO_CLIENT_SECRET (Attio CRM integration OAuth)
 # - HUBSPOT_CLIENT_ID + HUBSPOT_CLIENT_SECRET (HubSpot CRM integration OAuth)
+# - MONEYBIRD_CLIENT_ID + MONEYBIRD_CLIENT_SECRET (Moneybird first-party
+#   connector OAuth). Register the app at
+#   https://moneybird.com/user/applications/new with redirect
+#   `{PUBLIC_APP_URL}/weldconnect/connectors/callback`.
 # - GOOGLE_CALENDAR_CLIENT_ID + GOOGLE_CALENDAR_CLIENT_SECRET (Google Calendar
 #   integration OAuth — distinct from GOOGLE_CLIENT_ID, which belongs to the
 #   WeldConnect workflow-integrations Google app)

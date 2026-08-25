@@ -36,7 +36,45 @@ export interface MappedPerson {
   values: Record<string, unknown>;
 }
 
-export type MappedRecord = MappedProduct | MappedOrder | MappedPerson;
+export interface MappedDocumentLine {
+  externalProductId: string | null;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  taxRate: string | null;
+  taxAmount: string | null;
+  lineTotal: string | null;
+  lineTotalWithTax: string | null;
+  sortOrder: number;
+}
+
+export interface MappedParty {
+  entity: 'party';
+  externalId: string;
+  kind: 'company' | 'person';
+  identity: Record<string, unknown>;
+  values: Record<string, unknown>;
+}
+
+export interface MappedInvoice {
+  entity: 'invoice';
+  externalId: string;
+  contactExternalId: string | null;
+  nestedContact: Record<string, unknown> | null;
+  values: Record<string, unknown>;
+  lineItems: MappedDocumentLine[];
+}
+
+export interface MappedBill {
+  entity: 'bill';
+  externalId: string;
+  contactExternalId: string | null;
+  nestedContact: Record<string, unknown> | null;
+  values: Record<string, unknown>;
+  lineItems: MappedDocumentLine[];
+}
+
+export type MappedRecord = MappedProduct | MappedOrder | MappedPerson | MappedParty | MappedInvoice | MappedBill;
 
 function readPath(source: Record<string, unknown>, path: string): unknown {
   return path.split('.').reduce<unknown>((acc, segment) => {
@@ -120,7 +158,7 @@ function mapProduct(record: Record<string, unknown>, externalId: string): Mapped
   const images = shopifyImages(record);
   const status = PRODUCT_STATUS[pickString(record, ['status']) ?? ''] ?? 'draft';
   const price = pickString(record, ['price', 'regular_price', 'variants.0.price']) ?? '0';
-  const sku = pickString(record, ['sku', 'variants.0.sku'], 100);
+  const sku = pickString(record, ['sku', 'identifier', 'variants.0.sku'], 100);
   const compareAt = pickString(record, ['regular_price', 'variants.0.compare_at_price']);
 
   return {
@@ -156,13 +194,13 @@ function mapProduct(record: Record<string, unknown>, externalId: string): Mapped
 function mapAddress(source: Record<string, unknown> | null | undefined) {
   if (!source) return null;
   const address = {
-    line1: pickString(source, ['address_1', 'address1', 'line1']),
+    line1: pickString(source, ['address_1', 'address1', 'line1', 'street']),
     line2: pickString(source, ['address_2', 'address2', 'line2']),
     city: pickString(source, ['city']),
-    state: pickString(source, ['state']),
-    postalCode: pickString(source, ['postcode', 'postal_code', 'zip']),
+    state: pickString(source, ['state', 'province']),
+    postalCode: pickString(source, ['postcode', 'postal_code', 'zip', 'zipcode']),
     country: pickString(source, ['country']),
-    name: [pickString(source, ['first_name']), pickString(source, ['last_name'])].filter(Boolean).join(' ') || undefined,
+    name: [pickString(source, ['first_name', 'firstname']), pickString(source, ['last_name', 'lastname'])].filter(Boolean).join(' ') || undefined,
     phone: pickString(source, ['phone']),
   };
   const entries = Object.entries(address).filter(([, v]) => v !== null && v !== undefined && v !== '');
@@ -272,11 +310,234 @@ export function isDeletedRecord(record: Record<string, unknown>, forceDeleted = 
 }
 
 export function externalIdOf(record: Record<string, unknown>): string | null {
-  return pickString(record, ['id', 'external_id'], 255);
+  return pickString(record, ['id', 'external_id', 'entity_id'], 255);
 }
 
 export function modifiedAtOf(record: Record<string, unknown>): string | null {
   return pickString(record, ['date_modified_gmt', 'date_modified', 'updated_at', 'date_created_gmt', 'created_at']);
+}
+
+const INVOICE_STATUS: Record<string, string> = {
+  draft: 'draft',
+  open: 'sent',
+  late: 'overdue',
+  paid: 'paid',
+  uncollectible: 'uncollectible',
+};
+
+const BILL_STATUS: Record<string, string> = {
+  new: 'draft',
+  saved: 'draft',
+  open: 'approved',
+  pending_payment: 'approved',
+  late: 'overdue',
+  paid: 'paid',
+};
+
+function parseDate(value: string | null): Date | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function decimalString(value: string | null, fallback = '0'): string {
+  if (!value) return fallback;
+  const parsed = Number(value.replace(',', '.').replace(/[^0-9.\-]/g, ''));
+  return Number.isFinite(parsed) ? parsed.toFixed(2) : fallback;
+}
+
+function quantityString(value: string | null): string {
+  if (!value) return '1';
+  const match = value.replace(',', '.').match(/-?\d+(?:\.\d+)?/);
+  if (!match) return '1';
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) && parsed !== 0 ? String(parsed) : '1';
+}
+
+function mapDocumentLines(record: Record<string, unknown>): MappedDocumentLine[] {
+  const raw = Array.isArray(record.details)
+    ? (record.details as Array<Record<string, unknown>>)
+    : Array.isArray(record.line_items)
+      ? (record.line_items as Array<Record<string, unknown>>)
+      : [];
+  return raw.map((item, index) => {
+    const quantity = quantityString(pickString(item, ['amount', 'quantity']));
+    const unitPrice = decimalString(pickString(item, ['price', 'unit_price']));
+    const lineExcl = decimalString(
+      pickString(item, ['total_price_excl_tax_with_discount', 'total_price_excl_tax', 'total']),
+      String((Number(quantity) || 1) * (Number(unitPrice) || 0)),
+    );
+    const lineIncl = decimalString(
+      pickString(item, ['total_price_incl_tax_with_discount', 'total_price_incl_tax']),
+      lineExcl,
+    );
+    return {
+      externalProductId: pickString(item, ['product_id']) && pickString(item, ['product_id']) !== '0'
+        ? pickString(item, ['product_id'])
+        : null,
+      description: pickString(item, ['description', 'name'], 2000) ?? 'Item',
+      quantity,
+      unitPrice,
+      taxRate: pickString(item, ['tax_rate', 'tax']),
+      taxAmount: pickString(item, ['tax_amount', 'tax']),
+      lineTotal: lineExcl,
+      lineTotalWithTax: lineIncl,
+      sortOrder: index,
+    };
+  });
+}
+
+function nestedContactRecord(record: Record<string, unknown>): Record<string, unknown> | null {
+  const contact = record.contact;
+  if (contact && typeof contact === 'object' && !Array.isArray(contact)) {
+    return contact as Record<string, unknown>;
+  }
+  return null;
+}
+
+function mapParty(record: Record<string, unknown>, externalId: string, provider: string): MappedParty | null {
+  const companyName = pickString(record, ['company_name', 'companyName'], 255);
+  const firstName = pickString(record, ['firstname', 'first_name'], 100);
+  const lastName = pickString(record, ['lastname', 'last_name'], 100);
+  const email = pickString(record, ['email', 'send_invoices_to_email'], 255);
+  const personName = [firstName, lastName].filter(Boolean).join(' ') || email;
+  const kind: 'company' | 'person' = companyName ? 'company' : 'person';
+  const displayName = (kind === 'company' ? companyName : personName) || email;
+  if (!displayName) return null;
+
+  const address = mapAddress(record);
+  const phone = pickString(record, ['phone'], 50);
+
+  const identity = kind === 'company'
+    ? compact({
+        name: companyName,
+        displayName: displayName.slice(0, 255),
+        email,
+        phone,
+        vatNumber: pickString(record, ['tax_number', 'vat_number'], 50),
+        registrationNumber: pickString(record, ['chamber_of_commerce'], 100),
+        primaryAddress: address,
+        source: provider,
+        status: 'active',
+        ownerId: null,
+      })
+    : compact({
+        firstName,
+        lastName,
+        fullName: personName,
+        displayName: displayName.slice(0, 255),
+        email,
+        directPhone: phone,
+        primaryAddress: address,
+        source: provider,
+        status: 'active',
+        inCrm: false,
+      });
+
+  return {
+    entity: 'party',
+    externalId,
+    kind,
+    identity,
+    values: compact({
+      kind,
+      displayName: displayName.slice(0, 255),
+      billingAddress: address,
+      iban: pickString(record, ['sepa_iban', 'iban'], 34),
+      bic: pickString(record, ['sepa_bic', 'bic'], 11),
+      partyCode: pickString(record, ['customer_id'], 50),
+      status: 'active',
+      role: 'none',
+    }),
+  };
+}
+
+function mapInvoice(record: Record<string, unknown>, externalId: string): MappedInvoice | null {
+  const invoiceNumber = pickString(record, ['invoice_id', 'invoice_number', 'reference', 'id'], 50);
+  if (!invoiceNumber) return null;
+  const state = (pickString(record, ['state', 'status']) ?? 'draft').toLowerCase();
+  const issueDate = parseDate(pickString(record, ['invoice_date', 'date', 'created_at'])) ?? new Date();
+  const dueDate = parseDate(pickString(record, ['due_date'])) ?? issueDate;
+  const paidAt = parseDate(pickString(record, ['paid_at']));
+  const nested = nestedContactRecord(record);
+  const contactName = pickString(nested ?? {}, ['company_name', 'firstname'])
+    ?? pickString(record, ['contact.company_name', 'contact_name']);
+  const subtotal = decimalString(pickString(record, ['total_price_excl_tax', 'subtotal']));
+  const total = decimalString(pickString(record, ['total_price_incl_tax', 'total']));
+  const taxTotal = decimalString(pickString(record, ['total_tax', 'tax_total']));
+
+  return {
+    entity: 'invoice',
+    externalId,
+    contactExternalId: pickString(record, ['contact_id']) && pickString(record, ['contact_id']) !== '0'
+      ? pickString(record, ['contact_id'])
+      : pickString(nested ?? {}, ['id']),
+    nestedContact: nested,
+    lineItems: mapDocumentLines(record),
+    values: compact({
+      invoiceNumber,
+      type: 'standard',
+      status: INVOICE_STATUS[state] ?? 'draft',
+      contactName: contactName ? contactName.slice(0, 255) : null,
+      contactEmail: pickString(nested ?? record, ['email', 'send_invoices_to_email'], 255),
+      issueDate,
+      dueDate,
+      paidAt,
+      sentAt: state !== 'draft' ? issueDate : null,
+      currency: pickString(record, ['currency'], 3) ?? 'EUR',
+      subtotal,
+      taxTotal,
+      total,
+      amountPaid: paidAt ? total : '0',
+      balanceDue: paidAt ? '0' : total,
+      reference: pickString(record, ['reference'], 255),
+      notes: pickString(record, ['notes']),
+      journalEntryId: null,
+    }),
+  };
+}
+
+function mapBill(record: Record<string, unknown>, externalId: string): MappedBill | null {
+  const billNumber = pickString(record, ['reference', 'invoice_id', 'id'], 50);
+  if (!billNumber) return null;
+  const state = (pickString(record, ['state', 'status']) ?? 'new').toLowerCase();
+  const issueDate = parseDate(pickString(record, ['date', 'invoice_date', 'created_at'])) ?? new Date();
+  const dueDate = parseDate(pickString(record, ['due_date'])) ?? issueDate;
+  const paidAt = parseDate(pickString(record, ['paid_at']));
+  const nested = nestedContactRecord(record);
+  const contactName = pickString(nested ?? {}, ['company_name', 'firstname'])
+    ?? pickString(record, ['contact.company_name', 'contact_name']);
+  const subtotal = decimalString(pickString(record, ['total_price_excl_tax', 'subtotal']));
+  const total = decimalString(pickString(record, ['total_price_incl_tax', 'total']));
+  const taxTotal = decimalString(pickString(record, ['total_tax', 'tax_total']));
+
+  return {
+    entity: 'bill',
+    externalId,
+    contactExternalId: pickString(record, ['contact_id']) && pickString(record, ['contact_id']) !== '0'
+      ? pickString(record, ['contact_id'])
+      : pickString(nested ?? {}, ['id']),
+    nestedContact: nested,
+    lineItems: mapDocumentLines(record),
+    values: compact({
+      billNumber,
+      type: 'standard',
+      status: BILL_STATUS[state] ?? 'draft',
+      contactName: contactName ? contactName.slice(0, 255) : null,
+      issueDate,
+      dueDate,
+      paidAt,
+      currency: pickString(record, ['currency'], 3) ?? 'EUR',
+      subtotal,
+      taxTotal,
+      total,
+      amountPaid: paidAt ? total : '0',
+      balanceDue: paidAt ? '0' : total,
+      reference: pickString(record, ['reference'], 255),
+      notes: pickString(record, ['notes']),
+      journalEntryId: null,
+    }),
+  };
 }
 
 export function mapConnectorRecord(
@@ -293,5 +554,11 @@ export function mapConnectorRecord(
       return mapOrder(record, externalId, provider);
     case 'person':
       return mapPerson(record, externalId, provider);
+    case 'party':
+      return mapParty(record, externalId, provider);
+    case 'invoice':
+      return mapInvoice(record, externalId);
+    case 'bill':
+      return mapBill(record, externalId);
   }
 }

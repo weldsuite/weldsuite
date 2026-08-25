@@ -678,6 +678,12 @@ export const settings = {
         overview:
           'Conecta una app personalizada con su token de Admin API y el secreto. Tras la importación inicial, Shopify envía cambios por webhooks. Puedes conectar varias tiendas; los SKU coincidentes comparten un producto con un canal de venta por tienda.',
       },
+      moneybird: {
+        title: 'Moneybird',
+        description: 'Importa contactos, facturas de venta, productos y facturas de compra de Moneybird a WeldBooks.',
+        overview:
+          'Conecta con OAuth. Tras la importación inicial, Moneybird envía cambios por webhooks, con una sincronización de recuperación. Las facturas importadas conservan los números de Moneybird y no se asientan en el libro de WeldSuite.',
+      },
       configurePrintNode: 'Configurar PrintNode',
       printNodeDescription: 'Introduce tu clave de API de PrintNode para conectar tus impresoras',
       apiKey: 'Clave de API',

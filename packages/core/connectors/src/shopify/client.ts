@@ -5,6 +5,9 @@
  * domain. Webhook HMAC uses the custom-app API secret (`shpss_…`).
  */
 
+import type { ConnectorSyncDef, ConnectorSyncSettingKey } from '../catalog';
+import type { ConnectorListPage, ConnectorProviderClient, ConnectorWebhookCreated } from '../provider-client';
+import type { ConnectorWebhookTopic } from '../webhooks';
 import {
   bindFetch,
   classifyStatus,
@@ -70,7 +73,7 @@ function parseNextPageInfo(linkHeader: string | null): string | null {
   }
 }
 
-export class ShopifyClient {
+export class ShopifyClient implements ConnectorProviderClient {
   readonly shopDomain: string;
   private readonly accessToken: string;
   readonly apiSecret: string;
@@ -196,9 +199,10 @@ export class ShopifyClient {
   }
 
   async hasUpdatesSince(
-    resource: 'products' | 'orders' | 'customers',
+    resource: ConnectorSyncSettingKey,
     updatedAtMin?: string,
   ): Promise<boolean> {
+    if (resource !== 'products' && resource !== 'orders' && resource !== 'customers') return false;
     const options: ShopifyListOptions = { limit: 1, updatedAtMin };
     const result =
       resource === 'products'
@@ -209,7 +213,8 @@ export class ShopifyClient {
     return result.items.length > 0;
   }
 
-  async countResource(resource: 'products' | 'orders' | 'customers'): Promise<number> {
+  async countResource(resource: ConnectorSyncSettingKey): Promise<number> {
+    if (resource !== 'products' && resource !== 'orders' && resource !== 'customers') return 0;
     const path = `${resource}/count.json`;
     const { data } = await this.request<{ count?: number }>(path, {
       search: resource === 'orders' ? { status: 'any' } : undefined,
@@ -288,6 +293,43 @@ export class ShopifyClient {
 
   async deleteWebhook(id: string): Promise<void> {
     await this.request(`webhooks/${id}.json`, { method: 'DELETE' });
+  }
+
+  async listSync(
+    sync: ConnectorSyncDef,
+    options: { page: number; cursor: string | null; limit: number; modifiedAfter?: string },
+  ): Promise<ConnectorListPage> {
+    const listOptions: ShopifyListOptions = {
+      limit: options.limit,
+      pageInfo: options.cursor ?? undefined,
+      updatedAtMin: options.cursor ? undefined : options.modifiedAfter,
+    };
+    const result =
+      sync.settingKey === 'products'
+        ? await this.listProducts(listOptions)
+        : sync.settingKey === 'orders'
+          ? await this.listOrders(listOptions)
+          : sync.settingKey === 'customers'
+            ? await this.listCustomers(listOptions)
+            : { items: [] as Array<Record<string, unknown>>, nextPageInfo: null };
+    return {
+      items: result.items,
+      done: !result.nextPageInfo,
+      nextCursor: result.nextPageInfo,
+    };
+  }
+
+  async registerWebhooks(args: {
+    deliveryUrl: string;
+    secret: string;
+    topics: ConnectorWebhookTopic[];
+  }): Promise<ConnectorWebhookCreated[]> {
+    const registrations: ConnectorWebhookCreated[] = [];
+    for (const topic of args.topics) {
+      const created = await this.createWebhook(topic.topic, args.deliveryUrl);
+      registrations.push({ id: created.id, topic: created.topic, deliveryUrl: created.address });
+    }
+    return registrations;
   }
 }
 

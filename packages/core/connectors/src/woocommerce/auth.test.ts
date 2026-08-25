@@ -62,6 +62,9 @@ describe('WooCommerce application authentication', () => {
     ).toBe(true);
     expect(isAllowedConnectorReturnUrl('http://localhost:3000/weldconnect/connectors')).toBe(true);
     expect(
+      isAllowedConnectorReturnUrl('https://app.weldsuite.org/settings/integrations/moneybird'),
+    ).toBe(true);
+    expect(
       isAllowedConnectorReturnUrl('https://preview.weldsuite.pages.dev/settings/integrations/woocommerce'),
     ).toBe(true);
     expect(isAllowedConnectorReturnUrl('https://evil.example/settings/integrations/woocommerce')).toBe(false);

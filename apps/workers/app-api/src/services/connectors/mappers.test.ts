@@ -138,3 +138,81 @@ describe('Shopify mappers', () => {
     expect(isDeletedRecord({ id: 1, status: 'active' })).toBe(false);
   });
 });
+
+describe('Moneybird mappers', () => {
+  it('maps a company contact onto a wrapping party', () => {
+    const mapped = mapConnectorRecord(
+      'party',
+      {
+        id: 'c1',
+        company_name: 'Acme BV',
+        email: 'info@acme.test',
+        tax_number: 'NL123',
+        sepa_iban: 'NL00TEST',
+        address1: 'Kerkstraat 1',
+        city: 'Amsterdam',
+        zipcode: '1012AB',
+        country: 'NL',
+      },
+      'moneybird',
+    );
+    expect(mapped?.entity).toBe('party');
+    if (mapped?.entity !== 'party') return;
+    expect(mapped.kind).toBe('company');
+    expect(mapped.identity).toMatchObject({ name: 'Acme BV', vatNumber: 'NL123', email: 'info@acme.test' });
+    expect(mapped.values).toMatchObject({ displayName: 'Acme BV', iban: 'NL00TEST', role: 'none' });
+  });
+
+  it('maps a sales invoice without a journal id and with nested contact', () => {
+    const mapped = mapConnectorRecord('invoice', {
+      id: 'inv1',
+      invoice_id: '2024-0001',
+      state: 'open',
+      contact_id: 'c1',
+      contact: { id: 'c1', company_name: 'Acme BV', email: 'info@acme.test' },
+      invoice_date: '2024-01-15',
+      due_date: '2024-01-29',
+      currency: 'EUR',
+      total_price_excl_tax: '100.0',
+      total_price_incl_tax: '121.0',
+      total_tax: '21.0',
+      details: [{ description: 'Hours', amount: '2 x', price: '50.0', product_id: 'p1' }],
+    });
+    expect(mapped?.entity).toBe('invoice');
+    if (mapped?.entity !== 'invoice') return;
+    expect(mapped.values).toMatchObject({
+      invoiceNumber: '2024-0001',
+      status: 'sent',
+    });
+    expect(mapped.values.journalEntryId).toBeUndefined();
+    expect(mapped.contactExternalId).toBe('c1');
+    expect(mapped.lineItems).toHaveLength(1);
+    expect(mapped.lineItems[0]?.quantity).toBe('2');
+  });
+
+  it('maps a late purchase invoice onto an overdue bill', () => {
+    const mapped = mapConnectorRecord('bill', {
+      id: 'bil1',
+      reference: 'PIN-9',
+      state: 'late',
+      contact_id: 'c2',
+      date: '2024-02-01',
+      due_date: '2024-02-15',
+      total_price_excl_tax: '10',
+      total_price_incl_tax: '12.10',
+    });
+    expect(mapped?.entity).toBe('bill');
+    if (mapped?.entity !== 'bill') return;
+    expect(mapped.values).toMatchObject({ billNumber: 'PIN-9', status: 'overdue' });
+    expect(mapped.values.journalEntryId).toBeUndefined();
+  });
+
+  it('maps a Moneybird product from title and identifier', () => {
+    const mapped = mapConnectorRecord(
+      'product',
+      { id: 'p1', title: 'Consulting', identifier: 'CONS-1', price: '90.00' },
+      'moneybird',
+    );
+    expect(mapped?.values).toMatchObject({ name: 'Consulting', sku: 'CONS-1', price: '90.00' });
+  });
+});

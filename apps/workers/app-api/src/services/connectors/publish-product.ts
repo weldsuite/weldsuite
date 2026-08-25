@@ -14,7 +14,7 @@ import type { ProductSalesChannel } from '@weldsuite/db/schema';
 import { schema, type Database } from '../../db';
 import { generateId } from '../../lib/id';
 import type { Env } from '../../types';
-import { createConnectorClient } from './clients';
+import { createProductWriteClient } from './clients';
 import { decryptCredentials, getConnectionById, keyringFromEnv, type ConnectorConnectionRow } from './connections';
 
 export type ProductSalesChannelErrorCode =
@@ -299,7 +299,7 @@ async function clientForConnection(
 ): Promise<ProductWriteClient> {
   if (override) return override;
   const credentials = await decryptCredentials(connection.credentials ?? undefined, keyringFromEnv(env));
-  return createConnectorClient(connection.provider, credentials, connection.externalAccountId);
+  return createProductWriteClient(connection.provider, credentials, connection.externalAccountId);
 }
 
 function assertWritableConnection(connection: ConnectorConnectionRow): void {

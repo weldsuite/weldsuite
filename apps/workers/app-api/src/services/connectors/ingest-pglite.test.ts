@@ -131,3 +131,130 @@ describe('connector ingest · sales channels', () => {
     expect(afterBoth?.deletedAt).not.toBeNull();
   });
 });
+
+describe('connector ingest · Moneybird accounting', () => {
+  const moneybird = getConnector('moneybird')!;
+  const contactsSync = moneybird.syncs.find((s) => s.syncName === 'moneybird-contacts')!;
+  const invoicesSync = moneybird.syncs.find((s) => s.syncName === 'moneybird-sales-invoices')!;
+
+  it('imports a contact then an invoice with party FK and no journal row', async () => {
+    await db.insert(schema.connectorConnections).values({
+      id: 'conn_mb',
+      provider: 'moneybird',
+      displayName: 'Moneybird',
+      status: 'active',
+      externalAccountId: 'admin_1',
+    });
+    await db.insert(schema.entities).values({
+      id: 'ent_1',
+      name: 'Weld BV',
+      jurisdictionCode: 'NL',
+      baseCurrency: 'EUR',
+    });
+    const [existingSettings] = await db.select({ id: schema.settings.id }).from(schema.settings).limit(1);
+    if (existingSettings) {
+      await db
+        .update(schema.settings)
+        .set({ defaultEntityId: 'ent_1', updatedAt: new Date() })
+        .where(eq(schema.settings.id, existingSettings.id));
+    } else {
+      await db.insert(schema.settings).values({
+        id: 'set_1',
+        defaultEntityId: 'ent_1',
+      });
+    }
+
+    const env = {};
+    const contact = await ingestRecords({
+      db,
+      connectionId: 'conn_mb',
+      provider: 'moneybird',
+      displayName: 'Moneybird',
+      sync: contactsSync,
+      records: [{ id: 'c1', company_name: 'Acme BV', email: 'info@acme.test' }],
+      ownerId: 'user_1',
+      workspaceId: 'ws_1',
+      env,
+    });
+    expect(contact.created).toBe(1);
+
+    const parties = await db.select().from(schema.parties);
+    expect(parties).toHaveLength(1);
+    expect(parties[0]?.kind).toBe('company');
+
+    const invoice = await ingestRecords({
+      db,
+      connectionId: 'conn_mb',
+      provider: 'moneybird',
+      displayName: 'Moneybird',
+      sync: invoicesSync,
+      records: [
+        {
+          id: 'inv1',
+          invoice_id: '2024-0001',
+          state: 'open',
+          contact_id: 'c1',
+          invoice_date: '2024-01-15',
+          due_date: '2024-01-29',
+          total_price_excl_tax: '100',
+          total_price_incl_tax: '121',
+          details: [{ description: 'Hours', amount: '1', price: '100' }],
+        },
+      ],
+      ownerId: 'user_1',
+      workspaceId: 'ws_1',
+      env,
+    });
+    expect(invoice.created).toBe(1);
+
+    const invoices = await db.select().from(schema.invoices);
+    expect(invoices).toHaveLength(1);
+    expect(invoices[0]?.contactId).toBe(parties[0]?.id);
+    expect(invoices[0]?.invoiceNumber).toBe('2024-0001');
+    expect(invoices[0]?.journalEntryId).toBeNull();
+
+    const journals = await db.select().from(schema.journalEntries);
+    expect(journals).toHaveLength(0);
+
+    const skip = await ingestRecords({
+      db,
+      connectionId: 'conn_mb',
+      provider: 'moneybird',
+      displayName: 'Moneybird',
+      sync: invoicesSync,
+      records: [
+        {
+          id: 'inv1',
+          invoice_id: '2024-0001',
+          state: 'open',
+          contact_id: 'c1',
+          invoice_date: '2024-01-15',
+          due_date: '2024-01-29',
+          total_price_excl_tax: '100',
+          total_price_incl_tax: '121',
+          details: [{ description: 'Hours', amount: '1', price: '100' }],
+        },
+      ],
+      ownerId: 'user_1',
+      workspaceId: 'ws_1',
+      env,
+    });
+    expect(skip.skipped).toBe(1);
+
+    const destroyed = await ingestRecords({
+      db,
+      connectionId: 'conn_mb',
+      provider: 'moneybird',
+      displayName: 'Moneybird',
+      sync: contactsSync,
+      records: [{ id: 'c1' }],
+      ownerId: 'user_1',
+      workspaceId: 'ws_1',
+      env,
+      forceDeleted: true,
+    });
+    expect(destroyed.deleted).toBe(1);
+    const [partyAfter] = await db.select().from(schema.parties).where(eq(schema.parties.id, parties[0]!.id));
+    expect(partyAfter?.deletedAt).not.toBeNull();
+  });
+});
