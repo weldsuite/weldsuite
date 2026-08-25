@@ -45,7 +45,7 @@ type TabBarIconProps = { focused: boolean; color: string; size: number };
 export interface FloatingTabBarProps {
   state: {
     index: number;
-    routes: Array<{ key: string; name: string; params?: object }>;
+    routes: { key: string; name: string; params?: object }[];
   };
   descriptors: Record<
     string,
