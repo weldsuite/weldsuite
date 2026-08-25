@@ -37,6 +37,10 @@ describe('formatCurrency', () => {
     expect(normalize(formatCurrency(10, 'USD'))).toContain('10,00');
   });
 
+  it('uses English grouping when the profile language is English', () => {
+    expect(normalize(formatCurrency('1234.5', 'EUR', 'en-GB'))).toContain('1,234.50');
+  });
+
   it('renders a bad amount as zero in the right currency, not a hardcoded euro', () => {
     // The previous implementation returned the literal '€0.00' here even for USD.
     expect(normalize(formatCurrency('oops', 'USD'))).toContain('0,00');
