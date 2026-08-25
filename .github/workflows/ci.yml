@@ -45,6 +45,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Lint
         run: pnpm lint
@@ -61,6 +63,8 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Type-check app-api
         working-directory: apps/workers/app-api
@@ -76,6 +80,8 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Type-check platform
         working-directory: apps/web/platform
@@ -97,6 +103,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Type-check desktop
         working-directory: apps/desktop
@@ -117,6 +125,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Run Vitest
         working-directory: apps/workers/app-api
@@ -128,19 +138,35 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Run Vitest
         working-directory: apps/web/platform
         run: pnpm test
 
   # ────────────────────────────────────────────
-  # Cold build — the "does it even build from a clean checkout" signal (plan
-  # Phase 4). Blocking as of #66: verified green twice from a from-scratch
-  # clone (6m51s and 7m34s), which was the bar its old comment set. The
-  # secret-free run turned out to be fine — turbo build is env-independent for
-  # types, and no app build actually needs a VITE_*/EXPO_* value to compile.
+  # Full-graph build. Blocking as of #66: verified green twice from a
+  # from-scratch clone (6m51s and 7m34s). The secret-free run turned out to be
+  # fine — turbo build is env-independent for types, and no app build actually
+  # needs a VITE_*/EXPO_* value to compile.
   #
-  # 25min timeout is deliberate: a cold run has no turbo cache to hit.
+  # NOTE: this is no longer a COLD build. Since the warm-workspace change (see
+  # .github/actions/setup-monorepo/action.yml) the runner keeps node_modules
+  # and .turbo between jobs, so unchanged packages come back from turbo's
+  # cache instead of being rebuilt. That is still a real signal — turbo's cache
+  # is content-addressed, so a hit means these exact inputs built successfully
+  # before, and anything you actually changed is always rebuilt.
+  #
+  # What is NOT covered any more is the clean-clone bootstrap check: that a
+  # from-nothing `pnpm install` + `pnpm build` works, which is what catches a
+  # package that only builds thanks to a leftover artifact or an undeclared
+  # dependency. If that signal is wanted back, add a scheduled job that checks
+  # out with `clean: true` into its own `path:` so it does not cold-wipe the
+  # shared warm workspace out from under the other jobs.
+  #
+  # The 35min timeout is kept as headroom for the first run on a cold runner
+  # (new box, or after the workspace is wiped by hand).
   # ────────────────────────────────────────────
   build:
     name: Build
@@ -150,6 +176,8 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Build
         run: pnpm build
