@@ -24,12 +24,6 @@ interface Widget {
   createdAt: string;
 }
 
-interface RawWidget {
-  widgetId?: string;
-  widgetName?: string;
-  createdAt?: string | Date;
-}
-
 export default function ChatWidgetPage() {
   const { t } = useI18n();
   const tw = t.helpdesk.chatWidget;
@@ -43,7 +37,7 @@ export default function ChatWidgetPage() {
   const [newWidgetName, setNewWidgetName] = useState('');
 
   const widgets: Widget[] = useMemo(() =>
-    (data?.data ?? []).map((w: RawWidget) => ({
+    (data?.data ?? []).map((w) => ({
       id: w.widgetId || '',
       widgetId: w.widgetId || '',
       widgetName: w.widgetName || tw.unnamedWidget,
@@ -55,7 +49,7 @@ export default function ChatWidgetPage() {
   const handleCreate = async () => {
     try {
       const result = await createWidget.mutateAsync({ widgetName: newWidgetName || tw.newWidget });
-      if (result.success && result.data?.widgetId) {
+      if (result.data?.widgetId) {
         setShowCreateDialog(false);
         setNewWidgetName('');
         toast.success(tw.widgetCreated);

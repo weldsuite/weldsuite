@@ -26,10 +26,9 @@ export function ChatView({ onClose }: ChatViewProps) {
     send,
     startTyping,
     stopTyping,
-    visitorName,
   } = useConversation({
     widgetId: config.widgetId,
-    name: customer.name || visitorName,
+    name: customer.name || customer.visitorName,
     email: customer.email,
     realtimeUrl: config.realtimeUrl,
   });

@@ -32,7 +32,7 @@ export default function WidgetEditPage({ widgetId }: WidgetEditPageProps) {
   const handleCreate = async () => {
     try {
       const result = await createWidget.mutateAsync({ widgetName: newWidgetName || tw.newWidget });
-      if (result.success && result.data?.widgetId) {
+      if (result.data?.widgetId) {
         setShowCreateDialog(false);
         setNewWidgetName('');
         toast.success(tw.widgetCreated);

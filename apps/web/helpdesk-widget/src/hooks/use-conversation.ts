@@ -47,7 +47,7 @@ export function useConversation({ widgetId, name, email, realtimeUrl }: Options)
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!conversationId || !REALTIME_URL && !realtimeUrl) return;
+    if (!conversationId || (!REALTIME_URL && !realtimeUrl)) return;
     const url = `${realtimeUrl || REALTIME_URL}/ws/conversation/${conversationId}`;
     const client = new RoomClient({
       url,
@@ -57,25 +57,22 @@ export function useConversation({ widgetId, name, email, realtimeUrl }: Options)
       },
     });
     clientRef.current = client;
-    const unsub = client.on('message', (event) => {
-      if (event.type === 'typing') {
-        setTyping(Boolean((event as { isTyping?: boolean }).isTyping));
-        return;
-      }
-      if (event.type === 'system') {
-        const ev = (event as { event?: string }).event;
-        if (ev === 'closed') setIsClosed(true);
-        if (ev === 'reopened') setIsClosed(false);
-        void load(conversationId);
-        return;
-      }
-      if (event.type === 'message' && (event as { senderType?: string }).senderType !== 'visitor') {
-        void load(conversationId);
-      }
+    const unsubMessage = client.on('message', (event) => {
+      if (event.senderType !== 'visitor') void load(conversationId);
+    });
+    const unsubTyping = client.on('typing', (event) => {
+      setTyping(event.isTyping);
+    });
+    const unsubSystem = client.on('system', (event) => {
+      if (event.event === 'closed') setIsClosed(true);
+      if (event.event === 'reopened') setIsClosed(false);
+      void load(conversationId);
     });
     client.connect();
     return () => {
-      unsub();
+      unsubMessage();
+      unsubTyping();
+      unsubSystem();
       client.disconnect();
       clientRef.current = null;
     };

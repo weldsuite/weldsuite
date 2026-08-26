@@ -225,7 +225,7 @@ export default function HelpdeskAutomationsPage() {
           refetchWorkflows();
           const id = result?.data?.id;
           if (id) {
-            navigate({ to: '/welddesk/workflows/$id/edit', params: { id } });
+            navigate({ to: '/welddesk/inbox' });
           }
         },
         onError: () => {
