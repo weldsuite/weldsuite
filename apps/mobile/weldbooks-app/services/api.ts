@@ -57,6 +57,7 @@ import type {
   SearchResultType,
   TaxRate,
   UnmatchedTransaction,
+  UserPreferences,
   VatReturn,
   VatReturnDetail,
 } from '@/types/accounting';
@@ -809,15 +810,22 @@ class WeldBooksApi {
       const res = await client.get<DataEnvelope<Json[]>>(
         `/bank-transactions/${transactionId}/suggestions`,
       );
-      return (res.data ?? []).map((s) => ({
-        id: str(s.id),
-        type: str(s.type) === 'invoice' ? 'invoice' : 'bill',
-        description: [str(s.type) === 'invoice' ? 'Invoice' : 'Bill', s.number, s.contactName]
-          .filter(Boolean)
-          .join(' · '),
-        amount: num(s.amount),
-        confidence: num(s.confidence),
-      }));
+      return (res.data ?? []).map((s) => {
+        const type = str(s.type) === 'invoice' ? 'invoice' : 'bill';
+        const number = s.number ? str(s.number) : undefined;
+        const contactName = s.contactName ? str(s.contactName) : undefined;
+        return {
+          id: str(s.id),
+          type,
+          number,
+          contactName,
+          description: [type === 'invoice' ? 'Invoice' : 'Bill', number, contactName]
+            .filter(Boolean)
+            .join(' · '),
+          amount: num(s.amount),
+          confidence: num(s.confidence),
+        };
+      });
     } catch {
       return [];
     }
@@ -1055,6 +1063,22 @@ class WeldBooksApi {
       entityName: row.entityName ? str(row.entityName) : undefined,
       jurisdictionCode: row.jurisdictionCode ? str(row.jurisdictionCode) : undefined,
       vatNumber: row.vatNumber ? str(row.vatNumber) : undefined,
+    };
+  }
+
+  /**
+   * Language (and other appearance prefs) from the signed-in user's profile.
+   * Same row the platform Settings → Appearance picker writes.
+   */
+  async getUserPreferences(): Promise<UserPreferences> {
+    const res = await client.get<DataEnvelope<Json>>('/user-preferences');
+    const row = res.data ?? {};
+    return {
+      language: str(row.language, 'en'),
+      theme: row.theme ? str(row.theme) : undefined,
+      dateFormat: row.dateFormat ? str(row.dateFormat) : undefined,
+      timeFormat: row.timeFormat ? str(row.timeFormat) : undefined,
+      timezone: row.timezone ? str(row.timezone) : undefined,
     };
   }
 

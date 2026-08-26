@@ -5,6 +5,7 @@ import {
   connectorSyncMode,
   connectorSyncNames,
   DEFAULT_ENABLED_SYNCS,
+  defaultEnabledSyncs,
   enabledConnectorSyncs,
   getConnector,
   getConnectorSync,
@@ -12,8 +13,8 @@ import {
 } from './catalog';
 
 describe('connector catalog', () => {
-  it('ships WooCommerce and Shopify as first-party ecommerce connectors', () => {
-    expect(listConnectors().map((c) => c.provider)).toEqual(['woocommerce', 'shopify']);
+  it('ships WooCommerce, Shopify, and Moneybird as first-party connectors', () => {
+    expect(listConnectors().map((c) => c.provider)).toEqual(['woocommerce', 'shopify', 'moneybird']);
   });
 
   it('keeps provider keys unique', () => {
@@ -73,6 +74,23 @@ describe('connector catalog', () => {
 
   it('defaults every catalog sync on', () => {
     expect(DEFAULT_ENABLED_SYNCS).toEqual(['products', 'orders', 'customers']);
+    expect(defaultEnabledSyncs('woocommerce')).toEqual(['products', 'orders', 'customers']);
+    expect(defaultEnabledSyncs('moneybird')).toEqual(['contacts', 'invoices', 'products', 'bills']);
+  });
+
+  it('lists Moneybird as a hybrid accounting connector with OAuth', () => {
+    const moneybird = getConnector('moneybird');
+    expect(moneybird?.category).toBe('accounting');
+    expect(moneybird?.delivery).toBe('hybrid');
+    expect(moneybird?.auth.kind).toBe('oauth2');
+    expect(connectorSyncMode('moneybird')).toBe('webhook_catchup');
+    expect(moneybird?.syncs.map((s) => s.externalEntityType)).toEqual([
+      'moneybird_contact',
+      'moneybird_sales_invoice',
+      'moneybird_product',
+      'moneybird_purchase_invoice',
+      'moneybird_receipt',
+    ]);
   });
 
   it('marks WooCommerce and Shopify as hybrid (webhooks plus catch-up)', () => {

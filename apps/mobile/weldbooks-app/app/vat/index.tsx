@@ -16,13 +16,13 @@ import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { Chip } from '@weldsuite/mobile-ui/components/Chip';
 
 import api from '@/services/api';
-import { formatCurrency } from '@/lib/currency';
 import { ACCENTS } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { RecordRow } from '@/components/record-row';
 import { IconTile } from '@/components/detail';
 import { ListSkeleton, ErrorState } from '@/components/data-states';
 import { VatStatusBadge } from '@/components/status-badge';
+import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import type { VatReturn } from '@/types/accounting';
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -31,6 +31,8 @@ const YEARS = [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2];
 export default function VatReturnsScreen() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { t, format } = useI18n();
+  const { formatCurrency } = useLocaleFormatters();
 
   const [returns, setReturns] = useState<VatReturn[]>([]);
   const [year, setYear] = useState<number | null>(CURRENT_YEAR);
@@ -61,11 +63,11 @@ export default function VatReturnsScreen() {
 
   const header = (
     <ScreenHeader
-      title="VAT returns"
+      title={t.vat.title}
       showBack
       below={
         <View style={styles.chips}>
-          <Chip label="All years" selected={year === null} onPress={() => setYear(null)} />
+          <Chip label={t.vat.allYears} selected={year === null} onPress={() => setYear(null)} />
           {YEARS.map((y) => (
             <Chip key={y} label={String(y)} selected={year === y} onPress={() => setYear(y)} />
           ))}
@@ -85,7 +87,7 @@ export default function VatReturnsScreen() {
   if (error && returns.length === 0) {
     return (
       <Screen header={header}>
-        <ErrorState message="Couldn't load VAT returns." onRetry={load} />
+        <ErrorState message={t.vat.loadError} onRetry={load} />
       </Screen>
     );
   }
@@ -110,7 +112,10 @@ export default function VatReturnsScreen() {
           <RecordRow
             leading={<IconTile icon={FileCheck} color={ACCENTS.vat} />}
             title={item.period || String(item.year)}
-            subtitle={`Output ${formatCurrency(item.salesTax, item.currency)} · Input ${formatCurrency(item.purchaseTax, item.currency)}`}
+            subtitle={format(t.vat.outputInput, {
+              output: formatCurrency(item.salesTax, item.currency),
+              input: formatCurrency(item.purchaseTax, item.currency),
+            })}
             amount={formatCurrency(item.netAmount, item.currency)}
             amountColor={item.netAmount < 0 ? colors.success : undefined}
             badge={<VatStatusBadge status={item.status} />}
@@ -123,11 +128,9 @@ export default function VatReturnsScreen() {
         ListEmptyComponent={
           <EmptyState
             icon={<FileCheck size={32} color={colors.mutedForeground} />}
-            title="No VAT returns"
+            title={t.vat.emptyTitle}
             description={
-              year
-                ? `No returns for ${year}. Try another year.`
-                : 'Returns appear here once a VAT period closes.'
+              year ? format(t.vat.emptyYear, { year }) : t.vat.emptyAll
             }
           />
         }

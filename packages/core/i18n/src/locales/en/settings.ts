@@ -715,6 +715,12 @@ export const settings = {
         overview:
           'Connect a custom app with its Admin API token and API secret. After the first import, Shopify pushes changes over webhooks. You can connect multiple shops; matching SKUs share one product with a sales-channel record per shop.',
       },
+      moneybird: {
+        title: 'Moneybird',
+        description: 'Import contacts, sales invoices, products, and purchase invoices from Moneybird into WeldBooks.',
+        overview:
+          'Connect with OAuth. After the first import, Moneybird pushes changes over webhooks, with a periodic catch-up. Imported invoices and bills keep Moneybird’s numbers and do not post to the WeldSuite ledger — Moneybird stays the book of record.',
+      },
       sendcloud: {
         title: 'Sendcloud',
         description: 'Connect your Sendcloud account to create shipping labels from WeldStash pick lists.',

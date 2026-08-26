@@ -66,9 +66,15 @@ export default {
   async scheduled(
     _event: ScheduledEvent,
     env: Env,
-    ctx: ExecutionContext,
+    _ctx: ExecutionContext,
   ): Promise<void> {
-    console.log(`[IntegrationScheduler] Starting sync check (${env.ENVIRONMENT})`);
+    // Parked until a due-index rewrite: this tick opened every tenant Neon.
+    // wrangler.toml crons = [] as well. Widened boolean so the body stays type-checked.
+    const disabled = true as boolean;
+    if (disabled) {
+      console.log(`[IntegrationScheduler] Cron disabled (${env.ENVIRONMENT})`);
+      return;
+    }
 
     if (env.CONNECTOR_SYNC_INDEX) {
       try {

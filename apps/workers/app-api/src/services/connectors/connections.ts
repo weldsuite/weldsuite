@@ -10,7 +10,7 @@
  * mappings means a later reconnect updates those rows instead of duplicating.
  */
 
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { encryptField, maybeDecryptField, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
 import { getConnector } from '@weldsuite/connectors';
 import type { ConnectorSyncRunStatus, ConnectorSyncTrigger, ConnectorWebhookRegistration } from '@weldsuite/db/schema';
@@ -428,4 +428,157 @@ export async function listSyncRuns(
     .where(eq(schema.connectorSyncRuns.connectionId, connectionId))
     .orderBy(desc(schema.connectorSyncRuns.createdAt))
     .limit(Math.min(limit, 100));
+}
+
+export interface ConnectorSyncedRecord {
+  id: string;
+  externalEntityType: string;
+  externalEntityId: string;
+  internalEntityType: string;
+  internalEntityId: string;
+  label: string;
+  lastSyncedAt: string | null;
+}
+
+function isoDate(value: Date | string | null | undefined): string | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function asMap(rows: Array<{ id: string; label: string | null | undefined }>): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    const label = row.label?.trim();
+    if (label) map.set(row.id, label);
+  }
+  return map;
+}
+
+/** Recent imported rows for the connection detail sheet. */
+export async function listConnectionRecords(
+  db: Database,
+  connectionId: string,
+  limit = 50,
+): Promise<ConnectorSyncedRecord[]> {
+  const mappings = await db
+    .select({
+      id: schema.integrationEntityMappings.id,
+      externalEntityType: schema.integrationEntityMappings.externalEntityType,
+      externalEntityId: schema.integrationEntityMappings.externalEntityId,
+      internalEntityType: schema.integrationEntityMappings.internalEntityType,
+      internalEntityId: schema.integrationEntityMappings.internalEntityId,
+      lastSyncedAt: schema.integrationEntityMappings.lastSyncedAt,
+      updatedAt: schema.integrationEntityMappings.updatedAt,
+    })
+    .from(schema.integrationEntityMappings)
+    .where(eq(schema.integrationEntityMappings.connectionId, connectionId))
+    .orderBy(desc(schema.integrationEntityMappings.updatedAt))
+    .limit(Math.min(limit, 100));
+
+  const idsFor = (type: string) =>
+    [...new Set(mappings.filter((row) => row.internalEntityType === type).map((row) => row.internalEntityId))];
+
+  const partyIds = idsFor('party');
+  const productIds = idsFor('product');
+  const personIds = idsFor('person');
+  const companyIds = idsFor('company');
+  const invoiceIds = idsFor('invoice');
+  const billIds = idsFor('bill');
+  const orderIds = idsFor('order');
+
+  const [partyRows, productRows, personRows, companyRows, invoiceRows, billRows, orderRows] = await Promise.all([
+    partyIds.length
+      ? db
+          .select({ id: schema.parties.id, label: schema.parties.displayName })
+          .from(schema.parties)
+          .where(inArray(schema.parties.id, partyIds))
+      : Promise.resolve([]),
+    productIds.length
+      ? db
+          .select({ id: schema.products.id, label: schema.products.name })
+          .from(schema.products)
+          .where(inArray(schema.products.id, productIds))
+      : Promise.resolve([]),
+    personIds.length
+      ? db
+          .select({
+            id: schema.people.id,
+            fullName: schema.people.fullName,
+            firstName: schema.people.firstName,
+            lastName: schema.people.lastName,
+          })
+          .from(schema.people)
+          .where(inArray(schema.people.id, personIds))
+      : Promise.resolve([]),
+    companyIds.length
+      ? db
+          .select({ id: schema.companies.id, label: schema.companies.displayName })
+          .from(schema.companies)
+          .where(inArray(schema.companies.id, companyIds))
+      : Promise.resolve([]),
+    invoiceIds.length
+      ? db
+          .select({
+            id: schema.invoices.id,
+            invoiceNumber: schema.invoices.invoiceNumber,
+            contactName: schema.invoices.contactName,
+            reference: schema.invoices.reference,
+          })
+          .from(schema.invoices)
+          .where(inArray(schema.invoices.id, invoiceIds))
+      : Promise.resolve([]),
+    billIds.length
+      ? db
+          .select({
+            id: schema.bills.id,
+            billNumber: schema.bills.billNumber,
+            contactName: schema.bills.contactName,
+            reference: schema.bills.reference,
+          })
+          .from(schema.bills)
+          .where(inArray(schema.bills.id, billIds))
+      : Promise.resolve([]),
+    orderIds.length
+      ? db
+          .select({ id: schema.orders.id, label: schema.orders.orderNumber })
+          .from(schema.orders)
+          .where(inArray(schema.orders.id, orderIds))
+      : Promise.resolve([]),
+  ]);
+
+  const labels: Record<string, Map<string, string>> = {
+    party: asMap(partyRows),
+    product: asMap(productRows),
+    person: asMap(
+      personRows.map((row) => ({
+        id: row.id,
+        label: row.fullName?.trim() || [row.firstName, row.lastName].filter(Boolean).join(' ') || null,
+      })),
+    ),
+    company: asMap(companyRows),
+    invoice: asMap(
+      invoiceRows.map((row) => ({
+        id: row.id,
+        label: row.invoiceNumber || row.contactName || row.reference,
+      })),
+    ),
+    bill: asMap(
+      billRows.map((row) => ({
+        id: row.id,
+        label: row.billNumber || row.contactName || row.reference,
+      })),
+    ),
+    order: asMap(orderRows),
+  };
+
+  return mappings.map((row) => ({
+    id: row.id,
+    externalEntityType: row.externalEntityType,
+    externalEntityId: row.externalEntityId,
+    internalEntityType: row.internalEntityType,
+    internalEntityId: row.internalEntityId,
+    label: labels[row.internalEntityType]?.get(row.internalEntityId) || row.externalEntityId,
+    lastSyncedAt: isoDate(row.lastSyncedAt) ?? isoDate(row.updatedAt),
+  }));
 }

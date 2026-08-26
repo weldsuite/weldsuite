@@ -19,12 +19,11 @@ import { Badge } from '@weldsuite/mobile-ui/components/Badge';
 import { Divider } from '@weldsuite/mobile-ui/components/Divider';
 
 import api from '@/services/api';
-import { formatCurrency } from '@/lib/currency';
-import { formatShortDate } from '@/lib/date';
 import { ACCENTS } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { IconTile } from '@/components/detail';
 import { ListSkeleton, ErrorState } from '@/components/data-states';
+import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import type { ReconciliationStats, UnmatchedTransaction } from '@/types/accounting';
 
 /** app-api scores 0–1; anything under 0.6 is presented as a weak guess. */
@@ -37,6 +36,8 @@ function confidenceVariant(confidence: number): 'success' | 'warning' | 'seconda
 export default function ReconciliationScreen() {
   const { colors } = useTheme();
   const toast = useToast();
+  const { t, format } = useI18n();
+  const { formatCurrency, formatShortDate } = useLocaleFormatters();
 
   const [stats, setStats] = useState<ReconciliationStats | null>(null);
   const [transactions, setTransactions] = useState<UnmatchedTransaction[]>([]);
@@ -73,9 +74,9 @@ export default function ReconciliationScreen() {
       try {
         await api.matchTransaction(transactionId, suggestionId);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        toast.success('Transaction reconciled');
+        toast.success(t.reconciliation.matched);
         // Drop it locally so the list doesn't jump while the counts refresh.
-        setTransactions((prev) => prev.filter((t) => t.id !== transactionId));
+        setTransactions((prev) => prev.filter((tx) => tx.id !== transactionId));
         setStats((prev) =>
           prev
             ? {
@@ -86,15 +87,15 @@ export default function ReconciliationScreen() {
             : prev,
         );
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Could not reconcile');
+        toast.error(err instanceof Error ? err.message : t.reconciliation.matchFailed);
       } finally {
         setMatchingId(null);
       }
     },
-    [toast],
+    [toast, t],
   );
 
-  const header = <ScreenHeader title="Reconciliation" showBack />;
+  const header = <ScreenHeader title={t.reconciliation.title} showBack />;
 
   if (loading) {
     return (
@@ -107,7 +108,7 @@ export default function ReconciliationScreen() {
   if (error && transactions.length === 0) {
     return (
       <Screen header={header}>
-        <ErrorState message="Couldn't load reconciliation." onRetry={load} />
+        <ErrorState message={t.reconciliation.loadError} onRetry={load} />
       </Screen>
     );
   }
@@ -135,19 +136,25 @@ export default function ReconciliationScreen() {
                 <Text style={[styles.statValue, { color: colors.text }]}>
                   {stats.totalUnmatched}
                 </Text>
-                <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Unmatched</Text>
+                <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>
+                  {t.reconciliation.unmatched}
+                </Text>
               </Card>
               <Card style={styles.statCard}>
                 <Text style={[styles.statValue, { color: colors.success }]}>
                   {stats.totalMatched}
                 </Text>
-                <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Reconciled</Text>
+                <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>
+                  {t.reconciliation.reconciled}
+                </Text>
               </Card>
               <Card style={styles.statCard}>
                 <Text style={[styles.statValue, { color: colors.text }]} numberOfLines={1}>
                   {formatCurrency(stats.pendingAmount, stats.currency)}
                 </Text>
-                <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Pending</Text>
+                <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>
+                  {t.reconciliation.pending}
+                </Text>
               </Card>
             </View>
           ) : null
@@ -165,7 +172,7 @@ export default function ReconciliationScreen() {
                 />
                 <View style={styles.txMain}>
                   <Text style={[styles.txTitle, { color: colors.text }]} numberOfLines={1}>
-                    {item.description || item.counterpartyName || 'Transaction'}
+                    {item.description || item.counterpartyName || t.reconciliation.transaction}
                   </Text>
                   <Text style={[styles.txMeta, { color: colors.mutedForeground }]}>
                     {formatShortDate(item.date)}
@@ -181,44 +188,58 @@ export default function ReconciliationScreen() {
                 <>
                   <Divider style={styles.txDivider} />
                   <Text style={[styles.suggestLabel, { color: colors.mutedForeground }]}>
-                    SUGGESTED MATCHES
+                    {t.reconciliation.suggestedMatches.toUpperCase()}
                   </Text>
-                  {item.suggestedMatches.map((suggestion) => (
-                    <Pressable
-                      key={suggestion.id}
-                      disabled={busy}
-                      onPress={() => handleMatch(item.id, suggestion.id)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Match with ${suggestion.description}`}
-                      style={({ pressed }) => [
-                        styles.suggestion,
-                        { borderColor: colors.border },
-                        pressed && { backgroundColor: colors.pressed },
-                      ]}
-                    >
-                      <View style={styles.suggestionMain}>
-                        <Text
-                          style={[styles.suggestionText, { color: colors.text }]}
-                          numberOfLines={1}
-                        >
-                          {suggestion.description}
-                        </Text>
-                        <Text style={[styles.suggestionAmount, { color: colors.mutedForeground }]}>
-                          {formatCurrency(suggestion.amount, item.currency)}
-                        </Text>
-                      </View>
-                      <Badge
-                        variant={confidenceVariant(suggestion.confidence)}
-                        size="sm"
-                        label={`${Math.round(suggestion.confidence * 100)}%`}
-                      />
-                      <Check size={16} color={colors.mutedForeground} />
-                    </Pressable>
-                  ))}
+                  {item.suggestedMatches.map((suggestion) => {
+                    const suggestionDesc =
+                      [
+                        suggestion.type === 'invoice'
+                          ? t.reconciliation.invoice
+                          : t.reconciliation.bill,
+                        suggestion.number,
+                        suggestion.contactName,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ') || suggestion.description;
+                    return (
+                      <Pressable
+                        key={suggestion.id}
+                        disabled={busy}
+                        onPress={() => handleMatch(item.id, suggestion.id)}
+                        accessibilityRole="button"
+                        accessibilityLabel={format(t.reconciliation.matchWith, {
+                          description: suggestionDesc,
+                        })}
+                        style={({ pressed }) => [
+                          styles.suggestion,
+                          { borderColor: colors.border },
+                          pressed && { backgroundColor: colors.pressed },
+                        ]}
+                      >
+                        <View style={styles.suggestionMain}>
+                          <Text
+                            style={[styles.suggestionText, { color: colors.text }]}
+                            numberOfLines={1}
+                          >
+                            {suggestionDesc}
+                          </Text>
+                          <Text style={[styles.suggestionAmount, { color: colors.mutedForeground }]}>
+                            {formatCurrency(suggestion.amount, item.currency)}
+                          </Text>
+                        </View>
+                        <Badge
+                          variant={confidenceVariant(suggestion.confidence)}
+                          size="sm"
+                          label={`${Math.round(suggestion.confidence * 100)}%`}
+                        />
+                        <Check size={16} color={colors.mutedForeground} />
+                      </Pressable>
+                    );
+                  })}
                 </>
               ) : (
                 <Text style={[styles.noSuggestions, { color: colors.mutedForeground }]}>
-                  No suggested matches. Reconcile this one in WeldBooks on the web.
+                  {t.reconciliation.noSuggestions}
                 </Text>
               )}
             </Card>
@@ -227,8 +248,8 @@ export default function ReconciliationScreen() {
         ListEmptyComponent={
           <EmptyState
             icon={<GitMerge size={32} color={colors.mutedForeground} />}
-            title="Everything reconciled"
-            description="No unmatched bank transactions right now."
+            title={t.reconciliation.emptyTitle}
+            description={t.reconciliation.emptyDescription}
             style={styles.empty}
           />
         }

@@ -82,6 +82,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          clean: false
           ref: ${{ steps.ctx.outputs.ref }}
 
       - name: Read desktop version
@@ -223,6 +224,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          clean: false
           ref: ${{ needs.prepare.outputs.ref }}
 
       - uses: ./.github/actions/setup-monorepo

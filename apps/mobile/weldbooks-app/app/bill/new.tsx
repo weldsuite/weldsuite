@@ -20,6 +20,7 @@ import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 import api from '@/services/api';
 import { parseAmount } from '@/lib/currency';
 import { today, addDays } from '@/lib/date';
+import { useI18n } from '@/lib/i18n';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard } from '@/components/detail';
 import {
@@ -51,6 +52,7 @@ export default function NewBillScreen() {
   const { documentId } = useLocalSearchParams<{ documentId?: string }>();
   const router = useRouter();
   const toast = useToast();
+  const { t } = useI18n();
 
   const [contactName, setContactName] = useState('');
   const [billNumber, setBillNumber] = useState('');
@@ -97,8 +99,8 @@ export default function NewBillScreen() {
     const usable = validLineItems(items);
 
     const nextErrors: typeof errors = {};
-    if (!name) nextErrors.contactName = 'Enter a vendor name';
-    if (usable.length === 0) nextErrors.items = 'Add at least one item with a description and price';
+    if (!name) nextErrors.contactName = t.billNew.nameError;
+    if (usable.length === 0) nextErrors.items = t.billNew.itemsError;
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
 
@@ -122,17 +124,17 @@ export default function NewBillScreen() {
         })),
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      toast.success('Bill created');
+      toast.success(t.billNew.created);
       router.replace(`/bill/${bill.id}` as never);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not create the bill');
+      toast.error(err instanceof Error ? err.message : t.billNew.createFailed);
     } finally {
       setSaving(false);
     }
-  }, [contactName, billNumber, issueDate, dueDate, items, notes, reference, documentId, router, toast]);
+  }, [contactName, billNumber, issueDate, dueDate, items, notes, reference, documentId, router, toast, t]);
 
   return (
-    <Screen header={<ScreenHeader title="New bill" showBack />}>
+    <Screen header={<ScreenHeader title={t.billNew.title} showBack />}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.flex}
@@ -140,59 +142,57 @@ export default function NewBillScreen() {
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
           {ocrState === 'loading' ? (
             <Banner variant="info" style={styles.banner}>
-              Filling in fields from the scan…
+              {t.billNew.ocrLoading}
             </Banner>
           ) : null}
           {ocrState === 'ready' ? (
             <Banner variant="success" style={styles.banner}>
-              Prefilled from the scan — check the figures before saving.
+              {t.billNew.ocrReady}
             </Banner>
           ) : null}
           {ocrState === 'failed' ? (
             <Banner variant="warning" style={styles.banner}>
-              Could not read the receipt. Enter the details — the image is still attached.
+              {t.billNew.ocrFailed}
             </Banner>
           ) : null}
 
-          <SectionCard title="Vendor">
+          <SectionCard title={t.billNew.vendor}>
             <Input
-              label="Name"
+              label={t.billNew.name}
               value={contactName}
               onChangeText={(text) => {
                 setContactName(text);
                 if (errors.contactName) setErrors((e) => ({ ...e, contactName: undefined }));
               }}
-              placeholder="Supplier name"
+              placeholder={t.billNew.namePlaceholder}
               error={errors.contactName}
-              helperText={
-                errors.contactName ? undefined : 'A matching contact is created if none exists'
-              }
+              helperText={errors.contactName ? undefined : t.billNew.nameHint}
               autoCapitalize="words"
             />
             <Input
-              label="Bill number"
+              label={t.billNew.billNumber}
               value={billNumber}
               onChangeText={setBillNumber}
-              placeholder="Auto-generated if empty"
+              placeholder={t.billNew.billNumberPlaceholder}
               autoCapitalize="characters"
               autoCorrect={false}
             />
           </SectionCard>
 
-          <SectionCard title="Dates">
+          <SectionCard title={t.billNew.dates}>
             <Input
-              label="Issue date"
+              label={t.billNew.issueDate}
               value={issueDate}
               onChangeText={setIssueDate}
-              placeholder="YYYY-MM-DD"
+              placeholder={t.billNew.datePlaceholder}
               autoCapitalize="none"
               autoCorrect={false}
             />
             <Input
-              label="Due date"
+              label={t.billNew.dueDate}
               value={dueDate}
               onChangeText={setDueDate}
-              placeholder="YYYY-MM-DD"
+              placeholder={t.billNew.datePlaceholder}
               autoCapitalize="none"
               autoCorrect={false}
             />
@@ -207,24 +207,24 @@ export default function NewBillScreen() {
             }}
           />
 
-          <SectionCard title="Extras">
+          <SectionCard title={t.billNew.extras}>
             <Textarea
-              label="Notes"
+              label={t.billNew.notes}
               value={notes}
               onChangeText={setNotes}
-              placeholder="Internal notes"
+              placeholder={t.billNew.notesPlaceholder}
               numberOfLines={3}
             />
             <Input
-              label="Reference"
+              label={t.billNew.reference}
               value={reference}
               onChangeText={setReference}
-              placeholder="Supplier invoice number"
+              placeholder={t.billNew.referencePlaceholder}
             />
           </SectionCard>
 
           <Button
-            title="Create bill"
+            title={t.billNew.create}
             onPress={handleSave}
             loading={saving}
             fullWidth

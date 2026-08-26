@@ -23,6 +23,7 @@ import { Sheet } from '@weldsuite/mobile-ui/components/Sheet';
 import { Screen } from './screen';
 import api from '@/services/api';
 import type { Jurisdiction } from '@/types/accounting';
+import { useI18n } from '@/lib/i18n';
 
 /** Building with a door — the same motif as the platform's empty-state illustration. */
 function EntityIllustration({ stroke, fill, accent }: { stroke: string; fill: string; accent: string }) {
@@ -41,13 +42,6 @@ function EntityIllustration({ stroke, fill, accent }: { stroke: string; fill: st
   );
 }
 
-const CURRENCIES = [
-  { label: 'EUR — Euro', value: 'EUR' },
-  { label: 'GBP — Pound sterling', value: 'GBP' },
-  { label: 'USD — US dollar', value: 'USD' },
-];
-
-/** Shown if `/accounting-entities/jurisdictions` can't be reached. */
 const FALLBACK_JURISDICTIONS: Jurisdiction[] = [
   { code: 'NL', name: 'Netherlands' },
   { code: 'BE', name: 'Belgium' },
@@ -68,6 +62,13 @@ export function CreateEntitySheet({
 }) {
   const { colors } = useTheme();
   const toast = useToast();
+  const { t } = useI18n();
+
+  const currencies = [
+    { label: t.entitySetup.currencyEur, value: 'EUR' },
+    { label: t.entitySetup.currencyGbp, value: 'GBP' },
+    { label: t.entitySetup.currencyUsd, value: 'USD' },
+  ];
 
   const [jurisdictions, setJurisdictions] = useState<Jurisdiction[]>(FALLBACK_JURISDICTIONS);
   const [name, setName] = useState('');
@@ -91,7 +92,7 @@ export function CreateEntitySheet({
   const handleCreate = useCallback(async () => {
     const trimmed = name.trim();
     if (!trimmed) {
-      setNameError('Enter a company name');
+      setNameError(t.entitySetup.companyNameError);
       return;
     }
 
@@ -105,66 +106,65 @@ export function CreateEntitySheet({
         vatNumber: vatNumber.trim() || undefined,
         isDefault: true,
       });
-      toast.success('Company created');
+      toast.success(t.entitySetup.created);
       await onCreated();
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not create the company');
+      toast.error(err instanceof Error ? err.message : t.entitySetup.createFailed);
     } finally {
       setSubmitting(false);
     }
-  }, [name, jurisdictionCode, baseCurrency, vatNumber, toast, onCreated, onClose]);
+  }, [name, jurisdictionCode, baseCurrency, vatNumber, toast, onCreated, onClose, t]);
 
   return (
-    <Sheet visible={visible} onClose={onClose} title="Set up your company" heightRatio={0.82}>
+    <Sheet visible={visible} onClose={onClose} title={t.entitySetup.sheetTitle} heightRatio={0.82}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.sheetBody}
       >
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetContent}>
           <Text style={[styles.sheetHint, { color: colors.mutedForeground }]}>
-            The jurisdiction decides your chart of accounts, tax rates and invoice numbering. It
-            can&apos;t be changed later, so pick where the company is registered.
+            {t.entitySetup.hint}
           </Text>
 
           <Input
-            label="Company name"
+            label={t.entitySetup.companyName}
             value={name}
             onChangeText={(text) => {
               setName(text);
               if (nameError) setNameError(undefined);
             }}
-            placeholder="Acme B.V."
+            placeholder={t.entitySetup.companyNamePlaceholder}
             error={nameError}
             autoCapitalize="words"
             returnKeyType="next"
           />
 
           <Select
-            label="Jurisdiction"
+            label={t.entitySetup.jurisdiction}
             value={jurisdictionCode}
             onValueChange={setJurisdictionCode}
             options={jurisdictions.map((j) => ({ label: `${j.name} (${j.code})`, value: j.code }))}
           />
 
           <Select
-            label="Base currency"
+            label={t.entitySetup.baseCurrency}
             value={baseCurrency}
             onValueChange={setBaseCurrency}
-            options={CURRENCIES}
+            options={currencies}
           />
 
           <Input
-            label="VAT number (optional)"
+            label={t.entitySetup.vatNumberOptional}
             value={vatNumber}
             onChangeText={setVatNumber}
-            placeholder="NL123456789B01"
+            placeholder={t.entitySetup.vatNumberPlaceholder}
             autoCapitalize="characters"
             autoCorrect={false}
           />
 
           <Button
-            title="Create company"
+            title={t.entitySetup.createCompany}
             onPress={handleCreate}
             loading={submitting}
             fullWidth
@@ -178,6 +178,7 @@ export function CreateEntitySheet({
 
 export function EntityEmptyState({ onCreated }: { onCreated: () => void | Promise<void> }) {
   const { colors, theme } = useTheme();
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
 
   return (
@@ -188,12 +189,11 @@ export function EntityEmptyState({ onCreated }: { onCreated: () => void | Promis
           fill={theme === 'dark' ? 'rgba(255,255,255,0.03)' : '#FFFFFF'}
           accent={theme === 'dark' ? 'rgba(255,255,255,0.15)' : '#F1F5F9'}
         />
-        <Text style={[styles.title, { color: colors.text }]}>No company set up yet</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{t.entitySetup.emptyTitle}</Text>
         <Text style={[styles.description, { color: colors.mutedForeground }]}>
-          WeldBooks keeps your books per legal entity. Create your company to start invoicing,
-          recording expenses and filing VAT.
+          {t.entitySetup.emptyDescription}
         </Text>
-        <Button title="Create company" onPress={() => setOpen(true)} style={styles.cta} />
+        <Button title={t.entitySetup.createCompany} onPress={() => setOpen(true)} style={styles.cta} />
       </View>
 
       <CreateEntitySheet visible={open} onClose={() => setOpen(false)} onCreated={onCreated} />

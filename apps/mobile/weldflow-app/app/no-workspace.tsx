@@ -75,7 +75,7 @@ export default function NoWorkspaceScreen() {
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <View style={styles.content}>
         <View style={[styles.iconCircle, { backgroundColor: colors.cardBackground }]}>
-          <Inbox size={48} color="#6366F1" />
+          <Inbox size={48} color="#E84C3D" />
         </View>
 
         <Text style={[styles.title, { color: colors.text }]}>Waiting for an invite</Text>
@@ -132,7 +132,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 28, fontWeight: '700', textAlign: 'center', marginBottom: 12 },
   description: { fontSize: 16, lineHeight: 24, textAlign: 'center', marginBottom: 32 },
   primaryButton: {
-    backgroundColor: '#6366F1',
+    backgroundColor: '#E84C3D',
     borderRadius: 12,
     paddingVertical: 14,
     paddingHorizontal: 24,

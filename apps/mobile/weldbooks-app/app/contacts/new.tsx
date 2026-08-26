@@ -20,16 +20,18 @@ import { Button } from '@weldsuite/mobile-ui/components/Button';
 import api from '@/services/api';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard } from '@/components/detail';
-
-const ROLES = [
-  { label: 'Customer', value: 'customer' },
-  { label: 'Supplier', value: 'supplier' },
-  { label: 'Customer & supplier', value: 'both' },
-];
+import { useI18n } from '@/lib/i18n';
 
 export default function NewContactScreen() {
   const router = useRouter();
   const toast = useToast();
+  const { t } = useI18n();
+
+  const ROLES = [
+    { label: t.contacts.customer, value: 'customer' },
+    { label: t.contacts.supplier, value: 'supplier' },
+    { label: t.contacts.both, value: 'both' },
+  ];
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -42,7 +44,7 @@ export default function NewContactScreen() {
   const handleSave = useCallback(async () => {
     const trimmed = fullName.trim();
     if (!trimmed) {
-      setNameError('Enter a name');
+      setNameError(t.contactNew.nameError);
       return;
     }
 
@@ -56,66 +58,71 @@ export default function NewContactScreen() {
         role,
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      toast.success('Contact created');
+      toast.success(t.contactNew.created);
       router.replace(`/contacts/${contact.id}` as never);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not create the contact');
+      toast.error(err instanceof Error ? err.message : t.contactNew.createFailed);
     } finally {
       setSubmitting(false);
     }
-  }, [fullName, email, phone, vatNumber, role, router, toast]);
+  }, [fullName, email, phone, vatNumber, role, router, toast, t]);
 
   return (
-    <Screen header={<ScreenHeader title="New contact" showBack />}>
+    <Screen header={<ScreenHeader title={t.contactNew.title} showBack />}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.flex}
       >
         <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
-          <SectionCard title="Contact">
+          <SectionCard title={t.contactNew.contact}>
             <Input
-              label="Name"
+              label={t.contactNew.name}
               value={fullName}
               onChangeText={(text) => {
                 setFullName(text);
                 if (nameError) setNameError(undefined);
               }}
-              placeholder="Acme B.V."
+              placeholder={t.contactNew.namePlaceholder}
               error={nameError}
               autoCapitalize="words"
             />
-            <Select label="Role" value={role} onValueChange={setRole} options={ROLES} />
+            <Select
+              label={t.contactNew.role}
+              value={role}
+              onValueChange={setRole}
+              options={ROLES}
+            />
           </SectionCard>
 
-          <SectionCard title="Contact details">
+          <SectionCard title={t.contactNew.details}>
             <Input
-              label="Email"
+              label={t.contactNew.email}
               value={email}
               onChangeText={setEmail}
-              placeholder="billing@acme.com"
+              placeholder={t.contactNew.emailPlaceholder}
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
             />
             <Input
-              label="Phone"
+              label={t.contactNew.phone}
               value={phone}
               onChangeText={setPhone}
-              placeholder="+31 20 123 4567"
+              placeholder={t.contactNew.phonePlaceholder}
               keyboardType="phone-pad"
             />
             <Input
-              label="VAT number"
+              label={t.contactNew.vatNumber}
               value={vatNumber}
               onChangeText={setVatNumber}
-              placeholder="NL123456789B01"
+              placeholder={t.contactNew.vatNumberPlaceholder}
               autoCapitalize="characters"
               autoCorrect={false}
             />
           </SectionCard>
 
           <Button
-            title="Create contact"
+            title={t.contactNew.create}
             onPress={handleSave}
             loading={submitting}
             fullWidth

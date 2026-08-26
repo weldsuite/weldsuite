@@ -715,6 +715,12 @@ export const settings = {
         overview:
           'Verbind een custom app met het Admin API-token en de API-secret. Na de eerste import pusht Shopify wijzigingen via webhooks. Je kunt meerdere shops verbinden; dezelfde SKU’s delen één product met een verkoopkanaal per shop.',
       },
+      moneybird: {
+        title: 'Moneybird',
+        description: 'Importeer contacten, verkoopfacturen, producten en inkoopfacturen uit Moneybird naar WeldBooks.',
+        overview:
+          'Verbind via OAuth. Na de eerste import pusht Moneybird wijzigingen via webhooks, met een periodieke inhaal-sync. Geïmporteerde facturen en rekeningen behouden Moneybird-nummers en boeken niet in het WeldSuite-grootboek — Moneybird blijft de boekhouding.',
+      },
       sendcloud: {
         title: 'Sendcloud',
         description: 'Koppel je Sendcloud-account om verzendlabels te maken vanuit WeldStash-picklijsten.',

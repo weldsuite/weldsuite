@@ -10,8 +10,12 @@ import {
 } from '@/lib/date';
 
 describe('formatDate', () => {
-  it('formats an ISO timestamp', () => {
+  it('formats an ISO timestamp in English by default', () => {
     expect(formatDate('2026-08-05T10:30:00.000Z')).toBe('5 Aug 2026');
+  });
+
+  it('follows the locale passed from the user profile language', () => {
+    expect(formatDate('2026-08-05T10:30:00.000Z', 'nl-NL')).toMatch(/aug/i);
   });
 
   it('returns an em dash for missing or malformed values instead of "Invalid Date"', () => {

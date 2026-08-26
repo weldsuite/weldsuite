@@ -14,6 +14,9 @@
  * Postman. Query-string auth is a fallback for hosts that strip Authorization.
  */
 
+import type { ConnectorSyncDef, ConnectorSyncSettingKey } from '../catalog';
+import type { ConnectorListPage, ConnectorProviderClient, ConnectorWebhookCreated } from '../provider-client';
+import type { ConnectorWebhookTopic } from '../webhooks';
 import {
   bindFetch,
   classifyStatus,
@@ -183,7 +186,7 @@ function buildWooUrl(args: {
   return url.toString();
 }
 
-export class WooCommerceClient {
+export class WooCommerceClient implements ConnectorProviderClient {
   readonly storeUrl: string;
   private readonly consumerKey: string;
   private readonly consumerSecret: string;
@@ -391,9 +394,10 @@ export class WooCommerceClient {
    * Returns false when the filter is unsupported (do not treat as "new data").
    */
   async hasUpdatesSince(
-    resource: 'products' | 'orders' | 'customers',
+    resource: ConnectorSyncSettingKey,
     modifiedAfter?: string,
   ): Promise<boolean> {
+    if (resource !== 'products' && resource !== 'orders' && resource !== 'customers') return false;
     try {
       const page = await this.listResource(resource, {
         page: 1,
@@ -411,7 +415,8 @@ export class WooCommerceClient {
   }
 
   /** Remote object count — used by the daily reconcile fingerprint. */
-  async countResource(resource: 'products' | 'orders' | 'customers'): Promise<number> {
+  async countResource(resource: ConnectorSyncSettingKey): Promise<number> {
+    if (resource !== 'products' && resource !== 'orders' && resource !== 'customers') return 0;
     const page = await this.listResource(resource, { page: 1, perPage: 1 });
     return page.total;
   }
@@ -510,6 +515,43 @@ export class WooCommerceClient {
 
   async deleteWebhook(id: string): Promise<void> {
     await this.request(`webhooks/${id}`, { method: 'DELETE', search: { force: 'true' } });
+  }
+
+  async listSync(
+    sync: ConnectorSyncDef,
+    options: { page: number; cursor: string | null; limit: number; modifiedAfter?: string },
+  ): Promise<ConnectorListPage> {
+    if (sync.settingKey !== 'products' && sync.settingKey !== 'orders' && sync.settingKey !== 'customers') {
+      return { items: [], done: true, nextCursor: null };
+    }
+    const result = await this.listResource<Record<string, unknown>>(sync.settingKey, {
+      page: options.page,
+      perPage: options.limit,
+      modifiedAfter: options.modifiedAfter,
+    });
+    return {
+      items: result.items,
+      done: result.page >= result.totalPages,
+      nextCursor: null,
+    };
+  }
+
+  async registerWebhooks(args: {
+    deliveryUrl: string;
+    secret: string;
+    topics: ConnectorWebhookTopic[];
+  }): Promise<ConnectorWebhookCreated[]> {
+    const registrations: ConnectorWebhookCreated[] = [];
+    for (const topic of args.topics) {
+      const created = await this.createWebhook({
+        name: `WeldSuite ${topic.topic}`,
+        topic: topic.topic,
+        deliveryUrl: args.deliveryUrl,
+        secret: args.secret,
+      });
+      registrations.push({ id: created.id, topic: created.topic, deliveryUrl: created.deliveryUrl });
+    }
+    return registrations;
   }
 }
 

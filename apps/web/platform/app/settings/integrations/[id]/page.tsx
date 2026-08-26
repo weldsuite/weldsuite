@@ -6,7 +6,7 @@ export default function IntegrationDetailPage() {
   const params = useParams();
   const id = params.id as string;
 
-  if (id === 'woocommerce' || id === 'shopify') {
+  if (id === 'woocommerce' || id === 'shopify' || id === 'moneybird') {
     return <EcommerceConnectorSettingsPage provider={id} />;
   }
 

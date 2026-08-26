@@ -1,3 +1,5 @@
+const { withInfoPlist } = require('@expo/config-plugins');
+
 /** Must match the scaffold placeholder in app.json before `eas init` runs. */
 const PLACEHOLDER_PROJECT_ID = '00000000-0000-0000-0000-000000000000';
 
@@ -61,4 +63,40 @@ const withProductionCleartext = (config) => {
   return { ...config, plugins };
 };
 
-module.exports = ({ config }) => withProductionCleartext(withEasProject(config));
+/** iOS URL scheme for the Google Sign-In callback — same as WeldMail. */
+const withGoogleSignInUrlScheme = (config) => {
+  const iosUrlScheme = process.env.EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME;
+  if (!iosUrlScheme) return config;
+
+  return withInfoPlist(config, (config) => {
+    const existing = config.modResults.CFBundleURLTypes || [];
+    const alreadyAdded = existing.some((entry) =>
+      entry.CFBundleURLSchemes?.includes(iosUrlScheme)
+    );
+
+    if (!alreadyAdded) {
+      config.modResults.CFBundleURLTypes = [
+        ...existing,
+        {
+          CFBundleURLSchemes: [iosUrlScheme],
+        },
+      ];
+    }
+
+    return config;
+  });
+};
+
+/** @clerk/expo reads these from extra; env-only injection is unreliable with app.config.js. */
+const withClerkGoogleExtra = (config) => {
+  config.extra = {
+    ...config.extra,
+    EXPO_PUBLIC_CLERK_GOOGLE_WEB_CLIENT_ID: process.env.EXPO_PUBLIC_CLERK_GOOGLE_WEB_CLIENT_ID,
+    EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID: process.env.EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID,
+    EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID: process.env.EXPO_PUBLIC_CLERK_GOOGLE_ANDROID_CLIENT_ID,
+  };
+  return config;
+};
+
+module.exports = ({ config }) =>
+  withGoogleSignInUrlScheme(withClerkGoogleExtra(withProductionCleartext(withEasProject(config))));

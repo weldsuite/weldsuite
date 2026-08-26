@@ -10,12 +10,12 @@
  */
 
 /** WeldSuite entity a synced model lands in. */
-export type ConnectorEntity = 'product' | 'order' | 'person';
+export type ConnectorEntity = 'product' | 'order' | 'person' | 'party' | 'invoice' | 'bill';
 
 export type ConnectorCategory = 'ecommerce' | 'crm' | 'accounting' | 'support' | 'productivity';
 
 /** Toggle the tenant enables on the connection itself. */
-export type ConnectorSyncSettingKey = 'products' | 'orders' | 'customers';
+export type ConnectorSyncSettingKey = 'products' | 'orders' | 'customers' | 'contacts' | 'invoices' | 'bills';
 
 export type ConnectorCredentialFieldType = 'url' | 'text' | 'secret';
 
@@ -40,7 +40,7 @@ export interface ConnectorSyncDef {
   settingKey: ConnectorSyncSettingKey;
 }
 
-export type ConnectorAuthKind = 'api_key' | 'app_auth';
+export type ConnectorAuthKind = 'api_key' | 'app_auth' | 'oauth2';
 
 /**
  * How the connector receives remote changes after the initial backfill.
@@ -65,9 +65,13 @@ export interface ConnectorDef {
      * provider (WooCommerce `/wc-auth/v1/authorize`). Keys arrive on a
      * server callback; we never ask for them.
      * `api_key` — merchant pastes credentials (Shopify custom app).
+     * `oauth2` — redirect to the provider (Moneybird). App client id/secret
+     * live in worker env; the tenant never pastes tokens.
      */
     kind: ConnectorAuthKind;
     fields: ConnectorCredentialField[];
+    /** OAuth scopes advertised in the connect UI (oauth2 only). */
+    scopes?: string[];
   };
   syncs: ConnectorSyncDef[];
 }
@@ -173,6 +177,57 @@ export const CONNECTORS: ConnectorDef[] = [
       },
     ],
   },
+  {
+    provider: 'moneybird',
+    label: 'Moneybird',
+    description:
+      'Sync contacts, sales invoices, products, and purchase invoices from Moneybird into WeldBooks.',
+    category: 'accounting',
+    icon: 'book-open',
+    delivery: 'hybrid',
+    auth: {
+      kind: 'oauth2',
+      fields: [],
+      scopes: ['sales_invoices', 'documents', 'settings'],
+    },
+    syncs: [
+      {
+        syncName: 'moneybird-contacts',
+        model: 'MoneybirdContact',
+        internalEntity: 'party',
+        externalEntityType: 'moneybird_contact',
+        settingKey: 'contacts',
+      },
+      {
+        syncName: 'moneybird-sales-invoices',
+        model: 'MoneybirdSalesInvoice',
+        internalEntity: 'invoice',
+        externalEntityType: 'moneybird_sales_invoice',
+        settingKey: 'invoices',
+      },
+      {
+        syncName: 'moneybird-products',
+        model: 'MoneybirdProduct',
+        internalEntity: 'product',
+        externalEntityType: 'moneybird_product',
+        settingKey: 'products',
+      },
+      {
+        syncName: 'moneybird-purchase-invoices',
+        model: 'MoneybirdPurchaseInvoice',
+        internalEntity: 'bill',
+        externalEntityType: 'moneybird_purchase_invoice',
+        settingKey: 'bills',
+      },
+      {
+        syncName: 'moneybird-receipts',
+        model: 'MoneybirdReceipt',
+        internalEntity: 'bill',
+        externalEntityType: 'moneybird_receipt',
+        settingKey: 'bills',
+      },
+    ],
+  },
 ];
 
 export function listConnectors(): ConnectorDef[] {
@@ -209,6 +264,13 @@ export function connectorSyncNames(provider: string): string[] {
 }
 
 export const DEFAULT_ENABLED_SYNCS: ConnectorSyncSettingKey[] = ['products', 'orders', 'customers'];
+
+/** Setting keys enabled when the tenant does not pick a subset. */
+export function defaultEnabledSyncs(provider: string): string[] {
+  const connector = getConnector(provider);
+  if (!connector) return [...DEFAULT_ENABLED_SYNCS];
+  return [...new Set(connector.syncs.map((s) => s.settingKey))];
+}
 
 export type ConnectorSyncMode = 'webhook_catchup' | 'poll';
 

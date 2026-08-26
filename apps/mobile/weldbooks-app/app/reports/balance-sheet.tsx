@@ -14,25 +14,31 @@ import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 import { Divider } from '@weldsuite/mobile-ui/components/Divider';
 
 import api from '@/services/api';
-import { formatCurrency } from '@/lib/currency';
 import { ACCENTS } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard } from '@/components/detail';
 import { DetailSkeleton, ErrorState } from '@/components/data-states';
+import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import type { BalanceSheetData, BalanceSheetSection } from '@/types/accounting';
 
 function Section({
   section,
+  title,
+  totalLabel,
   currency,
+  formatCurrencyFn,
 }: {
   section: BalanceSheetSection;
+  title: string;
+  totalLabel: string;
   currency: string;
+  formatCurrencyFn: (amount: number, currency: string) => string;
 }) {
   const { colors } = useTheme();
   if (section.accounts.length === 0 && section.total === 0) return null;
 
   return (
-    <SectionCard title={section.label}>
+    <SectionCard title={title}>
       {section.accounts.map((account) => (
         <View key={`${account.code}-${account.name}`} style={styles.accountRow}>
           <View style={styles.accountText}>
@@ -46,17 +52,15 @@ function Section({
             ) : null}
           </View>
           <Text style={[styles.accountBalance, { color: colors.text }]}>
-            {formatCurrency(account.balance, currency)}
+            {formatCurrencyFn(account.balance, currency)}
           </Text>
         </View>
       ))}
       <Divider style={styles.sectionDivider} />
       <View style={styles.accountRow}>
-        <Text style={[styles.sectionTotalLabel, { color: colors.text }]}>
-          Total {section.label.toLowerCase()}
-        </Text>
+        <Text style={[styles.sectionTotalLabel, { color: colors.text }]}>{totalLabel}</Text>
         <Text style={[styles.sectionTotalValue, { color: colors.text }]}>
-          {formatCurrency(section.total, currency)}
+          {formatCurrencyFn(section.total, currency)}
         </Text>
       </View>
     </SectionCard>
@@ -65,6 +69,8 @@ function Section({
 
 export default function BalanceSheetScreen() {
   const { colors } = useTheme();
+  const { t, format } = useI18n();
+  const { formatCurrency } = useLocaleFormatters();
 
   const [data, setData] = useState<BalanceSheetData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -88,7 +94,7 @@ export default function BalanceSheetScreen() {
     load();
   }, [load]);
 
-  const header = <ScreenHeader title="Balance sheet" showBack />;
+  const header = <ScreenHeader title={t.balanceSheet.title} showBack />;
 
   if (loading) {
     return (
@@ -102,7 +108,7 @@ export default function BalanceSheetScreen() {
     return (
       <Screen header={header}>
         <ErrorState
-          message="Couldn't load the balance sheet."
+          message={t.balanceSheet.loadError}
           onRetry={() => {
             setLoading(true);
             load();
@@ -131,28 +137,49 @@ export default function BalanceSheetScreen() {
         }
       >
         <Card style={styles.hero}>
-          <Text style={[styles.heroLabel, { color: colors.mutedForeground }]}>Total assets</Text>
+          <Text style={[styles.heroLabel, { color: colors.mutedForeground }]}>
+            {t.balanceSheet.totalAssets}
+          </Text>
           <Text style={[styles.heroValue, { color: colors.text }]} numberOfLines={1} adjustsFontSizeToFit>
             {formatCurrency(data.totalAssets, data.currency)}
           </Text>
         </Card>
 
         {!balanced ? (
-          <Banner variant="warning" title="Books don't balance" style={styles.banner}>
-            Assets are {formatCurrency(data.totalAssets, data.currency)} but liabilities plus equity
-            are {formatCurrency(data.totalLiabilitiesAndEquity, data.currency)}. Review your journal
-            entries in WeldBooks on the web.
+          <Banner variant="warning" title={t.balanceSheet.unbalancedTitle} style={styles.banner}>
+            {format(t.balanceSheet.unbalancedBody, {
+              assets: formatCurrency(data.totalAssets, data.currency),
+              liabilities: formatCurrency(data.totalLiabilitiesAndEquity, data.currency),
+            })}
           </Banner>
         ) : null}
 
-        <Section section={data.assets} currency={data.currency} />
-        <Section section={data.liabilities} currency={data.currency} />
-        <Section section={data.equity} currency={data.currency} />
+        <Section
+          section={data.assets}
+          title={t.balanceSheet.assets}
+          totalLabel={t.balanceSheet.totalAssetsLabel}
+          currency={data.currency}
+          formatCurrencyFn={formatCurrency}
+        />
+        <Section
+          section={data.liabilities}
+          title={t.balanceSheet.liabilities}
+          totalLabel={t.balanceSheet.totalLiabilities}
+          currency={data.currency}
+          formatCurrencyFn={formatCurrency}
+        />
+        <Section
+          section={data.equity}
+          title={t.balanceSheet.equity}
+          totalLabel={t.balanceSheet.totalEquity}
+          currency={data.currency}
+          formatCurrencyFn={formatCurrency}
+        />
 
         <SectionCard>
           <View style={styles.accountRow}>
             <Text style={[styles.sectionTotalLabel, { color: colors.text }]}>
-              Liabilities + equity
+              {t.balanceSheet.liabilitiesAndEquity}
             </Text>
             <Text style={[styles.sectionTotalValue, { color: colors.text }]}>
               {formatCurrency(data.totalLiabilitiesAndEquity, data.currency)}

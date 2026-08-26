@@ -107,6 +107,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          clean: false
           fetch-depth: 0
 
       - name: Detect DB / mobile / worker changes
@@ -274,6 +275,8 @@ jobs:
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Run master migration
         working-directory: packages/core/db
@@ -303,6 +306,8 @@ jobs:
         worker: ${{ fromJson(needs.prepare.outputs.workers) }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Deploy ${{ matrix.worker }}
         working-directory: apps/workers/${{ matrix.worker }}
@@ -325,6 +330,8 @@ jobs:
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: false
       - uses: ./.github/actions/setup-monorepo
       - uses: expo/expo-github-action@v8
         with:
@@ -353,6 +360,8 @@ jobs:
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: false
       - uses: ./.github/actions/setup-monorepo
       - uses: expo/expo-github-action@v8
         with:
@@ -409,6 +418,8 @@ jobs:
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Build platform
         working-directory: apps/web/platform

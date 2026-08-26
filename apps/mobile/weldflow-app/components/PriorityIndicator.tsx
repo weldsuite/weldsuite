@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Flag } from 'lucide-react-native';
+import { priorityLabel, useI18n } from '@/lib/i18n';
 
 const PRIORITY_COLORS: Record<string, string> = {
   critical: '#DC2626',
@@ -10,17 +11,26 @@ const PRIORITY_COLORS: Record<string, string> = {
   none: '#9CA3AF',
 };
 
-export function PriorityIndicator({ priority, showLabel = false }: { priority: string; showLabel?: boolean }) {
+export function PriorityIndicator({
+  priority,
+  showLabel = false,
+}: {
+  priority: string;
+  showLabel?: boolean;
+}) {
+  const { t } = useI18n();
   const color = PRIORITY_COLORS[priority] ?? '#9CA3AF';
   return (
     <View style={styles.container}>
       <Flag size={12} color={color} fill={color} />
-      {showLabel && <Text style={[styles.label, { color }]}>{priority}</Text>}
+      {showLabel ? (
+        <Text style={[styles.label, { color }]}>{priorityLabel(t, priority)}</Text>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  label: { fontSize: 12, fontWeight: '600', textTransform: 'capitalize' },
+  label: { fontSize: 12, fontWeight: '600' },
 });

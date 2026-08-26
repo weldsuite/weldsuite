@@ -20,8 +20,9 @@ import { Divider } from '@weldsuite/mobile-ui/components/Divider';
 import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
 
 import api from '@/services/api';
-import { formatCurrency, toNumber } from '@/lib/currency';
-import { formatDate, daysUntil } from '@/lib/date';
+import { toNumber } from '@/lib/currency';
+import { daysUntil } from '@/lib/date';
+import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import { BRAND } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard, DetailRow, TotalsBlock } from '@/components/detail';
@@ -37,6 +38,8 @@ export default function BillDetailScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const toast = useToast();
+  const { t, format, plural } = useI18n();
+  const { formatCurrency, formatDate } = useLocaleFormatters();
 
   const [bill, setBill] = useState<Bill | null>(null);
   const [loading, setLoading] = useState(true);
@@ -73,24 +76,24 @@ export default function BillDetailScreen() {
         toast.success(successMessage);
         await load();
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Action failed');
+        toast.error(err instanceof Error ? err.message : t.common.actionFailed);
       } finally {
         setBusy(false);
       }
     },
-    [load, toast],
+    [load, toast, t],
   );
 
   const header = (
     <ScreenHeader
-      title={bill?.billNumber || 'Bill'}
+      title={bill?.billNumber || t.billDetail.title}
       subtitle={bill?.contactName}
       showBack
       actions={
         bill?.status === 'draft' || bill?.status === 'pending' ? (
           <IconButton
             icon={<Trash2 size={20} color={colors.destructive} />}
-            accessibilityLabel="Delete bill"
+            accessibilityLabel={t.billDetail.deleteBill}
             onPress={() => setConfirm('delete')}
           />
         ) : null
@@ -110,7 +113,7 @@ export default function BillDetailScreen() {
     return (
       <Screen header={header}>
         <ErrorState
-          message="Couldn't load this bill."
+          message={t.billDetail.loadError}
           onRetry={() => {
             setLoading(true);
             load();
@@ -146,7 +149,7 @@ export default function BillDetailScreen() {
           <View style={styles.summary}>
             <View>
               <Text style={[styles.summaryLabel, { color: colors.mutedForeground }]}>
-                {balanceDue > 0 ? 'Balance due' : 'Total'}
+                {balanceDue > 0 ? t.billDetail.balanceDue : t.billDetail.total}
               </Text>
               <Text style={[styles.summaryValue, { color: colors.text }]}>
                 {formatCurrency(balanceDue > 0 ? balanceDue : bill.total, currency)}
@@ -167,23 +170,23 @@ export default function BillDetailScreen() {
               ]}
             >
               {due < 0
-                ? `Overdue by ${Math.abs(due)} day${Math.abs(due) === 1 ? '' : 's'}`
+                ? plural(Math.abs(due), t.billDetail.overdueBy)
                 : due === 0
-                  ? 'Due today'
-                  : `Due in ${due} day${due === 1 ? '' : 's'}`}
+                  ? t.billDetail.dueToday
+                  : plural(due, t.billDetail.dueIn)}
             </Text>
           ) : null}
         </SectionCard>
 
-        <SectionCard title="Details">
-          <DetailRow label="Vendor" value={bill.contactName} />
-          <DetailRow label="Issue date" value={formatDate(bill.issueDate)} />
-          <DetailRow label="Due date" value={formatDate(bill.dueDate)} />
-          {bill.reference ? <DetailRow label="Reference" value={bill.reference} /> : null}
+        <SectionCard title={t.billDetail.details}>
+          <DetailRow label={t.billDetail.vendor} value={bill.contactName} />
+          <DetailRow label={t.billDetail.issueDate} value={formatDate(bill.issueDate)} />
+          <DetailRow label={t.billDetail.dueDate} value={formatDate(bill.dueDate)} />
+          {bill.reference ? <DetailRow label={t.billDetail.reference} value={bill.reference} /> : null}
         </SectionCard>
 
         {bill.items?.length ? (
-          <SectionCard title="Line items">
+          <SectionCard title={t.billDetail.lineItems}>
             {bill.items.map((item, index) => (
               <View key={item.id ?? index}>
                 {index > 0 ? <Divider style={styles.itemDivider} /> : null}
@@ -193,7 +196,9 @@ export default function BillDetailScreen() {
                 <View style={styles.itemMeta}>
                   <Text style={[styles.itemQty, { color: colors.mutedForeground }]}>
                     {toNumber(item.quantity)} × {formatCurrency(item.unitPrice, currency)}
-                    {toNumber(item.taxRate) > 0 ? `  ·  ${toNumber(item.taxRate)}% VAT` : ''}
+                    {toNumber(item.taxRate) > 0
+                      ? `  ·  ${format(t.billDetail.vatRate, { rate: toNumber(item.taxRate) })}`
+                      : ''}
                   </Text>
                   <Text style={[styles.itemTotal, { color: colors.text }]}>
                     {formatCurrency(item.lineTotal, currency)}
@@ -204,24 +209,24 @@ export default function BillDetailScreen() {
           </SectionCard>
         ) : null}
 
-        <SectionCard title="Totals">
+        <SectionCard title={t.billDetail.totals}>
           <TotalsBlock
             rows={[
-              { label: 'Subtotal', value: formatCurrency(bill.subtotal, currency) },
-              { label: 'VAT', value: formatCurrency(bill.taxTotal, currency) },
+              { label: t.billDetail.subtotal, value: formatCurrency(bill.subtotal, currency) },
+              { label: t.billDetail.vat, value: formatCurrency(bill.taxTotal, currency) },
               ...(amountPaid > 0
-                ? [{ label: 'Paid', value: `−${formatCurrency(amountPaid, currency)}` }]
+                ? [{ label: t.billDetail.paid, value: `−${formatCurrency(amountPaid, currency)}` }]
                 : []),
             ]}
             total={{
-              label: balanceDue > 0 && amountPaid > 0 ? 'Balance due' : 'Total',
+              label: balanceDue > 0 && amountPaid > 0 ? t.billDetail.balanceDue : t.billDetail.total,
               value: formatCurrency(balanceDue > 0 && amountPaid > 0 ? balanceDue : bill.total, currency),
             }}
           />
         </SectionCard>
 
         {bill.notes ? (
-          <SectionCard title="Notes">
+          <SectionCard title={t.billDetail.notes}>
             <Text style={[styles.notes, { color: colors.mutedForeground }]}>{bill.notes}</Text>
           </SectionCard>
         ) : null}
@@ -230,14 +235,14 @@ export default function BillDetailScreen() {
           {canApprove ? (
             <>
               <Button
-                title="Approve"
+                title={t.billDetail.approve}
                 leftIcon={<Check size={18} color={colors.primaryForeground} />}
-                onPress={() => run(() => api.approveBill(bill.id), 'Bill approved')}
+                onPress={() => run(() => api.approveBill(bill.id), t.billDetail.approved)}
                 loading={busy}
                 fullWidth
               />
               <Button
-                title="Reject"
+                title={t.billDetail.reject}
                 variant="outline"
                 leftIcon={<X size={18} color={colors.destructive} />}
                 onPress={() => setConfirm('reject')}
@@ -249,7 +254,7 @@ export default function BillDetailScreen() {
 
           {canPay ? (
             <Button
-              title="Record payment"
+              title={t.billDetail.recordPayment}
               leftIcon={<CreditCard size={18} color={colors.primaryForeground} />}
               onPress={() => setPaymentOpen(true)}
               disabled={busy}
@@ -266,30 +271,30 @@ export default function BillDetailScreen() {
         currency={currency}
         submitting={busy}
         onSubmit={async (payment) => {
-          await run(() => api.recordBillPayment(bill.id, payment), 'Payment recorded');
+          await run(() => api.recordBillPayment(bill.id, payment), t.billDetail.paymentRecorded);
           setPaymentOpen(false);
         }}
       />
 
       <ConfirmModal
         visible={confirm === 'reject'}
-        title="Reject this bill?"
-        message="It stays in your books but won't be scheduled for payment."
-        confirmText="Reject"
+        title={t.billDetail.rejectTitle}
+        message={t.billDetail.rejectMessage}
+        confirmText={t.billDetail.reject}
         variant="destructive"
         loading={busy}
         onCancel={() => setConfirm(null)}
         onConfirm={() => {
           setConfirm(null);
-          run(() => api.rejectBill(bill.id), 'Bill rejected');
+          run(() => api.rejectBill(bill.id), t.billDetail.rejected);
         }}
       />
 
       <ConfirmModal
         visible={confirm === 'delete'}
-        title="Delete this bill?"
-        message="The bill will be removed. This cannot be undone."
-        confirmText="Delete"
+        title={t.billDetail.deleteTitle}
+        message={t.billDetail.deleteMessage}
+        confirmText={t.common.delete}
         variant="destructive"
         loading={busy}
         onCancel={() => setConfirm(null)}
@@ -298,10 +303,10 @@ export default function BillDetailScreen() {
           setBusy(true);
           try {
             await api.deleteBill(bill.id);
-            toast.success('Bill deleted');
+            toast.success(t.billDetail.deleted);
             router.back();
           } catch (err) {
-            toast.error(err instanceof Error ? err.message : 'Could not delete the bill');
+            toast.error(err instanceof Error ? err.message : t.billDetail.deleteFailed);
           } finally {
             setBusy(false);
           }

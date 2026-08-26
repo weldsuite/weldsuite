@@ -4,15 +4,12 @@ import {
   AlertCircle,
   CheckCircle2,
   Loader2,
-  Pause,
-  Play,
   Plug,
-  RefreshCw,
   Search,
-  Link2Off,
   Link as LinkIcon,
   ShoppingBag,
   Settings,
+  BookOpen,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -28,13 +25,6 @@ import {
   CardTitle,
 } from '@weldsuite/ui/components/card';
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@weldsuite/ui/components/sheet';
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -42,7 +32,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
-import { Separator } from '@weldsuite/ui/components/separator';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { usePermissions } from '@weldsuite/permissions/react';
@@ -50,24 +39,23 @@ import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Link } from '@/lib/router';
 import {
-  useConnectConnector,
-  useAuthorizeConnector,
   useConnectorCatalog,
-  useConnectorConnection,
-  useConnectorSyncRuns,
   useDisconnectConnector,
-  useSetConnectorPaused,
+  useAuthorizeConnector,
+  useConnectConnector,
   useTestConnector,
-  useTriggerConnectorSync,
-  useUpdateConnector,
   type ConnectorCatalogEntry,
   type ConnectorConnection,
   type ConnectorSyncDef,
 } from '@/hooks/queries/use-connector-queries';
+import { ConnectionDetails } from './connection-details';
+
+export { ConnectionDetails };
 
 const ICON_MAP: Record<string, React.ElementType> = {
   'shopping-bag': ShoppingBag,
   store: ShoppingBag,
+  'book-open': BookOpen,
   plug: Plug,
 };
 
@@ -126,11 +114,16 @@ function SyncToggles({
     products: { title: ts.products, description: ts.productsDescription },
     orders: { title: ts.orders, description: ts.ordersDescription },
     customers: { title: ts.customers, description: ts.customersDescription },
+    contacts: { title: ts.contacts, description: ts.contactsDescription },
+    invoices: { title: ts.invoices, description: ts.invoicesDescription },
+    bills: { title: ts.bills, description: ts.billsDescription },
   };
+
+  const uniqueSyncs = [...new Map(syncs.map((sync) => [sync.settingKey, sync])).values()];
 
   return (
     <div className="space-y-3">
-      {syncs.map((sync) => {
+      {uniqueSyncs.map((sync) => {
         const on = settingEnabled(enabled, sync);
         const copy = labels[sync.settingKey];
         return (
@@ -159,6 +152,11 @@ interface ConnectDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+function defaultSyncKeys(connector: ConnectorCatalogEntry | null): string[] {
+  if (!connector) return ['products', 'orders', 'customers'];
+  return [...new Set(connector.syncs.map((sync) => sync.settingKey))];
+}
+
 export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
   const { t } = useI18n();
   const tc = t.weldconnect.connectors;
@@ -166,16 +164,21 @@ export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
   const authorize = useAuthorizeConnector();
   const test = useTestConnector();
   const [credentials, setCredentials] = useState<Record<string, string>>({});
-  const [enabledSyncs, setEnabledSyncs] = useState<string[]>(['products', 'orders', 'customers']);
+  const [enabledSyncs, setEnabledSyncs] = useState<string[]>(defaultSyncKeys(connector));
 
   const fields = connector?.auth.fields ?? [];
   const isAppAuth = connector?.auth.kind === 'app_auth';
+  const isOAuth2 = connector?.auth.kind === 'oauth2';
   const busy = connect.isPending || authorize.isPending;
+
+  useEffect(() => {
+    if (connector) setEnabledSyncs(defaultSyncKeys(connector));
+  }, [connector]);
 
   const handleOpenChange = (open: boolean) => {
     if (!open) {
       setCredentials({});
-      setEnabledSyncs(['products', 'orders', 'customers']);
+      setEnabledSyncs(defaultSyncKeys(connector));
     }
     onOpenChange(open);
   };
@@ -220,6 +223,27 @@ export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
       );
       return;
     }
+    if (isOAuth2) {
+      authorize.mutate(
+        {
+          provider: 'moneybird',
+          enabledSyncs,
+          returnUrl: `${window.location.origin}${window.location.pathname}`,
+        },
+        {
+          onSuccess: (result) => {
+            const url = result.data.authorizeUrl;
+            if (!url) {
+              toast.error(tc.connectFailed);
+              return;
+            }
+            window.location.assign(url);
+          },
+          onError: (err) => toast.error(err instanceof Error ? err.message : tc.connectFailed),
+        },
+      );
+      return;
+    }
     connect.mutate(
       { provider: connector.provider, credentials, enabledSyncs },
       {
@@ -238,7 +262,11 @@ export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
         <DialogHeader>
           <DialogTitle>{connector ? `${tc.connect} ${connector.label}` : tc.connect}</DialogTitle>
           <DialogDescription>
-            {isAppAuth ? tc.settings.connectDescriptionAppAuth : tc.settings.connectDescription}
+            {isOAuth2
+              ? tc.settings.connectDescriptionOAuth
+              : isAppAuth
+                ? tc.settings.connectDescriptionAppAuth
+                : tc.settings.connectDescription}
           </DialogDescription>
         </DialogHeader>
 
@@ -264,8 +292,8 @@ export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
           </div>
         </div>
 
-        <DialogFooter className={isAppAuth ? 'gap-2' : 'gap-2 sm:justify-between'}>
-          {isAppAuth ? null : (
+        <DialogFooter className={isAppAuth || isOAuth2 ? 'gap-2' : 'gap-2 sm:justify-between'}>
+          {isAppAuth || isOAuth2 ? null : (
             <Button variant="outline" onClick={handleTest} disabled={test.isPending || busy}>
               {test.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
               {tc.testConnection}
@@ -363,200 +391,6 @@ function ConnectorCard({ connector, onConnect, onOpenDetails, canConnect }: Conn
         </Button>
       </CardFooter>
     </Card>
-  );
-}
-
-interface ConnectionDetailsProps {
-  connectionId: string | null;
-  onOpenChange: (open: boolean) => void;
-  onDisconnect: (connection: ConnectorConnection) => void;
-  canManage: boolean;
-}
-
-export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, canManage }: ConnectionDetailsProps) {
-  const { t, language, format } = useI18n();
-  const tc = t.weldconnect.connectors;
-  const { data, isLoading } = useConnectorConnection(connectionId, { pollWhileRunning: true });
-  const { data: runsData } = useConnectorSyncRuns(connectionId);
-  const triggerSync = useTriggerConnectorSync();
-  const setPaused = useSetConnectorPaused();
-  const update = useUpdateConnector();
-
-  const connection = data?.data;
-  const runs = runsData?.data ?? [];
-  const [enabledSyncs, setEnabledSyncs] = useState<string[] | null>(null);
-  const currentSyncs = enabledSyncs ?? connection?.enabledSyncs ?? [];
-
-  const handleSync = (full: boolean) => {
-    if (!connectionId) return;
-    triggerSync.mutate(
-      { connectionId, full },
-      {
-        onSuccess: () => toast.success(tc.syncStarted),
-        onError: () => toast.error(tc.syncFailed),
-      },
-    );
-  };
-
-  const handlePause = (paused: boolean) => {
-    if (!connectionId) return;
-    setPaused.mutate(
-      { connectionId, paused },
-      {
-        onSuccess: () => toast.success(paused ? tc.pausedToast : tc.resumedToast),
-        onError: () => toast.error(paused ? tc.pauseFailed : tc.resumeFailed),
-      },
-    );
-  };
-
-  const handleSaveSettings = () => {
-    if (!connectionId) return;
-    update.mutate(
-      { connectionId, enabledSyncs: currentSyncs },
-      {
-        onSuccess: () => {
-          toast.success(tc.settings.saved);
-          setEnabledSyncs(null);
-        },
-        onError: () => toast.error(tc.settings.saveFailed),
-      },
-    );
-  };
-
-  return (
-    <Sheet
-      open={Boolean(connectionId)}
-      onOpenChange={(open) => {
-        if (!open) setEnabledSyncs(null);
-        onOpenChange(open);
-      }}
-    >
-      <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
-        <SheetHeader>
-          <SheetTitle>{connection?.displayName ?? connection?.label ?? tc.title}</SheetTitle>
-          <SheetDescription>
-            {connection?.externalAccountId ??
-              (connection?.connectedAt
-                ? format(tc.connectedOn, { date: formatDateTime(connection.connectedAt, language) ?? '' })
-                : tc.description)}
-          </SheetDescription>
-        </SheetHeader>
-
-        {isLoading || !connection ? (
-          <div className="flex justify-center py-10">
-            <Loader2 className="text-muted-foreground h-5 w-5 animate-spin" />
-          </div>
-        ) : (
-          <div className="mt-6 space-y-6">
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => handleSync(false)} disabled={triggerSync.isPending || !canManage}>
-                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                {tc.syncNow}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleSync(true)}
-                disabled={triggerSync.isPending || !canManage}
-              >
-                {tc.fullResync}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handlePause(connection.status !== 'paused')}
-                disabled={setPaused.isPending || !canManage}
-              >
-                {connection.status === 'paused' ? (
-                  <Play className="mr-1.5 h-3.5 w-3.5" />
-                ) : (
-                  <Pause className="mr-1.5 h-3.5 w-3.5" />
-                )}
-                {connection.status === 'paused' ? tc.resume : tc.pause}
-              </Button>
-              {canManage ? (
-                <Button size="sm" variant="ghost" onClick={() => onDisconnect(connection)}>
-                  <Link2Off className="mr-1.5 h-3.5 w-3.5" />
-                  {tc.disconnect}
-                </Button>
-              ) : null}
-            </div>
-
-            {connection.lastError ? (
-              <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300">
-                {connection.lastError}
-              </div>
-            ) : null}
-
-            <div>
-              <h3 className="mb-1 text-sm font-medium">{tc.settings.title}</h3>
-              <p className="text-muted-foreground mb-3 text-xs">{tc.settings.description}</p>
-              <SyncToggles
-                syncs={connection.syncs}
-                enabled={currentSyncs}
-                onChange={setEnabledSyncs}
-                disabled={!canManage}
-              />
-              {canManage ? (
-                <Button
-                  size="sm"
-                  className="mt-3"
-                  onClick={handleSaveSettings}
-                  disabled={update.isPending || enabledSyncs === null}
-                >
-                  {update.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-                  {tc.settings.save}
-                </Button>
-              ) : null}
-            </div>
-
-            <p className="text-muted-foreground text-xs">{tc.webhookHint}</p>
-
-            <Separator />
-
-            <div>
-              <h3 className="mb-2 text-sm font-medium">{tc.runs.title}</h3>
-              {runs.length === 0 ? (
-                <p className="text-muted-foreground text-sm">{tc.runs.empty}</p>
-              ) : (
-                <ul className="space-y-2">
-                  {runs.map((run) => (
-                    <li key={run.id} className="rounded-md border px-3 py-2 text-sm">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-mono text-xs">{run.model}</span>
-                        <Badge
-                          variant="outline"
-                          className={`text-xs ${
-                            run.status === 'error'
-                              ? STATUS_CLASSES.sync_error
-                              : run.status === 'success'
-                                ? STATUS_CLASSES.active
-                                : STATUS_CLASSES.pending
-                          }`}
-                        >
-                          {tc.health[run.status as keyof typeof tc.health] ?? run.status}
-                        </Badge>
-                      </div>
-                      <p className="text-muted-foreground mt-1 text-xs">
-                        {run.recordsCreated} {tc.runs.created} · {run.recordsModified} {tc.runs.updated} ·{' '}
-                        {run.recordsSkipped} {tc.runs.skipped}
-                        {run.recordsFailed > 0 ? ` · ${run.recordsFailed} ${tc.runs.failed}` : ''}
-                      </p>
-                      <p className="text-muted-foreground mt-0.5 text-xs">
-                        {formatDateTime(run.startedAt, language)} · {tc.runs.trigger}: {run.trigger}
-                      </p>
-                      {run.error ? (
-                        <p className="mt-1 text-xs text-red-600 dark:text-red-400">{run.error}</p>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        )}
-      </SheetContent>
-    </Sheet>
   );
 }
 

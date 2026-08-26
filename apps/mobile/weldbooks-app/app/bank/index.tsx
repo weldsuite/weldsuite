@@ -13,18 +13,19 @@ import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { Card } from '@weldsuite/mobile-ui/components/Card';
 
 import api from '@/services/api';
-import { formatCurrency } from '@/lib/currency';
-import { formatDate } from '@/lib/date';
 import { ACCENTS } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { RecordRow } from '@/components/record-row';
 import { IconTile } from '@/components/detail';
 import { ListSkeleton, ErrorState } from '@/components/data-states';
+import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import type { BankAccount } from '@/types/accounting';
 
 export default function BankAccountsScreen() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { t, format } = useI18n();
+  const { formatCurrency, formatDate } = useLocaleFormatters();
 
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,7 +57,7 @@ export default function BankAccountsScreen() {
     return { amount: accounts.reduce((sum, a) => sum + a.balance, 0), currency };
   }, [accounts]);
 
-  const header = <ScreenHeader title="Bank accounts" showBack />;
+  const header = <ScreenHeader title={t.bank.title} showBack />;
 
   if (loading) {
     return (
@@ -69,7 +70,7 @@ export default function BankAccountsScreen() {
   if (error && accounts.length === 0) {
     return (
       <Screen header={header}>
-        <ErrorState message="Couldn't load bank accounts." onRetry={load} />
+        <ErrorState message={t.bank.loadError} onRetry={load} />
       </Screen>
     );
   }
@@ -94,7 +95,7 @@ export default function BankAccountsScreen() {
           total ? (
             <Card style={styles.totalCard}>
               <Text style={[styles.totalLabel, { color: colors.mutedForeground }]}>
-                Total balance
+                {t.bank.totalBalance}
               </Text>
               <Text style={[styles.totalValue, { color: colors.text }]}>
                 {formatCurrency(total.amount, total.currency)}
@@ -108,7 +109,9 @@ export default function BankAccountsScreen() {
             title={item.name}
             subtitle={item.iban || item.bankName || undefined}
             meta={
-              item.lastImportDate ? `Last import ${formatDate(item.lastImportDate)}` : 'Never imported'
+              item.lastImportDate
+                ? format(t.bank.lastImport, { date: formatDate(item.lastImportDate) })
+                : t.bank.neverImported
             }
             amount={formatCurrency(item.balance, item.currency)}
             amountColor={item.balance < 0 ? colors.destructive : undefined}
@@ -121,8 +124,8 @@ export default function BankAccountsScreen() {
         ListEmptyComponent={
           <EmptyState
             icon={<Landmark size={32} color={colors.mutedForeground} />}
-            title="No bank accounts"
-            description="Connect or import a bank account in WeldBooks on the web to see balances here."
+            title={t.bank.emptyTitle}
+            description={t.bank.emptyDescription}
           />
         }
       />

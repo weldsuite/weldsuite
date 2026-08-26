@@ -7,11 +7,13 @@ import {
   floatingTabBarBottomInset,
   type FloatingTabBarProps,
 } from '@/components/floating-tab-bar';
+import { useI18n } from '@/lib/i18n';
 
 export default function TabLayout() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const tabBarInset = floatingTabBarBottomInset(insets.bottom);
+  const { t } = useI18n();
 
   return (
     <Tabs
@@ -27,21 +29,21 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: t.tabs.home,
           tabBarIcon: ({ color, size }) => <LayoutDashboard size={size} color={color} strokeWidth={2.2} />,
         }}
       />
       <Tabs.Screen
         name="invoices"
         options={{
-          title: 'Invoices',
+          title: t.tabs.invoices,
           tabBarIcon: ({ color, size }) => <FileText size={size} color={color} strokeWidth={2.2} />,
         }}
       />
       <Tabs.Screen
         name="scan-placeholder"
         options={{
-          title: 'Scan',
+          title: t.tabs.scan,
           tabBarIcon: ({ color, size }) => <Camera size={size} color={color} strokeWidth={2.2} />,
         }}
         listeners={{
@@ -54,14 +56,14 @@ export default function TabLayout() {
       <Tabs.Screen
         name="expenses"
         options={{
-          title: 'Expenses',
+          title: t.tabs.expenses,
           tabBarIcon: ({ color, size }) => <Receipt size={size} color={color} strokeWidth={2.2} />,
         }}
       />
       <Tabs.Screen
         name="more"
         options={{
-          title: 'More',
+          title: t.tabs.more,
           tabBarIcon: ({ color, size }) => <MoreHorizontal size={size} color={color} strokeWidth={2.2} />,
         }}
       />

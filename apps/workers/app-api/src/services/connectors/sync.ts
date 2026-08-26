@@ -13,9 +13,6 @@ import {
   ConnectorApiError,
   enabledConnectorSyncs,
   getConnector,
-  ShopifyClient,
-  WooCommerceClient,
-  type ConnectorSyncDef,
 } from '@weldsuite/connectors';
 import type { Database } from '../../db';
 import type { Env } from '../../types';
@@ -69,52 +66,6 @@ function latestModified(records: Array<Record<string, unknown>>): string | null 
   return latest;
 }
 
-interface ListedPage {
-  items: Array<Record<string, unknown>>;
-  done: boolean;
-  nextCursor: string | null;
-}
-
-async function listPage(args: {
-  client: WooCommerceClient | ShopifyClient;
-  provider: string;
-  sync: ConnectorSyncDef;
-  page: number;
-  cursor: string | null;
-  modifiedAfter?: string;
-}): Promise<ListedPage> {
-  if (args.client instanceof ShopifyClient) {
-    const options = {
-      limit: PER_PAGE,
-      pageInfo: args.cursor ?? undefined,
-      updatedAtMin: args.cursor ? undefined : args.modifiedAfter,
-    };
-    const result =
-      args.sync.settingKey === 'products'
-        ? await args.client.listProducts(options)
-        : args.sync.settingKey === 'orders'
-          ? await args.client.listOrders(options)
-          : await args.client.listCustomers(options);
-    return {
-      items: result.items,
-      done: !result.nextPageInfo,
-      nextCursor: result.nextPageInfo,
-    };
-  }
-
-  const result =
-    args.sync.settingKey === 'products'
-      ? await args.client.listProducts({ page: args.page, perPage: PER_PAGE, modifiedAfter: args.modifiedAfter })
-      : args.sync.settingKey === 'orders'
-        ? await args.client.listOrders({ page: args.page, perPage: PER_PAGE, modifiedAfter: args.modifiedAfter })
-        : await args.client.listCustomers({ page: args.page, perPage: PER_PAGE, modifiedAfter: args.modifiedAfter });
-  return {
-    items: result.items,
-    done: args.page >= result.totalPages || result.items.length === 0,
-    nextCursor: null,
-  };
-}
-
 export async function syncConnection(args: SyncConnectionArgs): Promise<{ triggered: string[] }> {
   const connector = getConnector(args.connection.provider);
   if (!connector) {
@@ -153,12 +104,10 @@ export async function syncConnection(args: SyncConnectionArgs): Promise<{ trigge
 
     try {
       while (page <= MAX_PAGES) {
-        const result = await listPage({
-          client,
-          provider: args.connection.provider,
-          sync,
+        const result = await client.listSync(sync, {
           page,
           cursor,
+          limit: PER_PAGE,
           modifiedAfter,
         });
         if (result.items.length === 0) break;

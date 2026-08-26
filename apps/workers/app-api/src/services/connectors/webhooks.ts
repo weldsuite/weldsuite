@@ -15,10 +15,10 @@ import {
   matchWebhookTopic,
   readWebhookSignatureFromHeaders,
   readWebhookTopicFromHeaders,
-  ShopifyClient,
+  readWebhookTopicFromPayload,
+  unwrapWebhookPayload,
   verifyConnectorWebhook,
   webhookTopicsFor,
-  WooCommerceClient,
   type ConnectorWebhookKvEntry,
 } from '@weldsuite/connectors';
 import type { ConnectorWebhookRegistration } from '@weldsuite/db/schema';
@@ -27,6 +27,7 @@ import type { Env } from '../../types';
 import { createConnectorClient } from './clients';
 import {
   decryptCredentials,
+  encryptWebhookSecret,
   finishSyncRun,
   keyringFromEnv,
   maybeDecryptWebhookSecret,
@@ -67,6 +68,9 @@ export async function registerConnectionWebhooks(args: {
   );
   const allowed = new Set(enabled.map((s) => s.settingKey));
   const topics = webhookTopicsFor(args.connection.provider).filter((topic) => allowed.has(topic.settingKey));
+  if (topics.length === 0) {
+    return { registrations: [], warning: null };
+  }
   const client = createConnectorClient(
     args.connection.provider,
     args.credentials,
@@ -75,31 +79,29 @@ export async function registerConnectionWebhooks(args: {
 
   const registrations: ConnectorWebhookRegistration[] = [];
   const failures: string[] = [];
+  let providerSecret: string | undefined;
 
-  for (const topic of topics) {
-    try {
-      if (client instanceof WooCommerceClient) {
-        const created = await client.createWebhook({
-          name: `WeldSuite ${topic.topic}`,
-          topic: topic.topic,
-          deliveryUrl,
-          secret: args.webhookSecret,
-        });
-        registrations.push({ id: created.id, topic: created.topic, deliveryUrl: created.deliveryUrl });
-      } else if (client instanceof ShopifyClient) {
-        const created = await client.createWebhook(topic.topic, deliveryUrl);
-        registrations.push({ id: created.id, topic: created.topic, deliveryUrl: created.address });
-      }
-    } catch (err) {
-      failures.push(topic.topic);
-      console.error('[connectors/webhooks] register failed', topic.topic, err);
+  try {
+    const created = await client.registerWebhooks({
+      deliveryUrl,
+      secret: args.webhookSecret,
+      topics,
+    });
+    for (const row of created) {
+      if (row.id) registrations.push({ id: row.id, topic: row.topic, deliveryUrl: row.deliveryUrl });
+      if (row.secret) providerSecret = row.secret;
     }
+  } catch (err) {
+    failures.push(...topics.map((topic) => topic.topic));
+    console.error('[connectors/webhooks] register failed', err);
   }
 
+  const keyring = keyringFromEnv(args.env);
   await updateConnectionSettings({
     db: args.db,
     connectionId: args.connection.id,
     webhookRegistrations: registrations,
+    webhookSecret: await encryptWebhookSecret(providerSecret ?? args.webhookSecret, keyring),
   });
 
   return {
@@ -126,8 +128,7 @@ export async function unregisterConnectionWebhooks(args: {
     );
     for (const registration of registrations) {
       try {
-        if (client instanceof WooCommerceClient) await client.deleteWebhook(registration.id);
-        else if (client instanceof ShopifyClient) await client.deleteWebhook(registration.id);
+        await client.deleteWebhook(registration.id);
       } catch (err) {
         console.error('[connectors/webhooks] unregister failed', registration.id, err);
       }
@@ -197,7 +198,16 @@ export async function processConnectorWebhook(args: {
     return { ok: false, status: 401, message: 'invalid webhook signature' };
   }
 
-  const topicName = readWebhookTopicFromHeaders(args.connection.provider, args.headers);
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(args.rawBody) as Record<string, unknown>;
+  } catch {
+    return { ok: false, status: 400, message: 'invalid JSON body' };
+  }
+
+  const topicName =
+    readWebhookTopicFromHeaders(args.connection.provider, args.headers)
+    ?? readWebhookTopicFromPayload(args.connection.provider, payload);
   if (!topicName) {
     return { ok: false, status: 400, message: 'missing webhook topic' };
   }
@@ -207,21 +217,18 @@ export async function processConnectorWebhook(args: {
   }
 
   const connector = getConnector(args.connection.provider);
-  const sync = connector?.syncs.find((s) => s.settingKey === topic.settingKey);
+  const sync = connector?.syncs.find((s) =>
+    topic.syncName ? s.syncName === topic.syncName : s.settingKey === topic.settingKey,
+  );
   if (!sync) {
     return { ok: true, status: 200, message: 'topic not enabled' };
   }
   const enabled = enabledConnectorSyncs(connector!, args.connection.enabledSyncs);
-  if (!enabled.some((s) => s.settingKey === topic.settingKey)) {
+  if (!enabled.some((s) => s.syncName === sync.syncName)) {
     return { ok: true, status: 200, message: 'sync disabled' };
   }
 
-  let payload: Record<string, unknown>;
-  try {
-    payload = JSON.parse(args.rawBody) as Record<string, unknown>;
-  } catch {
-    return { ok: false, status: 400, message: 'invalid JSON body' };
-  }
+  const record = unwrapWebhookPayload(args.connection.provider, payload);
 
   const runId = await startSyncRun({
     db: args.db,
@@ -246,7 +253,7 @@ export async function processConnectorWebhook(args: {
       displayName: args.connection.displayName,
       storeUrl: client.storeUrl,
       sync,
-      records: [payload],
+      records: [record],
       ownerId: args.ownerId,
       workspaceId: args.workspaceId,
       env: args.env as unknown as Record<string, unknown>,
@@ -261,7 +268,7 @@ export async function processConnectorWebhook(args: {
       error: ingested.failed ? ingested.errorSamples[0]?.message ?? 'ingest failed' : null,
       errorSamples: ingested.errorSamples,
     });
-    const watermark = modifiedAtOf(payload);
+    const watermark = modifiedAtOf(record);
     await touchConnectorIndexWebhook(args.env, {
       connectionId: args.connection.id,
       watermarks: watermark

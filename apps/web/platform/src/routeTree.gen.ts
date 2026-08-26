@@ -220,6 +220,7 @@ import { Route as WeldmeetJoinJoinCodeRouteImport } from './routes/weldmeet/join
 import { Route as WeldmeetMeetingIdRoomRouteImport } from './routes/weldmeet/$meetingId/room'
 import { Route as WelddeskWeldagentNewRouteImport } from './routes/welddesk/weldagent/new'
 import { Route as WeldconnectIntegrationsCallbackRouteImport } from './routes/weldconnect/integrations/callback'
+import { Route as WeldconnectConnectorsCallbackRouteImport } from './routes/weldconnect/connectors/callback'
 import { Route as WeldchatDmUserIdRouteImport } from './routes/weldchat/dm/$userId'
 import { Route as SettingsCustomObjectsObjectIdRouteImport } from './routes/settings/custom-objects/$objectId'
 import { Route as SettingsAppsWeldcrmRouteImport } from './routes/settings/apps/weldcrm'
@@ -325,6 +326,7 @@ import { Route as SettingsRolesRoleIdIndexRouteImport } from './routes/settings/
 import { Route as SettingsIntegrationsSlackIndexRouteImport } from './routes/settings/integrations/slack/index'
 import { Route as SettingsIntegrationsSendcloudIndexRouteImport } from './routes/settings/integrations/sendcloud/index'
 import { Route as SettingsIntegrationsSalesforceIndexRouteImport } from './routes/settings/integrations/salesforce/index'
+import { Route as SettingsIntegrationsMoneybirdIndexRouteImport } from './routes/settings/integrations/moneybird/index'
 import { Route as SettingsIntegrationsMcpServersIndexRouteImport } from './routes/settings/integrations/mcp-servers/index'
 import { Route as SettingsIntegrationsHubspotIndexRouteImport } from './routes/settings/integrations/hubspot/index'
 import { Route as SettingsIntegrationsGoogleCalendarIndexRouteImport } from './routes/settings/integrations/google-calendar/index'
@@ -1490,6 +1492,12 @@ const WeldconnectIntegrationsCallbackRoute =
     path: '/integrations/callback',
     getParentRoute: () => WeldconnectRouteRoute,
   } as any)
+const WeldconnectConnectorsCallbackRoute =
+  WeldconnectConnectorsCallbackRouteImport.update({
+    id: '/connectors/callback',
+    path: '/connectors/callback',
+    getParentRoute: () => WeldconnectRouteRoute,
+  } as any)
 const WeldchatDmUserIdRoute = WeldchatDmUserIdRouteImport.update({
   id: '/dm/$userId',
   path: '/dm/$userId',
@@ -2086,6 +2094,12 @@ const SettingsIntegrationsSalesforceIndexRoute =
     path: '/integrations/salesforce/',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
+const SettingsIntegrationsMoneybirdIndexRoute =
+  SettingsIntegrationsMoneybirdIndexRouteImport.update({
+    id: '/integrations/moneybird/',
+    path: '/integrations/moneybird/',
+    getParentRoute: () => SettingsRouteRoute,
+  } as any)
 const SettingsIntegrationsMcpServersIndexRoute =
   SettingsIntegrationsMcpServersIndexRouteImport.update({
     id: '/integrations/mcp-servers/',
@@ -2677,6 +2691,7 @@ export interface FileRoutesByFullPath {
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
+  '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
   '/welddesk/weldagent/new': typeof WelddeskWeldagentNewRoute
   '/weldmeet/$meetingId/room': typeof WeldmeetMeetingIdRoomRoute
@@ -2848,6 +2863,7 @@ export interface FileRoutesByFullPath {
   '/settings/integrations/google-calendar/': typeof SettingsIntegrationsGoogleCalendarIndexRoute
   '/settings/integrations/hubspot/': typeof SettingsIntegrationsHubspotIndexRoute
   '/settings/integrations/mcp-servers/': typeof SettingsIntegrationsMcpServersIndexRoute
+  '/settings/integrations/moneybird/': typeof SettingsIntegrationsMoneybirdIndexRoute
   '/settings/integrations/salesforce/': typeof SettingsIntegrationsSalesforceIndexRoute
   '/settings/integrations/sendcloud/': typeof SettingsIntegrationsSendcloudIndexRoute
   '/settings/integrations/slack/': typeof SettingsIntegrationsSlackIndexRoute
@@ -3045,6 +3061,7 @@ export interface FileRoutesByTo {
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
+  '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
   '/welddesk/weldagent/new': typeof WelddeskWeldagentNewRoute
   '/weldmeet/$meetingId/room': typeof WeldmeetMeetingIdRoomRoute
@@ -3215,6 +3232,7 @@ export interface FileRoutesByTo {
   '/settings/integrations/google-calendar': typeof SettingsIntegrationsGoogleCalendarIndexRoute
   '/settings/integrations/hubspot': typeof SettingsIntegrationsHubspotIndexRoute
   '/settings/integrations/mcp-servers': typeof SettingsIntegrationsMcpServersIndexRoute
+  '/settings/integrations/moneybird': typeof SettingsIntegrationsMoneybirdIndexRoute
   '/settings/integrations/salesforce': typeof SettingsIntegrationsSalesforceIndexRoute
   '/settings/integrations/sendcloud': typeof SettingsIntegrationsSendcloudIndexRoute
   '/settings/integrations/slack': typeof SettingsIntegrationsSlackIndexRoute
@@ -3449,6 +3467,7 @@ export interface FileRoutesById {
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
+  '/weldconnect/connectors/callback': typeof WeldconnectConnectorsCallbackRoute
   '/weldconnect/integrations/callback': typeof WeldconnectIntegrationsCallbackRoute
   '/welddesk/weldagent/new': typeof WelddeskWeldagentNewRoute
   '/weldmeet/$meetingId/room': typeof WeldmeetMeetingIdRoomRoute
@@ -3620,6 +3639,7 @@ export interface FileRoutesById {
   '/settings/integrations/google-calendar/': typeof SettingsIntegrationsGoogleCalendarIndexRoute
   '/settings/integrations/hubspot/': typeof SettingsIntegrationsHubspotIndexRoute
   '/settings/integrations/mcp-servers/': typeof SettingsIntegrationsMcpServersIndexRoute
+  '/settings/integrations/moneybird/': typeof SettingsIntegrationsMoneybirdIndexRoute
   '/settings/integrations/salesforce/': typeof SettingsIntegrationsSalesforceIndexRoute
   '/settings/integrations/sendcloud/': typeof SettingsIntegrationsSendcloudIndexRoute
   '/settings/integrations/slack/': typeof SettingsIntegrationsSlackIndexRoute
@@ -3854,6 +3874,7 @@ export interface FileRouteTypes {
     | '/settings/apps/weldcrm'
     | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
+    | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
     | '/welddesk/weldagent/new'
     | '/weldmeet/$meetingId/room'
@@ -4025,6 +4046,7 @@ export interface FileRouteTypes {
     | '/settings/integrations/google-calendar/'
     | '/settings/integrations/hubspot/'
     | '/settings/integrations/mcp-servers/'
+    | '/settings/integrations/moneybird/'
     | '/settings/integrations/salesforce/'
     | '/settings/integrations/sendcloud/'
     | '/settings/integrations/slack/'
@@ -4222,6 +4244,7 @@ export interface FileRouteTypes {
     | '/settings/apps/weldcrm'
     | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
+    | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
     | '/welddesk/weldagent/new'
     | '/weldmeet/$meetingId/room'
@@ -4392,6 +4415,7 @@ export interface FileRouteTypes {
     | '/settings/integrations/google-calendar'
     | '/settings/integrations/hubspot'
     | '/settings/integrations/mcp-servers'
+    | '/settings/integrations/moneybird'
     | '/settings/integrations/salesforce'
     | '/settings/integrations/sendcloud'
     | '/settings/integrations/slack'
@@ -4625,6 +4649,7 @@ export interface FileRouteTypes {
     | '/settings/apps/weldcrm'
     | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
+    | '/weldconnect/connectors/callback'
     | '/weldconnect/integrations/callback'
     | '/welddesk/weldagent/new'
     | '/weldmeet/$meetingId/room'
@@ -4796,6 +4821,7 @@ export interface FileRouteTypes {
     | '/settings/integrations/google-calendar/'
     | '/settings/integrations/hubspot/'
     | '/settings/integrations/mcp-servers/'
+    | '/settings/integrations/moneybird/'
     | '/settings/integrations/salesforce/'
     | '/settings/integrations/sendcloud/'
     | '/settings/integrations/slack/'
@@ -6471,6 +6497,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldconnectIntegrationsCallbackRouteImport
       parentRoute: typeof WeldconnectRouteRoute
     }
+    '/weldconnect/connectors/callback': {
+      id: '/weldconnect/connectors/callback'
+      path: '/connectors/callback'
+      fullPath: '/weldconnect/connectors/callback'
+      preLoaderRoute: typeof WeldconnectConnectorsCallbackRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
     '/weldchat/dm/$userId': {
       id: '/weldchat/dm/$userId'
       path: '/dm/$userId'
@@ -7206,6 +7239,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsIntegrationsSalesforceIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
+    '/settings/integrations/moneybird/': {
+      id: '/settings/integrations/moneybird/'
+      path: '/integrations/moneybird'
+      fullPath: '/settings/integrations/moneybird/'
+      preLoaderRoute: typeof SettingsIntegrationsMoneybirdIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
     '/settings/integrations/mcp-servers/': {
       id: '/settings/integrations/mcp-servers/'
       path: '/integrations/mcp-servers'
@@ -7922,6 +7962,7 @@ interface SettingsRouteRouteChildren {
   SettingsIntegrationsGoogleCalendarIndexRoute: typeof SettingsIntegrationsGoogleCalendarIndexRoute
   SettingsIntegrationsHubspotIndexRoute: typeof SettingsIntegrationsHubspotIndexRoute
   SettingsIntegrationsMcpServersIndexRoute: typeof SettingsIntegrationsMcpServersIndexRoute
+  SettingsIntegrationsMoneybirdIndexRoute: typeof SettingsIntegrationsMoneybirdIndexRoute
   SettingsIntegrationsSalesforceIndexRoute: typeof SettingsIntegrationsSalesforceIndexRoute
   SettingsIntegrationsSendcloudIndexRoute: typeof SettingsIntegrationsSendcloudIndexRoute
   SettingsIntegrationsSlackIndexRoute: typeof SettingsIntegrationsSlackIndexRoute
@@ -7978,6 +8019,8 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsIntegrationsHubspotIndexRoute: SettingsIntegrationsHubspotIndexRoute,
   SettingsIntegrationsMcpServersIndexRoute:
     SettingsIntegrationsMcpServersIndexRoute,
+  SettingsIntegrationsMoneybirdIndexRoute:
+    SettingsIntegrationsMoneybirdIndexRoute,
   SettingsIntegrationsSalesforceIndexRoute:
     SettingsIntegrationsSalesforceIndexRoute,
   SettingsIntegrationsSendcloudIndexRoute:
@@ -8256,6 +8299,7 @@ const WeldcommerceRouteRouteWithChildren =
 
 interface WeldconnectRouteRouteChildren {
   WeldconnectIndexRoute: typeof WeldconnectIndexRoute
+  WeldconnectConnectorsCallbackRoute: typeof WeldconnectConnectorsCallbackRoute
   WeldconnectIntegrationsCallbackRoute: typeof WeldconnectIntegrationsCallbackRoute
   WeldconnectActionsIndexRoute: typeof WeldconnectActionsIndexRoute
   WeldconnectAnalyticsIndexRoute: typeof WeldconnectAnalyticsIndexRoute
@@ -8277,6 +8321,7 @@ interface WeldconnectRouteRouteChildren {
 
 const WeldconnectRouteRouteChildren: WeldconnectRouteRouteChildren = {
   WeldconnectIndexRoute: WeldconnectIndexRoute,
+  WeldconnectConnectorsCallbackRoute: WeldconnectConnectorsCallbackRoute,
   WeldconnectIntegrationsCallbackRoute: WeldconnectIntegrationsCallbackRoute,
   WeldconnectActionsIndexRoute: WeldconnectActionsIndexRoute,
   WeldconnectAnalyticsIndexRoute: WeldconnectAnalyticsIndexRoute,
