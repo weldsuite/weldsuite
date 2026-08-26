@@ -89,6 +89,8 @@ export const recommended = {
   rerank: { free: workersAi.reranker, quality: workersAi.reranker },
   /** Speech-to-text — WeldMeet transcripts, WeldCRM call intelligence. */
   transcribe: { free: workersAi.whisper, quality: workersAi.whisper },
+  /** Receipt / invoice OCR — needs a vision-capable Workers AI model. */
+  ocr: { free: workersAi.llama4Scout, quality: workersAi.llama4Scout },
 } as const;
 
 /** Flattened id list (for validation / model-picker UIs). */

@@ -3,7 +3,9 @@ import {
   dominantTaxRate,
   exclusiveAmount,
   lineItemsForBill,
+  looksLikeImage,
   normalizeOcrResult,
+  parseOcrJson,
 } from './accounting-ocr';
 
 describe('normalizeOcrResult', () => {
@@ -70,5 +72,29 @@ describe('exclusiveAmount', () => {
     });
     expect(exclusiveAmount(ocr)).toBe(100);
     expect(dominantTaxRate(ocr)).toBe(21);
+  });
+});
+
+describe('looksLikeImage', () => {
+  it('accepts a JPEG SOI marker', () => {
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(looksLikeImage(bytes)).toBe(true);
+  });
+
+  it('rejects HEIC labelled as jpeg', () => {
+    const bytes = new Uint8Array(12);
+    bytes.set([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63]);
+    expect(looksLikeImage(bytes)).toBe(false);
+  });
+});
+
+describe('parseOcrJson', () => {
+  it('unwraps a fenced JSON object', () => {
+    const parsed = parseOcrJson('```json\n{"vendor":{"name":"Shell"},"total":12.1}\n```');
+    expect(parsed.total).toBe(12.1);
+  });
+
+  it('throws when the model returns no JSON', () => {
+    expect(() => parseOcrJson('I cannot see an invoice.')).toThrow(/did not return JSON/);
   });
 });

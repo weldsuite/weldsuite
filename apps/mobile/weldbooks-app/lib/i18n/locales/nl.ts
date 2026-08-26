@@ -394,6 +394,8 @@ export const nl: Translations = {
     extracted: 'Velden herkend — controleer ze op het volgende scherm.',
     found: '{summary} gevonden. Controleer op het volgende scherm.',
     ocrFailed: 'Bon kon niet worden gelezen. Vul de gegevens in — de afbeelding blijft gekoppeld.',
+    ocrNoCredits: 'Niet genoeg AI-tegoed om de bon te lezen. Vul de gegevens in — de afbeelding blijft gekoppeld.',
+    ocrTooLarge: 'De foto is te groot om te lezen. Maak hem opnieuw iets dichterbij, of vul de gegevens in.',
     offlineBanner: 'Je bent offline. Vul de gegevens in; de afbeelding wordt geüpload zodra je weer verbinding hebt.',
     quickExpense: 'Snelle uitgave',
     createBill: 'Inkoopfactuur maken',

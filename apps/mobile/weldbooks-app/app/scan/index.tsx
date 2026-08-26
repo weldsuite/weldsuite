@@ -34,6 +34,8 @@ import { BRAND } from '@/lib/brand';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import { useOfflineQueue } from '@/contexts/OfflineQueueContext';
 import type { BillPrefill } from '@/types/accounting';
+import { isApiError } from '@weldsuite/api-client/client';
+import type { Translations } from '@/lib/i18n';
 
 type Phase = 'camera' | 'review';
 type ScanStatus = 'uploading' | 'reading' | 'ready' | 'failed' | 'offline';
@@ -110,6 +112,8 @@ export default function ScanScreen() {
         setScanStatus('failed');
         if (!uploadedId) {
           toast.error(t.scan.uploadFailed);
+        } else {
+          toast.error(ocrErrorMessage(err, t.scan));
         }
       }
     },
@@ -132,7 +136,7 @@ export default function ScanScreen() {
     if (!cameraRef.current) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.45 });
       if (photo?.uri) processImage(photo.uri);
     } catch {
       toast.error(t.scan.captureFailed);
@@ -142,7 +146,7 @@ export default function ScanScreen() {
   const handlePickFromGallery = useCallback(async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      quality: 0.8,
+      quality: 0.45,
     });
     if (!result.canceled && result.assets[0]) processImage(result.assets[0].uri);
   }, [processImage]);
@@ -324,6 +328,15 @@ export default function ScanScreen() {
       </View>
     </SafeAreaView>
   );
+}
+
+function ocrErrorMessage(err: unknown, scan: Translations['scan']): string {
+  if (isApiError(err)) {
+    if (err.status === 402) return scan.ocrNoCredits;
+    const message = err.message.toLowerCase();
+    if (message.includes('too large')) return scan.ocrTooLarge;
+  }
+  return scan.ocrFailed;
 }
 
 const styles = StyleSheet.create({

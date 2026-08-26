@@ -392,6 +392,8 @@ export const en = {
     extracted: 'Fields extracted — review them on the next screen.',
     found: 'Found {summary}. Review on the next screen.',
     ocrFailed: 'Could not read the receipt. Enter the details — the image is still attached.',
+    ocrNoCredits: 'Not enough AI credits to read the receipt. Enter the details — the image is still attached.',
+    ocrTooLarge: 'The photo is too large to read. Retake it a bit closer, then enter the details if needed.',
     offlineBanner: "You're offline. Enter the details; the image will upload when you reconnect.",
     quickExpense: 'Quick expense',
     createBill: 'Create bill',
