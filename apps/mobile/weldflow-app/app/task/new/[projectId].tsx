@@ -1,39 +1,30 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { ChevronLeft } from 'lucide-react-native';
-import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useCreateTask } from '@/hooks/use-weldflow';
+import { Alert, ScrollView, StyleSheet } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
+
+import { Screen, ScreenHeader } from '@/components/screen';
 import { TaskForm, toCreateTaskInput, type TaskFormValues } from '@/components/TaskForm';
+import { useCreateTask } from '@/hooks/use-weldflow';
+import { useI18n } from '@/lib/i18n';
 
 export default function NewTaskScreen() {
-  const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { projectId } = useLocalSearchParams<{ projectId: string }>();
   const createTask = useCreateTask(projectId);
+  const { t } = useI18n();
 
   const handleSubmit = async (values: TaskFormValues) => {
     try {
       await createTask.mutateAsync(toCreateTaskInput(values));
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
     } catch (err) {
-      Alert.alert('Could not create task', err instanceof Error ? err.message : 'Unknown error');
+      Alert.alert(t.task.createFailed, err instanceof Error ? err.message : t.common.somethingWentWrong);
     }
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-      <Stack.Screen options={{ headerShown: false }} />
-
-      <View style={styles.topBar}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <ChevronLeft size={28} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.topTitle, { color: colors.text }]}>New Task</Text>
-      </View>
-
+    <Screen header={<ScreenHeader title={t.task.newTitle} showBack />}>
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <TaskForm
           mode="create"
@@ -42,14 +33,10 @@ export default function NewTaskScreen() {
           isSubmitting={createTask.isPending}
         />
       </ScrollView>
-    </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, gap: 4 },
-  backBtn: { padding: 4 },
-  topTitle: { fontSize: 17, fontWeight: '600' },
-  scroll: { padding: 16 },
+  scroll: { padding: 16, paddingBottom: 32 },
 });

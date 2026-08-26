@@ -1,30 +1,22 @@
-import React, { useMemo } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
-  Alert,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { ChevronLeft } from 'lucide-react-native';
-import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useTask, useUpdateTask } from '@/hooks/use-weldflow';
+import { useMemo } from 'react';
+import { Alert, ScrollView, StyleSheet } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
+
+import { Screen, ScreenHeader } from '@/components/screen';
+import { DetailSkeleton } from '@/components/data-states';
 import { TaskForm, toUpdateTaskInput, type TaskFormValues } from '@/components/TaskForm';
+import { useTask, useUpdateTask } from '@/hooks/use-weldflow';
+import { useI18n } from '@/lib/i18n';
 import type { TaskPriority, TaskStatus } from '@/types/weldflow';
 
 export default function EditTaskScreen() {
-  const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { projectId, taskId } = useLocalSearchParams<{ projectId: string; taskId: string }>();
+  const { t } = useI18n();
 
   const { data, isLoading } = useTask(projectId, taskId);
   const updateTask = useUpdateTask(projectId, taskId);
-
   const task = data?.data;
 
   const initialValues = useMemo<Partial<TaskFormValues> | undefined>(() => {
@@ -51,27 +43,17 @@ export default function EditTaskScreen() {
   const handleSubmit = async (values: TaskFormValues) => {
     try {
       await updateTask.mutateAsync(toUpdateTaskInput(values));
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
     } catch (err) {
-      Alert.alert('Could not save changes', err instanceof Error ? err.message : 'Unknown error');
+      Alert.alert(t.task.updateFailed, err instanceof Error ? err.message : t.common.somethingWentWrong);
     }
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-      <Stack.Screen options={{ headerShown: false }} />
-
-      <View style={styles.topBar}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <ChevronLeft size={28} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.topTitle, { color: colors.text }]}>Edit Task</Text>
-      </View>
-
+    <Screen header={<ScreenHeader title={t.task.editTitle} showBack />}>
       {isLoading || !initialValues ? (
-        <View style={styles.loading}>
-          <ActivityIndicator size="large" color="#6366F1" />
-        </View>
+        <DetailSkeleton />
       ) : (
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <TaskForm
@@ -83,15 +65,10 @@ export default function EditTaskScreen() {
           />
         </ScrollView>
       )}
-    </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  topBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, gap: 4 },
-  backBtn: { padding: 4 },
-  topTitle: { fontSize: 17, fontWeight: '600' },
-  loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  scroll: { padding: 16 },
+  scroll: { padding: 16, paddingBottom: 32 },
 });

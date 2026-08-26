@@ -1,24 +1,28 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   StyleSheet,
   ScrollView,
   View,
   Text,
-  TouchableOpacity,
+  Pressable,
   ActivityIndicator,
   Alert,
   Linking,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 import { useUser } from '@clerk/expo';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { ChevronRight } from 'lucide-react-native';
+
+import { Screen, ScreenHeader } from '@/components/screen';
+import { SectionCard } from '@/components/detail';
+import { useI18n } from '@/lib/i18n';
 
 export default function PrivacyScreen() {
   const { colors } = useTheme();
   const { user: clerkUser } = useUser();
   const { user, signOut } = useClerkAuth();
+  const { t } = useI18n();
   const [deletingAccount, setDeletingAccount] = useState(false);
 
   const handleDeleteAccount = () => {
@@ -26,7 +30,7 @@ export default function PrivacyScreen() {
       'Delete Account',
       'This action cannot be undone. Your account, profile, and access to all workspaces will be permanently removed.\n\nAre you absolutely sure?',
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t.common.cancel, style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
@@ -35,7 +39,7 @@ export default function PrivacyScreen() {
               'Final Confirmation',
               `Permanently delete the account for ${user?.email}?\n\nThis is your last chance to cancel.`,
               [
-                { text: 'Cancel', style: 'cancel' },
+                { text: t.common.cancel, style: 'cancel' },
                 {
                   text: 'I Understand, Delete',
                   style: 'destructive',
@@ -44,162 +48,89 @@ export default function PrivacyScreen() {
                     setDeletingAccount(true);
                     try {
                       await clerkUser.delete();
-                      // Clerk clears the session on delete; sign out as a safety net.
                       await signOut().catch(() => {});
                     } catch (error) {
                       console.error('Error deleting account:', error);
                       Alert.alert(
                         'Failed to delete account',
-                        'Please try again or contact privacy@weldsuite.com for help.'
+                        'Please try again or contact privacy@weldsuite.com for help.',
                       );
                       setDeletingAccount(false);
                     }
                   },
                 },
-              ]
+              ],
             );
           },
         },
-      ]
+      ],
     );
   };
 
-  const handleOpenPrivacyPolicy = () => {
-    Linking.openURL('https://weldsuite.com/privacy');
-  };
-
-  const handleOpenTermsOfService = () => {
-    Linking.openURL('https://weldsuite.com/terms');
-  };
-
-  const handleContactSupport = () => {
-    Linking.openURL('mailto:privacy@weldsuite.com?subject=Privacy%20Inquiry');
-  };
-
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Your Data</Text>
-          <Text style={[styles.sectionDescription, { color: colors.muted }]}>
-            You have the right to access, export, and delete your personal data at any time. To request a
-            copy of your data, contact us at the address below.
-          </Text>
-        </View>
+    <Screen header={<ScreenHeader title={t.settings.privacyAccount} showBack />}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <SectionCard title={t.settings.privacy}>
+          <LinkRow
+            label="Privacy Policy"
+            onPress={() => Linking.openURL('https://weldsuite.com/privacy')}
+          />
+          <LinkRow
+            label="Terms of Service"
+            onPress={() => Linking.openURL('https://weldsuite.com/terms')}
+          />
+          <LinkRow
+            label="Contact Support"
+            onPress={() =>
+              Linking.openURL('mailto:privacy@weldsuite.com?subject=Privacy%20Inquiry')
+            }
+          />
+        </SectionCard>
 
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Legal</Text>
-
-          <TouchableOpacity
-            style={[styles.settingItem, { borderBottomColor: colors.divider }]}
-            onPress={handleOpenPrivacyPolicy}
+        <SectionCard title={t.settings.account}>
+          <Pressable
+            onPress={handleDeleteAccount}
+            disabled={deletingAccount}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.deleteRow, pressed && { opacity: 0.7 }]}
           >
-            <View style={styles.settingContent}>
-              <Text style={[styles.settingLabel, { color: colors.text }]}>Privacy Policy</Text>
-              <Text style={[styles.settingDescription, { color: colors.muted }]}>
-                How we collect and use your data
+            {deletingAccount ? (
+              <ActivityIndicator color={colors.destructive} />
+            ) : (
+              <Text style={[styles.deleteText, { color: colors.destructive }]}>
+                Delete account
               </Text>
-            </View>
-            <Ionicons name="open-outline" size={16} color={colors.muted} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.settingItem, { borderBottomColor: colors.divider }]}
-            onPress={handleOpenTermsOfService}
-          >
-            <View style={styles.settingContent}>
-              <Text style={[styles.settingLabel, { color: colors.text }]}>Terms of Service</Text>
-              <Text style={[styles.settingDescription, { color: colors.muted }]}>
-                Terms and conditions for using WeldFlow
-              </Text>
-            </View>
-            <Ionicons name="open-outline" size={16} color={colors.muted} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Contact</Text>
-
-          <TouchableOpacity
-            style={[styles.settingItem, { borderBottomColor: colors.divider }]}
-            onPress={handleContactSupport}
-          >
-            <View style={styles.settingContent}>
-              <Text style={[styles.settingLabel, { color: colors.text }]}>Privacy Inquiries</Text>
-              <Text style={[styles.settingDescription, { color: colors.muted }]}>
-                privacy@weldsuite.com
-              </Text>
-            </View>
-            <Ionicons name="mail-outline" size={16} color={colors.muted} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: '#F44336' }]}>Danger Zone</Text>
-
-          <View style={[styles.dangerCard, { borderColor: '#F44336' }]}>
-            <View style={styles.dangerContent}>
-              <Ionicons name="warning-outline" size={24} color="#F44336" />
-              <View style={styles.dangerText}>
-                <Text style={[styles.dangerTitle, { color: colors.text }]}>Delete Account</Text>
-                <Text style={[styles.dangerDescription, { color: colors.muted }]}>
-                  Permanently delete your account and all associated data. This action cannot be undone.
-                </Text>
-              </View>
-            </View>
-
-            <TouchableOpacity
-              style={styles.deleteButton}
-              onPress={handleDeleteAccount}
-              disabled={deletingAccount}
-            >
-              {deletingAccount ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.deleteButtonText}>Delete My Account</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={{ height: 40 }} />
+            )}
+          </Pressable>
+        </SectionCard>
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
+  );
+}
+
+function LinkRow({ label, onPress }: { label: string; onPress: () => void }) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => [styles.linkRow, pressed && { opacity: 0.7 }]}
+    >
+      <Text style={[styles.linkLabel, { color: colors.text }]}>{label}</Text>
+      <ChevronRight size={18} color={colors.mutedForeground} />
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  section: { marginTop: 24, paddingHorizontal: 16 },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 8,
-    letterSpacing: 0.3,
-    textTransform: 'uppercase',
-  },
-  sectionDescription: { fontSize: 14, lineHeight: 20, marginBottom: 16 },
-  settingItem: {
+  content: { paddingBottom: 32 },
+  linkRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderBottomWidth: 0.5,
+    paddingVertical: 10,
   },
-  settingContent: { flex: 1, gap: 2, paddingRight: 12 },
-  settingLabel: { fontSize: 15, fontWeight: '400' },
-  settingDescription: { fontSize: 12, fontWeight: '400' },
-  dangerCard: { borderWidth: 1, borderRadius: 12, padding: 16 },
-  dangerContent: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 16 },
-  dangerText: { flex: 1 },
-  dangerTitle: { fontSize: 16, fontWeight: '600' },
-  dangerDescription: { fontSize: 13, lineHeight: 18, marginTop: 4 },
-  deleteButton: {
-    backgroundColor: '#F44336',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  deleteButtonText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  linkLabel: { fontSize: 15, fontWeight: '500' },
+  deleteRow: { paddingVertical: 10, alignItems: 'center' },
+  deleteText: { fontSize: 15, fontWeight: '600' },
 });

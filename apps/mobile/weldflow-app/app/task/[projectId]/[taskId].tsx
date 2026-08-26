@@ -1,31 +1,43 @@
-import React, { useState } from 'react';
+/**
+ * Task detail — status change + field summary from `GET /api/tasks/:id`.
+ */
+
+import { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  ActivityIndicator,
-  TouchableOpacity,
   Modal,
   Pressable,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { ChevronLeft, Calendar, User, Flag, Check, Pencil } from 'lucide-react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
+import { Check, Pencil } from 'lucide-react-native';
+
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { useTask, useUpdateTaskStatus } from '@/hooks/use-weldflow';
-import { StatusBadge } from '@/components/StatusBadge';
+import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
+
+import { BRAND } from '@/lib/brand';
+import { formatDate } from '@/lib/date';
+import { Screen, ScreenHeader } from '@/components/screen';
+import { SectionCard, DetailRow } from '@/components/detail';
+import { DetailSkeleton, ErrorState } from '@/components/data-states';
+import { TaskStatusBadge } from '@/components/status-badge';
 import { PriorityIndicator } from '@/components/PriorityIndicator';
+import { useTask, useUpdateTaskStatus } from '@/hooks/use-weldflow';
+import { statusLabel, useI18n } from '@/lib/i18n';
 import type { TaskStatus } from '@/types/weldflow';
 
-const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
-  { value: 'backlog', label: 'Backlog' },
-  { value: 'todo', label: 'To Do' },
-  { value: 'in_progress', label: 'In Progress' },
-  { value: 'in_review', label: 'In Review' },
-  { value: 'testing', label: 'Testing' },
-  { value: 'done', label: 'Done' },
-  { value: 'cancelled', label: 'Cancelled' },
+const STATUS_OPTIONS: TaskStatus[] = [
+  'backlog',
+  'todo',
+  'in_progress',
+  'in_review',
+  'testing',
+  'done',
+  'cancelled',
 ];
 
 export default function TaskDetailScreen() {
@@ -33,15 +45,17 @@ export default function TaskDetailScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { projectId, taskId } = useLocalSearchParams<{ projectId: string; taskId: string }>();
+  const { t, format } = useI18n();
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const { data, isLoading, refetch } = useTask(projectId, taskId);
+  const { data, isLoading, refetch, isError } = useTask(projectId, taskId);
   const task = data?.data;
   const updateStatus = useUpdateTaskStatus(projectId, taskId);
 
   const handleChangeStatus = async (status: TaskStatus) => {
     setPickerOpen(false);
     try {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await updateStatus.mutateAsync({ status });
       await refetch();
     } catch (err) {
@@ -51,182 +65,144 @@ export default function TaskDetailScreen() {
 
   if (isLoading) {
     return (
-      <View style={[styles.loading, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color="#6366F1" />
-      </View>
+      <Screen header={<ScreenHeader title={t.task.editTitle} showBack />}>
+        <DetailSkeleton />
+      </Screen>
     );
   }
 
-  if (!task) {
+  if (!task || isError) {
     return (
-      <View style={[styles.loading, { backgroundColor: colors.background }]}>
-        <Text style={{ color: colors.text }}>Task not found</Text>
-      </View>
+      <Screen header={<ScreenHeader title={t.appName} showBack />}>
+        <ErrorState message={t.task.notFound} onRetry={() => void refetch()} />
+      </Screen>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-      <Stack.Screen options={{ headerShown: false }} />
-
-      <View style={styles.topBar}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <ChevronLeft size={28} color={colors.text} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => router.push(`/task/edit/${projectId}/${taskId}`)}
-          style={styles.backBtn}
-        >
-          <Pencil size={20} color={colors.text} />
-        </TouchableOpacity>
-      </View>
-
+    <Screen
+      header={
+        <ScreenHeader
+          title={task.title}
+          showBack
+          actions={
+            <IconButton
+              icon={<Pencil size={20} color={colors.text} />}
+              accessibilityLabel={t.task.edit}
+              onPress={() => router.push(`/task/edit/${projectId}/${taskId}`)}
+            />
+          }
+        />
+      }
+    >
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={[styles.title, { color: colors.text }]}>{task.title}</Text>
-
         <View style={styles.badgeRow}>
-          <TouchableOpacity
+          <Pressable
             onPress={() => setPickerOpen(true)}
             disabled={updateStatus.isPending}
-            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={t.task.changeStatus}
+            style={({ pressed }) => pressed && { opacity: 0.7 }}
           >
-            <StatusBadge status={task.status} />
-          </TouchableOpacity>
+            <TaskStatusBadge status={task.status} />
+          </Pressable>
           <PriorityIndicator priority={task.priority} showLabel />
         </View>
 
         {task.description ? (
-          <View style={[styles.section, { backgroundColor: colors.cardBackground, borderColor: colors.divider }]}>
-            <Text style={[styles.sectionLabel, { color: colors.muted }]}>Description</Text>
+          <SectionCard title={t.task.description}>
             <Text style={[styles.bodyText, { color: colors.text }]}>{task.description}</Text>
-          </View>
+          </SectionCard>
         ) : null}
 
-        <View style={[styles.section, { backgroundColor: colors.cardBackground, borderColor: colors.divider }]}>
-          <Text style={[styles.sectionLabel, { color: colors.muted }]}>Details</Text>
-
+        <SectionCard title={t.task.details}>
           {task.assigneeId ? (
-            <View style={[styles.detailRow, { borderBottomColor: colors.divider }]}>
-              <View style={styles.detailLeft}>
-                <User size={16} color={colors.muted} />
-                <Text style={[styles.detailLabel, { color: colors.text }]}>Assignee</Text>
-              </View>
-              <Text style={[styles.detailValue, { color: colors.muted }]} numberOfLines={1}>
-                {task.assigneeId}
-              </Text>
-            </View>
+            <DetailRow label={t.task.assignee} value={task.assigneeId} />
           ) : null}
-
           {task.dueDate ? (
-            <View style={[styles.detailRow, { borderBottomColor: colors.divider }]}>
-              <View style={styles.detailLeft}>
-                <Calendar size={16} color={colors.muted} />
-                <Text style={[styles.detailLabel, { color: colors.text }]}>Due Date</Text>
-              </View>
-              <Text style={[styles.detailValue, { color: colors.muted }]}>
-                {new Date(task.dueDate).toLocaleDateString()}
-              </Text>
-            </View>
+            <DetailRow label={t.task.dueDate} value={formatDate(task.dueDate)} />
           ) : null}
-
-          <View style={[styles.detailRow, { borderBottomColor: colors.divider }]}>
-            <View style={styles.detailLeft}>
-              <Flag size={16} color={colors.muted} />
-              <Text style={[styles.detailLabel, { color: colors.text }]}>Priority</Text>
-            </View>
-            <Text style={[styles.detailValue, { color: colors.muted, textTransform: 'capitalize' }]}>
-              {task.priority}
-            </Text>
-          </View>
-
+          <DetailRow
+            label={t.task.priority}
+            value={
+              (t.priority as Record<string, string>)[task.priority] ?? task.priority
+            }
+          />
           {task.estimatedHours ? (
-            <View style={styles.detailRow}>
-              <Text style={[styles.detailLabel, { color: colors.text, marginLeft: 24 }]}>Estimate</Text>
-              <Text style={[styles.detailValue, { color: colors.muted }]}>{task.estimatedHours} h</Text>
-            </View>
+            <DetailRow
+              label={t.task.estimate}
+              value={format(t.task.estimateHours, { hours: task.estimatedHours })}
+            />
           ) : null}
-        </View>
+        </SectionCard>
 
         {task.tags && task.tags.length > 0 ? (
-          <View style={[styles.section, { backgroundColor: colors.cardBackground, borderColor: colors.divider }]}>
-            <Text style={[styles.sectionLabel, { color: colors.muted }]}>Tags</Text>
+          <SectionCard title={t.task.tags}>
             <View style={styles.tagRow}>
               {task.tags.map((tag) => (
-                <View key={tag} style={[styles.tag, { borderColor: colors.divider }]}>
+                <View key={tag} style={[styles.tag, { backgroundColor: colors.secondary }]}>
                   <Text style={[styles.tagText, { color: colors.text }]}>{tag}</Text>
                 </View>
               ))}
             </View>
-          </View>
+          </SectionCard>
         ) : null}
       </ScrollView>
 
       <Modal visible={pickerOpen} transparent animationType="fade" onRequestClose={() => setPickerOpen(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setPickerOpen(false)}>
           <Pressable
-            style={[styles.modalSheet, { backgroundColor: colors.cardBackground, paddingBottom: insets.bottom + 16 }]}
+            style={[
+              styles.modalSheet,
+              { backgroundColor: colors.cardBackground, paddingBottom: insets.bottom + 16 },
+            ]}
             onPress={(e) => e.stopPropagation()}
           >
-            <Text style={[styles.modalTitle, { color: colors.text }]}>Change status</Text>
-            {STATUS_OPTIONS.map((opt) => {
-              const active = opt.value === task.status;
+            <Text style={[styles.modalTitle, { color: colors.text }]}>{t.task.changeStatus}</Text>
+            {STATUS_OPTIONS.map((value) => {
+              const active = value === task.status;
               return (
-                <TouchableOpacity
-                  key={opt.value}
-                  style={[styles.modalOption, { borderBottomColor: colors.divider }]}
-                  onPress={() => handleChangeStatus(opt.value)}
+                <Pressable
+                  key={value}
+                  style={({ pressed }) => [
+                    styles.modalOption,
+                    { borderBottomColor: colors.border },
+                    pressed && { backgroundColor: colors.pressed },
+                  ]}
+                  onPress={() => void handleChangeStatus(value)}
                 >
-                  <Text style={[styles.modalOptionText, { color: colors.text }]}>{opt.label}</Text>
-                  {active ? <Check size={18} color="#6366F1" /> : null}
-                </TouchableOpacity>
+                  <Text style={[styles.modalOptionText, { color: colors.text }]}>
+                    {statusLabel(t, value)}
+                  </Text>
+                  {active ? <Check size={18} color={BRAND} /> : null}
+                </Pressable>
               );
             })}
           </Pressable>
         </Pressable>
       </Modal>
-    </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  topBar: {
+  scroll: { paddingBottom: 24 },
+  badgeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  backBtn: { padding: 8 },
-  scroll: { padding: 16, gap: 16 },
-  title: { fontSize: 24, fontWeight: '700', lineHeight: 30 },
-  badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  section: { borderRadius: 12, borderWidth: 0.5, padding: 14, gap: 8 },
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 4,
   },
   bodyText: { fontSize: 15, lineHeight: 22 },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 0.5,
-  },
-  detailLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  detailLabel: { fontSize: 14, fontWeight: '500' },
-  detailValue: { fontSize: 14, flexShrink: 1, textAlign: 'right' },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  tag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 0.5 },
+  tag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   tagText: { fontSize: 12, fontWeight: '500' },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
   modalSheet: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     padding: 16,
   },
   modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 12 },
@@ -235,7 +211,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 14,
-    borderBottomWidth: 0.5,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   modalOptionText: { fontSize: 16 },
 });
