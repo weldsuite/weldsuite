@@ -105,6 +105,7 @@ export const navigation = {
         connectors: 'Conectores',
       },
       welddesk: {
+        inbox: 'Bandeja',
         dashboard: 'Panel',
         analytics: 'Analíticas',
         chatWidget: 'Widget de chat',

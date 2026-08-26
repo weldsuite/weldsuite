@@ -119,6 +119,7 @@ export const navigation = {
         analytics: 'Analytics',
       },
       welddesk: {
+        inbox: 'Inbox',
         dashboard: 'Dashboard',
         analytics: 'Analytics',
         chatWidget: 'Chat Widget',

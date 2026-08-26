@@ -7,34 +7,9 @@
  * (tagged, priority_changed).
  */
 export const HELPDESK_ENTITY_EVENTS = {
-  // ── WeldDesk v2 (desk_* schema, Intercom model) ─────────────────────────
-  // Legacy entries below remain until their publishers are deleted
-  // (see .claude/welddesk-intercom-plan.md — removed in the cleanup sweep).
-  desk_conversation: [
-    'created',
-    'updated',
-    'state_changed', // open/close/reopen
-    'snoozed',
-    'unsnoozed',
-    'assigned',
-    'rated',
-    'converted_to_ticket',
-    'deleted',
-  ],
-  desk_conversation_part: ['created'],
-  desk_ticket: ['created', 'state_changed', 'attributes_updated', 'linked', 'unlinked'],
-  desk_ticket_type: ['created', 'updated', 'deleted'],
-  desk_team: ['created', 'updated', 'deleted'],
-  desk_view: ['created', 'updated', 'deleted'],
-  desk_macro: ['created', 'updated', 'deleted'],
-  desk_sla: ['created', 'updated', 'deleted', 'applied', 'breached', 'hit'],
-  desk_workflow: ['created', 'updated', 'published', 'paused', 'deleted'],
-  desk_ai_resolution: ['confirmed', 'assumed', 'escalated'],
-  desk_news: ['created', 'updated', 'deleted'],
-  desk_widget: ['updated'],
-  desk_ai_settings: ['updated'],
-  desk_conversation_attribute: ['created', 'updated', 'deleted'],
-  desk_office_hours: ['updated'],
+  desk_conversation: ['created', 'updated', 'state_changed', 'assigned'],
+  desk_message: ['created'],
+  desk_widget: ['created', 'updated', 'deleted'],
 
   // ── Legacy (v1) ─────────────────────────────────────────────────────────
   ticket: [

@@ -211,14 +211,6 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   objectPermissions('departments',   'Departments',          ['read', 'create', 'update', 'delete', 'manage']),
   objectPermissions('slas',          'SLAs',                 ['read', 'create', 'update', 'delete', 'manage']),
   objectPermissions('settings',      'Module Settings',      ['read', 'update', 'manage']),
-  // WeldDesk v2 (Intercom rebuild — see .claude/welddesk-intercom-plan.md).
-  // `inboxes` = team inboxes (desk_teams, successor of departments);
-  // `helpdesk-workflows` is prefixed to avoid clashing with WeldConnect workflows.
-  objectPermissions('inboxes',            'Team Inboxes',    ['read', 'create', 'update', 'delete', 'manage']),
-  objectPermissions('helpdesk-workflows', 'Helpdesk Workflows'),
-  objectPermissions('macros',             'Macros'),
-  objectPermissions('news',               'News'),
-  objectPermissions('helpdesk-ai',        'Helpdesk AI Agent', ['read', 'update', 'manage']),
 
   // ── Knowledge Base (WeldKnow) ─────────────────────────────────────────
   objectPermissions('knowledge',     'Knowledge Base'),
@@ -440,12 +432,6 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   'welddesk:departments:read',
   'welddesk:slas:read',
   'welddesk:settings:read',
-  // WeldDesk v2 objects — members read inboxes/workflows/news, manage macros
-  'welddesk:inboxes:read',
-  'welddesk:workflows:read',
-  'welddesk:macros:read', 'welddesk:macros:create', 'welddesk:macros:update',
-  'welddesk:news:read',
-  'welddesk:ai:read',
   // WeldParcel
   'weldparcel:orders:read', 'weldparcel:orders:create', 'weldparcel:orders:update',
   'weldparcel:parcels:read', 'weldparcel:parcels:create', 'weldparcel:parcels:update',

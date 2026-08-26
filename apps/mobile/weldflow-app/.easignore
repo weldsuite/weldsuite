@@ -31,11 +31,15 @@ apps/web/helpcenter
 apps/web/parcel-tracking-portal
 apps/web/parcel-return-portal
 apps/tools/migrate-databases
+# Exclude every other mobile app from this app's EAS build.
+# The scaffolder adds a line for each sibling mobile app so
+# builds don't pull in unrelated source.
 apps/mobile/weldbooks-app
 apps/mobile/weldchat-app
 apps/mobile/weldcrm-app
-apps/mobile/weldflow-app
+apps/mobile/welddesk-app
 apps/mobile/weldmail-app
 apps/mobile/weldmeet-app
 apps/mobile/weldsocial-app
 apps/mobile/weldstash-app
+apps/mobile/weldwms-app

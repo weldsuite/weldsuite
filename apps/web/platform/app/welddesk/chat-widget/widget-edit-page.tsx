@@ -1,6 +1,6 @@
 
 import { useState, useRef } from 'react';
-import { useWidgetById, useWidgetsList, useCreateWidget } from '@/hooks/queries/use-helpdesk-queries';
+import { useDeskWidget, useDeskWidgets, useCreateDeskWidget } from '@/hooks/queries/use-desk-queries';
 import { ChatWidgetClient, type ChatWidgetClientHandle } from './client-page';
 import { PageLoader } from '@/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
@@ -20,9 +20,9 @@ interface WidgetEditPageProps {
 export default function WidgetEditPage({ widgetId }: WidgetEditPageProps) {
   const { t } = useI18n();
   const tw = t.helpdesk.chatWidget;
-  const { data, isLoading } = useWidgetById(widgetId);
-  const { data: widgetsListData } = useWidgetsList();
-  const createWidget = useCreateWidget();
+  const { data, isLoading } = useDeskWidget(widgetId);
+  const { data: widgetsListData } = useDeskWidgets();
+  const createWidget = useCreateDeskWidget();
   const widgetCount = widgetsListData?.data?.length ?? 0;
   const navigate = useNavigate();
   const [showCreateDialog, setShowCreateDialog] = useState(false);

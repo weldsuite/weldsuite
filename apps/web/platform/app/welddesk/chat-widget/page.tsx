@@ -1,6 +1,6 @@
 
 import { useState, useCallback, useMemo } from 'react';
-import { useWidgetsList, useCreateWidget, useDeleteWidget } from '@/hooks/queries/use-helpdesk-queries';
+import { useDeskWidgets, useCreateDeskWidget, useDeleteDeskWidget } from '@/hooks/queries/use-desk-queries';
 import { Button } from '@weldsuite/ui/components/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@weldsuite/ui/components/dialog';
 import { Input } from '@weldsuite/ui/components/input';
@@ -33,9 +33,9 @@ interface RawWidget {
 export default function ChatWidgetPage() {
   const { t } = useI18n();
   const tw = t.helpdesk.chatWidget;
-  const { data, isLoading } = useWidgetsList();
-  const createWidget = useCreateWidget();
-  const deleteWidget = useDeleteWidget();
+  const { data, isLoading } = useDeskWidgets();
+  const createWidget = useCreateDeskWidget();
+  const deleteWidget = useDeleteDeskWidget();
   const navigate = useNavigate();
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);

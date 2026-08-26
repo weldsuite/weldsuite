@@ -104,6 +104,7 @@ export const navigation = {
       "executions": "[TRANSLATE] Executions"
     },
     "welddesk": {
+      "inbox": "[TRANSLATE] Inbox",
       "dashboard": "[TRANSLATE] Dashboard",
       "analytics": "[TRANSLATE] Analytics",
       "chatWidget": "[TRANSLATE] Chat Widget",

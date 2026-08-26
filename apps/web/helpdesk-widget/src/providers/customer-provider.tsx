@@ -12,7 +12,6 @@ import {
   getOrCreateVisitorId,
   getOrCreateVisitorName,
 } from '@/lib/utils/customer-storage';
-import type { OpenContact } from '@/lib/api/types';
 
 export interface CustomerState {
   customerId: string | null;
@@ -33,7 +32,6 @@ interface CustomerProviderProps {
   widgetId: string;
   initialEmail?: string;
   initialName?: string;
-  contact?: OpenContact | null;
   children: React.ReactNode;
 }
 
@@ -41,7 +39,6 @@ export function CustomerProvider({
   widgetId,
   initialEmail,
   initialName,
-  contact,
   children,
 }: CustomerProviderProps) {
   const visitorId = getOrCreateVisitorId();
@@ -57,9 +54,7 @@ export function CustomerProvider({
   const [name, setNameState] = useState<string | null>(
     initialName || profile?.name || null,
   );
-  const [contactId, setContactIdState] = useState<string | null>(
-    contact?.contactId || null,
-  );
+  const [contactId, setContactIdState] = useState<string | null>(null);
 
   const persist = useCallback(() => {
     saveCustomerProfile(widgetId, {

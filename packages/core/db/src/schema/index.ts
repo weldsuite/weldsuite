@@ -167,24 +167,12 @@ export * from './helpdesk-analytics-reports';
 export * from './helpdesk-analytics-charts';
 export * from './helpdesk-analytics-views';
 
-// WeldDesk v2 — Intercom-model rebuild (desk_* tables). The legacy
-// helpdesk-* exports above are being replaced phase-by-phase; see
-// .claude/welddesk-intercom-plan.md.
+// WeldDesk — webchat-first conversation model.
 export * from './desk-conversations';
-export * from './desk-conversation-parts';
-export * from './desk-conversation-attributes';
-export * from './desk-linked-objects';
-export * from './desk-ticket-types';
-export * from './desk-teams';
-export * from './desk-views';
-export * from './desk-macros';
-export * from './desk-slas';
-export * from './desk-office-hours';
-export * from './desk-workflows';
-export * from './desk-ai';
-export * from './search-index';
-export * from './desk-news';
+export * from './desk-messages';
+export * from './desk-visitors';
 export * from './desk-widget-settings';
+export * from './search-index';
 
 // Generic analytics (shared across apps)
 export * from './analytics-reports';

@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   Home,
+  Inbox,
   BarChart3,
   Users,
   BookOpen,
@@ -195,22 +196,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       {
         group: '',
         items: [
-          { title: t.navigation.moduleSidebar.welddesk.dashboard, href: '/welddesk', icon: Home },
-          { title: t.navigation.moduleSidebar.welddesk.analytics, href: '/welddesk/analytics', icon: BarChart3 },
+          { title: t.navigation.moduleSidebar.welddesk.inbox, href: '/welddesk/inbox', icon: Inbox },
           { title: t.navigation.moduleSidebar.welddesk.chatWidget, href: '/welddesk/chat-widget', icon: MessagesSquare },
-          { title: t.navigation.moduleSidebar.welddesk.knowledge, href: '/welddesk/knowledge', icon: BookOpen },
-          { title: t.navigation.moduleSidebar.welddesk.contacts, href: '/welddesk/contacts', icon: Users },
-          { title: t.navigation.moduleSidebar.welddesk.reviews, href: '/welddesk/reviews', icon: Star },
-          { title: t.navigation.moduleSidebar.welddesk.allTeams, href: '/welddesk/teams', icon: Users },
-          { title: t.navigation.moduleSidebar.welddesk.workflows, href: '/welddesk/workflows', icon: Workflow },
-        ],
-      },
-      {
-        group: t.navigation.moduleSidebar.groups.ai,
-        items: [
-          { title: t.navigation.moduleSidebar.welddesk.weldagent, href: '/welddesk/weldagent', icon: Bot },
-          { title: t.navigation.moduleSidebar.welddesk.active, href: '/welddesk/ai-active', icon: MessageCircle },
-          { title: t.navigation.moduleSidebar.welddesk.resolved, href: '/welddesk/ai-resolved', icon: SquareCheck },
         ],
       },
     ],

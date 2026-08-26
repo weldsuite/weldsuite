@@ -144,7 +144,7 @@ const TARGETS: Record<string, TargetDefinition> = {
     readPermission: 'conversations:read',
     label: 'Conversation',
     href: (id) => `/welddesk/inbox/${id}`,
-    softDeletes: true,
+    softDeletes: false,
   }),
   project: defineTarget({
     table: schema.projects,
