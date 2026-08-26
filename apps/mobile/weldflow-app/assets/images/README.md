@@ -11,5 +11,5 @@ Before submitting to stores, replace with WeldFlow-branded versions:
 | `notification-icon.png` | 96x96 monochrome white on transparent | Android notification tray icon |
 | `logo.png` | ~256x256 | Login screen logo |
 
-Brand color (used on Android adaptive bg + notifications): `#6366F1` (indigo).
+Brand color (used on Android adaptive bg + notifications): `#E84C3D` (indigo).
 Coordinate with design before final submission.

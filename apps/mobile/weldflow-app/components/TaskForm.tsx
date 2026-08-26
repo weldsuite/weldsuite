@@ -34,8 +34,9 @@ import type {
 } from '@/types/weldflow';
 import { LABEL_COLORS } from '@/types/weldflow';
 import { useProjectMembers, useLabels, useCreateLabel } from '@/hooks/use-weldflow';
-import { StatusBadge } from './StatusBadge';
+import { StatusBadge } from './status-badge';
 import { PriorityIndicator } from './PriorityIndicator';
+import { BRAND } from '@/lib/brand';
 
 export interface TaskFormValues {
   title: string;
@@ -479,7 +480,7 @@ export function TaskForm({
                   }}
                 >
                   <Text style={[styles.modalOptionText, { color: colors.text }]}>{opt.label}</Text>
-                  {active ? <Check size={18} color="#6366F1" /> : null}
+                  {active ? <Check size={18} color={BRAND} /> : null}
                 </TouchableOpacity>
               );
             })}
@@ -505,11 +506,11 @@ export function TaskForm({
             <View style={styles.sheetHeader}>
               <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>Assignees</Text>
               <TouchableOpacity onPress={() => setPicker(null)}>
-                <Text style={[styles.sheetAction, { color: '#6366F1' }]}>Done</Text>
+                <Text style={[styles.sheetAction, { color: '#E84C3D' }]}>Done</Text>
               </TouchableOpacity>
             </View>
             {membersQuery.isLoading ? (
-              <ActivityIndicator style={{ marginTop: 16 }} color="#6366F1" />
+              <ActivityIndicator style={{ marginTop: 16 }} color={BRAND} />
             ) : members.length === 0 ? (
               <Text style={[styles.emptyState, { color: colors.muted }]}>No members on this project yet.</Text>
             ) : (
@@ -533,7 +534,7 @@ export function TaskForm({
                           </Text>
                         ) : null}
                       </View>
-                      {selected ? <Check size={18} color="#6366F1" /> : null}
+                      {selected ? <Check size={18} color={BRAND} /> : null}
                     </TouchableOpacity>
                   );
                 })}
@@ -558,7 +559,7 @@ export function TaskForm({
             <View style={styles.sheetHeader}>
               <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>Estimated hours</Text>
               <TouchableOpacity onPress={() => setPicker(null)}>
-                <Text style={[styles.sheetAction, { color: '#6366F1' }]}>Close</Text>
+                <Text style={[styles.sheetAction, { color: '#E84C3D' }]}>Close</Text>
               </TouchableOpacity>
             </View>
 
@@ -592,7 +593,7 @@ export function TaskForm({
                       onPress={() => handlePickPresetHours(p.value)}
                     >
                       <Text style={[styles.modalOptionText, { color: colors.text }]}>{p.label}</Text>
-                      {active ? <Check size={18} color="#6366F1" /> : null}
+                      {active ? <Check size={18} color={BRAND} /> : null}
                     </TouchableOpacity>
                   );
                 })}
@@ -600,7 +601,7 @@ export function TaskForm({
                   style={[styles.modalOption, { borderBottomColor: colors.divider }]}
                   onPress={handleSelectCustomHours}
                 >
-                  <Text style={[styles.modalOptionText, { color: '#6366F1', fontWeight: '600' }]}>Custom…</Text>
+                  <Text style={[styles.modalOptionText, { color: '#E84C3D', fontWeight: '600' }]}>Custom…</Text>
                 </TouchableOpacity>
               </ScrollView>
             )}
@@ -626,12 +627,12 @@ export function TaskForm({
             <View style={styles.sheetHeader}>
               <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>Labels</Text>
               <TouchableOpacity onPress={() => setPicker(null)}>
-                <Text style={[styles.sheetAction, { color: '#6366F1' }]}>Done</Text>
+                <Text style={[styles.sheetAction, { color: '#E84C3D' }]}>Done</Text>
               </TouchableOpacity>
             </View>
 
             {labelsQuery.isLoading ? (
-              <ActivityIndicator style={{ marginTop: 16 }} color="#6366F1" />
+              <ActivityIndicator style={{ marginTop: 16 }} color={BRAND} />
             ) : (
               <ScrollView>
                 {availableLabels.map((l) => {
@@ -646,7 +647,7 @@ export function TaskForm({
                         <View style={[styles.labelDot, { backgroundColor: l.color }]} />
                         <Text style={[styles.modalOptionText, { color: colors.text }]}>{l.name}</Text>
                       </View>
-                      {selected ? <Check size={18} color="#6366F1" /> : null}
+                      {selected ? <Check size={18} color={BRAND} /> : null}
                     </TouchableOpacity>
                   );
                 })}
@@ -711,8 +712,8 @@ export function TaskForm({
                     onPress={() => setCreatingLabel(true)}
                   >
                     <View style={styles.labelRowLeft}>
-                      <Plus size={18} color="#6366F1" />
-                      <Text style={[styles.modalOptionText, { color: '#6366F1', fontWeight: '600' }]}>
+                      <Plus size={18} color={BRAND} />
+                      <Text style={[styles.modalOptionText, { color: '#E84C3D', fontWeight: '600' }]}>
                         Create new label
                       </Text>
                     </View>
@@ -738,7 +739,7 @@ export function TaskForm({
                     <Text style={[styles.sheetAction, { color: '#DC2626' }]}>Clear</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => setPicker(null)}>
-                    <Text style={[styles.sheetAction, { color: '#6366F1' }]}>Done</Text>
+                    <Text style={[styles.sheetAction, { color: '#E84C3D' }]}>Done</Text>
                   </TouchableOpacity>
                 </View>
                 <DateTimePicker
@@ -842,7 +843,7 @@ const styles = StyleSheet.create({
   labelChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
   labelChipText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   submitBtn: {
-    backgroundColor: '#6366F1',
+    backgroundColor: BRAND,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
@@ -872,7 +873,7 @@ const styles = StyleSheet.create({
   emptyState: { fontSize: 14, textAlign: 'center', paddingVertical: 24 },
   customInputWrap: { flexDirection: 'row', gap: 8, paddingVertical: 8 },
   customConfirmBtn: {
-    backgroundColor: '#6366F1',
+    backgroundColor: BRAND,
     borderRadius: 10,
     paddingHorizontal: 16,
     alignItems: 'center',
@@ -893,7 +894,7 @@ const styles = StyleSheet.create({
   },
   secondaryBtnText: { fontSize: 15, fontWeight: '500' },
   primaryBtn: {
-    backgroundColor: '#6366F1',
+    backgroundColor: BRAND,
     paddingHorizontal: 18,
     paddingVertical: 10,
     borderRadius: 10,

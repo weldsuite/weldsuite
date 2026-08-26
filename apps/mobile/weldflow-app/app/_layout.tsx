@@ -19,6 +19,8 @@ import { ErrorBoundary } from '@weldsuite/mobile-ui/components/ErrorBoundary';
 import { setAppApiTokenGetter } from '@/services/app-api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { useUpdateGate } from '@/hooks/useUpdateGate';
+import { BRAND } from '@/lib/brand';
+import { I18nProvider, useI18n, usePersistedLanguage } from '@/lib/i18n';
 
 const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
@@ -40,6 +42,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, isLoading, getCredentials, organizationId } = useClerkAuth();
   const router = useRouter();
   const segments = useSegments();
+  const { t } = useI18n();
   const { setActive, userMemberships, isLoaded: isOrgListLoaded } = useOrganizationList({
     userMemberships: true,
   });
@@ -59,12 +62,18 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     ) {
       setActive({ organization: userMemberships.data[0].organization.id });
     }
-  }, [user, organizationId, isOrgListLoaded, membershipsLoading, membershipCount, setActive, userMemberships?.data]);
+  }, [
+    user,
+    organizationId,
+    isOrgListLoaded,
+    membershipsLoading,
+    membershipCount,
+    setActive,
+    userMemberships?.data,
+  ]);
 
   useEffect(() => {
     if (user) {
-      // The app-api client re-reads the token on every request, so this stays
-      // fresh across Clerk token refreshes without any rebuild.
       setAppApiTokenGetter(async () => (await getCredentials())?.accessToken ?? null);
     } else {
       setAppApiTokenGetter(null);
@@ -74,8 +83,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isLoading) return;
     if (user && !isOrgListLoaded) return;
-    // Wait for Clerk to finish fetching memberships before making routing decisions.
-    // Otherwise we briefly see data.length === 0 and wrongly redirect to no-workspace.
     if (user && membershipsLoading) return;
 
     const inAuthGroup = segments[0] === 'authorisation';
@@ -94,7 +101,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Authenticated and a workspace is available — land in the app.
     if (inAuthGroup || inNoWorkspace || inSsoCallback) {
       router.replace('/(tabs)');
     }
@@ -112,8 +118,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   if (isLoading || (user && !isOrgListLoaded) || (user && membershipsLoading)) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
-        <ActivityIndicator size="large" color="#6366F1" />
-        <Text style={{ marginTop: 16, color: '#666' }}>Loading...</Text>
+        <ActivityIndicator size="large" color={BRAND} />
+        <Text style={{ marginTop: 16, color: '#666' }}>{t.common.loading}</Text>
       </View>
     );
   }
@@ -176,30 +182,32 @@ function AuthenticatedApp() {
 }
 
 export default function RootLayout() {
-  // First-launch OTA gate: check for and apply the latest update before the app
-  // renders, so first-time installers never see the stale embedded bundle.
   const checkingUpdate = useUpdateGate();
+  const { ready, language } = usePersistedLanguage();
+  const updating = checkingUpdate || !ready;
 
-  if (checkingUpdate) {
+  if (updating) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
-        <ActivityIndicator size="large" color="#6366F1" />
+        <ActivityIndicator size="large" color={BRAND} />
         <Text style={{ marginTop: 16, color: '#666' }}>Updating…</Text>
       </View>
     );
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <KeyboardProvider>
-        <ErrorBoundary>
-          <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY || ''} tokenCache={tokenCache}>
-            <ClerkLoaded>
-              <AuthenticatedApp />
-            </ClerkLoaded>
-          </ClerkProvider>
-        </ErrorBoundary>
-      </KeyboardProvider>
-    </GestureHandlerRootView>
+    <I18nProvider initialLanguage={language}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <KeyboardProvider>
+          <ErrorBoundary>
+            <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY || ''} tokenCache={tokenCache}>
+              <ClerkLoaded>
+                <AuthenticatedApp />
+              </ClerkLoaded>
+            </ClerkProvider>
+          </ErrorBoundary>
+        </KeyboardProvider>
+      </GestureHandlerRootView>
+    </I18nProvider>
   );
 }
