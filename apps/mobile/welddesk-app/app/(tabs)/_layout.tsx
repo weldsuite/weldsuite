@@ -1,38 +1,42 @@
 import { Tabs } from 'expo-router';
-import { Inbox, Users, Settings } from 'lucide-react-native';
-import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { Inbox, Settings } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import {
+  FloatingTabBar,
+  floatingTabBarBottomInset,
+  type FloatingTabBarProps,
+} from '@/components/floating-tab-bar';
+import { useI18n } from '@/lib/i18n';
 
 export default function TabLayout() {
-  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const tabBarInset = floatingTabBarBottomInset(insets.bottom);
+  const { t } = useI18n();
 
   return (
     <Tabs
+      tabBar={(props) => <FloatingTabBar {...(props as unknown as FloatingTabBarProps)} />}
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.text,
-        tabBarInactiveTintColor: colors.muted,
-        tabBarStyle: { backgroundColor: colors.background, borderTopColor: colors.divider },
+        tabBarShowLabel: false,
+        sceneStyle: {
+          paddingBottom: tabBarInset,
+        },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Inbox',
-          tabBarIcon: ({ color, size }) => <Inbox size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="contacts"
-        options={{
-          title: 'Contacts',
-          tabBarIcon: ({ color, size }) => <Users size={size} color={color} />,
+          title: t.tabs.inbox,
+          tabBarIcon: ({ color, size }) => <Inbox size={size} color={color} strokeWidth={2.2} />,
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
-          title: 'Settings',
-          tabBarIcon: ({ color, size }) => <Settings size={size} color={color} />,
+          title: t.tabs.settings,
+          tabBarIcon: ({ color, size }) => <Settings size={size} color={color} strokeWidth={2.2} />,
         }}
       />
     </Tabs>

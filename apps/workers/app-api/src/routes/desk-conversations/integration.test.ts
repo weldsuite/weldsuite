@@ -11,7 +11,7 @@ import { deskWidgetRoutes } from '../desk-widget';
 import { createTestApp, permissions } from '../../test/harness';
 import { createPgliteDb } from '../../test/pglite';
 import { schema, type Database } from '../../db';
-import { createDeskConversation } from '@weldsuite/db/lib/desk';
+import { createDeskConversation, ingestDeskEmail } from '@weldsuite/db/lib/desk';
 import { generateId } from '../../lib/id';
 
 let db: Database;
@@ -66,6 +66,40 @@ describe('/api/desk/conversations · pglite integration', () => {
     expect(body.data.some((row) => row.id === conversation.id)).toBe(true);
     const listed = body.data.find((row) => row.id === conversation.id);
     expect(listed?.lastMessagePreview).toBe('Hello from the widget');
+  });
+});
+
+describe('ingestDeskEmail · pglite', () => {
+  it('creates an email-channel conversation and threads a reply by Message-ID', async () => {
+    const first = await ingestDeskEmail(db, {
+      generateId,
+      fromName: 'Ada',
+      fromEmail: 'ada@customer.test',
+      toAddress: 'support@acme.test',
+      subject: 'Printer is jammed',
+      body: 'The lobby printer will not feed paper.',
+      rfcMessageId: 'root-msg-1@customer.test',
+    });
+
+    expect(first.created).toBe(true);
+    expect(first.conversation.channel).toBe('email');
+    expect(first.conversation.email).toBe('ada@customer.test');
+    expect(first.conversation.title).toBe('Printer is jammed');
+
+    const reply = await ingestDeskEmail(db, {
+      generateId,
+      fromName: 'Ada',
+      fromEmail: 'ada@customer.test',
+      toAddress: 'support@acme.test',
+      subject: 'Re: Printer is jammed',
+      body: 'It is still jammed.',
+      rfcMessageId: 'reply-msg-2@customer.test',
+      inReplyTo: 'root-msg-1@customer.test',
+    });
+
+    expect(reply.created).toBe(false);
+    expect(reply.conversation.id).toBe(first.conversation.id);
+    expect(reply.message.body).toBe('It is still jammed.');
   });
 });
 

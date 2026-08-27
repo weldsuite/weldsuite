@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useUser } from '@clerk/clerk-react';
 import { useRouter } from '@/lib/router';
 import type { DeskConversationSort, DeskConversationState } from '@/hooks/queries/use-desk-queries';
-import { InboxLayout } from './inbox-layout';
+import { DeskSplitLayout, InboxLayout } from './inbox-layout';
 import { ConversationList, type InboxAssigneeFilter } from './conversation-list';
 import { ConversationPane } from './conversation-pane';
 import { EmptyConversationPane } from './empty-conversation-pane';
@@ -42,22 +42,28 @@ export function InboxPage({ conversationId }: InboxPageProps) {
 
   return (
     <InboxLayout>
-      <ConversationList
-        filters={filters}
-        state={state}
-        onStateChange={setState}
-        sort={sort}
-        onSortChange={setSort}
-        assigneeFilter={assigneeFilter}
-        onAssigneeFilterChange={setAssigneeFilter}
-        selectedId={selectedId}
-        onSelect={handleSelect}
+      <DeskSplitLayout
+        list={
+          <ConversationList
+            filters={filters}
+            state={state}
+            onStateChange={setState}
+            sort={sort}
+            onSortChange={setSort}
+            assigneeFilter={assigneeFilter}
+            onAssigneeFilterChange={setAssigneeFilter}
+            selectedId={selectedId}
+            onSelect={handleSelect}
+          />
+        }
+        detail={
+          selectedId ? (
+            <ConversationPane conversationId={selectedId} />
+          ) : (
+            <EmptyConversationPane />
+          )
+        }
       />
-      {selectedId ? (
-        <ConversationPane conversationId={selectedId} />
-      ) : (
-        <EmptyConversationPane />
-      )}
     </InboxLayout>
   );
 }

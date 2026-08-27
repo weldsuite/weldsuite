@@ -2,7 +2,6 @@
 import { useSearchParams } from '@/lib/router';
 import { KnowledgeClient } from "./knowledge-client";
 import { useArticles, type KnowledgeArticle } from '@/hooks/queries/use-helpdesk-queries';
-import { PageLoader } from '@/components/page-loader';
 
 interface RawArticle {
   id: string;
@@ -36,8 +35,6 @@ export default function KnowledgePage() {
     search,
     status,
   });
-
-  if (isLoading) return <PageLoader fullScreen={false} />;
 
   // Map response to expected format
   const rawItems = data?.data || [];
@@ -85,6 +82,7 @@ export default function KnowledgePage() {
       statusFilters={[]}
       additionalFilters={[]}
       counts={counts}
+      isLoading={isLoading}
     />
   );
 }

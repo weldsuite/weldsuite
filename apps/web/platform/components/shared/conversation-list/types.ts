@@ -37,6 +37,8 @@ export interface ConversationListProps {
   pageSize?: number;
   getPageUrl?: (page: number) => string;
   emptyMessage?: string;
+  isLoading?: boolean;
+  footer?: ReactNode;
 }
 
 export interface ConversationListItemProps {

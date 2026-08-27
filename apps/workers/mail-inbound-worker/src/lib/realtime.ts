@@ -86,3 +86,40 @@ export async function publishNewConversation(
   const rt = getPublisher(env);
   await rt.helpdeskEvent(workspaceId, 'conversation_new', data);
 }
+
+/**
+ * Notify the WeldDesk inbox that a support email landed in desk_conversations.
+ * Uses Clerk org id as the WorkspaceHub key (same as app-api).
+ */
+export async function publishDeskInbound(
+  env: Env,
+  clerkOrgId: string,
+  params: {
+    conversation: { id: string; [key: string]: unknown };
+    message: { id: string; body?: string | null; authorId?: string | null; kind?: string | null; conversationId?: string };
+    created: boolean;
+    preview: string;
+    senderName: string;
+  },
+): Promise<void> {
+  const rt = getPublisher(env);
+  const { conversation, message, created, preview, senderName } = params;
+  await rt.publish(
+    clerkOrgId,
+    'desk_conversation',
+    created ? 'created' : 'updated',
+    conversation,
+    'system',
+  );
+  await rt.publish(clerkOrgId, 'desk_message', 'created', message, 'system');
+  await rt.conversationPublish(conversation.id, {
+    type: 'message',
+    id: message.id,
+    content: message.body ?? preview,
+    senderId: message.authorId,
+    senderType: 'visitor',
+    senderName,
+    kind: message.kind ?? 'message',
+    ts: Date.now(),
+  });
+}

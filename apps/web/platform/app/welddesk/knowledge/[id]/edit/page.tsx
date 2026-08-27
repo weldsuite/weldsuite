@@ -18,7 +18,7 @@ export default function ArticleEditPage() {
   const articleData = result?.data;
 
   if (!articleData) {
-    router.push('/welddesk/knowledge');
+    router.push('/welddesk/help-center/articles');
     return null;
   }
 

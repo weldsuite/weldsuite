@@ -23,6 +23,10 @@ import { NotificationProvider } from '@/contexts/NotificationContext';
 import { RealtimeProvider } from '@/providers/realtime-provider';
 import { STORAGE_KEYS } from '@/types/setup';
 import { useUpdateGate } from '@/hooks/useUpdateGate';
+import { I18nProvider, useI18n, usePersistedLanguage } from '@/lib/i18n';
+import { en } from '@/lib/i18n/locales/en';
+import { nl } from '@/lib/i18n/locales/nl';
+import { BRAND } from '@/lib/brand';
 
 const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
@@ -34,6 +38,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, isLoading, getCredentials, organizationId } = useClerkAuth();
   const router = useRouter();
   const segments = useSegments();
+  const { t } = useI18n();
   const { setActive, userMemberships, isLoaded: isOrgListLoaded } = useOrganizationList({
     userMemberships: { infinite: true },
   });
@@ -44,7 +49,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const [setupChecked, setSetupChecked] = useState(false);
   const [needsSetup, setNeedsSetup] = useState<'new' | 'existing' | null>(null);
 
-  // Auto-select first org if user has memberships but none active
   useEffect(() => {
     if (
       user &&
@@ -57,9 +61,16 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     ) {
       setActive({ organization: userMemberships.data[0].organization.id });
     }
-  }, [user, organizationId, isOrgListLoaded, membershipsLoading, membershipCount, setActive, userMemberships?.data]);
+  }, [
+    user,
+    organizationId,
+    isOrgListLoaded,
+    membershipsLoading,
+    membershipCount,
+    setActive,
+    userMemberships?.data,
+  ]);
 
-  // Set up API token refresh
   useEffect(() => {
     if (user) {
       api.setTokenRefreshCallback(async () => {
@@ -71,7 +82,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [user, getCredentials]);
 
-  // Initialize API services with credentials
   useEffect(() => {
     const initializeServices = async () => {
       if (user) {
@@ -85,10 +95,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
         api.setOrganizationId(null);
       }
     };
-    initializeServices();
+    void initializeServices();
   }, [user, getCredentials]);
 
-  // Clear setup state on sign-out
   useEffect(() => {
     if (!user) {
       setSetupChecked(false);
@@ -100,15 +109,11 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [user]);
 
-  // Determine if user needs setup
   useEffect(() => {
     if (!user || !isOrgListLoaded) return;
-    // Wait for Clerk to finish fetching memberships before deciding.
-    // Otherwise we briefly see data.length === 0 and wrongly route to setup ("create workspace").
     if (membershipsLoading) return;
 
     const checkSetup = async () => {
-      // Check local flag first (fast path)
       const completed = await storage.getItem(STORAGE_KEYS.completed);
       if (completed === 'true') {
         setNeedsSetup(null);
@@ -116,36 +121,31 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // No org memberships = new user who needs full setup
       if (membershipCount === 0) {
         setNeedsSetup('new');
         setSetupChecked(true);
         return;
       }
 
-      // Has org — skip onboarding, they're already set up
       await storage.setItem(STORAGE_KEYS.completed, 'true');
       setNeedsSetup(null);
       setSetupChecked(true);
     };
 
-    checkSetup();
+    void checkSetup();
   }, [user, isOrgListLoaded, membershipsLoading, membershipCount]);
 
-  // Route guard
   useEffect(() => {
     if (isLoading) return;
 
     const inAuthGroup = segments[0] === 'authorisation';
     const inSetup = segments[0] === 'setup';
 
-    // Unauthenticated: redirect to login (no need to wait for setupChecked)
     if (!user && !inAuthGroup) {
       router.replace('/authorisation');
       return;
     }
 
-    // Authenticated: wait for setup check before routing decisions
     if (user && !setupChecked) return;
 
     if (user && inAuthGroup) {
@@ -161,11 +161,16 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [user, isLoading, setupChecked, needsSetup, segments, router]);
 
-  if (isLoading || (user && !isOrgListLoaded) || (user && membershipsLoading) || (user && !setupChecked)) {
+  if (
+    isLoading ||
+    (user && !isOrgListLoaded) ||
+    (user && membershipsLoading) ||
+    (user && !setupChecked)
+  ) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
-        <ActivityIndicator size="large" color="#3B82F6" />
-        <Text style={{ marginTop: 16, color: '#666' }}>Loading...</Text>
+        <ActivityIndicator size="large" color={BRAND} />
+        <Text style={{ marginTop: 16, color: '#666' }}>{t.common.loading}</Text>
       </View>
     );
   }
@@ -187,7 +192,15 @@ function AppStack() {
   const navigationTheme = {
     ...DefaultTheme,
     dark: theme === 'dark',
-    colors: { ...DefaultTheme.colors, primary: colors.text, background: colors.background, card: colors.cardBackground, text: colors.text, border: colors.divider, notification: colors.text },
+    colors: {
+      ...DefaultTheme.colors,
+      primary: colors.text,
+      background: colors.background,
+      card: colors.cardBackground,
+      text: colors.text,
+      border: colors.divider,
+      notification: colors.text,
+    },
   };
 
   return (
@@ -199,16 +212,17 @@ function AppStack() {
               <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
               <AuthGuard>
                 <RealtimeProvider>
-                <Stack screenOptions={{ headerShown: false }}>
-                  <Stack.Screen name="authorisation" />
-                  <Stack.Screen name="sso-callback" />
-                  <Stack.Screen name="setup" options={{ animation: 'fade', animationDuration: 200, gestureEnabled: false }} />
-                  <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 150 }} />
-                  <Stack.Screen name="ticket/[id]" />
-                  <Stack.Screen name="ticket/new" />
-                  <Stack.Screen name="contact/[id]" />
-                </Stack>
-              </RealtimeProvider>
+                  <Stack screenOptions={{ headerShown: false }}>
+                    <Stack.Screen name="authorisation" />
+                    <Stack.Screen name="sso-callback" />
+                    <Stack.Screen
+                      name="setup"
+                      options={{ animation: 'fade', animationDuration: 200, gestureEnabled: false }}
+                    />
+                    <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 150 }} />
+                    <Stack.Screen name="conversation/[id]" />
+                  </Stack>
+                </RealtimeProvider>
               </AuthGuard>
             </NavigationThemeProvider>
           </WorkspaceProvider>
@@ -230,31 +244,37 @@ function AuthenticatedApp() {
   );
 }
 
-export default function RootLayout() {
-  // First-launch OTA gate: check for and apply the latest update before the app
-  // renders, so first-time installers never see the stale embedded bundle.
-  const checkingUpdate = useUpdateGate();
+function Splash({ label }: { label: string }) {
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+      <ActivityIndicator size="large" color={BRAND} />
+      <Text style={{ marginTop: 16, color: '#666' }}>{label}</Text>
+    </View>
+  );
+}
 
-  if (checkingUpdate) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
-        <ActivityIndicator size="large" color="#3B82F6" />
-        <Text style={{ marginTop: 16, color: '#666' }}>Updating…</Text>
-      </View>
-    );
+export default function RootLayout() {
+  const checkingUpdate = useUpdateGate();
+  const persisted = usePersistedLanguage();
+
+  if (checkingUpdate || !persisted.ready) {
+    const catalog = persisted.language === 'nl' ? nl : en;
+    return <Splash label={catalog.common.updating} />;
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <KeyboardProvider>
-        <ErrorBoundary>
-          <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY || ''} tokenCache={tokenCache}>
-            <ClerkLoaded>
-              <AuthenticatedApp />
-            </ClerkLoaded>
-          </ClerkProvider>
-        </ErrorBoundary>
-      </KeyboardProvider>
-    </GestureHandlerRootView>
+    <I18nProvider initialLanguage={persisted.language}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <KeyboardProvider>
+          <ErrorBoundary>
+            <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY || ''} tokenCache={tokenCache}>
+              <ClerkLoaded>
+                <AuthenticatedApp />
+              </ClerkLoaded>
+            </ClerkProvider>
+          </ErrorBoundary>
+        </KeyboardProvider>
+      </GestureHandlerRootView>
+    </I18nProvider>
   );
 }

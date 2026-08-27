@@ -1040,7 +1040,7 @@ export const settings = {
 
     welddesk: {
       title: 'WeldDesk',
-      description: 'Visitor chat widget and agent inbox.',
+      description: 'Visitor chat, support email, help center, and agent inbox.',
       openChatWidget: 'Open chat widget',
     },
 

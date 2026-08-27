@@ -24,6 +24,8 @@ import type {
 } from '../schema/desk-messages';
 import type { DeskVisitor } from '../schema/desk-visitors';
 
+export type { DeskConversation, DeskMessage, DeskVisitor };
+
 type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
 
 const conversations = schema.deskConversations;
@@ -121,6 +123,7 @@ export interface CreateDeskConversationInput {
   body: string;
   authorType?: DeskAuthorType;
   authorId?: string | null;
+  metadata?: DeskMessageMetadata;
 }
 
 export async function createDeskConversation(
@@ -158,6 +161,7 @@ export async function createDeskConversation(
     authorType,
     authorId: input.authorId ?? input.visitorId,
     body: input.body,
+    metadata: input.metadata,
   });
 }
 
@@ -374,4 +378,226 @@ export async function listDeskMessages(
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
     .orderBy(messages.createdAt);
+}
+
+/** Strip RFC 5322 angle brackets so In-Reply-To / References match stored ids. */
+export function normalizeRfcMessageId(id: string | null | undefined): string | null {
+  if (!id) return null;
+  const trimmed = id.trim().replace(/^<|>$/g, '').trim();
+  return trimmed || null;
+}
+
+export function normalizeEmailSubject(subject: string | null | undefined): string {
+  if (!subject) return '';
+  return subject.replace(/^(Re|Fwd|Fw):\s*/gi, '').trim();
+}
+
+export async function findDeskVisitorByEmail(
+  db: AnyDb,
+  email: string,
+): Promise<DeskVisitor | null> {
+  const [row] = await db
+    .select()
+    .from(visitors)
+    .where(eq(visitors.email, email.toLowerCase()))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function findDeskConversationByRfcMessageIds(
+  db: AnyDb,
+  ids: Array<string | null | undefined>,
+): Promise<DeskConversation | null> {
+  const normalized = ids
+    .map((id) => normalizeRfcMessageId(id))
+    .filter((id): id is string => Boolean(id));
+
+  for (const id of normalized) {
+    const [row] = await db
+      .select({ conversationId: messages.conversationId })
+      .from(messages)
+      .where(
+        sql`(${messages.metadata}->>'emailMessageId' = ${id} OR ${messages.metadata}->>'emailThreadMessageId' = ${id})`,
+      )
+      .limit(1);
+    if (!row) continue;
+    const [conversation] = await db
+      .select()
+      .from(conversations)
+      .where(eq(conversations.id, row.conversationId))
+      .limit(1);
+    if (conversation) return conversation;
+  }
+  return null;
+}
+
+export async function findOpenEmailConversationByEmail(
+  db: AnyDb,
+  email: string,
+): Promise<DeskConversation | null> {
+  const [row] = await db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.channel, 'email'),
+        eq(conversations.state, 'open'),
+        eq(conversations.email, email.toLowerCase()),
+      ),
+    )
+    .orderBy(desc(conversations.lastMessageAt))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function findRecentEmailConversation(
+  db: AnyDb,
+  email: string,
+  title: string,
+): Promise<DeskConversation | null> {
+  if (!title) return null;
+  const [row] = await db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.channel, 'email'),
+        eq(conversations.email, email.toLowerCase()),
+        eq(conversations.title, title),
+        sql`${conversations.lastMessageAt} > NOW() - INTERVAL '30 days'`,
+      ),
+    )
+    .orderBy(desc(conversations.lastMessageAt))
+    .limit(1);
+  return row ?? null;
+}
+
+export interface DeskEmailReplyContext {
+  helpdeskAddress: string | null;
+  lastEmailMessageId: string | null;
+  references: string[];
+  subject: string | null;
+  customerEmail: string | null;
+}
+
+export async function getDeskEmailReplyContext(
+  db: AnyDb,
+  conversationId: string,
+): Promise<DeskEmailReplyContext | null> {
+  const result = await getDeskConversation(db, conversationId, { includeMessages: true });
+  if (!result) return null;
+
+  const references: string[] = [];
+  let helpdeskAddress: string | null = null;
+  let lastEmailMessageId: string | null = null;
+
+  for (const message of result.messages) {
+    const meta = (message.metadata ?? {}) as DeskMessageMetadata;
+    if (typeof meta.helpdeskAddress === 'string' && meta.helpdeskAddress) {
+      helpdeskAddress = meta.helpdeskAddress;
+    }
+    if (typeof meta.emailMessageId === 'string' && meta.emailMessageId) {
+      lastEmailMessageId = meta.emailMessageId;
+      references.push(meta.emailMessageId);
+    }
+  }
+
+  return {
+    helpdeskAddress,
+    lastEmailMessageId,
+    references: references.slice(-20),
+    subject: result.conversation.title,
+    customerEmail: result.conversation.email,
+  };
+}
+
+/** Stamp the RFC Message-ID after an outbound send so later replies can thread. */
+export async function stampDeskMessageEmailId(
+  db: AnyDb,
+  messageId: string,
+  emailMessageId: string,
+): Promise<void> {
+  const rfcId = normalizeRfcMessageId(emailMessageId) ?? emailMessageId;
+  const [message] = await db.select().from(messages).where(eq(messages.id, messageId)).limit(1);
+  if (!message) return;
+  const metadata: DeskMessageMetadata = {
+    ...(message.metadata ?? {}),
+    emailMessageId: rfcId,
+  };
+  await db.update(messages).set({ metadata }).where(eq(messages.id, messageId));
+}
+
+export interface IngestDeskEmailInput {
+  generateId: IdGenerator;
+  fromName?: string | null;
+  fromEmail: string;
+  toAddress: string;
+  subject: string;
+  body: string;
+  rfcMessageId: string;
+  inReplyTo?: string | null;
+  references?: string[];
+  toEmails?: string[];
+  ccEmails?: string[];
+}
+
+export async function ingestDeskEmail(
+  db: AnyDb,
+  input: IngestDeskEmailInput,
+): Promise<{ conversation: DeskConversation; message: DeskMessage; created: boolean }> {
+  const fromEmail = input.fromEmail.toLowerCase();
+  const rfcMessageId = normalizeRfcMessageId(input.rfcMessageId) ?? input.rfcMessageId;
+  const title = normalizeEmailSubject(input.subject) || input.subject || previewOf(input.body) || fromEmail;
+
+  let conversation =
+    (await findDeskConversationByRfcMessageIds(db, [input.inReplyTo, ...(input.references ?? [])])) ??
+    (await findOpenEmailConversationByEmail(db, fromEmail)) ??
+    (await findRecentEmailConversation(db, fromEmail, title));
+
+  let visitor = await findDeskVisitorByEmail(db, fromEmail);
+  visitor = await upsertDeskVisitor(db, {
+    id: visitor?.id ?? input.generateId('dvis'),
+    name: input.fromName ?? visitor?.name ?? fromEmail,
+    email: fromEmail,
+  });
+
+  const emailMeta: DeskMessageMetadata = {
+    emailMessageId: rfcMessageId,
+    emailThreadMessageId: rfcMessageId,
+    helpdeskAddress: input.toAddress,
+    emailFrom: fromEmail,
+    emailTo: input.toEmails ?? [input.toAddress],
+    emailCc: input.ccEmails ?? [],
+    emailSubject: input.subject,
+  };
+
+  if (conversation) {
+    const result = await appendDeskMessage(db, {
+      generateId: input.generateId,
+      conversationId: conversation.id,
+      kind: 'message',
+      authorType: 'visitor',
+      authorId: visitor.id,
+      body: input.body,
+      metadata: {
+        ...emailMeta,
+        emailThreadMessageId: undefined,
+      },
+    });
+    return { ...result, created: false };
+  }
+
+  const result = await createDeskConversation(db, {
+    generateId: input.generateId,
+    channel: 'email',
+    visitorId: visitor.id,
+    name: input.fromName ?? fromEmail,
+    email: fromEmail,
+    title,
+    body: input.body,
+    authorType: 'visitor',
+    authorId: visitor.id,
+    metadata: emailMeta,
+  });
+  return { ...result, created: true };
 }

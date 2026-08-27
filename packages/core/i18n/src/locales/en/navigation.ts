@@ -121,6 +121,9 @@ export const navigation = {
       welddesk: {
         inbox: 'Inbox',
         chatWidget: 'Chat Widget',
+        email: 'Email',
+        helpCenter: 'Help Center',
+        articles: 'Articles',
       },
       weldmeet: {
         newMeeting: 'New Meeting',

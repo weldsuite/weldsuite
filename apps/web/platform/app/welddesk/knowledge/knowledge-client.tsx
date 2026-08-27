@@ -56,6 +56,7 @@ interface KnowledgeClientProps {
   statusFilters: StatusFilter[];
   additionalFilters: FilterOption[];
   counts: Record<string, number>;
+  isLoading?: boolean;
 }
 
 // Status colors
@@ -194,6 +195,7 @@ export function KnowledgeClient({
   statusFilters,
   additionalFilters,
   counts: initialCounts,
+  isLoading = false,
 }: KnowledgeClientProps) {
   // This view renders a client-built folder/article tree via EntityList rather than
   // the server-paginated/filtered list, so these props are accepted for interface
@@ -376,7 +378,7 @@ export function KnowledgeClient({
           if (result.data?.id) {
             toast.success(t.helpdesk.knowledge.createdArticleSuccess.replace('{name}', newArticleTitle));
             setShowCreateArticleDialog(false);
-            router.push(`/welddesk/knowledge/${result.data.id}/edit`);
+            router.push(`/welddesk/help-center/articles/${result.data.id}/edit`);
           } else {
             toast.error(t.helpdesk.knowledge.failedToCreateArticle);
           }
@@ -597,7 +599,7 @@ export function KnowledgeClient({
     return (
       <div
         key={article.id}
-        onClick={() => router.push(`/welddesk/knowledge/${article.id}`)}
+        onClick={() => router.push(`/welddesk/help-center/articles/${article.id}`)}
         className="relative flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
         style={{ paddingLeft: `${16 + node.depth * 44}px` }}
       >
@@ -661,13 +663,13 @@ export function KnowledgeClient({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem asChild>
-                <Link href={`/welddesk/knowledge/${article.id}`} className="flex items-center">
+                <Link href={`/welddesk/help-center/articles/${article.id}`} className="flex items-center">
                   <Eye className="h-4 w-4 mr-0.5" />
                   {kn.view}
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href={`/welddesk/knowledge/${article.id}/edit`} className="flex items-center">
+                <Link href={`/welddesk/help-center/articles/${article.id}/edit`} className="flex items-center">
                   <Edit className="h-4 w-4 mr-0.5" />
                   {t.helpdesk.actions.edit}
                 </Link>
@@ -699,7 +701,7 @@ export function KnowledgeClient({
     <>
       <EntityList<FlatNode>
         items={visibleNodes}
-        isLoading={false}
+        isLoading={isLoading}
         error={null}
         headerColumns={headerColumns}
         filters={filterConfigs}
@@ -709,6 +711,8 @@ export function KnowledgeClient({
         renderRow={renderRow}
         searchPlaceholder={t.helpdesk.knowledge.search}
         searchFields={['title']}
+        topBarClassName="pt-2 pb-2"
+        stickyOffset={-16}
         actionButtons={
           <Button
             variant="outline"

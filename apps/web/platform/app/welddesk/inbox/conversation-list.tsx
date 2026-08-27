@@ -1,21 +1,25 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Loader2 } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
+import { Button } from '@weldsuite/ui/components/button';
+import { Toggle } from '@weldsuite/ui/components/toggle';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@weldsuite/ui/components/select';
-import { Tabs, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@weldsuite/ui/components/popover';
+import { cn } from '@/lib/utils';
+import {
+  ConversationList as SharedConversationList,
+  type ConversationItem,
+} from '@/components/shared/conversation-list';
 import {
   useDeskConversations,
+  type DeskConversation,
   type DeskConversationFilters,
   type DeskConversationSort,
   type DeskConversationState,
 } from '@/hooks/queries/use-desk-queries';
-import { ConversationListItem } from './conversation-list-item';
 
 export type InboxAssigneeFilter = 'all' | 'mine' | 'unassigned';
 
@@ -29,6 +33,44 @@ interface ConversationListProps {
   onAssigneeFilterChange: (filter: InboxAssigneeFilter) => void;
   selectedId?: string;
   onSelect: (id: string) => void;
+}
+
+function conversationToItem(conversation: DeskConversation, t: ReturnType<typeof getTranslations<'deskInbox2'>>): ConversationItem {
+  const waiting = Boolean(conversation.waitingSince);
+  const name = conversation.name || conversation.email || t.list.noSubject;
+  const subject = conversation.title || `#${conversation.conversationNumber}`;
+  const preview = conversation.lastMessagePreview || conversation.title || conversation.email || '';
+  const labels: string[] = [];
+  const labelColors: Record<string, string> = {};
+
+  if (conversation.channel === 'email') {
+    labels.push(t.channel.email);
+    labelColors[t.channel.email] = '#0f766e';
+  }
+  if (!conversation.assigneeId) {
+    labels.push(t.list.unassignedBadge);
+    labelColors[t.list.unassignedBadge] = '#6b7280';
+  }
+  if (waiting) {
+    labels.push(t.sort.waitingLongest);
+    labelColors[t.sort.waitingLongest] = '#2563eb';
+  }
+
+  return {
+    id: conversation.id,
+    name,
+    email: conversation.email ?? undefined,
+    subject,
+    preview,
+    date: new Date(conversation.lastMessageAt ?? conversation.updatedAt),
+    isRead: !waiting,
+    isStarred: false,
+    hasAttachments: false,
+    labels,
+    labelColors,
+    messageCount: 1,
+    unreadCount: waiting ? 1 : 0,
+  };
 }
 
 export function ConversationList({
@@ -66,66 +108,111 @@ export function ConversationList({
   }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
   const conversations = data?.pages.flatMap((page) => page.data) ?? [];
+  const items = useMemo(
+    () => conversations.map((conversation) => conversationToItem(conversation, t)),
+    [conversations, t],
+  );
+
+  const activeFilterCount =
+    (state !== 'open' ? 1 : 0) + (assigneeFilter !== 'all' ? 1 : 0) + (sort !== 'newest' ? 1 : 0);
+
+  const filterContent = (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          className={cn(
+            'h-8 text-sm px-3 shadow-none gap-1.5',
+            activeFilterCount > 0 ? 'text-foreground' : 'text-muted-foreground',
+          )}
+        >
+          {t.list.filter}
+          {activeFilterCount > 0 && (
+            <span className="inline-flex items-center justify-center size-5 text-[10px] font-mono font-medium text-muted-foreground bg-muted border border-border rounded-md">
+              {activeFilterCount}
+            </span>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[280px] p-3 space-y-3">
+        <div>
+          <p className="text-xs font-medium text-muted-foreground mb-2">{t.details.state}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {([
+              { value: 'open' as const, label: t.tabs.open },
+              { value: 'closed' as const, label: t.tabs.closed },
+            ]).map(({ value, label }) => (
+              <Toggle
+                key={value}
+                size="sm"
+                variant="outline"
+                pressed={state === value}
+                onPressedChange={() => onStateChange(value)}
+                className="h-7 px-2.5 text-xs shadow-none data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:border-primary"
+              >
+                {label}
+              </Toggle>
+            ))}
+          </div>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-muted-foreground mb-2">{t.header.assign}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {([
+              { value: 'all' as const, label: t.sidebar.all },
+              { value: 'mine' as const, label: t.sidebar.yourInbox },
+              { value: 'unassigned' as const, label: t.sidebar.unassigned },
+            ]).map(({ value, label }) => (
+              <Toggle
+                key={value}
+                size="sm"
+                variant="outline"
+                pressed={assigneeFilter === value}
+                onPressedChange={() => onAssigneeFilterChange(value)}
+                className="h-7 px-2.5 text-xs shadow-none data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:border-primary"
+              >
+                {label}
+              </Toggle>
+            ))}
+          </div>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-muted-foreground mb-2">{t.sort.label}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {([
+              { value: 'newest' as const, label: t.sort.newest },
+              { value: 'oldest' as const, label: t.sort.oldest },
+              { value: 'waiting_longest' as const, label: t.sort.waitingLongest },
+            ]).map(({ value, label }) => (
+              <Toggle
+                key={value}
+                size="sm"
+                variant="outline"
+                pressed={sort === value}
+                onPressedChange={() => onSortChange(value)}
+                className="h-7 px-2.5 text-xs shadow-none data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:border-primary"
+              >
+                {label}
+              </Toggle>
+            ))}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
 
   return (
-    <div className="w-[340px] shrink-0 border-r flex flex-col h-full min-h-0">
-      <div className="p-2 border-b flex flex-col gap-2">
-        <Tabs value={state} onValueChange={(value) => onStateChange(value as DeskConversationState)}>
-          <TabsList className="w-full">
-            <TabsTrigger value="open" className="flex-1">
-              {t.tabs.open}
-            </TabsTrigger>
-            <TabsTrigger value="closed" className="flex-1">
-              {t.tabs.closed}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-        <div className="flex gap-2">
-          <Select value={assigneeFilter} onValueChange={(value) => onAssigneeFilterChange(value as InboxAssigneeFilter)}>
-            <SelectTrigger className="h-8 text-xs flex-1">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t.sidebar.all}</SelectItem>
-              <SelectItem value="mine">{t.sidebar.yourInbox}</SelectItem>
-              <SelectItem value="unassigned">{t.sidebar.unassigned}</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={sort} onValueChange={(value) => onSortChange(value as DeskConversationSort)}>
-            <SelectTrigger className="h-8 text-xs flex-1">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="newest">{t.sort.newest}</SelectItem>
-              <SelectItem value="oldest">{t.sort.oldest}</SelectItem>
-              <SelectItem value="waiting_longest">{t.sort.waitingLongest}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {isLoading && (
-          <div className="flex items-center justify-center py-8 text-muted-foreground">
-            <Loader2 className="h-5 w-5 animate-spin" />
-          </div>
-        )}
-        {isError && <div className="p-4 text-sm text-destructive">{t.list.loadError}</div>}
-        {!isLoading && !isError && conversations.length === 0 && (
-          <div className="flex flex-col items-center justify-center gap-1 py-12 px-4 text-center">
-            <p className="text-sm font-medium">{t.list.empty}</p>
-            <p className="text-xs text-muted-foreground">{t.list.emptyDescription}</p>
-          </div>
-        )}
-        {conversations.map((conversation) => (
-          <ConversationListItem
-            key={conversation.id}
-            conversation={conversation}
-            active={conversation.id === selectedId}
-            onClick={() => onSelect(conversation.id)}
-          />
-        ))}
-        {hasNextPage && (
+    <SharedConversationList
+      items={items}
+      selectedId={selectedId}
+      getItemUrl={(item) => `/welddesk/inbox/${item.id}`}
+      onItemClick={(item) => onSelect(item.id)}
+      filterContent={filterContent}
+      error={isError ? t.list.loadError : null}
+      isLoading={isLoading}
+      emptyMessage={t.list.empty}
+      footer={
+        hasNextPage ? (
           <div ref={sentinelRef} className="flex items-center justify-center py-4 text-xs text-muted-foreground">
             {isFetchingNextPage && (
               <>
@@ -134,8 +221,8 @@ export function ConversationList({
               </>
             )}
           </div>
-        )}
-      </div>
-    </div>
+        ) : null
+      }
+    />
   );
 }

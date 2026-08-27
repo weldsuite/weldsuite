@@ -34,7 +34,7 @@ export function ConversationPane({ conversationId }: ConversationPaneProps) {
 
   if (isLoading) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="h-full flex items-center justify-center bg-white dark:bg-background">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     );
@@ -42,7 +42,9 @@ export function ConversationPane({ conversationId }: ConversationPaneProps) {
 
   if (isError || !data?.data) {
     return (
-      <div className="flex-1 flex items-center justify-center text-sm text-destructive">{t.pane.loadError}</div>
+      <div className="h-full flex items-center justify-center bg-white dark:bg-background text-sm text-destructive">
+        {t.pane.loadError}
+      </div>
     );
   }
 
@@ -51,9 +53,9 @@ export function ConversationPane({ conversationId }: ConversationPaneProps) {
   const members = membersData ?? [];
 
   return (
-    <div className="flex-1 min-w-0 flex flex-col h-full overflow-hidden">
+    <div className="h-full flex flex-col bg-white dark:bg-background overflow-hidden">
       <ConversationHeader conversation={conversation} />
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto">
         <MessagesTimeline messages={messages} members={members} />
       </div>
       <Composer conversationId={conversationId} />

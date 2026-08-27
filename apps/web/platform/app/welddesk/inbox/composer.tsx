@@ -4,8 +4,6 @@ import { Loader2, Send } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
-import { Textarea } from '@weldsuite/ui/components/textarea';
-import { Tabs, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import { useReplyToDeskConversation } from '@/hooks/queries/use-desk-queries';
 
 type ComposerTab = 'reply' | 'note';
@@ -50,36 +48,61 @@ export function Composer({ conversationId }: ComposerProps) {
   }, [conversationId]);
 
   return (
-    <div className="border-t p-3 flex flex-col gap-2" data-testid="desk-inbox-composer">
-      <Tabs value={tab} onValueChange={(v) => setTab(v as ComposerTab)}>
-        <TabsList>
-          <TabsTrigger value="reply">{t.composer.replyTab}</TabsTrigger>
-          <TabsTrigger value="note">{t.composer.noteTab}</TabsTrigger>
-        </TabsList>
-      </Tabs>
-      <div className={cn('relative rounded-md', tab === 'note' && 'bg-amber-50 dark:bg-amber-950/30 -m-1 p-1')}>
-        <Textarea
+    <div className="flex-shrink-0 px-3 md:px-4 pb-3 pt-1 bg-white dark:bg-background" data-testid="desk-inbox-composer">
+      <div
+        className={cn(
+          'rounded-lg border border-gray-200 dark:border-border overflow-hidden',
+          tab === 'note' && 'border-amber-200 dark:border-amber-900 bg-amber-50/60 dark:bg-amber-950/20',
+        )}
+      >
+        <div className="flex items-center gap-1 px-2 pt-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className={cn(
+              'h-7 px-2.5 text-xs',
+              tab === 'reply' ? 'bg-muted text-foreground' : 'text-muted-foreground',
+            )}
+            onClick={() => setTab('reply')}
+          >
+            {t.composer.replyTab}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className={cn(
+              'h-7 px-2.5 text-xs',
+              tab === 'note' ? 'bg-muted text-foreground' : 'text-muted-foreground',
+            )}
+            onClick={() => setTab('note')}
+          >
+            {t.composer.noteTab}
+          </Button>
+        </div>
+        <textarea
           ref={textareaRef}
           value={body}
           onChange={(e) => setBody(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={tab === 'note' ? t.composer.notePlaceholder : t.composer.replyPlaceholder}
-          className="min-h-[88px] resize-none bg-transparent"
+          className="w-full min-h-[88px] resize-none bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/70"
           data-testid="desk-inbox-composer-textarea"
         />
-      </div>
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">{t.composer.sendHint}</span>
-        <Button
-          type="button"
-          size="sm"
-          onClick={() => void handleSend()}
-          disabled={!body.trim() || isSending}
-          data-testid="desk-inbox-composer-send"
-        >
-          {isSending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Send className="h-3.5 w-3.5 mr-1.5" />}
-          {tab === 'note' ? t.composer.addNote : t.composer.sendReply}
-        </Button>
+        <div className="flex items-center justify-between px-3 py-2 border-t border-border/50">
+          <span className="text-xs text-muted-foreground">{t.composer.sendHint}</span>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void handleSend()}
+            disabled={!body.trim() || isSending}
+            data-testid="desk-inbox-composer-send"
+          >
+            {isSending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Send className="h-3.5 w-3.5 mr-1.5" />}
+            {tab === 'note' ? t.composer.addNote : t.composer.sendReply}
+          </Button>
+        </div>
       </div>
     </div>
   );

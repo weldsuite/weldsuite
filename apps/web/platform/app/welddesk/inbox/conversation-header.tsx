@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Check, ChevronDown, Loader2, UserMinus, UserPlus } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, Loader2, UserMinus, UserPlus, X } from 'lucide-react';
 import { useUser } from '@clerk/clerk-react';
+import { useRouter } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
@@ -23,6 +23,7 @@ interface ConversationHeaderProps {
 
 export function ConversationHeader({ conversation }: ConversationHeaderProps) {
   const t = getTranslations('deskInbox2');
+  const router = useRouter();
   const { user } = useUser();
   const manage = useManageDeskConversation();
   const { data: membersData } = useDeskWorkspaceMembers();
@@ -59,40 +60,81 @@ export function ConversationHeader({ conversation }: ConversationHeaderProps) {
   const displayTitle = conversation.title ?? conversation.name ?? conversation.email ?? t.pane.untitled;
 
   return (
-    <div className="border-b px-4 py-2.5 flex items-center justify-between gap-2">
+    <div className="flex items-center justify-between px-3 md:px-4 h-[53px] border-b border-gray-200 dark:border-border flex-shrink-0">
       <div className="flex items-center gap-2 min-w-0 flex-1">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold truncate">
-            #{conversation.conversationNumber} {displayTitle}
-          </p>
-          {conversation.email && (
-            <p className="text-xs text-muted-foreground truncate">{conversation.email}</p>
-          )}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="md:hidden p-1.5 -ml-1 hover:bg-gray-100 dark:hover:bg-secondary rounded-md transition-colors flex-shrink-0"
+          onClick={() => router.push('/welddesk/inbox')}
+          aria-label={t.header.backToList}
+        >
+          <ChevronLeft className="h-5 w-5 text-gray-600 dark:text-muted-foreground" />
+        </Button>
+        <div className="hidden md:flex items-center border border-border rounded-md overflow-hidden">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="p-1.5 hover:bg-gray-100 dark:hover:bg-secondary transition-colors"
+            onClick={() => router.push('/welddesk/inbox')}
+            aria-label={t.header.backToList}
+          >
+            <X className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
+          </Button>
+          <div className="w-px h-5 bg-border" />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="p-1.5 hover:bg-gray-100 dark:hover:bg-secondary transition-colors"
+            onClick={() => void toggleClose()}
+            disabled={manage.isPending}
+            title={isClosed ? t.header.reopen : t.header.close}
+          >
+            <Check className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
+          </Button>
         </div>
-        <Badge variant="outline" className="text-[11px] shrink-0">
-          {conversation.state}
-        </Badge>
+        <h1 className="text-sm md:text-lg font-semibold text-gray-900 dark:text-foreground md:ml-2 truncate">
+          {displayTitle}
+        </h1>
+        {conversation.email && (
+          <span className="hidden md:inline text-sm text-gray-500 dark:text-muted-foreground truncate">
+            {conversation.email}
+          </span>
+        )}
       </div>
-      <div className="flex items-center gap-1.5 shrink-0">
+      <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0">
         {user?.id && conversation.assigneeId !== user.id && (
-          <Button variant="outline" size="sm" className="h-8" onClick={() => assign(user.id)} disabled={manage.isPending}>
-            <UserPlus className="h-3.5 w-3.5 mr-1.5" />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="hidden md:flex h-8 px-2 text-gray-600 dark:text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary"
+            onClick={() => void assign(user.id)}
+            disabled={manage.isPending}
+          >
+            <UserPlus className="h-4 w-4 mr-1.5" />
             {t.header.assign}
           </Button>
         )}
         <Popover open={assignOpen} onOpenChange={setAssignOpen}>
           <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1.5 h-8">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2 gap-1.5 text-gray-600 dark:text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary"
+            >
               {assignedMember ? (
                 <>
                   <Avatar className="h-4 w-4">
                     {assignedMember.picture && <AvatarImage src={assignedMember.picture} />}
                     <AvatarFallback className="text-[9px]">{assignedMember.name.slice(0, 1).toUpperCase()}</AvatarFallback>
                   </Avatar>
-                  <span className="max-w-[100px] truncate">{assignedMember.name}</span>
+                  <span className="hidden sm:inline max-w-[100px] truncate">{assignedMember.name}</span>
                 </>
               ) : (
-                t.header.assign
+                <>
+                  <UserPlus className="h-4 w-4" />
+                  <span className="hidden sm:inline">{t.header.assign}</span>
+                </>
               )}
               <ChevronDown className="h-3 w-3 opacity-50" />
             </Button>
@@ -103,7 +145,7 @@ export function ConversationHeader({ conversation }: ConversationHeaderProps) {
               <CommandList className="max-h-64">
                 <CommandEmpty>{t.header.assignNoMembers}</CommandEmpty>
                 {filteredMembers.map((member) => (
-                  <CommandItem key={member.userId} value={member.userId} onSelect={() => assign(member.userId)}>
+                  <CommandItem key={member.userId} value={member.userId} onSelect={() => void assign(member.userId)}>
                     <Avatar className="h-5 w-5">
                       {member.picture && <AvatarImage src={member.picture} />}
                       <AvatarFallback className="text-[10px]">{member.name.slice(0, 1).toUpperCase()}</AvatarFallback>
@@ -115,7 +157,7 @@ export function ConversationHeader({ conversation }: ConversationHeaderProps) {
                 {conversation.assigneeId && (
                   <CommandItem
                     value="__unassign__"
-                    onSelect={() => assign(null)}
+                    onSelect={() => void assign(null)}
                     className="text-destructive data-[selected=true]:text-destructive"
                   >
                     <UserMinus className="h-3.5 w-3.5" />
@@ -129,8 +171,8 @@ export function ConversationHeader({ conversation }: ConversationHeaderProps) {
         <Button
           variant={isClosed ? 'outline' : 'default'}
           size="sm"
-          className="h-8"
-          onClick={toggleClose}
+          className="h-8 md:hidden"
+          onClick={() => void toggleClose()}
           disabled={manage.isPending}
         >
           {manage.isPending && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}

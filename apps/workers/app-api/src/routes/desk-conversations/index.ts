@@ -26,6 +26,7 @@ import {
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
+import { sendDeskEmailReply } from '../../lib/desk-email';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -109,6 +110,13 @@ app.post('/:id/reply', requirePermission('conversations:update'), zValidator('js
       senderType: 'agent',
       kind: message.kind,
     });
+    if (conversation.channel === 'email' && data.kind === 'message') {
+      try {
+        await sendDeskEmailReply(c.env, db, conversation, message);
+      } catch (err) {
+        console.error('[app-api/desk-conversations] outbound email failed:', err);
+      }
+    }
     return success(c, { conversation, message }, 201);
   } catch (err) {
     if (err instanceof DeskConversationNotFoundError) return error.notFound(c, 'Conversation', id);

@@ -265,7 +265,7 @@ export function useHelpdeskRealtime(options: UseHelpdeskRealtimeOptions): UseHel
   }, []);
 
   const getPresenceMembers = useCallback(async (): Promise<PresenceMember[]> => {
-    return clientRef.current?.getPresence?.() || [];
+    return (clientRef.current?.presence as PresenceMember[] | undefined) || [];
   }, []);
 
   return {

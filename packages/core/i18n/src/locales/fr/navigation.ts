@@ -105,7 +105,10 @@ export const navigation = {
     },
     "welddesk": {
       "inbox": "[TRANSLATE] Inbox",
-      "chatWidget": "[TRANSLATE] Chat Widget"
+      "chatWidget": "[TRANSLATE] Chat Widget",
+      "email": "[TRANSLATE] Email",
+      "helpCenter": "[TRANSLATE] Help Center",
+      "articles": "[TRANSLATE] Articles"
     },
     "weldmeet": {
       "newMeeting": "[TRANSLATE] New Meeting",

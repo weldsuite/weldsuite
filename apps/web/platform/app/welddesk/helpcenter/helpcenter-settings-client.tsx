@@ -6,7 +6,7 @@ import { Switch } from '@weldsuite/ui/components/switch';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Textarea } from '@weldsuite/ui/components/textarea';
-import { Loader2, Trash2, CheckCircle, AlertCircle, ExternalLink, Copy } from 'lucide-react';
+import { BookOpen, Loader2, Trash2, CheckCircle, AlertCircle, ExternalLink, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   useUpdateHelpcenterSettings,
@@ -26,6 +26,7 @@ import {
 } from '@weldsuite/ui/components/select';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { EmptyStateIllustration } from '@/components/entity-list';
 
 export interface HelpcenterSettingsData {
   id?: string;
@@ -64,7 +65,7 @@ interface Props {
 /** Minimal, card-less settings section: heading + divider, matching the other app settings tabs. */
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
-    <section className="space-y-4 border-t pt-6 first:border-t-0 first:pt-0">
+    <section className="space-y-4">
       <div>
         <h3 className="text-sm font-medium">{title}</h3>
         {description && <p className="text-sm text-muted-foreground">{description}</p>}
@@ -187,40 +188,56 @@ export function HelpcenterSettingsClient({ initialSettings }: Props) {
   // Setup / enable screen
   if (!isEnabled) {
     return (
-      <div className="max-w-3xl space-y-4">
-        <div>
-          <h3 className="text-sm font-medium">{th.enableTitle}</h3>
-          <p className="text-sm text-muted-foreground">{th.enableDesc}</p>
+      <div className="flex flex-col h-full">
+        <div className="flex items-center px-4 h-[53px] border-b border-gray-200 dark:border-border bg-white dark:bg-background flex-shrink-0">
+          <h2 className="text-base font-medium text-gray-900 dark:text-foreground">{th.setupTitle}</h2>
         </div>
-        <Button onClick={handleEnable} disabled={enableMutation.isPending}>
-          {enableMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {th.enableButton}
-        </Button>
+        <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
+          <EmptyStateIllustration>
+            <BookOpen className="h-12 w-12 text-gray-300 dark:text-muted-foreground" />
+          </EmptyStateIllustration>
+          <h3 className="text-[15px] font-semibold text-foreground mb-1.5">{th.enableTitle}</h3>
+          <p className="text-sm text-muted-foreground max-w-[360px] leading-relaxed mb-4">{th.enableDesc}</p>
+          <Button onClick={handleEnable} disabled={enableMutation.isPending}>
+            {enableMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {th.enableButton}
+          </Button>
+        </div>
       </div>
     );
   }
 
   // Settings UI (enabled)
   return (
-    <div className="max-w-3xl space-y-8">
-      {/* Action row */}
-      <div className="flex items-center justify-end gap-3">
-        {settings.defaultSubdomain && (
-          <a
-            href={`https://${settings.defaultSubdomain}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1"
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-3 px-4 h-[53px] border-b border-gray-200 dark:border-border bg-white dark:bg-background flex-shrink-0">
+        <h2 className="text-base font-medium text-gray-900 dark:text-foreground">{th.settingsTitle}</h2>
+        <div className="ml-auto flex items-center gap-2">
+          {settings.defaultSubdomain && (
+            <a
+              href={`https://${settings.defaultSubdomain}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Button variant="outline" size="sm" className="h-8">
+                <ExternalLink className="h-3.5 w-3.5 mr-1" />
+                {th.visitLink}
+              </Button>
+            </a>
+          )}
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={!hasChanges || updateMutation.isPending}
+            className="h-8 px-3.5 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-200"
           >
-            <ExternalLink className="h-3.5 w-3.5" />
-            {th.visitLink}
-          </a>
-        )}
-        <Button onClick={handleSave} disabled={!hasChanges || updateMutation.isPending}>
-          {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {th.saveChanges}
-        </Button>
+            {updateMutation.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            {th.saveChanges}
+          </Button>
+        </div>
       </div>
+
+      <div className="flex-1 overflow-y-auto p-6 max-w-3xl space-y-8">
 
       {/* General */}
       <Section title={th.sectionGeneral}>
@@ -248,14 +265,14 @@ export function HelpcenterSettingsClient({ initialSettings }: Props) {
             placeholder={st('sweep.welddesk.helpcenterSettings.heroSubtitlePlaceholder')}
           />
         </div>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between rounded-lg border px-4 py-3">
           <Label>{th.showSearchBar}</Label>
           <Switch
             checked={settings.showSearch === 1}
             onCheckedChange={(checked) => updateField('showSearch', checked ? 1 : 0)}
           />
         </div>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between rounded-lg border px-4 py-3">
           <Label>{th.showCategories}</Label>
           <Switch
             checked={settings.showCategories === 1}
@@ -294,11 +311,11 @@ export function HelpcenterSettingsClient({ initialSettings }: Props) {
           <div className="space-y-2">
             <Label>{th.primaryColor}</Label>
             <div className="flex items-center gap-2">
-              <input
+              <Input
                 type="color"
                 value={settings.primaryColor || '#0070f3'}
                 onChange={(e) => updateField('primaryColor', e.target.value)}
-                className="h-9 w-9 rounded border cursor-pointer"
+                className="h-9 w-14 p-1"
               />
               <Input
                 value={settings.primaryColor || ''}
@@ -311,11 +328,11 @@ export function HelpcenterSettingsClient({ initialSettings }: Props) {
           <div className="space-y-2">
             <Label>{th.accentColor}</Label>
             <div className="flex items-center gap-2">
-              <input
+              <Input
                 type="color"
                 value={settings.accentColor || '#7c3aed'}
                 onChange={(e) => updateField('accentColor', e.target.value)}
-                className="h-9 w-9 rounded border cursor-pointer"
+                className="h-9 w-14 p-1"
               />
               <Input
                 value={settings.accentColor || ''}
@@ -332,10 +349,10 @@ export function HelpcenterSettingsClient({ initialSettings }: Props) {
       <Section title={th.sectionDomains} description={th.domainsDesc}>
         {/* Default subdomain */}
         {settings.defaultSubdomain && (
-          <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/50">
-            <div className="flex items-center gap-2">
-              <CheckCircle className="h-4 w-4 text-green-500" />
-              <span className="font-mono text-sm">{settings.defaultSubdomain}</span>
+          <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
+              <span className="font-mono text-sm truncate">{settings.defaultSubdomain}</span>
               <span className="text-xs text-muted-foreground">{th.defaultLabel}</span>
             </div>
             <Button
@@ -353,7 +370,7 @@ export function HelpcenterSettingsClient({ initialSettings }: Props) {
 
         {/* Custom domains */}
         {!domainsLoading && domains?.map((domain: HelpcenterDomain) => (
-          <div key={domain.id} className="flex items-center justify-between p-3 rounded-lg border">
+          <div key={domain.id} className="flex items-center justify-between rounded-lg border px-4 py-3">
             <div className="flex items-center gap-2">
               {domain.isVerified ? (
                 <CheckCircle className="h-4 w-4 text-green-500" />
@@ -399,7 +416,7 @@ export function HelpcenterSettingsClient({ initialSettings }: Props) {
         )}
 
         {/* WeldHost one-click attach */}
-        <div className="rounded-lg border p-4 space-y-3">
+        <div className="space-y-3">
           <div>
             <p className="font-medium text-sm">{th.attachFromWeldHost}</p>
             <p className="text-xs text-muted-foreground">{th.attachFromWeldHostDesc}</p>
@@ -501,6 +518,7 @@ export function HelpcenterSettingsClient({ initialSettings }: Props) {
           />
         </div>
       </Section>
+      </div>
     </div>
   );
 }

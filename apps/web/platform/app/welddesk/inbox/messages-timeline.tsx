@@ -1,9 +1,8 @@
 import { useEffect, useRef } from 'react';
-import { format, formatDistanceToNow, isSameDay } from 'date-fns';
+import { format, isSameDay } from 'date-fns';
 import { Bot, Paperclip } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import type { DeskMessage } from '@/hooks/queries/use-desk-queries';
 import type { DeskWorkspaceMember } from '@/hooks/queries/use-desk-workspace-members';
 
@@ -15,6 +14,18 @@ interface MessagesTimelineProps {
 function memberLabel(members: DeskWorkspaceMember[], userId: string | null | undefined): string | null {
   if (!userId) return null;
   return members.find((m) => m.userId === userId)?.name ?? null;
+}
+
+function getAvatarColor(name: string): string {
+  const colors = [
+    '#4F46E5', '#7C3AED', '#EC4899', '#EF4444', '#F97316',
+    '#EAB308', '#22C55E', '#14B8A6', '#06B6D4', '#3B82F6',
+  ];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colors[Math.abs(hash) % colors.length];
 }
 
 function eventSentence(message: DeskMessage, members: DeskWorkspaceMember[]) {
@@ -40,27 +51,28 @@ export function MessagesTimeline({ messages, members }: MessagesTimelineProps) {
   }, [messages.length]);
 
   if (messages.length === 0) {
-    return <p className="text-sm text-muted-foreground text-center py-8">{t.pane.partsEmpty}</p>;
+    return <p className="text-sm text-muted-foreground text-center py-16">{t.pane.partsEmpty}</p>;
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col">
       {messages.map((message, index) => {
         const prev = messages[index - 1];
-        const showDay =
-          !prev || !isSameDay(new Date(prev.createdAt), new Date(message.createdAt));
+        const showDay = !prev || !isSameDay(new Date(prev.createdAt), new Date(message.createdAt));
 
         if (message.kind === 'event') {
           return (
             <div key={message.id}>
               {showDay && (
-                <p className="text-[11px] text-muted-foreground text-center py-2">
-                  {format(new Date(message.createdAt), 'PPP')}
-                </p>
+                <div className="relative flex items-center gap-2 px-3 md:px-4 h-8 bg-background border-t border-b border-border/70">
+                  <div className="absolute inset-0 bg-muted/50 pointer-events-none" />
+                  <span className="relative text-xs font-medium text-muted-foreground">
+                    {format(new Date(message.createdAt), 'PPP')}
+                  </span>
+                </div>
               )}
-              <p className="text-xs text-muted-foreground text-center">
-                {eventSentence(message, members)} ·{' '}
-                {formatDistanceToNow(new Date(message.createdAt), { addSuffix: true })}
+              <p className="text-xs text-muted-foreground text-center py-3 px-4">
+                {eventSentence(message, members)} · {format(new Date(message.createdAt), 'h:mm a')}
               </p>
             </div>
           );
@@ -79,51 +91,68 @@ export function MessagesTimeline({ messages, members }: MessagesTimelineProps) {
         return (
           <div key={message.id}>
             {showDay && (
-              <p className="text-[11px] text-muted-foreground text-center py-2">
-                {format(new Date(message.createdAt), 'PPP')}
-              </p>
-            )}
-            <div className={cn('flex gap-2', isVisitor ? 'flex-row' : 'flex-row')}>
-              <Avatar className="h-7 w-7 mt-0.5">
-                {member?.picture && <AvatarImage src={member.picture} />}
-                <AvatarFallback className="text-[10px]">
-                  {isBot ? <Bot className="h-3.5 w-3.5" /> : label.slice(0, 1).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <div
-                className={cn(
-                  'rounded-lg px-3 py-2 max-w-[80%] text-sm',
-                  isNote
-                    ? 'bg-amber-50 dark:bg-amber-950/40 border border-amber-200/70 dark:border-amber-900'
-                    : isVisitor
-                      ? 'bg-muted'
-                      : 'bg-primary/10',
-                )}
-              >
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-xs font-medium">{isNote ? `${label} · ${t.composer.noteTab}` : label}</span>
-                  <span className="text-[11px] text-muted-foreground">
-                    {formatDistanceToNow(new Date(message.createdAt), { addSuffix: true })}
-                  </span>
-                </div>
-                {message.body && <p className="whitespace-pre-wrap break-words">{message.body}</p>}
-                {message.attachments && message.attachments.length > 0 && (
-                  <div className="mt-2 flex flex-col gap-1">
-                    {message.attachments.map((attachment) => (
-                      <a
-                        key={attachment.url}
-                        href={attachment.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                      >
-                        <Paperclip className="h-3 w-3" />
-                        {attachment.name}
-                      </a>
-                    ))}
-                  </div>
-                )}
+              <div className="relative flex items-center gap-2 px-3 md:px-4 h-8 bg-background border-t border-b border-border/70">
+                <div className="absolute inset-0 bg-muted/50 pointer-events-none" />
+                <span className="relative text-xs font-medium text-muted-foreground">
+                  {format(new Date(message.createdAt), 'PPP')}
+                </span>
               </div>
+            )}
+            <div
+              className={cn(
+                'px-3 md:px-4 py-3 md:py-4 border-b border-gray-100 dark:border-border',
+                isNote && 'bg-amber-50/50 dark:bg-amber-950/20',
+              )}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  {member?.picture ? (
+                    <img
+                      src={member.picture}
+                      alt={label}
+                      className="w-6 h-6 rounded-md object-cover flex-shrink-0"
+                    />
+                  ) : (
+                    <div
+                      className="w-6 h-6 rounded-md flex items-center justify-center text-white font-semibold text-xs flex-shrink-0"
+                      style={{ backgroundColor: getAvatarColor(label) }}
+                    >
+                      {isBot ? <Bot className="h-3.5 w-3.5" /> : label.slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-gray-900 dark:text-foreground text-[14.5px] truncate">
+                        {isNote ? `${label} · ${t.composer.noteTab}` : label}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <span className="text-sm text-gray-700 dark:text-muted-foreground flex-shrink-0">
+                  {format(new Date(message.createdAt), 'd MMM, HH:mm')}
+                </span>
+              </div>
+              {message.body && (
+                <p className="mt-3 text-[14.5px] text-gray-800 dark:text-foreground whitespace-pre-wrap break-words leading-relaxed">
+                  {message.body}
+                </p>
+              )}
+              {message.attachments && message.attachments.length > 0 && (
+                <div className="mt-3 flex flex-col gap-1">
+                  {message.attachments.map((attachment) => (
+                    <a
+                      key={attachment.url}
+                      href={attachment.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                    >
+                      <Paperclip className="h-3 w-3" />
+                      {attachment.name}
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         );

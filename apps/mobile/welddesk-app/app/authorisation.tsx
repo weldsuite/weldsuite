@@ -1,13 +1,16 @@
 import { LoginScreen } from '@weldsuite/mobile-ui/components/LoginScreen';
 
+import { BRAND } from '@/lib/brand';
+
 export default function AuthorisationScreen() {
   return (
     <LoginScreen
       logo={require('../assets/images/logo.png')}
-      logoSize={{ width: 72, height: 72 }}
+      logoSize={{ width: 40, height: 40 }}
       appName="WeldDesk"
-      subtitle="Helpdesk & customer support"
+      subtitle="Support on the go"
       showEmailLogin={true}
+      accentColor={BRAND}
     />
   );
 }
