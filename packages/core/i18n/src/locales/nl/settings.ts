@@ -1040,12 +1040,8 @@ export const settings = {
 
     welddesk: {
       title: 'WeldDesk',
-      description: 'Helpdesk e-mailinstellingen configureren',
-      tabs: {
-        email: 'E-mail',
-        tickets: 'Tickets',
-        helpcenter: 'Helpcentrum',
-      },
+      description: 'Chatwidget voor bezoekers en agent-inbox.',
+      openChatWidget: 'Chatwidget openen',
     },
 
     weldmail: {

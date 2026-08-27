@@ -36,7 +36,7 @@ const CHECKLIST_TASKS: ChecklistTask[] = [
   { key: 'crm_note_created', appCode: 'weldcrm', href: '/weldcrm/notes?new=1' },
   { key: 'crm_task_created', appCode: 'weldcrm', href: '/weldcrm?new=1' },
   // Helpdesk
-  { key: 'helpdesk_department_created', appCode: 'welddesk', href: '/welddesk/settings/departments' },
+  { key: 'helpdesk_department_created', appCode: 'welddesk', href: '/welddesk/chat-widget' },
   // Mail
   { key: 'mail_account_connected', appCode: 'weldmail', href: '/weldmail/settings/accounts' },
   // Projects

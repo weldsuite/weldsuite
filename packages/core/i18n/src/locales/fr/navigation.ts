@@ -105,17 +105,7 @@ export const navigation = {
     },
     "welddesk": {
       "inbox": "[TRANSLATE] Inbox",
-      "dashboard": "[TRANSLATE] Dashboard",
-      "analytics": "[TRANSLATE] Analytics",
-      "chatWidget": "[TRANSLATE] Chat Widget",
-      "knowledge": "[TRANSLATE] Knowledge",
-      "contacts": "[TRANSLATE] Contacts",
-      "reviews": "[TRANSLATE] Reviews",
-      "allTeams": "[TRANSLATE] All Teams",
-      "workflows": "[TRANSLATE] Workflows",
-      "weldagent": "WeldAgent",
-      "active": "[TRANSLATE] Active",
-      "resolved": "[TRANSLATE] Resolved"
+      "chatWidget": "[TRANSLATE] Chat Widget"
     },
     "weldmeet": {
       "newMeeting": "[TRANSLATE] New Meeting",

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { MessageSquare } from 'lucide-react';
 import { Label } from '@weldsuite/ui/components/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
-import { useTickets, type ApiTicket } from '@/hooks/queries/use-helpdesk-queries';
+import { useDeskConversations } from '@/hooks/queries/use-desk-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { DeskLiveChatCard, type DeskLiveChatRow } from '@/components/home/app-cards';
 import type { HomeWidgetDefinition } from '../types';
@@ -25,25 +25,23 @@ function relativeWhen(iso: string | undefined): string {
   return d.toLocaleDateString(undefined, { weekday: 'short' });
 }
 
-function mapToChatRow(api: ApiTicket): DeskLiveChatRow {
-  const visitor = api.customerName ?? api.customerEmail ?? 'Anonymous visitor';
-  return {
-    visitor,
-    initials: visitor.charAt(0).toUpperCase(),
-    url: '',
-    preview: api.subject ?? api.description ?? '',
-    when: relativeWhen(api.createdAt),
-    online: api.status === 'open',
-    unread: api.status === 'open' ? 1 : 0,
-  };
-}
-
 function Render({ settings }: { settings: WelddeskLiveChatSettings }) {
-  const ticketsRes = useTickets({ pageSize: settings.maxCount * 3 });
-  const apiRows = ((ticketsRes.data as { data?: ApiTicket[] } | undefined)?.data ?? []) as ApiTicket[];
-  const chats = apiRows.filter((t) => (t.source ?? t.channel) === 'chat' || (t.source ?? t.channel) === 'widget');
-  const rows = chats.map(mapToChatRow).slice(0, settings.maxCount);
-  return <DeskLiveChatCard rows={rows} isLoading={ticketsRes.isLoading} />;
+  const { data, isLoading } = useDeskConversations({ state: 'open' }, 'newest');
+  const conversations = data?.pages.flatMap((page) => page.data) ?? [];
+  const rows: DeskLiveChatRow[] = conversations.slice(0, settings.maxCount).map((conversation) => {
+    const visitor = conversation.name ?? conversation.email ?? 'Anonymous visitor';
+    return {
+      visitor,
+      initials: visitor.charAt(0).toUpperCase(),
+      url: '',
+      preview: conversation.lastMessagePreview ?? conversation.title ?? '',
+      when: relativeWhen(conversation.lastMessageAt ?? conversation.updatedAt),
+      online: conversation.state === 'open',
+      unread: conversation.state === 'open' ? 1 : 0,
+      href: `/welddesk/inbox/${conversation.id}`,
+    };
+  });
+  return <DeskLiveChatCard rows={rows} isLoading={isLoading} />;
 }
 
 function SettingsForm({ value, onChange }: { value: WelddeskLiveChatSettings; onChange: (next: WelddeskLiveChatSettings) => void }) {
@@ -63,8 +61,8 @@ function SettingsForm({ value, onChange }: { value: WelddeskLiveChatSettings; on
 export const welddeskLiveChatWidget: HomeWidgetDefinition<WelddeskLiveChatSettings> = {
   id: 'welddesk-live-chat',
   module: 'welddesk',
-  title: 'Live chat',
-  description: 'Active widget conversations',
+  title: 'Inbox',
+  description: 'Open visitor conversations',
   icon: MessageSquare,
   schema: welddeskLiveChatSchema,
   defaultSettings: welddeskLiveChatSchema.parse({}),

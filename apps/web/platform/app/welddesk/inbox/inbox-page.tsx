@@ -7,11 +7,23 @@ import { ConversationList, type InboxAssigneeFilter } from './conversation-list'
 import { ConversationPane } from './conversation-pane';
 import { EmptyConversationPane } from './empty-conversation-pane';
 
+const RESERVED_INBOX_SEGMENTS = new Set([
+  'all',
+  'archived',
+  'chat',
+  'discord',
+  'email',
+  'slack',
+  'team',
+]);
+
 interface InboxPageProps {
   conversationId?: string;
 }
 
 export function InboxPage({ conversationId }: InboxPageProps) {
+  const selectedId =
+    conversationId && !RESERVED_INBOX_SEGMENTS.has(conversationId) ? conversationId : undefined;
   const { user } = useUser();
   const router = useRouter();
   const [state, setState] = useState<DeskConversationState>('open');
@@ -38,11 +50,11 @@ export function InboxPage({ conversationId }: InboxPageProps) {
         onSortChange={setSort}
         assigneeFilter={assigneeFilter}
         onAssigneeFilterChange={setAssigneeFilter}
-        selectedId={conversationId}
+        selectedId={selectedId}
         onSelect={handleSelect}
       />
-      {conversationId ? (
-        <ConversationPane conversationId={conversationId} />
+      {selectedId ? (
+        <ConversationPane conversationId={selectedId} />
       ) : (
         <EmptyConversationPane />
       )}

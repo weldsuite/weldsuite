@@ -120,17 +120,7 @@ export const navigation = {
       },
       welddesk: {
         inbox: 'Inbox',
-        dashboard: 'Dashboard',
-        analytics: 'Analytics',
         chatWidget: 'Chat Widget',
-        knowledge: 'Knowledge',
-        contacts: 'Contacts',
-        reviews: 'Reviews',
-        allTeams: 'All Teams',
-        workflows: 'Workflows',
-        weldagent: 'WeldAgent',
-        active: 'Active',
-        resolved: 'Resolved',
       },
       weldmeet: {
         newMeeting: 'New Meeting',

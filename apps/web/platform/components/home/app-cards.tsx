@@ -973,7 +973,7 @@ export function DeskCard({
               <ConversationListItem
                 key={item.id}
                 item={item}
-                href={`/welddesk/tickets/${item.id}`}
+                href={`/welddesk/inbox/${item.id}`}
                 compact
               />,
             );
@@ -1045,7 +1045,7 @@ export function DeskEmailsCard({
 }
 
 // ---------- WeldDesk — Live chat (newest widget conversations) ----------
-export type DeskLiveChatRow = { visitor: string; initials: string; url: string; preview: string; when: string; online: boolean; unread: number };
+export type DeskLiveChatRow = { visitor: string; initials: string; url: string; preview: string; when: string; online: boolean; unread: number; href?: string };
 const DEMO_DESK_CHATS: DeskLiveChatRow[] = [
   { visitor: 'Anonymous visitor', initials: 'A', url: '/pricing', preview: 'Hi — does the Pro plan include the WMS module?', when: 'now', online: true, unread: 2 },
   { visitor: 'Lien De Smet', initials: 'L', url: '/checkout', preview: 'Stuck on payment — Stripe says 3-D secure failed.', when: '2m', online: true, unread: 1 },
@@ -1074,9 +1074,10 @@ export function DeskLiveChatCard({
         <HeaderCell className="flex-1">Visitor</HeaderCell>
         <HeaderCell className="w-[60px] text-right">When</HeaderCell>
       </TableHeader>
-      {rows.map((c, i) => (
+      {rows.map((c, i) => {
+        const row = (
         <div
-          key={c.visitor + c.when}
+          key={c.href ?? c.visitor + c.when}
           className={cn(ROW_CLASS, 'relative', c.unread > 0 && 'bg-blue-50/40 dark:bg-blue-950/20')}
         >
           {c.unread > 0 && (
@@ -1111,7 +1112,13 @@ export function DeskLiveChatCard({
             <span className="font-mono text-sm text-muted-foreground">{c.when}</span>
           </div>
         </div>
-      ))}
+        );
+        return c.href ? (
+          <a key={c.href} href={c.href} className="block">
+            {row}
+          </a>
+        ) : row;
+      })}
     </CardShell>
   );
 }

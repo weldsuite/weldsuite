@@ -129,7 +129,6 @@ export function SettingsLayoutClient({ children, installedAppCodes }: SettingsLa
     ],
     welddesk: [
       { id: 'helpdesk', title: ts.search.helpdeskSettings, description: ts.search.configureHelpdesk, href: '/settings/apps/welddesk', type: 'setting' },
-      { id: 'helpdesk-tickets', title: 'Ticket Settings', description: 'Configure ticket types and custom fields', href: '/settings/apps/welddesk?tab=tickets', type: 'setting' },
     ],
     weldmail: [
       { id: 'weldmail', title: 'WeldMail', description: 'Configure mail app', href: '/settings/apps/weldmail', type: 'setting' },

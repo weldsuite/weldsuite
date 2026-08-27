@@ -51,6 +51,7 @@ function HomeWidgetsArea() {
     <div className="flex flex-col gap-4">
       {filled.map((slot, i) => {
         const def = HOME_WIDGETS[slot.widgetId];
+        if (!def) return null;
         const Render = def.HomeRender;
         return (
           <div key={`${i}-${slot.widgetId}`}>

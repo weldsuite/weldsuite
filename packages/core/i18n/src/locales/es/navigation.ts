@@ -106,17 +106,7 @@ export const navigation = {
       },
       welddesk: {
         inbox: 'Bandeja',
-        dashboard: 'Panel',
-        analytics: 'Analíticas',
         chatWidget: 'Widget de chat',
-        knowledge: 'Conocimiento',
-        contacts: 'Contactos',
-        reviews: 'Reseñas',
-        allTeams: 'Todos los equipos',
-        workflows: 'Flujos de trabajo',
-        weldagent: 'WeldAgent',
-        active: 'Activo',
-        resolved: 'Resuelto',
       },
       weldmeet: {
         newMeeting: 'Nueva reunión',
