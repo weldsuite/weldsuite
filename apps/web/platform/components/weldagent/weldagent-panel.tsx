@@ -6,14 +6,8 @@ import { FloatingDrawer } from '@/components/layout/floating-drawer';
 import { getTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { useWeldAgentChat } from '@/hooks/queries/use-ai-chat';
+import { useAgents } from '@/hooks/queries/use-agent-queries';
 import type { ModuleKey, EntityContext } from '@/lib/weldagent/tools/types';
-
-// ============================================================================
-// WeldAgent chat panel — a slide-in drawer that talks to the AI gateway through
-// app-api (`POST /api/ai/chat`). Non-streaming, in-memory conversation for one
-// open of the panel (no persistence). The prop surface is unchanged so
-// `GlobalAgentShortcut` (the only mounting point) keeps working untouched.
-// ============================================================================
 
 interface WeldAgentPanelProps {
   isOpen: boolean;
@@ -46,15 +40,17 @@ export function WeldAgentPanel({
   onPrefillConsumed,
 }: WeldAgentPanelProps) {
   const t = getTranslations('common').ai.chat;
+  const { data: agents = [] } = useAgents();
+  const [selectedAgentId, setSelectedAgentId] = useState<string>('');
 
   const { messages, sendMessage, retry, reset, isSending, error } = useWeldAgentChat({
     system: entityContext?.customSystemPrompt,
+    agentId: selectedAgentId || null,
   });
 
   const [input, setInput] = useState('');
   const scrollEndRef = useRef<HTMLDivElement>(null);
 
-  // Start a fresh conversation when the shortcut asks for one (new page / first open).
   useEffect(() => {
     if (isOpen && forceNewConversation) {
       reset();
@@ -64,7 +60,6 @@ export function WeldAgentPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, forceNewConversation]);
 
-  // Consume any prefill text pushed in from a "send to WeldAgent" action.
   useEffect(() => {
     if (prefillText) {
       setInput(prefillText);
@@ -73,7 +68,6 @@ export function WeldAgentPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefillText]);
 
-  // Keep the latest message / thinking indicator in view.
   useEffect(() => {
     scrollEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages, isSending]);
@@ -93,6 +87,7 @@ export function WeldAgentPanel({
 
   const isEmpty = messages.length === 0;
   const suggestions = entityContext?.suggestedPrompts?.slice(0, 4) ?? [];
+  const selectedAgent = agents.find((a) => a.id === selectedAgentId);
 
   return (
     <FloatingDrawer
@@ -102,11 +97,12 @@ export function WeldAgentPanel({
       className={className}
       data-testid="weldagent-panel"
     >
-      {/* Header */}
       <div className="flex items-center justify-between px-4 h-14 border-b border-gray-200 dark:border-border flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-primary" />
-          <span className="text-sm font-semibold text-gray-900 dark:text-foreground">WeldAgent</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <Sparkles className="h-4 w-4 text-primary flex-shrink-0" />
+          <span className="text-sm font-semibold text-gray-900 dark:text-foreground truncate">
+            {selectedAgent?.name ?? 'WeldAgent'}
+          </span>
         </div>
         <div className="flex items-center gap-1">
           {!isEmpty && (
@@ -128,7 +124,29 @@ export function WeldAgentPanel({
         </div>
       </div>
 
-      {/* Messages */}
+      {agents.length > 0 && (
+        <div className="px-4 py-2 border-b border-border flex-shrink-0">
+          <select
+            className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs"
+            value={selectedAgentId}
+            onChange={(e) => {
+              setSelectedAgentId(e.target.value);
+              reset();
+              setInput('');
+            }}
+            aria-label="Select agent"
+          >
+            <option value="">WeldAgent (general)</option>
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+                {a.status !== 'active' ? ` (${a.status})` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {isEmpty ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
@@ -185,7 +203,6 @@ export function WeldAgentPanel({
         )}
       </div>
 
-      {/* Error banner */}
       {error && (
         <div className="mx-4 mb-2 flex items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
           <span>{error === 'credits' ? t.insufficientCredits : t.error}</span>
@@ -201,7 +218,6 @@ export function WeldAgentPanel({
         </div>
       )}
 
-      {/* Composer */}
       <div className="border-t border-gray-200 dark:border-border p-3 flex-shrink-0">
         <div className="flex items-end gap-2">
           <Textarea

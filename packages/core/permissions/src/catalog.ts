@@ -323,6 +323,30 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
     ],
   },
 
+  // ── WeldAgent (workspace AI agents) ───────────────────────────────────
+  // Distinct from helpdesk `agents` (human support roster). `use` covers
+  // chatting with / manually running an agent; CRUD/manage covers the builder.
+  {
+    key: 'weldagent',
+    label: 'WeldAgent',
+    permissions: [
+      { key: 'weldagent:read',   label: 'View workspace AI agents' },
+      { key: 'weldagent:create', label: 'Create workspace AI agents' },
+      { key: 'weldagent:update', label: 'Edit workspace AI agents' },
+      { key: 'weldagent:delete', label: 'Delete workspace AI agents' },
+      {
+        key: 'weldagent:use',
+        label: 'Chat with and run AI agents',
+        description: 'Send messages to workspace agents and trigger manual runs. Tool actions are still limited by each agent’s own permission grants.',
+      },
+      {
+        key: 'weldagent:manage',
+        label: 'Manage AI agents',
+        description: 'Full control over workspace AI agents, including activating event listeners and assigning platform permission grants.',
+      },
+    ],
+  },
+
   // ── WeldObjects (user-defined custom objects) ─────────────────────────
   // Only the MODULE-level keys live here. The per-object keys
   // (`weldobjects:<slug>:read` etc.) are generated at runtime from the
@@ -381,6 +405,8 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'prospects:read', 'prospects:create', 'prospects:update', 'prospects:delete',
   // WeldApps (user-created apps) — admins can build, publish, and install
   'weldapps:read', 'weldapps:develop', 'weldapps:publish', 'weldapps:manage',
+  // WeldAgent (workspace AI agents) — admins fully manage
+  'weldagent:read', 'weldagent:create', 'weldagent:update', 'weldagent:delete', 'weldagent:use', 'weldagent:manage',
   // WeldObjects — admins define object types AND get full cross-owner access
   // to every object's records. The `weldobjects:*:<action>` middle wildcard
   // matches any slug without matching the 2-segment `weldobjects:manage`.
@@ -488,6 +514,8 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   'weldads:ad_campaigns:read', 'weldads:ad_campaigns:create', 'weldads:ad_campaigns:update',
   // WeldApps (user-created apps) — members can use installed apps
   'weldapps:read',
+  // WeldAgent — members can view and use agents (not create/manage)
+  'weldagent:read', 'weldagent:use',
   // WeldObjects — members manage records in any object, but only the ones they
   // own (no scope:all) and they cannot change object definitions (no manage).
   'weldobjects:read',
@@ -505,6 +533,8 @@ const LEGACY_VIEWER_PERMISSIONS: string[] = [
   'prospects:read',
   // WeldApps (user-created apps) — read-only
   'weldapps:read',
+  // WeldAgent — view-only
+  'weldagent:read',
   // WeldObjects — read-only, own records only
   'weldobjects:read', 'weldobjects:*:read',
 ];

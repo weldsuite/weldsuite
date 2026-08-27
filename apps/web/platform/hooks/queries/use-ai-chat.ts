@@ -31,6 +31,8 @@ interface UseWeldAgentChatOptions {
   system?: string;
   /** Canonical model id override; server defaults to the free copilot model. */
   model?: string;
+  /** When set, chat runs as a workspace agent with its tools + instructions. */
+  agentId?: string | null;
   /**
    * Messages to seed the conversation with (e.g. history loaded for a saved
    * chat). Applied whenever the array identity changes, so pass a stable
@@ -58,6 +60,7 @@ function newId(): string {
 export function useWeldAgentChat({
   system,
   model,
+  agentId,
   initialMessages,
   onUserMessage,
   onAssistantMessage,
@@ -103,6 +106,7 @@ export function useWeldAgentChat({
             messages: history.map((m) => ({ role: m.role, content: m.content })),
             system,
             model,
+            ...(agentId ? { agentId } : {}),
           }),
           signal: controller.signal,
         });
@@ -145,7 +149,7 @@ export function useWeldAgentChat({
         abortRef.current = null;
       }
     },
-    [getToken, model, system],
+    [getToken, model, system, agentId],
   );
 
   const sendMessage = useCallback(

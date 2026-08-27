@@ -1303,6 +1303,13 @@
       "when": 1787500000000,
       "tag": "0185_welddesk_webchat",
       "breakpoints": true
+    },
+    {
+      "idx": 186,
+      "version": "7",
+      "when": 1787600000000,
+      "tag": "0186_weldagent_workspace_agents",
+      "breakpoints": true
     }
   ]
 }
