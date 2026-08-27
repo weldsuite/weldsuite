@@ -17,7 +17,9 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { initPermissionMiddleware, createDrizzlePermissionQueries } from '@weldsuite/permissions/server';
+import { registerWeldAgentEventRunner } from '@weldsuite/entity-events';
 import { getMasterDb, schema } from './db';
+import { dispatchWeldAgentsForEvent } from './services/weldagent/dispatch';
 import { requestId } from './middleware/request-id';
 import { clerkMiddleware } from './middleware/clerk';
 import { workspaceDbMiddleware } from './middleware/workspace-db';
@@ -290,6 +292,18 @@ import { webhooksMeetingBotRoutes } from './routes/webhooks-meeting-bot';
 import { realtimeRegisterWebhookRoutes } from './routes/webhooks-realtime-register';
 import { workingHoursRoutes } from './routes/working-hours';
 import type { Env, Variables } from './types';
+
+// Register entity-event → workspace agent dispatch (no dedicated queue needed).
+registerWeldAgentEventRunner(async (payload) => {
+  await dispatchWeldAgentsForEvent(payload.env as Env, payload.db as never, {
+    workspaceId: payload.workspaceId,
+    userId: payload.userId,
+    entityType: payload.entityType,
+    action: payload.action,
+    entityId: payload.entityId,
+    data: payload.data,
+  });
+});
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 

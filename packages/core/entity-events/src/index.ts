@@ -37,6 +37,15 @@ export {
   type WorkflowDispatchEnv,
 } from './workflow-dispatch';
 
+// WeldAgent event dispatch hook (app-api registers the runner)
+export {
+  registerWeldAgentEventRunner,
+  getWeldAgentEventRunner,
+  runRegisteredWeldAgentDispatch,
+  type WeldAgentEventPayload,
+  type WeldAgentEventRunner,
+} from './agent-dispatch';
+
 // Events catalog
 export {
   ENTITY_EVENTS,

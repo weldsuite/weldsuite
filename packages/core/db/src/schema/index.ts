@@ -246,6 +246,8 @@ export * from './external-webhooks';
 // WeldAgent — personal AI assistant conversations + messages (per-user chat history)
 export * from './weldagent-conversations';
 export * from './weldagent-messages';
+export * from './weldagent-agents';
+export * from './weldagent-agent-runs';
 
 // Mobile/Notifications
 export * from './device-tokens';

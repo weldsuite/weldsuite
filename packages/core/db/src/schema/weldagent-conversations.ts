@@ -9,6 +9,9 @@ export const weldagentConversations = pgTable('weldagent_conversations', {
   name: varchar('name', { length: 255 }).notNull().default('New Conversation'),
   moduleKey: varchar('module_key', { length: 50 }), // 'general', 'crm', 'projects', etc.
 
+  /** When set, chat is bound to a workspace agent (tools + instructions). */
+  agentId: varchar('agent_id', { length: 30 }),
+
   // State
   isPinned: boolean('is_pinned').notNull().default(false),
   lastMessageAt: timestamp('last_message_at', { withTimezone: true }),

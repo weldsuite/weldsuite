@@ -64,6 +64,8 @@ export * from './domains/feature-flags';
 // WeldAgent — personal AI assistant conversations / messages / settings / mentions.
 export * from './schemas/weldagent';
 export * from './domains/weldagent';
+export * from './schemas/workspace-agents';
+export * from './domains/workspace-agents';
 export * from './schemas/weldconnect';
 
 // WeldChat — channels / messages / sections / DMs / search / calls / members.

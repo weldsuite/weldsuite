@@ -28,6 +28,7 @@ import type { EntityType } from './events';
 import type { DataFor } from './events/data';
 import { matchAndDispatchWorkflowTriggers, type WorkflowDispatchEnv } from './workflow-dispatch';
 import { dispatchWebhookDeliveries } from './webhook-delivery';
+import { runRegisteredWeldAgentDispatch } from './agent-dispatch';
 import type { TenantDb } from './internal-types';
 
 // ---------------------------------------------------------------------------
@@ -232,6 +233,24 @@ function fanOutEntityEvent(params: FanOutParams, source: EventSource): Promise<u
         data,
         changes: changes ?? undefined,
       }).catch((err) => console.error('[EntityEvents] Failed to match workflow triggers:', err)),
+    );
+  }
+
+  // 8. Workspace AI agents (optional runner registered by app-api)
+  if (workspaceId) {
+    tasks.push(
+      runRegisteredWeldAgentDispatch({
+        workspaceId,
+        userId,
+        entityType,
+        action,
+        entityId,
+        data: data as Record<string, unknown>,
+        db,
+        env,
+      }).catch((err: unknown) =>
+        console.error('[EntityEvents] Failed to dispatch weldagent event:', err),
+      ),
     );
   }
 
