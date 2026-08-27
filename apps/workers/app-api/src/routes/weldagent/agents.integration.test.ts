@@ -3,13 +3,11 @@
  */
 
 import { beforeAll, describe, expect, it } from 'vitest';
-import { createPgliteDb, isPgliteAvailable } from '../../test/pglite';
+import { createPgliteDb } from '../../test/pglite';
 import { createTestApp, permissions } from '../../test/harness';
 import { weldagentAgentsRoutes } from './agents';
 
-const describeIf = isPgliteAvailable() ? describe : describe.skip;
-
-describeIf('weldagent agents routes', () => {
+describe('weldagent agents routes', () => {
   let db: Awaited<ReturnType<typeof createPgliteDb>>['db'];
 
   beforeAll(async () => {

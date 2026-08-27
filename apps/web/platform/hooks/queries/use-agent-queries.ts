@@ -11,13 +11,15 @@ import type {
   WorkspaceAgentRun,
 } from '@weldsuite/app-api-client/schemas/workspace-agents';
 
+const AGENT_ROOT = ['workspace-agents'] as const;
+
 const agentKeys = {
-  all: ['workspace-agents'] as const,
-  list: (filters?: { status?: string }) => [...agentKeys.all, 'list', filters] as const,
-  detail: (id: string) => [...agentKeys.all, 'detail', id] as const,
-  runs: (agentId: string) => [...agentKeys.all, 'runs', agentId] as const,
-  tools: [...agentKeys.all, 'tools'] as const,
-  grantable: [...agentKeys.all, 'grantable'] as const,
+  all: AGENT_ROOT,
+  list: (filters?: { status?: string }) => [...AGENT_ROOT, 'list', filters] as const,
+  detail: (id: string) => [...AGENT_ROOT, 'detail', id] as const,
+  runs: (agentId: string) => [...AGENT_ROOT, 'runs', agentId] as const,
+  tools: [...AGENT_ROOT, 'tools'] as const,
+  grantable: [...AGENT_ROOT, 'grantable'] as const,
 };
 
 /** @deprecated Use WorkspaceAgent — kept for sidebar consumers. */

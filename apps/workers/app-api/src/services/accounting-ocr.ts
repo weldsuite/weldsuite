@@ -167,7 +167,7 @@ export async function processDocumentOcr(
           role: 'user',
           content: [
             { type: 'text', text: 'Extract the invoice / receipt fields from this image.' },
-            { type: 'file', mediaType, data: bytes },
+            { type: 'file', mediaType: mimeType, data: bytes },
           ],
         },
       ],

@@ -21,7 +21,7 @@ import {
   resolveAiMetering,
   assertAiCredits,
   chargeAiUsage,
-  type AiMeteringContext,
+  type AiMetering,
 } from '../ai/billing';
 import {
   resolveAgentTools,
@@ -76,25 +76,36 @@ function buildSystemPrompt(agent: AgentExecutorInput['agent'], extra?: string): 
   return extra ? `${base}\n\n${extra}` : base;
 }
 
-function toSdkTools(defs: PlatformToolDefinition[], ctx: ToolContext, invocations: StoredToolInvocation[]) {
-  const tools: Record<string, ReturnType<typeof tool>> = {};
+function toSdkTools(
+  defs: PlatformToolDefinition[],
+  ctx: ToolContext,
+  invocations: StoredToolInvocation[],
+): Record<string, unknown> {
+  const tools: Record<string, unknown> = {};
   for (const def of defs) {
+    // Cast through unknown: heterogeneous Zod schemas blow up AI SDK tool generics (TS2589).
     tools[def.name] = tool({
       description: def.description,
-      inputSchema: def.parameters,
-      execute: async (args: unknown) => {
-        invocations.push({ toolName: def.name, state: 'call', args });
+      inputSchema: def.parameters as never,
+      execute: async (args: never) => {
+        const input = args as unknown;
+        invocations.push({ toolName: def.name, state: 'call', args: input });
         try {
-          const result = await def.execute(ctx, args);
-          invocations.push({ toolName: def.name, state: 'result', args, result });
+          const result = await def.execute(ctx, input);
+          invocations.push({ toolName: def.name, state: 'result', args: input, result });
           return result;
         } catch (err) {
           const message = err instanceof Error ? err.message : 'Tool failed';
-          invocations.push({ toolName: def.name, state: 'error', args, result: { error: message } });
+          invocations.push({
+            toolName: def.name,
+            state: 'error',
+            args: input,
+            result: { error: message },
+          });
           return { error: message };
         }
       },
-    });
+    }) as unknown;
   }
   return tools;
 }
@@ -143,7 +154,7 @@ export async function runAgentOnce(input: AgentExecutorInput): Promise<AgentExec
         messages: input.messages,
         temperature,
         maxOutputTokens: input.agent.maxTokens,
-        tools: Object.keys(sdkTools).length > 0 ? sdkTools : undefined,
+    tools: Object.keys(sdkTools).length > 0 ? (sdkTools as never) : undefined,
         stopWhen: stepCountIs(Math.max(1, input.agent.maxIterations)),
         maxRetries: 1,
       }),
@@ -170,7 +181,7 @@ export async function runAgentOnce(input: AgentExecutorInput): Promise<AgentExec
 }
 
 export interface StreamAgentParams extends AgentExecutorInput {
-  metering: AiMeteringContext;
+  metering: AiMetering | null;
   executionCtx: { waitUntil: (p: Promise<unknown>) => void };
 }
 
@@ -197,7 +208,7 @@ export async function streamAgentChat(input: StreamAgentParams) {
     messages: input.messages,
     temperature,
     maxOutputTokens: input.agent.maxTokens,
-    tools: Object.keys(sdkTools).length > 0 ? sdkTools : undefined,
+    tools: Object.keys(sdkTools).length > 0 ? (sdkTools as never) : undefined,
     stopWhen: stepCountIs(Math.max(1, input.agent.maxIterations)),
     maxRetries: 1,
     onFinish: ({ usage }) => {
