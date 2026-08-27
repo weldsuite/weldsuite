@@ -110,6 +110,7 @@ export {
   listDeskMessages,
   upsertDeskVisitor,
   DeskConversationNotFoundError,
+  isDeskSchemaMissing,
   type AppendDeskMessageInput,
   type CreateDeskConversationInput,
   type ListDeskConversationsQuery,

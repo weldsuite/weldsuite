@@ -52,6 +52,8 @@ import { helpdeskAnalyticsRoutes } from './helpdesk-analytics';
 import { chatDmRoutes } from './chat-dm';
 import { chatStatusRoutes } from './chat-status';
 import { chatActivityRoutes } from './chat-activity';
+import { deskConversationsRoutes } from './desk-conversations';
+import { deskWidgetRoutes } from './desk-widget';
 
 interface SweepCase {
   mount: string;
@@ -97,6 +99,8 @@ const cases: SweepCase[] = [
   { mount: '/api/chat-dm', router: chatDmRoutes, permission: 'messages:read' },
   { mount: '/api/chat-status', router: chatStatusRoutes, permission: 'settings:read' },
   { mount: '/api/chat-activity', router: chatActivityRoutes, permission: 'messages:read' },
+  { mount: '/api/desk/conversations', router: deskConversationsRoutes, permission: 'conversations:read' },
+  { mount: '/api/desk/widget', router: deskWidgetRoutes, permission: 'settings:read' },
   // pickers: omitted from sweep until the warehouse_workers migration is generated + applied.
 ];
 

@@ -11,6 +11,7 @@ import { eq } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { createDeskWidgetSchema, updateDeskWidgetSchema } from '@weldsuite/core-api-client/schemas/desk-widget';
+import { isDeskSchemaMissing } from '@weldsuite/db/lib/desk';
 import type { Env, Variables } from '../../types';
 import { error, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
@@ -26,6 +27,9 @@ app.get('/', requirePermission('settings:read'), async (c) => {
     return success(c, rows);
   } catch (err) {
     console.error('[app-api/desk-widget] list failed:', err);
+    if (isDeskSchemaMissing(err)) {
+      return error.unavailable(c, 'WeldDesk schema is not applied. Run tenant migration 0185_welddesk_webchat.');
+    }
     return error.internal(c, 'Failed to list widgets');
   }
 });

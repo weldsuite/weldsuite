@@ -37,6 +37,17 @@ export class DeskConversationNotFoundError extends Error {
   }
 }
 
+/** Postgres undefined-table / undefined-column (migration 0185 not applied). */
+export function isDeskSchemaMissing(err: unknown): boolean {
+  const code =
+    typeof err === 'object' && err !== null && 'code' in err
+      ? String((err as { code: unknown }).code)
+      : '';
+  if (code === '42P01' || code === '42703') return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /column .+ does not exist/i.test(msg) || /relation .+ does not exist/i.test(msg);
+}
+
 function previewOf(body: string | null | undefined): string | null {
   if (!body) return null;
   const trimmed = body.replace(/\s+/g, ' ').trim();
@@ -292,10 +303,13 @@ export async function listDeskConversations(
 
   const orderBy =
     query.sort === 'oldest'
-      ? conversations.createdAt
+      ? [conversations.createdAt, conversations.id]
       : query.sort === 'waiting_longest'
-        ? conversations.waitingSince
-        : desc(sql`COALESCE(${conversations.lastMessageAt}, ${conversations.createdAt})`);
+        ? [sql`${conversations.waitingSince} ASC NULLS LAST`, conversations.id]
+        : [
+            sql`COALESCE(${conversations.lastMessageAt}, ${conversations.createdAt}) DESC`,
+            desc(conversations.id),
+          ];
 
   const offset = query.cursor ? Number.parseInt(query.cursor, 10) || 0 : 0;
 
@@ -310,7 +324,7 @@ export async function listDeskConversations(
     .select()
     .from(conversations)
     .where(where)
-    .orderBy(orderBy)
+    .orderBy(...orderBy)
     .limit(limit + 1)
     .offset(offset);
 

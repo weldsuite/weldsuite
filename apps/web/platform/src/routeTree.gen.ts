@@ -60,6 +60,7 @@ import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
 import { Route as InviteIndexRouteImport } from './routes/invite/index'
 import { Route as AppstoreIndexRouteImport } from './routes/appstore/index'
 import { Route as AgentsIndexRouteImport } from './routes/agents/index'
+import { Route as WelddeskSplatRouteImport } from './routes/welddesk/$'
 import { Route as WeldchatDraftsRouteImport } from './routes/weldchat/drafts'
 import { Route as WeldchatDirectoriesRouteImport } from './routes/weldchat/directories'
 import { Route as WeldchatActivityRouteImport } from './routes/weldchat/activity'
@@ -592,6 +593,11 @@ const AgentsIndexRoute = AgentsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AgentsRouteRoute,
+} as any)
+const WelddeskSplatRoute = WelddeskSplatRouteImport.update({
+  id: '/$',
+  path: '/$',
+  getParentRoute: () => WelddeskRouteRoute,
 } as any)
 const WeldchatDraftsRoute = WeldchatDraftsRouteImport.update({
   id: '/drafts',
@@ -2161,6 +2167,7 @@ export interface FileRoutesByFullPath {
   '/weldchat/activity': typeof WeldchatActivityRoute
   '/weldchat/directories': typeof WeldchatDirectoriesRoute
   '/weldchat/drafts': typeof WeldchatDraftsRoute
+  '/welddesk/$': typeof WelddeskSplatRoute
   '/agents/': typeof AgentsIndexRoute
   '/appstore/': typeof AppstoreIndexRoute
   '/invite/': typeof InviteIndexRoute
@@ -2467,6 +2474,7 @@ export interface FileRoutesByTo {
   '/weldchat/activity': typeof WeldchatActivityRoute
   '/weldchat/directories': typeof WeldchatDirectoriesRoute
   '/weldchat/drafts': typeof WeldchatDraftsRoute
+  '/welddesk/$': typeof WelddeskSplatRoute
   '/agents': typeof AgentsIndexRoute
   '/appstore': typeof AppstoreIndexRoute
   '/invite': typeof InviteIndexRoute
@@ -2796,6 +2804,7 @@ export interface FileRoutesById {
   '/weldchat/activity': typeof WeldchatActivityRoute
   '/weldchat/directories': typeof WeldchatDirectoriesRoute
   '/weldchat/drafts': typeof WeldchatDraftsRoute
+  '/welddesk/$': typeof WelddeskSplatRoute
   '/agents/': typeof AgentsIndexRoute
   '/appstore/': typeof AppstoreIndexRoute
   '/invite/': typeof InviteIndexRoute
@@ -3128,6 +3137,7 @@ export interface FileRouteTypes {
     | '/weldchat/activity'
     | '/weldchat/directories'
     | '/weldchat/drafts'
+    | '/welddesk/$'
     | '/agents/'
     | '/appstore/'
     | '/invite/'
@@ -3434,6 +3444,7 @@ export interface FileRouteTypes {
     | '/weldchat/activity'
     | '/weldchat/directories'
     | '/weldchat/drafts'
+    | '/welddesk/$'
     | '/agents'
     | '/appstore'
     | '/invite'
@@ -3762,6 +3773,7 @@ export interface FileRouteTypes {
     | '/weldchat/activity'
     | '/weldchat/directories'
     | '/weldchat/drafts'
+    | '/welddesk/$'
     | '/agents/'
     | '/appstore/'
     | '/invite/'
@@ -4455,6 +4467,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/agents/'
       preLoaderRoute: typeof AgentsIndexRouteImport
       parentRoute: typeof AgentsRouteRoute
+    }
+    '/welddesk/$': {
+      id: '/welddesk/$'
+      path: '/$'
+      fullPath: '/welddesk/$'
+      preLoaderRoute: typeof WelddeskSplatRouteImport
+      parentRoute: typeof WelddeskRouteRoute
     }
     '/weldchat/drafts': {
       id: '/weldchat/drafts'
@@ -6974,6 +6993,7 @@ const WelddataRouteRouteWithChildren = WelddataRouteRoute._addFileChildren(
 )
 
 interface WelddeskRouteRouteChildren {
+  WelddeskSplatRoute: typeof WelddeskSplatRoute
   WelddeskIndexRoute: typeof WelddeskIndexRoute
   WelddeskChatWidgetIndexRoute: typeof WelddeskChatWidgetIndexRoute
   WelddeskInboxIndexRoute: typeof WelddeskInboxIndexRoute
@@ -6982,6 +7002,7 @@ interface WelddeskRouteRouteChildren {
 }
 
 const WelddeskRouteRouteChildren: WelddeskRouteRouteChildren = {
+  WelddeskSplatRoute: WelddeskSplatRoute,
   WelddeskIndexRoute: WelddeskIndexRoute,
   WelddeskChatWidgetIndexRoute: WelddeskChatWidgetIndexRoute,
   WelddeskInboxIndexRoute: WelddeskInboxIndexRoute,

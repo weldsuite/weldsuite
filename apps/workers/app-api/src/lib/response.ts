@@ -72,6 +72,9 @@ export const error = {
   internal: (c: Context, message = 'Internal server error') =>
     c.json({ error: { code: 'INTERNAL_ERROR', message } }, 500),
 
+  unavailable: (c: Context, message: string) =>
+    c.json({ error: { code: 'SERVICE_UNAVAILABLE', message } }, 503),
+
   /** An upstream provider we depend on failed — the request is retryable. */
   badGateway: (c: Context, message = 'Upstream service error') =>
     c.json({ error: { code: 'UPSTREAM_ERROR', message } }, 502),

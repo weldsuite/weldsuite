@@ -21,7 +21,8 @@ import {
   getDeskConversation,
   listDeskConversations,
   DeskConversationNotFoundError,
-} from '@weldsuite/db/lib';
+  isDeskSchemaMissing,
+} from '@weldsuite/db/lib/desk';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, success } from '../../lib/response';
 import { generateId } from '../../lib/id';
@@ -50,6 +51,9 @@ app.get('/', requirePermission('conversations:read'), zValidator('query', listCo
     return list(c, result.data, cursorPagination(result.totalCount, result.hasMore, result.cursor));
   } catch (err) {
     console.error('[app-api/desk-conversations] list failed:', err);
+    if (isDeskSchemaMissing(err)) {
+      return error.unavailable(c, 'WeldDesk schema is not applied. Run tenant migration 0185_welddesk_webchat.');
+    }
     return error.internal(c, 'Failed to list conversations');
   }
 });
