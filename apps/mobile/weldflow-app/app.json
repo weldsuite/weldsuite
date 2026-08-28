@@ -24,7 +24,6 @@
       "edgeToEdgeEnabled": true,
       "package": "com.weldsuite.weldflow",
       "permissions": [
-        "android.permission.POST_NOTIFICATIONS",
         "android.permission.POST_NOTIFICATIONS"
       ]
     },

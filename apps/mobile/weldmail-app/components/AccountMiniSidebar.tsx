@@ -13,6 +13,7 @@ import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useMail, getAvatarColor } from '@/contexts/MailContext';
 import { usePermissions } from '@/contexts/PermissionContext';
 import WeldMailLogo from '@/components/WeldMailLogo';
+import { BRAND } from '@/lib/brand';
 
 const MINI_SIDEBAR_WIDTH = 68;
 
@@ -40,7 +41,7 @@ export default function AccountMiniSidebar() {
         {/* Unified inbox */}
         <TouchableOpacity style={styles.item} onPress={selectUnifiedInbox} activeOpacity={0.7}>
           <View style={[styles.avatar, isUnifiedInbox ? styles.avatarUnifiedActive : styles.avatarUnified]}>
-            <WeldMailLogo size={24} color={isUnifiedInbox ? '#f6663e' : '#9CA3AF'} />
+            <WeldMailLogo size={24} color={isUnifiedInbox ? BRAND : colors.muted} />
           </View>
           {isUnifiedInbox && <View style={styles.activeIndicator} />}
         </TouchableOpacity>
@@ -112,13 +113,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   avatarActive: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: BRAND,
   },
   avatarUnified: {
     backgroundColor: '#F3F4F6',
   },
   avatarUnifiedActive: {
-    backgroundColor: '#FEF0EC',
+    backgroundColor: 'rgba(240,101,67,0.12)',
   },
   avatarRing: {
     borderWidth: 2.5,
@@ -148,7 +149,7 @@ const styles = StyleSheet.create({
     width: 3,
     borderTopRightRadius: 3,
     borderBottomRightRadius: 3,
-    backgroundColor: '#3B82F6',
+    backgroundColor: BRAND,
   },
   divider: {
     height: 0.5,

@@ -14,6 +14,7 @@ import { useMail } from '@/contexts/MailContext';
 import { getLabelIcon } from '@/components/LabelDrawer';
 import { getLabelColor } from '@/utils/label-utils';
 import CreateLabelDialog from '@/components/CreateLabelDialog';
+import { BRAND, BRAND_TINT } from '@/lib/brand';
 
 const LABEL_PANEL_WIDTH = 260;
 
@@ -23,7 +24,7 @@ interface LabelPanelProps {
   onClosed?: () => void;
 }
 
-export default function LabelPanel({ visible, _onLabelSelected, onClosed }: LabelPanelProps) {
+export default function LabelPanel({ visible, onLabelSelected: _onLabelSelected, onClosed }: LabelPanelProps) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const {
@@ -84,11 +85,11 @@ export default function LabelPanel({ visible, _onLabelSelected, onClosed }: Labe
 
   const renderSystemLabel = (label: { slug: string; name: string; count?: number }) => {
     const isActive = selectedLabel === label.slug;
-    const iconColor = isActive ? '#1A73E8' : colors.muted;
+    const iconColor = isActive ? BRAND : colors.muted;
     return (
       <TouchableOpacity
         key={label.slug}
-        style={[styles.labelItem, isActive && { backgroundColor: 'rgba(26, 115, 232, 0.08)' }]}
+        style={[styles.labelItem, isActive && { backgroundColor: BRAND_TINT }]}
         onPress={() => handleSelect(label.slug)}
         activeOpacity={0.7}
       >
@@ -96,7 +97,7 @@ export default function LabelPanel({ visible, _onLabelSelected, onClosed }: Labe
         <Text
           style={[
             styles.labelText,
-            { color: isActive ? '#1A73E8' : colors.text },
+            { color: isActive ? BRAND : colors.text },
             isActive && styles.labelTextActive,
           ]}
         >

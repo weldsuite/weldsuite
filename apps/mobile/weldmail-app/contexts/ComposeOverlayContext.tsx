@@ -1,11 +1,14 @@
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo, Suspense, lazy } from 'react';
 import { Animated, Dimensions, Easing, StyleSheet, BackHandler, View, Keyboard } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
+import { Spinner } from '@weldsuite/mobile-ui/components/Spinner';
 import { appApi } from '@/services/app-api';
-import ComposeScreen, { type ComposeCloseInfo, type ComposePrefill } from '@/app/compose';
+import type { ComposeCloseInfo, ComposePrefill } from '@/app/compose';
+
+const ComposeScreen = lazy(() => import('@/app/compose'));
 
 type OpenComposeOptions = {
   /**
@@ -126,8 +129,13 @@ export function ComposeOverlayProvider({ children }: { children: React.ReactNode
     outputRange: [0, insets.top],
   });
 
+  const contextValue = useMemo(
+    () => ({ openCompose, closeCompose, isComposeOpen: open }),
+    [openCompose, closeCompose, open],
+  );
+
   return (
-    <ComposeOverlayContext.Provider value={{ openCompose, closeCompose, isComposeOpen: open }}>
+    <ComposeOverlayContext.Provider value={contextValue}>
       {/* While open the screen top is the dark backdrop, so the phone status-bar
           icons (clock, wifi, battery) must flip to light. Reverts on close. */}
       {open && <StatusBar style="light" animated />}
@@ -165,11 +173,19 @@ export function ComposeOverlayProvider({ children }: { children: React.ReactNode
               },
             ]}
           >
-            <ComposeScreen
-              key={instance}
-              prefillOverride={prefill}
-              onCloseOverride={closeCompose}
-            />
+            <Suspense
+              fallback={
+                <View style={styles.composeFallback}>
+                  <Spinner size="large" />
+                </View>
+              }
+            >
+              <ComposeScreen
+                key={instance}
+                prefillOverride={prefill}
+                onCloseOverride={closeCompose}
+              />
+            </Suspense>
           </Animated.View>
         </View>
       )}
@@ -201,6 +217,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 12,
     elevation: 16,
+  },
+  composeFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

@@ -6,30 +6,39 @@ It is NOT shipped inside the app bundle.
 ## Before first build
 
 ### 1. Expo / EAS setup
+EAS project is already linked (`extra.eas.projectId` in `app.json`). Confirm you are logged in:
 ```bash
 cd apps/mobile/weldflow-app
-eas init          # creates the EAS project, writes projectId into app.json
-eas login         # if not already signed in
+eas login
+eas project:info
 ```
-Replace the `"extra.eas.projectId": "TODO_RUN_EAS_INIT"` placeholder with the real ID, and commit.
 
-### 2. Secrets, EAS
-Set the Clerk publishable key per environment:
+### 2. Push credentials (required for notifications)
+Upload FCM V1 (Android) and APNs (iOS) credentials to this EAS project:
 ```bash
-eas secret:create --scope project --name EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY --value pk_live_xxx --type string --environment production
-eas secret:create --scope project --name EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY --value pk_test_xxx --type string --environment preview
+eas credentials
 ```
-(`EXPO_PUBLIC_APP_API_URL` is already pinned per profile in `eas.json`.)
+Select the WeldFlow project → Android → Google Service Account / FCM V1, and iOS → Push Key.
+Without these, Expo push token registration fails on device builds.
 
-### 3. Assets
+### 3. Secrets / build env
+Clerk + API URLs are pinned per profile in `eas.json` (same pattern as WeldBooks).
+OTA deploys from `.github/workflows/deploy.yml` inject the same Clerk keys.
+
+Optional Mixpanel:
+```bash
+eas secret:create --scope project --name EXPO_PUBLIC_MIXPANEL_TOKEN --value xxx --type string --environment production
+```
+
+### 4. Assets
 Replace the placeholder images in `assets/images/` (copied from welddesk-app) with WeldFlow-branded versions. See `assets/images/README.md` for specs.
 
-### 4. Apple Developer account
+### 5. Apple Developer account
 - App ID: `com.weldsuite.weldflow` (create in App Store Connect)
 - Push notifications capability enabled on the App ID
 - Create an app record in App Store Connect with name "WeldFlow"
 
-### 5. Google Play Console
+### 6. Google Play Console
 - Package name: `com.weldsuite.weldflow`
 - Create an app listing (internal testing track to start)
 - Fill out the Data Safety questionnaire (see `data-safety.md`)

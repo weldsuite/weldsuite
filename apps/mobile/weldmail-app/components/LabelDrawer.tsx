@@ -35,6 +35,7 @@ import { useMail, getAvatarColor } from '@/contexts/MailContext';
 import { getLabelColor } from '@/utils/label-utils';
 import CreateLabelDialog from '@/components/CreateLabelDialog';
 import WeldMailLogo from '@/components/WeldMailLogo';
+import { BRAND, BRAND_TINT } from '@/lib/brand';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -134,23 +135,23 @@ export default function LabelDrawer({ visible, onClose }: LabelDrawerProps) {
 
   const renderSystemLabel = (label: { slug: string; name: string; count?: number }) => {
     const isActive = selectedLabel === label.slug;
-    const iconColor = isActive ? '#1A73E8' : (isDark ? '#8E8E93' : '#5F6368');
+    const iconColor = isActive ? BRAND : colors.muted;
     return (
       <TouchableOpacity
         key={label.slug}
-        style={[styles.drawerItem, isActive && { backgroundColor: isDark ? '#1A2744' : '#E8F0FE' }]}
+        style={[styles.drawerItem, isActive && { backgroundColor: BRAND_TINT }]}
         onPress={() => handleSelectLabel(label.slug)}
       >
         {getLabelIcon(label.slug, iconColor)}
         <Text style={[
           styles.drawerItemText,
-          { color: isDark ? '#E8EAED' : '#202124' },
-          isActive && { color: '#1A73E8', fontWeight: '600' },
+          { color: colors.text },
+          isActive && { color: BRAND, fontWeight: '600' },
         ]}>
           {label.name}
         </Text>
         {label.count != null && label.count > 0 && (
-          <Text style={styles.drawerItemCount}>
+          <Text style={[styles.drawerItemCount, { color: colors.mutedForeground }]}>
             {label.count}
           </Text>
         )}
@@ -184,7 +185,7 @@ export default function LabelDrawer({ visible, onClose }: LabelDrawerProps) {
                 activeOpacity={0.7}
               >
                 <View style={[styles.miniAvatar, { backgroundColor: isDark ? '#2C2C2E' : '#F1F3F4' }, isUnifiedInbox && { backgroundColor: isDark ? '#2A1A14' : '#FEF0EC' }]}>
-                  <WeldMailLogo size={24} color={isUnifiedInbox ? '#f6663e' : '#9CA3AF'} />
+                  <WeldMailLogo size={24} color={isUnifiedInbox ? BRAND : colors.muted} />
                 </View>
               </TouchableOpacity>
 
@@ -233,7 +234,7 @@ export default function LabelDrawer({ visible, onClose }: LabelDrawerProps) {
               <View style={styles.drawerHeaderRow}>
                 <View style={[styles.drawerHeaderAvatar, { backgroundColor: isUnifiedInbox ? '#FEF0EC' : selectedAccount ? getAvatarColor(selectedAccount.displayName) : '#6B7280' }]}>
                   {isUnifiedInbox ? (
-                    <WeldMailLogo size={24} color="#f6663e" />
+                    <WeldMailLogo size={24} color={BRAND} />
                   ) : (
                     <Text style={styles.drawerHeaderAvatarText}>
                       {selectedAccount?.displayName?.charAt(0).toUpperCase() || 'U'}
