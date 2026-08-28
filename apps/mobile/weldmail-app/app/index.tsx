@@ -912,8 +912,10 @@ export default function MailScreen() {
     />
   );
 
+  // Keep the first paint minimal while mail loads — the full header chrome
+  // only mounts once we have a list to show (avoids a heavy tree during OTA boot).
   const emailListContent = loading ? (
-    <Screen header={header} edges={isTablet ? [] : ['top']}>
+    <Screen edges={isTablet ? [] : ['top']}>
       <ListSkeleton />
     </Screen>
   ) : (
@@ -931,7 +933,6 @@ export default function MailScreen() {
           initialNumToRender={12}
           maxToRenderPerBatch={10}
           windowSize={7}
-          removeClippedSubviews
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

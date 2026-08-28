@@ -3,6 +3,7 @@ import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from '@react-n
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import * as SplashScreen from 'expo-splash-screen';
@@ -30,6 +31,8 @@ import { NetworkProvider } from '@/contexts/NetworkContext';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { OutboxFlusher } from '@/components/OutboxFlusher';
 import { useMailRealtime } from '@/hooks/useMailRealtime';
+import { useUpdateGate } from '@/hooks/useUpdateGate';
+import { BRAND } from '@/lib/brand';
 
 // Keep the native splash until the inbox or an opened email has something to
 // paint — avoids a labeled loader flash on cold start / notification tap.
@@ -276,14 +279,22 @@ function AuthenticatedApp() {
 }
 
 export default function RootLayout() {
-  // OTA updates stay on expo-updates' default: check/download in the
-  // background (see app.json `updates.checkAutomatically: ON_LOAD` +
-  // `fallbackToCacheTimeout: 0`) and apply on the next process start.
+  const checkingUpdate = useUpdateGate();
 
   useEffect(() => {
     const safety = setTimeout(() => hideAppSplash(), 5000);
     return () => clearTimeout(safety);
   }, []);
+
+  if (checkingUpdate) {
+    return (
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' }}>
+          <ActivityIndicator size="large" color={BRAND} />
+        </View>
+      </GestureHandlerRootView>
+    );
+  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
