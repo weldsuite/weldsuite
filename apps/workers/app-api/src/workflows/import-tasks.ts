@@ -20,7 +20,7 @@ import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from 'cloudflare:work
 import { eq, and, isNull, inArray, sql } from 'drizzle-orm';
 import type { Env } from '../types';
 import { getTenantDbForWorkspace, schema, type Database } from '../db';
-import type { TaskImportError } from '@weldsuite/db';
+import type { TaskImportError } from '@weldsuite/db/schema/task-import-jobs';
 import { generateId } from '../lib/id';
 import { allocateTaskNumbers } from '../services/task-numbering';
 

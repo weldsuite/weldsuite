@@ -259,37 +259,21 @@ export const platformSyncMap: EntitySyncMap = {
   helpdesk_analytics_report: inv(['helpdesk', 'analytics', 'reports']),
   helpcenter_settings: inv(['helpdesk', 'helpcenter']),
 
-  // =========================================================================
-  // WeldDesk v2 — Intercom-model inbox (apps/web/platform/app/welddesk/inbox2)
-  // desk_conversation covers both the list rows (any field changed —
-  // assignment/state/tags/etc.) and the open conversation pane's header;
-  // desk_conversation_part covers the parts timeline appended to an open
-  // conversation. Both invalidate the list broadly since sort/filter
-  // membership (state, assignee, waitingSince) can change on any part-append.
-  // =========================================================================
+  // WeldDesk webchat — list + open conversation pane
   desk_conversation: {
     invalidate: [deskKeys.conversations()],
     updateDetail: detailUpdater(deskKeys.conversationDetail),
     remove: detailRemover(deskKeys.conversationDetail),
   },
-  desk_conversation_part: {
+  desk_message: {
     invalidate: [deskKeys.conversations()],
-    // Parts are appended to the detail query's `parts` array (not a
-    // top-level field), so a simple field-merge can't apply them here. The
-    // published part payload carries `conversationId` (see
-    // publishEntityEvent calls in apps/workers/app-api/src/routes/desk-conversations)
-    // — invalidate that conversation's detail query so the open pane refetches
-    // the fresh parts timeline. `entityId` itself is the part's own id, not
-    // useful as a query key.
     updateDetail: (qc, _entityId, data) => {
       const conversationId = (data as { conversationId?: string } | null)?.conversationId;
       if (!conversationId) return;
       qc.invalidateQueries({ queryKey: deskKeys.conversationDetail(conversationId) as unknown as unknown[] });
     },
   },
-  desk_team: inv(deskKeys.teams()),
-  desk_view: inv(deskKeys.views()),
-  desk_macro: inv(deskKeys.macros()),
+  desk_widget: inv(['desk', 'widget']),
 
   // =========================================================================
   // WeldMail

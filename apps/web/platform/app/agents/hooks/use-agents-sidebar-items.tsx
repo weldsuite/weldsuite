@@ -69,7 +69,7 @@ export function useAgentsSidebarItems(isActive: boolean): {
   const agentItems: MenuItemProps[] = agents.map((agent) => ({
     title: agent.name,
     href: `/agents/${agent.id}`,
-    icon: makeAgentIcon(agent),
+    icon: makeAgentIcon({ ...agent, isSystem: false }),
   }));
 
   const menuGroups: MenuGroupProps[] = [

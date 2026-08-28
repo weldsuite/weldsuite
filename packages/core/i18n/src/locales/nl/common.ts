@@ -736,6 +736,16 @@ export const common = {
           general: { label: 'Algemeen', description: 'Naam, omschrijving en pictogram voor deze agent.' },
           instructions: { label: 'Instructies', description: 'Definieer wat de agent doet, wanneer hij wordt geactiveerd en welke acties hij uitvoert.' },
           tools: { label: 'Tools', description: 'Kies de tools die deze agent kan aanroepen tijdens een uitvoering.' },
+          permissions: {
+            label: 'Platformrechten',
+            description: 'Rechten bepalen welke platformtools deze agent mag aanroepen. De agent overschrijdt deze rechten nooit.',
+            unlockedTools: 'Ontgrendelde tools',
+            none: 'geen',
+          },
+          listening: {
+            label: 'Luistert naar',
+            empty: 'Geen (activeer om te extraheren)',
+          },
           triggers: { label: 'Triggers', description: 'Gebeurtenissen en schema\'s die deze agent automatisch starten.' },
           usage: { label: 'Gebruik', description: 'Tokenverbruik en budget voor deze agent.' },
           supervisor: { label: 'Supervisor', description: 'Laat deze agent werk delegeren aan andere agenten.' },

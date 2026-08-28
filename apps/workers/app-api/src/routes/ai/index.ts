@@ -20,7 +20,8 @@
 import { z } from 'zod';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { requirePermission, ensurePermissionsResolved } from '@weldsuite/permissions/server';
+import { hasPermission } from '@weldsuite/permissions';
 import {
   generateText,
   streamText,
@@ -41,6 +42,8 @@ import {
   chargeAiUsage,
   InsufficientAiCreditsError,
 } from '../../services/ai/billing';
+import { getAgent } from '../../services/weldagent/agents';
+import { streamAgentChat, runAgentOnce } from '../../services/weldagent/executor';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -74,6 +77,8 @@ const chatSchema = z.object({
   system: z.string().max(8000).optional(),
   temperature: z.number().min(0).max(2).optional(),
   maxTokens: z.number().int().min(1).max(8192).optional(),
+  /** When set, load a workspace agent and run with its tools + instructions. */
+  agentId: z.string().min(1).max(30).optional(),
 });
 
 /** Base persona for the WeldAgent chat panel. Extra `system` context is appended. */
@@ -179,24 +184,20 @@ app.post(
  */
 app.post(
   '/chat',
-  requirePermission('agents:read'),
+  requirePermission('agents:read', 'weldagent:use'),
   zValidator('json', chatSchema),
   async (c) => {
     if (!isGatewayConfigured(c.env)) {
       return error.internal(c, 'AI gateway is not configured');
     }
 
-    const { messages, model, system, temperature, maxTokens } = c.req.valid('json');
-    const modelId = model ?? recommended.copilot.free;
+    const { messages, model, system, temperature, maxTokens, agentId } = c.req.valid('json');
     const metering = await resolveAiMetering(c.env, c.get('workspaceId'), c.get('userId'));
 
-    // Fold any `system` turns + the optional caller context into one system prompt;
-    // pass only user/assistant turns as chat messages.
     const extraSystem = [
       ...messages.filter((m) => m.role === 'system').map((m) => m.content),
       ...(system ? [system] : []),
     ].join('\n\n');
-    const systemPrompt = extraSystem ? `${WELDAGENT_SYSTEM}\n\n${extraSystem}` : WELDAGENT_SYSTEM;
     const chatMessages = messages
       .filter((m): m is { role: 'user' | 'assistant'; content: string } => m.role !== 'system')
       .map((m) => ({ role: m.role, content: m.content }));
@@ -205,8 +206,65 @@ app.post(
       return error.badRequest(c, 'At least one user message is required');
     }
 
+    // Workspace agent path — tools + agent instructions.
+    if (agentId) {
+      const resolved = await ensurePermissionsResolved(c);
+      if (!resolved || !hasPermission(resolved.permissions, 'weldagent:use')) {
+        return error.forbidden(c, 'Missing permission: weldagent:use');
+      }
+      const agent = await getAgent(c.get('tenantDb'), agentId);
+      if (!agent) return error.notFound(c, 'Agent not found');
+
+      try {
+        const result = await runAgentOnce({
+          env: c.env,
+          workspaceId: c.get('workspaceId'),
+          actorUserId: c.get('userId'),
+          agent: {
+            id: agent.id,
+            name: agent.name,
+            systemPrompt: agent.systemPrompt,
+            modelId: model ?? agent.modelId,
+            temperature: temperature !== undefined ? String(temperature) : agent.temperature,
+            maxTokens: maxTokens ?? agent.maxTokens,
+            maxIterations: agent.maxIterations,
+            permissions: agent.permissions,
+            enabledTools: agent.enabledTools,
+          },
+          toolContext: {
+            db: c.get('tenantDb'),
+            agentId: agent.id,
+            actorUserId: c.get('userId'),
+            workspaceId: c.get('workspaceId'),
+          },
+          messages: chatMessages,
+          extraSystem: extraSystem || undefined,
+        });
+        return success(c, {
+          text: result.text,
+          model: result.modelId,
+          finishReason: result.finishReason,
+          usage: result.usage,
+          creditsUsed: result.creditsUsed,
+          toolInvocations: result.toolInvocations,
+        });
+      } catch (err) {
+        if (err instanceof InsufficientAiCreditsError) {
+          return error.insufficientCredits(c, {
+            currentBalance: err.currentBalance,
+            required: err.required,
+            shortfall: err.shortfall,
+          });
+        }
+        return error.internal(c, err instanceof Error ? err.message : 'AI request failed');
+      }
+    }
+
+    const modelId = model ?? recommended.copilot.free;
+    const systemPrompt = extraSystem ? `${WELDAGENT_SYSTEM}\n\n${extraSystem}` : WELDAGENT_SYSTEM;
+
     try {
-      await assertAiCredits(metering); // hard gate: 402 when the wallet is empty
+      await assertAiCredits(metering);
 
       const credits = c.env.WORKSPACE_CACHE
         ? toCreditStates(await readGatewayCreditSnapshot(c.env.WORKSPACE_CACHE))
@@ -279,22 +337,20 @@ app.post(
  */
 app.post(
   '/chat/stream',
-  requirePermission('agents:read'),
+  requirePermission('agents:read', 'weldagent:use'),
   zValidator('json', chatSchema),
   async (c) => {
     if (!isGatewayConfigured(c.env)) {
       return error.internal(c, 'AI gateway is not configured');
     }
 
-    const { messages, model, system, temperature, maxTokens } = c.req.valid('json');
-    const modelId = model ?? recommended.copilot.free;
+    const { messages, model, system, temperature, maxTokens, agentId } = c.req.valid('json');
     const metering = await resolveAiMetering(c.env, c.get('workspaceId'), c.get('userId'));
 
     const extraSystem = [
       ...messages.filter((m) => m.role === 'system').map((m) => m.content),
       ...(system ? [system] : []),
     ].join('\n\n');
-    const systemPrompt = extraSystem ? `${WELDAGENT_SYSTEM}\n\n${extraSystem}` : WELDAGENT_SYSTEM;
     const chatMessages = messages
       .filter((m): m is { role: 'user' | 'assistant'; content: string } => m.role !== 'system')
       .map((m) => ({ role: m.role, content: m.content }));
@@ -303,8 +359,6 @@ app.post(
       return error.badRequest(c, 'At least one user message is required');
     }
 
-    // Hard gate before the stream opens — a 402 must be a clean JSON response,
-    // not a half-open stream.
     try {
       await assertAiCredits(metering);
     } catch (err) {
@@ -317,6 +371,50 @@ app.post(
       }
       return error.internal(c, err instanceof Error ? err.message : 'AI request failed');
     }
+
+    if (agentId) {
+      const resolved = await ensurePermissionsResolved(c);
+      if (!resolved || !hasPermission(resolved.permissions, 'weldagent:use')) {
+        return error.forbidden(c, 'Missing permission: weldagent:use');
+      }
+      const agent = await getAgent(c.get('tenantDb'), agentId);
+      if (!agent) return error.notFound(c, 'Agent not found');
+
+      try {
+        const { result } = await streamAgentChat({
+          env: c.env,
+          workspaceId: c.get('workspaceId'),
+          actorUserId: c.get('userId'),
+          agent: {
+            id: agent.id,
+            name: agent.name,
+            systemPrompt: agent.systemPrompt,
+            modelId: model ?? agent.modelId,
+            temperature: temperature !== undefined ? String(temperature) : agent.temperature,
+            maxTokens: maxTokens ?? agent.maxTokens,
+            maxIterations: agent.maxIterations,
+            permissions: agent.permissions,
+            enabledTools: agent.enabledTools,
+          },
+          toolContext: {
+            db: c.get('tenantDb'),
+            agentId: agent.id,
+            actorUserId: c.get('userId'),
+            workspaceId: c.get('workspaceId'),
+          },
+          messages: chatMessages,
+          extraSystem: extraSystem || undefined,
+          metering,
+          executionCtx: c.executionCtx,
+        });
+        return result.toTextStreamResponse();
+      } catch (err) {
+        return error.internal(c, err instanceof Error ? err.message : 'AI request failed');
+      }
+    }
+
+    const modelId = model ?? recommended.copilot.free;
+    const systemPrompt = extraSystem ? `${WELDAGENT_SYSTEM}\n\n${extraSystem}` : WELDAGENT_SYSTEM;
 
     try {
       const credits = c.env.WORKSPACE_CACHE
@@ -335,8 +433,6 @@ app.post(
           console.error('[ai/chat/stream] model error:', streamErr);
         },
         onFinish: ({ usage }) => {
-          // Charge on the real token count once the stream completes. Keyed on the
-          // canonical modelId so the customer price is gateway-independent.
           const cost = providerCostUsd(modelId, usage) * (GATEWAY_FEE_MULTIPLIER[attempt.gateway] ?? 1);
           c.executionCtx.waitUntil(
             chargeAiUsage(metering, {

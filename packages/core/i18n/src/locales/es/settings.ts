@@ -970,12 +970,8 @@ export const settings = {
 
     welddesk: {
       title: 'WeldDesk',
-      description: 'Configura los ajustes de correo del helpdesk',
-      tabs: {
-        email: 'Correo',
-        tickets: 'Tickets',
-        helpcenter: 'Centro de Ayuda',
-      },
+      description: 'Chat para visitantes, correo de soporte, centro de ayuda y bandeja del agente.',
+      openChatWidget: 'Abrir widget de chat',
     },
 
     weldmail: {

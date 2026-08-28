@@ -24,6 +24,9 @@ interface TaskAssignmentParams<Env extends NotificationEnv> {
    *  with `env.PUBLIC_APP_URL` for the absolute link in the email
    *  template; in-app + push keep it as a path. */
   actionUrl: string;
+  /** WeldFlow project id — included in the Expo push `data` payload so the
+   *  mobile app can deep-link to `/task/{projectId}/{taskId}`. */
+  projectId?: string | null;
   /** Optional template enrichments — surfaced as Resend template variables
    *  (`project_name`, `task_priority`, `due_date`, `task_description`,
    *  `company_name`). Missing values fall back to empty strings so the
@@ -48,6 +51,7 @@ export async function sendTaskAssignmentNotification<Env extends NotificationEnv
     taskTitle,
     category,
     actionUrl,
+    projectId,
     projectName,
     taskPriority,
     dueDate,
@@ -113,6 +117,10 @@ export async function sendTaskAssignmentNotification<Env extends NotificationEnv
     severity: 'info',
     actorType: 'user',
     actorId: assignedByUserId,
+    data: {
+      taskId,
+      ...(projectId ? { projectId } : {}),
+    },
     emailTemplate: templateId
       ? {
           id: templateId,

@@ -1,6 +1,7 @@
-import { createFileRoute } from '@tanstack/react-router';
-import PageComponent from '@/app/welddesk/page';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/welddesk/')({
-  component: PageComponent,
+  beforeLoad: () => {
+    throw redirect({ to: '/welddesk/inbox' });
+  },
 });

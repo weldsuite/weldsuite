@@ -25,7 +25,8 @@ export default function SettingsScreen() {
   const { colors, theme, toggleTheme } = useTheme();
   const { user, signOut } = useClerkAuth();
   const { organization } = useOrganization();
-  const { isPermissionGranted, requestPermissions, openNotificationSettings } = useNotifications();
+  const { isPermissionGranted, requestPermissions, openNotificationSettings, unregisterDevice } =
+    useNotifications();
   const toast = useToast();
   const router = useRouter();
   const { t, language } = useI18n();
@@ -135,6 +136,7 @@ export default function SettingsScreen() {
         onConfirm={async () => {
           setConfirmSignOut(false);
           try {
+            await unregisterDevice();
             await signOut();
           } catch (err) {
             toast.error(err instanceof Error ? err.message : t.settings.signOutFailed);

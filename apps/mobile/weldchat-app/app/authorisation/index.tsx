@@ -6,6 +6,7 @@ export default function AuthScreen() {
       appName="WeldChat"
       subtitle="Team communication for your workspace"
       showEmailLogin={true}
+      accentColor="#2563eb"
     />
   );
 }

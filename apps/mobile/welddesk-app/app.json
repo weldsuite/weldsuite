@@ -17,7 +17,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#3B82F6"
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#1E8FF9"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.weldsuite.welddesk",
@@ -31,11 +32,15 @@
       [
         "expo-build-properties",
         {
+          "ios": {
+            "deploymentTarget": "17.0"
+          },
           "android": {
             "usesCleartextTraffic": true
           }
         }
       ],
+      "@clerk/expo",
       [
         "expo-splash-screen",
         {
@@ -52,7 +57,7 @@
         "expo-notifications",
         {
           "icon": "./assets/images/notification-icon.png",
-          "color": "#3B82F6"
+          "color": "#1E8FF9"
         }
       ]
     ],

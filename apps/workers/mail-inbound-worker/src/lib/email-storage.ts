@@ -9,9 +9,12 @@ import { eq, and, or, inArray, isNull, desc, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { getMasterDb, getTenantDbForWorkspaceById, masterSchema, tenantSchema } from '../db';
 import {
+  ingestDeskEmail,
+  isDeskSchemaMissing,
+} from '@weldsuite/db/lib/desk';
+import {
   publishNewEmailToUser,
-  publishWorkspaceMessageNew,
-  publishNewConversation,
+  publishDeskInbound,
 } from './realtime';
 import { sendNewEmailPushNotification } from './push-notifications';
 import { upsertContactsFromMailMessage } from './contact-upsert';
@@ -1110,25 +1113,9 @@ function generateId(prefix: string): string {
 }
 
 /**
- * Normalize email subject by stripping Re:/Fwd:/Fw: prefixes
- */
-function normalizeSubject(subject: string): string {
-  return subject.replace(/^(Re|Fwd|Fw):\s*/gi, '').trim();
-}
-
-/**
- * Generate a conversation number (simple counter-based)
- */
-function generateConversationNumber(): string {
-  const ts = Date.now().toString(36).toUpperCase();
-  const rand = Math.random().toString(36).substring(2, 5).toUpperCase();
-  return `E-${ts}${rand}`;
-}
-
-/**
- * Process inbound email for helpdesk conversations.
- * Helpdesk inbox emails are registered in mailAccountRegistry with accountId starting with 'helpdesk_'.
- * Creates or updates helpdesk conversations based on email threading.
+ * Process inbound email for WeldDesk conversations.
+ * Support inboxes are registered in mailAccountRegistry with accountId starting with 'helpdesk_'.
+ * Creates or updates slim desk_conversations (channel=email) based on email threading.
  */
 export async function processHelpdeskInboxEmail(
   env: Env,
@@ -1186,7 +1173,7 @@ export async function processHelpdeskInboxEmail(
         )
         .limit(1);
 
-      if (flagged.length > 0) {
+      if (flagged[0]) {
         helpdeskInboxes.push({
           email: reg.email,
           accountId: `helpdesk_mail_${flagged[0].id}`,
@@ -1209,258 +1196,43 @@ export async function processHelpdeskInboxEmail(
   for (const inbox of helpdeskInboxes) {
     try {
       const tenantDb = await getTenantDbForWorkspaceById(env, inbox.workspaceId);
-      const { helpdeskConversations, helpdeskConversationMessages } = tenantSchema;
+      const body = email.textBody || email.htmlBody || email.subject || '';
 
-      // Try to find existing conversation by email threading
-      let existingConversation: typeof helpdeskConversations.$inferSelect | null = null;
+      const { conversation, message, created } = await ingestDeskEmail(tenantDb, {
+        generateId,
+        fromName: email.from.name || null,
+        fromEmail: email.from.email,
+        toAddress: inbox.email,
+        subject: email.subject || '',
+        body,
+        rfcMessageId: email.messageId,
+        inReplyTo: email.inReplyTo,
+        references: email.references,
+        toEmails: email.to.map((t) => t.email),
+        ccEmails: email.cc.map((t) => t.email),
+      });
 
-      // 1. Match by email threading headers (In-Reply-To / References)
-      const lookupIds = [
-        ...(email.inReplyTo ? [email.inReplyTo] : []),
-        ...(email.references || []),
-      ];
+      conversationIds.push(conversation.id);
+      console.log(
+        `[HelpdeskInbox] ${created ? 'Created' : 'Updated'} desk conversation ${conversation.id} from email`,
+      );
 
-      if (lookupIds.length > 0) {
-        // Search conversations where lastEmailMessageId matches one of the references
-        for (const refId of lookupIds) {
-          const matches = await tenantDb
-            .select()
-            .from(helpdeskConversations)
-            .where(
-              and(
-                isNull(helpdeskConversations.deletedAt),
-                eq(helpdeskConversations.channel, 'email'),
-                sql`${helpdeskConversations.metadata}->>'lastEmailMessageId' = ${refId}`
-              )
-            )
-            .limit(1);
-
-          if (matches.length > 0) {
-            existingConversation = matches[0];
-            console.log(`[HelpdeskInbox] Found conversation ${existingConversation.id} by Message-ID reference`);
-            break;
-          }
+      try {
+        if (!inbox.clerkOrgId) {
+          console.warn(`[HelpdeskInbox] Workspace ${inbox.workspaceId} has no clerkOrgId — skipping realtime publish`);
+        } else {
+          await publishDeskInbound(env, inbox.clerkOrgId, {
+            conversation,
+            message,
+            created,
+            preview: body.substring(0, 200),
+            senderName: email.from.name || email.from.email,
+          });
         }
-
-        // Also check emailThreadMessageId (root of thread)
-        if (!existingConversation) {
-          for (const refId of lookupIds) {
-            const matches = await tenantDb
-              .select()
-              .from(helpdeskConversations)
-              .where(
-                and(
-                  isNull(helpdeskConversations.deletedAt),
-                  eq(helpdeskConversations.channel, 'email'),
-                  sql`${helpdeskConversations.metadata}->>'emailThreadMessageId' = ${refId}`
-                )
-              )
-              .limit(1);
-
-            if (matches.length > 0) {
-              existingConversation = matches[0];
-              console.log(`[HelpdeskInbox] Found conversation ${existingConversation.id} by thread root Message-ID`);
-              break;
-            }
-          }
-        }
+      } catch (notifyErr) {
+        console.error(`[HelpdeskInbox] Failed to publish desk realtime:`, notifyErr);
       }
 
-      // 2. Fallback: match by customerEmail + normalized subject
-      if (!existingConversation) {
-        const normalized = normalizeSubject(email.subject);
-        if (normalized) {
-          const subjectMatches = await tenantDb
-            .select()
-            .from(helpdeskConversations)
-            .where(
-              and(
-                isNull(helpdeskConversations.deletedAt),
-                eq(helpdeskConversations.channel, 'email'),
-                eq(helpdeskConversations.customerEmail, email.from.email.toLowerCase()),
-                eq(helpdeskConversations.subject, normalized),
-                // Only match recent conversations (not ancient ones with same subject)
-                sql`${helpdeskConversations.lastMessageAt} > NOW() - INTERVAL '30 days'`
-              )
-            )
-            .orderBy(desc(helpdeskConversations.lastMessageAt))
-            .limit(1);
-
-          if (subjectMatches.length > 0) {
-            existingConversation = subjectMatches[0];
-            console.log(`[HelpdeskInbox] Found conversation ${existingConversation.id} by subject+email fallback`);
-          }
-        }
-      }
-
-      const now = new Date();
-      const messageId = generateId('msg');
-
-      if (existingConversation) {
-        // Add message to existing conversation
-        await tenantDb.insert(helpdeskConversationMessages).values({
-          id: messageId,
-          conversationId: existingConversation.id,
-          authorId: null,
-          authorName: email.from.name || email.from.email,
-          authorEmail: email.from.email,
-          authorType: 'customer',
-          content: email.textBody || email.htmlBody || '',
-          htmlContent: email.htmlBody,
-          plainContent: email.textBody,
-          type: 'message',
-          isPublic: true,
-          isInternal: false,
-          status: 'sent',
-          isRead: false,
-          hasAttachments: email.hasAttachments,
-          metadata: {
-            emailMessageId: email.messageId,
-            emailFrom: email.from.email,
-            emailTo: email.to.map(t => t.email),
-            emailCc: email.cc.map(t => t.email),
-            emailSubject: email.subject,
-          },
-          createdAt: now,
-          updatedAt: now,
-        });
-
-        // Update conversation
-        const existingMetadata = (existingConversation.metadata as Record<string, unknown>) || {};
-        const existingRefs = (existingMetadata.emailReferences as string[]) || [];
-        const updatedReferences = [...existingRefs, email.messageId].slice(-50);
-
-        await tenantDb
-          .update(helpdeskConversations)
-          .set({
-            lastMessage: (email.textBody || email.subject).substring(0, 500),
-            lastMessageAt: now,
-            lastCustomerMessageAt: now,
-            messageCount: sql`${helpdeskConversations.messageCount} + 1`,
-            unreadCount: sql`COALESCE(${helpdeskConversations.unreadCount}, 0) + 1`,
-            isRead: false,
-            status: existingConversation.status === 'resolved' || existingConversation.status === 'closed'
-              ? 'active'
-              : existingConversation.status,
-            metadata: {
-              ...existingMetadata,
-              lastEmailMessageId: email.messageId,
-              emailReferences: updatedReferences,
-            },
-            updatedAt: now,
-          })
-          .where(eq(helpdeskConversations.id, existingConversation.id));
-
-        conversationIds.push(existingConversation.id);
-        console.log(`[HelpdeskInbox] Added message to conversation ${existingConversation.id}`);
-
-        // Publish workspace-wide message notification so inbox lists update
-        try {
-          if (!inbox.clerkOrgId) {
-            console.warn(`[HelpdeskInbox] Workspace ${inbox.workspaceId} has no clerkOrgId — skipping realtime publish`);
-          } else {
-            await publishWorkspaceMessageNew(env, inbox.clerkOrgId, {
-              conversationId: existingConversation.id,
-              preview: (email.textBody || email.htmlBody || '').substring(0, 200),
-              senderName: email.from.name || email.from.email,
-              timestamp: now.toISOString(),
-            });
-          }
-        } catch (notifyErr) {
-          console.error(`[HelpdeskInbox] Failed to publish message notification:`, notifyErr);
-        }
-      } else {
-        // Create new conversation
-        const conversationId = generateId('conv');
-        const conversationNumber = generateConversationNumber();
-        const normalizedSubject = normalizeSubject(email.subject) || email.subject;
-
-        await tenantDb.insert(helpdeskConversations).values({
-          id: conversationId,
-          conversationNumber,
-          customerName: email.from.name || email.from.email,
-          customerEmail: email.from.email.toLowerCase(),
-          subject: normalizedSubject,
-          preview: (email.textBody || email.subject).substring(0, 200),
-          lastMessage: (email.textBody || email.subject).substring(0, 500),
-          status: 'active',
-          priority: 'medium',
-          channel: 'email',
-          source: 'email',
-          messageCount: 1,
-          unreadCount: 1,
-          lastMessageAt: now,
-          lastCustomerMessageAt: now,
-          isRead: false,
-          isStarred: false,
-          isArchived: false,
-          hasAttachments: email.hasAttachments,
-          metadata: {
-            emailThreadMessageId: email.messageId,
-            emailReferences: [email.messageId],
-            helpdeskEmailAddress: inbox.email,
-            lastEmailMessageId: email.messageId,
-          },
-          createdAt: now,
-          updatedAt: now,
-        });
-
-        // Create first message
-        await tenantDb.insert(helpdeskConversationMessages).values({
-          id: messageId,
-          conversationId,
-          authorId: null,
-          authorName: email.from.name || email.from.email,
-          authorEmail: email.from.email,
-          authorType: 'customer',
-          content: email.textBody || email.htmlBody || '',
-          htmlContent: email.htmlBody,
-          plainContent: email.textBody,
-          type: 'message',
-          isPublic: true,
-          isInternal: false,
-          status: 'sent',
-          isRead: false,
-          hasAttachments: email.hasAttachments,
-          metadata: {
-            emailMessageId: email.messageId,
-            emailFrom: email.from.email,
-            emailTo: email.to.map(t => t.email),
-            emailCc: email.cc.map(t => t.email),
-            emailSubject: email.subject,
-          },
-          createdAt: now,
-          updatedAt: now,
-        });
-
-        conversationIds.push(conversationId);
-        console.log(`[HelpdeskInbox] Created new conversation ${conversationId} from email`);
-
-        // Publish new conversation event to workspace (all agents)
-        try {
-          if (!inbox.clerkOrgId) {
-            console.warn(`[HelpdeskInbox] Workspace ${inbox.workspaceId} has no clerkOrgId — skipping realtime publish`);
-          } else {
-            await publishNewConversation(env, inbox.clerkOrgId, {
-              id: conversationId,
-              conversationId,
-              conversationNumber,
-              subject: normalizedSubject,
-              customerName: email.from.name || email.from.email,
-              customerEmail: email.from.email,
-              preview: (email.textBody || email.subject).substring(0, 200),
-              channel: 'email',
-              status: 'active',
-              createdAt: now.toISOString(),
-              lastMessageAt: now.toISOString(),
-            });
-          }
-        } catch (notifyErr) {
-          console.error(`[HelpdeskInbox] Failed to publish new conversation event:`, notifyErr);
-        }
-      }
-      // Upsert sender + cc addresses as shared contacts so helpdesk customers
-      // get the same default-avatar treatment that mail and CRM contacts do.
       try {
         await upsertContactsFromMailMessage(env, inbox.workspaceId, inbox.clerkOrgId ?? null, {
           from: email.from,
@@ -1474,6 +1246,12 @@ export async function processHelpdeskInboxEmail(
         );
       }
     } catch (err) {
+      if (isDeskSchemaMissing(err)) {
+        console.error(
+          `[HelpdeskInbox] WeldDesk schema is not applied for workspace ${inbox.workspaceId}. Run tenant migration 0185_welddesk_webchat.`,
+        );
+        continue;
+      }
       console.error(`[HelpdeskInbox] Failed to process for workspace ${inbox.workspaceId}:`, err);
     }
   }

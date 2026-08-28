@@ -24,6 +24,11 @@ module.exports = defineConfig([
     files: ['**/*.ts', '**/*.tsx'],
     plugins: { '@typescript-eslint': tsPlugin },
     rules: {
+      // eslint-config-expo@57 enables react-hooks/set-state-in-effect, which
+      // flags the standard Expo Router mount-fetch pattern (useEffect → load()
+      // → setState). Sibling mobile apps on eslint-config-expo@10 do not ship
+      // this rule; keep parity until screens move to a shared data layer.
+      'react-hooks/set-state-in-effect': 'off',
       '@typescript-eslint/no-unused-vars': [
         'warn',
         {

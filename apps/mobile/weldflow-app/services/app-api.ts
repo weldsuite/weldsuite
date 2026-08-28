@@ -28,6 +28,8 @@
  */
 
 import { createClientApi, buildQueryString } from '@weldsuite/api-client/client';
+import { createPushTokensApi } from '@weldsuite/app-api-client/domains/push-tokens';
+import { createNotificationsApi } from '@weldsuite/app-api-client/domains/notifications';
 import type {
   DataResponse,
   ListResponse,
@@ -147,6 +149,8 @@ const weldflow = {
 
 export const appApi = {
   weldflow,
+  pushTokens: createPushTokensApi(client),
+  notifications: createNotificationsApi(client),
 };
 
 /**

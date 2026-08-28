@@ -736,6 +736,16 @@ export const common = {
           general: { label: 'General', description: 'Name, description, and icon for this agent.' },
           instructions: { label: 'Instructions', description: 'Define what the agent does, when it triggers, and what actions it takes.' },
           tools: { label: 'Tools', description: 'Pick the tools this agent can call when it runs.' },
+          permissions: {
+            label: 'Platform permissions',
+            description: 'Grants control which platform tools this agent can call. The agent never exceeds these grants.',
+            unlockedTools: 'Tools unlocked',
+            none: 'none',
+          },
+          listening: {
+            label: 'Listening for',
+            empty: 'None (activate to extract)',
+          },
           triggers: { label: 'Triggers', description: 'Events and schedules that fire this agent automatically.' },
           usage: { label: 'Usage', description: 'Token consumption and budget for this agent.' },
           supervisor: { label: 'Supervisor', description: 'Let this agent delegate work to other agents.' },

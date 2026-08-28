@@ -37,7 +37,8 @@ export default function MoreScreen() {
   const router = useRouter();
   const { user, signOut } = useClerkAuth();
   const { organization } = useOrganization();
-  const { isPermissionGranted, requestPermissions, openNotificationSettings } = useNotifications();
+  const { isPermissionGranted, requestPermissions, openNotificationSettings, unregisterDevice } =
+    useNotifications();
   const toast = useToast();
   const { t } = useI18n();
   const [confirmSignOut, setConfirmSignOut] = useState(false);
@@ -170,6 +171,7 @@ export default function MoreScreen() {
         onConfirm={async () => {
           setConfirmSignOut(false);
           try {
+            await unregisterDevice();
             await signOut();
           } catch (err) {
             toast.error(err instanceof Error ? err.message : t.settings.signOutFailed);

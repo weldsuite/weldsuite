@@ -20,7 +20,7 @@ export function HelpdeskLayoutClient({ children }: HelpdeskLayoutClientProps) {
   const { t } = useI18n();
 
   return (
-    <BreadcrumbProvider defaultBreadcrumbs={[{ label: t.helpdesk.dashboard.helpdeskBreadcrumb, href: '/welddesk' }]}>
+    <BreadcrumbProvider defaultBreadcrumbs={[{ label: t.helpdesk.dashboard.helpdeskBreadcrumb, href: '/welddesk/inbox' }]}>
       <ComposeProvider>
         <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden">
           <HelpdeskHeader />

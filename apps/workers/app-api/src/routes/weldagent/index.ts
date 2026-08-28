@@ -30,6 +30,7 @@ import type { Env, Variables } from '../../types';
 import { error, success, noContent } from '../../lib/response';
 import { generateId } from '../../lib/id';
 import { schema } from '../../db';
+import { weldagentAgentsRoutes } from './agents';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -433,5 +434,7 @@ app.put('/settings', zValidator('json', weldAgentSettingsSchema), (c) => {
 
 /** GET /mentions/search — returns no results (mention search is disabled). */
 app.get('/mentions/search', (c) => success(c, []));
+
+app.route('/agents', weldagentAgentsRoutes);
 
 export const weldagentRoutes = app;

@@ -123,7 +123,7 @@ export function ArticleEditor({ article: initialArticle }: ArticleEditorProps) {
 
           if (isNewArticle) {
             setTimeout(() => {
-              router.push(`/welddesk/knowledge/${savedArticle.id}`);
+              router.push(`/welddesk/help-center/articles/${savedArticle.id}`);
             }, 500);
           }
         }
@@ -336,7 +336,7 @@ export function ArticleEditor({ article: initialArticle }: ArticleEditorProps) {
         variant="outline"
         size="sm"
         className="h-8 w-8 p-0"
-        onClick={() => router.push('/welddesk/knowledge')}
+        onClick={() => router.push('/welddesk/help-center/articles')}
       >
         <ChevronLeft className="h-4 w-4" />
       </Button>

@@ -20,7 +20,7 @@ export function HelpdeskHeader({ onWeldAgentToggle, onCalendarToggle, onNotifica
   if (contextBreadcrumbs.length > 0) {
     segments = contextBreadcrumbs;
   } else {
-    segments = [{ label: t.helpdesk.title, href: '/welddesk' }];
+    segments = [{ label: t.helpdesk.title, href: '/welddesk/inbox' }];
 
     // Build breadcrumbs from pathname
     const pathParts = pathname.split('/').filter(Boolean);
@@ -29,9 +29,11 @@ export function HelpdeskHeader({ onWeldAgentToggle, onCalendarToggle, onNotifica
         const part = pathParts[i];
         let label = part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, ' ');
 
-        // Custom labels for specific routes
         if (part === 'chat-widget') label = t.helpdesk.chatWidget.title;
-        if (part === 'weldagent') label = t.helpdesk.weldAgent.title;
+        if (part === 'inbox') label = t.navigation.moduleSidebar.welddesk.inbox;
+        if (part === 'email') label = t.navigation.moduleSidebar.welddesk.email;
+        if (part === 'help-center') label = t.navigation.moduleSidebar.welddesk.helpCenter;
+        if (part === 'articles') label = t.navigation.moduleSidebar.welddesk.articles;
 
         const href = '/' + pathParts.slice(0, i + 1).join('/');
         segments.push({ label, href });

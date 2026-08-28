@@ -2,25 +2,12 @@ import { ClerkProvider, ClerkLoaded, ClerkLoading, useOrganizationList } from '@
 import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import {
-  useFonts,
-  Inter_100Thin,
-  Inter_200ExtraLight,
-  Inter_300Light,
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-  Inter_800ExtraBold,
-  Inter_900Black,
-} from '@expo-google-fonts/inter';
 import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import * as SplashScreen from 'expo-splash-screen';
 import 'react-native-reanimated';
 
-import { applyInterAsDefaultFont } from '@/utils/inter-font';
 import { hideAppSplash } from '@/utils/splash';
 
 import { tokenCache } from '@clerk/expo/token-cache';
@@ -44,11 +31,8 @@ import { OfflineBanner } from '@/components/OfflineBanner';
 import { OutboxFlusher } from '@/components/OutboxFlusher';
 import { useMailRealtime } from '@/hooks/useMailRealtime';
 
-applyInterAsDefaultFont();
-
 // Keep the native splash until the inbox or an opened email has something to
-// paint. Labeled "Loading…" / "Initializing…" screens are what made a
-// notification tap feel unlike Gmail/Outlook.
+// paint — avoids a labeled loader flash on cold start / notification tap.
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
@@ -296,27 +280,10 @@ export default function RootLayout() {
   // background (see app.json `updates.checkAutomatically: ON_LOAD` +
   // `fallbackToCacheTimeout: 0`) and apply on the next process start.
 
-  const [fontsLoaded, fontError] = useFonts({
-    Inter_100Thin,
-    Inter_200ExtraLight,
-    Inter_300Light,
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
-    Inter_800ExtraBold,
-    Inter_900Black,
-  });
-
   useEffect(() => {
     const safety = setTimeout(() => hideAppSplash(), 5000);
     return () => clearTimeout(safety);
   }, []);
-
-  // Hold the native splash until fonts are ready.
-  if (!fontsLoaded && !fontError) {
-    return null;
-  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

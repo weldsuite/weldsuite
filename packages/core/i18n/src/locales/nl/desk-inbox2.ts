@@ -36,6 +36,7 @@ export const deskInbox2 = {
     unassignedBadge: 'Niet toegewezen',
     selectConversation: 'Gesprek selecteren',
     selectAll: 'Alles selecteren',
+    filter: 'Filter',
   },
   channel: {
     messenger: 'Messenger',
@@ -47,7 +48,7 @@ export const deskInbox2 = {
   },
   pane: {
     selectTitle: 'Selecteer een gesprek',
-    selectDescription: 'Kies een gesprek uit de lijst om de volledige tijdlijn te zien.',
+    selectDescription: 'Kies een gesprek uit de lijst om het te lezen',
     loadError: 'Gesprek laden mislukt',
     partsEmpty: 'Nog geen berichten',
     replyPlaceholder: 'Typ een antwoord…',
@@ -58,6 +59,7 @@ export const deskInbox2 = {
     ai: 'AI',
   },
   header: {
+    backToList: 'Terug naar de lijst',
     assign: 'Toewijzen',
     assignTooltip: 'Toewijzen (A)',
     assignTeammates: 'Teamleden',

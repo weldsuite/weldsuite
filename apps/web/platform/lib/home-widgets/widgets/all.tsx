@@ -11,12 +11,10 @@
 import type { ReactElement } from 'react';
 import { z } from 'zod';
 import {
-  BarChart3, MessageSquare, Slack, MessagesSquare,
-  MessageCircle, Calendar,
+  BarChart3, MessageSquare, MessageCircle, Calendar,
 } from 'lucide-react';
 import {
   AnalyticsCard,
-  DeskSlackCard, DeskDiscordCard,
   ChatCard, ChatDMsCard,
   CalendarCard, CalendarScheduleCard, CalendarFourDayCard, CalendarDayCard,
 } from '@/components/home/app-cards';
@@ -28,12 +26,7 @@ import { weldmailInboxWidget } from './weldmail-inbox';
 import { weldflowMyTasksWidget } from './weldflow-my-tasks';
 import { weldflowProjectsWidget } from './weldflow-projects';
 import { weldflowWorkloadWidget } from './weldflow-workload';
-import { welddeskTicketsWidget } from './welddesk-tickets';
-import { welddeskEmailsWidget } from './welddesk-emails';
 import { welddeskLiveChatWidget } from './welddesk-live-chat';
-import { welddeskAiActiveWidget } from './welddesk-ai-active';
-import { welddeskAiResolvedWidget } from './welddesk-ai-resolved';
-import { welddeskReviewsWidget } from './welddesk-reviews';
 import { weldcrmMyTasksWidget } from './weldcrm-my-tasks';
 import { weldcrmPipelineWidget } from './weldcrm-pipeline';
 import { weldcrmSequencesWidget } from './weldcrm-sequences';
@@ -70,12 +63,7 @@ export const allWidgets: HomeWidgetDefinition[] = [
   weldflowMyTasksWidget as unknown as HomeWidgetDefinition,
   weldflowProjectsWidget as unknown as HomeWidgetDefinition,
   weldflowWorkloadWidget as unknown as HomeWidgetDefinition,
-  welddeskTicketsWidget as unknown as HomeWidgetDefinition,
-  welddeskEmailsWidget as unknown as HomeWidgetDefinition,
   welddeskLiveChatWidget as unknown as HomeWidgetDefinition,
-  welddeskAiActiveWidget as unknown as HomeWidgetDefinition,
-  welddeskAiResolvedWidget as unknown as HomeWidgetDefinition,
-  welddeskReviewsWidget as unknown as HomeWidgetDefinition,
   weldcrmMyTasksWidget as unknown as HomeWidgetDefinition,
   weldcrmPipelineWidget as unknown as HomeWidgetDefinition,
   weldcrmSequencesWidget as unknown as HomeWidgetDefinition,
@@ -92,8 +80,6 @@ export const allWidgets: HomeWidgetDefinition[] = [
   // Wiring these needs custom backend work (analytics aggregator, slack/discord
   // feed, chat-activity composer) or substantial date/grouping logic (calendar).
   wrap('analytics-activity', 'analytics', BarChart3, () => <AnalyticsCard isDemo />) as unknown as HomeWidgetDefinition,
-  wrap('welddesk-slack', 'welddesk', Slack, () => <DeskSlackCard isDemo />) as unknown as HomeWidgetDefinition,
-  wrap('welddesk-discord', 'welddesk', MessagesSquare, () => <DeskDiscordCard isDemo />) as unknown as HomeWidgetDefinition,
   wrap('weldchat-activity', 'weldchat', MessageSquare, () => <ChatCard isDemo />) as unknown as HomeWidgetDefinition,
   wrap('weldchat-dms', 'weldchat', MessageCircle, () => <ChatDMsCard isDemo />) as unknown as HomeWidgetDefinition,
   wrap('weldcalendar-week', 'weldcalendar', Calendar, () => <CalendarCard isDemo />) as unknown as HomeWidgetDefinition,

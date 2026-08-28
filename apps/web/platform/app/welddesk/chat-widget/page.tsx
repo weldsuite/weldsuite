@@ -1,6 +1,6 @@
 
 import { useState, useCallback, useMemo } from 'react';
-import { useWidgetsList, useCreateWidget, useDeleteWidget } from '@/hooks/queries/use-helpdesk-queries';
+import { useDeskWidgets, useCreateDeskWidget, useDeleteDeskWidget } from '@/hooks/queries/use-desk-queries';
 import { Button } from '@weldsuite/ui/components/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@weldsuite/ui/components/dialog';
 import { Input } from '@weldsuite/ui/components/input';
@@ -24,18 +24,12 @@ interface Widget {
   createdAt: string;
 }
 
-interface RawWidget {
-  widgetId?: string;
-  widgetName?: string;
-  createdAt?: string | Date;
-}
-
 export default function ChatWidgetPage() {
   const { t } = useI18n();
   const tw = t.helpdesk.chatWidget;
-  const { data, isLoading } = useWidgetsList();
-  const createWidget = useCreateWidget();
-  const deleteWidget = useDeleteWidget();
+  const { data, isLoading } = useDeskWidgets();
+  const createWidget = useCreateDeskWidget();
+  const deleteWidget = useDeleteDeskWidget();
   const navigate = useNavigate();
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -43,7 +37,7 @@ export default function ChatWidgetPage() {
   const [newWidgetName, setNewWidgetName] = useState('');
 
   const widgets: Widget[] = useMemo(() =>
-    (data?.data ?? []).map((w: RawWidget) => ({
+    (data?.data ?? []).map((w) => ({
       id: w.widgetId || '',
       widgetId: w.widgetId || '',
       widgetName: w.widgetName || tw.unnamedWidget,
@@ -55,7 +49,7 @@ export default function ChatWidgetPage() {
   const handleCreate = async () => {
     try {
       const result = await createWidget.mutateAsync({ widgetName: newWidgetName || tw.newWidget });
-      if (result.success && result.data?.widgetId) {
+      if (result.data?.widgetId) {
         setShowCreateDialog(false);
         setNewWidgetName('');
         toast.success(tw.widgetCreated);

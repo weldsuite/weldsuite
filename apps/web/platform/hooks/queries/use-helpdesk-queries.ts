@@ -3,7 +3,18 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 import type { AuditLogEntry } from '@/components/audit-timeline';
-import type { HelpcenterSettingsData, HelpcenterDomain } from '@/app/welddesk/helpcenter/helpcenter-settings-client';
+
+interface HelpcenterSettingsData {
+  id?: string;
+  isEnabled?: number;
+  [key: string]: unknown | undefined;
+}
+
+interface HelpcenterDomain {
+  id: string;
+  domain: string;
+  isVerified: boolean;
+}
 
 // =============================================================================
 // app-api envelopes + legacy compatibility adapters

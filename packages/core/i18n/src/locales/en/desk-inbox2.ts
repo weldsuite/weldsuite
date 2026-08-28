@@ -43,6 +43,7 @@ export const deskInbox2 = {
     unassignedBadge: 'Unassigned',
     selectConversation: 'Select conversation',
     selectAll: 'Select all',
+    filter: 'Filter',
   },
   channel: {
     messenger: 'Messenger',
@@ -54,7 +55,7 @@ export const deskInbox2 = {
   },
   pane: {
     selectTitle: 'Select a conversation',
-    selectDescription: 'Choose a conversation from the list to see the full timeline.',
+    selectDescription: 'Choose a conversation from the list to read it',
     loadError: 'Failed to load conversation',
     partsEmpty: 'No messages yet',
     replyPlaceholder: 'Type a reply…',
@@ -65,6 +66,7 @@ export const deskInbox2 = {
     ai: 'AI',
   },
   header: {
+    backToList: 'Back to list',
     assign: 'Assign',
     assignTooltip: 'Assign (A)',
     assignTeammates: 'Teammates',

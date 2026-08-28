@@ -76,12 +76,6 @@ const RAW_MIGRATION: ReadonlyArray<readonly [string, string, string, readonly st
   ['welddesk', 'departments',   'departments',   ['read', 'create', 'update', 'delete', 'manage']],
   ['welddesk', 'slas',          'slas',          ['read', 'create', 'update', 'delete', 'manage']],
   ['welddesk', 'settings',      'settings',      ['read', 'update', 'manage']],
-  // WeldDesk v2 (Intercom rebuild) objects
-  ['welddesk', 'inboxes',       'inboxes',       ['read', 'create', 'update', 'delete', 'manage']],
-  ['welddesk', 'workflows',     'helpdesk-workflows', ['read', 'create', 'update', 'delete']],
-  ['welddesk', 'macros',        'macros',        ['read', 'create', 'update', 'delete']],
-  ['welddesk', 'news',          'news',          ['read', 'create', 'update', 'delete']],
-  ['welddesk', 'ai',            'helpdesk-ai',   ['read', 'update', 'manage']],
 
   // ── weldparcel ──────────────────────────────────────────────────────────
   ['weldparcel', 'orders',   'orders',   ['read', 'create', 'update', 'delete']],

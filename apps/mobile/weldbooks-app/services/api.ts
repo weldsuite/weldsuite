@@ -636,7 +636,10 @@ class WeldBooksApi {
    * `fileKey` to attach to a document record.
    */
   async uploadFile(localUri: string, fileName: string, mimeType = 'image/jpeg'): Promise<string> {
-    const blob = await (await fetch(localUri)).blob();
+    const fileRes = await fetch(localUri);
+    if (!fileRes.ok) throw new Error('Could not read the photo');
+    const bytes = await fileRes.arrayBuffer();
+    if (bytes.byteLength === 0) throw new Error('The photo file is empty');
 
     const ticket = await client.post<{
       success: boolean;
@@ -646,16 +649,20 @@ class WeldBooksApi {
     }>('/storage/generate-upload-url', {
       fileName,
       contentType: mimeType,
-      fileSize: blob.size,
+      fileSize: bytes.byteLength,
       folder: 'accounting-documents',
       entityType: 'accounting-document',
     });
+    if (!ticket?.uploadUrl || !ticket?.fileKey) {
+      throw new Error('Upload URL unavailable');
+    }
 
     // The upload URL is token-authenticated and takes no Clerk header.
+    // Send the ArrayBuffer — React Native Blobs often report size 0 and PUT empty.
     const upload = await fetch(ticket.uploadUrl, {
       method: 'PUT',
       headers: { 'Content-Type': mimeType },
-      body: blob,
+      body: bytes,
     });
     if (!upload.ok) throw new Error(`Upload failed (${upload.status})`);
 

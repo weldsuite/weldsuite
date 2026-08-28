@@ -99,3 +99,30 @@ export {
 
 // Ticket-type dynamic-form fields → custom_field_definitions sync (Pile B).
 export { syncTicketTypeDefinitions } from './custom-field-ticket-types';
+
+// WeldDesk webchat — single append-message choke point.
+export {
+  appendDeskMessage,
+  createDeskConversation,
+  findOpenConversationForVisitor,
+  findDeskVisitorByEmail,
+  findDeskConversationByRfcMessageIds,
+  findOpenEmailConversationByEmail,
+  findRecentEmailConversation,
+  getDeskConversation,
+  getDeskEmailReplyContext,
+  ingestDeskEmail,
+  listDeskConversations,
+  listDeskMessages,
+  normalizeEmailSubject,
+  normalizeRfcMessageId,
+  stampDeskMessageEmailId,
+  upsertDeskVisitor,
+  DeskConversationNotFoundError,
+  isDeskSchemaMissing,
+  type AppendDeskMessageInput,
+  type CreateDeskConversationInput,
+  type DeskEmailReplyContext,
+  type IngestDeskEmailInput,
+  type ListDeskConversationsQuery,
+} from './desk';

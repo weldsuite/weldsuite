@@ -1,226 +1,127 @@
-/**
- * ChatView — The main chat experience.
- *
- * Architecture:
- *   1. Welcome flow renders client-side until customer engages
- *   2. On first interaction → create conversation → connect RoomClient
- *   3. All subsequent messages arrive via RoomClient WebSocket (no SSE, no polling)
- *   4. On reopen → load history from DB + connect RoomClient
- */
-
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { useConversation } from '@/hooks/use-conversation';
-import { useWelcomeFlow } from '@/hooks/use-welcome-flow';
 import { useWidgetConfig } from '@/providers/widget-config-provider';
 import { useCustomer } from '@/providers/customer-provider';
+import { widgetApi } from '@/lib/api/client';
 import { WidgetShell } from './widget-shell';
 import { useMessagesScroll } from '@/hooks/use-messages-scroll';
 
 interface ChatViewProps {
-  initialConversationId?: string | null;
-  realtimeUrl?: string;
-  onBack: () => void;
   onClose?: () => void;
-  onConversationCreated?: (id: string) => void;
 }
 
-export function ChatView({
-  initialConversationId,
-  realtimeUrl,
-  onBack,
-  onConversationCreated,
-  onClose,
-}: ChatViewProps) {
+export function ChatView({ onClose }: ChatViewProps) {
   const config = useWidgetConfig();
   const customer = useCustomer();
   const [inputValue, setInputValue] = useState('');
-  const { messagesEndRef, scrollToBottom } = useMessagesScroll();
+  const { messagesEndRef } = useMessagesScroll();
+  const identified = Boolean(customer.email);
 
   const {
-    conversationId,
     messages,
     isLoading,
-    isClosed,
     isCreating,
+    isClosed,
     typing,
+    send,
     startTyping,
     stopTyping,
-    send,
-    respondToChoice,
-    respondToInput,
-    respondToCsat,
-    createConversation,
-    assignedAgent,
-    streamingMessage,
-    triggerWorkflow,
-  } = useConversation(initialConversationId || null, {
+  } = useConversation({
     widgetId: config.widgetId,
-    customerId: customer.customerId,
-    customerName: customer.name || customer.visitorName,
-    customerEmail: customer.email || undefined,
-    realtimeUrl,
-    onConversationCreated,
+    name: customer.name || customer.visitorName,
+    email: customer.email,
+    realtimeUrl: config.realtimeUrl,
   });
 
-  // Welcome flow — renders bot messages client-side until conversation exists
-  const { welcomeMessages, isShowingWelcome, isWelcomeTyping, resetWelcome, updateWelcomeMessage } =
-    useWelcomeFlow({
-      workflow: config.welcomeWorkflow,
-      isOpen: true,
-      hasConversation: !!conversationId,
-      botAgent: config.botAgent,
+  const [nameDraft, setNameDraft] = useState(customer.name || '');
+  const [emailDraft, setEmailDraft] = useState(customer.email || '');
+  const submitted = useRef(false);
+
+  const handleIdentify = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!emailDraft.trim()) return;
+    customer.setEmail(emailDraft.trim());
+    if (nameDraft.trim()) customer.setName(nameDraft.trim());
+    submitted.current = true;
+    void widgetApi.identify(config.widgetId, {
+      visitorId: customer.visitorId,
+      name: nameDraft.trim() || undefined,
+      email: emailDraft.trim(),
     });
+  };
 
-  // Simple display logic:
-  // - No conversation → show client-side welcome preview
-  // - Conversation exists → show real messages (loaded from creation response or DB)
-  const displayMessages = conversationId ? messages : welcomeMessages;
-
-  // Typing indicator
-  const hasStreamingMessage = displayMessages.some(
-    (m) => (m.metadata as Record<string, unknown>)?.isStreaming,
-  );
-  const isTyping = !hasStreamingMessage && (typing.isTyping || isWelcomeTyping || isCreating);
-  const botAgentForShell = config.botAgent
-    ? { name: config.botAgent.name, avatar: config.botAgent.avatarUrl }
-    : undefined;
-
-  // Scroll on new messages
-  useEffect(() => {
-    setTimeout(() => scrollToBottom(), 50);
-  }, [displayMessages.length, scrollToBottom]);
-
-  // ==========================================================================
-  // Handlers
-  // ==========================================================================
-
-  const handleSend = useCallback(async () => {
-    if (!inputValue.trim()) return;
-    const content = inputValue;
+  const handleSend = () => {
+    const body = inputValue.trim();
+    if (!body) return;
     setInputValue('');
-    stopTyping();
+    void send(body);
+  };
 
-    await send(content);
-    setTimeout(() => scrollToBottom(), 100);
-  }, [inputValue, send, stopTyping, scrollToBottom]);
-
-  const handleInputChange = useCallback((value: string) => {
-    setInputValue(value);
-    if (value.trim()) {
-      startTyping();
-    } else {
-      stopTyping();
-    }
-  }, [startTyping, stopTyping]);
-
-  const handleChoiceSelect = useCallback(async (
-    messageId: string,
-    optionId: string,
-    value: string,
-  ) => {
-    // Welcome preview choice — create conversation first
-    if (!conversationId && messageId.startsWith('welcome-wf-')) {
-      const newConvId = await createConversation();
-      if (!newConvId) return;
-      resetWelcome();
-      // Trigger created workflow — bot responses arrive via RoomClient
-      await triggerWorkflow('created');
-      return;
-    }
-
-    await respondToChoice(messageId, optionId, value);
-    setTimeout(() => scrollToBottom(), 100);
-  }, [conversationId, createConversation, resetWelcome, respondToChoice, triggerWorkflow, scrollToBottom]);
-
-  const handleInputSubmit = useCallback(async (
-    messageId: string,
-    data: Record<string, string>,
-  ) => {
-    // Welcome preview form — create conversation with customer data
-    if (!conversationId && messageId.startsWith('welcome-wf-')) {
-      if (data.email) customer.setEmail(data.email);
-      if (data.name) customer.setName(data.name);
-
-      // Mark the form as submitted in the local welcome message (unlocks the input box)
-      const msg = welcomeMessages.find(m => m.id === messageId);
-      if (msg) {
-        updateWelcomeMessage(messageId, {
-          metadata: { ...(msg.metadata || {}), submittedData: data, respondedAt: new Date().toISOString() },
-        });
-      }
-
-      // Persist bot messages with submitted data in metadata
-      const formStepId = (welcomeMessages.find(wm => wm.id === messageId)?.metadata as Record<string, unknown>)?.workflowStepId;
-      const botMessages = welcomeMessages
-        .filter(m => m.sender === 'agent')
-        .map((m) => {
-          const meta = (m.metadata || {}) as Record<string, unknown>;
-          const isFormStep = meta.interactiveType === 'collect_input' && meta.workflowStepId === formStepId;
-          return {
-            content: m.content,
-            sender: 'agent' as const,
-            senderName: m.senderName,
-            metadata: isFormStep
-              ? { ...meta, submittedData: data, respondedAt: new Date().toISOString() }
-              : meta,
-          };
-        });
-
-      const newConvId = await createConversation({
-        welcomeMessages: botMessages,
-        customerEmail: data.email || customer.email || undefined,
-        customerName: data.name || customer.name || undefined,
-      });
-
-      // Trigger conversation_created workflow — bot/AI responses arrive via RoomClient
-      if (newConvId) {
-        triggerWorkflow('created', undefined, newConvId);
-      }
-      // Don't resetWelcome() — welcome messages stay visible
-      return;
-    }
-
-    await respondToInput(messageId, data);
-    setTimeout(() => scrollToBottom(), 100);
-  }, [conversationId, createConversation, customer, welcomeMessages, respondToInput, scrollToBottom]);
-
-  const handleCsatSubmit = useCallback(async (
-    messageId: string,
-    rating: number,
-    feedback?: string,
-  ) => {
-    await respondToCsat(messageId, rating, feedback);
-  }, [respondToCsat]);
-
-  // ==========================================================================
-  // Render
-  // ==========================================================================
+  if (!identified && !submitted.current) {
+    return (
+      <div className="flex flex-col h-full bg-white">
+        <div className="px-4 py-3 text-white" style={{ backgroundColor: config.primaryColor }}>
+          <div className="flex items-center justify-between">
+            <p className="font-medium">Chat with us</p>
+            {onClose && (
+              <button type="button" onClick={onClose} className="text-white/80 hover:text-white text-sm">
+                Close
+              </button>
+            )}
+          </div>
+        </div>
+        <form onSubmit={handleIdentify} className="flex-1 p-4 space-y-3">
+          <p className="text-sm text-gray-600">{config.greeting}</p>
+          <label className="block text-sm">
+            <span className="text-gray-700">Name</span>
+            <input
+              className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              placeholder="Your name"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="text-gray-700">Email</span>
+            <input
+              required
+              type="email"
+              className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+              value={emailDraft}
+              onChange={(e) => setEmailDraft(e.target.value)}
+              placeholder="you@example.com"
+            />
+          </label>
+          <button
+            type="submit"
+            className="w-full rounded-md py-2 text-sm text-white"
+            style={{ backgroundColor: config.primaryColor }}
+          >
+            Start chat
+          </button>
+        </form>
+      </div>
+    );
+  }
 
   return (
     <WidgetShell
-      messages={displayMessages}
-      isTyping={isTyping}
-      typingAgent={typing.agent}
-      isLoadingMessages={isLoading}
+      messages={messages}
+      isTyping={typing}
+      isLoadingMessages={isLoading || isCreating}
       messagesEndRef={messagesEndRef}
       inputValue={inputValue}
-      onInputChange={handleInputChange}
-      onSend={handleSend}
-      connectionState={conversationId ? 'connected' : 'disconnected'}
-      assignedAgent={assignedAgent}
-      botAgent={botAgentForShell}
-      disableBackNavigation={config.disableBackNavigation}
-      parentOrigin={config.parentOrigin}
-      onBack={onBack}
+      onInputChange={(v) => {
+        setInputValue(v);
+        if (v) startTyping();
+        else stopTyping();
+      }}
+      onSend={() => handleSend()}
       onClose={onClose}
+      disableBackNavigation
       isConversationClosed={isClosed}
-      onChoiceSelect={handleChoiceSelect}
-      onInputSubmit={handleInputSubmit}
-      onCsatSubmit={handleCsatSubmit}
-      replyTimeText={config.replyTimeText}
-      isWithinOfficeHours={config.isWithinOfficeHours}
       showBranding={config.showBranding}
-      themeSettings={config.themeSettings}
+      parentOrigin={config.parentOrigin}
     />
   );
 }

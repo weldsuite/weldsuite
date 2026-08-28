@@ -43,6 +43,7 @@ export const deskInbox2 = {
     unassignedBadge: 'Sin asignar',
     selectConversation: 'Seleccionar conversación',
     selectAll: 'Seleccionar todo',
+    filter: 'Filtro',
   },
   channel: {
     messenger: 'Messenger',
@@ -54,7 +55,7 @@ export const deskInbox2 = {
   },
   pane: {
     selectTitle: 'Selecciona una conversación',
-    selectDescription: 'Elige una conversación de la lista para ver la cronología completa.',
+    selectDescription: 'Elige una conversación de la lista para leerla',
     loadError: 'Error al cargar la conversación',
     partsEmpty: 'Aún no hay mensajes',
     replyPlaceholder: 'Escribe una respuesta…',
@@ -65,6 +66,7 @@ export const deskInbox2 = {
     ai: 'IA',
   },
   header: {
+    backToList: 'Volver a la lista',
     assign: 'Asignar',
     assignTooltip: 'Asignar (A)',
     assignTeammates: 'Compañeros',

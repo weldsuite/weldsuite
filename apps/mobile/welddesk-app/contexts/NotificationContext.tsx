@@ -5,7 +5,8 @@ import Constants from 'expo-constants';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useRouter } from 'expo-router';
 
-const EAS_PROJECT_ID = process.env.EXPO_PUBLIC_EAS_PROJECT_ID || '';
+const EAS_PROJECT_ID =
+  Constants.expoConfig?.extra?.eas?.projectId || process.env.EXPO_PUBLIC_EAS_PROJECT_ID || '';
 const APP_CODE = 'welddesk';
 
 // Push notifications are not supported in Expo Go (SDK 53+).
@@ -122,7 +123,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           (response: any) => {
             const data = response.notification.request.content.data;
             if (data?.conversationId) {
-              router.push(`/ticket/${data.conversationId}`);
+              router.push(`/conversation/${data.conversationId}` as never);
             }
           }
         );

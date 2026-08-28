@@ -28,6 +28,8 @@ export function ConversationList({
   pageSize = 25,
   getPageUrl,
   emptyMessage,
+  isLoading,
+  footer,
 }: ConversationListProps) {
   const t = useTranslations();
   const resolvedEmptyMessage = emptyMessage ?? t('sweep.shared.noConversationsFound');
@@ -127,6 +129,10 @@ export function ConversationList({
             <p className="text-sm font-medium text-red-600 mb-1">{t('sweep.shared.failedToLoadMessages')}</p>
             <p className="text-xs text-gray-500 dark:text-muted-foreground max-w-xs text-center">{error}</p>
           </div>
+        ) : isLoading && isEmpty ? (
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
+          </div>
         ) : isEmpty ? (
           <div className="flex flex-col items-center justify-center py-20">
             <p className="text-sm text-gray-500 dark:text-muted-foreground">{resolvedEmptyMessage}</p>
@@ -159,6 +165,7 @@ export function ConversationList({
                 ))}
               </div>
             ))}
+            {footer}
           </div>
         )}
       </div>

@@ -95,4 +95,11 @@ export interface CreateNotificationParams<Env extends NotificationEnv = Notifica
    * channel here is subtractive: it can only turn a channel off, never on.
    */
   excludeChannels?: Array<keyof ChannelPreferences>;
+  /**
+   * Extra Expo push `data` fields (string values only — Expo payload
+   * requirement). Merged with the standard `actionUrl` / `entityType` /
+   * `entityId` / `notificationType` keys. Used for mobile deep links
+   * (e.g. `projectId` + `taskId` for WeldFlow).
+   */
+  data?: Record<string, string>;
 }

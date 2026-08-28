@@ -28,13 +28,21 @@ function generateNotificationId(): string {
  * other modules' apps — otherwise every device of every installed app gets
  * spammed (and each app's token belongs to a different EAS project). Falls back
  * to the unified app only.
+ *
+ * Legacy DB categories (`projects` / `task` / `crm` / `mail` / `helpdesk`) map
+ * onto the standalone module apps that register tokens under their appCode.
  */
 const CATEGORY_APP_CODES: Record<string, string[]> = {
   weldchat: ['weldchat', 'weldsuite'],
   welddesk: ['welddesk', 'weldsuite'],
+  helpdesk: ['welddesk', 'weldsuite'],
   weldmail: ['weldmail', 'weldsuite'],
+  mail: ['weldmail', 'weldsuite'],
   weldcrm: ['weldcrm', 'weldsuite'],
+  crm: ['weldcrm', 'weldsuite'],
   weldflow: ['weldflow', 'weldsuite'],
+  projects: ['weldflow', 'weldsuite'],
+  task: ['weldflow', 'weldsuite'],
   weldmeet: ['weldmeet', 'weldsuite'],
   weldbooks: ['weldbooks', 'weldsuite'],
 };
@@ -46,8 +54,7 @@ function appCodesForCategory(category: string): string[] {
 /**
  * Map a notification to the Android channel + priority it should ring on. Calls
  * route to the high-importance `incoming_call` channel; other WeldChat
- * notifications to `chat`. Channel ids must match those the client app creates;
- * we only emit them for categories whose channels we know (weldchat).
+ * notifications to `chat`. Channel ids must match those the client app creates.
  */
 function androidDelivery(
   category: string,
@@ -58,6 +65,12 @@ function androidDelivery(
   }
   if (category === 'weldchat') {
     return { channelId: 'chat', priority: 'default' };
+  }
+  if (category === 'weldmail' || category === 'mail') {
+    return { channelId: 'email', priority: 'default' };
+  }
+  if (category === 'weldflow' || category === 'projects' || category === 'task') {
+    return { channelId: 'weldflow', priority: 'default' };
   }
   return { priority: 'default' };
 }
@@ -87,6 +100,7 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
     actorId,
     emailTemplate,
     excludeChannels,
+    data: extraData,
   } = params;
 
   const channels = await getChannelPreferences(db, userId, category);
@@ -189,9 +203,23 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
           sound: 'default',
           ...(channelId ? { channelId } : {}),
           priority,
-          data: { actionUrl, entityType, entityId, notificationType },
+          data: {
+            actionUrl: actionUrl ?? '',
+            entityType: entityType ?? '',
+            entityId: entityId ?? '',
+            notificationType,
+            ...(extraData ?? {}),
+          },
         }));
-        await sendExpoPush(messages);
+        const { invalidTokens } = await sendExpoPush(messages);
+        // Drop DeviceNotRegistered tokens so we stop retrying dead devices.
+        const toDeactivate = invalidTokens.filter(Boolean);
+        if (toDeactivate.length > 0) {
+          await db
+            .update(schema.deviceTokens)
+            .set({ isActive: new Date(), updatedAt: new Date() })
+            .where(inArray(schema.deviceTokens.token, toDeactivate));
+        }
       }
     } catch (err) {
       console.error('[Notifications] Push send failed:', err);

@@ -104,17 +104,11 @@ export const navigation = {
       "executions": "[TRANSLATE] Executions"
     },
     "welddesk": {
-      "dashboard": "[TRANSLATE] Dashboard",
-      "analytics": "[TRANSLATE] Analytics",
+      "inbox": "[TRANSLATE] Inbox",
       "chatWidget": "[TRANSLATE] Chat Widget",
-      "knowledge": "[TRANSLATE] Knowledge",
-      "contacts": "[TRANSLATE] Contacts",
-      "reviews": "[TRANSLATE] Reviews",
-      "allTeams": "[TRANSLATE] All Teams",
-      "workflows": "[TRANSLATE] Workflows",
-      "weldagent": "WeldAgent",
-      "active": "[TRANSLATE] Active",
-      "resolved": "[TRANSLATE] Resolved"
+      "email": "[TRANSLATE] Email",
+      "helpCenter": "[TRANSLATE] Help Center",
+      "articles": "[TRANSLATE] Articles"
     },
     "weldmeet": {
       "newMeeting": "[TRANSLATE] New Meeting",

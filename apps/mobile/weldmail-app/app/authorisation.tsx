@@ -8,6 +8,7 @@ export default function AuthorisationScreen() {
       appName="WeldMail"
       subtitle="Professional email client"
       showEmailLogin={true}
+      accentColor="#F06543"
     />
   );
 }

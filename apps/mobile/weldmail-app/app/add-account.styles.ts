@@ -1,6 +1,7 @@
 import { StyleSheet } from 'react-native';
+import { BRAND } from '@/lib/brand';
 
-const ACCENT = '#f6663e';
+const ACCENT = BRAND;
 
 export const styles = StyleSheet.create({
   container: { flex: 1 },

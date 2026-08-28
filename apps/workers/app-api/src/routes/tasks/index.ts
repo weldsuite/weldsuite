@@ -460,6 +460,8 @@ function dispatchAssignmentNotifications(
   const userId = c.get('userId');
   const workspaceId = c.get('workspaceId');
   const category: 'projects' | 'crm' = opts.projectId ? 'projects' : 'crm';
+  // Web in-app opens the project task list; mobile push uses projectId/taskId
+  // from the Expo data payload for a direct `/task/{projectId}/{taskId}` deep link.
   const actionUrl = opts.projectId
     ? `/weldflow/project/${opts.projectId}/tasks`
     : `/weldcrm/tasks`;
@@ -506,6 +508,7 @@ function dispatchAssignmentNotifications(
             taskTitle: opts.taskTitle,
             category,
             actionUrl,
+            projectId: opts.projectId,
             projectName,
             taskPriority: opts.taskPriority ?? null,
             dueDate: opts.dueDate ?? null,

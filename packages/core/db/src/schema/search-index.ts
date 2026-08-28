@@ -26,9 +26,7 @@ import {
  * per searchable table: adding a new searchable entity becomes a registry entry
  * in the search service, not a fresh migration across every tenant.
  *
- * Companion to `desk_article_embeddings` (desk-ai.ts), which tracks the same
- * chunk/content-hash bookkeeping for the WeldDesk answer pipeline. This table
- * is the platform-wide equivalent and stores the vectors inline.
+ * Platform-wide semantic index; stores vectors inline in the tenant DB.
  */
 export const searchIndex = pgTable(
   'search_index',

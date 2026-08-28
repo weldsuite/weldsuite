@@ -101,7 +101,7 @@ export const weldsuiteHome = {
     'weldflow-workload': { title: 'Workload', description: 'Team availability and utilization over a rolling window.' },
     'welddesk-tickets': { title: 'Open tickets', description: 'WeldDesk tickets filtered by department, priority and assignee.' },
     'welddesk-emails': { title: 'Helpdesk emails', description: 'Recent emails received in WeldDesk mailboxes.' },
-    'welddesk-live-chat': { title: 'Live chat', description: 'Active and waiting live-chat conversations.' },
+    'welddesk-live-chat': { title: 'Inbox', description: 'Open visitor conversations from the chat widget.' },
     'welddesk-slack': { title: 'Slack support', description: 'Recent Slack support channel messages.' },
     'welddesk-discord': { title: 'Discord support', description: 'Recent Discord support channel messages.' },
     'welddesk-ai-active': { title: 'AI agent — active', description: 'Conversations currently handled by your AI agents.' },

@@ -27,6 +27,13 @@ describe('generateId', () => {
       expect(generateId('person').length).toBeLessThanOrEqual(30);
       expect(generateId('tkt').length).toBeLessThanOrEqual(30);
       expect(generateId('inv').length).toBeLessThanOrEqual(30);
+      expect(generateId('dwgt').length).toBeLessThanOrEqual(30);
+    }
+  });
+
+  it('widget ids fit in varchar(40)', () => {
+    for (let i = 0; i < 50; i++) {
+      expect(generateId('widget').length).toBeLessThanOrEqual(40);
     }
   });
 });

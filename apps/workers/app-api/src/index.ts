@@ -17,7 +17,9 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { initPermissionMiddleware, createDrizzlePermissionQueries } from '@weldsuite/permissions/server';
+import { registerWeldAgentEventRunner } from '@weldsuite/entity-events';
 import { getMasterDb, schema } from './db';
+import { dispatchWeldAgentsForEvent } from './services/weldagent/dispatch';
 import { requestId } from './middleware/request-id';
 import { clerkMiddleware } from './middleware/clerk';
 import { workspaceDbMiddleware } from './middleware/workspace-db';
@@ -71,9 +73,7 @@ import { crmAnalyticsRoutes } from './routes/crm-analytics';
 import { customerStatusesRoutes } from './routes/customer-statuses';
 import { conversationsRoutes } from './routes/conversations';
 import { deskConversationsRoutes } from './routes/desk-conversations';
-import { deskTeamsRoutes, deskTeammatesRoutes } from './routes/desk-teams';
-import { deskViewsRoutes } from './routes/desk-views';
-import { deskMacrosRoutes } from './routes/desk-macros';
+import { deskWidgetRoutes } from './routes/desk-widget';
 import { cycleCountsRoutes } from './routes/cycle-counts';
 import { documentsRoutes } from './routes/documents';
 import { driveRoutes } from './routes/drive';
@@ -292,6 +292,18 @@ import { webhooksMeetingBotRoutes } from './routes/webhooks-meeting-bot';
 import { realtimeRegisterWebhookRoutes } from './routes/webhooks-realtime-register';
 import { workingHoursRoutes } from './routes/working-hours';
 import type { Env, Variables } from './types';
+
+// Register entity-event → workspace agent dispatch (no dedicated queue needed).
+registerWeldAgentEventRunner(async (payload) => {
+  await dispatchWeldAgentsForEvent(payload.env as Env, payload.db as never, {
+    workspaceId: payload.workspaceId,
+    userId: payload.userId,
+    entityType: payload.entityType,
+    action: payload.action,
+    entityId: payload.entityId,
+    data: payload.data,
+  });
+});
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -548,10 +560,7 @@ app.route('/api/crm-analytics', crmAnalyticsRoutes);
 app.route('/api/customer-statuses', customerStatusesRoutes);
 app.route('/api/conversations', conversationsRoutes);
 app.route('/api/desk/conversations', deskConversationsRoutes);
-app.route('/api/desk/teams', deskTeamsRoutes);
-app.route('/api/desk/teammates', deskTeammatesRoutes);
-app.route('/api/desk/views', deskViewsRoutes);
-app.route('/api/desk/macros', deskMacrosRoutes);
+app.route('/api/desk/widget', deskWidgetRoutes);
 app.route('/api/cycle-counts', cycleCountsRoutes);
 app.route('/api/documents', documentsRoutes);
 app.route('/api/drive', driveRoutes);

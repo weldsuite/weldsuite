@@ -197,47 +197,45 @@ export function ArticleViewer({ article }: ArticleViewerProps) {
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Header — matches edit page toolbar design */}
-      <div className="bg-background sticky top-0 z-10 w-full border-b">
-        <div className="flex items-center gap-2 px-3 py-2 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 w-8 p-0"
-              onClick={() => router.push('/welddesk/knowledge')}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-          </div>
-          <div className="flex items-center gap-2 ml-auto flex-shrink-0">
-            <Badge className={cn(
-              "text-xs font-medium capitalize rounded-sm border-transparent",
-              article.status === 'draft' && 'bg-yellow-50 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400',
-              article.status === 'published' && 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400',
-              article.status === 'archived' && 'bg-gray-50 text-gray-700 dark:bg-gray-900/20 dark:text-gray-400',
-              article.status === 'review' && 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400',
-              article.status === 'outdated' && 'bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400',
-            )}>
-              {article.status}
-            </Badge>
-            <Button
-              size="sm"
-              onClick={() => router.push(`/welddesk/knowledge/${article.id}/edit`)}
-            >
-              {t.helpdesk.actions.edit}
-            </Button>
-          </div>
+      <div className="flex items-center justify-between px-4 h-[53px] border-b border-gray-200 dark:border-border bg-white dark:bg-background flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 w-8 p-0"
+            onClick={() => router.push('/welddesk/help-center/articles')}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="flex items-center gap-2 ml-auto flex-shrink-0">
+          <Badge className={cn(
+            "text-xs font-medium capitalize rounded-sm border-transparent",
+            article.status === 'draft' && 'bg-yellow-50 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400',
+            article.status === 'published' && 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400',
+            article.status === 'archived' && 'bg-gray-50 text-gray-700 dark:bg-gray-900/20 dark:text-gray-400',
+            article.status === 'review' && 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400',
+            article.status === 'outdated' && 'bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400',
+          )}>
+            {article.status}
+          </Badge>
+          <Button
+            size="sm"
+            className="h-8"
+            onClick={() => router.push(`/welddesk/help-center/articles/${article.id}/edit`)}
+          >
+            {t.helpdesk.actions.edit}
+          </Button>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <article className="max-w-4xl mx-auto px-8 py-12">
-          {/* Article Header */}
+        <article className="max-w-3xl mx-auto px-6 py-8">
           <header className="mb-8">
-            <h1 className="text-5xl font-bold mb-4">{article.title}</h1>
+            <h1 className="text-2xl font-semibold tracking-tight mb-3">{article.title}</h1>
 
             {article.excerpt && (
-              <p className="text-xl text-muted-foreground mb-6">{article.excerpt}</p>
+              <p className="text-sm text-muted-foreground mb-4">{article.excerpt}</p>
             )}
 
             {/* Metadata */}
@@ -274,22 +272,24 @@ export function ArticleViewer({ article }: ArticleViewerProps) {
 
           {/* Feedback Section */}
           <div className="mt-12 pt-8 border-t">
-            <h3 className="text-lg font-semibold mb-4">{t.helpdesk.helpArticles.wasArticleHelpful}</h3>
-            <div className="flex items-center gap-4">
+            <h3 className="text-sm font-medium mb-3">{t.helpdesk.helpArticles.wasArticleHelpful}</h3>
+            <div className="flex items-center gap-2">
               <Button
                 variant={isHelpful === true ? 'default' : 'outline'}
-                size="lg"
+                size="sm"
+                className="h-8"
                 onClick={() => handleHelpful(true)}
               >
-                <ThumbsUp className="h-5 w-5 mr-2" />
+                <ThumbsUp className="h-3.5 w-3.5 mr-1.5" />
                 {t.helpdesk.helpArticles.yes} {article.helpful !== undefined && `(${article.helpful})`}
               </Button>
               <Button
                 variant={isHelpful === false ? 'destructive' : 'outline'}
-                size="lg"
+                size="sm"
+                className="h-8"
                 onClick={() => handleHelpful(false)}
               >
-                <ThumbsDown className="h-5 w-5 mr-2" />
+                <ThumbsDown className="h-3.5 w-3.5 mr-1.5" />
                 {t.helpdesk.helpArticles.no} {article.notHelpful !== undefined && `(${article.notHelpful})`}
               </Button>
             </div>

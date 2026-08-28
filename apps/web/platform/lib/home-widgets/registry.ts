@@ -25,5 +25,6 @@ export function emptySlots(): [NullableSlot, NullableSlot] {
 }
 
 export function isWidgetEnabled(id: WidgetId): boolean {
-  return !HOME_WIDGETS[id].disabled;
+  const def = HOME_WIDGETS[id];
+  return !!def && !def.disabled;
 }

@@ -3,7 +3,7 @@
  * scanned invoice or receipt.
  *
  * Rebuilt on `@weldsuite/ai` (Cloudflare AI Gateway) after the agent-worker
- * teardown. A vision-capable model reads the image from R2 and returns
+ * teardown. Llama 4 Scout on Workers AI reads the image from R2 and returns
  * structured JSON; the document inbox and the mobile scan flow both consume
  * that result to pre-fill a bill.
  *
@@ -13,9 +13,8 @@
 import {
   assertGatewayConfigured,
   createWeldAI,
-  generateObject,
-  jsonSchema,
-  thirdParty,
+  generateText,
+  workersAi,
 } from '@weldsuite/ai';
 import type { Env } from '../types';
 import { assertAiCredits, chargeAiUsage, type AiMetering } from './ai/billing';
@@ -75,119 +74,12 @@ export class AccountingOcrError extends Error {
   }
 }
 
-/** Vision model — invoice OCR needs to actually see the page. */
-export const OCR_MODEL_ID = thirdParty.anthropic.sonnet;
+/** Workers AI vision model — routed through Cloudflare AI Gateway. */
+export const OCR_MODEL_ID = workersAi.llama4Scout;
 
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']);
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
-
-const ocrSchema = jsonSchema<{
-  vendor: {
-    name: string | null;
-    address: string | null;
-    taxNumber: string | null;
-    kvkNumber: string | null;
-    iban: string | null;
-    bic: string | null;
-  };
-  invoiceNumber: string | null;
-  invoiceDate: string | null;
-  dueDate: string | null;
-  currency: string | null;
-  lineItems: Array<{
-    description: string;
-    quantity: number | null;
-    unitPrice: number | null;
-    taxRate: number | null;
-    total: number | null;
-  }>;
-  subtotal: number | null;
-  taxBreakdown: Array<{ rate: number; taxableAmount: number; taxAmount: number }>;
-  totalTax: number | null;
-  total: number | null;
-  paymentReference: string | null;
-  iban: string | null;
-  confidence: { overall: number; fields: Record<string, number> };
-}>({
-  type: 'object',
-  properties: {
-    vendor: {
-      type: 'object',
-      properties: {
-        name: { type: ['string', 'null'] },
-        address: { type: ['string', 'null'] },
-        taxNumber: { type: ['string', 'null'] },
-        kvkNumber: { type: ['string', 'null'] },
-        iban: { type: ['string', 'null'] },
-        bic: { type: ['string', 'null'] },
-      },
-      required: ['name', 'address', 'taxNumber', 'kvkNumber', 'iban', 'bic'],
-      additionalProperties: false,
-    },
-    invoiceNumber: { type: ['string', 'null'] },
-    invoiceDate: { type: ['string', 'null'] },
-    dueDate: { type: ['string', 'null'] },
-    currency: { type: ['string', 'null'] },
-    lineItems: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          description: { type: 'string' },
-          quantity: { type: ['number', 'null'] },
-          unitPrice: { type: ['number', 'null'] },
-          taxRate: { type: ['number', 'null'] },
-          total: { type: ['number', 'null'] },
-        },
-        required: ['description', 'quantity', 'unitPrice', 'taxRate', 'total'],
-        additionalProperties: false,
-      },
-    },
-    subtotal: { type: ['number', 'null'] },
-    taxBreakdown: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          rate: { type: 'number' },
-          taxableAmount: { type: 'number' },
-          taxAmount: { type: 'number' },
-        },
-        required: ['rate', 'taxableAmount', 'taxAmount'],
-        additionalProperties: false,
-      },
-    },
-    totalTax: { type: ['number', 'null'] },
-    total: { type: ['number', 'null'] },
-    paymentReference: { type: ['string', 'null'] },
-    iban: { type: ['string', 'null'] },
-    confidence: {
-      type: 'object',
-      properties: {
-        overall: { type: 'number' },
-        fields: { type: 'object', additionalProperties: { type: 'number' } },
-      },
-      required: ['overall', 'fields'],
-      additionalProperties: false,
-    },
-  },
-  required: [
-    'vendor',
-    'invoiceNumber',
-    'invoiceDate',
-    'dueDate',
-    'currency',
-    'lineItems',
-    'subtotal',
-    'taxBreakdown',
-    'totalTax',
-    'total',
-    'paymentReference',
-    'iban',
-    'confidence',
-  ],
-  additionalProperties: false,
-});
+/** Keep the payload small enough for the gateway chat/completions body. */
+const MAX_IMAGE_BYTES = 4.5 * 1024 * 1024;
 
 const SYSTEM_PROMPT = `You are an expert bookkeeper extracting data from a photographed purchase invoice or till receipt (often Dutch or English).
 
@@ -200,7 +92,9 @@ Rules:
 - taxNumber is a VAT/BTW id (NL…B01). kvkNumber is a Dutch Chamber of Commerce number.
 - If a field is not visible or you are unsure, use null (or [] for lists).
 - confidence.overall is 0–1 for the extraction as a whole.
-- Do not invent line items. If you can only see a total, leave lineItems empty.`;
+- Do not invent line items. If you can only see a total, leave lineItems empty.
+- Reply with one JSON object only. No markdown fences. Shape:
+{"vendor":{"name":null,"address":null,"taxNumber":null,"kvkNumber":null,"iban":null,"bic":null},"invoiceNumber":null,"invoiceDate":null,"dueDate":null,"currency":"EUR","lineItems":[{"description":"","quantity":null,"unitPrice":null,"taxRate":null,"total":null}],"subtotal":null,"taxBreakdown":[{"rate":21,"taxableAmount":0,"taxAmount":0}],"totalTax":null,"total":null,"paymentReference":null,"iban":null,"confidence":{"overall":0}}`;
 
 export interface ProcessDocumentOcrParams {
   fileKey: string;
@@ -242,6 +136,12 @@ export async function processDocumentOcr(
       'The image is too large to read. Capture it again a bit closer or at lower quality.',
     );
   }
+  if (!looksLikeImage(bytes)) {
+    throw new AccountingOcrError(
+      'UNSUPPORTED_TYPE',
+      'That file is not a JPEG, PNG or WebP image. Take the photo again in the app.',
+    );
+  }
 
   let ai;
   try {
@@ -256,20 +156,18 @@ export async function processDocumentOcr(
 
   await assertAiCredits(params.metering);
 
+  const model = ai.model(OCR_MODEL_ID);
+
   try {
-    const result = await generateObject({
-      model: ai.model(OCR_MODEL_ID),
-      schema: ocrSchema,
+    const result = await generateText({
+      model,
       system: SYSTEM_PROMPT,
       messages: [
         {
           role: 'user',
           content: [
-            {
-              type: 'text',
-              text: 'Extract the invoice / receipt fields from this image.',
-            },
-            { type: 'image', image: bytes, mediaType: mimeType },
+            { type: 'text', text: 'Extract the invoice / receipt fields from this image.' },
+            { type: 'file', mediaType: mimeType, data: bytes },
           ],
         },
       ],
@@ -280,9 +178,10 @@ export async function processDocumentOcr(
       op: 'accounting-ocr',
       referenceId: params.documentId,
     });
-    return normalizeOcrResult(result.object);
+    return normalizeOcrResult(parseOcrJson(result.text));
   } catch (err) {
     if (err instanceof AccountingOcrError) throw err;
+    console.error('[accounting-ocr] request failed:', err instanceof Error ? err.message : err);
     throw new AccountingOcrError(
       'AI_REQUEST_FAILED',
       err instanceof Error ? err.message : 'OCR request failed',
@@ -447,4 +346,43 @@ function asIsoDate(value: unknown): string | null {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** JPEG / PNG / WebP / GIF magic bytes. HEIC labelled as jpeg is a common failure. */
+export function looksLikeImage(bytes: Uint8Array): boolean {
+  if (bytes.byteLength < 12) return false;
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return true; // JPEG
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return true; // PNG
+  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return true; // GIF
+  // RIFF....WEBP
+  if (
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Pull a JSON object out of a model reply that may wrap it in markdown fences. */
+export function parseOcrJson(text: string): Record<string, unknown> {
+  const trimmed = text.trim();
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const raw = (fenced ? fenced[1] : trimmed).trim();
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start === -1 || end <= start) {
+    throw new AccountingOcrError('AI_REQUEST_FAILED', 'The model did not return JSON.');
+  }
+  try {
+    return JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
+  } catch {
+    throw new AccountingOcrError('AI_REQUEST_FAILED', 'The model returned invalid JSON.');
+  }
 }

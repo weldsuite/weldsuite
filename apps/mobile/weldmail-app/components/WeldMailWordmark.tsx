@@ -1,12 +1,13 @@
 import React from 'react';
 import Svg, { Path } from 'react-native-svg';
+import { BRAND } from '@/lib/brand';
 
 const VIEWBOX_WIDTH = 1359.84;
 const VIEWBOX_HEIGHT = 189.74;
 const ASPECT = VIEWBOX_HEIGHT / VIEWBOX_WIDTH;
 
 const TEXT_COLOR = '#0f1726';
-const ICON_COLOR = '#f6663e';
+const ICON_COLOR = BRAND;
 
 /**
  * Full WeldMail wordmark (mail glyph + "WELDMAIL" text).
