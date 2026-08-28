@@ -432,56 +432,32 @@ export function MailProvider({ children }: { children: React.ReactNode }) {
     }
   }, [selectedAccount?.id, isUnifiedInbox, accounts.length, fetchLabels]);
 
-  const value = useMemo(
-    () => ({
-      labels,
-      mainLabels,
-      secondaryLabels,
-      customLabels,
-      selectedLabel,
-      setSelectedLabel,
-      accounts,
-      selectedAccount,
-      isUnifiedInbox,
-      selectAccount,
-      selectAccountById,
-      selectUnifiedInbox,
-      isLoading,
-      refreshLabels,
-      refreshAccounts,
-      updateLabelCount,
-      mailVersion,
-      refreshMail,
-      pendingNotificationEmailId,
-      expectNotificationEmail,
-      clearPendingNotificationEmail,
-    }),
-    [
-      labels,
-      mainLabels,
-      secondaryLabels,
-      customLabels,
-      selectedLabel,
-      accounts,
-      selectedAccount,
-      isUnifiedInbox,
-      selectAccount,
-      selectAccountById,
-      selectUnifiedInbox,
-      isLoading,
-      refreshLabels,
-      refreshAccounts,
-      updateLabelCount,
-      mailVersion,
-      refreshMail,
-      pendingNotificationEmailId,
-      expectNotificationEmail,
-      clearPendingNotificationEmail,
-    ],
-  );
-
   return (
-    <MailContext.Provider value={value}>
+    <MailContext.Provider
+      value={{
+        labels,
+        mainLabels,
+        secondaryLabels,
+        customLabels,
+        selectedLabel,
+        setSelectedLabel,
+        accounts,
+        selectedAccount,
+        isUnifiedInbox,
+        selectAccount,
+        selectAccountById,
+        selectUnifiedInbox,
+        isLoading,
+        refreshLabels,
+        refreshAccounts,
+        updateLabelCount,
+        mailVersion,
+        refreshMail,
+        pendingNotificationEmailId,
+        expectNotificationEmail,
+        clearPendingNotificationEmail,
+      }}
+    >
       {children}
     </MailContext.Provider>
   );

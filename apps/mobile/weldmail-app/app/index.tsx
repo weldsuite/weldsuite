@@ -1,30 +1,29 @@
 import { styles } from './index.styles';
 import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import {
+  StyleSheet,
   SectionList,
   TouchableOpacity,
   View,
   Text,
   Animated,
   RefreshControl,
-  Pressable,
-  StyleSheet,
+  ScrollView,
   useWindowDimensions,
   AppState,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import {
-  Star, Paperclip, PenLine, Menu, Search, File,
-  Trash2, Archive, Clock, Calendar, Clock4,
-  MailOpen, Pin, Inbox, SendHorizontal, Mail,
+  Star, Paperclip, Edit3, Menu, Search,File,
+  Trash2, Archive,Clock, Calendar, Clock4,
+  MailOpen, Pin,
+  SendHorizontal,
 } from 'lucide-react-native';
+import Svg, { Defs, Pattern as SvgPattern, Path as SvgPath, Rect as SvgRect, Circle as _SvgCircle,RadialGradient, Stop, Mask } from 'react-native-svg';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
-import { Chip } from '@weldsuite/mobile-ui/components/Chip';
-import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
-import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
 import { appApi } from '@/services/app-api';
 import { isNetworkError } from '@weldsuite/api-client/client';
 import { useMailCache } from '@/hooks/useMailCache';
@@ -39,11 +38,9 @@ import LabelPanel from '@/components/LabelPanel';
 import AccountMiniSidebar from '@/components/AccountMiniSidebar';
 import SnoozePickerModal from '@/components/SnoozePickerModal';
 import EmailDetailPanel from '@/components/EmailDetailPanel';
-import { Screen, ScreenHeader } from '@/components/screen';
-import { ListSkeleton } from '@/components/data-states';
 import { filterDisplayLabels, getLabelColor } from '@/utils/label-utils';
 import { useIsTablet } from '@/utils/tablet';
-import { ACCENTS, BRAND, BRAND_TINT, tint } from '@/lib/brand';
+import MaterialSpinner from '@/components/MaterialSpinner';
 import type { EmailListItem } from '@/types/mail';
 import {
   listContainsEmailId,
@@ -87,14 +84,14 @@ const SwipeableEmailItem = memo(({ item, onPress, onDelete, onArchive, onSnooze,
   const renderLeftActions = () => (
     <View style={styles.swipeActionsContainer}>
       <TouchableOpacity
-        style={[...swipeActionStyle, { backgroundColor: ACCENTS.unread }]}
+        style={[...swipeActionStyle, { backgroundColor: '#3B82F6' }]}
         onPress={() => { onToggleRead(item.id, !!item.isRead); swipeableRef.current?.close(); }}
       >
         <MailOpen size={swipeIconSize} color="#FFFFFF" />
         <Text style={[styles.swipeActionText, isTablet && { fontSize: 13 }]}>{item.isRead ? 'Unread' : 'Read'}</Text>
       </TouchableOpacity>
       <TouchableOpacity
-        style={[...swipeActionStyle, { backgroundColor: ACCENTS.pin }]}
+        style={[...swipeActionStyle, { backgroundColor: '#8B5CF6' }]}
         onPress={() => { onPin(item.id); swipeableRef.current?.close(); }}
       >
         <Pin size={swipeIconSize} color="#FFFFFF" />
@@ -106,21 +103,21 @@ const SwipeableEmailItem = memo(({ item, onPress, onDelete, onArchive, onSnooze,
   const renderRightActions = () => (
     <View style={styles.swipeActionsContainer}>
       <TouchableOpacity
-        style={[...swipeActionStyle, { backgroundColor: ACCENTS.snooze }]}
+        style={[...swipeActionStyle, { backgroundColor: '#F59E0B' }]}
         onPress={() => { onSnooze(item.id); swipeableRef.current?.close(); }}
       >
         <Clock size={swipeIconSize} color="#FFFFFF" />
         <Text style={[styles.swipeActionText, isTablet && { fontSize: 13 }]}>Snooze</Text>
       </TouchableOpacity>
       <TouchableOpacity
-        style={[...swipeActionStyle, { backgroundColor: ACCENTS.archive }]}
+        style={[...swipeActionStyle, { backgroundColor: '#3B82F6' }]}
         onPress={() => { onArchive(item.id); swipeableRef.current?.close(); }}
       >
         <Archive size={swipeIconSize} color="#FFFFFF" />
         <Text style={[styles.swipeActionText, isTablet && { fontSize: 13 }]}>Archive</Text>
       </TouchableOpacity>
       <TouchableOpacity
-        style={[...swipeActionStyle, { backgroundColor: ACCENTS.delete }]}
+        style={[...swipeActionStyle, { backgroundColor: '#EF4444' }]}
         onPress={() => { onDelete(item.id); swipeableRef.current?.close(); }}
       >
         <Trash2 size={swipeIconSize} color="#FFFFFF" />
@@ -148,12 +145,15 @@ const SwipeableEmailItem = memo(({ item, onPress, onDelete, onArchive, onSnooze,
         style={[
           styles.emailItem,
           {
-            backgroundColor: isSelected ? BRAND_TINT : colors.background,
-            borderBottomColor: colors.border,
+            backgroundColor: isSelected
+              ? (isDark ? '#1A2744' : '#E8F0FE')
+              : colors.background,
+            borderBottomColor: isDark ? '#35353B' : '#DBDEE3',
           },
         ]}
       >
         <View style={[styles.emailRow, isTablet && { paddingHorizontal: 20, paddingVertical: 14, gap: 14 }]}>
+          {/* Avatar + unread dot */}
           <View style={styles.avatarWrap}>
             <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
               <Text style={styles.avatarText}>
@@ -161,18 +161,22 @@ const SwipeableEmailItem = memo(({ item, onPress, onDelete, onArchive, onSnooze,
               </Text>
             </View>
             {!item.isRead && !isSelected && (
-              <View style={[styles.unreadDot, { backgroundColor: BRAND }]} />
+              <View style={styles.unreadDot} />
             )}
           </View>
 
+          {/* Content */}
           <View style={styles.emailContent}>
+            {/* Top row: sender + thread badge | icons + time */}
             <View style={styles.emailTop}>
               <View style={styles.senderRow}>
                 <Text
                   style={[
                     styles.senderName,
                     {
-                      color: item.isRead ? colors.mutedForeground : colors.text,
+                      color: item.isRead
+                        ? (isDark ? '#9CA3AF' : '#6B7280')
+                        : (isDark ? '#F9FAFB' : '#111827'),
                       fontWeight: item.isRead ? '500' : '600',
                     },
                   ]}
@@ -180,33 +184,36 @@ const SwipeableEmailItem = memo(({ item, onPress, onDelete, onArchive, onSnooze,
                 >
                   {senderName || 'Unknown'}
                 </Text>
-                {item.threadCount != null && item.threadCount > 1 && (
-                  <View style={[styles.threadCountBadge, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-                    <Text style={[styles.threadCountText, { color: colors.mutedForeground }]}>{item.threadCount}</Text>
+                {item.threadCount > 1 && (
+                  <View style={[styles.threadCountBadge, isDark && { backgroundColor: '#1F2937', borderColor: '#374151' }]}>
+                    <Text style={[styles.threadCountText, isDark && { color: '#9CA3AF' }]}>{item.threadCount}</Text>
                   </View>
                 )}
               </View>
               <View style={styles.emailMeta}>
                 {item.hasAttachments && (
-                  <Paperclip size={12} color={colors.muted} strokeWidth={2} />
+                  <Paperclip size={12} color="#9CA3AF" strokeWidth={2} />
                 )}
                 {pinned && (
-                  <Pin size={12} color={ACCENTS.pin} fill={ACCENTS.pin} strokeWidth={2} />
+                  <Pin size={12} color="#3B82F6" fill="#3B82F6" strokeWidth={2} />
                 )}
                 {item.isStarred && (
-                  <Star size={12} color={ACCENTS.star} fill={ACCENTS.star} strokeWidth={2} style={{ marginTop: -1.5 }} />
+                  <Star size={12} color="#EAB308" fill="#EAB308" strokeWidth={2} style={{ marginTop: -1.5 }} />
                 )}
-                <Text style={[styles.emailTime, { color: colors.muted }]}>
+                <Text style={[styles.emailTime, { color: '#9CA3AF' }]}>
                   {formatRowTime(item.receivedDate || item.createdAt)}
                 </Text>
               </View>
             </View>
 
+            {/* Subject */}
             <Text
               style={[
                 styles.subject,
                 {
-                  color: item.isRead ? colors.mutedForeground : colors.text,
+                  color: item.isRead
+                    ? (isDark ? '#9CA3AF' : '#6B7280')
+                    : (isDark ? '#F9FAFB' : '#1F2937'),
                   fontWeight: item.isRead ? '400' : '500',
                 },
               ]}
@@ -215,13 +222,22 @@ const SwipeableEmailItem = memo(({ item, onPress, onDelete, onArchive, onSnooze,
               {item.subject || '(No subject)'}
             </Text>
 
+            {/* Preview */}
             <Text
-              style={[styles.preview, { color: colors.mutedForeground }]}
+              style={[
+                styles.preview,
+                {
+                  color: isDark
+                    ? '#9CA3AF' /* dark: text-muted-foreground for both states */
+                    : (item.isRead ? '#9CA3AF' : '#6B7280'),
+                },
+              ]}
               numberOfLines={1}
             >
               {item.preview || item.snippet || ''}
             </Text>
 
+            {/* Label badges */}
             {(() => {
               const displayLabels = filterDisplayLabels(item.labels || []);
               if (displayLabels.length === 0) return null;
@@ -230,13 +246,13 @@ const SwipeableEmailItem = memo(({ item, onPress, onDelete, onArchive, onSnooze,
                   {displayLabels.slice(0, 3).map((labelName) => {
                     const color = getLabelColor(labelName, labelColorMap);
                     return (
-                      <View key={labelName} style={[styles.labelBadge, { backgroundColor: tint(color) }]}>
+                      <View key={labelName} style={[styles.labelBadge, { backgroundColor: color + '15' }]}>
                         <Text style={[styles.labelBadgeText, { color }]}>{labelName}</Text>
                       </View>
                     );
                   })}
                   {displayLabels.length > 3 && (
-                    <Text style={[styles.labelOverflow, { color: colors.muted }]}>
+                    <Text style={[styles.labelOverflow, { color: isDark ? '#6B7280' : '#9CA3AF' }]}>
                       +{displayLabels.length - 3}
                     </Text>
                   )}
@@ -244,9 +260,10 @@ const SwipeableEmailItem = memo(({ item, onPress, onDelete, onArchive, onSnooze,
               );
             })()}
 
-            {(item.unreadCount ?? 0) > 0 && (item.threadCount ?? 0) > 1 && (
-              <View style={[styles.labelBadge, { alignSelf: 'flex-start', marginTop: 6, backgroundColor: BRAND_TINT }]}>
-                <Text style={[styles.labelBadgeText, { color: BRAND }]}>{item.unreadCount} unread</Text>
+            {/* Multi-message unread pill */}
+            {item.unreadCount > 0 && item.threadCount > 1 && (
+              <View style={styles.unreadCountPill}>
+                <Text style={styles.unreadCountPillText}>{item.unreadCount} unread</Text>
               </View>
             )}
           </View>
@@ -313,10 +330,12 @@ export default function MailScreen() {
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [snackbar, setSnackbar] = useState<string | null>(null);
   const snackbarTranslateY = useRef(new Animated.Value(60)).current;
-  const snackbarTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const fabTranslateY = useRef(new Animated.Value(0)).current;
+  const snackbarTimerRef = useRef<NodeJS.Timeout>();
   // Opacity for the message list, cross-faded on every mailbox/label switch.
   const listOpacity = useRef(new Animated.Value(1)).current;
 
+  // Filter chips (WhatsApp-style)
   type FilterKey = 'all' | 'unread' | 'starred' | 'attachments';
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
   const filterChips: { key: FilterKey; label: string }[] = [
@@ -588,20 +607,26 @@ export default function MailScreen() {
     if (snackbarTimerRef.current) clearTimeout(snackbarTimerRef.current);
     setSnackbar(text);
     snackbarTranslateY.setValue(60);
-    Animated.spring(snackbarTranslateY, { toValue: 0, useNativeDriver: true, damping: 20, stiffness: 300 }).start();
+    fabTranslateY.setValue(0);
+    Animated.parallel([
+      Animated.spring(snackbarTranslateY, { toValue: 0, useNativeDriver: true, damping: 20, stiffness: 300 }),
+      Animated.spring(fabTranslateY, { toValue: -56, useNativeDriver: true, damping: 20, stiffness: 300 }),
+    ]).start();
     snackbarTimerRef.current = setTimeout(() => {
-      Animated.timing(snackbarTranslateY, { toValue: 60, duration: 250, useNativeDriver: true }).start(() =>
-        setSnackbar(null),
-      );
+      Animated.parallel([
+        Animated.timing(snackbarTranslateY, { toValue: 60, duration: 250, useNativeDriver: true }),
+        Animated.timing(fabTranslateY, { toValue: 0, duration: 250, useNativeDriver: true }),
+      ]).start(() => setSnackbar(null));
     }, duration);
-  }, [snackbarTranslateY]);
+  }, [snackbarTranslateY, fabTranslateY]);
 
   const dismissSnackbar = useCallback(() => {
     if (snackbarTimerRef.current) clearTimeout(snackbarTimerRef.current);
-    Animated.timing(snackbarTranslateY, { toValue: 60, duration: 200, useNativeDriver: true }).start(() =>
-      setSnackbar(null),
-    );
-  }, [snackbarTranslateY]);
+    Animated.parallel([
+      Animated.timing(snackbarTranslateY, { toValue: 60, duration: 200, useNativeDriver: true }),
+      Animated.timing(fabTranslateY, { toValue: 0, duration: 200, useNativeDriver: true }),
+    ]).start(() => setSnackbar(null));
+  }, [snackbarTranslateY, fabTranslateY]);
 
   // Show snackbar when returning from compose with draft saved
   useEffect(() => {
@@ -740,7 +765,8 @@ export default function MailScreen() {
     return 'Older';
   };
 
-  const groupEmailsByDate = useCallback((emails: EmailListItem[]) => {
+  const groupEmailsByDate = (emails: EmailListItem[]) => {
+    // Split pinned vs unpinned — pinned always go to the top in their own section.
     const pinned: EmailListItem[] = [];
     const unpinned: EmailListItem[] = [];
     emails.forEach(email => {
@@ -763,32 +789,17 @@ export default function MailScreen() {
     return pinned.length > 0
       ? [{ title: 'Pinned', data: pinned }, ...dateSections]
       : dateSections;
-  }, [isMessagePinned]);
+  };
 
-  const filteredMessages = useMemo(() => {
-    if (activeFilter === 'all') return messages;
-    return messages.filter((m: EmailListItem) => {
-      if (activeFilter === 'unread') return !m.isRead;
-      if (activeFilter === 'starred') {
-        return m.isStarred || (Array.isArray(m.labels) && m.labels.includes('STARRED'));
-      }
-      if (activeFilter === 'attachments') return !!m.hasAttachments;
-      return true;
-    });
-  }, [messages, activeFilter]);
+  const renderSectionHeader = ({ section }: { section: { title: string } }) => {
+    return (
+      <View style={[styles.sectionHeader, { backgroundColor: colors.background }]}>
+        <Text style={[styles.sectionHeaderText, isDark && { color: '#9CA3AF' }]}>{section.title}</Text>
+      </View>
+    );
+  };
 
-  const emailSections = useMemo(
-    () => groupEmailsByDate(filteredMessages),
-    [groupEmailsByDate, filteredMessages],
-  );
-
-  const renderSectionHeader = ({ section }: { section: { title: string } }) => (
-    <View style={[styles.sectionHeader, { backgroundColor: colors.background }]}>
-      <Text style={[styles.sectionHeaderText, { color: colors.mutedForeground }]}>{section.title}</Text>
-    </View>
-  );
-
-  const renderEmail = useCallback(({ item }: { item: EmailListItem }) => (
+  const renderEmail = ({ item }: { item: EmailListItem }) => (
     <SwipeableEmailItem
       item={item}
       onPress={handleEmailPress}
@@ -804,156 +815,338 @@ export default function MailScreen() {
       isSelected={isTablet && selectedEmailId === item.id}
       isDark={isDark}
     />
-  ), [
-    handleEmailPress, handleDelete, handleArchive, handleSnooze, handleToggleRead, handlePin,
-    isMessagePinned, colors, labelColorMap, isTablet, selectedEmailId, isDark,
-  ]);
+  );
 
-  const emptyStateContent: Record<string, { title: string; description: string; icon: React.ReactNode }> = useMemo(() => {
-    const muted = colors.muted;
-    return {
-      INBOX: { title: 'No emails yet', description: 'Your inbox is empty', icon: <Inbox size={40} color={muted} strokeWidth={1.5} /> },
-      SENT: { title: 'No sent emails', description: 'Messages you send appear here', icon: <SendHorizontal size={40} color={muted} strokeWidth={1.5} /> },
-      DRAFTS: { title: 'No drafts', description: 'Unfinished emails appear here', icon: <File size={40} color={muted} strokeWidth={1.5} /> },
-      STARRED: { title: 'No starred emails', description: 'Star emails to find them here', icon: <Star size={40} color={muted} strokeWidth={1.5} /> },
-      TRASH: { title: 'Trash is empty', description: 'Deleted emails end up here', icon: <Trash2 size={40} color={muted} strokeWidth={1.5} /> },
-      SPAM: { title: 'No spam', description: 'Hooray, no junk mail', icon: <Mail size={40} color={muted} strokeWidth={1.5} /> },
-      ARCHIVE: { title: 'No archived emails', description: 'Archived emails appear here', icon: <Archive size={40} color={muted} strokeWidth={1.5} /> },
-      ALL: { title: 'No emails', description: 'Nothing in this mailbox yet', icon: <Mail size={40} color={muted} strokeWidth={1.5} /> },
-      SNOOZED: { title: 'No snoozed emails', description: 'Snoozed emails reappear later', icon: <Clock4 size={40} color={muted} strokeWidth={1.5} /> },
-      SCHEDULED: { title: 'No scheduled emails', description: 'Scheduled sends appear here', icon: <Calendar size={40} color={muted} strokeWidth={1.5} /> },
-      IMPORTANT: { title: 'Nothing important', description: 'Important emails appear here', icon: <Mail size={40} color={muted} strokeWidth={1.5} /> },
-    };
-  }, [colors.muted]);
+  const emptyStateContent: Record<string, { title: string; subtitle: string; icon: React.ReactNode }> = useMemo(() => ({
+    INBOX: {
+      title: 'No emails yet',
+      subtitle: 'Your inbox is empty',
+      icon: (
+        <Svg width={100} height={100} viewBox="0 0 120 120" fill="none">
+          <SvgRect x={20} y={35} width={80} height={55} rx={4} fill={colors.background} stroke={colors.divider} strokeWidth={1} />
+          <SvgPath d="M20 90L52 65" stroke={colors.divider} strokeWidth={1} />
+          <SvgPath d="M100 90L68 65" stroke={colors.divider} strokeWidth={1} />
+          <SvgPath d="M20.5 38C20.5 36.3 21.8 35 23.5 35H96.5C98.2 35 99.5 36.3 99.5 38L60 64Z" fill={colors.divider} opacity={0.3} />
+          <SvgPath d="M20 35L60 64L100 35" stroke={colors.divider} strokeWidth={1} fill="none" />
+        </Svg>
+      ),
+    },
+    SENT: {
+      title: 'No sent emails',
+      subtitle: 'Messages you send appear here',
+      icon: (
+        <SendHorizontal size={56} color="#D5D5D5" strokeWidth={0.5} fill="#F3F3F3" />
+      ),
+    },
+    DRAFTS: {
+      title: 'No drafts',
+      subtitle: 'Unfinished emails appear here',
+      icon: (
+        <File size={56} color="#D5D5D5" strokeWidth={0.5} fill="#F3F3F3" />
+      ),
+    },
+    STARRED: {
+      title: 'No starred emails',
+      subtitle: 'Star emails to find them here',
+      icon: (
+        <Star size={56} color="#D5D5D5" strokeWidth={0.5} fill="#F3F3F3" />
+      ),
+    },
+    TRASH: {
+      title: 'Trash is empty',
+      subtitle: 'Deleted emails end up here',
+      icon: (
+        <Svg width={100} height={100} viewBox="0 0 120 120" fill="none">
+          {/* Bin body */}
+          <SvgPath d="M38 42L42 95H78L82 42" fill={colors.background} stroke={colors.divider} strokeWidth={1} />
+          <SvgPath d="M38 42L42 95H78L82 42" fill={colors.divider} opacity={0.08} />
+          {/* Lid */}
+          <SvgRect x={32} y={34} width={56} height={8} rx={2} fill={colors.background} stroke={colors.divider} strokeWidth={1} />
+          <SvgRect x={32} y={34} width={56} height={8} rx={2} fill={colors.divider} opacity={0.2} />
+          {/* Handle */}
+          <SvgPath d="M48 34V28H72V34" stroke={colors.divider} strokeWidth={1} fill="none" />
+          {/* Lines inside */}
+          <SvgPath d="M50 54V84" stroke={colors.divider} strokeWidth={1} opacity={0.5} />
+          <SvgPath d="M60 54V84" stroke={colors.divider} strokeWidth={1} opacity={0.5} />
+          <SvgPath d="M70 54V84" stroke={colors.divider} strokeWidth={1} opacity={0.5} />
+        </Svg>
+      ),
+    },
+    SPAM: {
+      title: 'No spam',
+      subtitle: 'Hooray, no junk mail',
+      icon: (
+        <Svg width={100} height={100} viewBox="0 0 120 120" fill="none">
+          {/* Shield shape */}
+          <SvgPath d="M60 20L95 38V68C95 82 78 96 60 100C42 96 25 82 25 68V38Z" fill={colors.background} stroke={colors.divider} strokeWidth={1} />
+          <SvgPath d="M60 20L95 38V68C95 82 78 96 60 100C42 96 25 82 25 68V38Z" fill={colors.divider} opacity={0.1} />
+          {/* Checkmark */}
+          <SvgPath d="M42 60L55 73L78 48" stroke={colors.divider} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+        </Svg>
+      ),
+    },
+    ARCHIVE: {
+      title: 'No archived emails',
+      subtitle: 'Archived emails appear here',
+      icon: (
+        <Svg width={100} height={100} viewBox="0 0 120 120" fill="none">
+          {/* Box lid */}
+          <SvgRect x={22} y={28} width={76} height={18} rx={3} fill={colors.background} stroke={colors.divider} strokeWidth={1} />
+          <SvgRect x={22} y={28} width={76} height={18} rx={3} fill={colors.divider} opacity={0.2} />
+          {/* Box body */}
+          <SvgPath d="M28 46V90C28 92.2 29.8 94 32 94H88C90.2 94 92 92.2 92 90V46" fill={colors.background} stroke={colors.divider} strokeWidth={1} />
+          <SvgPath d="M28 46V90C28 92.2 29.8 94 32 94H88C90.2 94 92 92.2 92 90V46" fill={colors.divider} opacity={0.06} />
+          {/* Down arrow into box */}
+          <SvgPath d="M60 55V78" stroke={colors.divider} strokeWidth={1.5} strokeLinecap="round" />
+          <SvgPath d="M50 70L60 80L70 70" stroke={colors.divider} strokeWidth={1.5} strokeLinecap="round" fill="none" />
+        </Svg>
+      ),
+    },
+    SNOOZED: {
+      title: 'No snoozed emails',
+      subtitle: 'Snoozed emails reappear later',
+      icon: (
+        <View style={{ backgroundColor: '#F3F3F3', borderRadius: 999, padding: 14 }}>
+          <Clock4 size={32} color="#D5D5D5" strokeWidth={1.5} />
+        </View>
+      ),
+    },
+    SCHEDULED: {
+      title: 'No scheduled emails',
+      subtitle: 'Scheduled sends appear here',
+      icon: (
+        <Calendar size={56} color="#D5D5D5" strokeWidth={0.5} fill="#F3F3F3" />
+      ),
+    },
+    IMPORTANT: {
+      title: 'Nothing important',
+      subtitle: 'Important emails appear here',
+      icon: (
+        <Svg width={100} height={100} viewBox="0 0 120 120" fill="none">
+          {/* Envelope */}
+          <SvgRect x={20} y={45} width={80} height={50} rx={4} fill={colors.background} stroke={colors.divider} strokeWidth={1} />
+          <SvgPath d="M20.5 48C20.5 46.3 21.8 45 23.5 45H96.5C98.2 45 99.5 46.3 99.5 48L60 72Z" fill={colors.divider} opacity={0.15} />
+          <SvgPath d="M20 45L60 72L100 45" stroke={colors.divider} strokeWidth={1} fill="none" />
+          {/* Bookmark/flag on top right */}
+          <SvgPath d="M75 15H95V50L85 42L75 50Z" fill={colors.background} stroke={colors.divider} strokeWidth={1} />
+          <SvgPath d="M75 15H95V50L85 42L75 50Z" fill={colors.divider} opacity={0.15} />
+        </Svg>
+      ),
+    },
+  }), [colors]);
 
   const renderEmptyState = () => {
     const content = emptyStateContent[selectedLabel] || {
       title: 'No emails',
-      description: 'Nothing here yet',
+      subtitle: 'Nothing here yet',
       icon: emptyStateContent.INBOX.icon,
     };
+
     return (
       <View style={styles.emptyContainer}>
-        <EmptyState icon={content.icon} title={content.title} description={content.description} />
+        <View style={styles.emptyIllustrationWrapper}>
+          <Svg width={220} height={155} style={StyleSheet.absoluteFill}>
+            <Defs>
+              <SvgPattern id="emptyGrid" width={24} height={24} patternUnits="userSpaceOnUse">
+                <SvgPath d="M 24 0 L 0 0 0 24" fill="none" stroke={colors.divider} strokeWidth={0.5} strokeDasharray="3 3" />
+              </SvgPattern>
+              <RadialGradient id="fadeRadial" cx="50%" cy="50%" rx="50%" ry="50%">
+                <Stop offset="0" stopColor="white" stopOpacity="1" />
+                <Stop offset="0.65" stopColor="white" stopOpacity="1" />
+                <Stop offset="1" stopColor="white" stopOpacity="0" />
+              </RadialGradient>
+              <Mask id="fadeMask">
+                <SvgRect width="100%" height="100%" fill="url(#fadeRadial)" />
+              </Mask>
+            </Defs>
+            <SvgRect width="100%" height="100%" fill="url(#emptyGrid)" mask="url(#fadeMask)" />
+          </Svg>
+          {content.icon}
+        </View>
+        <Text style={[styles.emptyText, { color: colors.text }]}>
+          {content.title}
+        </Text>
+        <Text style={[styles.emptySubtext, { color: colors.muted }]}>
+          {content.subtitle}
+        </Text>
       </View>
     );
   };
 
-  const openLabels = () => {
-    if (isTablet) setLabelPanelVisible(prev => !prev);
-    else setDrawerVisible(true);
-  };
-
-  const listHeader = (
-    <View style={[styles.listControls, { backgroundColor: colors.background, paddingHorizontal: 16, paddingTop: 8 }]}>
-      <Pressable
-        onPress={() => router.push('/search')}
-        accessibilityRole="button"
-        accessibilityLabel="Search mail"
-        style={({ pressed }) => [
-          {
-            flexDirection: 'row',
-            alignItems: 'center',
-            height: 40,
-            borderRadius: 12,
-            paddingHorizontal: 12,
-            gap: 10,
-            backgroundColor: colors.inputBackground,
-            opacity: pressed ? 0.85 : 1,
-          },
-        ]}
-      >
-        <Search size={18} color={colors.placeholder} strokeWidth={2.2} />
-        <Text style={{ flex: 1, fontSize: 15, color: colors.placeholder }}>Search</Text>
-      </Pressable>
-      <View style={styles.chipsRow}>
-        {filterChips.map(chip => (
-          <Chip
-            key={chip.key}
-            label={chip.label}
-            selected={activeFilter === chip.key}
-            onPress={() => setActiveFilter(chip.key)}
-          />
-        ))}
+  const emailListContent = loading ? (
+    // Full-screen centered loader — matches the auth/init loader in _layout.tsx
+    // so the spinner doesn't shift position between loading phases.
+    <View style={[styles.container, styles.centerContainer, { backgroundColor: colors.background }]}>
+      <View style={styles.loadingRow}>
+        <MaterialSpinner size={20} strokeWidth={2.6} color={isDark ? '#8AB4F8' : '#4285F4'} spinning />
+        <Text style={[styles.loadingTextInline, { color: colors.muted }]}>Loading emails...</Text>
       </View>
     </View>
-  );
-
-  const header = (
-    <ScreenHeader
-      title={currentLabelName}
-      leading={
-        <IconButton
-          icon={<Menu size={22} color={colors.text} strokeWidth={2.2} />}
-          accessibilityLabel="Open labels"
-          onPress={openLabels}
-        />
-      }
-      actions={
-        <>
-          <IconButton
-            icon={<PenLine size={20} color={colors.text} strokeWidth={2.2} />}
-            accessibilityLabel="Compose"
-            onPress={handleOpenCompose}
-          />
-          <IconButton
-            icon={
-              <View style={[styles.headerAvatar, { backgroundColor: selectedAccount ? getAvatarColor(selectedAccount.displayName) : colors.muted }]}>
-                <Text style={styles.headerAvatarText}>
-                  {selectedAccount?.displayName?.charAt(0).toUpperCase() || 'U'}
-                </Text>
-              </View>
-            }
-            accessibilityLabel="Settings"
-            onPress={() => router.push('/settings' as any)}
-          />
-        </>
-      }
-    />
-  );
-
-  // Keep the first paint minimal while mail loads — the full header chrome
-  // only mounts once we have a list to show (avoids a heavy tree during OTA boot).
-  const emailListContent = loading ? (
-    <Screen edges={isTablet ? [] : ['top']}>
-      <ListSkeleton />
-    </Screen>
   ) : (
-    <Screen header={header} edges={isTablet ? [] : ['top']} style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Outlook-style title bar: hamburger | title | search | avatar */}
+      <View style={[
+        styles.outlookHeader,
+        {
+          backgroundColor: colors.background,
+          paddingTop: insets.top + 6,
+          borderBottomColor: isDark ? '#2C2C2E' : '#E5E7EB',
+          borderBottomWidth: StyleSheet.hairlineWidth,
+        },
+        isTablet && { paddingHorizontal: 16 },
+      ]}>
+        <TouchableOpacity
+          onPress={() => {
+            if (isTablet) {
+              setLabelPanelVisible(prev => !prev);
+            } else {
+              setDrawerVisible(true);
+            }
+          }}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          style={styles.outlookHeaderIcon}
+        >
+          <Menu size={24} color={isDark ? '#E8EAED' : '#1F2937'} strokeWidth={2} style={{ marginTop: 1 }} />
+        </TouchableOpacity>
+
+        <Text style={[styles.outlookHeaderTitle, { color: colors.text }]} numberOfLines={1}>
+          {currentLabelName}
+        </Text>
+
+        <TouchableOpacity
+          onPress={() => router.push('/settings' as any)}
+          activeOpacity={0.8}
+          hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+          style={[styles.outlookHeaderAvatar, { backgroundColor: selectedAccount ? getAvatarColor(selectedAccount.displayName) : '#6B7280' }]}
+        >
+          <Text style={styles.outlookHeaderAvatarText}>
+            {selectedAccount?.displayName?.charAt(0).toUpperCase() || 'U'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Email List */}
       <Animated.View style={[styles.listRegion, { opacity: listOpacity }]}>
         <SectionList
-          sections={emailSections}
+          sections={groupEmailsByDate(
+            activeFilter === 'all'
+              ? messages
+              : messages.filter((m: EmailListItem) => {
+                  if (activeFilter === 'unread') return !m.isRead;
+                  if (activeFilter === 'starred') {
+                    return m.isStarred || (Array.isArray(m.labels) && m.labels.includes('STARRED'));
+                  }
+                  if (activeFilter === 'attachments') return !!m.hasAttachments;
+                  return true;
+                })
+          )}
           renderItem={renderEmail}
           renderSectionHeader={renderSectionHeader}
           keyExtractor={(item) => `email-${item.id}`}
           contentContainerStyle={styles.listContainer}
-          ListHeaderComponent={listHeader}
+          // Search + filter chips live inside the list so they scroll away and
+          // back with the content. They used to be siblings above the list,
+          // toggled by an onScroll threshold, which unmounted ~95px of layout on
+          // every crossing — that reflow made the rows jump ("glitchy" scroll)
+          // and spuriously engaged the pull-to-refresh at the top.
+          ListHeaderComponent={(
+            <View style={{ backgroundColor: colors.background }}>
+              {/* WhatsApp-style search field */}
+              <View style={[styles.waSearchContainer, { backgroundColor: colors.background }]}>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => router.push('/search')}
+                  style={[styles.waSearchBar, { backgroundColor: isDark ? '#333333' : '#F3F3F3' }]}
+                >
+                  <Search size={18} color={isDark ? '#818F99' : '#4D5C66'} strokeWidth={2.5} />
+                  <Text style={[styles.waSearchPlaceholder, { color: isDark ? '#818F99' : '#4D5C66' }]} numberOfLines={1}>
+                    Search
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* WhatsApp-style filter chips */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.waChipsRow}
+                style={{ backgroundColor: colors.background, flexGrow: 0, flexShrink: 0 }}
+              >
+                {filterChips.map(chip => {
+                  const selected = activeFilter === chip.key;
+                  return (
+                    <TouchableOpacity
+                      key={chip.key}
+                      onPress={() => setActiveFilter(chip.key)}
+                      activeOpacity={0.75}
+                      style={[
+                        styles.waChip,
+                        selected
+                          ? { backgroundColor: isDark ? '#FFFFFF' : '#111827' }
+                          : { backgroundColor: 'transparent', borderColor: isDark ? '#4A555C' : '#C7C7CC', borderWidth: StyleSheet.hairlineWidth },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.waChipText,
+                          {
+                            color: selected
+                              ? (isDark ? '#111827' : '#FFFFFF')
+                              : (isDark ? '#C8C8CB' : '#4D5C66'),
+                            fontWeight: selected ? '600' : '500',
+                          },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {chip.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
           ListEmptyComponent={renderEmptyState}
           showsVerticalScrollIndicator={false}
-          initialNumToRender={12}
-          maxToRenderPerBatch={10}
-          windowSize={7}
+          // Native drag-to-refresh — works reliably on both iOS and Android
+          // (the previous bounce-based custom pull never triggered on Android,
+          // which lacks negative overscroll offsets).
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
               onRefresh={handleRefresh}
-              tintColor={BRAND}
-              colors={[BRAND]}
-              progressBackgroundColor={colors.cardBackground}
+              tintColor={isDark ? '#8AB4F8' : '#4285F4'}
+              colors={[isDark ? '#8AB4F8' : '#4285F4']}
+              progressBackgroundColor={isDark ? '#1F1F23' : '#FFFFFF'}
             />
           }
           stickySectionHeadersEnabled={false}
         />
       </Animated.View>
 
+      {/* Floating Compose Button — Gmail extended FAB */}
+      <Animated.View style={[styles.fab, { backgroundColor: isDark ? '#8AB4F8' : '#C2E7FF', bottom: insets.bottom + 16, transform: [{ translateY: fabTranslateY }] }, isTablet && { right: 28 }]}>
+        <TouchableOpacity
+          onPress={handleOpenCompose}
+          activeOpacity={0.85}
+          style={styles.fabInner}
+        >
+          <Edit3 size={20} color={isDark ? '#1F1F23' : '#001D35'} strokeWidth={2} />
+          <Text style={[styles.fabLabel, { color: isDark ? '#1F1F23' : '#001D35' }]}>Compose</Text>
+        </TouchableOpacity>
+      </Animated.View>
+
+      {/* Snackbar — below FAB */}
       {snackbar && (
         <Animated.View style={[styles.snackbar, { bottom: insets.bottom + 8, transform: [{ translateY: snackbarTranslateY }] }]}>
           <Text style={styles.snackbarText}>{snackbar}</Text>
+          {/* Snooze undo */}
           {snackbar.startsWith('Snoozed') && (
             <TouchableOpacity onPress={handleSnoozeUndo} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Text style={[styles.snackbarAction, { color: BRAND }]}>Undo</Text>
+              <Text style={styles.snackbarAction}>Undo</Text>
             </TouchableOpacity>
           )}
+          {/* Draft discarded — undo re-saves */}
           {snackbar === 'Draft discarded' && (
             <TouchableOpacity
               onPress={async () => {
@@ -975,9 +1168,10 @@ export default function MailScreen() {
               }}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Text style={[styles.snackbarAction, { color: BRAND }]}>Undo</Text>
+              <Text style={styles.snackbarAction}>Undo</Text>
             </TouchableOpacity>
           )}
+          {/* Draft saved — discard deletes */}
           {snackbar === 'Draft saved' && (
             <TouchableOpacity
               onPress={async () => {
@@ -992,35 +1186,37 @@ export default function MailScreen() {
               }}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Text style={[styles.snackbarAction, { color: BRAND }]}>Discard</Text>
+              <Text style={styles.snackbarAction}>Discard</Text>
             </TouchableOpacity>
           )}
         </Animated.View>
       )}
 
+      {/* Snooze Picker Modal */}
       <SnoozePickerModal
         visible={snoozePickerVisible}
         onClose={() => { setSnoozePickerVisible(false); setSnoozeTargetId(null); }}
         onSelect={handleSnoozeSelect}
       />
-    </Screen>
+
+    </View>
   );
 
-  // While a notification tap is opening an email, don't paint the inbox.
-  // The native splash (or the email screen) stays up instead.
+  // Gmail/Outlook: while a notification tap is opening an email, don't paint
+  // the inbox. The native splash (or the email screen) stays up instead.
   if (!launchReady || openingEmailId) {
     return null;
   }
 
   if (isTablet) {
     return (
-      <View style={[styles.splitContainer, { backgroundColor: colors.background }]}>
+      <View style={styles.splitContainer}>
         <AccountMiniSidebar />
         <LabelPanel
           visible={labelPanelVisible}
           onLabelSelected={() => setLabelPanelVisible(false)}
         />
-        <View style={{ width: EMAIL_LIST_WIDTH_TABLET, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.border }}>
+        <View style={{ width: EMAIL_LIST_WIDTH_TABLET, borderRightWidth: 0.5, borderRightColor: '#E5E7EB' }}>
           {emailListContent}
         </View>
         <EmailDetailPanel
