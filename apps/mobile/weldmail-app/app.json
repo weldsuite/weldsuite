@@ -42,12 +42,7 @@
             ]
           },
           "android": {
-            "usesCleartextTraffic": true,
-            "packagingOptions": {
-              "exclude": [
-                "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
-              ]
-            }
+            "usesCleartextTraffic": true
           }
         }
       ],

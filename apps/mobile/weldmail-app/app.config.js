@@ -1,4 +1,4 @@
-const { withInfoPlist } = require('@expo/config-plugins');
+const { withInfoPlist, withAppBuildGradle } = require('@expo/config-plugins');
 
 // Add iOS URL scheme for Google Sign-In callback
 const withGoogleSignInUrlScheme = (config) => {
@@ -40,6 +40,28 @@ const withCleartextPolicy = (config) => {
   return config;
 };
 
+// Exclude duplicate META-INF resources that break mergeReleaseJavaResource on Android.
+const withAndroidPackagingExcludes = (config) => {
+  return withAppBuildGradle(config, (config) => {
+    if (config.modResults.language !== 'groovy') {
+      return config;
+    }
+
+    let contents = config.modResults.contents;
+
+    if (contents.includes('META-INF/versions/9/OSGI-INF/MANIFEST.MF')) {
+      return config;
+    }
+
+    const packagingBlock = `    packaging {\n        resources {\n            excludes += [\n                'META-INF/versions/9/OSGI-INF/MANIFEST.MF',\n                'META-INF/versions/9/OSGI-INF/**',\n            ]\n        }\n    }\n`;
+
+    contents = contents.replace(/android\s*\{/, (match) => `${match}\n${packagingBlock}`);
+
+    config.modResults.contents = contents;
+    return config;
+  });
+};
+
 module.exports = ({ config }) => {
   // Explicitly pass EXPO_PUBLIC_CLERK_* env vars into extra so @clerk/expo can find them
   // via Constants.expoConfig.extra (auto-injection can be unreliable with custom app.config.js)
@@ -52,5 +74,6 @@ module.exports = ({ config }) => {
 
   config = withGoogleSignInUrlScheme(config);
   config = withCleartextPolicy(config);
+  config = withAndroidPackagingExcludes(config);
   return config;
 };
