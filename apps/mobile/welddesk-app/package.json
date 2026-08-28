@@ -4,7 +4,9 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
-    "start": "expo start",
+    "start": "expo start --dev-client",
+    "start:lan": "expo start --dev-client --lan",
+    "start:tunnel": "expo start --dev-client --tunnel",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "lint": "expo lint",
@@ -64,6 +66,11 @@
     "eslint-config-expo": "~10.0.0",
     "globals": "^16.5.0",
     "typescript": "~5.9.2"
+  },
+  "expo": {
+    "autolinking": {
+      "exclude": ["@expo/dom-webview"]
+    }
   },
   "private": true
 }

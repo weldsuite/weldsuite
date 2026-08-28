@@ -1,14 +1,11 @@
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo, Suspense, lazy } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Animated, Dimensions, Easing, StyleSheet, BackHandler, View, Keyboard } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import { Spinner } from '@weldsuite/mobile-ui/components/Spinner';
 import { appApi } from '@/services/app-api';
-import type { ComposeCloseInfo, ComposePrefill } from '@/app/compose';
-
-const ComposeScreen = lazy(() => import('@/app/compose'));
+import ComposeScreen, { type ComposeCloseInfo, type ComposePrefill } from '@/app/compose';
 
 type OpenComposeOptions = {
   /**
@@ -173,19 +170,11 @@ export function ComposeOverlayProvider({ children }: { children: React.ReactNode
               },
             ]}
           >
-            <Suspense
-              fallback={
-                <View style={styles.composeFallback}>
-                  <Spinner size="large" />
-                </View>
-              }
-            >
-              <ComposeScreen
-                key={instance}
-                prefillOverride={prefill}
-                onCloseOverride={closeCompose}
-              />
-            </Suspense>
+            <ComposeScreen
+              key={instance}
+              prefillOverride={prefill}
+              onCloseOverride={closeCompose}
+            />
           </Animated.View>
         </View>
       )}
@@ -217,11 +206,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 12,
     elevation: 16,
-  },
-  composeFallback: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });
 

@@ -12,6 +12,7 @@ const config = getDefaultConfig(projectRoot);
 config.watchFolders = [
   path.resolve(monorepoRoot, 'packages/design/mobile-ui'),
   path.resolve(monorepoRoot, 'packages/clients/api-client'),
+  path.resolve(monorepoRoot, 'packages/clients/app-api-client'),
 ];
 
 config.resolver.nodeModulesPaths = [
