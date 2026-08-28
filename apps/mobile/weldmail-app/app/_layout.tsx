@@ -2,18 +2,6 @@ import { ClerkProvider, ClerkLoaded, ClerkLoading, useOrganizationList } from '@
 import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import {
-  useFonts,
-  Inter_100Thin,
-  Inter_200ExtraLight,
-  Inter_300Light,
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-  Inter_800ExtraBold,
-  Inter_900Black,
-} from '@expo-google-fonts/inter';
 import { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -21,7 +9,6 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import * as SplashScreen from 'expo-splash-screen';
 import 'react-native-reanimated';
 
-import { applyInterAsDefaultFont } from '@/utils/inter-font';
 import { hideAppSplash } from '@/utils/splash';
 
 import { tokenCache } from '@clerk/expo/token-cache';
@@ -46,8 +33,6 @@ import { OutboxFlusher } from '@/components/OutboxFlusher';
 import { useMailRealtime } from '@/hooks/useMailRealtime';
 import { useUpdateGate } from '@/hooks/useUpdateGate';
 import { BRAND } from '@/lib/brand';
-
-applyInterAsDefaultFont();
 
 // Keep the native splash until the inbox or an opened email has something to
 // paint — avoids a labeled loader flash on cold start / notification tap.
@@ -118,10 +103,13 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [user, isLoading, isOrgListLoaded, membershipsLoading, membershipCount, organizationId, segments, router]);
 
-  // Keep the native splash up while Clerk hydrates the session. Do NOT swap
-  // it for a labeled loader, and do NOT wait for the org list — that unmounted
-  // the Stack and is why a notification tap showed "Loading…" then the inbox.
-  if (isLoading) return null;
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color={BRAND} />
+      </View>
+    );
+  }
 
   return <>{children}</>;
 }
@@ -296,21 +284,13 @@ function AuthenticatedApp() {
 export default function RootLayout() {
   const checkingUpdate = useUpdateGate();
 
-  const [fontsLoaded, fontError] = useFonts({
-    Inter_100Thin,
-    Inter_200ExtraLight,
-    Inter_300Light,
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
-    Inter_800ExtraBold,
-    Inter_900Black,
-  });
-
   useEffect(() => {
     const safety = setTimeout(() => hideAppSplash(), 5000);
-    return () => clearTimeout(safety);
+    const early = setTimeout(() => hideAppSplash(), 1500);
+    return () => {
+      clearTimeout(safety);
+      clearTimeout(early);
+    };
   }, []);
 
   if (checkingUpdate) {
@@ -321,10 +301,6 @@ export default function RootLayout() {
         </View>
       </GestureHandlerRootView>
     );
-  }
-
-  if (!fontsLoaded && !fontError) {
-    return null;
   }
 
   return (
