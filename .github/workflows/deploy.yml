@@ -1,6 +1,6 @@
 name: Deploy
 
-# Deploy lives in this repo.
+# Deploy lives in this repo on GitHub-hosted runners.
 #   push to `develop` → test  (app-test.weldsuite.org, *-test workers)
 #   push to `main`    → production (app.weldsuite.org)
 #
@@ -61,7 +61,7 @@ concurrency:
 jobs:
   prepare:
     name: Prepare
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.ctx.outputs.sha }}
       ref: ${{ steps.ctx.outputs.ref }}
@@ -110,7 +110,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          clean: false
           fetch-depth: 0
 
       - name: Detect DB / mobile / worker changes
@@ -295,12 +294,10 @@ jobs:
     name: Database Migrations
     needs: prepare
     if: needs.prepare.outputs.run_migrations == 'true'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Run master migration
         working-directory: packages/core/db
@@ -327,7 +324,7 @@ jobs:
     if: >-
       always() && !failure() && !cancelled() &&
       needs.prepare.outputs.workers != '[]'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     strategy:
       fail-fast: false
@@ -335,8 +332,6 @@ jobs:
         worker: ${{ fromJson(needs.prepare.outputs.workers) }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Deploy ${{ matrix.worker }}
         working-directory: apps/workers/${{ matrix.worker }}
@@ -355,12 +350,10 @@ jobs:
       always() && !failure() && !cancelled() &&
       (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
       needs.prepare.outputs.release_weldmail == 'true'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - uses: expo/expo-github-action@v8
         with:
@@ -386,12 +379,10 @@ jobs:
       always() && !failure() && !cancelled() &&
       (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
       needs.prepare.outputs.release_weldchat == 'true'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - uses: expo/expo-github-action@v8
         with:
@@ -416,7 +407,7 @@ jobs:
       always() && !failure() && !cancelled() &&
       (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
       needs.prepare.outputs.release_weldbooks == 'true'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
@@ -445,12 +436,10 @@ jobs:
       always() && !failure() && !cancelled() &&
       (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
       needs.prepare.outputs.release_weldflow == 'true'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - uses: expo/expo-github-action@v8
         with:
@@ -475,12 +464,10 @@ jobs:
     if: >-
       always() && !failure() && !cancelled() &&
       (needs.workers.result == 'success' || needs.workers.result == 'skipped')
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Build platform
         working-directory: apps/web/platform
@@ -521,12 +508,10 @@ jobs:
       always() && !failure() && !cancelled() &&
       (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
       needs.prepare.outputs.release_weldmail_web == 'true'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Build WeldMail web
         working-directory: apps/web/weldmail
