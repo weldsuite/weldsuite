@@ -46,7 +46,6 @@ const singletons = [
   'expo-notifications',
   'expo-haptics',
   'expo-linking',
-  'mixpanel-react-native',
 ];
 
 config.resolver.extraNodeModules = Object.fromEntries(

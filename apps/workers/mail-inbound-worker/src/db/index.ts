@@ -13,6 +13,8 @@ import { drizzle as drizzleNeonHttp, type NeonHttpDatabase } from 'drizzle-orm/n
 import * as tenantSchema from '@weldsuite/db/schema';
 // Master schema (mail account registry)
 import * as masterSchema from '@weldsuite/db/schema/master';
+// Shared personal schema (consumer WeldMail)
+import * as personalSchema from '@weldsuite/db/schema/personal';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
 import type { Env } from '../index';
 
@@ -93,6 +95,18 @@ export async function getTenantDbForWorkspaceById(
   return createNeonTenantDb(workspace.databaseUrl);
 }
 
+/**
+ * Shared personal database (consumer WeldMail). Requires DATABASE_URL_PERSONAL.
+ */
+export function getPersonalDb(env: Env): NeonHttpDatabase<typeof personalSchema> {
+  if (!env.DATABASE_URL_PERSONAL) {
+    throw new Error('DATABASE_URL_PERSONAL secret is not set');
+  }
+  const sql = neon(env.DATABASE_URL_PERSONAL);
+  return drizzleNeonHttp({ client: sql, schema: personalSchema });
+}
+
 export type TenantDatabase = NeonHttpDatabase<typeof tenantSchema>;
 export type MasterDatabase = NeonHttpDatabase<typeof masterSchema>;
-export { tenantSchema, masterSchema };
+export type PersonalDatabase = NeonHttpDatabase<typeof personalSchema>;
+export { tenantSchema, masterSchema, personalSchema };

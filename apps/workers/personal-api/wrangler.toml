@@ -1,0 +1,53 @@
+# Personal API Worker
+# Serves personal Weld accounts (consumer WeldMail) — distinct from workspace app-api.
+#
+# Required secrets (wrangler secret put / .dev.vars for local):
+#   DATABASE_URL_MASTER   — Neon URL for master DB
+#   DATABASE_URL_PERSONAL — Neon URL for shared personal DB
+#   CLERK_SECRET_KEY
+#   CLERK_JWT_KEY (optional)
+#
+# No Hyperdrive — Neon HTTP via @neondatabase/serverless, same as app-api.
+
+name = "weldsuite-personal-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-personal-api-test"
+routes = [
+  { pattern = "personal-api-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-personal-api"
+routes = [
+  { pattern = "personal-api.weldsuite.org", custom_domain = true },
+  { pattern = "api.weldmail.com", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

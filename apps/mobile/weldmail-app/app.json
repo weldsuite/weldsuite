@@ -2,7 +2,7 @@
   "expo": {
     "name": "WeldMail",
     "slug": "weldmail-app",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "weldmail",
@@ -42,12 +42,7 @@
             ]
           },
           "android": {
-            "usesCleartextTraffic": true,
-            "packagingOptions": {
-              "exclude": [
-                "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
-              ]
-            }
+            "usesCleartextTraffic": true
           }
         }
       ],

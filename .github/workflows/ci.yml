@@ -1,8 +1,8 @@
 name: CI
 
-# Linux jobs run on the Hetzner self-hosted pool (labels self-hosted/linux/x64).
-# Cap org runner-group concurrency at 2 — the box is 16 GB and two tsc heaps
-# already fill it. macOS/Windows desktop packaging stays on GitHub-hosted.
+# Linux jobs run on GitHub-hosted ubuntu-latest (free/unlimited on this
+# public repo). Desktop packaging stays on macos-latest / windows-latest
+# in release-desktop.yml.
 #
 # Job names are reused verbatim as required status checks in branch
 # protection: "Build", "Lint", "Type Check · app-api",
@@ -41,30 +41,25 @@ jobs:
   # ────────────────────────────────────────────
   lint:
     name: Lint
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Lint
         run: pnpm lint
 
   type-check-api:
     name: Type Check · app-api
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     # app-api's schema is clean — this one blocks.
     env:
       # ~565 source files against drizzle-orm's deep generics blow past Node's
-      # default ~2 GB heap and tsc OOMs (exit 134) before it can report.
-      # 5 GB leaves room for a second concurrent runner on the 16 GB Hetzner box.
+      # default ~2 GB heap. 5 GB fits on standard hosted runners (~7 GB RAM).
       NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Type-check app-api
         working-directory: apps/workers/app-api
@@ -72,16 +67,12 @@ jobs:
 
   type-check-platform:
     name: Type Check · platform
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 20
-    # Was informational while ~1300 pre-existing errors were worked down.
-    # `tsc --noEmit` is clean as of this change, so it blocks.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
     env:
       NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Type-check platform
         working-directory: apps/web/platform
@@ -90,21 +81,14 @@ jobs:
   # ────────────────────────────────────────────
   # Desktop shell. Type-check + bundle only — NOT packaging: electron-builder
   # needs signing certs and platform-native runners, and desktop releases ship
-  # from the overlay's release-desktop.yml, not from a merge.
-  #
-  # Blocking, unlike the platform's type-check: apps/desktop is small and
-  # clean, and its main/preload code is the one place where a type error means
-  # a shell that boots and then misbehaves at runtime rather than a build that
-  # fails loudly.
+  # from release-desktop.yml, not from a merge.
   # ────────────────────────────────────────────
   desktop:
     name: Type Check + Build · desktop
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Type-check desktop
         working-directory: apps/desktop
@@ -121,12 +105,10 @@ jobs:
   # ────────────────────────────────────────────
   unit-api:
     name: Unit · app-api
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Run Vitest
         working-directory: apps/workers/app-api
@@ -134,50 +116,27 @@ jobs:
 
   unit-platform:
     name: Unit · platform
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Run Vitest
         working-directory: apps/web/platform
         run: pnpm test
 
   # ────────────────────────────────────────────
-  # Full-graph build. Blocking as of #66: verified green twice from a
-  # from-scratch clone (6m51s and 7m34s). The secret-free run turned out to be
-  # fine — turbo build is env-independent for types, and no app build actually
-  # needs a VITE_*/EXPO_* value to compile.
-  #
-  # NOTE: this is no longer a COLD build. Since the warm-workspace change (see
-  # .github/actions/setup-monorepo/action.yml) the runner keeps node_modules
-  # and .turbo between jobs, so unchanged packages come back from turbo's
-  # cache instead of being rebuilt. That is still a real signal — turbo's cache
-  # is content-addressed, so a hit means these exact inputs built successfully
-  # before, and anything you actually changed is always rebuilt.
-  #
-  # What is NOT covered any more is the clean-clone bootstrap check: that a
-  # from-nothing `pnpm install` + `pnpm build` works, which is what catches a
-  # package that only builds thanks to a leftover artifact or an undeclared
-  # dependency. If that signal is wanted back, add a scheduled job that checks
-  # out with `clean: true` into its own `path:` so it does not cold-wipe the
-  # shared warm workspace out from under the other jobs.
-  #
-  # The 35min timeout is kept as headroom for the first run on a cold runner
-  # (new box, or after the workspace is wiped by hand).
+  # Full-graph build. Blocking as of #66.
+  # Hosted runners are ephemeral; pnpm + turbo caches come from setup-monorepo.
   # ────────────────────────────────────────────
   build:
     name: Build
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 35
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       NODE_OPTIONS: --max-old-space-size=5120
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Build
         run: pnpm build

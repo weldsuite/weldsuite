@@ -1,6 +1,7 @@
 import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as masterSchema from '../schema/master';
+import * as personalSchema from '../schema/personal';
 
 /**
  * Hyperdrive binding type from Cloudflare Workers
@@ -28,9 +29,31 @@ const HYPERDRIVE_OPTIONS = {
 export function createMasterDbFromHyperdrive(
   hyperdrive: Hyperdrive
 ): PostgresJsDatabase<typeof masterSchema> {
-  const sql = postgres(hyperdrive.connectionString, HYPERDRIVE_OPTIONS);
-  return drizzle(sql, { schema: masterSchema });
+  const sqlClient = postgres(hyperdrive.connectionString, HYPERDRIVE_OPTIONS);
+  return drizzle(sqlClient, { schema: masterSchema });
+}
+
+/**
+ * Create a shared personal database client from Hyperdrive binding.
+ * Personal Weld accounts (consumer apps) store mail here, keyed by personalAccountId.
+ */
+export function createPersonalDbFromHyperdrive(
+  hyperdrive: Hyperdrive
+): PostgresJsDatabase<typeof personalSchema> {
+  const sqlClient = postgres(hyperdrive.connectionString, HYPERDRIVE_OPTIONS);
+  return drizzle(sqlClient, { schema: personalSchema });
+}
+
+/**
+ * Create a shared personal database client from a connection URL (local / Neon).
+ */
+export function createPersonalDbFromUrl(
+  connectionString: string
+): PostgresJsDatabase<typeof personalSchema> {
+  const sqlClient = postgres(connectionString, HYPERDRIVE_OPTIONS);
+  return drizzle(sqlClient, { schema: personalSchema });
 }
 
 // Re-export types
 export type MasterDb = PostgresJsDatabase<typeof masterSchema>;
+export type PersonalDb = PostgresJsDatabase<typeof personalSchema>;

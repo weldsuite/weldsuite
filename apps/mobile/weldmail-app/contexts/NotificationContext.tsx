@@ -24,6 +24,7 @@ import {
   notificationMatchesWorkspace,
   type NotificationTarget,
 } from '@/utils/notification-target';
+import { hideAppSplash } from '@/utils/splash';
 
 async function getDeviceId(): Promise<string> {
   if (Platform.OS === 'android') {
@@ -41,6 +42,9 @@ const APP_CODE = 'weldmail';
 // cold-start replay so a *normal* relaunch — which still reports the same
 // "last response" — doesn't reopen an old email.
 const HANDLED_NOTIF_KEY = '@weldmail_handled_notification_id';
+// If we queued a notification open but the email route never mounts, don't
+// leave the inbox on `return null` forever (looks like a freeze on restart).
+const OPENING_EMAIL_TIMEOUT_MS = 5000;
 
 interface NotificationContextType {
   unreadCount: number;
@@ -86,10 +90,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const [unreadCount, setUnreadCount] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
   const [isPermissionGranted, setIsPermissionGranted] = useState(false);
-  const [launchReady, setLaunchReady] = useState(false);
+  const [launchReady, setLaunchReady] = useState(true);
   const [openingEmailId, setOpeningEmailId] = useState<string | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
   const [pendingNav, setPendingNav] = useState<NotificationTarget | null>(null);
+  const pendingNotifIdRef = useRef<string | undefined>(undefined);
   const handledNotifIds = useRef<Set<string>>(new Set());
 
   // Latest org id for notification listeners (they are mounted once; ref avoids
@@ -97,19 +102,22 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const organizationIdRef = useRef(organizationId);
   organizationIdRef.current = organizationId;
 
+  const markNotificationHandled = useCallback((notifId: string) => {
+    if (!notifId || handledNotifIds.current.has(notifId)) return;
+    handledNotifIds.current.add(notifId);
+    AsyncStorage.setItem(HANDLED_NOTIF_KEY, notifId).catch(() => {});
+  }, []);
+
   const queueNavigationFromResponse = useCallback((response: Notifications.NotificationResponse) => {
     const notifId = response.notification.request.identifier;
-    if (notifId) {
-      if (handledNotifIds.current.has(notifId)) return;
-      handledNotifIds.current.add(notifId);
-      AsyncStorage.setItem(HANDLED_NOTIF_KEY, notifId).catch(() => {});
-    }
+    if (notifId && handledNotifIds.current.has(notifId)) return;
     const target = parseNotificationContent(response.notification.request.content);
     if (!target) return;
     // Ignore taps for another workspace (payload may still arrive briefly after
     // a switch, or if unregister against the previous tenant failed).
     if (!notificationMatchesWorkspace(target, organizationIdRef.current)) return;
     if (target.emailId) setOpeningEmailId(target.emailId);
+    pendingNotifIdRef.current = notifId || undefined;
     setPendingNav(target);
   }, []);
 
@@ -122,11 +130,23 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   }, [segments, openingEmailId]);
 
   useEffect(() => {
+    if (!openingEmailId) return;
+    const timer = setTimeout(() => {
+      setOpeningEmailId(null);
+      setPendingNav(null);
+      pendingNotifIdRef.current = undefined;
+      hideAppSplash();
+    }, OPENING_EMAIL_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [openingEmailId]);
+
+  useEffect(() => {
     if (!navReady || !pendingNav || authLoading || !user) return;
     // Re-check after org hydrates — cold-start may have queued a tap before
     // organizationId was known.
     if (!notificationMatchesWorkspace(pendingNav, organizationId)) {
       setPendingNav(null);
+      pendingNotifIdRef.current = undefined;
       setOpeningEmailId(null);
       return;
     }
@@ -139,11 +159,15 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       router.push({ pathname: '/[id]', params });
     } else {
       router.push('/');
+      setOpeningEmailId(null);
     }
+    if (pendingNotifIdRef.current) markNotificationHandled(pendingNotifIdRef.current);
+    pendingNotifIdRef.current = undefined;
     setPendingNav(null);
   }, [
     navReady, pendingNav, authLoading, user, organizationId, router,
     selectAccountById, setSelectedLabel, expectNotificationEmail, refreshMail,
+    markNotificationHandled,
   ]);
 
   const registerDeviceToken = async (token: string) => {
@@ -229,15 +253,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         );
         cleanupRef.current = cleanup;
 
-        const lastResponse = await Notifications.getLastNotificationResponseAsync();
-        if (cancelled) return;
-        if (lastResponse) {
-          const lastId = lastResponse.notification.request.identifier;
-          const alreadyHandled = await AsyncStorage.getItem(HANDLED_NOTIF_KEY);
-          if (lastId && lastId !== alreadyHandled) {
-            queueNavigationFromResponse(lastResponse);
-          }
-        }
+        // Do not replay getLastNotificationResponseAsync on cold start. iOS keeps
+        // the last response across relaunches; replaying it sets openingEmailId and
+        // leaves the inbox on `return null` when navigation fails — feels like a
+        // freeze on the 2nd open. Live taps still go through queueNavigationFromResponse.
       } catch {
         // Launch still has to settle so the inbox isn't blocked forever.
       } finally {

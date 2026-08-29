@@ -25,6 +25,8 @@ import { getMasterDb } from './db';
 export interface Env {
   // Master DB connection (Neon HTTP) — set via `wrangler secret put DATABASE_URL_MASTER`
   DATABASE_URL_MASTER: string;
+  // Shared personal Neon DB (consumer WeldMail) — set via `wrangler secret put DATABASE_URL_PERSONAL`
+  DATABASE_URL_PERSONAL?: string;
   // KV namespace for workspace URL caching
   WORKSPACE_CACHE: KVNamespace;
   // Neon API key for on-demand tenant connection resolution

@@ -41,7 +41,7 @@ env:
 jobs:
   prepare:
     name: Prepare
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     outputs:
       ref: ${{ steps.ctx.outputs.ref }}
       version: ${{ steps.version.outputs.version }}
@@ -82,7 +82,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          clean: false
           ref: ${{ steps.ctx.outputs.ref }}
 
       - name: Read desktop version
@@ -219,12 +218,11 @@ jobs:
     name: Publish to R2
     needs: [prepare, build]
     if: needs.prepare.outputs.publish == 'true' && !failure() && !cancelled()
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     environment: production
     steps:
       - uses: actions/checkout@v4
         with:
-          clean: false
           ref: ${{ needs.prepare.outputs.ref }}
 
       - uses: ./.github/actions/setup-monorepo

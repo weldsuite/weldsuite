@@ -422,6 +422,7 @@ async function registerInMasterRegistry(
     .values({
       id: generateId('reg'),
       email,
+      tenantKind: 'workspace',
       workspaceId: workspace.id,
       accountId,
       isActive: true,
@@ -429,7 +430,9 @@ async function registerInMasterRegistry(
     .onConflictDoUpdate({
       target: masterSchema.mailAccountRegistry.email,
       set: {
+        tenantKind: 'workspace',
         workspaceId: workspace.id,
+        personalAccountId: null,
         accountId,
         isActive: true,
         updatedAt: new Date(),

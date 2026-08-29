@@ -25,7 +25,7 @@ config.resolver.disableHierarchicalLookup = true;
 // mobile-ui uses package.json "exports"; required for workspace resolution.
 config.resolver.unstable_enablePackageExports = true;
 
-// Keep one copy of native/runtime packages — prefer the app's copies,
+// Keep one copy of native/runtime packages — prefer the app's SDK 57 copies,
 // fall back to hoisted monorepo deps for packages not installed locally.
 function resolvePackageDir(pkg) {
   const local = path.join(projectRoot, 'node_modules', pkg);

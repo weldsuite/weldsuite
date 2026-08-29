@@ -25,6 +25,7 @@
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_APP_API_URL": "https://app-api.weldsuite.org",
+        "EXPO_PUBLIC_REALTIME_URL": "wss://realtime.weldsuite.org",
         "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ",
         "EXPO_PUBLIC_CLERK_GOOGLE_WEB_CLIENT_ID": "283341122724-1t7p7cs9jtsp954c454tsos7blf7e1ek.apps.googleusercontent.com",
         "EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID": "283341122724-5p3utk8muvrr3gjlb0rgm8nq7lgfqikj.apps.googleusercontent.com",

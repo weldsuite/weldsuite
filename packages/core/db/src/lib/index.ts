@@ -10,7 +10,10 @@ export { masterDb, type MasterDB } from './master';
 // Workers database factories (for Cloudflare Workers with Hyperdrive)
 export {
   createMasterDbFromHyperdrive,
+  createPersonalDbFromHyperdrive,
+  createPersonalDbFromUrl,
   type MasterDb as WorkersMasterDb,
+  type PersonalDb as WorkersPersonalDb,
 } from './db-workers';
 
 // Tenant database routing and management

@@ -1,0 +1,21 @@
+export { PersonalApiClient, PersonalApiClientError } from './client.js';
+export type {
+  ApiError,
+  CreateDraftBody,
+  DataResponse,
+  ListResponse,
+  MailAccount,
+  MailDraft,
+  MailEmailAddress,
+  MailLabel,
+  MailMessage,
+  MeResponse,
+  PaginationMeta,
+  PatchMessageBody,
+  PersonalAccount,
+  SendMessageBody,
+  UpdateDraftBody,
+  WeldmailCheckResult,
+  WeldmailDomain,
+  WeldmailReserveResult,
+} from './types.js';

@@ -12,20 +12,10 @@ const UPDATE_GATE_TIMEOUT_MS = 12000;
 /**
  * Gates the very first cold-start render on an OTA update check.
  *
- * By default expo-updates launches instantly with the embedded/cached bundle
- * and only applies a freshly-downloaded update on the *next* restart. That's
- * why a first-time installer sees the (older) bundle baked into the store
- * binary and only gets the latest JS after quitting and reopening.
- *
- * This hook flips that for the first launch only: it checks for an update,
- * downloads it, and relaunches into it *before* the app renders — behind the
- * splash/loader — so users never see a stale UI. It degrades safely:
- *   - disabled in dev / Expo Go (Updates.isEnabled === false)
- *   - never blocks longer than UPDATE_GATE_TIMEOUT_MS
- *   - a failed check (offline, server error) just launches the cached bundle
- *
- * @returns `true` while the update check is in flight (render your loader),
- *          `false` once it's safe to render the app.
+ * Works together with `checkAutomatically: ON_LOAD` in app.json: expo-updates
+ * downloads updates in the background, and this hook picks up a ready update
+ * and reloads into it before the app paints — so users don't hit a blank
+ * screen on the restart that would otherwise apply the OTA.
  */
 export function useUpdateGate(): boolean {
   const [checking, setChecking] = useState<boolean>(() => Updates.isEnabled && !__DEV__);
@@ -63,8 +53,6 @@ export function useUpdateGate(): boolean {
     })();
 
     return () => clearTimeout(timer);
-    // Intentionally run once on mount (cold start only).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return checking;

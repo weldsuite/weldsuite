@@ -7,7 +7,7 @@
 
 import { eq, and, or, inArray, isNull, desc, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
-import { getMasterDb, getTenantDbForWorkspaceById, masterSchema, tenantSchema } from '../db';
+import { getMasterDb, getTenantDbForWorkspaceById, getPersonalDb, masterSchema, tenantSchema, personalSchema } from '../db';
 import {
   ingestDeskEmail,
   isDeskSchemaMissing,
@@ -65,11 +65,16 @@ function computeThreadId(message: {
 export interface RecipientAccount {
   accountId: string;
   accountEmail: string;
-  /** Internal workspace id (workspaces.id) — used for tenant DB lookups. */
-  workspaceId: string;
-  /** Clerk org id (workspaces.clerk_org_id) — used as the realtime topic key. */
-  clerkOrgId: string;
-  /** Active workspace members (userId + login email) eligible for notification. */
+  tenantKind: 'workspace' | 'personal';
+  /** Internal workspace id — required when tenantKind = workspace. */
+  workspaceId: string | null;
+  /** Clerk org id — used as realtime topic for workspace mail. */
+  clerkOrgId: string | null;
+  /** Personal account id — required when tenantKind = personal. */
+  personalAccountId: string | null;
+  /** Clerk user id — notification target for personal mail. */
+  clerkUserId: string | null;
+  /** Active members eligible for notification. */
   members: { userId: string; email: string | null }[];
 }
 
@@ -150,21 +155,15 @@ export async function findRecipientAccounts(
 ): Promise<RecipientAccount[]> {
   const masterDb = getMasterDb(env);
 
-  // Lookup in mail account registry (master DB), joined with workspaces so we
-  // also get the Clerk org id — required for realtime publishing because the
-  // WorkspaceHub Durable Object is keyed by clerkOrgId, not the internal id.
   const registered = await masterDb
     .select({
       email: masterSchema.mailAccountRegistry.email,
       accountId: masterSchema.mailAccountRegistry.accountId,
+      tenantKind: masterSchema.mailAccountRegistry.tenantKind,
       workspaceId: masterSchema.mailAccountRegistry.workspaceId,
-      clerkOrgId: masterSchema.workspaces.clerkOrgId,
+      personalAccountId: masterSchema.mailAccountRegistry.personalAccountId,
     })
     .from(masterSchema.mailAccountRegistry)
-    .innerJoin(
-      masterSchema.workspaces,
-      eq(masterSchema.workspaces.id, masterSchema.mailAccountRegistry.workspaceId),
-    )
     .where(
       and(
         inArray(masterSchema.mailAccountRegistry.email, recipientEmails),
@@ -176,19 +175,64 @@ export async function findRecipientAccounts(
     return [];
   }
 
-  // Group by workspace and find workspace members
-  // Each workspace may have its own database, so we need to query each one
   const results: RecipientAccount[] = [];
 
   for (const reg of registered) {
     try {
-      // Get the workspace-specific database
+      if (reg.tenantKind === 'personal' && reg.personalAccountId) {
+        const [personalAccount] = await masterDb
+          .select({
+            id: masterSchema.personalAccounts.id,
+            clerkUserId: masterSchema.personalAccounts.clerkUserId,
+          })
+          .from(masterSchema.personalAccounts)
+          .where(
+            and(
+              eq(masterSchema.personalAccounts.id, reg.personalAccountId),
+              eq(masterSchema.personalAccounts.isActive, true),
+            ),
+          )
+          .limit(1);
+
+        if (!personalAccount) {
+          console.warn(`[Recipients] Personal account ${reg.personalAccountId} not found or inactive`);
+          continue;
+        }
+
+        results.push({
+          accountId: reg.accountId,
+          accountEmail: reg.email,
+          tenantKind: 'personal',
+          workspaceId: null,
+          clerkOrgId: null,
+          personalAccountId: personalAccount.id,
+          clerkUserId: personalAccount.clerkUserId,
+          members: [{ userId: personalAccount.clerkUserId, email: null }],
+        });
+        continue;
+      }
+
+      if (!reg.workspaceId) {
+        console.warn(`[Recipients] Workspace registry row missing workspaceId for ${reg.email}`);
+        continue;
+      }
+
+      const [workspace] = await masterDb
+        .select({
+          id: masterSchema.workspaces.id,
+          clerkOrgId: masterSchema.workspaces.clerkOrgId,
+        })
+        .from(masterSchema.workspaces)
+        .where(eq(masterSchema.workspaces.id, reg.workspaceId))
+        .limit(1);
+
+      if (!workspace) {
+        console.warn(`[Recipients] Workspace ${reg.workspaceId} not found`);
+        continue;
+      }
+
       const tenantDb = await getTenantDbForWorkspaceById(env, reg.workspaceId);
 
-      // Find active workspace members (tenant DB). We also pull each member's
-      // login email so the notification fan-out can skip the person who sent
-      // the message (internal recipient / shared mailbox / self-send loops the
-      // sent copy back through this worker).
       const members = await tenantDb
         .select({
           userId: tenantSchema.workspaceMembers.userId,
@@ -202,12 +246,6 @@ export async function findRecipientAccounts(
           )
         );
 
-      // Scope notifications to users who can actually access this mailbox:
-      // shared accounts notify everyone, non-shared accounts only their
-      // assigned users. This mirrors the app-api access model (isShared /
-      // assignedUserIds). If a non-shared account has no assignment data
-      // recorded, we fall back to all members so mail is never silently
-      // un-notified.
       const [accountAccess] = await tenantDb
         .select({
           isShared: tenantSchema.mailAccounts.isShared,
@@ -227,24 +265,105 @@ export async function findRecipientAccounts(
 
       const uniqueMembers = [...new Map(eligibleMembers.map((m) => [m.userId, m])).values()];
 
-      if (uniqueMembers.length > 0 && reg.clerkOrgId) {
+      if (uniqueMembers.length > 0 && workspace.clerkOrgId) {
         results.push({
           accountId: reg.accountId,
           accountEmail: reg.email,
+          tenantKind: 'workspace',
           workspaceId: reg.workspaceId,
-          clerkOrgId: reg.clerkOrgId,
+          clerkOrgId: workspace.clerkOrgId,
+          personalAccountId: null,
+          clerkUserId: null,
           members: uniqueMembers,
         });
-      } else if (!reg.clerkOrgId) {
+      } else if (!workspace.clerkOrgId) {
         console.warn(`[Recipients] Workspace ${reg.workspaceId} has no clerkOrgId — realtime events will be skipped`);
       }
     } catch (error) {
-      console.error(`[Recipients] Failed to get members for workspace ${reg.workspaceId}:`, error);
-      // Continue processing other workspaces
+      console.error(`[Recipients] Error resolving account ${reg.accountId}:`, error);
     }
   }
 
   return results;
+}
+
+/**
+ * Store inbound email in the shared personal database.
+ */
+async function storePersonalEmail(
+  env: Env,
+  account: RecipientAccount,
+  email: ParsedEmail
+): Promise<{ messageId: string; threadId: string } | null> {
+  try {
+    if (!account.personalAccountId) {
+      console.error('[Store] Missing personalAccountId for personal mail');
+      return null;
+    }
+
+    const personalDb = getPersonalDb(env);
+
+    if (email.messageId) {
+      const existing = await personalDb
+        .select({ id: personalSchema.personalMailMessages.id })
+        .from(personalSchema.personalMailMessages)
+        .where(
+          and(
+            eq(personalSchema.personalMailMessages.accountId, account.accountId),
+            eq(personalSchema.personalMailMessages.messageId, email.messageId),
+          ),
+        )
+        .limit(1);
+
+      if (existing.length > 0) {
+        console.log(`[Store] Personal duplicate skipped: messageId=${email.messageId}`);
+        return null;
+      }
+    }
+
+    const dbMessageId = `msg_${nanoid()}`;
+    const isReply = Boolean(email.inReplyTo || (email.references && email.references.length > 0));
+    const threadId = computeThreadId({
+      messageId: email.messageId,
+      inReplyTo: email.inReplyTo,
+      references: email.references,
+    });
+
+    await personalDb.insert(personalSchema.personalMailMessages).values({
+      id: dbMessageId,
+      personalAccountId: account.personalAccountId,
+      accountId: account.accountId,
+      messageId: email.messageId,
+      threadId,
+      subject: email.subject,
+      from: email.from,
+      to: email.to,
+      cc: email.cc,
+      textBody: email.textBody,
+      htmlBody: email.htmlBody,
+      preview: email.textBody?.substring(0, 200) || email.subject,
+      sentDate: email.receivedAt,
+      receivedDate: new Date(),
+      isRead: false,
+      hasAttachments: email.hasAttachments,
+      attachmentCount: email.attachmentCount,
+      inReplyTo: email.inReplyTo,
+      references: email.references || [],
+      isReply,
+      labels: ['INBOX'],
+      source: 'inbound',
+      spfStatus: email.spfStatus,
+      dkimStatus: email.dkimStatus,
+      dmarcStatus: email.dmarcStatus,
+      rawMessage: email.rawMessage,
+    });
+
+    console.log(`[Store] Personal email stored ${dbMessageId} for ${account.accountEmail}`);
+    return { messageId: dbMessageId, threadId };
+  } catch (error) {
+    console.error('[Store] Failed to store personal email:', error);
+    return null;
+  }
 }
 
 /**
@@ -258,7 +377,15 @@ export async function storeEmail(
   account: RecipientAccount,
   email: ParsedEmail
 ): Promise<{ messageId: string; threadId: string } | null> {
+  if (account.tenantKind === 'personal') {
+    return storePersonalEmail(env, account, email);
+  }
+
   try {
+    if (!account.workspaceId) {
+      console.error('[Store] Missing workspaceId for workspace mail');
+      return null;
+    }
     // Get the workspace-specific database
     const tenantDb = await getTenantDbForWorkspaceById(env, account.workspaceId);
 

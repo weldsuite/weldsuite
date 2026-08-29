@@ -277,7 +277,7 @@ export default function MailScreen() {
     pendingNotificationEmailId,
     clearPendingNotificationEmail,
   } = useMail();
-  const { launchReady, openingEmailId } = useNotifications();
+  const { launchReady } = useNotifications();
   const cache = useMailCache();
   const outbox = useMailOutbox();
   const { organizationId } = useClerkAuth();
@@ -540,8 +540,8 @@ export default function MailScreen() {
   }, [pendingNotificationEmailId, clearPendingNotificationEmail]);
 
   useEffect(() => {
-    if (launchReady && !openingEmailId) hideAppSplash();
-  }, [launchReady, openingEmailId]);
+    if (launchReady) hideAppSplash();
+  }, [launchReady]);
 
 
   const handleRefresh = useCallback(() => {
@@ -1005,12 +1005,6 @@ export default function MailScreen() {
       />
     </Screen>
   );
-
-  // While a notification tap is opening an email, don't paint the inbox.
-  // The native splash (or the email screen) stays up instead.
-  if (!launchReady || openingEmailId) {
-    return null;
-  }
 
   if (isTablet) {
     return (

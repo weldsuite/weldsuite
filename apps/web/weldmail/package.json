@@ -1,0 +1,30 @@
+{
+  "name": "weldmail-web",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "type-check": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@clerk/clerk-react": "^5.31.0",
+    "@weldsuite/personal-api-client": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^4.3.0",
+    "@weldsuite/typescript-config": "workspace:*",
+    "typescript": "^5",
+    "vite": "^6.4.3",
+    "wrangler": "^4.0.0"
+  }
+}

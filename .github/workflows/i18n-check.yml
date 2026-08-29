@@ -13,14 +13,12 @@ jobs:
   parity:
     name: EN/NL parity
     if: false  # i18n parity check disabled — remove this line to re-enable
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          clean: false
 
       - name: Setup monorepo
         uses: ./.github/actions/setup-monorepo

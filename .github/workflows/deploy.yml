@@ -1,6 +1,6 @@
 name: Deploy
 
-# Deploy lives in this repo.
+# Deploy lives in this repo on GitHub-hosted runners.
 #   push to `develop` → test  (app-test.weldsuite.org, *-test workers)
 #   push to `main`    → production (app.weldsuite.org)
 #
@@ -12,6 +12,7 @@ on:
     branches: [develop, main]
     paths:
       - 'apps/web/platform/**'
+      - 'apps/web/weldmail/**'
       - 'apps/workers/**'
       - 'apps/mobile/**'
       - 'apps/tools/migrate-databases/**'
@@ -60,13 +61,14 @@ concurrency:
 jobs:
   prepare:
     name: Prepare
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.ctx.outputs.sha }}
       ref: ${{ steps.ctx.outputs.ref }}
       cf_env: ${{ steps.ctx.outputs.cf_env }}
       run_migrations: ${{ steps.changes.outputs.migrations }}
       release_weldmail: ${{ steps.changes.outputs.weldmail }}
+      release_weldmail_web: ${{ steps.changes.outputs.weldmail-web }}
       release_weldchat: ${{ steps.changes.outputs.weldchat }}
       release_weldbooks: ${{ steps.changes.outputs.weldbooks }}
       release_weldflow: ${{ steps.changes.outputs.weldflow }}
@@ -108,7 +110,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          clean: false
           fetch-depth: 0
 
       - name: Detect DB / mobile / worker changes
@@ -124,8 +125,12 @@ jobs:
             weldmail:
               - 'apps/mobile/weldmail-app/**'
               - 'packages/clients/app-api-client/**'
+              - 'packages/clients/personal-api-client/**'
               - 'packages/clients/api-client/**'
               - 'packages/design/mobile-ui/**'
+            weldmail-web:
+              - 'apps/web/weldmail/**'
+              - 'packages/clients/personal-api-client/**'
             weldchat:
               - 'apps/mobile/weldchat-app/**'
               - 'packages/clients/app-api-client/**'
@@ -152,6 +157,7 @@ jobs:
               - 'packages/core/db/**'
               - 'packages/core/permissions/**'
               - 'packages/clients/app-api-client/**'
+              - 'packages/clients/personal-api-client/**'
               - 'packages/clients/api-client/**'
             app-api:
               - 'apps/workers/app-api/**'
@@ -196,6 +202,14 @@ jobs:
               - 'apps/workers/mail-inbound-worker/**'
               - 'packages/core/email/**'
               - 'packages/core/realtime/**'
+              - 'packages/core/db/src/schema/personal/**'
+              - 'packages/core/db/src/schema/personal.ts'
+            personal-api:
+              - 'apps/workers/personal-api/**'
+              - 'packages/clients/personal-api-client/**'
+              - 'packages/core/db/src/schema/personal/**'
+              - 'packages/core/db/src/schema/personal.ts'
+              - 'packages/core/db/src/schema/master.ts'
             realtime-worker:
               - 'apps/workers/realtime-worker/**'
               - 'packages/core/realtime/**'
@@ -231,16 +245,17 @@ jobs:
           W_WEBHOOK: ${{ steps.changes.outputs.integration-webhook-worker }}
           W_SYNC: ${{ steps.changes.outputs.integration-sync-worker }}
           W_MAIL: ${{ steps.changes.outputs.mail-inbound-worker }}
+          W_PERSONAL: ${{ steps.changes.outputs.personal-api }}
           W_REALTIME: ${{ steps.changes.outputs.realtime-worker }}
           W_WORKSPACE: ${{ steps.changes.outputs.workspace-worker }}
           W_WORKFLOW: ${{ steps.changes.outputs.workflow-worker }}
           W_MCP: ${{ steps.changes.outputs.mcp-server }}
         run: |
           set -euo pipefail
-          ALL='["app-api","billing-worker","audit-log-worker","external-api","integration-webhook-worker","integration-sync-worker","mail-inbound-worker","realtime-worker","workspace-worker","workflow-worker","mcp-server"]'
+          ALL='["app-api","billing-worker","audit-log-worker","external-api","integration-webhook-worker","integration-sync-worker","mail-inbound-worker","personal-api","realtime-worker","workspace-worker","workflow-worker","mcp-server"]'
           if [ "$ALL_WORKERS" = "true" ]; then
             echo "workers=$ALL" >> "$GITHUB_OUTPUT"
-            echo "Deploying all 11 workers (lockfile, workspace graph, or @weldsuite/db graph changed)"
+            echo "Deploying all 12 workers (lockfile, workspace graph, or @weldsuite/db graph changed)"
             exit 0
           fi
 
@@ -253,6 +268,7 @@ jobs:
           add integration-webhook-worker "$W_WEBHOOK"
           add integration-sync-worker "$W_SYNC"
           add mail-inbound-worker "$W_MAIL"
+          add personal-api "$W_PERSONAL"
           add realtime-worker "$W_REALTIME"
           add workspace-worker "$W_WORKSPACE"
           add workflow-worker "$W_WORKFLOW"
@@ -278,18 +294,21 @@ jobs:
     name: Database Migrations
     needs: prepare
     if: needs.prepare.outputs.run_migrations == 'true'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Run master migration
         working-directory: packages/core/db
         env:
           MASTER_DATABASE_URL: ${{ secrets.MASTER_DATABASE_URL }}
         run: pnpm db:migrate:master
+      - name: Run personal DB migration
+        working-directory: packages/core/db
+        env:
+          PERSONAL_DATABASE_URL: ${{ secrets.PERSONAL_DATABASE_URL }}
+        run: pnpm db:migrate:personal
       - name: Run tenant migrations
         working-directory: apps/tools/migrate-databases
         env:
@@ -305,7 +324,7 @@ jobs:
     if: >-
       always() && !failure() && !cancelled() &&
       needs.prepare.outputs.workers != '[]'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     strategy:
       fail-fast: false
@@ -313,8 +332,6 @@ jobs:
         worker: ${{ fromJson(needs.prepare.outputs.workers) }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Deploy ${{ matrix.worker }}
         working-directory: apps/workers/${{ matrix.worker }}
@@ -333,12 +350,10 @@ jobs:
       always() && !failure() && !cancelled() &&
       (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
       needs.prepare.outputs.release_weldmail == 'true'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - uses: expo/expo-github-action@v8
         with:
@@ -348,6 +363,7 @@ jobs:
         working-directory: apps/mobile/weldmail-app
         env:
           EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
+          EXPO_PUBLIC_PERSONAL_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://personal-api-test.weldsuite.org' || 'https://personal-api.weldsuite.org' }}
         run: |
           CHANNEL="${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}"
           eas update \
@@ -363,12 +379,10 @@ jobs:
       always() && !failure() && !cancelled() &&
       (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
       needs.prepare.outputs.release_weldchat == 'true'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - uses: expo/expo-github-action@v8
         with:
@@ -393,7 +407,7 @@ jobs:
       always() && !failure() && !cancelled() &&
       (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
       needs.prepare.outputs.release_weldbooks == 'true'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
@@ -422,12 +436,10 @@ jobs:
       always() && !failure() && !cancelled() &&
       (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
       needs.prepare.outputs.release_weldflow == 'true'
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - uses: expo/expo-github-action@v8
         with:
@@ -452,12 +464,10 @@ jobs:
     if: >-
       always() && !failure() && !cancelled() &&
       (needs.workers.result == 'success' || needs.workers.result == 'skipped')
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          clean: false
       - uses: ./.github/actions/setup-monorepo
       - name: Build platform
         working-directory: apps/web/platform
@@ -484,6 +494,44 @@ jobs:
             BRANCH=develop
           else
             PROJECT=weldsuite
+            BRANCH=main
+          fi
+          pnpm exec wrangler pages deploy dist \
+            --project-name "$PROJECT" \
+            --branch "$BRANCH" \
+            --commit-dirty=true
+
+  frontend-weldmail:
+    name: Deploy WeldMail web (${{ needs.prepare.outputs.cf_env }} Pages)
+    needs: [prepare, workers]
+    if: >-
+      always() && !failure() && !cancelled() &&
+      (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
+      needs.prepare.outputs.release_weldmail_web == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Build WeldMail web
+        working-directory: apps/web/weldmail
+        env:
+          VITE_PERSONAL_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://personal-api-test.weldsuite.org' || 'https://api.weldmail.com' }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
+          VITE_ENVIRONMENT: ${{ needs.prepare.outputs.cf_env }}
+        run: pnpm build
+      - name: Deploy WeldMail web to Pages
+        working-directory: apps/web/weldmail
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ENV: ${{ needs.prepare.outputs.cf_env }}
+        run: |
+          if [ "$CF_ENV" = "test" ]; then
+            PROJECT=weldmail-web-test
+            BRANCH=develop
+          else
+            PROJECT=weldmail-web
             BRANCH=main
           fi
           pnpm exec wrangler pages deploy dist \
