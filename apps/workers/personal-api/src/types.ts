@@ -1,3 +1,10 @@
+import type { PersonalEntitlements } from './lib/billing';
+
+/** Cloudflare Workers send_email binding (EmailMessage form). */
+export interface SendEmailBinding {
+  send(message: { readonly from: string; readonly to: string }): Promise<void>;
+}
+
 export interface Env {
   /** Neon connection string for master DB (personal_accounts, registry). */
   DATABASE_URL_MASTER: string;
@@ -6,6 +13,8 @@ export interface Env {
   CLERK_SECRET_KEY: string;
   CLERK_JWT_KEY?: string;
   ENVIRONMENT: string;
+  /** Cloudflare Email Sending binding — required for outbound mail. */
+  SEND_EMAIL?: SendEmailBinding;
 }
 
 export type PersonalAccountSummary = {
@@ -19,4 +28,5 @@ export type Variables = {
   sessionId: string;
   personalAccountId: string | null;
   personalAccount: PersonalAccountSummary | null;
+  entitlements: PersonalEntitlements;
 };

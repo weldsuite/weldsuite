@@ -14,15 +14,20 @@
   "dependencies": {
     "@clerk/clerk-react": "^5.31.0",
     "@weldsuite/personal-api-client": "workspace:*",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.544.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.0.0"
+    "react-router-dom": "^7.0.0",
+    "tailwind-merge": "^3.3.1"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.18",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^4.3.0",
     "@weldsuite/typescript-config": "workspace:*",
+    "tailwindcss": "^4",
     "typescript": "^5",
     "vite": "^6.4.3",
     "wrangler": "^4.0.0"

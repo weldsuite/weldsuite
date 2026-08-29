@@ -8,23 +8,33 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useObserve } from 'expo-observe';
 import { TrendingUp, TrendingDown, Users, UserPlus, DollarSign, Activity, Target } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { api, type CrmDashboardStats, type CrmActivity } from '@/services/api';
+import { hideAppSplash } from '@/utils/splash';
 
 export default function CrmDashboard() {
+  const { markInteractive } = useObserve();
   const { colors } = useTheme();
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const [stats, setStats] = useState<CrmDashboardStats | null>(null);
   const [recentActivities, setRecentActivities] = useState<CrmActivity[]>([]);
-  const [, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     loadDashboardData();
   }, []);
+
+  useEffect(() => {
+    if (!loading) {
+      hideAppSplash();
+      markInteractive();
+    }
+  }, [loading, markInteractive]);
 
   const loadDashboardData = async () => {
     try {

@@ -2,7 +2,7 @@
  * Task detail — status change + field summary from `GET /api/tasks/:id`.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   Pressable,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useObserve } from 'expo-observe';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Check, Pencil } from 'lucide-react-native';
@@ -28,6 +29,7 @@ import { TaskStatusBadge } from '@/components/status-badge';
 import { PriorityIndicator } from '@/components/PriorityIndicator';
 import { useTask, useUpdateTaskStatus } from '@/hooks/use-weldflow';
 import { statusLabel, useI18n } from '@/lib/i18n';
+import { hideAppSplash } from '@/utils/splash';
 import type { TaskStatus } from '@/types/weldflow';
 
 const STATUS_OPTIONS: TaskStatus[] = [
@@ -44,6 +46,7 @@ export default function TaskDetailScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { markInteractive } = useObserve();
   const { projectId, taskId } = useLocalSearchParams<{ projectId: string; taskId: string }>();
   const { t, format } = useI18n();
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -51,6 +54,13 @@ export default function TaskDetailScreen() {
   const { data, isLoading, refetch, isError } = useTask(projectId, taskId);
   const task = data?.data;
   const updateStatus = useUpdateTaskStatus(projectId, taskId);
+
+  useEffect(() => {
+    if (!isLoading) {
+      hideAppSplash();
+      markInteractive();
+    }
+  }, [isLoading, markInteractive]);
 
   const handleChangeStatus = async (status: TaskStatus) => {
     setPickerOpen(false);

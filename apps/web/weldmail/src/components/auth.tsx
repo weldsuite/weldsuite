@@ -1,7 +1,9 @@
 import { useEffect, type ReactNode } from 'react';
 import { useAuth } from '@clerk/clerk-react';
+import { Inbox, PenSquare, CreditCard, User, LogOut } from 'lucide-react';
 import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { setPersonalApiTokenGetter } from '@/lib/api';
+import { cn } from '@/lib/utils';
 
 export function TokenBridge({ children }: { children: ReactNode }) {
   const { getToken, isSignedIn } = useAuth();
@@ -21,9 +23,9 @@ export function ProtectedRoute() {
 
   if (!isLoaded) {
     return (
-      <div className="center-state">
-        <div className="spinner" />
-        <span>Loading…</span>
+      <div className="flex h-screen flex-col items-center justify-center gap-3 text-muted-foreground">
+        <div className="h-7 w-7 animate-spin rounded-full border-2 border-border border-t-primary" />
+        <span className="text-sm">Loading…</span>
       </div>
     );
   }
@@ -35,28 +37,73 @@ export function ProtectedRoute() {
   return <Outlet />;
 }
 
+const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+  cn(
+    'flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors',
+    isActive
+      ? 'bg-background text-foreground font-medium shadow-sm'
+      : 'text-muted-foreground hover:bg-background/60 hover:text-foreground',
+  );
+
 export function AppShell() {
-  const { signOut } = useAuth();
+  const { signOut, has } = useAuth();
+  const isPro = Boolean(has?.({ plan: 'weldmail_pro' }));
 
   return (
-    <div className="app-shell">
-      <header className="app-header">
-        <Link to="/" className="brand">
-          WeldMail
-        </Link>
-        <nav className="nav-links">
-          <NavLink to="/inbox" className={({ isActive }) => (isActive ? 'active' : undefined)}>
-            Inbox
-          </NavLink>
-          <NavLink to="/compose" className={({ isActive }) => (isActive ? 'active' : undefined)}>
-            Compose
-          </NavLink>
-          <button type="button" className="btn btn-ghost" onClick={() => signOut()}>
+    <div className="h-screen bg-[var(--shell-chrome)] p-2">
+      <div className="flex h-full gap-0 overflow-hidden">
+        <aside className="flex w-[200px] shrink-0 flex-col px-2 py-3">
+          <div className="mb-4 flex items-center gap-2 px-2.5">
+            <Link to="/" className="text-base font-semibold tracking-tight text-foreground">
+              WeldMail
+            </Link>
+            {isPro ? (
+              <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary-foreground">
+                Pro
+              </span>
+            ) : (
+              <Link
+                to="/pricing"
+                className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+              >
+                Upgrade
+              </Link>
+            )}
+          </div>
+
+          <nav className="flex flex-1 flex-col gap-0.5">
+            <NavLink to="/inbox" className={navLinkClass}>
+              <Inbox className="h-4 w-4" />
+              Inbox
+            </NavLink>
+            <NavLink to="/compose" className={navLinkClass}>
+              <PenSquare className="h-4 w-4" />
+              Compose
+            </NavLink>
+            <NavLink to="/pricing" className={navLinkClass}>
+              <CreditCard className="h-4 w-4" />
+              Pricing
+            </NavLink>
+            <NavLink to="/account" className={navLinkClass}>
+              <User className="h-4 w-4" />
+              Account
+            </NavLink>
+          </nav>
+
+          <button
+            type="button"
+            onClick={() => signOut()}
+            className="mt-auto flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-background/60 hover:text-foreground"
+          >
+            <LogOut className="h-4 w-4" />
             Sign out
           </button>
-        </nav>
-      </header>
-      <Outlet />
+        </aside>
+
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }

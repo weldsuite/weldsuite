@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useObserve } from 'expo-observe';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,8 +27,10 @@ import {
   useWeldstashWarehouses,
 } from '@/hooks/use-weldstash-queries';
 import { useStockAdjuster } from '@/hooks/use-stock-adjuster';
+import { hideAppSplash } from '@/utils/splash';
 
 export default function ProductDetailScreen() {
+  const { markInteractive } = useObserve();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -98,6 +101,13 @@ export default function ProductDetailScreen() {
   };
 
   const loading = !product && (productQuery.isPending || stockQuery.isPending || warehouseQuery.isPending);
+
+  useEffect(() => {
+    if (!loading) {
+      hideAppSplash();
+      markInteractive();
+    }
+  }, [loading, markInteractive]);
 
   if (loading) {
     return (

@@ -1,12 +1,16 @@
 import { ClerkProvider, ClerkLoaded, useOrganizationList } from '@clerk/expo';
 import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from '@react-navigation/native';
+import { Observe, ObserveRoot } from 'expo-observe';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { View, ActivityIndicator, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
+import * as SplashScreen from 'expo-splash-screen';
 import 'react-native-reanimated';
+
+import { hideAppSplash } from '@/utils/splash';
 
 import { tokenCache } from '@clerk/expo/token-cache';
 import { ClerkAuthProvider, useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
@@ -27,6 +31,13 @@ import { I18nProvider, useI18n, usePersistedLanguage } from '@/lib/i18n';
 import { en } from '@/lib/i18n/locales/en';
 import { nl } from '@/lib/i18n/locales/nl';
 import { BRAND } from '@/lib/brand';
+
+// Must run before any screen mounts — enables per-route TTR/TTI in Observe.
+Observe.configure({
+  integrations: { 'expo-router': true },
+});
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
@@ -253,9 +264,14 @@ function Splash({ label }: { label: string }) {
   );
 }
 
-export default function RootLayout() {
+function RootLayout() {
   const checkingUpdate = useUpdateGate();
   const persisted = usePersistedLanguage();
+
+  useEffect(() => {
+    const safety = setTimeout(() => hideAppSplash(), 5000);
+    return () => clearTimeout(safety);
+  }, []);
 
   if (checkingUpdate || !persisted.ready) {
     const catalog = persisted.language === 'nl' ? nl : en;
@@ -278,3 +294,5 @@ export default function RootLayout() {
     </I18nProvider>
   );
 }
+
+export default ObserveRoot.wrap(RootLayout);

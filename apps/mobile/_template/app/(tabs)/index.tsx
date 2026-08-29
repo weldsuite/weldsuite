@@ -1,15 +1,24 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { useObserve } from 'expo-observe';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
 
+import { hideAppSplash } from '@/utils/splash';
+
 export default function HomeScreen() {
+  const { markInteractive } = useObserve();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { user } = useClerkAuth();
   const { currentWorkspace } = useWorkspace();
+
+  useEffect(() => {
+    hideAppSplash();
+    markInteractive();
+  }, [markInteractive]);
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>

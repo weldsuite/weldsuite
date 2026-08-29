@@ -1,4 +1,5 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useObserve } from 'expo-observe';
 import {
   ActivityIndicator,
   FlatList,
@@ -23,8 +24,10 @@ import { useHardwareBarcodeScan } from '@/hooks/useHardwareBarcodeScan';
 import { normalizeBarcode, pickExactProduct } from '@/utils/barcode';
 import { weldstashKeys } from '@/lib/query-client';
 import { prefetchWeldstashProduct, useWeldstashProducts } from '@/hooks/use-weldstash-queries';
+import { hideAppSplash } from '@/utils/splash';
 
 export default function ProductsScreen() {
+  const { markInteractive } = useObserve();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -39,6 +42,13 @@ export default function ProductsScreen() {
   const products = productsQuery.data?.data ?? [];
   const loading = productsQuery.isPending && products.length === 0;
   const error = productsQuery.error ? (productsQuery.error as Error).message : null;
+
+  useEffect(() => {
+    if (!loading && !productsQuery.isPending) {
+      hideAppSplash();
+      markInteractive();
+    }
+  }, [loading, productsQuery.isPending, markInteractive]);
 
   const handleSearchChange = (text: string) => {
     setSearch(text);

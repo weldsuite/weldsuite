@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
+import { useObserve } from 'expo-observe';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   ChevronLeft,
@@ -242,6 +243,7 @@ export default function EmailDetailScreen() {
   const { theme, colors } = useTheme();
   const isDark = theme === 'dark';
   const router = useRouter();
+  const { markInteractive } = useObserve();
   const insets = useSafeAreaInsets();
   const { organizationId } = useClerkAuth();
   const { refreshMail } = useMail();
@@ -273,7 +275,8 @@ export default function EmailDetailScreen() {
 
   useEffect(() => {
     hideAppSplash();
-  }, []);
+    markInteractive();
+  }, [markInteractive]);
 
   const goBack = useCallback(() => {
     if (router.canGoBack()) router.back();

@@ -1,4 +1,5 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { useObserve } from 'expo-observe';
 import {
   View, Text, TouchableOpacity, StyleSheet, Linking, ActivityIndicator,
 } from 'react-native';
@@ -9,9 +10,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 
+import { hideAppSplash } from '@/utils/splash';
+
 const WELDSUITE_URL = 'https://weldsuite.com';
 
 export default function NoWorkspaceScreen() {
+  const { markInteractive } = useObserve();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -21,6 +25,11 @@ export default function NoWorkspaceScreen() {
   });
 
   const [checking, setChecking] = useState(false);
+
+  useEffect(() => {
+    hideAppSplash();
+    markInteractive();
+  }, [markInteractive]);
 
   const handleOpenWebsite = () => {
     Linking.openURL(WELDSUITE_URL);

@@ -1,13 +1,17 @@
 import { ClerkProvider, ClerkLoaded, useOrganizationList } from '@clerk/expo';
 import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
+import { Observe, ObserveRoot } from 'expo-observe';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { View, ActivityIndicator, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
+import * as SplashScreen from 'expo-splash-screen';
 import 'react-native-reanimated';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+import { hideAppSplash } from '@/utils/splash';
 
 import { tokenCache } from '@clerk/expo/token-cache';
 import { ClerkAuthProvider, useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
@@ -21,6 +25,13 @@ import { NotificationProvider } from '@/contexts/NotificationContext';
 import { useUpdateGate } from '@/hooks/useUpdateGate';
 import { BRAND } from '@/lib/brand';
 import { I18nProvider, useI18n, usePersistedLanguage } from '@/lib/i18n';
+
+// Must run before any screen mounts — enables per-route TTR/TTI in Observe.
+Observe.configure({
+  integrations: { 'expo-router': true },
+});
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
@@ -181,10 +192,15 @@ function AuthenticatedApp() {
   );
 }
 
-export default function RootLayout() {
+function RootLayout() {
   const checkingUpdate = useUpdateGate();
   const { ready, language } = usePersistedLanguage();
   const updating = checkingUpdate || !ready;
+
+  useEffect(() => {
+    const safety = setTimeout(() => hideAppSplash(), 5000);
+    return () => clearTimeout(safety);
+  }, []);
 
   if (updating) {
     return (
@@ -211,3 +227,5 @@ export default function RootLayout() {
     </I18nProvider>
   );
 }
+
+export default ObserveRoot.wrap(RootLayout);

@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useObserve } from 'expo-observe';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,11 +23,13 @@ import { useHardwareBarcodeScan } from '@/hooks/useHardwareBarcodeScan';
 import { normalizeBarcode } from '@/utils/barcode';
 import { weldstashKeys } from '@/lib/query-client';
 import { useWeldstashPickList } from '@/hooks/use-weldstash-queries';
+import { hideAppSplash } from '@/utils/splash';
 
 const TERMINAL = new Set(['picked', 'partial', 'short', 'skipped']);
 
 export default function PickDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { markInteractive } = useObserve();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -36,6 +39,13 @@ export default function PickDetailScreen() {
   const pickQuery = useWeldstashPickList(id);
   const list = pickQuery.data?.data ?? null;
   const loading = pickQuery.isPending && !list;
+
+  useEffect(() => {
+    if (!loading) {
+      hideAppSplash();
+      markInteractive();
+    }
+  }, [loading, markInteractive]);
 
   const [busy, setBusy] = useState(false);
   const [qty, setQty] = useState('');

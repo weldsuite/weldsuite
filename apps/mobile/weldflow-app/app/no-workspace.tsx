@@ -1,16 +1,19 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { useObserve } from 'expo-observe';
 import { useRouter } from 'expo-router';
 import { useOrganizationList, useUser } from '@clerk/expo';
 import { Inbox, RefreshCw, LogOut, Trash2 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { hideAppSplash } from '@/utils/splash';
 
 export default function NoWorkspaceScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { markInteractive } = useObserve();
   const { user, signOut } = useClerkAuth();
   const { user: clerkUser } = useUser();
   const { userMemberships, isLoaded } = useOrganizationList({
@@ -19,6 +22,11 @@ export default function NoWorkspaceScreen() {
 
   const [checking, setChecking] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    hideAppSplash();
+    markInteractive();
+  }, [markInteractive]);
 
   const handleRefresh = useCallback(async () => {
     setChecking(true);

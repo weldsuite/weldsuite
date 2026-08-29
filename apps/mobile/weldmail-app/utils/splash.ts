@@ -8,6 +8,10 @@
  *
  * Hide BEFORE any sheet/modal is presented; leaving the splash up across a
  * formSheet is what used to fight UIKit view controllers.
+ *
+ * EAS Observe TTI is marked separately via useObserve().markInteractive() on
+ * each entry screen — not here — so the root layout safety timeouts that call
+ * hideAppSplash don't under-report Time to Interactive.
  */
 
 import * as SplashScreen from 'expo-splash-screen';
