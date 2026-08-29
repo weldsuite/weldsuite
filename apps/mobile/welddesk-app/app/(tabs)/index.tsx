@@ -63,7 +63,7 @@ export default function InboxScreen() {
     if (assigneeFilter === 'mine' && user?.id) base.assigneeId = user.id;
     if (assigneeFilter === 'unassigned') base.unassigned = true;
     return base;
-  }, [state, assigneeFilter, user?.id]);
+  }, [state, assigneeFilter, user]);
 
   const fetchPage = useCallback(
     async (pageCursor?: string, append = false) => {
