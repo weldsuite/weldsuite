@@ -557,7 +557,7 @@ export async function selectMoneybirdAdministration(args: {
     return { error: 'That administration is not available on this Moneybird account', status: 400 };
   }
 
-  const credentials = {
+  const credentials: Record<string, string> = {
     ...existing,
     administrationId: chosen.id,
   };

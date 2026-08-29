@@ -138,7 +138,7 @@ app.get('/connections', requirePermission('integrations:read'), async (c) => {
   const db = c.get('tenantDb');
   try {
     const rows = await listConnections(db);
-    return success(c, rows.map(sanitizeConnection));
+    return success(c, rows.map((row) => sanitizeConnection(row)));
   } catch (err) {
     console.error('[app-api/connectors] list connections failed:', err);
     return error.internal(c, 'Failed to list connections');

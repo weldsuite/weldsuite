@@ -899,7 +899,7 @@ async function ingestBankRecords(args: IngestArgs): Promise<IngestResult> {
           db: args.db as never,
           workspaceId: args.workspaceId,
           userId: args.ownerId,
-          entityType: args.sync.internalEntity,
+          entityType: args.sync.internalEntity === 'bank_account' ? 'bank_account' : 'bank_transaction',
           action: 'deleted',
           entityId: mapping.internalEntityId,
           data: { id: mapping.internalEntityId },
