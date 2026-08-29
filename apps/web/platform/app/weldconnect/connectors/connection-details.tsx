@@ -366,6 +366,19 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
                           {run.error ? (
                             <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">{run.error}</p>
                           ) : null}
+                          {run.errorSamples && run.errorSamples.length > 0 ? (
+                            <ul className="mt-1 space-y-0.5">
+                              {run.errorSamples.slice(0, 3).map((sample) => (
+                                <li
+                                  key={`${sample.externalId}:${sample.message}`}
+                                  className="text-[11px] text-red-600/90 dark:text-red-400/90"
+                                >
+                                  {sample.externalId !== '-' ? `${sample.externalId}: ` : ''}
+                                  {sample.message}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
                         </div>
                         <Badge
                           variant="outline"
