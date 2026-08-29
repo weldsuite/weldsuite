@@ -2,7 +2,16 @@
 
 Set these on GitHub Environments **`test`** and **`production`**
 (`Settings → Environments`). Do not put them on the repo itself except
-`EXPO_TOKEN` (used by both environments).
+`EXPO_TOKEN` (used by both environments — repo-level is fine).
+
+This repository is **public**. Environment secrets stay encrypted and are
+only exposed to jobs that declare `environment:`. Protect them with
+deployment branch policies:
+
+| Environment | Allowed branches | Notes |
+|---|---|---|
+| `test` | `develop` | Auto-deploys on push to develop |
+| `production` | `main` | Prefer a required reviewer on production |
 
 Values come from Doppler project `weldsuite` (`test` / `prd` configs).
 Doppler's master DB URL is `DATABASE_URL_MASTER`; the workflow reads
@@ -16,8 +25,17 @@ workflow reads `PERSONAL_DATABASE_URL`.
 | `DATABASE_ENCRYPTION_KEY` | `DATABASE_ENCRYPTION_KEY` | Tenant migrations |
 | `NEON_API_KEY` | `NEON_API_KEY` | Tenant migrations |
 | `CLOUDFLARE_API_TOKEN` | `CLOUDFLARE_API_TOKEN` | Workers + Pages |
-| `CLOUDFLARE_ACCOUNT_ID` | `cfcf560df8dc675d15337abcfbf6d9bd` | Workers + Pages |
+| `CLOUDFLARE_ACCOUNT_ID` | `CLOUDFLARE_ACCOUNT_ID` | Workers + Pages |
 | `EXPO_TOKEN` | not in Doppler | WeldMail / WeldChat / WeldBooks OTA (repo-level is fine) |
+
+Optional frontend build secrets (on both environments if used):
+
+| GitHub secret | Used by |
+|---|---|
+| `VITE_BOOKING_PORTAL_URL` | Platform Pages build |
+| `VITE_MEETING_PORTAL_URL` | Platform Pages build |
+| `VITE_MIXPANEL_TOKEN` | Platform Pages build |
+| `VITE_BETTERSTACK_SOURCE_TOKEN` | Platform Pages build |
 
 Worker runtime secrets (set via `wrangler secret put`, not GitHub):
 
@@ -32,7 +50,7 @@ Copy from Doppler without printing values:
 ```bash
 for env in test production; do
   cfg=$([ "$env" = production ] && echo prd || echo test)
-  for s in DATABASE_ENCRYPTION_KEY NEON_API_KEY CLOUDFLARE_API_TOKEN; do
+  for s in DATABASE_ENCRYPTION_KEY NEON_API_KEY CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
     doppler secrets get "$s" --project weldsuite --config "$cfg" --plain \
       | gh secret set "$s" --env "$env" -R weldsuite/weldsuite
   done
@@ -40,8 +58,6 @@ for env in test production; do
     | gh secret set MASTER_DATABASE_URL --env "$env" -R weldsuite/weldsuite
   doppler secrets get DATABASE_URL_PERSONAL --project weldsuite --config "$cfg" --plain \
     | gh secret set PERSONAL_DATABASE_URL --env "$env" -R weldsuite/weldsuite
-  printf 'cfcf560df8dc675d15337abcfbf6d9bd' \
-    | gh secret set CLOUDFLARE_ACCOUNT_ID --env "$env" -R weldsuite/weldsuite
 done
 ```
 

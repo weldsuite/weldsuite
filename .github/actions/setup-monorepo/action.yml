@@ -1,32 +1,8 @@
 name: 'Setup Monorepo'
 description: 'Setup pnpm, Node.js, and install dependencies for the WeldSuite monorepo'
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Warm-workspace contract.
-#
-# Every caller checks out with `clean: false`. That is deliberate and this
-# action depends on it: the Linux jobs run on three PERSISTENT self-hosted
-# Hetzner runners (cx53-1/2/3), and actions/checkout's default `clean: true`
-# runs `git clean -ffdx`, which deletes every gitignored path — including
-# `node_modules` (74 workspaces), `.turbo`, and `.next/cache`. Wiping those
-# before each job meant every job re-linked the whole dependency tree from
-# scratch and every turbo task was a guaranteed cache miss.
-#
-# Measured on CI run 32826200392 (7 jobs, all green): 10m24s of checkout plus
-# 23m43s of install against 19m11s of actual work — 64% of machine time spent
-# rebuilding state the runner already had on disk.
-#
-# So: callers skip the wipe, and the first step here does a TARGETED clean
-# instead — stale build outputs and stray untracked files go, the three caches
-# stay. `pnpm install --frozen-lockfile` still reconciles node_modules exactly
-# to the lockfile (it prunes extraneous packages), so a warm tree is correct,
-# just fast.
-#
-# Consequence for new jobs: if you add a self-hosted job that checks out
-# WITHOUT `clean: false`, it will wipe the caches for whichever runner it lands
-# on and slow down the next job scheduled there. Pass `clean: false` and let
-# this action do the cleaning.
-# ─────────────────────────────────────────────────────────────────────────────
+# Ephemeral GitHub-hosted runners: use pnpm's setup-node cache + a turbo
+# cache restore. Do not rely on a warm disk between jobs.
 
 inputs:
   node-version:
@@ -46,56 +22,26 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    # Replaces the `git clean -ffdx` that checkout would have done, minus the
-    # three paths we keep warm on purpose:
-    #   node_modules   — the whole point; excluded at any depth (74 workspaces)
-    #   .turbo         — turbo 2.x local cache lives at <root>/.turbo/cache
-    #   **/.next/cache — turbo.json already declares `!.next/cache/**` a
-    #                    non-output, i.e. it is meant to survive between builds
-    # Everything else gitignored (dist/, .next/server/, stray generated files)
-    # is removed, so a build can never pick up output from another branch.
-    # git clean does not descend into an excluded directory, so this stays fast
-    # even with node_modules present.
-    - name: Clean stale build outputs
-      shell: bash
-      run: |
-        set -euo pipefail
-        git clean -ffdx \
-          -e node_modules \
-          -e .turbo \
-          -e '**/.next/cache' \
-          --quiet
-        echo "Workspace cleaned (node_modules / .turbo / .next/cache preserved)"
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: ${{ inputs.pnpm-version }}
 
-    # setup-node first: pnpm/action-setup's self-installer fails on the
-    # self-hosted box (exit 1) when it runs against the root-owned system Node.
-    # Corepack ships with Node 22 and writes shims into the user-owned toolcache.
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: ${{ inputs.node-version }}
-        # Do not set cache: pnpm — setup-node hashes **/pnpm-lock.yaml and that
-        # glob times out (120s) walking this monorepo on the Hetzner runners.
+        cache: pnpm
 
-    - name: Setup pnpm
-      shell: bash
-      run: |
-        set -euo pipefail
-        export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-        corepack enable
-        corepack prepare "pnpm@${{ inputs.pnpm-version }}" --activate
-        pnpm --version
+    - name: Cache turbo
+      uses: actions/cache@v4
+      with:
+        path: .turbo
+        key: turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+        restore-keys: |
+          turbo-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+          turbo-${{ runner.os }}-
 
-    # No actions/cache for the pnpm store or .turbo any more. On a persistent
-    # runner both already live on local disk, so the cache steps were paying a
-    # network round-trip to GitHub's cache service to restore state that was
-    # never gone — and then paying again to upload it on the way out (the
-    # "Post Run setup-monorepo" steps cost up to 62s per job).
-    #
-    # The turbo cache key was broken regardless: `<os>-turbo-<github.sha>` can
-    # never hit on a new commit, so every job fell through to restore-keys and
-    # picked up an arbitrary older cache, while all 7 jobs raced to save the
-    # same key and 6 lost.
     - name: Install dependencies
       if: inputs.install-dependencies == 'true'
       shell: bash
