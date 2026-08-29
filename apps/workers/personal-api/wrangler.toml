@@ -7,6 +7,12 @@
 #   CLERK_SECRET_KEY
 #   CLERK_JWT_KEY (optional)
 #
+# Bindings:
+#   SEND_EMAIL — Cloudflare Email Sending ([[send_email]])
+#
+# Infra (one-time): apex weldmail.com Email Routing catch-all → mail-inbound-worker
+# and Email Sending authorization for *@weldmail.com MAIL FROM.
+#
 # No Hyperdrive — Neon HTTP via @neondatabase/serverless, same as app-api.
 
 name = "weldsuite-personal-api"
@@ -21,6 +27,9 @@ head_sampling_rate = 1
 [vars]
 ENVIRONMENT = "development"
 
+[[send_email]]
+name = "SEND_EMAIL"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 logpush = true
@@ -31,6 +40,9 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+
+[[env.test.send_email]]
+name = "SEND_EMAIL"
 
 [env.test.observability]
 enabled = true
@@ -47,6 +59,9 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+
+[[env.production.send_email]]
+name = "SEND_EMAIL"
 
 [env.production.observability]
 enabled = true

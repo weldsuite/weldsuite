@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useObserve } from 'expo-observe';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { ArrowLeft, Video, Calendar, Hash, X } from 'lucide-react-native';
 import { format } from 'date-fns';
@@ -8,15 +9,24 @@ import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useMeeting } from '@/hooks/useMeetings';
 import { AttendeeList } from '@/components/AttendeeList';
 import { useWeldmeetApi } from '@/services/app-api';
+import { hideAppSplash } from '@/utils/splash';
 
 export default function MeetingDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const { markInteractive } = useObserve();
   const { weldmeet } = useWeldmeetApi();
   const { data: meeting, loading, error, refresh } = useMeeting(id);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!loading) {
+      hideAppSplash();
+      markInteractive();
+    }
+  }, [loading, markInteractive]);
 
   const onJoin = () => {
     if (!meeting) return;

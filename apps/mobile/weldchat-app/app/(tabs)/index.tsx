@@ -13,6 +13,7 @@ import {
   PanResponder,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { useObserve } from 'expo-observe';
 import { Image } from 'expo-image';
 import { Hash, Lock, ChevronRight, Search, Check, Bookmark, SquarePen, Plus } from 'lucide-react-native';
 import { useOrganization, useOrganizationList, useUser } from '@clerk/expo';
@@ -22,6 +23,7 @@ import type { ColorScheme } from '@/constants/colors';
 import { appApi } from '@/services/app-api';
 import { useChatUserEvents } from '@/hooks/useChatUserEvents';
 import { getEntityTypeInfo, listEntityTypes, FallbackEntityIcon } from '@/lib/entity-channels/registry';
+import { hideAppSplash } from '@/utils/splash';
 
 interface Channel {
   id: string;
@@ -42,8 +44,10 @@ interface Section {
 }
 
 export default function HomeTab() {
+  const { markInteractive } = useObserve();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [showSwitcher, setShowSwitcher] = useState(false);
@@ -155,8 +159,17 @@ export default function HomeTab() {
       setSections((secRes.data || []) as any);
     } catch (err) {
       console.error('Failed to load data:', err);
+    } finally {
+      setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!loading) {
+      hideAppSplash();
+      markInteractive();
+    }
+  }, [loading, markInteractive]);
 
   useFocusEffect(
     useCallback(() => {

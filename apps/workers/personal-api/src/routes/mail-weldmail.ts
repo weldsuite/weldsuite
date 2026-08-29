@@ -107,8 +107,13 @@ app.post('/reserve', zValidator('json', reserveBody), async (c) => {
         ),
       );
 
-    if (existingAccounts.length >= 1) {
-      return error.badRequest(c, 'Personal accounts are limited to 1 WeldMail address for now');
+    const entitlements = c.get('entitlements');
+    if (existingAccounts.length >= entitlements.maxAddresses) {
+      return error.planLimit(
+        c,
+        `Your plan allows ${entitlements.maxAddresses} WeldMail address(es). Upgrade to Pro for more.`,
+        { plan: entitlements.plan, maxAddresses: entitlements.maxAddresses },
+      );
     }
 
     const [taken] = await masterDb

@@ -12,6 +12,7 @@ import {
   ScrollView,
   Alert,
 } from 'react-native';
+import { useObserve } from 'expo-observe';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CheckCircle2, AlertCircle, LogOut } from 'lucide-react-native';
@@ -20,14 +21,21 @@ import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import MaterialSpinner from '@/components/MaterialSpinner';
 import { personalApi } from '@/services/personal-api';
 import { BRAND } from '@/lib/brand';
+import { hideAppSplash } from '@/utils/splash';
 
 const ACCENT = BRAND;
 
 export default function ClaimAddressScreen() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { markInteractive } = useObserve();
   const insets = useSafeAreaInsets();
   const { signOut } = useClerkAuth();
+
+  useEffect(() => {
+    hideAppSplash();
+    markInteractive();
+  }, [markInteractive]);
 
   const [domain, setDomain] = useState('weldmail.com');
   const [address, setAddress] = useState('');

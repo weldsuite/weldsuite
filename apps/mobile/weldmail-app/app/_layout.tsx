@@ -1,5 +1,6 @@
 import { ClerkProvider, ClerkLoaded, ClerkLoading, useOrganizationList } from '@clerk/expo';
 import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from '@react-navigation/native';
+import { Observe, ObserveRoot } from 'expo-observe';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
@@ -34,6 +35,11 @@ import { OutboxFlusher } from '@/components/OutboxFlusher';
 import { useMailRealtime } from '@/hooks/useMailRealtime';
 import { useUpdateGate } from '@/hooks/useUpdateGate';
 import { BRAND } from '@/lib/brand';
+
+// Must run before any screen mounts — enables per-route TTR/TTI in Observe.
+Observe.configure({
+  integrations: { 'expo-router': true },
+});
 
 // Keep the native splash until the inbox or an opened email has something to
 // paint — avoids a labeled loader flash on cold start / notification tap.
@@ -319,7 +325,7 @@ function AuthenticatedApp() {
   );
 }
 
-export default function RootLayout() {
+function RootLayout() {
   const checkingUpdate = useUpdateGate();
 
   useEffect(() => {
@@ -358,3 +364,5 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+export default ObserveRoot.wrap(RootLayout);

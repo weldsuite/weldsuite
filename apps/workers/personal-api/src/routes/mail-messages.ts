@@ -1,5 +1,5 @@
 /**
- * Personal mail messages — list, get, patch, send (store-only, no SMTP).
+ * Personal mail messages — list, get, patch, send via Cloudflare Email Sending.
  */
 
 import { Hono } from 'hono';
@@ -9,6 +9,7 @@ import { and, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { getPersonalDb, personalSchema } from '../db';
 import { generateId } from '../lib/id';
 import { cursorPagination, error, list, success } from '../lib/response';
+import { sendEmail } from '../lib/cloudflare-email';
 import type { Env, Variables } from '../types';
 import type { PersonalMailEmailAddress } from '@weldsuite/db/schema/personal';
 
@@ -131,6 +132,7 @@ app.post('/send', zValidator('json', sendBody), async (c) => {
   const personalAccountId = c.get('personalAccountId');
   if (!personalAccountId) return error.personalAccountRequired(c);
 
+  const entitlements = c.get('entitlements');
   const data = c.req.valid('json');
 
   try {
@@ -150,6 +152,29 @@ app.post('/send', zValidator('json', sendBody), async (c) => {
 
     if (!account) return error.notFound(c, 'Mail account', data.accountId);
 
+    // Daily send limit from Clerk Billing entitlements
+    const dayStart = new Date();
+    dayStart.setUTCHours(0, 0, 0, 0);
+    const [sentTodayRow] = await personalDb
+      .select({ count: sql<number>`count(*)::int` })
+      .from(personalMailMessages)
+      .where(
+        and(
+          eq(personalMailMessages.accountId, data.accountId),
+          eq(personalMailMessages.source, 'composed'),
+          sql`${personalMailMessages.sentDate} >= ${dayStart}`,
+          isNull(personalMailMessages.deletedAt),
+        ),
+      );
+    const sentToday = Number(sentTodayRow?.count ?? 0);
+    if (sentToday >= entitlements.dailySendLimit) {
+      return error.planLimit(
+        c,
+        `Daily send limit of ${entitlements.dailySendLimit} reached. Upgrade to Pro for a higher limit.`,
+        { plan: entitlements.plan, dailySendLimit: entitlements.dailySendLimit },
+      );
+    }
+
     if (data.idempotencyKey) {
       const [prior] = await personalDb
         .select()
@@ -164,12 +189,42 @@ app.post('/send', zValidator('json', sendBody), async (c) => {
       if (prior) return success(c, prior);
     }
 
-    const id = generateId('msg');
-    const now = new Date();
-    const messageId = `<${id}@weldmail.com>`;
     const to = asAddresses(data.to)!;
     const cc = asAddresses(data.cc);
     const bcc = asAddresses(data.bcc);
+
+    const fromHeader = account.displayName
+      ? `"${account.displayName}" <${account.email}>`
+      : account.email;
+
+    let providerMessageId: string;
+    let pendingVerification = false;
+    try {
+      const sent = await sendEmail(c.env, {
+        from: fromHeader,
+        to: to.map((a) => a.email),
+        cc: cc?.map((a) => a.email),
+        bcc: bcc?.map((a) => a.email),
+        subject: data.subject,
+        text: data.textBody,
+        html: data.htmlBody,
+        inReplyTo: data.inReplyTo,
+      });
+      providerMessageId = sent.messageId;
+      pendingVerification = !!sent.pendingVerification;
+    } catch (err) {
+      console.error('[personal-api/mail-messages] CF send failed:', err);
+      return error.unavailable(
+        c,
+        err instanceof Error ? err.message : 'Email delivery failed',
+      );
+    }
+
+    const id = generateId('msg');
+    const now = new Date();
+    const messageId = providerMessageId.startsWith('<')
+      ? providerMessageId
+      : `<${providerMessageId}@weldmail.com>`;
 
     const [created] = await personalDb
       .insert(personalMailMessages)
@@ -201,7 +256,9 @@ app.post('/send', zValidator('json', sendBody), async (c) => {
         inReplyTo: data.inReplyTo ?? null,
         isReply: Boolean(data.inReplyTo),
         labels: ['SENT'],
-        sendStatus: 'sent',
+        sendStatus: pendingVerification ? 'pending_verification' : 'sent',
+        sendProvider: 'cloudflare',
+        providerMessageId,
         source: 'composed',
         idempotencyKey: data.idempotencyKey ?? null,
         createdAt: now,
@@ -209,7 +266,15 @@ app.post('/send', zValidator('json', sendBody), async (c) => {
       })
       .returning();
 
-    return success(c, created!, 201);
+    await personalDb
+      .update(personalMailAccounts)
+      .set({
+        sentToday: (account.sentToday ?? 0) + 1,
+        updatedAt: now,
+      })
+      .where(eq(personalMailAccounts.id, account.id));
+
+    return success(c, { ...created!, pendingVerification }, 201);
   } catch (err) {
     if (
       typeof err === 'object' &&

@@ -1,6 +1,7 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useObserve } from 'expo-observe';
 import { useRouter } from 'expo-router';
 import { Pencil, ChevronRight } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
@@ -14,6 +15,7 @@ import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
 import { PostCard } from '@/components/PostCard';
 import { formatCompact } from '@/lib/social';
+import { hideAppSplash } from '@/utils/splash';
 
 interface DashboardData {
   stats: SocialDashboardStats | null;
@@ -25,6 +27,7 @@ export default function HomeScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { markInteractive } = useObserve();
   const { user } = useClerkAuth();
   const { currentWorkspace } = useWorkspace();
 
@@ -42,6 +45,13 @@ export default function HomeScreen() {
   }, []);
 
   const { data, loading, refreshing, error, refresh } = useAsyncData(fetcher);
+
+  useEffect(() => {
+    if (!loading) {
+      hideAppSplash();
+      markInteractive();
+    }
+  }, [loading, markInteractive]);
 
   const accountsById = useMemo(
     () => new Map((data?.accounts ?? []).map((a) => [a.id, a])),

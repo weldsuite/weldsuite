@@ -4,8 +4,9 @@
  * full-bleed rows. Data comes from app-api (`/projects`, `/my-tasks`).
  */
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { View, Text, ScrollView, RefreshControl, StyleSheet, Pressable } from 'react-native';
+import { useObserve } from 'expo-observe';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { FolderKanban, CheckSquare, Plus, Settings } from 'lucide-react-native';
@@ -24,10 +25,12 @@ import { ErrorState } from '@/components/data-states';
 import { ProjectStatusBadge, TaskStatusBadge } from '@/components/status-badge';
 import { useProjects, useMyTasks } from '@/hooks/use-weldflow';
 import { useI18n } from '@/lib/i18n';
+import { hideAppSplash } from '@/utils/splash';
 
 export default function HomeScreen() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { markInteractive } = useObserve();
   const { organization } = useOrganization();
   const { t, format, plural } = useI18n();
 
@@ -57,6 +60,13 @@ export default function HomeScreen() {
   const loading = projectsQuery.isLoading || tasksQuery.isLoading;
   const error = projectsQuery.isError || tasksQuery.isError;
   const refreshing = projectsQuery.isRefetching || tasksQuery.isRefetching;
+
+  useEffect(() => {
+    if (!loading) {
+      hideAppSplash();
+      markInteractive();
+    }
+  }, [loading, markInteractive]);
 
   const onRefresh = useCallback(() => {
     void projectsQuery.refetch();

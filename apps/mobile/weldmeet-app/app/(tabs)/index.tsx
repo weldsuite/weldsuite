@@ -1,17 +1,27 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, RefreshControl, Pressable, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useObserve } from 'expo-observe';
 import { useRouter } from 'expo-router';
 import { Plus, KeyRound, Video } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useUpcomingMeetings } from '@/hooks/useMeetings';
 import { MeetingCard } from '@/components/MeetingCard';
+import { hideAppSplash } from '@/utils/splash';
 
 export default function UpcomingScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { markInteractive } = useObserve();
   const { data, loading, error, refresh } = useUpcomingMeetings();
+
+  useEffect(() => {
+    if (!loading) {
+      hideAppSplash();
+      markInteractive();
+    }
+  }, [loading, markInteractive]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>

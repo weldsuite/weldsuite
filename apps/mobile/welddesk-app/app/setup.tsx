@@ -5,6 +5,7 @@ import {
   Animated, FlatList, Modal,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useObserve } from 'expo-observe';
 import { useOrganizationList } from '@clerk/expo';
 import {
   ArrowLeft, Bell,Check, ChevronDown, Inbox,
@@ -16,6 +17,7 @@ import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import storage from '@weldsuite/mobile-ui/utils/storage';
 import api from '@/services/api';
 import { useNotifications } from '@/contexts/NotificationContext';
+import { hideAppSplash } from '@/utils/splash';
 import {
   type SetupMode, type SetupFormData, type ProfileData, type WorkspaceData,
   COUNTRIES, STEP_COUNT_NEW, STEP_COUNT_EXISTING,
@@ -538,6 +540,7 @@ const welcomeStyles = StyleSheet.create({
 export default function SetupScreen() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { markInteractive } = useObserve();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ mode?: string }>();
   const { user } = useClerkAuth();
@@ -550,6 +553,11 @@ export default function SetupScreen() {
   const [formData, setFormData] = useState<SetupFormData>(DEFAULT_FORM_DATA);
   const [isLoading, setIsLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    hideAppSplash();
+    markInteractive();
+  }, [markInteractive]);
 
   // Load saved state from storage
   useEffect(() => {

@@ -14,6 +14,7 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
+import { useObserve } from 'expo-observe';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Send, CheckCircle2, RotateCcw } from 'lucide-react-native';
@@ -27,6 +28,7 @@ import { Screen, ScreenHeader } from '@/components/screen';
 import { ErrorState, LoadingState } from '@/components/data-states';
 import { ChannelBadge, ConversationStateBadge } from '@/components/status-badge';
 import { useI18n } from '@/lib/i18n';
+import { hideAppSplash } from '@/utils/splash';
 import type { DeskConversationWithMessages, DeskMessage } from '@/types/desk';
 
 type ComposerMode = 'message' | 'note';
@@ -34,6 +36,7 @@ type ComposerMode = 'message' | 'note';
 export default function ConversationScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { markInteractive } = useObserve();
   const { colors } = useTheme();
   const { t } = useI18n();
   const listRef = useRef<FlatList<DeskMessage>>(null);
@@ -67,6 +70,13 @@ export default function ConversationScreen() {
     setLoading(true);
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!loading) {
+      hideAppSplash();
+      markInteractive();
+    }
+  }, [loading, markInteractive]);
 
   const send = useCallback(async () => {
     if (!id || !body.trim() || sending) return;

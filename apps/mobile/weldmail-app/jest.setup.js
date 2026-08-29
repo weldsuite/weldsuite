@@ -10,10 +10,22 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   clear: jest.fn(() => Promise.resolve()),
 }));
 
-// expo-constants — read in a few config helpers.
+// expo-splash-screen — keep native splash mocked for Node tests.
 jest.mock('expo-splash-screen', () => ({
   preventAutoHideAsync: jest.fn(() => Promise.resolve()),
   hideAsync: jest.fn(() => Promise.resolve()),
+}));
+
+// expo-observe — native metrics module; not available in Jest.
+jest.mock('expo-observe', () => ({
+  Observe: {
+    configure: jest.fn(),
+    markInteractive: jest.fn(),
+  },
+  ObserveRoot: {
+    wrap: (Component) => Component,
+  },
+  useObserve: () => ({ markInteractive: jest.fn() }),
 }));
 
 // Silence the noisy RN/Expo dev warnings so test output stays readable.

@@ -1,4 +1,5 @@
 import { ClerkProvider, ClerkLoaded, useOrganizationList } from '@clerk/expo';
+import { Observe, ObserveRoot, useObserve } from 'expo-observe';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
@@ -10,6 +11,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
 import 'react-native-reanimated';
 
+import { hideAppSplash } from '@/utils/splash';
 import { interFontMap, installInterFont } from '@/lib/fonts';
 
 import { tokenCache } from '@clerk/expo/token-cache';
@@ -28,7 +30,12 @@ import { RealtimeProvider } from '@/providers/realtime-provider';
 import { appApi, setAppApiTokenGetter } from '@/services/app-api';
 import { useUpdateGate } from '@/hooks/useUpdateGate';
 
-SplashScreen.preventAutoHideAsync();
+// Must run before any screen mounts — enables per-route TTR/TTI in Observe.
+Observe.configure({
+  integrations: { 'expo-router': true },
+});
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 // Render every Text/TextInput with the Instagram-style Inter typeface.
 installInterFont();
@@ -41,6 +48,7 @@ if (!CLERK_KEY) {
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, isLoading, getCredentials, organizationId, signOut } = useClerkAuth();
+  const { markInteractive } = useObserve();
   const router = useRouter();
   const segments = useSegments();
   const { colors } = useTheme();
@@ -101,11 +109,20 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   // "fail to start". A hard timeout is a last-resort safety net.
   useEffect(() => {
     if (!isLoading) {
-      SplashScreen.hideAsync().catch(() => {});
+      hideAppSplash();
     }
-    const safety = setTimeout(() => SplashScreen.hideAsync().catch(() => {}), 5000);
+    const safety = setTimeout(() => hideAppSplash(), 5000);
     return () => clearTimeout(safety);
   }, [isLoading]);
+
+  const showNoWorkspace = Boolean(user && orgReady && isOrgListLoaded && !organizationId);
+
+  useEffect(() => {
+    if (showNoWorkspace) {
+      hideAppSplash();
+      markInteractive();
+    }
+  }, [showNoWorkspace, markInteractive]);
 
   // Route guard
   useEffect(() => {
@@ -284,11 +301,16 @@ function AuthenticatedApp() {
   );
 }
 
-export default function RootLayout() {
+function RootLayout() {
   // First-launch OTA gate: check for and apply the latest update before the app
   // renders, so first-time installers never see the stale embedded bundle.
   const checkingUpdate = useUpdateGate();
   const [fontsLoaded] = useFonts(interFontMap);
+
+  useEffect(() => {
+    const safety = setTimeout(() => hideAppSplash(), 5000);
+    return () => clearTimeout(safety);
+  }, []);
 
   // Keep the native splash up until Inter is ready so the very first frame
   // already renders in the Instagram typeface (no flash of system font).
@@ -311,3 +333,5 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+export default ObserveRoot.wrap(RootLayout);

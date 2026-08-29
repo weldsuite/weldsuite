@@ -117,6 +117,11 @@ export interface ListResponse<T> {
 export interface MeResponse {
   account: PersonalAccount | null;
   mailAccounts: MailAccount[];
+  entitlements?: {
+    plan: 'free' | 'pro';
+    maxAddresses: number;
+    dailySendLimit: number;
+  };
 }
 
 export interface WeldmailDomain {
