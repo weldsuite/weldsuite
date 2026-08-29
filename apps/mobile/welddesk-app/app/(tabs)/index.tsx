@@ -12,6 +12,7 @@ import {
   RefreshControl,
   Pressable,
 } from 'react-native';
+import { useObserve } from 'expo-observe';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Inbox as InboxIcon, Mail, MessageSquare } from 'lucide-react-native';
@@ -28,6 +29,7 @@ import { IconTile } from '@/components/detail';
 import { ErrorState, ListSkeleton } from '@/components/data-states';
 import { ChannelBadge } from '@/components/status-badge';
 import { useI18n } from '@/lib/i18n';
+import { hideAppSplash } from '@/utils/splash';
 import type {
   DeskConversation,
   DeskConversationSort,
@@ -39,6 +41,7 @@ type AssigneeFilter = 'all' | 'mine' | 'unassigned';
 export default function InboxScreen() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { markInteractive } = useObserve();
   const { user } = useClerkAuth();
   const { t } = useI18n();
 
@@ -90,6 +93,13 @@ export default function InboxScreen() {
     setItems([]);
     void fetchPage();
   }, [fetchPage]);
+
+  useEffect(() => {
+    if (!loading) {
+      hideAppSplash();
+      markInteractive();
+    }
+  }, [loading, markInteractive]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

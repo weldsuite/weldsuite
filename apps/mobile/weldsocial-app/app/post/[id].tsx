@@ -1,4 +1,5 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useObserve } from 'expo-observe';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Linking } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -15,6 +16,7 @@ import type { SocialAccount, SocialPost } from '@weldsuite/app-api-client/domain
 import { appApi } from '@/services/app-api';
 import { useAsyncData } from '@/hooks/use-async-data';
 import { PLATFORM_META, POST_STATUS_META, formatDateTime } from '@/lib/social';
+import { hideAppSplash } from '@/utils/splash';
 
 interface PostDetailData {
   post: SocialPost;
@@ -25,6 +27,7 @@ export default function PostDetailScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { markInteractive } = useObserve();
   const toast = useToast();
   const { id } = useLocalSearchParams<{ id: string }>();
   const postId = String(id);
@@ -42,6 +45,13 @@ export default function PostDetailScreen() {
 
   const { data, loading, error, reload } = useAsyncData(fetcher);
   const post = data?.post ?? null;
+
+  useEffect(() => {
+    if (!loading) {
+      hideAppSplash();
+      markInteractive();
+    }
+  }, [loading, markInteractive]);
 
   const accountsById = useMemo(
     () => new Map((data?.accounts ?? []).map((a) => [a.id, a])),

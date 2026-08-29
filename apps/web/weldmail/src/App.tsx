@@ -11,26 +11,24 @@ import { InboxPage } from '@/pages/InboxPage';
 import { MessagePage } from '@/pages/MessagePage';
 import { ComposePage } from '@/pages/ComposePage';
 import { ClaimPage } from '@/pages/ClaimPage';
+import { PricingPage } from '@/pages/PricingPage';
+import { AccountPage } from '@/pages/AccountPage';
 
-function ClerkAppearance() {
-  return {
-    variables: {
-      colorPrimary: '#E85D4C',
-      colorText: '#1c1917',
-      borderRadius: '0.6rem',
-    },
-  } as const;
-}
+const clerkAppearance = {
+  variables: {
+    colorPrimary: '#1a1a1a',
+  },
+} as const;
 
 function SignInPage() {
   return (
-    <div className="clerk-wrap">
+    <div className="mx-auto flex min-h-screen max-w-md items-center justify-center px-4">
       <SignIn
         routing="path"
         path="/sign-in"
         signUpUrl="/sign-up"
         forceRedirectUrl="/"
-        appearance={ClerkAppearance()}
+        appearance={clerkAppearance}
       />
     </div>
   );
@@ -38,13 +36,13 @@ function SignInPage() {
 
 function SignUpPage() {
   return (
-    <div className="clerk-wrap">
+    <div className="mx-auto flex min-h-screen max-w-md items-center justify-center px-4">
       <SignUp
         routing="path"
         path="/sign-up"
         signInUrl="/sign-in"
         forceRedirectUrl="/"
-        appearance={ClerkAppearance()}
+        appearance={clerkAppearance}
       />
     </div>
   );
@@ -66,6 +64,8 @@ export default function App() {
             <Route path="/inbox/:id" element={<MessagePage />} />
             <Route path="/compose" element={<ComposePage />} />
             <Route path="/claim" element={<ClaimPage />} />
+            <Route path="/pricing" element={<PricingPage />} />
+            <Route path="/account/*" element={<AccountPage />} />
           </Route>
         </Route>
 

@@ -2,6 +2,10 @@ import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { personalApi } from '@/lib/api';
 
+const fieldClass =
+  'w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40';
+const labelClass = 'mb-1.5 block text-xs font-medium text-muted-foreground';
+
 export function ClaimPage() {
   const navigate = useNavigate();
   const [domain, setDomain] = useState('weldmail.com');
@@ -68,7 +72,6 @@ export function ClaimPage() {
     setSubmitting(true);
     setError(null);
     try {
-      // Ensure personal account exists before reserve.
       const me = (await personalApi.me()).data;
       if (!me.account) {
         await personalApi.onboard({ displayName: displayName || undefined });
@@ -87,53 +90,76 @@ export function ClaimPage() {
   }
 
   return (
-    <div className="panel">
-      <h1>Claim your address</h1>
-      <p className="lead">Pick a free @{domain} address — one per account for now.</p>
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-[53px] shrink-0 items-center border-b border-border px-4">
+        <h1 className="text-sm font-semibold text-foreground">Claim your address</h1>
+      </div>
 
-      {error && <div className="status-banner error">{error}</div>}
-      {availability && (
-        <div className={`status-banner ${availability.available ? 'ok' : 'warn'}`}>
-          {checking ? 'Checking…' : availability.message}
-        </div>
-      )}
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+        <p className="mb-5 text-sm text-muted-foreground">
+          Pick a free @{domain} address — one per account for now.
+        </p>
 
-      <form onSubmit={onSubmit}>
-        <div className="field">
-          <label htmlFor="address">Address</label>
-          <div className="address-row">
-            <input
-              id="address"
-              value={address}
-              onChange={(e) => setAddress(e.target.value.replace(/[^a-zA-Z0-9._-]/g, ''))}
-              placeholder="you"
-              autoComplete="off"
-              autoFocus
-              required
-              minLength={3}
-            />
-            <span className="address-suffix">@{domain}</span>
+        {error && (
+          <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error}
           </div>
-        </div>
+        )}
+        {availability && (
+          <div
+            className={
+              availability.available
+                ? 'mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800'
+                : 'mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800'
+            }
+          >
+            {checking ? 'Checking…' : availability.message}
+          </div>
+        )}
 
-        <div className="field">
-          <label htmlFor="displayName">Display name (optional)</label>
-          <input
-            id="displayName"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="Your name"
-          />
-        </div>
+        <form onSubmit={onSubmit} className="max-w-md space-y-4">
+          <div>
+            <label htmlFor="address" className={labelClass}>
+              Address
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="address"
+                value={address}
+                onChange={(e) => setAddress(e.target.value.replace(/[^a-zA-Z0-9._-]/g, ''))}
+                placeholder="you"
+                autoComplete="off"
+                autoFocus
+                required
+                minLength={3}
+                className={fieldClass}
+              />
+              <span className="shrink-0 text-sm text-muted-foreground">@{domain}</span>
+            </div>
+          </div>
 
-        <button
-          type="submit"
-          className="btn btn-primary"
-          disabled={submitting || availability?.available !== true}
-        >
-          {submitting ? 'Claiming…' : 'Claim address'}
-        </button>
-      </form>
+          <div>
+            <label htmlFor="displayName" className={labelClass}>
+              Display name (optional)
+            </label>
+            <input
+              id="displayName"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="Your name"
+              className={fieldClass}
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={submitting || availability?.available !== true}
+            className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+          >
+            {submitting ? 'Claiming…' : 'Claim address'}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

@@ -14,7 +14,11 @@ app.get('/', async (c) => {
   const account = c.get('personalAccount');
 
   if (!account) {
-    return success(c, { account: null, mailAccounts: [] });
+    return success(c, {
+      account: null,
+      mailAccounts: [],
+      entitlements: c.get('entitlements'),
+    });
   }
 
   try {
@@ -38,7 +42,11 @@ app.get('/', async (c) => {
         ),
       );
 
-    return success(c, { account, mailAccounts });
+    return success(c, {
+      account,
+      mailAccounts,
+      entitlements: c.get('entitlements'),
+    });
   } catch (err) {
     console.error('[personal-api/me] failed:', err);
     return error.internal(c, 'Failed to load profile');

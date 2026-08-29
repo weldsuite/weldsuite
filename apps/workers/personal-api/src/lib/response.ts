@@ -69,6 +69,9 @@ export const error = {
       404,
     ),
 
+  planLimit: (c: Context, message: string, details?: unknown) =>
+    c.json({ error: { code: 'PLAN_LIMIT_REACHED', message, details } }, 403),
+
   internal: (c: Context, message = 'Internal server error') =>
     c.json({ error: { code: 'INTERNAL_ERROR', message } }, 500),
 

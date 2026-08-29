@@ -1,15 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { useObserve } from 'expo-observe';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useWeldmeetApi } from '@/services/app-api';
+import { hideAppSplash } from '@/utils/splash';
 
 export default function DeepJoinScreen() {
   const { code } = useLocalSearchParams<{ code: string }>();
   const router = useRouter();
   const { colors } = useTheme();
+  const { markInteractive } = useObserve();
   const { weldmeet } = useWeldmeetApi();
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    hideAppSplash();
+    markInteractive();
+  }, [markInteractive]);
 
   useEffect(() => {
     if (!code) return;

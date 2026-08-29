@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { View, Text, ScrollView, RefreshControl, StyleSheet, Pressable } from 'react-native';
+import { useObserve } from 'expo-observe';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { FileText, Receipt, Camera, BarChart3, WifiOff } from 'lucide-react-native';
@@ -26,11 +27,13 @@ import { InvoiceStatusBadge } from '@/components/status-badge';
 import { useOfflineQueue } from '@/contexts/OfflineQueueContext';
 import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
+import { hideAppSplash } from '@/utils/splash';
 import type { DashboardData } from '@/types/accounting';
 
 export default function DashboardScreen() {
   const { colors } = useTheme();
   const router = useRouter();
+  const { markInteractive } = useObserve();
   const { activeEntity, canSwitch, openSwitcher } = useAccountingEntity();
   const { queue, isOnline } = useOfflineQueue();
   const { t, format, plural } = useI18n();
@@ -66,6 +69,13 @@ export default function DashboardScreen() {
     setData(null);
     fetchDashboard();
   }, [fetchDashboard]);
+
+  useEffect(() => {
+    if (!loading) {
+      hideAppSplash();
+      markInteractive();
+    }
+  }, [loading, markInteractive]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

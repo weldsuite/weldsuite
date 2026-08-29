@@ -12,6 +12,7 @@ import {
   useWindowDimensions,
   AppState,
 } from 'react-native';
+import { useObserve } from 'expo-observe';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import {
   Star, Paperclip, PenLine, Menu, Search, File,
@@ -262,6 +263,7 @@ export default function MailScreen() {
   const { colors, theme } = useTheme();
   const isDark = theme === 'dark';
   const router = useRouter();
+  const { markInteractive } = useObserve();
   const params = useLocalSearchParams<{ draftSaved?: string; draftId?: string; draftAccountId?: string; draftTo?: string; draftCc?: string; draftBcc?: string; draftSubject?: string; draftBody?: string }>();
   const insets = useSafeAreaInsets();
   const { width: _windowWidth } = useWindowDimensions();
@@ -540,8 +542,11 @@ export default function MailScreen() {
   }, [pendingNotificationEmailId, clearPendingNotificationEmail]);
 
   useEffect(() => {
-    if (launchReady) hideAppSplash();
-  }, [launchReady]);
+    if (launchReady) {
+      hideAppSplash();
+      markInteractive();
+    }
+  }, [launchReady, markInteractive]);
 
 
   const handleRefresh = useCallback(() => {

@@ -41,19 +41,26 @@ export function MessagePage() {
 
   if (loading) {
     return (
-      <div className="center-state">
-        <div className="spinner" />
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
+        <div className="h-7 w-7 animate-spin rounded-full border-2 border-border border-t-primary" />
       </div>
     );
   }
 
   if (error || !message) {
     return (
-      <div className="panel">
-        <div className="status-banner error">{error || 'Message not found'}</div>
-        <Link to="/inbox" className="btn btn-ghost">
-          Back to inbox
-        </Link>
+      <div className="flex h-full flex-col">
+        <div className="flex h-[53px] shrink-0 items-center border-b border-border px-4">
+          <Link
+            to="/inbox"
+            className="inline-flex h-8 items-center rounded-md border border-border px-3 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            ← Inbox
+          </Link>
+        </div>
+        <div className="m-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error || 'Message not found'}
+        </div>
       </div>
     );
   }
@@ -61,21 +68,31 @@ export function MessagePage() {
   const body = message.textBody || message.htmlBody?.replace(/<[^>]+>/g, ' ') || '';
 
   return (
-    <div className="panel message-detail">
-      <div className="toolbar">
-        <Link to="/inbox" className="btn btn-ghost">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-[53px] shrink-0 items-center gap-2 border-b border-border px-4">
+        <Link
+          to="/inbox"
+          className="inline-flex h-8 items-center rounded-md border border-border px-3 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
           ← Inbox
         </Link>
       </div>
-      <h1>{message.subject || '(no subject)'}</h1>
-      <p className="from-line">
-        From{' '}
-        {message.from?.name
-          ? `${message.from.name} <${message.from.email}>`
-          : message.from?.email}
-        {message.sentDate ? ` · ${new Date(message.sentDate).toLocaleString()}` : null}
-      </p>
-      <div className="body">{body || '(empty message)'}</div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+        <h1 className="text-xl font-semibold tracking-tight text-foreground">
+          {message.subject || '(no subject)'}
+        </h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          From{' '}
+          {message.from?.name
+            ? `${message.from.name} <${message.from.email}>`
+            : message.from?.email}
+          {message.sentDate ? ` · ${new Date(message.sentDate).toLocaleString()}` : null}
+        </p>
+        <div className="mt-6 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+          {body || '(empty message)'}
+        </div>
+      </div>
     </div>
   );
 }

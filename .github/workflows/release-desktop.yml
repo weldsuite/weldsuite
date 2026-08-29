@@ -271,7 +271,11 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          cd _artifacts
+          # Stay at the workspace root: `pnpm exec wrangler` resolves relative
+          # --file paths from the package that owns wrangler (repo root), not
+          # from a cd'd subdirectory — that's why a bare filename 404'd even
+          # though Verify had already confirmed the artifact exists.
+          ARTIFACTS="$GITHUB_WORKSPACE/_artifacts"
           put() {
             local file="$1" key="$2" ct="$3"
             echo "→ $key"
@@ -289,13 +293,12 @@ jobs:
             esac
           }
 
-          for f in *.exe *.dmg *.zip *.blockmap; do
-            [ -e "$f" ] || continue
-            put "$f" "$f" "$(content_type "$f")"
+          shopt -s nullglob
+          for f in "$ARTIFACTS"/*.exe "$ARTIFACTS"/*.dmg "$ARTIFACTS"/*.zip "$ARTIFACTS"/*.blockmap; do
+            put "$f" "$(basename "$f")" "$(content_type "$f")"
           done
-          for f in latest*.yml; do
-            [ -e "$f" ] || continue
-            put "$f" "$f" "$(content_type "$f")"
+          for f in "$ARTIFACTS"/latest*.yml; do
+            put "$f" "$(basename "$f")" "$(content_type "$f")"
           done
 
       - name: Promote stable download aliases
@@ -305,19 +308,19 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          cd _artifacts
+          ARTIFACTS="$GITHUB_WORKSPACE/_artifacts"
           alias_put() {
             local file="$1" key="$2" ct="$3"
-            echo "→ $key  (from $file)"
+            echo "→ $key  (from $(basename "$file"))"
             pnpm exec wrangler r2 object put "${{ env.R2_BUCKET }}/$key" \
               --file "$file" --content-type "$ct" --remote
           }
 
-          WIN_X64=$(ls *-win-x64.exe 2>/dev/null | head -1 || true)
+          WIN_X64=$(ls "$ARTIFACTS"/*-win-x64.exe 2>/dev/null | head -1 || true)
           [ -n "$WIN_X64" ] && alias_put "$WIN_X64" "download/WeldSuite-Setup.exe" \
             'application/vnd.microsoft.portable-executable'
 
-          MAC_DMG=$(ls *-mac-universal.dmg 2>/dev/null | head -1 || true)
+          MAC_DMG=$(ls "$ARTIFACTS"/*-mac-universal.dmg 2>/dev/null | head -1 || true)
           [ -n "$MAC_DMG" ] && alias_put "$MAC_DMG" "download/WeldSuite.dmg" \
             'application/x-apple-diskimage'
 

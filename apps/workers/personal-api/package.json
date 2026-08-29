@@ -16,6 +16,7 @@
     "@hono/zod-validator": "^0.4.0",
     "@neondatabase/serverless": "^1.0.1",
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/email": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.34",
     "nanoid": "^5.1.16",

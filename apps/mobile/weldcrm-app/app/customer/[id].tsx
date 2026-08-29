@@ -13,6 +13,7 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useObserve } from 'expo-observe';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import {
   ArrowLeft,
@@ -30,8 +31,10 @@ import {
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { api, type CustomerRecord } from '@/services/api';
+import { hideAppSplash } from '@/utils/splash';
 
 export default function CustomerDetailPage() {
+  const { markInteractive } = useObserve();
   const { id, name, edit } = useLocalSearchParams<{ id: string; name?: string; edit?: string }>();
   const { colors } = useTheme();
   const toast = useToast();
@@ -84,6 +87,13 @@ export default function CustomerDetailPage() {
   useEffect(() => {
     loadCustomer();
   }, [loadCustomer]);
+
+  useEffect(() => {
+    if (!loading) {
+      hideAppSplash();
+      markInteractive();
+    }
+  }, [loading, markInteractive]);
 
   const getDisplayName = () => {
     if (formData.fullName) return formData.fullName;

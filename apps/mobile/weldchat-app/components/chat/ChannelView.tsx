@@ -14,6 +14,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { useOrganization , useAuth } from '@clerk/expo';
+import { useObserve } from 'expo-observe';
 import { KeyboardStickyView, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming, runOnJS, interpolate, Extrapolation } from 'react-native-reanimated';
 import { Gesture, GestureDetector, FlatList } from 'react-native-gesture-handler';
@@ -32,6 +33,7 @@ import { useCall } from '@/contexts/CallContext';
 import { useChatRealtime } from '@/hooks/useChatRealtime';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { openExternalUrl } from '@/utils/safe-url';
+import { hideAppSplash } from '@/utils/splash';
 import { ReactionBar } from './ReactionBar';
 import { MessageActions } from './MessageActions';
 import { EmojiPicker } from './EmojiPicker';
@@ -370,6 +372,7 @@ interface ChannelViewProps {
 }
 
 export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelViewProps) {
+  const { markInteractive } = useObserve();
   const { userId } = useAuth();
   const { organization } = useOrganization();
   const workspaceId = organization?.id ?? null;
@@ -447,6 +450,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
     return { height: Math.max(keyboardDriven, composerDriven) + 30 };
   });
   const [messages, setMessages] = useState<Message[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(true);
   const [input, setInput] = useState('');
   const [channel, setChannel] = useState<any>(null);
   const [sending, setSending] = useState(false);
@@ -601,6 +605,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
     setInput('');
     setEditingMessage(null);
     draftIdRef.current = null;
+    setMessagesLoading(true);
     loadChannel();
     loadMessages();
     // Load draft for this channel if composer is empty. The server scopes
@@ -617,6 +622,13 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
       }).catch(() => {});
     }
   }, [channelId]);
+
+  useEffect(() => {
+    if (!messagesLoading) {
+      hideAppSplash();
+      markInteractive();
+    }
+  }, [messagesLoading, markInteractive]);
 
   const loadChannel = async () => {
     try {
@@ -667,7 +679,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
       // channel keeps rendering as "unread" (tinted row + accent timestamp) in
       // the DM list. Fire-and-forget; the list refetches on the resulting event.
       appApi.channels.markRead(channelId).catch(() => {});
-    }).catch(console.error);
+    }).catch(console.error).finally(() => setMessagesLoading(false));
   }
 
   // Draft autosave helpers

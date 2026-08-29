@@ -1,9 +1,11 @@
 /**
  * Clerk JWT verification — adapted from app-api (user only; org ignored).
+ * Also resolves Clerk Billing entitlements from session claims.
  */
 
 import { createMiddleware } from 'hono/factory';
 import { verifyToken } from '@clerk/backend';
+import { entitlementsFromClerkClaims, FREE_ENTITLEMENTS } from '../lib/billing';
 import type { Env, Variables } from '../types';
 
 export const clerkMiddleware = () => {
@@ -35,10 +37,17 @@ export const clerkMiddleware = () => {
 
       c.set('userId', payload.sub);
       c.set('sessionId', claims.sid || '');
+      c.set(
+        'entitlements',
+        entitlementsFromClerkClaims(payload as unknown as Record<string, unknown>),
+      );
 
       await next();
     } catch (err) {
       console.error('Clerk auth error:', err);
+      // Ensure entitlements always exist for downstream handlers that might run
+      // before a hard failure — not reached on throw, but safe default on partial set.
+      c.set('entitlements', FREE_ENTITLEMENTS);
       return c.json({ error: { code: 'UNAUTHORIZED', message: 'Token verification failed' } }, 401);
     }
   });
