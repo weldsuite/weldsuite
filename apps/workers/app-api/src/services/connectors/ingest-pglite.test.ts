@@ -290,18 +290,30 @@ describe('connector ingest · Moneybird accounting', () => {
           currency: 'EUR',
           active: true,
         },
+        {
+          // Manually added IBAN account — Moneybird UI shows identifier, leaves name blank.
+          id: 'fa-revo',
+          name: '',
+          identifier: 'NL25REVO6332819642',
+          currency: 'EUR',
+          provider: 'revolut',
+          moneybird_account: false,
+          active: true,
+        },
       ],
       ownerId: 'user_1',
       workspaceId: 'ws_1',
       entityId: 'ent_bank',
       env: {},
     });
-    expect(accounts.created).toBe(1);
+    expect(accounts.created).toBe(2);
+    expect(accounts.failed).toBe(0);
 
     const bankAccounts = await db.select().from(schema.bankAccounts);
-    expect(bankAccounts).toHaveLength(1);
-    expect(bankAccounts[0]?.entityId).toBe('ent_bank');
-    expect(bankAccounts[0]?.iban).toBe('NL91ABNA0417164300');
+    expect(bankAccounts).toHaveLength(2);
+    const revo = bankAccounts.find((row) => row.iban === 'NL25REVO6332819642');
+    expect(revo?.name).toBe('NL25REVO6332819642');
+    expect(revo?.entityId).toBe('ent_bank');
 
     const mutations = await ingestRecords({
       db,
@@ -328,9 +340,66 @@ describe('connector ingest · Moneybird accounting', () => {
 
     const txns = await db.select().from(schema.bankTransactions);
     expect(txns).toHaveLength(1);
-    expect(txns[0]?.bankAccountId).toBe(bankAccounts[0]?.id);
+    expect(txns[0]?.bankAccountId).toBe(bankAccounts.find((row) => row.iban === 'NL91ABNA0417164300')?.id);
     expect(txns[0]?.entityId).toBe('ent_bank');
     expect(txns[0]?.amount).toBe('-12.00');
     expect(txns[0]?.externalId).toBe('fm1');
+  });
+
+  it('creates a stub bank account when a mutation references an unmapped account', async () => {
+    const mutationsSync = moneybird.syncs.find((s) => s.syncName === 'moneybird-financial-mutations')!;
+
+    await db.insert(schema.connectorConnections).values({
+      id: 'conn_mb_stub',
+      provider: 'moneybird',
+      displayName: 'Moneybird Stub',
+      status: 'active',
+      externalAccountId: 'admin_stub',
+    });
+    await db.insert(schema.entities).values({
+      id: 'ent_stub',
+      name: 'Stub Entity BV',
+      jurisdictionCode: 'NL',
+      baseCurrency: 'EUR',
+    });
+
+    const mutations = await ingestRecords({
+      db,
+      connectionId: 'conn_mb_stub',
+      provider: 'moneybird',
+      displayName: 'Moneybird Stub',
+      sync: mutationsSync,
+      records: [
+        {
+          id: 'fm-orphan',
+          financial_account_id: 'fa-archived',
+          amount: '25.00',
+          date: '2026-05-01',
+          message: 'Orphan mutation',
+          state: 'unprocessed',
+        },
+      ],
+      ownerId: 'user_1',
+      workspaceId: 'ws_1',
+      entityId: 'ent_stub',
+      env: {},
+    });
+    expect(mutations.created).toBe(1);
+    expect(mutations.failed).toBe(0);
+
+    const bankAccounts = await db
+      .select()
+      .from(schema.bankAccounts)
+      .where(eq(schema.bankAccounts.entityId, 'ent_stub'));
+    expect(bankAccounts).toHaveLength(1);
+    expect(bankAccounts[0]?.name).toBe('Moneybird account fa-archived');
+    expect(bankAccounts[0]?.isActive).toBe(false);
+
+    const txns = await db
+      .select()
+      .from(schema.bankTransactions)
+      .where(eq(schema.bankTransactions.entityId, 'ent_stub'));
+    expect(txns).toHaveLength(1);
+    expect(txns[0]?.bankAccountId).toBe(bankAccounts[0]?.id);
   });
 });
