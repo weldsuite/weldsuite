@@ -20,6 +20,7 @@ import {
   ContextMenuItem,
 } from '@weldsuite/ui/components/context-menu';
 import { Star } from 'lucide-react';
+import { showOsNotification } from '@/lib/desktop-notifications';
 
 type FilterType = 'all' | 'unread' | 'starred' | 'urgent' | 'active';
 
@@ -73,9 +74,11 @@ export default function DiscordListClient({ initialConversations, accessToken }:
       if (newConversation.assigneeName === 'weldagent-system') return;
       setConversations(prev => [newConversation as Helpdesk.Conversation, ...prev]);
       toast.success(ti.newDiscordMessage, { description: ti.newDiscordMessageDescription });
-      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-        new Notification(ti.newDiscordMessage, { body: ti.newDiscordMessageDescription, icon: '/favicon.ico' });
-      }
+      void showOsNotification({
+        title: ti.newDiscordMessage,
+        body: ti.newDiscordMessageDescription,
+        actionUrl: `/welddesk/inbox/discord/${newConversation.id}`,
+      });
     },
     onAgentAssigned: (data) => {
       setConversations(prev => prev.map(conv =>

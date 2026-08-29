@@ -15,6 +15,7 @@ config.watchFolders = [
   path.resolve(monorepoRoot, 'packages/core/permissions'),
   path.resolve(monorepoRoot, 'packages/clients/api-client'),
   path.resolve(monorepoRoot, 'packages/clients/app-api-client'),
+  path.resolve(monorepoRoot, 'packages/clients/personal-api-client'),
 ];
 
 config.resolver.nodeModulesPaths = [

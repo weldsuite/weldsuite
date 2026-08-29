@@ -1,4 +1,4 @@
-export { PersonalApiClient, PersonalApiClientError } from './client.js';
+export { PersonalApiClient, PersonalApiClientError } from './client';
 export type {
   ApiError,
   CreateDraftBody,
@@ -18,4 +18,4 @@ export type {
   WeldmailCheckResult,
   WeldmailDomain,
   WeldmailReserveResult,
-} from './types.js';
+} from './types';

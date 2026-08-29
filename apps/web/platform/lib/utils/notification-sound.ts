@@ -104,37 +104,36 @@ async function playNotificationSound(
 }
 
 /**
- * Request notification permission and show a browser notification
+ * Request notification permission and show a browser / OS notification.
+ * On desktop this routes through the Electron shell; in the browser it uses
+ * the Web Notification API.
+ *
+ * Returns null — the Notification instance is owned by the OS / browser and
+ * is not useful to callers (legacy signature kept for compat).
  */
 export async function showBrowserNotification(
   title: string,
-  options?: NotificationOptions & { playSound?: boolean }
+  options?: NotificationOptions & {
+    playSound?: boolean;
+    actionUrl?: string;
+    onlyWhenHidden?: boolean;
+  }
 ): Promise<Notification | null> {
-  if (typeof window === 'undefined' || !('Notification' in window)) {
-    return null;
-  }
+  const { playSound = true, actionUrl, onlyWhenHidden, ...notificationOptions } = options || {};
 
-  const { playSound = true, ...notificationOptions } = options || {};
-
-  // Request permission if not granted
-  if (Notification.permission === 'default') {
-    await Notification.requestPermission();
-  }
-
-  if (Notification.permission !== 'granted') {
-    return null;
-  }
-
-  // Play sound
-  if (playSound) {
-    playNotificationChime();
-  }
-
-  // Show notification
-  return new Notification(title, {
-    icon: '/favicon.ico',
-    ...notificationOptions,
+  const { showOsNotification } = await import('@/lib/desktop-notifications');
+  await showOsNotification({
+    title,
+    body: typeof notificationOptions.body === 'string' ? notificationOptions.body : undefined,
+    tag: typeof notificationOptions.tag === 'string' ? notificationOptions.tag : undefined,
+    icon: typeof notificationOptions.icon === 'string' ? notificationOptions.icon : undefined,
+    silent: notificationOptions.silent === true,
+    playSound,
+    actionUrl,
+    onlyWhenHidden,
   });
+
+  return null;
 }
 
 /**
@@ -265,14 +264,7 @@ export function playScreenShareSound(): void {
 /**
  * Request notification permission
  */
-export async function requestNotificationPermission(): Promise<NotificationPermission> {
-  if (typeof window === 'undefined' || !('Notification' in window)) {
-    return 'denied';
-  }
-
-  if (Notification.permission === 'default') {
-    return await Notification.requestPermission();
-  }
-
-  return Notification.permission;
+export async function requestNotificationPermission(): Promise<NotificationPermission | 'desktop'> {
+  const { ensureNotificationPermission } = await import('@/lib/desktop-notifications');
+  return ensureNotificationPermission();
 }

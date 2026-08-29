@@ -4,6 +4,7 @@ import { useAppAccess } from '@/hooks/use-app-access';
 import { useWeldChatUserEvents } from '@/hooks/weldchat/use-weldchat-realtime';
 import { ChatLayoutClient } from './components/chat-layout-client';
 import { PageLoader } from '@/components/page-loader';
+import { ensureNotificationPermission } from '@/lib/desktop-notifications';
 
 // Eagerly preload the RealtimeKit SDK so it's ready when a call starts.
 // This import runs once when the WeldChat layout module is loaded and
@@ -15,11 +16,9 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
   const { isInstalled, isLoading } = useAppAccess('weldchat');
   useWeldChatUserEvents();
 
-  // Request browser notification permission
+  // Request browser notification permission (no-op in the desktop shell).
   useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
+    void ensureNotificationPermission();
   }, []);
   if (isLoading) return <PageLoader />;
   if (!isInstalled)

@@ -105,6 +105,7 @@ export default function ConversationListClient({ initialConversations, accessTok
             showBrowserNotification('New Helpdesk Conversation', {
               body: `A new conversation has been started via ${conversation.channel || 'widget'}`,
               playSound: true,
+              actionUrl: `/welddesk/inbox/all/${conversation.id}`,
             });
           }
         } catch (error) {

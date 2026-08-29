@@ -15,7 +15,7 @@ import type {
   WeldmailCheckResult,
   WeldmailDomain,
   WeldmailReserveResult,
-} from './types.js';
+} from './types';
 
 export class PersonalApiClientError extends Error {
   readonly isPersonalApiError = true;

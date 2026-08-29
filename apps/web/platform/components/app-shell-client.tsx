@@ -27,6 +27,7 @@ import { WorkspaceLockGate } from '@/components/billing/workspace-lock-gate';
 import { WeldChatCallProvider } from '@/contexts/weldchat-call-context';
 import { WeldMeetCallProvider } from '@/contexts/weldmeet-call-context';
 import { EntitySheetHost } from '@/components/entity-sheet';
+import { DesktopNotificationBridge } from '@/components/desktop/desktop-notification-bridge';
 
 // Globally-mounted overlays are lazy-loaded — they each pull big modules
 // (weldchat ~500 KB, weldmail compose ~50 KB, weldmeet meeting overlay)
@@ -182,6 +183,7 @@ export function AppShellClient({ children }: AppShellClientProps) {
                       routes short-circuit earlier (isMinimalRoute) and never
                       reach this gate. */}
                   <WorkspaceLockGate>
+                    <DesktopNotificationBridge />
                     <PlatformShell>
                       {children}
                       <Suspense fallback={null}>

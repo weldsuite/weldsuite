@@ -20,6 +20,7 @@ import {
   ContextMenuItem,
 } from '@weldsuite/ui/components/context-menu';
 import { Star } from 'lucide-react';
+import { showOsNotification } from '@/lib/desktop-notifications';
 
 type FilterType = 'all' | 'unread' | 'starred' | 'urgent' | 'active';
 
@@ -75,9 +76,11 @@ export default function EmailListClient({ initialConversations, accessToken }: E
       toast.success(ti.newEmail, {
         description: ti.newEmailDescription,
       });
-      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-        new Notification(ti.newEmail, { body: ti.newEmailDescription, icon: '/favicon.ico' });
-      }
+      void showOsNotification({
+        title: ti.newEmail,
+        body: ti.newEmailDescription,
+        actionUrl: `/welddesk/inbox/email/${newConversation.id}`,
+      });
     },
     onAgentAssigned: (data) => {
       setConversations(prev => prev.map(conv =>

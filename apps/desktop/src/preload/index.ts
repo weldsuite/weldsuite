@@ -36,7 +36,12 @@ export interface WeldsuiteDesktopApi {
     thumbnailSize?: { width: number; height: number };
   }): Promise<DesktopSource[]>;
   setBadgeCount(count: number): Promise<boolean>;
-  showNotification(opts: { title: string; body?: string; silent?: boolean }): Promise<boolean>;
+  showNotification(opts: {
+    title: string;
+    body?: string;
+    silent?: boolean;
+    actionUrl?: string;
+  }): Promise<boolean>;
   flashFrame(flag: boolean): Promise<void>;
   openExternal(url: string): Promise<boolean>;
   signInExternally(opts?: { path?: string; returnTo?: string }): Promise<{ url: string; returnTo: string }>;
@@ -45,6 +50,7 @@ export interface WeldsuiteDesktopApi {
   settings: SettingsApi;
   onDeepLink(listener: (url: string) => void): () => void;
   onAuthCallback(listener: (payload: AuthCallback) => void): () => void;
+  onNotificationClick(listener: (payload: { actionUrl?: string }) => void): () => void;
   /**
    * Register the screen-share source picker.
    *
@@ -110,6 +116,14 @@ const api: WeldsuiteDesktopApi = {
     const handler = (_event: Electron.IpcRendererEvent, payload: AuthCallback) => listener(payload);
     ipcRenderer.on('weldsuite:auth-callback', handler);
     return () => ipcRenderer.removeListener('weldsuite:auth-callback', handler);
+  },
+  onNotificationClick: (listener) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      payload: { actionUrl?: string },
+    ) => listener(payload ?? {});
+    ipcRenderer.on('weldsuite:notification-click', handler);
+    return () => ipcRenderer.removeListener('weldsuite:notification-click', handler);
   },
   onSelectSource: (handler) => {
     activeSourceHandler = handler;
