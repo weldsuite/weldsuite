@@ -1,0 +1,17 @@
+{
+  "name": "@weldsuite/personal-api-client",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@weldsuite/typescript-config": "workspace:*",
+    "typescript": "^5.7"
+  }
+}

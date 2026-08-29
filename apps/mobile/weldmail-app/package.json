@@ -23,6 +23,7 @@
     "@react-navigation/native": "^7.1.8",
     "@weldsuite/api-client": "workspace:*",
     "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/personal-api-client": "workspace:*",
     "@weldsuite/mobile-ui": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/realtime": "workspace:*",

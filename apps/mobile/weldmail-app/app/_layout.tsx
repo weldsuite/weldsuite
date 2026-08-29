@@ -21,6 +21,7 @@ import { WorkspaceProvider } from '@weldsuite/mobile-ui/contexts/WorkspaceContex
 import { InstalledAppsProvider } from '@weldsuite/mobile-ui/contexts/InstalledAppsContext';
 
 import { appApi, appApiClient, setAppApiTokenGetter } from '@/services/app-api';
+import { personalApi, setPersonalApiTokenGetter } from '@/services/personal-api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { PermissionProvider } from '@/contexts/PermissionContext';
 import { MailProvider } from '@/contexts/MailContext';
@@ -51,16 +52,18 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const membershipsLoading = userMemberships?.isLoading ?? true;
   const membershipCount = userMemberships?.data?.length ?? 0;
 
-  // Wire the token getter during render (not in an effect) so the email
-  // screen's first fetch — which can fire the same tick we open from a
-  // notification — already has a Clerk JWT. Effects run children-first.
+  // Wire token getters during render (not in an effect) so the first fetch
+  // already has a Clerk JWT. Effects run children-first.
   if (user) {
-    setAppApiTokenGetter(async () => {
+    const getAccessToken = async () => {
       const credentials = await getCredentials();
       return credentials?.accessToken || null;
-    });
+    };
+    setAppApiTokenGetter(getAccessToken);
+    setPersonalApiTokenGetter(getAccessToken);
   } else {
     setAppApiTokenGetter(null);
+    setPersonalApiTokenGetter(null);
   }
 
   useEffect(() => {
@@ -82,6 +85,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
     const inAuthGroup = segments[0] === 'authorisation';
     const inNoWorkspace = segments[0] === 'no-workspace';
+    const inClaimAddress = segments[0] === 'claim-address';
     const inSsoCallback = segments[0] === 'sso-callback';
 
     if (!user) {
@@ -91,16 +95,49 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
     if (user && !isOrgListLoaded) return;
     // Wait for Clerk to finish fetching memberships before making routing decisions.
-    // Otherwise we briefly see data.length === 0 and wrongly redirect to no-workspace.
     if (user && membershipsLoading) return;
 
     const hasOrg = membershipCount > 0 || !!organizationId;
 
-    if (!hasOrg && !inNoWorkspace) {
-      router.replace('/no-workspace');
-    } else if (hasOrg && (inAuthGroup || inNoWorkspace || inSsoCallback)) {
-      router.replace('/');
+    // Team / workspace path — keep existing behaviour.
+    if (hasOrg) {
+      if (inAuthGroup || inNoWorkspace || inClaimAddress || inSsoCallback) {
+        router.replace('/');
+      }
+      return;
     }
+
+    // Personal path — no org memberships: onboard via personal-api, then
+    // claim an address or enter the inbox. Fall back to /no-workspace only
+    // if personal onboard fails.
+    let cancelled = false;
+
+    async function routePersonal() {
+      try {
+        await personalApi.onboard();
+        const { data: me } = await personalApi.me();
+        if (cancelled) return;
+
+        const hasMail = (me.mailAccounts?.length ?? 0) > 0;
+        if (!hasMail) {
+          if (!inClaimAddress) router.replace('/claim-address');
+          return;
+        }
+        if (inAuthGroup || inNoWorkspace || inClaimAddress || inSsoCallback) {
+          router.replace('/');
+        }
+      } catch {
+        if (cancelled) return;
+        if (!inNoWorkspace && !inClaimAddress) {
+          router.replace('/no-workspace');
+        }
+      }
+    }
+
+    void routePersonal();
+    return () => {
+      cancelled = true;
+    };
   }, [user, isLoading, isOrgListLoaded, membershipsLoading, membershipCount, organizationId, segments, router]);
 
   if (isLoading) {
@@ -200,6 +237,7 @@ function AppStack() {
                   <Stack screenOptions={{ headerShown: false }}>
                     <Stack.Screen name="authorisation" />
                     <Stack.Screen name="no-workspace" />
+                    <Stack.Screen name="claim-address" />
                     <Stack.Screen name="index" options={{ headerShown: false }} />
                     <Stack.Screen
                       name="[id]"

@@ -205,6 +205,7 @@ export async function reserveAddress(
   await masterDb.insert(masterSchema.mailAccountRegistry).values({
     id: generateId('reg'),
     email,
+    tenantKind: 'workspace',
     workspaceId: workspace.id,
     accountId,
     isActive: true,

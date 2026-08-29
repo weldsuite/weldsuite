@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   varchar,
@@ -11,6 +12,7 @@ import {
   integer,
   smallint,
   jsonb,
+  check,
 } from 'drizzle-orm/pg-core';
 
 // ============================================================================
@@ -282,22 +284,58 @@ export type WidgetRegistry = typeof widgetRegistry.$inferSelect;
 export type NewWidgetRegistry = typeof widgetRegistry.$inferInsert;
 
 // ============================================================================
+// PERSONAL ACCOUNTS (consumer Weld account — shared personal DB, no Clerk org)
+// ============================================================================
+
+/**
+ * One personal Weld account per Clerk user. Mail and other personal-app data
+ * live in the shared personal Neon DB, keyed by `personal_accounts.id`.
+ * Distinct from team workspaces (per-workspace Neon + Clerk org).
+ */
+export const personalAccounts = pgTable('personal_accounts', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+
+  clerkUserId: varchar('clerk_user_id', { length: 255 }).notNull().unique(),
+
+  displayName: varchar('display_name', { length: 255 }),
+
+  // Optional personal plan (free consumer SKU later)
+  planId: varchar('plan_id', { length: 30 }).references(() => plans.id),
+
+  isActive: boolean('is_active').notNull().default(true),
+
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('personal_accounts_clerk_user_id_idx').on(table.clerkUserId),
+  index('personal_accounts_is_active_idx').on(table.isActive),
+]);
+
+export type PersonalAccount = typeof personalAccounts.$inferSelect;
+export type NewPersonalAccount = typeof personalAccounts.$inferInsert;
+
+// ============================================================================
 // MAIL ACCOUNT REGISTRY
 // ============================================================================
 
-// Mail Account Registry - maps email addresses to workspaces for webhook routing
-// When Mailcow sends a webhook with a recipient email, we look up this table
-// to find the workspace, then query the tenant's database for account details
+// Mail Account Registry - maps email addresses to workspaces OR personal
+// accounts for inbound routing. `tenantKind` selects which DB to open.
 export const mailAccountRegistry = pgTable('mail_account_registry', {
   id: varchar('id', { length: 30 }).primaryKey(),
 
   // Email address (the key for webhook lookups)
   email: varchar('email', { length: 255 }).notNull().unique(),
 
-  // Reference to workspace
-  workspaceId: varchar('workspace_id', { length: 255 }).notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  // 'workspace' → per-workspace Neon; 'personal' → shared personal Neon
+  tenantKind: varchar('tenant_kind', { length: 20 }).notNull().default('workspace'),
 
-  // Reference to mail account in tenant DB (for correlation)
+  // Reference to workspace (required when tenantKind = 'workspace')
+  workspaceId: varchar('workspace_id', { length: 255 }).references(() => workspaces.id, { onDelete: 'cascade' }),
+
+  // Reference to personal account (required when tenantKind = 'personal')
+  personalAccountId: varchar('personal_account_id', { length: 30 }).references(() => personalAccounts.id, { onDelete: 'cascade' }),
+
+  // Reference to mail account in the target DB (tenant or personal)
   accountId: varchar('account_id', { length: 30 }).notNull(),
 
   // Status - can be deactivated without deleting
@@ -309,12 +347,22 @@ export const mailAccountRegistry = pgTable('mail_account_registry', {
 }, (table) => [
   uniqueIndex('mail_account_registry_email_idx').on(table.email),
   index('mail_account_registry_workspace_id_idx').on(table.workspaceId),
+  index('mail_account_registry_personal_account_id_idx').on(table.personalAccountId),
   index('mail_account_registry_account_id_idx').on(table.accountId),
   index('mail_account_registry_is_active_idx').on(table.isActive),
+  index('mail_account_registry_tenant_kind_idx').on(table.tenantKind),
+  check(
+    'mail_account_registry_tenant_check',
+    sql`(
+      (tenant_kind = 'workspace' AND workspace_id IS NOT NULL AND personal_account_id IS NULL)
+      OR (tenant_kind = 'personal' AND personal_account_id IS NOT NULL AND workspace_id IS NULL)
+    )`,
+  ),
 ]);
 
 export type MailAccountRegistry = typeof mailAccountRegistry.$inferSelect;
 export type NewMailAccountRegistry = typeof mailAccountRegistry.$inferInsert;
+export type MailAccountRegistryTenantKind = 'workspace' | 'personal';
 
 // ============================================================================
 // API KEY REGISTRY
