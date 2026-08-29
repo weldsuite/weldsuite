@@ -570,9 +570,14 @@ function looksLikeIban(value: string | null): string | null {
 }
 
 function mapBankAccount(record: Record<string, unknown>, externalId: string): MappedBankAccount | null {
-  const name = pickString(record, ['name'], 255);
-  if (!name) return null;
+  // Moneybird often leaves `name` blank for manually added IBAN accounts and
+  // shows `identifier` (the IBAN) in the UI instead.
   const identifier = pickString(record, ['identifier'], 100);
+  const name =
+    pickString(record, ['name'], 255)
+    ?? identifier
+    ?? pickString(record, ['provider'], 255)
+    ?? `Moneybird account ${externalId}`;
   const iban = looksLikeIban(identifier);
   const active = record.active === undefined ? true : Boolean(record.active);
 
@@ -580,7 +585,7 @@ function mapBankAccount(record: Record<string, unknown>, externalId: string): Ma
     entity: 'bank_account',
     externalId,
     values: compact({
-      name,
+      name: name.slice(0, 255),
       iban,
       currency: pickString(record, ['currency'], 3) ?? 'EUR',
       bankName: pickString(record, ['provider', 'type'], 255),
@@ -598,13 +603,14 @@ function mapBankTransaction(record: Record<string, unknown>, externalId: string)
   const amountRaw = pickString(record, ['amount', 'original_amount']);
   if (!amountRaw) return null;
   const amount = decimalString(amountRaw, '');
-  if (!amount || Number(amount) === 0) return null;
-  const date = parseDate(pickString(record, ['date', 'created_at']));
+  if (!amount || !Number.isFinite(Number(amount))) return null;
+  // Zero-amount mutations are rare but valid (info lines); keep them.
+  const date = parseDate(pickString(record, ['date', 'created_at', 'processed_at']));
   if (!date) return null;
 
   const state = (pickString(record, ['state']) ?? 'unprocessed').toLowerCase();
   const status = state === 'processed' || state === 'auto_booked' ? 'reconciled' : 'unreconciled';
-  const contra = pickString(record, ['contra_account_number'], 34);
+  const contra = pickString(record, ['contra_account_number'], 50);
   const description =
     pickString(record, ['message'])
     ?? pickString(record, ['batch_reference'])
@@ -621,7 +627,9 @@ function mapBankTransaction(record: Record<string, unknown>, externalId: string)
       amount,
       description,
       counterpartyName: pickString(record, ['contra_account_name'], 255),
-      counterpartyIban: looksLikeIban(contra) ?? (contra && contra.length <= 34 ? contra : null),
+      counterpartyIban: looksLikeIban(contra) ?? (contra && contra.replace(/\s+/g, '').length <= 34
+        ? contra.replace(/\s+/g, '').slice(0, 34)
+        : null),
       reference: pickString(record, ['batch_reference', 'code', 'account_servicer_transaction_id'], 255),
       externalId,
       status,

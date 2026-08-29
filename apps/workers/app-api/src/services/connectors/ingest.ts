@@ -884,7 +884,9 @@ async function ingestBankRecords(args: IngestArgs): Promise<IngestResult> {
     }
 
     try {
-      if (isDeletedRecord(record, args.forceDeleted) || record.active === false) {
+      // Soft-delete only on explicit destroy webhooks. Inactive accounts still upsert
+      // with isActive=false — Moneybird list sync omits archived accounts entirely.
+      if (isDeletedRecord(record, args.forceDeleted)) {
         const mapping = await findMapping(args.db, args.connectionId, args.sync.externalEntityType, externalId);
         if (!mapping) {
           counts.skipped++;
@@ -909,7 +911,13 @@ async function ingestBankRecords(args: IngestArgs): Promise<IngestResult> {
 
       const mapped = mapConnectorRecord(args.sync.internalEntity, record, args.provider);
       if (!mapped || (mapped.entity !== 'bank_account' && mapped.entity !== 'bank_transaction')) {
-        counts.skipped++;
+        counts.failed++;
+        if (errorSamples.length < MAX_ERROR_SAMPLES) {
+          errorSamples.push({
+            externalId,
+            message: 'Could not map Moneybird bank record (missing required fields)',
+          });
+        }
         continue;
       }
 
@@ -951,14 +959,34 @@ async function ingestBankRecords(args: IngestArgs): Promise<IngestResult> {
       if (!txn.financialAccountExternalId) {
         throw new Error('Bank transaction is missing financial_account_id');
       }
-      const accountMapping = await findMapping(
+      let accountMapping = await findMapping(
         args.db,
         args.connectionId,
         accountExternalType,
         txn.financialAccountExternalId,
       );
+      // Mutations can reference archived accounts that financial_accounts omits.
+      // Create a stub so the statement line still lands in WeldBooks.
       if (!accountMapping) {
-        throw new Error('Bank account is not mapped — sync bank accounts first');
+        const stub = await upsertByMapping({
+          db: args.db,
+          connectionId: args.connectionId,
+          externalEntityType: accountExternalType,
+          externalEntityId: txn.financialAccountExternalId,
+          internalEntityType: 'bank_account',
+          table: schema.bankAccounts,
+          idPrefix: 'ba',
+          dedupColumn: null,
+          values: {
+            entityId,
+            name: `Moneybird account ${txn.financialAccountExternalId}`,
+            currency: pickCurrency(txn.values) ?? 'EUR',
+            isActive: false,
+            metadata: { stubFromMutation: true, moneybirdFinancialAccountId: txn.financialAccountExternalId },
+          },
+          checksum: `stub:${txn.financialAccountExternalId}`,
+        });
+        accountMapping = { id: '', internalEntityId: stub.internalId };
       }
 
       const outcome = await upsertByMapping({
@@ -1002,6 +1030,11 @@ async function ingestBankRecords(args: IngestArgs): Promise<IngestResult> {
   }
 
   return { ...counts, errorSamples };
+}
+
+function pickCurrency(values: Record<string, unknown>): string | null {
+  const raw = values.currency;
+  return typeof raw === 'string' && raw.trim() ? raw.trim().slice(0, 3) : null;
 }
 
 export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {

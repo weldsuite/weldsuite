@@ -236,6 +236,27 @@ describe('Moneybird mappers', () => {
     });
   });
 
+  it('falls back to IBAN when Moneybird leaves the account name blank', () => {
+    const mapped = mapConnectorRecord('bank_account', {
+      id: 'fa-revo',
+      name: '',
+      identifier: 'NL25 REVO 6332 8196 42',
+      currency: 'EUR',
+      type: 'bank_account',
+      provider: 'revolut',
+      moneybird_account: false,
+      active: true,
+    });
+    expect(mapped?.entity).toBe('bank_account');
+    if (mapped?.entity !== 'bank_account') return;
+    expect(mapped.values).toMatchObject({
+      name: 'NL25 REVO 6332 8196 42',
+      iban: 'NL25REVO6332819642',
+      bankName: 'revolut',
+      isActive: true,
+    });
+  });
+
   it('maps a financial mutation onto a bank transaction', () => {
     const mapped = mapConnectorRecord('bank_transaction', {
       id: 'fm1',
@@ -257,5 +278,19 @@ describe('Moneybird mappers', () => {
       status: 'unreconciled',
       externalId: 'fm1',
     });
+  });
+
+  it('keeps zero-amount mutations', () => {
+    const mapped = mapConnectorRecord('bank_transaction', {
+      id: 'fm0',
+      financial_account_id: 'fa1',
+      amount: '0.00',
+      date: '2026-03-02',
+      message: 'Info line',
+      state: 'processed',
+    });
+    expect(mapped?.entity).toBe('bank_transaction');
+    if (mapped?.entity !== 'bank_transaction') return;
+    expect(mapped.values).toMatchObject({ amount: '0.00', status: 'reconciled' });
   });
 });
