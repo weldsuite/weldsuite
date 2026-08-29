@@ -35,6 +35,7 @@ import {
   listSyncRuns,
   markConnectionDisconnected,
   sanitizeConnection,
+  sanitizeConnectionWithEntity,
   updateConnectionSettings,
   upsertConnection,
 } from '../../services/connectors/connections';
@@ -47,7 +48,7 @@ import {
   registerConnectionWebhooks,
   unregisterConnectionWebhooks,
 } from '../../services/connectors/webhooks';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import {
   removeConnectorIndex,
   setConnectorIndexEnabled,
@@ -96,25 +97,35 @@ app.get('/catalog', requirePermission('integrations:read'), async (c) => {
   const db = c.get('tenantDb');
   try {
     const connections = await listConnections(db);
-    const catalog = listConnectors().map((connector) => {
-      const rows = connections.filter((row) => row.provider === connector.provider);
-      return {
-        provider: connector.provider,
-        label: connector.label,
-        description: connector.description,
-        category: connector.category,
-        icon: connector.icon,
-        auth: connector.auth,
-        syncs: connector.syncs.map((s) => ({
-          syncName: s.syncName,
-          model: s.model,
-          internalEntity: s.internalEntity,
-          settingKey: s.settingKey,
-        })),
-        connections: rows.map(sanitizeConnection),
-        connectionCount: rows.length,
-      };
-    });
+    const keyring = keyringFromEnv(c.env);
+    const catalog = await Promise.all(
+      listConnectors().map(async (connector) => {
+        const rows = connections.filter((row) => row.provider === connector.provider);
+        const sanitized = await Promise.all(
+          rows.map((row) =>
+            connector.category === 'accounting'
+              ? sanitizeConnectionWithEntity(row, keyring)
+              : Promise.resolve(sanitizeConnection(row)),
+          ),
+        );
+        return {
+          provider: connector.provider,
+          label: connector.label,
+          description: connector.description,
+          category: connector.category,
+          icon: connector.icon,
+          auth: connector.auth,
+          syncs: connector.syncs.map((s) => ({
+            syncName: s.syncName,
+            model: s.model,
+            internalEntity: s.internalEntity,
+            settingKey: s.settingKey,
+          })),
+          connections: sanitized,
+          connectionCount: sanitized.length,
+        };
+      }),
+    );
 
     return success(c, catalog);
   } catch (err) {
@@ -278,6 +289,7 @@ const authorizeSchema = z.discriminatedUnion('provider', [
     displayName: z.string().min(1).max(255).optional(),
     enabledSyncs: z.array(z.string().min(1)).optional(),
     returnUrl: z.string().url(),
+    entityId: z.string().min(1).max(30).optional(),
   }),
 ]);
 
@@ -288,6 +300,15 @@ app.post('/authorize', requirePermission('integrations:create'), zValidator('jso
 
   try {
     if (body.provider === 'moneybird') {
+      if (body.entityId) {
+        const [entity] = await c
+          .get('tenantDb')
+          .select({ id: schema.entities.id })
+          .from(schema.entities)
+          .where(and(eq(schema.entities.id, body.entityId), isNull(schema.entities.deletedAt)))
+          .limit(1);
+        if (!entity) return error.badRequest(c, 'Accounting entity not found');
+      }
       const result = await startMoneybirdOAuth({
         env: c.env,
         clerkOrgId,
@@ -295,6 +316,7 @@ app.post('/authorize', requirePermission('integrations:create'), zValidator('jso
         enabledSyncs: normalizeEnabledSyncs(body.provider, body.enabledSyncs),
         displayName: body.displayName,
         returnUrl: body.returnUrl,
+        entityId: body.entityId ?? null,
       });
       if ('error' in result) return error.badRequest(c, result.error);
       return success(c, result);
@@ -398,7 +420,7 @@ app.get('/connections/:id', requirePermission('integrations:read'), async (c) =>
   const db = c.get('tenantDb');
   const row = await getConnectionById(db, c.req.param('id'));
   if (!row) return error.notFound(c, 'Connection', c.req.param('id'));
-  return success(c, sanitizeConnection(row));
+  return success(c, await sanitizeConnectionWithEntity(row, keyringFromEnv(c.env)));
 });
 
 app.get('/connections/:id/runs', requirePermission('integrations:read'), async (c) => {
@@ -423,6 +445,7 @@ const patchSchema = z.object({
   displayName: z.string().min(1).max(255).optional(),
   enabledSyncs: z.array(z.string().min(1)).optional(),
   credentials: z.record(z.string().min(1)).optional(),
+  entityId: z.string().min(1).max(30).nullable().optional(),
 });
 
 app.patch(
@@ -438,15 +461,32 @@ app.patch(
     const keyring = keyringFromEnv(c.env);
 
     try {
+      if (body.entityId) {
+        const [entity] = await db
+          .select({ id: schema.entities.id })
+          .from(schema.entities)
+          .where(and(eq(schema.entities.id, body.entityId), isNull(schema.entities.deletedAt)))
+          .limit(1);
+        if (!entity) return error.badRequest(c, 'Accounting entity not found');
+      }
+
       let encrypted: Record<string, string> | undefined;
       let externalAccountId: string | null | undefined;
+      const existing = await decryptCredentials(row.credentials ?? undefined, keyring);
+
       if (body.credentials) {
-        const existing = await decryptCredentials(row.credentials ?? undefined, keyring);
         const merged = { ...existing, ...body.credentials };
+        if (body.entityId) merged.entityId = body.entityId;
+        else if (body.entityId === null) delete merged.entityId;
         const tested = await testProviderCredentials(row.provider, merged);
         if (!tested.ok) return error.badRequest(c, tested.message);
         encrypted = await encryptCredentials(merged, keyring);
         externalAccountId = tested.storeUrl;
+      } else if (body.entityId !== undefined) {
+        const merged = { ...existing };
+        if (body.entityId) merged.entityId = body.entityId;
+        else delete merged.entityId;
+        encrypted = await encryptCredentials(merged, keyring);
       }
 
       await updateConnectionSettings({
@@ -478,9 +518,9 @@ app.patch(
         entityType: 'connector_connection',
         action: 'updated',
         entityId: row.id,
-        data: sanitizeConnection(updated!) as unknown as Record<string, unknown>,
+        data: (await sanitizeConnectionWithEntity(updated!, keyring)) as unknown as Record<string, unknown>,
       });
-      return success(c, sanitizeConnection(updated!));
+      return success(c, await sanitizeConnectionWithEntity(updated!, keyring));
     } catch (err) {
       console.error('[app-api/connectors] update failed:', err);
       return connectorErrorResponse(c, err);

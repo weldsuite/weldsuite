@@ -10,12 +10,28 @@
  */
 
 /** WeldSuite entity a synced model lands in. */
-export type ConnectorEntity = 'product' | 'order' | 'person' | 'party' | 'invoice' | 'bill';
+export type ConnectorEntity =
+  | 'product'
+  | 'order'
+  | 'person'
+  | 'party'
+  | 'invoice'
+  | 'bill'
+  | 'bank_account'
+  | 'bank_transaction';
 
 export type ConnectorCategory = 'ecommerce' | 'crm' | 'accounting' | 'support' | 'productivity';
 
 /** Toggle the tenant enables on the connection itself. */
-export type ConnectorSyncSettingKey = 'products' | 'orders' | 'customers' | 'contacts' | 'invoices' | 'bills';
+export type ConnectorSyncSettingKey =
+  | 'products'
+  | 'orders'
+  | 'customers'
+  | 'contacts'
+  | 'invoices'
+  | 'bills'
+  | 'bankAccounts'
+  | 'bankTransactions';
 
 export type ConnectorCredentialFieldType = 'url' | 'text' | 'secret';
 
@@ -181,14 +197,14 @@ export const CONNECTORS: ConnectorDef[] = [
     provider: 'moneybird',
     label: 'Moneybird',
     description:
-      'Sync contacts, sales invoices, products, and purchase invoices from Moneybird into WeldBooks.',
+      'Sync contacts, sales invoices, products, purchase invoices, bank accounts, and bank transactions from Moneybird into WeldBooks.',
     category: 'accounting',
     icon: 'book-open',
     delivery: 'hybrid',
     auth: {
       kind: 'oauth2',
       fields: [],
-      scopes: ['sales_invoices', 'documents', 'settings'],
+      scopes: ['sales_invoices', 'documents', 'settings', 'bank'],
     },
     syncs: [
       {
@@ -225,6 +241,20 @@ export const CONNECTORS: ConnectorDef[] = [
         internalEntity: 'bill',
         externalEntityType: 'moneybird_receipt',
         settingKey: 'bills',
+      },
+      {
+        syncName: 'moneybird-financial-accounts',
+        model: 'MoneybirdFinancialAccount',
+        internalEntity: 'bank_account',
+        externalEntityType: 'moneybird_financial_account',
+        settingKey: 'bankAccounts',
+      },
+      {
+        syncName: 'moneybird-financial-mutations',
+        model: 'MoneybirdFinancialMutation',
+        internalEntity: 'bank_transaction',
+        externalEntityType: 'moneybird_financial_mutation',
+        settingKey: 'bankTransactions',
       },
     ],
   },

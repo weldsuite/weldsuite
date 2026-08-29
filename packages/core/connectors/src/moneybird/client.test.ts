@@ -127,4 +127,49 @@ describe('MoneybirdClient', () => {
     const client = new MoneybirdClient({ accessToken: 'tok' }, { fetchImpl: async () => jsonResponse([]) });
     await expect(client.listContacts()).rejects.toBeInstanceOf(ConnectorApiError);
   });
+
+  it('lists financial accounts in one shot', async () => {
+    const fetchImpl: typeof fetch = async (input) => {
+      expect(String(input)).toContain('/financial_accounts.json');
+      return jsonResponse([{ id: 'fa1', name: 'Rabo', identifier: 'NL00RABO', currency: 'EUR', active: true }]);
+    };
+    const client = new MoneybirdClient(
+      { accessToken: 'tok', administrationId: '123' },
+      { fetchImpl },
+    );
+    const page = await client.listFinancialAccounts();
+    expect(page.items).toHaveLength(1);
+    expect(page.done).toBe(true);
+  });
+
+  it('lists financial mutations via the synchronisation API in pages', async () => {
+    const calls: Array<{ url: string; method: string; body?: string }> = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+      calls.push({ url, method, body: init?.body ? String(init.body) : undefined });
+      if (method === 'GET' && url.includes('/synchronization')) {
+        return jsonResponse([
+          { id: '1', version: 1700000000 },
+          { id: '2', version: 1700000100 },
+          { id: '3', version: 1700000200 },
+        ]);
+      }
+      return jsonResponse([
+        { id: '1', amount: '10.00', financial_account_id: 'fa1', date: '2026-01-01' },
+        { id: '2', amount: '-5.00', financial_account_id: 'fa1', date: '2026-01-02' },
+      ]);
+    };
+    const client = new MoneybirdClient(
+      { accessToken: 'tok', administrationId: '123' },
+      { fetchImpl },
+    );
+    const page = await client.listFinancialMutations({ page: 1, perPage: 2 });
+    expect(page.items).toHaveLength(2);
+    expect(page.done).toBe(false);
+    expect(page.nextCursor).toBe('2');
+    expect(calls[0]?.method).toBe('GET');
+    expect(calls[1]?.method).toBe('POST');
+    expect(calls[1]?.body).toContain('"ids"');
+  });
 });

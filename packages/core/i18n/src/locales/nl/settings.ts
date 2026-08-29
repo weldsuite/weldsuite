@@ -717,9 +717,10 @@ export const settings = {
       },
       moneybird: {
         title: 'Moneybird',
-        description: 'Importeer contacten, verkoopfacturen, producten en inkoopfacturen uit Moneybird naar WeldBooks.',
+        description:
+          'Importeer contacten, verkoopfacturen, producten, inkoopfacturen, bankrekeningen en banktransacties uit Moneybird naar WeldBooks.',
         overview:
-          'Verbind via OAuth. Na de eerste import pusht Moneybird wijzigingen via webhooks, met een periodieke inhaal-sync. Geïmporteerde facturen en rekeningen behouden Moneybird-nummers en boeken niet in het WeldSuite-grootboek — Moneybird blijft de boekhouding.',
+          'Verbind via OAuth en kies de WeldBooks-entiteit. Na de eerste import pusht Moneybird de meeste wijzigingen via webhooks, met een periodieke inhaal-sync voor banktransacties. Geïmporteerde facturen en rekeningen behouden Moneybird-nummers en boeken niet in het WeldSuite-grootboek — Moneybird blijft de boekhouding.',
       },
       sendcloud: {
         title: 'Sendcloud',

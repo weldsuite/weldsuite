@@ -680,9 +680,10 @@ export const settings = {
       },
       moneybird: {
         title: 'Moneybird',
-        description: 'Importa contactos, facturas de venta, productos y facturas de compra de Moneybird a WeldBooks.',
+        description:
+          'Importa contactos, facturas de venta, productos, facturas de compra, cuentas bancarias y transacciones bancarias de Moneybird a WeldBooks.',
         overview:
-          'Conecta con OAuth. Tras la importación inicial, Moneybird envía cambios por webhooks, con una sincronización de recuperación. Las facturas importadas conservan los números de Moneybird y no se asientan en el libro de WeldSuite.',
+          'Conecta con OAuth y elige la entidad de WeldBooks. Tras la importación inicial, Moneybird envía la mayoría de cambios por webhooks, con una sincronización de recuperación para transacciones bancarias. Las facturas importadas conservan los números de Moneybird y no se asientan en el libro de WeldSuite.',
       },
       configurePrintNode: 'Configurar PrintNode',
       printNodeDescription: 'Introduce tu clave de API de PrintNode para conectar tus impresoras',

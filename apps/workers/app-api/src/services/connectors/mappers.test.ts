@@ -215,4 +215,47 @@ describe('Moneybird mappers', () => {
     );
     expect(mapped?.values).toMatchObject({ name: 'Consulting', sku: 'CONS-1', price: '90.00' });
   });
+
+  it('maps a financial account onto a bank account', () => {
+    const mapped = mapConnectorRecord('bank_account', {
+      id: 'fa1',
+      name: 'Rabo Checking',
+      identifier: 'NL91ABNA0417164300',
+      currency: 'EUR',
+      type: 'bank_account',
+      provider: 'rabobank',
+      active: true,
+    });
+    expect(mapped?.entity).toBe('bank_account');
+    if (mapped?.entity !== 'bank_account') return;
+    expect(mapped.values).toMatchObject({
+      name: 'Rabo Checking',
+      iban: 'NL91ABNA0417164300',
+      currency: 'EUR',
+      isActive: true,
+    });
+  });
+
+  it('maps a financial mutation onto a bank transaction', () => {
+    const mapped = mapConnectorRecord('bank_transaction', {
+      id: 'fm1',
+      financial_account_id: 'fa1',
+      amount: '-42.50',
+      date: '2026-03-01',
+      message: 'Invoice payment',
+      contra_account_name: 'Acme',
+      contra_account_number: 'NL00TEST0123456789',
+      state: 'unprocessed',
+    });
+    expect(mapped?.entity).toBe('bank_transaction');
+    if (mapped?.entity !== 'bank_transaction') return;
+    expect(mapped.financialAccountExternalId).toBe('fa1');
+    expect(mapped.values).toMatchObject({
+      amount: '-42.50',
+      description: 'Invoice payment',
+      counterpartyName: 'Acme',
+      status: 'unreconciled',
+      externalId: 'fm1',
+    });
+  });
 });

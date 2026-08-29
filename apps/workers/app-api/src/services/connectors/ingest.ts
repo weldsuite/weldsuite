@@ -24,6 +24,8 @@ import {
   externalIdOf,
   isDeletedRecord,
   mapConnectorRecord,
+  type MappedBankAccount,
+  type MappedBankTransaction,
   type MappedBill,
   type MappedInvoice,
   type MappedOrder,
@@ -53,6 +55,8 @@ export interface IngestArgs {
   ownerId: string;
   workspaceId: string;
   env: Record<string, unknown>;
+  /** WeldBooks accounting entity for invoice/bill/bank rows. */
+  entityId?: string | null;
   /** Webhook delete topics send a stub payload without status=trash. */
   forceDeleted?: boolean;
 }
@@ -374,6 +378,11 @@ async function loadDefaultEntityId(db: Database): Promise<string | null> {
   return settings?.defaultEntityId ?? null;
 }
 
+async function resolveIngestEntityId(args: IngestArgs): Promise<string | null> {
+  if (args.entityId) return args.entityId;
+  return loadDefaultEntityId(args.db);
+}
+
 function partySyncExternalType(provider: string): string {
   return getConnector(provider)?.syncs.find((sync) => sync.internalEntity === 'party')?.externalEntityType
     ?? `${provider}_contact`;
@@ -676,7 +685,7 @@ async function replaceDocumentItems(args: {
 async function ingestAccountingRecords(args: IngestArgs): Promise<IngestResult> {
   const counts = emptyCounts();
   const errorSamples: IngestResult['errorSamples'] = [];
-  const entityId = args.sync.internalEntity === 'party' ? null : await loadDefaultEntityId(args.db);
+  const entityId = args.sync.internalEntity === 'party' ? null : await resolveIngestEntityId(args);
 
   for (const record of args.records) {
     const externalId = externalIdOf(record);
@@ -764,7 +773,7 @@ async function ingestAccountingRecords(args: IngestArgs): Promise<IngestResult> 
       }
 
       if (!entityId) {
-        throw new Error('Workspace has no default accounting entity — set one in WeldBooks settings');
+        throw new Error('Select a WeldBooks entity for this Moneybird connection (or set a default entity)');
       }
 
       const document = mapped as MappedInvoice | MappedBill;
@@ -846,6 +855,155 @@ async function ingestAccountingRecords(args: IngestArgs): Promise<IngestResult> 
   return { ...counts, errorSamples };
 }
 
+async function ingestBankRecords(args: IngestArgs): Promise<IngestResult> {
+  const counts = emptyCounts();
+  const errorSamples: IngestResult['errorSamples'] = [];
+  const entityId = await resolveIngestEntityId(args);
+  if (!entityId) {
+    return {
+      ...counts,
+      failed: args.records.length,
+      errorSamples: [
+        {
+          externalId: '-',
+          message: 'Select a WeldBooks entity for this Moneybird connection (or set a default entity)',
+        },
+      ],
+    };
+  }
+
+  const accountExternalType =
+    getConnector(args.provider)?.syncs.find((sync) => sync.internalEntity === 'bank_account')?.externalEntityType
+    ?? `${args.provider}_financial_account`;
+
+  for (const record of args.records) {
+    const externalId = externalIdOf(record);
+    if (!externalId) {
+      counts.skipped++;
+      continue;
+    }
+
+    try {
+      if (isDeletedRecord(record, args.forceDeleted) || record.active === false) {
+        const mapping = await findMapping(args.db, args.connectionId, args.sync.externalEntityType, externalId);
+        if (!mapping) {
+          counts.skipped++;
+          continue;
+        }
+        const table =
+          args.sync.internalEntity === 'bank_account' ? schema.bankAccounts : schema.bankTransactions;
+        await softDeleteMapped(args.db, table, mapping.internalEntityId, mapping.id);
+        counts.deleted++;
+        await publishEntityEventRaw({
+          env: args.env as never,
+          db: args.db as never,
+          workspaceId: args.workspaceId,
+          userId: args.ownerId,
+          entityType: args.sync.internalEntity,
+          action: 'deleted',
+          entityId: mapping.internalEntityId,
+          data: { id: mapping.internalEntityId },
+        });
+        continue;
+      }
+
+      const mapped = mapConnectorRecord(args.sync.internalEntity, record, args.provider);
+      if (!mapped || (mapped.entity !== 'bank_account' && mapped.entity !== 'bank_transaction')) {
+        counts.skipped++;
+        continue;
+      }
+
+      const checksum = await recordChecksum(record);
+
+      if (mapped.entity === 'bank_account') {
+        const account = mapped as MappedBankAccount;
+        const outcome = await upsertByMapping({
+          db: args.db,
+          connectionId: args.connectionId,
+          externalEntityType: args.sync.externalEntityType,
+          externalEntityId: externalId,
+          internalEntityType: 'bank_account',
+          table: schema.bankAccounts,
+          idPrefix: 'ba',
+          dedupColumn: null,
+          values: { ...account.values, entityId },
+          checksum,
+        });
+        if (outcome.action === 'created') counts.created++;
+        else if (outcome.action === 'updated') counts.modified++;
+        else counts.skipped++;
+        if (outcome.action !== 'skipped') {
+          await publishEntityEventRaw({
+            env: args.env as never,
+            db: args.db as never,
+            workspaceId: args.workspaceId,
+            userId: args.ownerId,
+            entityType: 'bank_account',
+            action: outcome.action === 'created' ? 'created' : 'updated',
+            entityId: outcome.internalId,
+            data: { id: outcome.internalId },
+          });
+        }
+        continue;
+      }
+
+      const txn = mapped as MappedBankTransaction;
+      if (!txn.financialAccountExternalId) {
+        throw new Error('Bank transaction is missing financial_account_id');
+      }
+      const accountMapping = await findMapping(
+        args.db,
+        args.connectionId,
+        accountExternalType,
+        txn.financialAccountExternalId,
+      );
+      if (!accountMapping) {
+        throw new Error('Bank account is not mapped — sync bank accounts first');
+      }
+
+      const outcome = await upsertByMapping({
+        db: args.db,
+        connectionId: args.connectionId,
+        externalEntityType: args.sync.externalEntityType,
+        externalEntityId: externalId,
+        internalEntityType: 'bank_transaction',
+        table: schema.bankTransactions,
+        idPrefix: 'bt',
+        dedupColumn: null,
+        values: {
+          ...txn.values,
+          entityId,
+          bankAccountId: accountMapping.internalEntityId,
+        },
+        checksum,
+      });
+      if (outcome.action === 'created') counts.created++;
+      else if (outcome.action === 'updated') counts.modified++;
+      else counts.skipped++;
+      if (outcome.action !== 'skipped') {
+        await publishEntityEventRaw({
+          env: args.env as never,
+          db: args.db as never,
+          workspaceId: args.workspaceId,
+          userId: args.ownerId,
+          entityType: 'bank_transaction',
+          action: outcome.action === 'created' ? 'created' : 'updated',
+          entityId: outcome.internalId,
+          data: { id: outcome.internalId },
+        });
+      }
+    } catch (err) {
+      counts.failed++;
+      if (errorSamples.length < MAX_ERROR_SAMPLES) {
+        errorSamples.push({ externalId, message: sanitiseErrorMessage(err) });
+      }
+      console.error(`[connectors/ingest] record ${externalId} failed: ${sanitiseErrorMessage(err)}`);
+    }
+  }
+
+  return { ...counts, errorSamples };
+}
+
 export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
   if (
     args.sync.internalEntity === 'party'
@@ -853,6 +1011,12 @@ export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
     || args.sync.internalEntity === 'bill'
   ) {
     return ingestAccountingRecords(args);
+  }
+  if (
+    args.sync.internalEntity === 'bank_account'
+    || args.sync.internalEntity === 'bank_transaction'
+  ) {
+    return ingestBankRecords(args);
   }
 
   const counts = emptyCounts();
