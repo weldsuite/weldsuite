@@ -24,6 +24,14 @@ module.exports = defineConfig([
     files: ['**/*.ts', '**/*.tsx'],
     plugins: { '@typescript-eslint': tsPlugin },
     rules: {
+      // eslint-config-expo@57 enables React Compiler hooks rules that flag the
+      // standard Expo Router mount-fetch pattern (useEffect → load() → setState),
+      // nested section components, impure Date.now during render, etc.
+      // Sibling apps disable these until screens move to a shared data layer.
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/immutability': 'off',
+      'react-hooks/static-components': 'off',
+      'react-hooks/purity': 'off',
       '@typescript-eslint/no-unused-vars': [
         'warn',
         {
