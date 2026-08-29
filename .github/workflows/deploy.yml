@@ -123,38 +123,32 @@ jobs:
               - 'packages/core/db/drizzle/**'
               - 'packages/core/db/src/schema/**'
               - 'apps/tools/migrate-databases/**'
-              - 'apps/**'
             weldmail:
               - 'apps/mobile/weldmail-app/**'
               - 'packages/clients/app-api-client/**'
               - 'packages/clients/personal-api-client/**'
               - 'packages/clients/api-client/**'
               - 'packages/design/mobile-ui/**'
-              - 'apps/**'
             weldmail-web:
               - 'apps/web/weldmail/**'
               - 'packages/clients/personal-api-client/**'
-              - 'apps/**'
             weldchat:
               - 'apps/mobile/weldchat-app/**'
               - 'packages/clients/app-api-client/**'
               - 'packages/clients/api-client/**'
               - 'packages/design/mobile-ui/**'
               - 'packages/core/realtime/**'
-              - 'apps/**'
             weldbooks:
               - 'apps/mobile/weldbooks-app/**'
               - 'packages/clients/app-api-client/**'
               - 'packages/clients/api-client/**'
               - 'packages/design/mobile-ui/**'
-              - 'apps/**'
             weldflow:
               - 'apps/mobile/weldflow-app/**'
               - 'packages/clients/app-api-client/**'
               - 'packages/clients/api-client/**'
               - 'packages/design/mobile-ui/**'
               - 'packages/core/notifications/**'
-              - 'apps/**'
             all_workers:
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
@@ -166,7 +160,6 @@ jobs:
               - 'packages/clients/app-api-client/**'
               - 'packages/clients/personal-api-client/**'
               - 'packages/clients/api-client/**'
-              - 'apps/**'
             app-api:
               - 'apps/workers/app-api/**'
               - 'packages/core/ai/**'
@@ -184,17 +177,14 @@ jobs:
               - 'packages/core/realtime/**'
               - 'packages/core/workflow-integrations/**'
               - 'packages/core/transactional-email/**'
-              - 'apps/**'
             billing-worker:
               - 'apps/workers/billing-worker/**'
               - 'packages/core/cloudflare-registrar/**'
               - 'packages/core/credits/**'
-              - 'apps/**'
             audit-log-worker:
               - 'apps/workers/audit-log-worker/**'
               - 'packages/core/entity-events/**'
               - 'packages/core/realtime/**'
-              - 'apps/**'
             external-api:
               - 'apps/workers/external-api/**'
               - 'packages/clients/core-api-client/**'
@@ -202,41 +192,34 @@ jobs:
               - 'packages/core/social-publishing/**'
               - 'packages/core/credits/**'
               - 'packages/core/realtime/**'
-              - 'apps/**'
             integration-webhook-worker:
               - 'apps/workers/integration-webhook-worker/**'
               - 'packages/core/entity-events/**'
               - 'packages/core/workflow-integrations/**'
               - 'packages/core/realtime/**'
-              - 'apps/**'
             integration-sync-worker:
               - 'apps/workers/integration-sync-worker/**'
-              - 'apps/**'
             mail-inbound-worker:
               - 'apps/workers/mail-inbound-worker/**'
               - 'packages/core/email/**'
               - 'packages/core/realtime/**'
               - 'packages/core/db/src/schema/personal/**'
               - 'packages/core/db/src/schema/personal.ts'
-              - 'apps/**'
             personal-api:
               - 'apps/workers/personal-api/**'
               - 'packages/clients/personal-api-client/**'
               - 'packages/core/db/src/schema/personal/**'
               - 'packages/core/db/src/schema/personal.ts'
               - 'packages/core/db/src/schema/master.ts'
-              - 'apps/**'
             realtime-worker:
               - 'apps/workers/realtime-worker/**'
               - 'packages/core/realtime/**'
-              - 'apps/**'
             workspace-worker:
               - 'apps/workers/workspace-worker/**'
               - 'packages/core/cloudflare-zones/**'
               - 'packages/core/email/**'
               - 'packages/core/neon-provisioning/**'
               - 'packages/core/transactional-email/**'
-              - 'apps/**'
             workflow-worker:
               - 'apps/workers/workflow-worker/**'
               - 'packages/core/ai/**'
@@ -244,7 +227,6 @@ jobs:
               - 'packages/core/entity-events/**'
               - 'packages/core/workflow-integrations/**'
               - 'packages/core/realtime/**'
-              - 'apps/**'
             mcp-server:
               - 'apps/workers/mcp-server/**'
               - 'packages/clients/core-api-client/**'
@@ -252,7 +234,6 @@ jobs:
               - 'packages/core/social-publishing/**'
               - 'packages/core/credits/**'
               - 'packages/core/realtime/**'
-              - 'apps/**'
 
       - name: Build worker matrix
         id: matrix
