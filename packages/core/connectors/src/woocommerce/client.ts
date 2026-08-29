@@ -221,7 +221,13 @@ export class WooCommerceClient implements ConnectorProviderClient {
   private async fetchFollow(url: string, init: RequestInit, remaining = MAX_REDIRECTS): Promise<Response> {
     const response = await this.fetchImpl(url, { ...init, redirect: 'manual' });
     const status = response.status;
-    if (response.type === 'opaqueredirect' || (status === 0 && remaining === MAX_REDIRECTS)) {
+    // With `redirect: 'manual'`, some DOM/Workers lib typings narrow `Response.type`
+    // to `"error" | "default"` and exclude `"opaqueredirect"`, but runtimes still
+    // emit it for cross-origin opaque redirects. Compare via string to keep the guard.
+    if (
+      (response.type as string) === 'opaqueredirect' ||
+      (status === 0 && remaining === MAX_REDIRECTS)
+    ) {
       return this.fetchImpl(url, { ...init, redirect: 'follow' });
     }
     const isRedirect = status === 301 || status === 302 || status === 303 || status === 307 || status === 308;

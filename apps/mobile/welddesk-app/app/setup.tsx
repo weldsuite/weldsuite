@@ -2,14 +2,14 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   ScrollView, KeyboardAvoidingView, Platform, ActivityIndicator,
-  Animated, FlatList, Modal,
+  FlatList, Modal,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useObserve } from 'expo-observe';
 import { useOrganizationList } from '@clerk/expo';
 import {
-  ArrowLeft, Bell,Check, ChevronDown, Inbox,
-  Loader2, Shield, Database, Zap,
+  ArrowLeft, Bell, Check, ChevronDown, Inbox,
+  Shield, Database, Zap,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
@@ -601,6 +601,9 @@ export default function SetupScreen() {
     };
 
     loadState();
+    // Mount-once: restore persisted draft + Clerk profile prefill. Re-running on
+    // user/totalSteps would overwrite in-progress edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Persist state changes

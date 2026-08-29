@@ -75,7 +75,14 @@ describe('connector catalog', () => {
   it('defaults every catalog sync on', () => {
     expect(DEFAULT_ENABLED_SYNCS).toEqual(['products', 'orders', 'customers']);
     expect(defaultEnabledSyncs('woocommerce')).toEqual(['products', 'orders', 'customers']);
-    expect(defaultEnabledSyncs('moneybird')).toEqual(['contacts', 'invoices', 'products', 'bills']);
+    expect(defaultEnabledSyncs('moneybird')).toEqual([
+      'contacts',
+      'invoices',
+      'products',
+      'bills',
+      'bankAccounts',
+      'bankTransactions',
+    ]);
   });
 
   it('lists Moneybird as a hybrid accounting connector with OAuth', () => {
@@ -83,6 +90,7 @@ describe('connector catalog', () => {
     expect(moneybird?.category).toBe('accounting');
     expect(moneybird?.delivery).toBe('hybrid');
     expect(moneybird?.auth.kind).toBe('oauth2');
+    expect(moneybird?.auth.scopes).toContain('bank');
     expect(connectorSyncMode('moneybird')).toBe('webhook_catchup');
     expect(moneybird?.syncs.map((s) => s.externalEntityType)).toEqual([
       'moneybird_contact',
@@ -90,6 +98,8 @@ describe('connector catalog', () => {
       'moneybird_product',
       'moneybird_purchase_invoice',
       'moneybird_receipt',
+      'moneybird_financial_account',
+      'moneybird_financial_mutation',
     ]);
   });
 

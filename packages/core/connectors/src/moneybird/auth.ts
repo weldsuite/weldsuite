@@ -8,7 +8,7 @@ export const MONEYBIRD_AUTHORIZE_URL = 'https://moneybird.com/oauth/authorize';
 export const MONEYBIRD_TOKEN_URL = 'https://moneybird.com/oauth/token';
 export const MONEYBIRD_REVOKE_URL = 'https://moneybird.com/oauth/revoke';
 export const MONEYBIRD_API_BASE = 'https://moneybird.com/api/v2';
-export const MONEYBIRD_SCOPES = ['sales_invoices', 'documents', 'settings'] as const;
+export const MONEYBIRD_SCOPES = ['sales_invoices', 'documents', 'settings', 'bank'] as const;
 export const MONEYBIRD_AUTH_STATE_TTL_SECONDS = 15 * 60;
 export const MONEYBIRD_CALLBACK_PATH = '/weldconnect/connectors/callback';
 

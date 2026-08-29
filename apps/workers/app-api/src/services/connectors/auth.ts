@@ -260,6 +260,7 @@ interface MoneybirdOAuthState {
   enabledSyncs: string[];
   displayName?: string;
   returnUrl: string;
+  entityId?: string | null;
 }
 
 function moneybirdAppCredentials(env: Env): { clientId: string; clientSecret: string } | { error: string } {
@@ -278,6 +279,7 @@ export async function startMoneybirdOAuth(args: {
   enabledSyncs: string[];
   displayName?: string;
   returnUrl: string;
+  entityId?: string | null;
 }): Promise<{ authorizeUrl: string } | { error: string; status: 400 }> {
   if (!isAllowedConnectorReturnUrl(args.returnUrl)) {
     return { error: 'Return URL is not a WeldSuite page', status: 400 };
@@ -292,6 +294,7 @@ export async function startMoneybirdOAuth(args: {
     enabledSyncs: args.enabledSyncs,
     displayName: args.displayName,
     returnUrl: args.returnUrl,
+    entityId: args.entityId ?? null,
   };
   await args.env.WORKSPACE_CACHE.put(`${MONEYBIRD_STATE_PREFIX}${state}`, JSON.stringify(payload), {
     expirationTtl: MONEYBIRD_AUTH_STATE_TTL_SECONDS,
@@ -451,6 +454,7 @@ export async function completeMoneybirdOAuth(args: {
     accessToken: tokens.accessToken,
     ...(tokens.refreshToken ? { refreshToken: tokens.refreshToken } : {}),
     ...(single ? { administrationId: single.id } : {}),
+    ...(oauthState.entityId ? { entityId: oauthState.entityId } : {}),
   };
   const encrypted = await encryptCredentials(credentials, keyring);
   const label =
@@ -478,7 +482,7 @@ export async function completeMoneybirdOAuth(args: {
     });
     const fresh = await getConnectionById(db, row.id);
     return {
-      connection: sanitizeConnection(fresh ?? row),
+      connection: sanitizeConnection(fresh ?? row, { entityId: credentials.entityId ?? null }),
       administrations,
       needsPicker: false,
       returnUrl: oauthState.returnUrl,
@@ -508,7 +512,7 @@ export async function completeMoneybirdOAuth(args: {
 
   const fresh = await getConnectionById(db, pending.id);
   return {
-    connection: sanitizeConnection(fresh ?? pending),
+    connection: sanitizeConnection(fresh ?? pending, { entityId: credentials.entityId ?? null }),
     administrations,
     needsPicker: true,
     returnUrl: oauthState.returnUrl,
@@ -553,7 +557,7 @@ export async function selectMoneybirdAdministration(args: {
     return { error: 'That administration is not available on this Moneybird account', status: 400 };
   }
 
-  const credentials = {
+  const credentials: Record<string, string> = {
     ...existing,
     administrationId: chosen.id,
   };
@@ -576,5 +580,9 @@ export async function selectMoneybirdAdministration(args: {
     waitUntil: args.waitUntil,
   });
   const latest = await getConnectionById(args.db, row.id);
-  return { connection: sanitizeConnection(latest ?? fresh ?? row) };
+  return {
+    connection: sanitizeConnection(latest ?? fresh ?? row, {
+      entityId: credentials.entityId ?? null,
+    }),
+  };
 }

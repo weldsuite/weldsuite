@@ -122,6 +122,7 @@ export async function syncConnection(args: SyncConnectionArgs): Promise<{ trigge
           records: result.items,
           ownerId: args.ownerId,
           workspaceId: args.workspaceId,
+          entityId: credentials.entityId?.trim() || null,
           env: args.env as unknown as Record<string, unknown>,
         });
         Object.assign(applied, addCounts(applied, ingested));
