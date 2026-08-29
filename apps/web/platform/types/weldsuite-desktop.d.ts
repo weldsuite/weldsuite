@@ -34,7 +34,12 @@ export interface WeldsuiteDesktopApi {
     thumbnailSize?: { width: number; height: number };
   }): Promise<DesktopSource[]>;
   setBadgeCount(count: number): Promise<boolean>;
-  showNotification(opts: { title: string; body?: string; silent?: boolean }): Promise<boolean>;
+  showNotification(opts: {
+    title: string;
+    body?: string;
+    silent?: boolean;
+    actionUrl?: string;
+  }): Promise<boolean>;
   flashFrame(flag: boolean): Promise<void>;
   openExternal(url: string): Promise<boolean>;
   signInExternally(opts?: { path?: string; returnTo?: string }): Promise<{ url: string; returnTo: string }>;
@@ -43,6 +48,7 @@ export interface WeldsuiteDesktopApi {
   settings: SettingsApi;
   onDeepLink(listener: (url: string) => void): () => void;
   onAuthCallback(listener: (payload: AuthCallback) => void): () => void;
+  onNotificationClick(listener: (payload: { actionUrl?: string }) => void): () => void;
   /**
    * Register the screen-share source picker.
    *

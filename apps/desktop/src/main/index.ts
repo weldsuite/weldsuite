@@ -372,7 +372,12 @@ function registerIpc() {
     return true;
   });
 
-  ipcMain.handle('weldsuite:show-notification', (_event, opts: { title: string; body?: string; silent?: boolean }) => {
+  ipcMain.handle('weldsuite:show-notification', (_event, opts: {
+    title: string;
+    body?: string;
+    silent?: boolean;
+    actionUrl?: string;
+  }) => {
     if (!Notification.isSupported()) return false;
     if (!getSettings().notificationsEnabled) return false;
     const n = new Notification({
@@ -380,7 +385,15 @@ function registerIpc() {
       body: opts.body ?? '',
       silent: opts.silent ?? false,
     });
-    n.on('click', () => focusMainWindow());
+    n.on('click', () => {
+      focusMainWindow();
+      const wc = appWebContents();
+      if (wc) {
+        wc.send('weldsuite:notification-click', {
+          actionUrl: typeof opts.actionUrl === 'string' ? opts.actionUrl : undefined,
+        });
+      }
+    });
     n.show();
     return true;
   });

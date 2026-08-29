@@ -20,6 +20,14 @@ import { useAppApi } from '@/lib/api/use-app-api';
 import type { NotificationActor } from '@weldsuite/core-api-client/schemas';
 import { useTopic } from '@weldsuite/realtime/react';
 import { topics } from '@weldsuite/realtime/topics';
+import { useNotificationPreferences } from '@/hooks/queries/use-notifications-queries';
+import {
+  clearDesktopAttention,
+  isDesktopChannelEnabled,
+  showOsNotification,
+  syncDesktopBadge,
+} from '@/lib/desktop-notifications';
+import { isDesktop } from '@/lib/desktop';
 
 // Re-export UnifiedNotification type for backwards compatibility
 export interface UnifiedNotification {
@@ -78,11 +86,17 @@ export function UnifiedNotificationProvider({ children }: UnifiedNotificationPro
   const { user, isLoaded: userLoaded } = useUser();
   const { organization, isLoaded: orgLoaded } = useOrganization();
   const { notifications: notificationsApi } = useAppApi();
+  const { data: notificationPrefs } = useNotificationPreferences();
 
   const [status] = useState<ConnectionStatus>('disconnected');
   const initialized = useRef(false);
   const notificationHandlers = useRef<Set<(notification: UnifiedNotification) => void>>(new Set());
   const categoryHandlers = useRef<Map<string, Set<(notification: UnifiedNotification) => void>>>(new Map());
+  const prefsRef = useRef(notificationPrefs);
+
+  useEffect(() => {
+    prefsRef.current = notificationPrefs;
+  }, [notificationPrefs]);
 
   // Get store values
   const notifications = useNotificationStore((state) => state.notifications);
@@ -231,7 +245,42 @@ export function UnifiedNotificationProvider({ children }: UnifiedNotificationPro
         console.error('[UnifiedNotification] Category handler error:', error);
       }
     });
+
+    // OS toast when the desktop (or browser) channel is enabled and the app
+    // is in the background. Desktop delivery is client-side off the in-app
+    // realtime event — there is no separate server "desktop" push channel.
+    if (isDesktopChannelEnabled(prefsRef.current, notification.category)) {
+      const silent = prefsRef.current?.soundEnabled === false;
+      void showOsNotification({
+        title: notification.title,
+        body: notification.body || undefined,
+        actionUrl: notification.actionUrl,
+        silent,
+        playSound: !silent,
+      });
+    }
   });
+
+  // Keep dock / taskbar badge in sync with unread count.
+  useEffect(() => {
+    if (!isDesktop()) return;
+    syncDesktopBadge(unreadCount);
+  }, [unreadCount]);
+
+  // Clear taskbar flash when the user returns to the app.
+  useEffect(() => {
+    if (!isDesktop()) return;
+    const onFocus = () => clearDesktopAttention();
+    window.addEventListener('focus', onFocus);
+    const onVisibility = () => {
+      if (!document.hidden) clearDesktopAttention();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
 
   // When ANY admin in the workspace resolves an access request, the server
   // publishes a workspace-scoped `access_request:resolved` event. Other admins

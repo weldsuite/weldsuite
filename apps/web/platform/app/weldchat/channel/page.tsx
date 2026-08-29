@@ -25,6 +25,14 @@ const InlineCallView = lazy(() =>
 import { ChatPageSkeleton } from '../components/chat-page-skeleton';
 import { ChatDropZone } from '../components/chat-drop-zone';
 import { useChatContext } from '../components/chat-context';
+import {
+  notificationKeys,
+  type NotificationPreferences,
+} from '@/hooks/queries/use-notifications-queries';
+import {
+  isDesktopChannelEnabled,
+  showOsNotification,
+} from '@/lib/desktop-notifications';
 
 export default function ChannelPage() {
   const { t } = useI18n();
@@ -58,12 +66,21 @@ export default function ChannelPage() {
       markAsRead(channelId);
     }
 
-    // Browser notification when tab is not focused
-    if (document.hidden && message.authorName && Notification.permission === 'granted') {
-      new Notification(message.authorName, {
-        body: message.content?.substring(0, 100) ?? st('sweep.weldchat.channelPage.newMessage'),
-        tag: `chat-${channelId}-${message.id}`,
-      });
+    // OS / browser toast when the app is in the background
+    if (message.authorName) {
+      const prefs = queryClient.getQueryData<NotificationPreferences>(
+        notificationKeys.preferences(),
+      );
+      if (isDesktopChannelEnabled(prefs, 'weldchat')) {
+        void showOsNotification({
+          title: message.authorName,
+          body: message.content?.substring(0, 100) ?? st('sweep.weldchat.channelPage.newMessage'),
+          tag: `chat-${channelId}-${message.id}`,
+          actionUrl: `/weldchat/${channelId}`,
+          silent: prefs?.soundEnabled === false,
+          playSound: prefs?.soundEnabled !== false,
+        });
+      }
     }
   }, [channelId, queryClient, markAsRead, st]);
 

@@ -106,6 +106,7 @@ export default function ChatListClient({ initialConversations, workspaceId }: Ch
     showBrowserNotification(ti.newLiveChat, {
       body: ti.newConversationFrom.replace('{name}', senderName),
       playSound: true,
+      actionUrl: `/welddesk/inbox/chat/${newConversation.id}`,
     });
   }, [queryClient, ti.newChat, ti.newConversationFrom, ti.newLiveChat]);
 

@@ -20,6 +20,7 @@ import {
   ContextMenuItem,
 } from '@weldsuite/ui/components/context-menu';
 import { Star } from 'lucide-react';
+import { showOsNotification } from '@/lib/desktop-notifications';
 
 type FilterType = 'all' | 'unread' | 'starred' | 'urgent' | 'active';
 
@@ -73,9 +74,11 @@ export default function SlackListClient({ initialConversations, accessToken }: S
       if (newConversation.assigneeName === 'weldagent-system') return;
       setConversations(prev => [newConversation as Helpdesk.Conversation, ...prev]);
       toast.success(ti.newSlackMessage, { description: ti.newSlackMessageDescription });
-      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-        new Notification(ti.newSlackMessage, { body: ti.newSlackMessageDescription, icon: '/favicon.ico' });
-      }
+      void showOsNotification({
+        title: ti.newSlackMessage,
+        body: ti.newSlackMessageDescription,
+        actionUrl: `/welddesk/inbox/slack/${newConversation.id}`,
+      });
     },
     onAgentAssigned: (data) => {
       setConversations(prev => prev.map(conv =>
