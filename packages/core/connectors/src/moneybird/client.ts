@@ -243,6 +243,57 @@ export class MoneybirdClient implements ConnectorProviderClient {
     );
   }
 
+  /**
+   * Active financial accounts only (Moneybird omits archived). No pagination —
+   * the endpoint returns the full set.
+   */
+  async listFinancialAccounts(_options: MoneybirdListOptions = {}): Promise<ConnectorListPage> {
+    const { data } = await this.request<Array<Record<string, unknown>>>('financial_accounts');
+    const items = Array.isArray(data) ? data : [];
+    return { items, done: true, nextCursor: null };
+  }
+
+  /**
+   * Financial mutations use the synchronisation API (plain list is capped at
+   * 100 and rejects large result sets). Cursor is a 1-based page into the
+   * filtered id list; each page POSTs up to `perPage` ids.
+   */
+  async listFinancialMutations(options: MoneybirdListOptions = {}): Promise<ConnectorListPage> {
+    const page = options.page ?? 1;
+    const perPage = options.perPage ?? DEFAULT_PER_PAGE;
+    const { data: versions } = await this.request<Array<{ id?: unknown; version?: unknown }>>(
+      'financial_mutations/synchronization',
+    );
+    const rows = Array.isArray(versions) ? versions : [];
+    const sinceMs = options.updatedAfter ? Date.parse(options.updatedAfter) : NaN;
+    const filtered = Number.isFinite(sinceMs)
+      ? rows.filter((row) => {
+          const version = typeof row.version === 'number' ? row.version : Number(row.version);
+          if (!Number.isFinite(version)) return true;
+          // Moneybird versions are unix seconds; tolerate ms.
+          const versionMs = version > 1e12 ? version : version * 1000;
+          return versionMs > sinceMs;
+        })
+      : rows;
+
+    const start = (page - 1) * perPage;
+    const slice = filtered.slice(start, start + perPage);
+    if (slice.length === 0) {
+      return { items: [], done: true, nextCursor: null };
+    }
+
+    const ids = slice
+      .map((row) => (row.id !== undefined && row.id !== null ? String(row.id) : ''))
+      .filter(Boolean);
+    const { data } = await this.request<Array<Record<string, unknown>>>('financial_mutations/synchronization', {
+      method: 'POST',
+      body: { ids },
+    });
+    const items = Array.isArray(data) ? data : [];
+    const done = start + slice.length >= filtered.length;
+    return { items, done, nextCursor: done ? null : String(page + 1) };
+  }
+
   async listSync(
     sync: ConnectorSyncDef,
     options: { page: number; cursor: string | null; limit: number; modifiedAfter?: string },
@@ -264,6 +315,10 @@ export class MoneybirdClient implements ConnectorProviderClient {
         return this.listPurchaseInvoices(listOptions);
       case 'moneybird-receipts':
         return this.listReceipts(listOptions);
+      case 'moneybird-financial-accounts':
+        return this.listFinancialAccounts(listOptions);
+      case 'moneybird-financial-mutations':
+        return this.listFinancialMutations(listOptions);
       default:
         return { items: [], done: true, nextCursor: null };
     }
@@ -281,6 +336,17 @@ export class MoneybirdClient implements ConnectorProviderClient {
       ]);
       return purchases.items.length > 0 || receipts.items.length > 0;
     }
+    if (resource === 'bankAccounts') {
+      const page = await this.listFinancialAccounts();
+      if (!since) return page.items.length > 0;
+      const sinceMs = Date.parse(since);
+      if (!Number.isFinite(sinceMs)) return page.items.length > 0;
+      return page.items.some((item) => {
+        const updated = typeof item.updated_at === 'string' ? Date.parse(item.updated_at) : NaN;
+        return Number.isFinite(updated) && updated > sinceMs;
+      });
+    }
+    if (resource === 'bankTransactions') return (await this.listFinancialMutations(options)).items.length > 0;
     return false;
   }
 
@@ -300,6 +366,10 @@ export class MoneybirdClient implements ConnectorProviderClient {
       ]);
       return purchases + receipts;
     }
+    if (resource === 'bankAccounts') {
+      return (await this.listFinancialAccounts()).items.length;
+    }
+    if (resource === 'bankTransactions') return this.countPath('financial_mutations');
     return 0;
   }
 

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   EllipsisVertical,
   Link2Off,
@@ -10,6 +11,14 @@ import {
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Switch } from '@weldsuite/ui/components/switch';
+import { Label } from '@weldsuite/ui/components/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@weldsuite/ui/components/select';
 import {
   Sheet,
   SheetContent,
@@ -27,6 +36,9 @@ import {
 } from '@weldsuite/ui/components/dropdown-menu';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
+import { useWorkspaceId } from '@/contexts/workspace-context';
+import { accountingEntitiesQueryKey } from '@/hooks/use-current-entity-currency';
+import { weldbooksApi } from '@/lib/api/weldbooks-client';
 import {
   useConnectorConnection,
   useConnectorRecords,
@@ -71,10 +83,25 @@ function relativeTime(value: string | null | undefined, language: string): strin
   return rtf.format(Math.round(hours / 24), 'day');
 }
 
-type RecordTypeKey = 'contacts' | 'invoices' | 'products' | 'bills' | 'receipts' | 'orders' | 'customers';
+type RecordTypeKey =
+  | 'contacts'
+  | 'invoices'
+  | 'products'
+  | 'bills'
+  | 'receipts'
+  | 'orders'
+  | 'customers'
+  | 'bankAccounts'
+  | 'bankTransactions';
 
 function recordTypeKey(record: ConnectorSyncedRecord): RecordTypeKey {
   const external = record.externalEntityType;
+  if (external.includes('financial_mutation') || record.internalEntityType === 'bank_transaction') {
+    return 'bankTransactions';
+  }
+  if (external.includes('financial_account') || record.internalEntityType === 'bank_account') {
+    return 'bankAccounts';
+  }
   if (external.includes('receipt')) return 'receipts';
   if (external.includes('invoice') && (external.includes('purchase') || external.includes('bill'))) return 'bills';
   if (external.includes('sales_invoice') || external.includes('invoice')) return 'invoices';
@@ -130,7 +157,26 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
   const runs = runsData?.data ?? [];
   const records = recordsData?.data ?? [];
   const [enabledSyncs, setEnabledSyncs] = useState<string[] | null>(null);
+  const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const currentSyncs = enabledSyncs ?? connection?.enabledSyncs ?? [];
+  const needsEntity = connection?.provider === 'moneybird';
+  const workspaceId = useWorkspaceId();
+  const { data: entities = [] } = useQuery<Array<{ id: string; name: string; isActive?: boolean | null }>>({
+    queryKey: accountingEntitiesQueryKey(workspaceId),
+    enabled: Boolean(connectionId) && needsEntity,
+    queryFn: async () => {
+      const res = await weldbooksApi.get<
+        { data: Array<{ id: string; name: string; isActive?: boolean | null }> }
+        | Array<{ id: string; name: string; isActive?: boolean | null }>
+      >('/accounting-entities');
+      return Array.isArray(res) ? res : res.data ?? [];
+    },
+  });
+  const activeEntities = entities.filter((entity) => entity.isActive !== false);
+  const currentEntityId = selectedEntityId ?? connection?.entityId ?? '';
+  const settingsDirty =
+    enabledSyncs !== null
+    || (needsEntity && selectedEntityId !== null && selectedEntityId !== (connection?.entityId ?? ''));
 
   const handleSync = (full: boolean) => {
     if (!connectionId) return;
@@ -156,12 +202,21 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
 
   const handleSaveSettings = () => {
     if (!connectionId) return;
+    if (needsEntity && !(selectedEntityId ?? connection?.entityId)) {
+      toast.error(activeEntities.length === 0 ? tc.settings.entityMissing : tc.settings.entityRequired);
+      return;
+    }
     update.mutate(
-      { connectionId, enabledSyncs: currentSyncs },
+      {
+        connectionId,
+        ...(enabledSyncs !== null ? { enabledSyncs: currentSyncs } : {}),
+        ...(needsEntity && selectedEntityId !== null ? { entityId: selectedEntityId } : {}),
+      },
       {
         onSuccess: () => {
           toast.success(tc.settings.saved);
           setEnabledSyncs(null);
+          setSelectedEntityId(null);
         },
         onError: () => toast.error(tc.settings.saveFailed),
       },
@@ -175,7 +230,10 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
     <Sheet
       open={Boolean(connectionId)}
       onOpenChange={(open) => {
-        if (!open) setEnabledSyncs(null);
+        if (!open) {
+          setEnabledSyncs(null);
+          setSelectedEntityId(null);
+        }
         onOpenChange(open);
       }}
     >
@@ -322,6 +380,32 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
               </TabsContent>
 
               <TabsContent value="settings" className="mt-0 min-h-0 flex-1 overflow-y-auto px-6 py-4">
+                {needsEntity ? (
+                  <div className="mb-4 space-y-1.5">
+                    <Label htmlFor="connection-entity">{tc.settings.entityLabel}</Label>
+                    <p className="text-muted-foreground text-xs">{tc.settings.entityDescription}</p>
+                    {activeEntities.length === 0 ? (
+                      <p className="text-destructive text-xs">{tc.settings.entityMissing}</p>
+                    ) : (
+                      <Select
+                        value={currentEntityId}
+                        onValueChange={setSelectedEntityId}
+                        disabled={!canManage}
+                      >
+                        <SelectTrigger id="connection-entity">
+                          <SelectValue placeholder={tc.settings.entityPlaceholder} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {activeEntities.map((entity) => (
+                            <SelectItem key={entity.id} value={entity.id}>
+                              {entity.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                ) : null}
                 <div className="divide-y rounded-lg border">
                   {[...new Map(connection.syncs.map((sync) => [sync.settingKey, sync])).values()].map((sync) => {
                     const on = settingEnabled(currentSyncs, sync);
@@ -347,7 +431,7 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
                     size="sm"
                     className="mt-4"
                     onClick={handleSaveSettings}
-                    disabled={update.isPending || enabledSyncs === null}
+                    disabled={update.isPending || !settingsDirty}
                   >
                     {update.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
                     {tc.settings.save}

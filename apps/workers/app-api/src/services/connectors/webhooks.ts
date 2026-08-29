@@ -256,6 +256,7 @@ export async function processConnectorWebhook(args: {
       records: [record],
       ownerId: args.ownerId,
       workspaceId: args.workspaceId,
+      entityId: credentials.entityId?.trim() || null,
       env: args.env as unknown as Record<string, unknown>,
       forceDeleted: topic.kind === 'delete',
     });

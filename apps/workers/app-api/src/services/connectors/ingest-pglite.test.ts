@@ -257,4 +257,80 @@ describe('connector ingest · Moneybird accounting', () => {
     const [partyAfter] = await db.select().from(schema.parties).where(eq(schema.parties.id, parties[0]!.id));
     expect(partyAfter?.deletedAt).not.toBeNull();
   });
+
+  it('imports financial accounts and mutations into the selected entity', async () => {
+    const accountsSync = moneybird.syncs.find((s) => s.syncName === 'moneybird-financial-accounts')!;
+    const mutationsSync = moneybird.syncs.find((s) => s.syncName === 'moneybird-financial-mutations')!;
+
+    await db.insert(schema.connectorConnections).values({
+      id: 'conn_mb_bank',
+      provider: 'moneybird',
+      displayName: 'Moneybird Bank',
+      status: 'active',
+      externalAccountId: 'admin_bank',
+    });
+    await db.insert(schema.entities).values({
+      id: 'ent_bank',
+      name: 'Bank Entity BV',
+      jurisdictionCode: 'NL',
+      baseCurrency: 'EUR',
+    });
+
+    const accounts = await ingestRecords({
+      db,
+      connectionId: 'conn_mb_bank',
+      provider: 'moneybird',
+      displayName: 'Moneybird Bank',
+      sync: accountsSync,
+      records: [
+        {
+          id: 'fa1',
+          name: 'Rabo',
+          identifier: 'NL91ABNA0417164300',
+          currency: 'EUR',
+          active: true,
+        },
+      ],
+      ownerId: 'user_1',
+      workspaceId: 'ws_1',
+      entityId: 'ent_bank',
+      env: {},
+    });
+    expect(accounts.created).toBe(1);
+
+    const bankAccounts = await db.select().from(schema.bankAccounts);
+    expect(bankAccounts).toHaveLength(1);
+    expect(bankAccounts[0]?.entityId).toBe('ent_bank');
+    expect(bankAccounts[0]?.iban).toBe('NL91ABNA0417164300');
+
+    const mutations = await ingestRecords({
+      db,
+      connectionId: 'conn_mb_bank',
+      provider: 'moneybird',
+      displayName: 'Moneybird Bank',
+      sync: mutationsSync,
+      records: [
+        {
+          id: 'fm1',
+          financial_account_id: 'fa1',
+          amount: '-12.00',
+          date: '2026-04-01',
+          message: 'Coffee',
+          state: 'unprocessed',
+        },
+      ],
+      ownerId: 'user_1',
+      workspaceId: 'ws_1',
+      entityId: 'ent_bank',
+      env: {},
+    });
+    expect(mutations.created).toBe(1);
+
+    const txns = await db.select().from(schema.bankTransactions);
+    expect(txns).toHaveLength(1);
+    expect(txns[0]?.bankAccountId).toBe(bankAccounts[0]?.id);
+    expect(txns[0]?.entityId).toBe('ent_bank');
+    expect(txns[0]?.amount).toBe('-12.00');
+    expect(txns[0]?.externalId).toBe('fm1');
+  });
 });

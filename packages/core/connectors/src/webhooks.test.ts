@@ -21,6 +21,8 @@ describe('connector webhooks', () => {
       'moneybird-sales-invoices',
     );
     expect(matchWebhookTopic('moneybird', 'receipt_destroyed')?.kind).toBe('delete');
+    expect(matchWebhookTopic('moneybird', 'financial_account_renamed')?.settingKey).toBe('bankAccounts');
+    expect(matchWebhookTopic('moneybird', 'financial_account_destroyed')?.kind).toBe('delete');
   });
 
   it('builds a per-connection delivery URL', () => {

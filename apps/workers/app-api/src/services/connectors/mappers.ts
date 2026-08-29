@@ -74,7 +74,28 @@ export interface MappedBill {
   lineItems: MappedDocumentLine[];
 }
 
-export type MappedRecord = MappedProduct | MappedOrder | MappedPerson | MappedParty | MappedInvoice | MappedBill;
+export interface MappedBankAccount {
+  entity: 'bank_account';
+  externalId: string;
+  values: Record<string, unknown>;
+}
+
+export interface MappedBankTransaction {
+  entity: 'bank_transaction';
+  externalId: string;
+  financialAccountExternalId: string | null;
+  values: Record<string, unknown>;
+}
+
+export type MappedRecord =
+  | MappedProduct
+  | MappedOrder
+  | MappedPerson
+  | MappedParty
+  | MappedInvoice
+  | MappedBill
+  | MappedBankAccount
+  | MappedBankTransaction;
 
 function readPath(source: Record<string, unknown>, path: string): unknown {
   return path.split('.').reduce<unknown>((acc, segment) => {
@@ -540,6 +561,75 @@ function mapBill(record: Record<string, unknown>, externalId: string): MappedBil
   };
 }
 
+function looksLikeIban(value: string | null): string | null {
+  if (!value) return null;
+  const compactIban = value.replace(/\s+/g, '').toUpperCase();
+  if (compactIban.length < 15 || compactIban.length > 34) return null;
+  if (!/^[A-Z]{2}[0-9A-Z]+$/.test(compactIban)) return null;
+  return compactIban.slice(0, 34);
+}
+
+function mapBankAccount(record: Record<string, unknown>, externalId: string): MappedBankAccount | null {
+  const name = pickString(record, ['name'], 255);
+  if (!name) return null;
+  const identifier = pickString(record, ['identifier'], 100);
+  const iban = looksLikeIban(identifier);
+  const active = record.active === undefined ? true : Boolean(record.active);
+
+  return {
+    entity: 'bank_account',
+    externalId,
+    values: compact({
+      name,
+      iban,
+      currency: pickString(record, ['currency'], 3) ?? 'EUR',
+      bankName: pickString(record, ['provider', 'type'], 255),
+      isActive: active,
+      metadata: {
+        moneybirdType: pickString(record, ['type']),
+        moneybirdIdentifier: identifier,
+        moneybirdAccount: record.moneybird_account === true,
+      },
+    }),
+  };
+}
+
+function mapBankTransaction(record: Record<string, unknown>, externalId: string): MappedBankTransaction | null {
+  const amountRaw = pickString(record, ['amount', 'original_amount']);
+  if (!amountRaw) return null;
+  const amount = decimalString(amountRaw, '');
+  if (!amount || Number(amount) === 0) return null;
+  const date = parseDate(pickString(record, ['date', 'created_at']));
+  if (!date) return null;
+
+  const state = (pickString(record, ['state']) ?? 'unprocessed').toLowerCase();
+  const status = state === 'processed' || state === 'auto_booked' ? 'reconciled' : 'unreconciled';
+  const contra = pickString(record, ['contra_account_number'], 34);
+  const description =
+    pickString(record, ['message'])
+    ?? pickString(record, ['batch_reference'])
+    ?? pickString(record, ['code'])
+    ?? null;
+
+  return {
+    entity: 'bank_transaction',
+    externalId,
+    financialAccountExternalId: pickString(record, ['financial_account_id']),
+    values: compact({
+      date,
+      valueDate: date,
+      amount,
+      description,
+      counterpartyName: pickString(record, ['contra_account_name'], 255),
+      counterpartyIban: looksLikeIban(contra) ?? (contra && contra.length <= 34 ? contra : null),
+      reference: pickString(record, ['batch_reference', 'code', 'account_servicer_transaction_id'], 255),
+      externalId,
+      status,
+      rawData: record,
+    }),
+  };
+}
+
 export function mapConnectorRecord(
   entity: ConnectorEntity,
   record: Record<string, unknown>,
@@ -560,5 +650,9 @@ export function mapConnectorRecord(
       return mapInvoice(record, externalId);
     case 'bill':
       return mapBill(record, externalId);
+    case 'bank_account':
+      return mapBankAccount(record, externalId);
+    case 'bank_transaction':
+      return mapBankTransaction(record, externalId);
   }
 }

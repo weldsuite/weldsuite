@@ -69,7 +69,10 @@ export async function maybeDecryptWebhookSecret(
  * Explicitly allow-listed rather than spread-and-delete: a column added later
  * cannot leak by default, which matters on a table that holds credentials.
  */
-export function sanitizeConnection(row: ConnectorConnectionRow) {
+export function sanitizeConnection(
+  row: ConnectorConnectionRow,
+  options?: { entityId?: string | null },
+) {
   const connector = getConnector(row.provider);
   return {
     id: row.id,
@@ -80,6 +83,7 @@ export function sanitizeConnection(row: ConnectorConnectionRow) {
     displayName: row.displayName,
     status: row.status,
     externalAccountId: row.externalAccountId,
+    entityId: options?.entityId ?? null,
     enabledSyncs: row.enabledSyncs ?? connector?.syncs.map((s) => s.settingKey) ?? [],
     authFields: connector?.auth.fields.map((f) => ({
       key: f.key,
@@ -104,6 +108,15 @@ export function sanitizeConnection(row: ConnectorConnectionRow) {
     isConnected: row.status !== 'pending' && !row.deletedAt,
     webhookCount: row.webhookRegistrations?.length ?? 0,
   };
+}
+
+/** Decrypts credentials just far enough to expose the WeldBooks entity binding. */
+export async function sanitizeConnectionWithEntity(
+  row: ConnectorConnectionRow,
+  keyring: EncryptionKeyring,
+) {
+  const credentials = await decryptCredentials(row.credentials ?? undefined, keyring);
+  return sanitizeConnection(row, { entityId: credentials.entityId?.trim() || null });
 }
 
 export async function findConnectionByProviderAccount(
@@ -486,8 +499,20 @@ export async function listConnectionRecords(
   const invoiceIds = idsFor('invoice');
   const billIds = idsFor('bill');
   const orderIds = idsFor('order');
+  const bankAccountIds = idsFor('bank_account');
+  const bankTransactionIds = idsFor('bank_transaction');
 
-  const [partyRows, productRows, personRows, companyRows, invoiceRows, billRows, orderRows] = await Promise.all([
+  const [
+    partyRows,
+    productRows,
+    personRows,
+    companyRows,
+    invoiceRows,
+    billRows,
+    orderRows,
+    bankAccountRows,
+    bankTransactionRows,
+  ] = await Promise.all([
     partyIds.length
       ? db
           .select({ id: schema.parties.id, label: schema.parties.displayName })
@@ -545,6 +570,23 @@ export async function listConnectionRecords(
           .from(schema.orders)
           .where(inArray(schema.orders.id, orderIds))
       : Promise.resolve([]),
+    bankAccountIds.length
+      ? db
+          .select({ id: schema.bankAccounts.id, label: schema.bankAccounts.name })
+          .from(schema.bankAccounts)
+          .where(inArray(schema.bankAccounts.id, bankAccountIds))
+      : Promise.resolve([]),
+    bankTransactionIds.length
+      ? db
+          .select({
+            id: schema.bankTransactions.id,
+            description: schema.bankTransactions.description,
+            reference: schema.bankTransactions.reference,
+            amount: schema.bankTransactions.amount,
+          })
+          .from(schema.bankTransactions)
+          .where(inArray(schema.bankTransactions.id, bankTransactionIds))
+      : Promise.resolve([]),
   ]);
 
   const labels: Record<string, Map<string, string>> = {
@@ -570,6 +612,13 @@ export async function listConnectionRecords(
       })),
     ),
     order: asMap(orderRows),
+    bank_account: asMap(bankAccountRows),
+    bank_transaction: asMap(
+      bankTransactionRows.map((row) => ({
+        id: row.id,
+        label: row.description || row.reference || (row.amount != null ? String(row.amount) : null),
+      })),
+    ),
   };
 
   return mappings.map((row) => ({

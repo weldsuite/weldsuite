@@ -717,9 +717,10 @@ export const settings = {
       },
       moneybird: {
         title: 'Moneybird',
-        description: 'Import contacts, sales invoices, products, and purchase invoices from Moneybird into WeldBooks.',
+        description:
+          'Import contacts, sales invoices, products, purchase invoices, bank accounts, and bank transactions from Moneybird into WeldBooks.',
         overview:
-          'Connect with OAuth. After the first import, Moneybird pushes changes over webhooks, with a periodic catch-up. Imported invoices and bills keep Moneybird’s numbers and do not post to the WeldSuite ledger — Moneybird stays the book of record.',
+          'Connect with OAuth and choose the WeldBooks entity to sync into. After the first import, Moneybird pushes most changes over webhooks, with a periodic catch-up for bank transactions. Imported invoices and bills keep Moneybird’s numbers and do not post to the WeldSuite ledger — Moneybird stays the book of record.',
       },
       sendcloud: {
         title: 'Sendcloud',

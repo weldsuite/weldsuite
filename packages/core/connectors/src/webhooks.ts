@@ -60,6 +60,11 @@ export const MONEYBIRD_WEBHOOK_TOPICS: ConnectorWebhookTopic[] = [
   { provider: 'moneybird', topic: 'receipt_created', settingKey: 'bills', kind: 'create', syncName: 'moneybird-receipts' },
   { provider: 'moneybird', topic: 'receipt_updated', settingKey: 'bills', kind: 'update', syncName: 'moneybird-receipts' },
   { provider: 'moneybird', topic: 'receipt_destroyed', settingKey: 'bills', kind: 'delete', syncName: 'moneybird-receipts' },
+  { provider: 'moneybird', topic: 'financial_account_created', settingKey: 'bankAccounts', kind: 'create', syncName: 'moneybird-financial-accounts' },
+  { provider: 'moneybird', topic: 'financial_account_renamed', settingKey: 'bankAccounts', kind: 'update', syncName: 'moneybird-financial-accounts' },
+  { provider: 'moneybird', topic: 'financial_account_activated', settingKey: 'bankAccounts', kind: 'update', syncName: 'moneybird-financial-accounts' },
+  { provider: 'moneybird', topic: 'financial_account_deactivated', settingKey: 'bankAccounts', kind: 'update', syncName: 'moneybird-financial-accounts' },
+  { provider: 'moneybird', topic: 'financial_account_destroyed', settingKey: 'bankAccounts', kind: 'delete', syncName: 'moneybird-financial-accounts' },
 ];
 
 const TOPICS_BY_PROVIDER: Record<string, ConnectorWebhookTopic[]> = {
@@ -93,6 +98,15 @@ export function matchWebhookTopic(provider: string, topic: string): ConnectorWeb
   }
   if (normalised.startsWith('receipt_')) {
     return { provider, topic: normalised, settingKey: 'bills', kind: normalised.includes('destroy') ? 'delete' : 'update', syncName: 'moneybird-receipts' };
+  }
+  if (normalised.startsWith('financial_account_')) {
+    return {
+      provider,
+      topic: normalised,
+      settingKey: 'bankAccounts',
+      kind: normalised.includes('destroy') ? 'delete' : 'update',
+      syncName: 'moneybird-financial-accounts',
+    };
   }
   return undefined;
 }

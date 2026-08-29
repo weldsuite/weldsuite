@@ -28,8 +28,8 @@ export interface ConnectorAuthField {
 export interface ConnectorSyncDef {
   syncName: string;
   model: string;
-  internalEntity: 'product' | 'order' | 'person' | 'party' | 'invoice' | 'bill';
-  settingKey: 'products' | 'orders' | 'customers' | 'contacts' | 'invoices' | 'bills';
+  internalEntity: 'product' | 'order' | 'person' | 'party' | 'invoice' | 'bill' | 'bank_account' | 'bank_transaction';
+  settingKey: 'products' | 'orders' | 'customers' | 'contacts' | 'invoices' | 'bills' | 'bankAccounts' | 'bankTransactions';
 }
 
 export interface ConnectorConnection {
@@ -41,6 +41,7 @@ export interface ConnectorConnection {
   displayName: string | null;
   status: ConnectorConnectionStatus;
   externalAccountId: string | null;
+  entityId: string | null;
   enabledSyncs: string[];
   authFields: ConnectorAuthField[];
   syncs: ConnectorSyncDef[];
@@ -112,6 +113,7 @@ export interface UpdateConnectorInput {
   displayName?: string;
   enabledSyncs?: string[];
   credentials?: Record<string, string>;
+  entityId?: string | null;
 }
 
 export function useConnectorCatalog() {
@@ -184,6 +186,7 @@ export interface AuthorizeConnectorInput {
   displayName?: string;
   enabledSyncs: string[];
   returnUrl: string;
+  entityId?: string;
 }
 
 export interface MoneybirdAdministration {

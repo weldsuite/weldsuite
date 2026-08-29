@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
   CheckCircle2,
@@ -32,12 +32,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@weldsuite/ui/components/select';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Link } from '@/lib/router';
+import { useWorkspaceId } from '@/contexts/workspace-context';
+import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
+import { accountingEntitiesQueryKey } from '@/hooks/use-current-entity-currency';
+import { weldbooksApi } from '@/lib/api/weldbooks-client';
 import {
   useConnectorCatalog,
   useDisconnectConnector,
@@ -117,6 +128,8 @@ function SyncToggles({
     contacts: { title: ts.contacts, description: ts.contactsDescription },
     invoices: { title: ts.invoices, description: ts.invoicesDescription },
     bills: { title: ts.bills, description: ts.billsDescription },
+    bankAccounts: { title: ts.bankAccounts, description: ts.bankAccountsDescription },
+    bankTransactions: { title: ts.bankTransactions, description: ts.bankTransactionsDescription },
   };
 
   const uniqueSyncs = [...new Map(syncs.map((sync) => [sync.settingKey, sync])).values()];
@@ -152,6 +165,29 @@ interface ConnectDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+interface AccountingEntityOption {
+  id: string;
+  name: string;
+  isDefault?: boolean | null;
+  isActive?: boolean | null;
+}
+
+function useAccountingEntityOptions() {
+  const workspaceId = useWorkspaceId();
+  const { entityId: currentEntityId } = useCurrentAccountingEntity();
+  const { data: entities = [] } = useQuery<AccountingEntityOption[]>({
+    queryKey: accountingEntitiesQueryKey(workspaceId),
+    queryFn: async () => {
+      const res = await weldbooksApi.get<{ data: AccountingEntityOption[] } | AccountingEntityOption[]>(
+        '/accounting-entities',
+      );
+      return Array.isArray(res) ? res : res.data ?? [];
+    },
+  });
+  const active = entities.filter((entity) => entity.isActive !== false);
+  return { entities: active, currentEntityId };
+}
+
 function defaultSyncKeys(connector: ConnectorCatalogEntry | null): string[] {
   if (!connector) return ['products', 'orders', 'customers'];
   return [...new Set(connector.syncs.map((sync) => sync.settingKey))];
@@ -165,20 +201,37 @@ export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
   const test = useTestConnector();
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [enabledSyncs, setEnabledSyncs] = useState<string[]>(defaultSyncKeys(connector));
+  const { entities, currentEntityId } = useAccountingEntityOptions();
+  const [entityId, setEntityId] = useState<string>('');
 
   const fields = connector?.auth.fields ?? [];
   const isAppAuth = connector?.auth.kind === 'app_auth';
   const isOAuth2 = connector?.auth.kind === 'oauth2';
+  const needsEntity = connector?.provider === 'moneybird';
   const busy = connect.isPending || authorize.isPending;
 
   useEffect(() => {
     if (connector) setEnabledSyncs(defaultSyncKeys(connector));
   }, [connector]);
 
+  useEffect(() => {
+    if (!needsEntity) {
+      setEntityId('');
+      return;
+    }
+    const preferred =
+      (currentEntityId && entities.some((entity) => entity.id === currentEntityId) ? currentEntityId : null)
+      ?? entities.find((entity) => entity.isDefault)?.id
+      ?? entities[0]?.id
+      ?? '';
+    setEntityId(preferred);
+  }, [needsEntity, entities, currentEntityId, connector?.provider]);
+
   const handleOpenChange = (open: boolean) => {
     if (!open) {
       setCredentials({});
       setEnabledSyncs(defaultSyncKeys(connector));
+      setEntityId('');
     }
     onOpenChange(open);
   };
@@ -196,6 +249,10 @@ export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
 
   const handleConnect = () => {
     if (!connector) return;
+    if (needsEntity && !entityId) {
+      toast.error(entities.length === 0 ? tc.settings.entityMissing : tc.settings.entityRequired);
+      return;
+    }
     if (isAppAuth) {
       const storeUrl = credentials.storeUrl?.trim();
       if (!storeUrl) {
@@ -228,6 +285,7 @@ export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
         {
           provider: 'moneybird',
           enabledSyncs,
+          entityId,
           returnUrl: `${window.location.origin}${window.location.pathname}`,
         },
         {
@@ -285,6 +343,29 @@ export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
             </div>
           ))}
 
+          {needsEntity ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="connect-entity">{tc.settings.entityLabel}</Label>
+              <p className="text-muted-foreground text-xs">{tc.settings.entityDescription}</p>
+              {entities.length === 0 ? (
+                <p className="text-destructive text-xs">{tc.settings.entityMissing}</p>
+              ) : (
+                <Select value={entityId} onValueChange={setEntityId}>
+                  <SelectTrigger id="connect-entity">
+                    <SelectValue placeholder={tc.settings.entityPlaceholder} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {entities.map((entity) => (
+                      <SelectItem key={entity.id} value={entity.id}>
+                        {entity.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          ) : null}
+
           <div>
             <h3 className="mb-2 text-sm font-medium">{tc.settings.title}</h3>
             <p className="text-muted-foreground mb-3 text-xs">{tc.settings.description}</p>
@@ -299,7 +380,7 @@ export function ConnectDialog({ connector, onOpenChange }: ConnectDialogProps) {
               {tc.testConnection}
             </Button>
           )}
-          <Button onClick={handleConnect} disabled={busy}>
+          <Button onClick={handleConnect} disabled={busy || (needsEntity && (!entityId || entities.length === 0))}>
             {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
             {tc.connect}
           </Button>
