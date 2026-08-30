@@ -72,7 +72,9 @@ export async function syncConnection(args: SyncConnectionArgs): Promise<{ trigge
     throw new ConnectorApiError({ message: `Unknown connector '${args.connection.provider}'`, status: 400, kind: 'permanent' });
   }
 
-  let requested = args.syncs?.length ? [...args.syncs] : [...args.connection.enabledSyncs];
+  let requested = args.syncs?.length
+    ? [...args.syncs]
+    : [...(args.connection.enabledSyncs ?? [])];
   // Mutations need account mappings. If transactions are enabled but accounts are not,
   // still pull accounts first so statement lines can attach to a bank account.
   const wantsBankTx = requested.some(
