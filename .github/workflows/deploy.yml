@@ -72,6 +72,7 @@ jobs:
       release_weldchat: ${{ steps.changes.outputs.weldchat }}
       release_weldbooks: ${{ steps.changes.outputs.weldbooks }}
       release_weldflow: ${{ steps.changes.outputs.weldflow }}
+      release_weldagent: ${{ steps.changes.outputs.weldagent }}
       workers: ${{ steps.matrix.outputs.workers }}
     steps:
       - name: Resolve deploy context
@@ -144,6 +145,12 @@ jobs:
               - 'packages/design/mobile-ui/**'
             weldflow:
               - 'apps/mobile/weldflow-app/**'
+              - 'packages/clients/app-api-client/**'
+              - 'packages/clients/api-client/**'
+              - 'packages/design/mobile-ui/**'
+              - 'packages/core/notifications/**'
+            weldagent:
+              - 'apps/mobile/weldagent-app/**'
               - 'packages/clients/app-api-client/**'
               - 'packages/clients/api-client/**'
               - 'packages/design/mobile-ui/**'
@@ -450,6 +457,35 @@ jobs:
         env:
           EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
+        run: |
+          CHANNEL="${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}"
+          eas update \
+            --channel "$CHANNEL" \
+            --environment "$CHANNEL" \
+            --message "deploy ${{ needs.prepare.outputs.sha }} ($CHANNEL)" \
+            --non-interactive
+
+  mobile-weldagent:
+    name: Release WeldAgent (OTA)
+    needs: [prepare, workers]
+    if: >-
+      always() && !failure() && !cancelled() &&
+      (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
+      needs.prepare.outputs.release_weldagent == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Publish OTA update
+        working-directory: apps/mobile/weldagent-app
+        env:
+          EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && '[REDACTED]' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
         run: |
           CHANNEL="${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}"
           eas update \

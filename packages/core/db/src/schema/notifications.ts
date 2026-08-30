@@ -18,6 +18,7 @@ export type NotificationCategory =
   | 'parcel'
   | 'task'
   | 'weldchat'
+  | 'weldagent'
   | 'system'
   | 'security';
 
@@ -48,6 +49,9 @@ export type NotificationType =
   | 'comment'
   | 'workflow_completed'
   | 'workflow_failed'
+  | 'agent_run_completed'
+  | 'agent_run_failed'
+  | 'weldagent_reply'
   | 'security_alert'
   | 'system_update'
   | 'access_request'

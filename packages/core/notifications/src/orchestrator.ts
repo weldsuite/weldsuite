@@ -45,9 +45,10 @@ const CATEGORY_APP_CODES: Record<string, string[]> = {
   task: ['weldflow', 'weldsuite'],
   weldmeet: ['weldmeet', 'weldsuite'],
   weldbooks: ['weldbooks', 'weldsuite'],
+  weldagent: ['weldagent', 'weldsuite'],
 };
 
-function appCodesForCategory(category: string): string[] {
+export function appCodesForCategory(category: string): string[] {
   return CATEGORY_APP_CODES[category] ?? ['weldsuite'];
 }
 
@@ -71,6 +72,9 @@ function androidDelivery(
   }
   if (category === 'weldflow' || category === 'projects' || category === 'task') {
     return { channelId: 'weldflow', priority: 'default' };
+  }
+  if (category === 'weldagent') {
+    return { channelId: 'weldagent', priority: 'default' };
   }
   return { priority: 'default' };
 }

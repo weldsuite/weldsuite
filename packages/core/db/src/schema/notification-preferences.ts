@@ -28,6 +28,7 @@ export interface ModulePreferencesMap {
   task?: ModuleChannelPreferences;
   digest?: ModuleChannelPreferences;
   weldchat?: ModuleChannelPreferences;
+  weldagent?: ModuleChannelPreferences;
 }
 
 // Default module preferences (all enabled)

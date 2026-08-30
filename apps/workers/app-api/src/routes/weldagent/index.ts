@@ -18,6 +18,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
+import { requirePermission } from '@weldsuite/permissions/server';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import {
   createConversationSchema,
@@ -25,7 +26,14 @@ import {
   saveMessageSchema,
   weldAgentSettingsSchema,
   autoTitleSchema,
+  completeTurnSchema,
 } from '@weldsuite/app-api-client/schemas/weldagent';
+import { InsufficientAiCreditsError } from '../../services/ai/billing';
+import {
+  completeConversationTurn,
+  ConversationNotFoundError,
+} from '../../services/weldagent/complete-turn';
+import { getAgent } from '../../services/weldagent/agents';
 import type { Env, Variables } from '../../types';
 import { error, success, noContent } from '../../lib/response';
 import { generateId } from '../../lib/id';
@@ -33,6 +41,28 @@ import { schema } from '../../db';
 import { weldagentAgentsRoutes } from './agents';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+function toConversationSummary(conv: {
+  id: string;
+  name: string;
+  moduleKey: string | null;
+  agentId: string | null;
+  isPinned: boolean;
+  lastMessageAt: Date | null;
+  messageCount: number;
+  createdAt: Date;
+}) {
+  return {
+    id: conv.id,
+    name: conv.name,
+    moduleKey: conv.moduleKey,
+    agentId: conv.agentId,
+    isPinned: conv.isPinned,
+    lastMessageAt: conv.lastMessageAt,
+    messageCount: conv.messageCount,
+    createdAt: conv.createdAt,
+  };
+}
 
 // ============================================================================
 // Conversations
@@ -63,15 +93,7 @@ app.get('/conversations', async (c) => {
 
     return success(
       c,
-      conversations.map((conv) => ({
-        id: conv.id,
-        name: conv.name,
-        moduleKey: conv.moduleKey,
-        isPinned: conv.isPinned,
-        lastMessageAt: conv.lastMessageAt,
-        messageCount: conv.messageCount,
-        createdAt: conv.createdAt,
-      })),
+      conversations.map((conv) => toConversationSummary(conv)),
     );
   } catch (err) {
     console.error('[app-api/weldagent] list conversations failed:', err);
@@ -87,12 +109,18 @@ app.post('/conversations', zValidator('json', createConversationSchema), async (
   const { weldagentConversations } = schema;
 
   try {
+    if (data.agentId) {
+      const agent = await getAgent(db, data.agentId);
+      if (!agent) return error.notFound(c, 'Agent', data.agentId);
+    }
+
     const id = generateId('conv');
     await db.insert(weldagentConversations).values({
       id,
       userId,
       name: data.name || 'New Conversation',
       moduleKey: data.moduleKey || null,
+      agentId: data.agentId || null,
       isPinned: false,
       messageCount: 0,
       // Seed lastMessageAt so a brand-new conversation sorts by recency from
@@ -106,19 +134,7 @@ app.post('/conversations', zValidator('json', createConversationSchema), async (
       .where(eq(weldagentConversations.id, id))
       .limit(1);
 
-    return success(
-      c,
-      {
-        id: conversation.id,
-        name: conversation.name,
-        moduleKey: conversation.moduleKey,
-        isPinned: conversation.isPinned,
-        lastMessageAt: conversation.lastMessageAt,
-        messageCount: conversation.messageCount,
-        createdAt: conversation.createdAt,
-      },
-      201,
-    );
+    return success(c, toConversationSummary(conversation), 201);
   } catch (err) {
     console.error('[app-api/weldagent] create conversation failed:', err);
     return error.internal(c, 'Failed to create conversation');
@@ -230,6 +246,60 @@ app.post(
   },
 );
 
+/**
+ * POST /conversations/:conversationId/complete-turn
+ *
+ * Server-owned chat turn: persist the user message, generate a reply, persist
+ * the assistant message, notify the owner. Wrapped in waitUntil so a
+ * backgrounded mobile client still gets a completed turn + push.
+ */
+app.post(
+  '/conversations/:conversationId/complete-turn',
+  requirePermission('agents:read', 'weldagent:use'),
+  zValidator('json', completeTurnSchema),
+  async (c) => {
+    const conversationId = c.req.param('conversationId');
+    const { content, agentId } = c.req.valid('json');
+
+    const work = completeConversationTurn({
+      db: c.get('tenantDb'),
+      env: c.env,
+      workspaceId: c.get('workspaceId'),
+      userId: c.get('userId'),
+      conversationId,
+      content,
+      agentId,
+    });
+
+    c.executionCtx.waitUntil(
+      work.catch((err) => {
+        if (err instanceof ConversationNotFoundError || err instanceof InsufficientAiCreditsError) {
+          return;
+        }
+        console.error('[app-api/weldagent] complete-turn waitUntil failed:', err);
+      }),
+    );
+
+    try {
+      const result = await work;
+      return success(c, result);
+    } catch (err) {
+      if (err instanceof ConversationNotFoundError) {
+        return error.notFound(c, 'Conversation', conversationId);
+      }
+      if (err instanceof InsufficientAiCreditsError) {
+        return error.insufficientCredits(c, {
+          currentBalance: err.currentBalance,
+          required: err.required,
+          shortfall: err.shortfall,
+        });
+      }
+      console.error('[app-api/weldagent] complete-turn failed:', err);
+      return error.internal(c, err instanceof Error ? err.message : 'Failed to complete turn');
+    }
+  },
+);
+
 /** PATCH /conversations/:conversationId — rename / pin. */
 app.patch(
   '/conversations/:conversationId',
@@ -273,15 +343,7 @@ app.patch(
         return error.notFound(c, 'Conversation', conversationId);
       }
 
-      return success(c, {
-        id: updated.id,
-        name: updated.name,
-        moduleKey: updated.moduleKey,
-        isPinned: updated.isPinned,
-        lastMessageAt: updated.lastMessageAt,
-        messageCount: updated.messageCount,
-        createdAt: updated.createdAt,
-      });
+      return success(c, toConversationSummary(updated));
     } catch (err) {
       console.error('[app-api/weldagent] update conversation failed:', err);
       return error.internal(c, 'Failed to update conversation');

@@ -23,6 +23,8 @@ import type {
   WeldAgentSettings,
   MentionSearchResult,
   AutoTitleResult,
+  CompleteTurnInput,
+  CompleteTurnResult,
 } from '../schemas/weldagent';
 
 export interface MentionSearchQuery {
@@ -86,6 +88,20 @@ export function createWeldAgentApi(api: ClientApi) {
     ): Promise<DataResponse<WeldAgentMessageRow>> {
       return api.post<DataResponse<WeldAgentMessageRow>>(
         `/weldagent/conversations/${conversationId}/messages`,
+        data,
+      );
+    },
+
+    /**
+     * Persist the user turn, generate the assistant reply server-side, persist
+     * it, and fire a push. Survives the client disconnecting mid-request.
+     */
+    completeTurn(
+      conversationId: string,
+      data: CompleteTurnInput,
+    ): Promise<DataResponse<CompleteTurnResult>> {
+      return api.post<DataResponse<CompleteTurnResult>>(
+        `/weldagent/conversations/${conversationId}/complete-turn`,
         data,
       );
     },
