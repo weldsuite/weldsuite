@@ -22,6 +22,8 @@ export const aiChatSchema = z.object({
   system: z.string().max(8000).optional(),
   temperature: z.number().min(0).max(2).optional(),
   maxTokens: z.number().int().min(1).max(8192).optional(),
+  /** When set, load a workspace agent and run with its tools + instructions. */
+  agentId: z.string().min(1).max(30).optional(),
 });
 
 export interface AiUsage {

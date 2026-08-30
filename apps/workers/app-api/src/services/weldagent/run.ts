@@ -11,6 +11,8 @@ import {
   completeAgentRun,
   type AgentDb,
 } from './agents';
+import { sendWeldAgentRunNotification } from '@weldsuite/notifications';
+import type { Database as NotificationDatabase, NotificationEnv } from '@weldsuite/notifications/types';
 
 export async function executeAgentRun(params: {
   db: AgentDb;
@@ -92,6 +94,17 @@ export async function executeAgentRun(params: {
       toolCallCount: actionsPerformed.length,
     });
 
+    await notifyRun({
+      db: params.db,
+      env: params.env,
+      workspaceId: params.workspaceId,
+      agent,
+      runId,
+      triggerType: params.triggerType,
+      success: true,
+      summary: result.text.slice(0, 2000),
+    });
+
     return { runId, text: result.text, success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Agent run failed';
@@ -101,6 +114,48 @@ export async function executeAgentRun(params: {
       success: false,
       error: message,
     });
+    await notifyRun({
+      db: params.db,
+      env: params.env,
+      workspaceId: params.workspaceId,
+      agent,
+      runId,
+      triggerType: params.triggerType,
+      success: false,
+      error: message,
+    });
     return { runId, text: '', success: false, error: message };
+  }
+}
+
+async function notifyRun(params: {
+  db: AgentDb;
+  env: Env;
+  workspaceId: string;
+  agent: { id: string; name: string; createdBy: string | null };
+  runId: string;
+  triggerType: 'manual' | 'event' | 'chat';
+  success: boolean;
+  summary?: string;
+  error?: string;
+}): Promise<void> {
+  // Chat turns notify via complete-turn; don't double-push.
+  if (params.triggerType === 'chat') return;
+  if (!params.agent.createdBy) return;
+  try {
+    await sendWeldAgentRunNotification({
+      db: params.db as unknown as NotificationDatabase,
+      env: params.env as unknown as NotificationEnv,
+      workspaceId: params.workspaceId,
+      userId: params.agent.createdBy,
+      agentId: params.agent.id,
+      runId: params.runId,
+      agentName: params.agent.name,
+      success: params.success,
+      summary: params.summary,
+      error: params.error,
+    });
+  } catch (err) {
+    console.error('[weldagent/run] notify failed:', err);
   }
 }
