@@ -273,6 +273,9 @@ app.post(
 
     c.executionCtx.waitUntil(
       work.catch((err) => {
+        if (err instanceof ConversationNotFoundError || err instanceof InsufficientAiCreditsError) {
+          return;
+        }
         console.error('[app-api/weldagent] complete-turn waitUntil failed:', err);
       }),
     );
