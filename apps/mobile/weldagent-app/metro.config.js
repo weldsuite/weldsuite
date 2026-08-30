@@ -1,0 +1,52 @@
+const { getDefaultConfig } = require('expo/metro-config');
+const path = require('path');
+
+const projectRoot = __dirname;
+const monorepoRoot = path.resolve(projectRoot, '../../..');
+
+const config = getDefaultConfig(projectRoot);
+
+config.watchFolders = [
+  path.resolve(monorepoRoot, 'packages/design/mobile-ui'),
+  path.resolve(monorepoRoot, 'packages/clients/api-client'),
+  path.resolve(monorepoRoot, 'packages/clients/app-api-client'),
+];
+
+config.resolver.nodeModulesPaths = [
+  path.resolve(projectRoot, 'node_modules'),
+  path.resolve(monorepoRoot, 'node_modules'),
+];
+config.resolver.disableHierarchicalLookup = true;
+config.resolver.unstable_enablePackageExports = true;
+
+const fs = require('fs');
+
+function resolvePackageDir(pkg) {
+  const local = path.join(projectRoot, 'node_modules', pkg);
+  if (fs.existsSync(local)) return local;
+  return path.join(monorepoRoot, 'node_modules', pkg);
+}
+
+const singletons = [
+  'react',
+  'react-native',
+  'expo',
+  '@clerk/expo',
+  'react-native-reanimated',
+  'react-native-worklets',
+  'react-native-gesture-handler',
+  'react-native-safe-area-context',
+  'react-native-screens',
+  'react-native-svg',
+  'react-native-keyboard-controller',
+  'expo-secure-store',
+  'expo-notifications',
+  'expo-haptics',
+  'expo-linking',
+];
+
+config.resolver.extraNodeModules = Object.fromEntries(
+  singletons.map((pkg) => [pkg, resolvePackageDir(pkg)]),
+);
+
+module.exports = config;
