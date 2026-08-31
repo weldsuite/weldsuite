@@ -485,7 +485,9 @@ jobs:
         working-directory: apps/mobile/weldagent-app
         env:
           EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
-          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && '[REDACTED]' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
+          EXPO_PUBLIC_EAS_PROJECT_ID: cc1b21b9-17f3-490b-8088-3c62761d1d00
+          EAS_PROJECT_ID: cc1b21b9-17f3-490b-8088-3c62761d1d00
         run: |
           CHANNEL="${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}"
           eas update \

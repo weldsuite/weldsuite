@@ -5,19 +5,20 @@ Mobile companion for WeldSuite AI agents: chat, workspace agents, credits, and p
 - Bundle: `com.weldsuite.weldagent`
 - Scheme: `weldagent`
 - Brand: `#8d65ef`
+- EAS project: `cc1b21b9-17f3-490b-8088-3c62761d1d00`
 
 ## Local
 
 ```bash
+cp .env.example .env
 pnpm --filter weldagent-app start
 pnpm --filter weldagent-app test
 pnpm --filter weldagent-app generate:assets
 ```
 
-Requires `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` and `EXPO_PUBLIC_APP_API_URL` (see `.env.example`).
+## Push notifications
 
-## Production wiring still needed (human)
+In-repo wiring is done (project id, channel `weldagent`, deep links, OTA env).
+You still need Firebase app configs + EAS FCM/APNs credentials for this package.
 
-`eas init` under Expo org `weldsuite`, Apple/Play credentials, and Firebase files for this package. Do not copy another app's `google-services.json`. See `store/README.md`.
-
-Until `eas init` runs, `app.config.js` warns locally and throws on CI/EAS if the project id is still the placeholder.
+See **[store/README.md](./store/README.md)** for the exact Firebase + `eas credentials` steps.

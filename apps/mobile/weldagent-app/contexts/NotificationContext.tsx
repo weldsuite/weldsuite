@@ -21,7 +21,10 @@ async function getDeviceId(): Promise<string> {
 }
 
 const EAS_PROJECT_ID =
-  Constants.expoConfig?.extra?.eas?.projectId || process.env.EXPO_PUBLIC_EAS_PROJECT_ID || '';
+  Constants.expoConfig?.extra?.eas?.projectId ||
+  Constants.expoConfig?.extra?.EXPO_PUBLIC_EAS_PROJECT_ID ||
+  process.env.EXPO_PUBLIC_EAS_PROJECT_ID ||
+  '';
 const APP_CODE = 'weldagent';
 
 const isExpoGo = Constants.appOwnership === 'expo';
