@@ -82,3 +82,16 @@ eas submit --profile production --platform android
 ```
 
 Listing copy: `store-listing-en.md`, privacy: `privacy-policy.md`, Play Data Safety: `data-safety.md`.
+
+## Pre-submission checklist
+
+- [ ] `npx expo-doctor` passes
+- [ ] Golden path: login → Home → New chat → send a message → see reply
+- [ ] Agent create / activate / run now works
+- [ ] Background the app during a chat turn; Expo push arrives; tap opens `/chat/<id>`
+- [ ] Agent run complete/fail push opens `/agent/<id>`
+- [ ] Credits empty state (402) shows top-up copy, no in-app purchase
+- [ ] Deep link `weldagent://` and push `actionUrl` `/weldagent/chat/<id>` resolve
+- [ ] Screenshots captured (see `screenshots/`)
+- [ ] Privacy policy URL `https://weldsuite.org/privacy`
+- [ ] Listing copy copied from `store-listing-en.md`
