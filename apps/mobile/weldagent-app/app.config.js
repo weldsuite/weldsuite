@@ -1,8 +1,11 @@
+const fs = require('fs');
+const path = require('path');
 const { withInfoPlist } = require('@expo/config-plugins');
 const { withAppBuildGradle } = require('@expo/config-plugins');
 
 /** Must match the scaffold placeholder in app.json before `eas init` runs. */
 const PLACEHOLDER_PROJECT_ID = '00000000-0000-0000-0000-000000000000';
+const PROJECT_ROOT = __dirname;
 
 /**
  * Resolves the EAS project id and keeps `updates.url` derived from it.
@@ -31,7 +34,13 @@ const withEasProject = (config) => {
 
   return {
     ...config,
-    extra: { ...config.extra, eas: { ...config.extra?.eas, projectId } },
+    extra: {
+      ...config.extra,
+      eas: { ...config.extra?.eas, projectId },
+      // Runtime fallback when Constants.expoConfig.extra.eas is stripped.
+      EXPO_PUBLIC_EAS_PROJECT_ID:
+        process.env.EXPO_PUBLIC_EAS_PROJECT_ID || projectId,
+    },
     updates: {
       ...config.updates,
       url: `https://u.expo.dev/${projectId}`,
@@ -39,6 +48,41 @@ const withEasProject = (config) => {
       fallbackToCacheTimeout: 0,
     },
   };
+};
+
+/**
+ * Attach Firebase / FCM config files when present.
+ *
+ * Android push needs `google-services.json` for package `com.weldsuite.weldagent`
+ * (create the Android app in the shared Firebase project `weldsuite`, then drop
+ * the downloaded file here). iOS needs `GoogleService-Info.plist` the same way.
+ * Do NOT copy WeldBooks / WeldMail files — wrong package / bundle id.
+ */
+const withFirebaseConfigFiles = (config) => {
+  const androidFile = path.join(PROJECT_ROOT, 'google-services.json');
+  const iosFile = path.join(PROJECT_ROOT, 'GoogleService-Info.plist');
+
+  if (fs.existsSync(androidFile)) {
+    config.android = {
+      ...config.android,
+      googleServicesFile: './google-services.json',
+    };
+  } else {
+    console.warn(
+      '[weldagent-app] Missing google-services.json — Android Expo push tokens ' +
+        'will fail until you add a Firebase Android app for com.weldsuite.weldagent ' +
+        'and upload the FCM V1 key via `eas credentials`.',
+    );
+  }
+
+  if (fs.existsSync(iosFile)) {
+    config.ios = {
+      ...config.ios,
+      googleServicesFile: './GoogleService-Info.plist',
+    };
+  }
+
+  return config;
 };
 
 /** Store builds must not allow plaintext HTTP. Dev/preview keep it for local app-api. */
@@ -124,5 +168,9 @@ const withAndroidPackagingExcludes = (config) => {
 
 module.exports = ({ config }) =>
   withAndroidPackagingExcludes(
-    withGoogleSignInUrlScheme(withClerkGoogleExtra(withProductionCleartext(withEasProject(config)))),
+    withGoogleSignInUrlScheme(
+      withClerkGoogleExtra(
+        withProductionCleartext(withFirebaseConfigFiles(withEasProject(config))),
+      ),
+    ),
   );

@@ -13,3 +13,5 @@ dist
 /android
 test-results/
 coverage/
+google-services.json
+GoogleService-Info.plist

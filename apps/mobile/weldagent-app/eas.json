@@ -9,7 +9,8 @@
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_APP_API_URL": "https://app-api-test.weldsuite.org",
-        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "[REDACTED]",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk",
+        "EXPO_PUBLIC_EAS_PROJECT_ID": "cc1b21b9-17f3-490b-8088-3c62761d1d00",
         "EXPO_PUBLIC_CLERK_GOOGLE_WEB_CLIENT_ID": "283341122724-1t7p7cs9jtsp954c454tsos7blf7e1ek.apps.googleusercontent.com",
         "EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID": "283341122724-5p3utk8muvrr3gjlb0rgm8nq7lgfqikj.apps.googleusercontent.com",
         "EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME": "com.googleusercontent.apps.283341122724-5p3utk8muvrr3gjlb0rgm8nq7lgfqikj",
@@ -21,7 +22,8 @@
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_APP_API_URL": "https://app-api-test.weldsuite.org",
-        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "[REDACTED]",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk",
+        "EXPO_PUBLIC_EAS_PROJECT_ID": "cc1b21b9-17f3-490b-8088-3c62761d1d00",
         "EXPO_PUBLIC_CLERK_GOOGLE_WEB_CLIENT_ID": "283341122724-1t7p7cs9jtsp954c454tsos7blf7e1ek.apps.googleusercontent.com",
         "EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID": "283341122724-5p3utk8muvrr3gjlb0rgm8nq7lgfqikj.apps.googleusercontent.com",
         "EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME": "com.googleusercontent.apps.283341122724-5p3utk8muvrr3gjlb0rgm8nq7lgfqikj",
@@ -34,6 +36,7 @@
       "env": {
         "EXPO_PUBLIC_APP_API_URL": "https://app-api.weldsuite.org",
         "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ",
+        "EXPO_PUBLIC_EAS_PROJECT_ID": "cc1b21b9-17f3-490b-8088-3c62761d1d00",
         "EXPO_PUBLIC_CLERK_GOOGLE_WEB_CLIENT_ID": "283341122724-1t7p7cs9jtsp954c454tsos7blf7e1ek.apps.googleusercontent.com",
         "EXPO_PUBLIC_CLERK_GOOGLE_IOS_CLIENT_ID": "283341122724-5p3utk8muvrr3gjlb0rgm8nq7lgfqikj.apps.googleusercontent.com",
         "EXPO_PUBLIC_CLERK_GOOGLE_IOS_URL_SCHEME": "com.googleusercontent.apps.283341122724-5p3utk8muvrr3gjlb0rgm8nq7lgfqikj",

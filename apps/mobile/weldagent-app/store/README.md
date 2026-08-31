@@ -1,82 +1,84 @@
-# WeldAgent, App Store / Play Store Submission Checklist
+# WeldAgent, App Store / Play Store + push setup
 
-This directory holds listing copy for the iOS App Store and Google Play.
-It is NOT shipped inside the app bundle.
+## Done in-repo
 
-## Cannot be completed from this repo
+- [x] EAS project id `cc1b21b9-17f3-490b-8088-3c62761d1d00`
+- [x] `updates.url` synced to `https://u.expo.dev/cc1b21b9-17f3-490b-8088-3c62761d1d00`
+- [x] `EXPO_PUBLIC_EAS_PROJECT_ID` in `app.json` / `eas.json` / OTA deploy job
+- [x] Android notification channel `weldagent` (client + orchestrator)
+- [x] `expo-notifications` plugin with brand colour + `defaultChannel: weldagent`
+- [x] iOS `UIBackgroundModes: remote-notification`
+- [x] Privacy manifest via `ios.privacyManifests` in `app.json` (prebuild emits PrivacyInfo.xcprivacy)
+- [x] `app.config.js` auto-attaches Firebase files when you drop them in
 
-These steps need Expo / Apple / Google logins and must not be faked:
+## You still need to do (credentials — interactive)
 
-1. `eas init` under Expo org `weldsuite` → real `projectId` + `updates.url`
-2. Apple App ID `com.weldsuite.weldagent` with Push capability + APNs key
-3. Play package `com.weldsuite.weldagent` + FCM V1 via `eas credentials`
-4. `google-services.json` / `GoogleService-Info.plist` for **this** package
-   (do **not** copy WeldBooks or WeldFlow files — wrong package name)
-5. First `eas build` / store submit
+Push will not arrive on a physical device until these are done for **this** EAS project
+(`weldagent-app` / `com.weldsuite.weldagent`). Do **not** reuse WeldBooks / WeldMail
+Firebase app configs — wrong package / bundle id.
 
-Until those exist, `app.config.js` fails loudly on CI/EAS if the project id is still the placeholder.
+### 1. Firebase (shared project `weldsuite`)
 
-## Before first build
+In [Firebase Console](https://console.firebase.google.com/) → project **weldsuite**:
 
-### 1. Expo / EAS setup
+1. **Add Android app**
+   - Package name: `com.weldsuite.weldagent`
+   - Download `google-services.json`
+   - Place it at `apps/mobile/weldagent-app/google-services.json`
+2. **Add iOS app**
+   - Bundle id: `com.weldsuite.weldagent`
+   - Download `GoogleService-Info.plist`
+   - Place it at `apps/mobile/weldagent-app/GoogleService-Info.plist`
+3. Enable **Cloud Messaging** and create / reuse an FCM V1 service-account key
+   (Project settings → Service accounts → Generate new private key).
+
+`app.config.js` picks those files up automatically on the next prebuild / EAS build.
+
+### 2. EAS credentials (push)
+
+From the app folder, logged into Expo org `weldsuite`:
+
 ```bash
 cd apps/mobile/weldagent-app
 eas login
-eas init
-eas project:info
-```
-
-Paste the resulting project id into `app.json` (`expo.extra.eas.projectId` + `expo.updates.url`) and `.env` (`EXPO_PUBLIC_EAS_PROJECT_ID`).
-
-### 2. Push credentials
-```bash
 eas credentials
 ```
-Select the WeldAgent project → Android → Google Service Account / FCM V1, and iOS → Push Key.
 
-### 3. Secrets / build env
-Clerk + API URLs are pinned per profile in `eas.json` (same pattern as WeldBooks).
-OTA deploys from `.github/workflows/deploy.yml` inject the same Clerk keys.
+Then:
 
-### 4. Assets
-Regenerate branded PNGs from the platform SVG:
+| Platform | What to set |
+|---|---|
+| Android | Google Service Account / **FCM V1** — upload the Firebase service-account JSON |
+| iOS | **Push Notifications** key (APNs) — create or reuse a key in Apple Developer, assign to App ID `com.weldsuite.weldagent` |
+
+Also confirm the Apple App ID `com.weldsuite.weldagent` has the **Push Notifications** capability.
+
+### 3. Local `.env`
+
 ```bash
-pnpm --filter weldagent-app generate:assets
+cp .env.example .env
 ```
 
-### 5. Apple Developer account
-- App ID: `com.weldsuite.weldagent`
-- Push notifications capability enabled
-- App record named "WeldAgent"
+`.env.example` already has the EAS project id + Clerk test keys.
 
-### 6. Google Play Console
-- Package name: `com.weldsuite.weldagent`
-- Data Safety questionnaire (see `data-safety.md`)
+### 4. First device build (required for push)
 
-## Build flow
+Expo Go cannot register push tokens on SDK 53+. Use a dev client or preview build:
 
 ```bash
 eas build --profile preview --platform ios
 eas build --profile preview --platform android
-eas build --profile production --platform all
 ```
 
-## Submit flow
+On device: sign in → More → enable notifications → background the app, send a chat
+turn or run an agent → expect an Expo push that opens `/chat/<id>` or `/agent/<id>`.
+
+## Build / submit
 
 ```bash
+eas build --profile production --platform all
 eas submit --profile production --platform ios
 eas submit --profile production --platform android
 ```
 
-## Pre-submission checklist
-
-- [ ] `npx expo-doctor` passes
-- [ ] Golden path: login → Home → New chat → send a message → see reply
-- [ ] Agent create / activate / run now works
-- [ ] Background the app during a chat turn; Expo push arrives; tap opens `/chat/<id>`
-- [ ] Agent run complete/fail push opens `/agent/<id>`
-- [ ] Credits empty state (402) shows top-up copy, no in-app purchase
-- [ ] Deep link `weldagent://` and push `actionUrl` `/weldagent/chat/<id>` resolve
-- [ ] Screenshots captured (see `screenshots/`)
-- [ ] Privacy policy URL `https://weldsuite.org/privacy`
-- [ ] Listing copy copied from `store-listing-en.md`
+Listing copy: `store-listing-en.md`, privacy: `privacy-policy.md`, Play Data Safety: `data-safety.md`.
