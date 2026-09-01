@@ -1,41 +1,33 @@
 /**
  * Telnyx Webhook Routes — PUBLIC (mounted before Clerk auth).
  *
- * Ported from apps/api-worker/src/routes/webhooks/telnyx.ts (W3 legacy
- * phase-out). Handles Telnyx Call Control webhooks for VoIP calls plus
- * porting.order.* status events. All events arrive as JSON at a single
- * endpoint.
- *
- * Key events:
- * - call.initiated — call started
- * - call.answered — callee picked up
- * - call.bridged — both parties connected
- * - call.hangup — call ended (credit settlement happens here)
- * - call.recording.saved — recording ready for download
- * - porting.order.* — bridged to the right tenant via the master-DB index
- *
- * SIGNATURE VERIFICATION: the legacy api-worker receiver performed NO
- * verification (TELNYX_WEBHOOK_SECRET was declared but never used). That
- * behaviour is preserved when TELNYX_PUBLIC_KEY is unset. When
- * TELNYX_PUBLIC_KEY (the account's base64 Ed25519 public key from the
- * Telnyx portal) IS set, signatures are enforced: requests missing or
- * failing `telnyx-signature-ed25519` / `telnyx-timestamp` are rejected 401.
- *
- * Entity events: intentionally not published here — the public route has no
- * authed Hono context (no tenantDb/workspaceId/userId vars), matching the
- * legacy receiver.
+ * Handles Telnyx Call Control webhooks for VoIP calls plus porting.order.*
+ * status events. Inbound calls without client_state are routed via the
+ * master phone_number_registry → desk_phone_routes (AI / forward / hangup).
  */
 
 import { Hono } from 'hono';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import {
   consumeCredits,
   grantCredits,
   resolveInternalWorkspaceId,
   SERVICE_CREDIT_RATES,
 } from '@weldsuite/credits';
+import { appendDeskMessage, ingestDeskPhone } from '@weldsuite/db/lib/desk';
 import { getTenantDbForWorkspace, getMasterDb, schema, masterSchema } from '../../db';
-import { verifyTelnyxSignature, type TelnyxEnv } from '../../lib/telnyx';
+import {
+  verifyTelnyxSignature,
+  encodeClientState,
+  telnyxAnswer,
+  telnyxHangup,
+  telnyxTransfer,
+  telnyxAiAssistantStart,
+  telnyxRecordStart,
+  type TelnyxEnv,
+} from '../../lib/telnyx';
+import { lookupPhoneNumberRegistry, normalizeE164 } from '../../lib/phone-registry';
+import { generateId } from '../../lib/id';
 import {
   handlePortingCompleted,
   handlePortingException,
@@ -64,9 +56,6 @@ interface TelnyxWebhookEvent {
 // Helpers
 // ============================================================================
 
-/**
- * Decode base64 client_state back to JSON string
- */
 function decodeClientState(clientState?: string): Record<string, string> {
   if (!clientState) return {};
   try {
@@ -76,12 +65,6 @@ function decodeClientState(clientState?: string): Record<string, string> {
   }
 }
 
-/**
- * Dispatch a porting.order.* webhook to the right tenant DB by looking up
- * the workspace (clerkOrgId) on the master-DB index. Returns silently for
- * unknown order ids — those are almost always replays after we cleaned up
- * the index on completion/cancel.
- */
 async function handlePortingWebhook(
   env: TelnyxEnv,
   eventType: string,
@@ -101,7 +84,6 @@ async function handlePortingWebhook(
     .limit(1);
 
   if (!indexRow) {
-    // Either an unknown order or one we've already finalized + cleaned up.
     console.log(`[Telnyx Webhook] Porting order ${telnyxOrderId} not in index — ignoring`);
     return;
   }
@@ -121,9 +103,6 @@ async function handlePortingWebhook(
 
   console.log(`[Telnyx Webhook] Porting ${telnyxOrderId} → status=${status} sub=${subStatus}`);
 
-  // Status names per Telnyx: draft | in-process | submitted | exception |
-  // foc-date-confirmed | ported | cancelled | cancel-pending | etc. We
-  // collapse to our internal terminal states.
   if (status === 'ported') {
     await handlePortingCompleted(ctx);
     return;
@@ -137,24 +116,18 @@ async function handlePortingWebhook(
     return;
   }
 
-  // Non-terminal — just refresh substatus + actual FOC if present.
   const db = await getTenantDbForWorkspace(env, indexRow.clerkOrgId);
   await db
     .update(schema.voipPortingOrders)
     .set({
       substatus: subStatus ?? null,
       ...(payload.actual_foc_date ? { actualFocAt: new Date(payload.actual_foc_date) } : {}),
-      // Map Telnyx in-process → our 'in_process' so the UI doesn't show
-      // 'submitted' forever once Telnyx hands off to the losing carrier.
       ...(status === 'in-process' ? { status: 'in_process' } : {}),
       updatedAt: new Date(),
     })
     .where(eq(schema.voipPortingOrders.id, indexRow.draftId));
 }
 
-/**
- * Map Telnyx hangup cause to internal status
- */
 function mapHangupCause(cause: string): string {
   const causeMap: Record<string, string> = {
     normal_clearing: 'completed',
@@ -171,19 +144,217 @@ function mapHangupCause(cause: string): string {
   return causeMap[cause] || 'completed';
 }
 
+function isInboundDirection(payload: Record<string, any>): boolean {
+  const dir = String(payload.direction || '').toLowerCase();
+  return dir === 'incoming' || dir === 'inbound';
+}
+
+/**
+ * Resolve dialed number → workspace route and execute Call Control action.
+ */
+async function handleInboundInitiated(
+  env: TelnyxEnv,
+  payload: Record<string, any>,
+): Promise<void> {
+  const callControlId: string | undefined = payload.call_control_id;
+  const toRaw = payload.to || payload.callee || '';
+  const fromRaw = payload.from || payload.caller_id_number || '';
+
+  if (!callControlId || !toRaw) {
+    console.warn('[Telnyx Webhook] Inbound initiated missing call_control_id or to');
+    return;
+  }
+
+  const toNumber = normalizeE164(String(toRaw));
+  const fromNumber = normalizeE164(String(fromRaw || 'unknown'));
+
+  const masterDb = getMasterDb(env);
+  const registry = await lookupPhoneNumberRegistry(masterDb, toNumber);
+  if (!registry) {
+    console.warn(`[Telnyx Webhook] No phone registry entry for ${toNumber} — hanging up`);
+    try {
+      await telnyxHangup(env, callControlId);
+    } catch (err) {
+      console.error('[Telnyx Webhook] Hangup after missing registry failed:', err);
+    }
+    return;
+  }
+
+  const workspaceId = registry.clerkOrgId;
+  const db = await getTenantDbForWorkspace(env, workspaceId);
+  const { voipPhoneNumbers, voipCalls, deskPhoneRoutes, deskVoiceAgents } = schema;
+
+  const [phoneRow] = await db
+    .select()
+    .from(voipPhoneNumbers)
+    .where(
+      and(
+        eq(voipPhoneNumbers.id, registry.voipPhoneNumberId),
+        isNull(voipPhoneNumbers.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  if (!phoneRow || phoneRow.allowInbound === false) {
+    console.warn(`[Telnyx Webhook] Inbound not allowed for ${toNumber}`);
+    await telnyxHangup(env, callControlId);
+    return;
+  }
+
+  const [route] = await db
+    .select()
+    .from(deskPhoneRoutes)
+    .where(eq(deskPhoneRoutes.voipPhoneNumberId, phoneRow.id))
+    .limit(1);
+
+  const callId = generateId('vcall');
+  const now = new Date();
+
+  const desk = await ingestDeskPhone(db, {
+    generateId,
+    fromNumber,
+    toNumber,
+    callId,
+    callControlId,
+  });
+
+  await db.insert(voipCalls).values({
+    id: callId,
+    createdAt: now,
+    updatedAt: now,
+    userId: phoneRow.assignedUserId || 'system',
+    provider: 'telnyx',
+    providerCallId: callControlId,
+    providerSessionId: payload.call_session_id ?? null,
+    providerLegId: payload.call_leg_id ?? null,
+    direction: 'inbound',
+    status: 'initiated',
+    fromNumber,
+    toNumber,
+    fromNumberFormatted: fromNumber,
+    toNumberFormatted: toNumber,
+    initiatedAt: now,
+    deskConversationId: desk.conversation.id,
+    isRecorded: phoneRow.enableRecording ?? true,
+  });
+
+  const clientState = encodeClientState({
+    callId,
+    workspaceId,
+    deskConversationId: desk.conversation.id,
+    record: phoneRow.enableRecording !== false ? 'true' : 'false',
+  });
+
+  const action = route?.action ?? 'hangup';
+
+  try {
+    if (action === 'forward' && route?.forwardToE164) {
+      await telnyxTransfer(env, callControlId, route.forwardToE164, {
+        clientState,
+        from: toNumber,
+      });
+      await appendDeskMessage(db, {
+        generateId,
+        conversationId: desk.conversation.id,
+        kind: 'message',
+        authorType: 'system',
+        body: `Forwarding call to ${route.forwardToE164}`,
+        metadata: { event: 'call_forwarded', forwardToE164: route.forwardToE164, callId },
+      });
+      return;
+    }
+
+    if (action === 'ai_agent' && route?.voiceAgentId) {
+      const [agent] = await db
+        .select()
+        .from(deskVoiceAgents)
+        .where(
+          and(
+            eq(deskVoiceAgents.id, route.voiceAgentId),
+            isNull(deskVoiceAgents.deletedAt),
+          ),
+        )
+        .limit(1);
+
+      if (!agent?.enabled || !agent.telnyxAssistantId) {
+        console.warn(`[Telnyx Webhook] Voice agent ${route.voiceAgentId} unavailable — hangup`);
+        await telnyxHangup(env, callControlId, { clientState });
+        return;
+      }
+
+      await telnyxAnswer(env, callControlId, { clientState });
+      await telnyxAiAssistantStart(env, callControlId, agent.telnyxAssistantId, { clientState });
+
+      if (phoneRow.enableRecording !== false) {
+        try {
+          await telnyxRecordStart(env, callControlId);
+        } catch (recErr) {
+          console.error('[Telnyx Webhook] record_start failed:', recErr);
+        }
+      }
+
+      await appendDeskMessage(db, {
+        generateId,
+        conversationId: desk.conversation.id,
+        kind: 'message',
+        authorType: 'bot',
+        authorId: agent.id,
+        body: `AI agent “${agent.name}” answered the call`,
+        metadata: { event: 'ai_answered', voiceAgentId: agent.id, callId },
+      });
+      return;
+    }
+
+    await telnyxHangup(env, callControlId, { clientState });
+    await appendDeskMessage(db, {
+      generateId,
+      conversationId: desk.conversation.id,
+      kind: 'message',
+      authorType: 'system',
+      body: 'Call ended (no inbound route configured)',
+      metadata: { event: 'call_hangup_no_route', callId },
+    });
+  } catch (err) {
+    console.error('[Telnyx Webhook] Inbound route execution failed:', err);
+    try {
+      await telnyxHangup(env, callControlId, { clientState });
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function appendDeskCallEvent(
+  env: TelnyxEnv,
+  workspaceId: string,
+  deskConversationId: string | undefined,
+  body: string,
+  metadata: Record<string, unknown>,
+): Promise<void> {
+  if (!deskConversationId) return;
+  try {
+    const db = await getTenantDbForWorkspace(env, workspaceId);
+    await appendDeskMessage(db, {
+      generateId,
+      conversationId: deskConversationId,
+      kind: 'message',
+      authorType: 'system',
+      body,
+      metadata,
+    });
+  } catch (err) {
+    console.error('[Telnyx Webhook] Failed to append desk call event:', err);
+  }
+}
+
 // ============================================================================
 // Routes
 // ============================================================================
 
 const app = new Hono<{ Bindings: TelnyxEnv }>();
 
-/**
- * POST / — Single endpoint for all Telnyx Call Control events
- */
 app.post('/', async (c) => {
   try {
-    // Read raw body first so the (optional) signature check covers the exact
-    // bytes Telnyx signed.
     const raw = await c.req.text();
 
     if (c.env.TELNYX_PUBLIC_KEY) {
@@ -206,24 +377,19 @@ app.post('/', async (c) => {
     }
     const { event_type, payload } = event.data;
 
-    // ── Porting events ────────────────────────────────────────────────────
-    // Porting webhooks carry no client_state. We bridge to the right tenant
-    // DB via a master-DB index keyed on the Telnyx porting order id.
     if (event_type.startsWith('porting.order.')) {
       try {
         await handlePortingWebhook(c.env, event_type, payload);
       } catch (err) {
-        // Always 200 — Telnyx retries on non-2xx and we'd rather log + heal
-        // forward than build up a webhook backlog from a transient bug.
         console.error('[Telnyx Webhook] Porting handler threw:', err);
       }
       return c.json({ ok: true });
     }
 
-    // Extract workspace/call context from client_state
     const clientState = decodeClientState(payload.client_state);
-    const callId = clientState.callId;
-    const workspaceId = clientState.workspaceId;
+    let callId = clientState.callId;
+    let workspaceId = clientState.workspaceId;
+    const deskConversationId = clientState.deskConversationId;
 
     const callControlId = payload.call_control_id;
     const callSessionId = payload.call_session_id;
@@ -231,8 +397,17 @@ app.post('/', async (c) => {
 
     console.log(`[Telnyx Webhook] ${event_type} — callId=${callId}, callControlId=${callControlId}`);
 
+    // Inbound without client_state: route on call.initiated
+    if ((!callId || !workspaceId) && event_type === 'call.initiated' && isInboundDirection(payload)) {
+      try {
+        await handleInboundInitiated(c.env, payload);
+      } catch (err) {
+        console.error('[Telnyx Webhook] Inbound handler threw:', err);
+      }
+      return c.json({ ok: true });
+    }
+
     if (!callId || !workspaceId) {
-      // No call context — can't update DB, just acknowledge
       console.warn(`[Telnyx Webhook] No callId/workspaceId in client_state for ${event_type}`);
       return c.json({ ok: true });
     }
@@ -265,29 +440,10 @@ app.post('/', async (c) => {
           })
           .where(eq(voipCalls.id, callId));
 
-        // Start recording if requested via client_state
         if (clientState.record === 'true' && callControlId && c.env.TELNYX_API_KEY) {
           try {
-            const recordResp = await fetch(
-              `https://api.telnyx.com/v2/calls/${callControlId}/actions/record_start`,
-              {
-                method: 'POST',
-                headers: {
-                  Authorization: `Bearer ${c.env.TELNYX_API_KEY}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  channels: 'dual',
-                  format: 'mp3',
-                }),
-              },
-            );
-            if (!recordResp.ok) {
-              const err = await recordResp.text();
-              console.error(`[Telnyx Webhook] Failed to start recording: ${recordResp.status} ${err}`);
-            } else {
-              console.log(`[Telnyx Webhook] Recording started for call ${callId}`);
-            }
+            await telnyxRecordStart(c.env, callControlId);
+            console.log(`[Telnyx Webhook] Recording started for call ${callId}`);
           } catch (recErr) {
             console.error('[Telnyx Webhook] Recording start error:', recErr);
           }
@@ -311,7 +467,6 @@ app.post('/', async (c) => {
         const hangupSource = payload.hangup_source || '';
         const sipCode = payload.sip_hangup_cause;
 
-        // Calculate duration from start_time and end_time
         let duration: number | undefined;
         if (payload.start_time && payload.end_time) {
           const start = new Date(payload.start_time).getTime();
@@ -333,14 +488,17 @@ app.post('/', async (c) => {
           })
           .where(eq(voipCalls.id, callId));
 
+        await appendDeskCallEvent(
+          c.env,
+          workspaceId,
+          deskConversationId,
+          `Call ended (${finalStatus}${duration ? `, ${duration}s` : ''})`,
+          { event: 'call_ended', callId, hangupCause, duration },
+        );
+
         if (duration && duration > 0) {
           console.log(`[Telnyx Webhook] Call ${callId} completed: ${duration}s`);
 
-          // Settle the prepaid wallet per started minute via the shared credit
-          // engine (@weldsuite/credits). Idempotent on the call id — webhook
-          // replays and the app-api settle path can never double-charge. If
-          // the balance drained mid-call the settlement forces the wallet
-          // negative: visible debt beats hidden loss.
           try {
             const masterDb = getMasterDb(c.env);
             const internalWsId = await resolveInternalWorkspaceId(masterDb, workspaceId);
@@ -402,7 +560,41 @@ app.post('/', async (c) => {
             })
             .where(eq(voipCalls.id, callId));
 
+          await appendDeskCallEvent(
+            c.env,
+            workspaceId,
+            deskConversationId,
+            'Call recording available',
+            { event: 'recording_saved', callId, recordingUrl },
+          );
+
           console.log(`[Telnyx Webhook] Recording saved for call ${callId}`);
+        }
+        break;
+      }
+
+      case 'call.conversation_insights.generated': {
+        const summary =
+          payload.conversation_insights?.summary ||
+          payload.summary ||
+          null;
+        if (summary) {
+          await db
+            .update(voipCalls)
+            .set({
+              aiSummary: typeof summary === 'string' ? summary : JSON.stringify(summary),
+              aiAnalyzedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(eq(voipCalls.id, callId));
+
+          await appendDeskCallEvent(
+            c.env,
+            workspaceId,
+            deskConversationId,
+            typeof summary === 'string' ? summary : 'AI call summary generated',
+            { event: 'ai_summary', callId },
+          );
         }
         break;
       }
@@ -424,11 +616,7 @@ app.post('/', async (c) => {
   }
 });
 
-/**
- * GET / — Webhook verification
- */
-app.get('/', (c) => {
-  return c.json({ status: 'ok', message: 'Telnyx webhook endpoint' });
-});
+app.get('/', (c) => c.json({ status: 'ok', service: 'telnyx-webhook' }));
 
 export { app as telnyxWebhookRoutes };
+export default app;

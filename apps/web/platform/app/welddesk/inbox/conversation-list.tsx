@@ -47,6 +47,10 @@ function conversationToItem(conversation: DeskConversation, t: ReturnType<typeof
     labels.push(t.channel.email);
     labelColors[t.channel.email] = '#0f766e';
   }
+  if (conversation.channel === 'phone') {
+    labels.push(t.channel.phone);
+    labelColors[t.channel.phone] = '#1d4ed8';
+  }
   if (!conversation.assigneeId) {
     labels.push(t.list.unassignedBadge);
     labelColors[t.list.unassignedBadge] = '#6b7280';

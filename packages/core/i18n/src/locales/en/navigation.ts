@@ -122,6 +122,8 @@ export const navigation = {
         inbox: 'Inbox',
         chatWidget: 'Chat Widget',
         email: 'Email',
+        phone: 'Phone',
+        voiceAgents: 'Voice agents',
         helpCenter: 'Help Center',
         articles: 'Articles',
       },

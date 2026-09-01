@@ -197,10 +197,13 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         group: '',
         items: [
           { title: t.navigation.moduleSidebar.welddesk.inbox, href: '/welddesk/inbox', icon: Inbox },
+          { title: t.navigation.moduleSidebar.welddesk.phone, href: '/welddesk/inbox/phone', icon: Phone },
+          { title: t.navigation.moduleSidebar.welddesk.voiceAgents, href: '/welddesk/ai-agents', icon: Bot },
           { title: t.navigation.moduleSidebar.welddesk.chatWidget, href: '/welddesk/chat-widget', icon: MessagesSquare },
           { title: t.navigation.moduleSidebar.welddesk.email, href: '/welddesk/email', icon: Mail },
           { title: t.navigation.moduleSidebar.welddesk.helpCenter, href: '/welddesk/help-center', icon: BookOpen },
           { title: t.navigation.moduleSidebar.welddesk.articles, href: '/welddesk/help-center/articles', icon: FileText },
+          { title: 'Phone settings', href: '/welddesk/settings/phone', icon: Settings },
         ],
       },
     ],

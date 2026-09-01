@@ -6,6 +6,12 @@ Customers and suppliers on invoices and bills (backed by the unified `parties` l
 
 ---
 
+## Workspace scope
+
+Accounting contacts are **workspace-wide** — they are not tied to a single accounting entity. Customers and suppliers are shared; bills and invoices link to them via `contactId` / `supplierId` while the document itself is scoped with `entityId`.
+
+---
+
 ## The accounting contact model
 
 ### Properties
@@ -28,7 +34,16 @@ Customers and suppliers on invoices and bills (backed by the unified `parties` l
 <Row>
   <Col>
 
-    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `search`, `role`.
+    Retrieve a cursor-paginated list. All list endpoints accept the query parameters below. See [Pagination](/pagination) for cursor semantics.
+
+    ### Query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Number of items to return. Minimum 1, maximum 200. Defaults to a server-side value (typically 25). See [Pagination](/pagination).</Property>
+      <Property name="cursor" type="string">Opaque cursor from `pagination.cursor` on the previous page. Omit for the first page.</Property>
+      <Property name="search" type="string">Case-insensitive match against contact name and party code.</Property>
+      <Property name="role" type="string">Filter by role: `customer`, `supplier`, or `both`.</Property>
+    </Properties>
 
   </Col>
   <Col sticky>
@@ -37,7 +52,9 @@ Customers and suppliers on invoices and bills (backed by the unified `parties` l
 
     ```bash {{ title: 'cURL' }}
     curl -G https://api.weldsuite.org/v1/accounting-contacts \
-      -H "Authorization: Bearer wsk_your_api_key"
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d role=supplier \
+      -d limit=25
     ```
 
     </CodeGroup>

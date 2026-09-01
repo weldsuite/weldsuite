@@ -309,6 +309,13 @@
       "when": 1788000000001,
       "tag": "0043_personal_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1788100000000,
+      "tag": "0044_phone_number_registry",
+      "breakpoints": true
     }
   ]
 }

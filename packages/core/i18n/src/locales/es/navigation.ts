@@ -108,6 +108,8 @@ export const navigation = {
         inbox: 'Bandeja',
         chatWidget: 'Widget de chat',
         email: 'Correo',
+        phone: 'Teléfono',
+        voiceAgents: 'Agentes de voz',
         helpCenter: 'Centro de ayuda',
         articles: 'Artículos',
       },

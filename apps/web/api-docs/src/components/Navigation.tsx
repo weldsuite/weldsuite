@@ -307,10 +307,7 @@ export const navigation: Array<NavGroup> = [
   },
   {
     title: 'WeldBooks',
-    links: [
-      { title: 'Accounting settings', href: '/accounting-settings' },
-      ...WELDBOOKS_NAV_LINKS,
-    ],
+    links: WELDBOOKS_NAV_LINKS,
   },
 ]
 

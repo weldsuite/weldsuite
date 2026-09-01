@@ -13,6 +13,7 @@ type EnvVars = {
   VITE_CLERK_SIGN_UP_URL: string;
   VITE_BETTERSTACK_SOURCE_TOKEN: string;
   VITE_MIXPANEL_TOKEN: string;
+  VITE_OPENAI_PIXEL_ID: string;
 };
 
 declare global {
@@ -51,5 +52,6 @@ export function getAllEnv(): Partial<EnvVars> {
     VITE_CLERK_SIGN_UP_URL: import.meta.env.VITE_CLERK_SIGN_UP_URL,
     VITE_BETTERSTACK_SOURCE_TOKEN: import.meta.env.VITE_BETTERSTACK_SOURCE_TOKEN,
     VITE_MIXPANEL_TOKEN: import.meta.env.VITE_MIXPANEL_TOKEN,
+    VITE_OPENAI_PIXEL_ID: import.meta.env.VITE_OPENAI_PIXEL_ID,
   };
 }

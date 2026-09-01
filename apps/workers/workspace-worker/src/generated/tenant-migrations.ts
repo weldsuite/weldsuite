@@ -2,7 +2,7 @@
  * AUTO-GENERATED — do not edit manually.
  * Run `pnpm bundle-migrations` to regenerate.
  *
- * Contains 186 tenant database migrations bundled for Cloudflare Workers.
+ * Contains 188 tenant database migrations bundled for Cloudflare Workers.
  * Generated from: packages/core/db/drizzle/tenant-migrations/
  */
 
@@ -193,6 +193,8 @@ export const MIGRATION_JOURNAL = [
   { idx: 183, tag: "0183_product_sales_channel_price_status", when: 1787300000000 },
   { idx: 184, tag: "0184_weldads_ad_platform", when: 1787400000000 },
   { idx: 185, tag: "0185_welddesk_webchat", when: 1787500000000 },
+  { idx: 186, tag: "0186_weldagent_workspace_agents", when: 1787600000000 },
+  { idx: 187, tag: "0187_desk_phone_inbound", when: 1787700000000 },
 ] as const;
 
 export const MIGRATION_SQL: Record<string, string> = {
@@ -10417,6 +10419,92 @@ CREATE INDEX "desk_messages_author_idx" ON "desk_messages" USING btree ("author_
 CREATE INDEX "desk_visitors_email_idx" ON "desk_visitors" USING btree ("email");--> statement-breakpoint
 CREATE INDEX "desk_visitors_widget_idx" ON "desk_visitors" USING btree ("widget_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "desk_widget_settings_widget_id_idx" ON "desk_widget_settings" USING btree ("widget_id");`,
+  "0186_weldagent_workspace_agents": `-- Workspace AI agents (WeldAgent) — named, permission-scoped agents.
+-- Distinct from helpdesk_agents (human support roster).
+
+CREATE TABLE IF NOT EXISTS "weldagent_agents" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"name" varchar(255) NOT NULL,
+	"description" text,
+	"icon" varchar(50),
+	"status" varchar(20) DEFAULT 'draft' NOT NULL,
+	"system_prompt" text DEFAULT '' NOT NULL,
+	"model_id" varchar(100) DEFAULT 'anthropic/claude-sonnet-4-5' NOT NULL,
+	"temperature" varchar(10) DEFAULT '0.70' NOT NULL,
+	"max_tokens" integer DEFAULT 2048 NOT NULL,
+	"permissions" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"enabled_tools" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"event_subscriptions" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"max_iterations" integer DEFAULT 10 NOT NULL,
+	"max_total_tokens" integer DEFAULT 20000 NOT NULL,
+	"created_by" varchar(255),
+	"total_runs" integer DEFAULT 0 NOT NULL,
+	"successful_runs" integer DEFAULT 0 NOT NULL,
+	"failed_runs" integer DEFAULT 0 NOT NULL,
+	"last_run_at" timestamp with time zone,
+	"last_run_status" varchar(20),
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"deleted_at" timestamp with time zone
+);--> statement-breakpoint
+
+CREATE TABLE IF NOT EXISTS "weldagent_agent_runs" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"agent_id" varchar(30) NOT NULL,
+	"status" varchar(20) NOT NULL,
+	"trigger_type" varchar(20),
+	"trigger_data" jsonb,
+	"started_at" timestamp with time zone,
+	"completed_at" timestamp with time zone,
+	"duration_ms" integer,
+	"total_iterations" integer DEFAULT 0,
+	"total_tokens_used" integer DEFAULT 0,
+	"tool_call_count" integer DEFAULT 0,
+	"result" jsonb,
+	"error" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);--> statement-breakpoint
+
+ALTER TABLE "weldagent_conversations" ADD COLUMN IF NOT EXISTS "agent_id" varchar(30);--> statement-breakpoint
+
+CREATE INDEX IF NOT EXISTS "weldagent_agents_status_idx" ON "weldagent_agents" USING btree ("status");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "weldagent_agents_deleted_at_idx" ON "weldagent_agents" USING btree ("deleted_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "weldagent_agent_runs_agent_id_idx" ON "weldagent_agent_runs" USING btree ("agent_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "weldagent_agent_runs_status_idx" ON "weldagent_agent_runs" USING btree ("status");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "weldagent_agent_runs_created_at_idx" ON "weldagent_agent_runs" USING btree ("created_at");`,
+  "0187_desk_phone_inbound": `CREATE TABLE "desk_voice_agents" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	"name" varchar(255) NOT NULL,
+	"system_prompt" text NOT NULL,
+	"greeting" text,
+	"telnyx_assistant_id" varchar(100),
+	"enabled" boolean DEFAULT true NOT NULL,
+	"forward_to_e164" varchar(50),
+	"model" varchar(100),
+	"voice" varchar(100),
+	"deleted_at" timestamp
+);--> statement-breakpoint
+CREATE TABLE "desk_phone_routes" (
+	"id" varchar(30) PRIMARY KEY NOT NULL,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	"voip_phone_number_id" varchar(30) NOT NULL,
+	"action" varchar(20) DEFAULT 'hangup' NOT NULL,
+	"voice_agent_id" varchar(30),
+	"forward_to_e164" varchar(50),
+	"schedule" jsonb
+);--> statement-breakpoint
+ALTER TABLE "voip_calls" ADD COLUMN "desk_conversation_id" varchar(30);--> statement-breakpoint
+ALTER TABLE "desk_visitors" ADD COLUMN "phone" varchar(50);--> statement-breakpoint
+CREATE INDEX "desk_voice_agents_enabled_idx" ON "desk_voice_agents" USING btree ("enabled");--> statement-breakpoint
+CREATE INDEX "desk_voice_agents_telnyx_idx" ON "desk_voice_agents" USING btree ("telnyx_assistant_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "desk_phone_routes_number_uidx" ON "desk_phone_routes" USING btree ("voip_phone_number_id");--> statement-breakpoint
+CREATE INDEX "desk_phone_routes_action_idx" ON "desk_phone_routes" USING btree ("action");--> statement-breakpoint
+CREATE INDEX "desk_phone_routes_agent_idx" ON "desk_phone_routes" USING btree ("voice_agent_id");--> statement-breakpoint
+CREATE INDEX "voip_calls_desk_conversation_idx" ON "voip_calls" USING btree ("desk_conversation_id");--> statement-breakpoint
+CREATE INDEX "desk_visitors_phone_idx" ON "desk_visitors" USING btree ("phone");`,
 };
 
 export const MIGRATION_HASHES: Record<string, string> = {
@@ -10606,4 +10694,6 @@ export const MIGRATION_HASHES: Record<string, string> = {
   "0183_product_sales_channel_price_status": "36e4d25b95223f4df20a093229b90a98b29e2cf82132ac7478987c05c3982b5c",
   "0184_weldads_ad_platform": "44c635f512916ed9ce3b0620dc378b2c97995d20b8b8cdf9a178f13bfa5d4985",
   "0185_welddesk_webchat": "7623a69b71775bf399009f94bccd114a1a93e2db56c25e312cae55dc7ae6a196",
+  "0186_weldagent_workspace_agents": "e25fd5ab278b08dde96aa742c7c7fa6d660bc0889cbf5c4739868a8b25391049",
+  "0187_desk_phone_inbound": "67356cc7fa265a0e3fb84a8d8955fc7fbb7887c39380637872513ee90621390a",
 };

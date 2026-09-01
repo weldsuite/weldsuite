@@ -1310,6 +1310,13 @@
       "when": 1787600000000,
       "tag": "0186_weldagent_workspace_agents",
       "breakpoints": true
+    },
+    {
+      "idx": 187,
+      "version": "7",
+      "when": 1787700000000,
+      "tag": "0187_desk_phone_inbound",
+      "breakpoints": true
     }
   ]
 }

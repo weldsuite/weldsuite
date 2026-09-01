@@ -455,6 +455,106 @@ const configs = [
   },
 ]
 
+const WORKSPACE_SCOPED = new Set(['accounting-entities', 'accounting-contacts'])
+
+function isEntityScoped(config) {
+  return !WORKSPACE_SCOPED.has(config.slug)
+}
+
+const PAGINATION_FILTERS = [
+  {
+    name: 'limit',
+    type: 'integer',
+    description:
+      'Number of items to return. Minimum 1, maximum 200. Defaults to a server-side value (typically 25). See [Pagination](/pagination).',
+  },
+  {
+    name: 'cursor',
+    type: 'string',
+    description:
+      'Opaque cursor from `pagination.cursor` on the previous page. Omit for the first page.',
+  },
+]
+
+const ENTITY_FILTER = {
+  name: 'entityId',
+  type: 'string',
+  description:
+    'Filter to records belonging to one accounting entity (`ent_*`). Omit to list across all entities in the workspace.',
+}
+
+function getListFilters(config) {
+  if (config.listFilters) return config.listFilters
+  const filters = [...PAGINATION_FILTERS]
+  if (isEntityScoped(config)) filters.push(ENTITY_FILTER)
+  if (config.slug === 'accounting-contacts') {
+    filters.push(
+      {
+        name: 'search',
+        type: 'string',
+        description: 'Case-insensitive match against contact name and party code.',
+      },
+      {
+        name: 'role',
+        type: 'string',
+        description: 'Filter by role: `customer`, `supplier`, or `both`.',
+      },
+    )
+  }
+  return filters
+}
+
+function entityScopingSection(config) {
+  if (config.slug === 'accounting-entities') {
+    return `---
+
+## Multi-entity workspaces
+
+An **accounting entity** is a legal company (a set of books) inside your workspace. Most WeldBooks resources — bills, invoices, bank accounts, tax rates, and so on — carry an \`entityId\` that points here.
+
+Use this endpoint to list entities, read \`isDefault\`, and resolve ids before creating entity-scoped records. Workspace-wide defaults (including \`defaultEntityId\`) live on [accounting settings](/accounting-settings).
+
+`
+  }
+  if (config.slug === 'accounting-contacts') {
+    return `---
+
+## Workspace scope
+
+Accounting contacts are **workspace-wide** — they are not tied to a single accounting entity. Customers and suppliers are shared; bills and invoices link to them via \`contactId\` / \`supplierId\` while the document itself is scoped with \`entityId\`.
+
+`
+  }
+  if (!isEntityScoped(config)) return ''
+  return `---
+
+## Accounting entity scoping
+
+Every ${config.resourceSingular} belongs to one **accounting entity** (legal company / set of books). The \`entityId\` field on each record references an [accounting entity](/accounting-entities) (\`ent_*\`).
+
+- **On read:** responses include \`entityId\` — that is how you know which books a record belongs to.
+- **On list:** pass \`?entityId=ent_abc123\` to restrict results to one entity.
+- **On create:** send \`entityId\` in the JSON body. The external API does **not** pick a default for you. Read \`defaultEntityId\` from [accounting settings](/accounting-settings), or list [accounting entities](/accounting-entities) and use the row with \`isDefault: true\`.
+
+`
+}
+
+function listCurlExample(config) {
+  const path = `${API}/${config.endpoint}`
+  const lines = [
+    `curl -G ${path} \\`,
+    '  -H "Authorization: Bearer wsk_your_api_key" \\',
+  ]
+  if (isEntityScoped(config)) {
+    lines.push('  -d entityId=ent_abc123 \\')
+  }
+  if (config.slug === 'accounting-contacts') {
+    lines.push('  -d role=supplier \\')
+  }
+  lines.push('  -d limit=25')
+  return lines.join('\n    ')
+}
+
 function propsBlock(properties) {
   return properties
     .map(
@@ -496,10 +596,20 @@ function generateCrudMdx(config) {
   const path = `${API}/${config.endpoint}`
   const exampleId = `${config.idPrefix}_abc123`
   const newId = `${config.idPrefix}_new456`
+  const entId = 'ent_abc123'
   const listPath = `/v1/${config.endpoint}`
   const createBody = jsonExample(config.createExample ?? {})
+  const listFilters = getListFilters(config)
 
   const createColParts = [`Create ${/^([aeiouAEIOU])/.test(config.resourceSingular) ? 'an' : 'a'} ${config.resourceSingular}.`]
+  if (isEntityScoped(config)) {
+    createColParts.push(
+      '',
+      '### Accounting entity',
+      '',
+      'Include **`entityId`** (an `ent_*` id). The external API does not infer a default — resolve it from [accounting settings](/accounting-settings) (`defaultEntityId`) or [accounting entities](/accounting-entities) (`isDefault`).',
+    )
+  }
   if (config.createRequired?.length) {
     createColParts.push('', '### Required attributes', '', '<Properties>', propsBlock(config.createRequired), '</Properties>')
   }
@@ -507,13 +617,26 @@ function generateCrudMdx(config) {
     createColParts.push('', config.createOptionalNote)
   }
 
+  const listResponseEntity = isEntityScoped(config)
+    ? `{ "id": "${exampleId}", "entityId": "${entId}" }`
+    : `{ "id": "${exampleId}" }`
+
+  const retrieveResponse = isEntityScoped(config)
+    ? `{
+        "id": "${exampleId}",
+        "entityId": "${entId}"
+      }`
+    : `{
+        "id": "${exampleId}"
+      }`
+
   return `# ${config.title}
 
 ${config.lead} {{ className: 'lead' }}
 
 <ResourceVersionBanner />
 
----
+${entityScopingSection(config)}---
 
 ## The ${config.resourceSingular} model
 
@@ -530,7 +653,13 @@ ${propsBlock(config.modelProperties)}
 <Row>
   <Col>
 
-    Retrieve a cursor-paginated list. ${config.listQueryNote ?? 'Optional query parameters: `limit`, `cursor`.'}
+    Retrieve a cursor-paginated list. All list endpoints accept the query parameters below. See [Pagination](/pagination) for cursor semantics.
+
+    ### Query parameters
+
+    <Properties>
+${propsBlock(listFilters).replace(/^/gm, '    ')}
+    </Properties>
 
   </Col>
   <Col sticky>
@@ -538,8 +667,7 @@ ${propsBlock(config.modelProperties)}
     <CodeGroup title="Request" tag="GET" label="${listPath}">
 
     \`\`\`bash {{ title: 'cURL' }}
-    curl -G ${path} \\
-      -H "Authorization: Bearer wsk_your_api_key"
+    ${listCurlExample(config)}
     \`\`\`
 
     </CodeGroup>
@@ -547,7 +675,7 @@ ${propsBlock(config.modelProperties)}
     \`\`\`json {{ title: 'Response' }}
     {
       "data": [
-        { "id": "${exampleId}" }
+        ${listResponseEntity}
       ],
       "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
     }
@@ -582,7 +710,7 @@ ${propsBlock(config.modelProperties)}
     \`\`\`json {{ title: 'Response' }}
     {
       "data": {
-        "id": "${newId}",
+        "id": "${newId}"${isEntityScoped(config) ? `,\n        "entityId": "${entId}"` : ''},
         "createdAt": "2024-12-01T14:00:00Z",
         "updatedAt": "2024-12-01T14:00:00Z"
       }
@@ -599,7 +727,7 @@ ${propsBlock(config.modelProperties)}
 <Row>
   <Col>
 
-    Retrieve a single ${config.resourceSingular} by ID.
+    Retrieve a single ${config.resourceSingular} by ID.${isEntityScoped(config) ? ' The response includes `entityId` so you can tell which accounting entity owns the record.' : ''}
 
   </Col>
   <Col sticky>
@@ -615,9 +743,7 @@ ${propsBlock(config.modelProperties)}
 
     \`\`\`json {{ title: 'Response' }}
     {
-      "data": {
-        "id": "${exampleId}"
-      }
+      "data": ${retrieveResponse}
     }
     \`\`\`
 
@@ -631,7 +757,7 @@ ${propsBlock(config.modelProperties)}
 <Row>
   <Col>
 
-    Partially update a ${config.resourceSingular}. Only the fields you send are changed.
+    Partially update a ${config.resourceSingular}. Only the fields you send are changed.${isEntityScoped(config) ? ' You may update `entityId` to move a record to another accounting entity when your workflow allows it.' : ''}
 
   </Col>
   <Col sticky>
@@ -695,6 +821,14 @@ function generateSettingsMdx() {
 Workspace-wide WeldBooks defaults (singleton row). There is at most one settings record per workspace. Mutations require the \`accounting_settings:write\` scope; reads require \`accounting_settings:read\`. {{ className: 'lead' }}
 
 <ResourceVersionBanner />
+
+---
+
+## Role in the data model
+
+This endpoint does **not** list multiple rows — it returns the single settings object for your workspace. Use it to read **\`defaultEntityId\`**, the accounting entity id integrations should prefer when creating bills, invoices, and other entity-scoped records via the external API.
+
+Pair this with [accounting entities](/accounting-entities) (\`GET /v1/accounting-entities\`) to resolve entity names, jurisdictions, and the \`isDefault\` flag. See the [WeldBooks overview](/weldbooks) for the full entity-scoping model.
 
 ---
 
@@ -795,6 +929,119 @@ Workspace-wide WeldBooks defaults (singleton row). There is at most one settings
 `
 }
 
+function generateOverviewMdx() {
+  const entityScopedRows = configs
+    .filter((c) => isEntityScoped(c))
+    .map(
+      (c) =>
+        `| [${c.title}](/${c.slug}) | \`${c.scope}:read\` / \`:write\` | \`entityId\` on every record; filter lists with \`?entityId=\` |`,
+    )
+    .join('\n')
+
+  return `# WeldBooks
+
+WeldBooks is WeldSuite's accounting module exposed on the external API. A workspace can contain **multiple accounting entities** (legal companies), each with its own chart of accounts, tax rates, bank accounts, and documents. Most API resources are scoped to one entity via \`entityId\`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## Data model
+
+\`\`\`
+Workspace
+├── Accounting settings (singleton)     → defaultEntityId, fiscal defaults
+├── Accounting contacts (workspace-wide) → customers & suppliers (shared)
+└── Accounting entity (ent_*)
+    ├── GL accounts, tax rates, fiscal periods
+    ├── Bills, invoices, payments
+    ├── Bank accounts & transactions
+    └── VAT returns, documents, …
+\`\`\`
+
+**Entity-scoped records** (bills, invoices, bank accounts, …) include \`entityId\` in every response. That id tells you which legal entity owns the record.
+
+**Workspace-scoped records** are [accounting entities](/accounting-entities) themselves and [accounting contacts](/accounting-contacts) (customers/suppliers used across entities).
+
+---
+
+## Discovering the right entity id
+
+Typical integration flow:
+
+1. \`GET /v1/accounting-settings\` — read \`defaultEntityId\`
+2. \`GET /v1/accounting-entities\` — list entities; confirm \`isDefault\` and read \`jurisdictionCode\` / \`baseCurrency\`
+3. Use that \`ent_*\` id when creating or listing entity-scoped resources
+
+Example — list bills for one entity:
+
+\`\`\`bash {{ title: 'Filter bills by entity' }}
+curl -G https://api.weldsuite.org/v1/bills \\
+  -H "Authorization: Bearer wsk_your_api_key" \\
+  -d entityId=ent_abc123 \\
+  -d limit=25
+\`\`\`
+
+Example — create a bill on that entity:
+
+\`\`\`bash {{ title: 'Create a bill' }}
+curl https://api.weldsuite.org/v1/bills \\
+  -H "Authorization: Bearer wsk_your_api_key" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "entityId": "ent_abc123",
+    "supplierName": "Office Supplies Co",
+    "currency": "EUR"
+  }'
+\`\`\`
+
+The external API **does not** infer \`entityId\` for you on create. Always pass it explicitly (or read \`defaultEntityId\` first and inject it in your integration layer).
+
+---
+
+## Common list filters
+
+All WeldBooks list endpoints support cursor [pagination](/pagination):
+
+<Properties>
+  <Property name="limit" type="integer">Items per page (1–200).</Property>
+  <Property name="cursor" type="string">Cursor from the previous response's \`pagination.cursor\`.</Property>
+</Properties>
+
+**Entity-scoped endpoints** also accept:
+
+<Properties>
+  <Property name="entityId" type="string">Restrict results to one accounting entity (\`ent_*\`). Omit to search across all entities in the workspace.</Property>
+</Properties>
+
+**Accounting contacts** additionally accept \`search\` (name / party code) and \`role\` (\`customer\`, \`supplier\`, \`both\`). Contacts have no \`entityId\` filter because they are workspace-wide.
+
+---
+
+## Entity-scoped resources
+
+| Resource | Scopes | \`entityId\` |
+| --- | --- | --- |
+${entityScopedRows}
+
+---
+
+## Workspace-scoped resources
+
+| Resource | Scopes | Notes |
+| --- | --- | --- |
+| [Accounting entities](/accounting-entities) | \`accounting_entities:read\` / \`:write\` | The entities themselves — root of the hierarchy |
+| [Accounting contacts](/accounting-contacts) | \`accounting_contacts:read\` / \`:write\` | Shared customers/suppliers; filter with \`search\`, \`role\` |
+| [Accounting settings](/accounting-settings) | \`accounting_settings:read\` / \`:write\` | Singleton — no list endpoint |
+
+---
+
+## First-party vs external API
+
+These docs cover the **external API** (\`api.weldsuite.org/v1\`). Standard CRUD is available here. Workflow actions that remain on the first-party app API include bill approval, invoice finalize/send/PDF, bank import/reconcile, VAT calculate/file, and document OCR — each resource page calls these out where relevant.
+`
+}
+
 function layoutTsx(title, description) {
   return `import { type Metadata } from 'next'
 
@@ -839,4 +1086,17 @@ for (const config of configs) {
   if (fs.existsSync(tsx)) fs.unlinkSync(tsx)
 }
 
-console.log(`Generated ${configs.length + 1} MDX doc pages`)
+{
+  const dir = path.join(appDir, 'weldbooks')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'page.mdx'), generateOverviewMdx())
+  fs.writeFileSync(
+    path.join(dir, 'layout.tsx'),
+    layoutTsx(
+      'WeldBooks',
+      'Overview of WeldBooks on the external API — accounting entities, entityId scoping, and list filters.',
+    ),
+  )
+}
+
+console.log(`Generated ${configs.length + 2} MDX doc pages (including overview)`)

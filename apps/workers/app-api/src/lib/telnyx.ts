@@ -74,6 +74,168 @@ export const COUNTRIES_REQUIRING_ADDRESS = [
 export { billingWorkerUrl } from './billing-worker';
 
 // ============================================================================
+// Call Control helpers
+// ============================================================================
+
+export function encodeClientState(state: Record<string, string>): string {
+  return btoa(JSON.stringify(state));
+}
+
+async function callControlAction(
+  env: TelnyxEnv,
+  callControlId: string,
+  action: string,
+  body: Record<string, unknown> = {},
+): Promise<unknown> {
+  return telnyxRequest(env, `/calls/${callControlId}/actions/${action}`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function telnyxAnswer(
+  env: TelnyxEnv,
+  callControlId: string,
+  opts?: { clientState?: string },
+): Promise<unknown> {
+  return callControlAction(env, callControlId, 'answer', {
+    ...(opts?.clientState ? { client_state: opts.clientState } : {}),
+  });
+}
+
+export async function telnyxHangup(
+  env: TelnyxEnv,
+  callControlId: string,
+  opts?: { clientState?: string },
+): Promise<unknown> {
+  return callControlAction(env, callControlId, 'hangup', {
+    ...(opts?.clientState ? { client_state: opts.clientState } : {}),
+  });
+}
+
+export async function telnyxTransfer(
+  env: TelnyxEnv,
+  callControlId: string,
+  to: string,
+  opts?: { clientState?: string; from?: string },
+): Promise<unknown> {
+  return callControlAction(env, callControlId, 'transfer', {
+    to,
+    ...(opts?.from ? { from: opts.from } : {}),
+    ...(opts?.clientState ? { client_state: opts.clientState } : {}),
+  });
+}
+
+export async function telnyxRecordStart(
+  env: TelnyxEnv,
+  callControlId: string,
+  opts?: { channels?: 'single' | 'dual'; format?: 'mp3' | 'wav' },
+): Promise<unknown> {
+  return callControlAction(env, callControlId, 'record_start', {
+    channels: opts?.channels ?? 'dual',
+    format: opts?.format ?? 'mp3',
+  });
+}
+
+export async function telnyxAiAssistantStart(
+  env: TelnyxEnv,
+  callControlId: string,
+  assistantId: string,
+  opts?: { clientState?: string },
+): Promise<unknown> {
+  return callControlAction(env, callControlId, 'ai_assistant_start', {
+    assistant: { id: assistantId },
+    ...(opts?.clientState ? { client_state: opts.clientState } : {}),
+  });
+}
+
+export async function telnyxAiAssistantStop(
+  env: TelnyxEnv,
+  callControlId: string,
+): Promise<unknown> {
+  return callControlAction(env, callControlId, 'ai_assistant_stop', {});
+}
+
+// ============================================================================
+// AI Assistants CRUD
+// ============================================================================
+
+export interface TelnyxAssistantInput {
+  name: string;
+  instructions: string;
+  greeting?: string | null;
+  model?: string | null;
+  voice?: string | null;
+  /** E.164 cold-transfer target exposed as the Transfer tool. */
+  transferToE164?: string | null;
+}
+
+function buildAssistantTools(transferToE164?: string | null): unknown[] {
+  const tools: unknown[] = [{ type: 'hangup' }];
+  if (transferToE164) {
+    tools.push({
+      type: 'transfer',
+      transfer: {
+        from: null,
+        targets: [{ name: 'Human', to: transferToE164 }],
+      },
+    });
+  }
+  return tools;
+}
+
+function assistantPayload(input: TelnyxAssistantInput): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    name: input.name,
+    instructions: input.instructions,
+    model: input.model || 'meta-llama/Meta-Llama-3.1-70B-Instruct',
+    enabled_features: ['telephony'],
+    tools: buildAssistantTools(input.transferToE164),
+  };
+  if (input.greeting) {
+    payload.greeting = input.greeting;
+  }
+  if (input.voice) {
+    payload.voice_settings = { voice: input.voice };
+  }
+  return payload;
+}
+
+export async function telnyxCreateAssistant(
+  env: TelnyxEnv,
+  input: TelnyxAssistantInput,
+): Promise<{ id: string }> {
+  const resp = await telnyxRequest<{ data: { id: string } }>(env, '/ai/assistants', {
+    method: 'POST',
+    body: JSON.stringify(assistantPayload(input)),
+  });
+  return { id: resp.data.id };
+}
+
+export async function telnyxUpdateAssistant(
+  env: TelnyxEnv,
+  assistantId: string,
+  input: TelnyxAssistantInput,
+): Promise<{ id: string }> {
+  const resp = await telnyxRequest<{ data: { id: string } }>(
+    env,
+    `/ai/assistants/${assistantId}`,
+    {
+      method: 'POST',
+      body: JSON.stringify(assistantPayload(input)),
+    },
+  );
+  return { id: resp.data?.id ?? assistantId };
+}
+
+export async function telnyxDeleteAssistant(
+  env: TelnyxEnv,
+  assistantId: string,
+): Promise<void> {
+  await telnyxRequest(env, `/ai/assistants/${assistantId}`, { method: 'DELETE' });
+}
+
+// ============================================================================
 // Webhook signature verification (Ed25519)
 // ============================================================================
 

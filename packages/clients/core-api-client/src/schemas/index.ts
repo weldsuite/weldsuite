@@ -27,6 +27,7 @@ export * from './access-requests';
 export * from './weldconnect';
 export * from './weldconnect-builder';
 export * from './welddesk-blocks';
+export * from './desk-phone';
 export * from './entity-channels';
 export * from './github';
 export * from './weldflow';

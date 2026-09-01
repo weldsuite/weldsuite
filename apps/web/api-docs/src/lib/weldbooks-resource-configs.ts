@@ -1,5 +1,6 @@
 /** Sidebar links for WeldBooks API docs (content lives in each route's page.mdx). */
 export const WELDBOOKS_NAV_LINKS = [
+  { title: 'Overview', href: '/weldbooks' },
   { title: 'Accounting entities', href: '/accounting-entities' },
   { title: 'GL accounts', href: '/gl-accounts' },
   { title: 'Invoices', href: '/invoices' },

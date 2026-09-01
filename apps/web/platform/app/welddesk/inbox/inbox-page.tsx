@@ -13,15 +13,18 @@ const RESERVED_INBOX_SEGMENTS = new Set([
   'chat',
   'discord',
   'email',
+  'phone',
   'slack',
   'team',
 ]);
 
 interface InboxPageProps {
   conversationId?: string;
+  /** When set, list is filtered to this desk channel (e.g. phone inbox). */
+  channel?: 'phone' | 'email' | 'messenger';
 }
 
-export function InboxPage({ conversationId }: InboxPageProps) {
+export function InboxPage({ conversationId, channel }: InboxPageProps) {
   const selectedId =
     conversationId && !RESERVED_INBOX_SEGMENTS.has(conversationId) ? conversationId : undefined;
   const { user } = useUser();
@@ -30,14 +33,33 @@ export function InboxPage({ conversationId }: InboxPageProps) {
   const [sort, setSort] = useState<DeskConversationSort>('newest');
   const [assigneeFilter, setAssigneeFilter] = useState<InboxAssigneeFilter>('all');
 
+  const channelFromSegment =
+    conversationId && RESERVED_INBOX_SEGMENTS.has(conversationId)
+      ? conversationId === 'phone'
+        ? ('phone' as const)
+        : conversationId === 'email'
+          ? ('email' as const)
+          : conversationId === 'chat'
+            ? ('messenger' as const)
+            : undefined
+      : undefined;
+
+  const activeChannel = channel ?? channelFromSegment;
+
   const filters = useMemo(() => {
-    if (assigneeFilter === 'mine' && user?.id) return { assigneeId: user.id };
-    if (assigneeFilter === 'unassigned') return { unassigned: true };
-    return {};
-  }, [assigneeFilter, user?.id]);
+    const base: { assigneeId?: string; unassigned?: boolean; channel?: typeof activeChannel } = {};
+    if (assigneeFilter === 'mine' && user?.id) base.assigneeId = user.id;
+    if (assigneeFilter === 'unassigned') base.unassigned = true;
+    if (activeChannel) base.channel = activeChannel;
+    return base;
+  }, [assigneeFilter, user?.id, activeChannel]);
 
   const handleSelect = (id: string) => {
-    router.push(`/welddesk/inbox/${id}`);
+    if (activeChannel === 'phone') {
+      router.push(`/welddesk/inbox/phone/${id}`);
+    } else {
+      router.push(`/welddesk/inbox/${id}`);
+    }
   };
 
   return (

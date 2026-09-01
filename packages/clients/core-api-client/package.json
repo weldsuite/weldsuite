@@ -29,6 +29,7 @@
     "./schemas/conversations": "./src/schemas/conversations.ts",
     "./schemas/desk-conversations": "./src/schemas/desk-conversations.ts",
     "./schemas/desk-widget": "./src/schemas/desk-widget.ts",
+    "./schemas/desk-phone": "./src/schemas/desk-phone.ts",
     "./schemas/articles": "./src/schemas/articles.ts",
     "./schemas/article-folders": "./src/schemas/article-folders.ts",
     "./schemas/knowledge": "./src/schemas/knowledge.ts",

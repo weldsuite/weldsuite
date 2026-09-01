@@ -6,6 +6,16 @@ Rules that auto-match bank transactions to ledger entries. Mutations require the
 
 ---
 
+## Accounting entity scoping
+
+Every reconciliation rule belongs to one **accounting entity** (legal company / set of books). The `entityId` field on each record references an [accounting entity](/accounting-entities) (`ent_*`).
+
+- **On read:** responses include `entityId` — that is how you know which books a record belongs to.
+- **On list:** pass `?entityId=ent_abc123` to restrict results to one entity.
+- **On create:** send `entityId` in the JSON body. The external API does **not** pick a default for you. Read `defaultEntityId` from [accounting settings](/accounting-settings), or list [accounting entities](/accounting-entities) and use the row with `isDefault: true`.
+
+---
+
 ## The reconciliation rule model
 
 ### Properties
@@ -27,7 +37,15 @@ Rules that auto-match bank transactions to ledger entries. Mutations require the
 <Row>
   <Col>
 
-    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `entityId`.
+    Retrieve a cursor-paginated list. All list endpoints accept the query parameters below. See [Pagination](/pagination) for cursor semantics.
+
+    ### Query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Number of items to return. Minimum 1, maximum 200. Defaults to a server-side value (typically 25). See [Pagination](/pagination).</Property>
+      <Property name="cursor" type="string">Opaque cursor from `pagination.cursor` on the previous page. Omit for the first page.</Property>
+      <Property name="entityId" type="string">Filter to records belonging to one accounting entity (`ent_*`). Omit to list across all entities in the workspace.</Property>
+    </Properties>
 
   </Col>
   <Col sticky>
@@ -36,7 +54,9 @@ Rules that auto-match bank transactions to ledger entries. Mutations require the
 
     ```bash {{ title: 'cURL' }}
     curl -G https://api.weldsuite.org/v1/reconciliation-rules \
-      -H "Authorization: Bearer wsk_your_api_key"
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d entityId=ent_abc123 \
+      -d limit=25
     ```
 
     </CodeGroup>
@@ -44,7 +64,7 @@ Rules that auto-match bank transactions to ledger entries. Mutations require the
     ```json {{ title: 'Response' }}
     {
       "data": [
-        { "id": "rr_abc123" }
+        { "id": "rr_abc123", "entityId": "ent_abc123" }
       ],
       "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
     }
@@ -61,6 +81,10 @@ Rules that auto-match bank transactions to ledger entries. Mutations require the
   <Col>
 
     Create a reconciliation rule.
+    
+    ### Accounting entity
+    
+    Include **`entityId`** (an `ent_*` id). The external API does not infer a default — resolve it from [accounting settings](/accounting-settings) (`defaultEntityId`) or [accounting entities](/accounting-entities) (`isDefault`).
     
     Optional: `entityId`, `name`, `matchCriteria`, `actions` (passthrough JSON).
 
@@ -85,6 +109,7 @@ Rules that auto-match bank transactions to ledger entries. Mutations require the
     {
       "data": {
         "id": "rr_new456",
+        "entityId": "ent_abc123",
         "createdAt": "2024-12-01T14:00:00Z",
         "updatedAt": "2024-12-01T14:00:00Z"
       }
@@ -101,7 +126,7 @@ Rules that auto-match bank transactions to ledger entries. Mutations require the
 <Row>
   <Col>
 
-    Retrieve a single reconciliation rule by ID.
+    Retrieve a single reconciliation rule by ID. The response includes `entityId` so you can tell which accounting entity owns the record.
 
   </Col>
   <Col sticky>
@@ -118,7 +143,8 @@ Rules that auto-match bank transactions to ledger entries. Mutations require the
     ```json {{ title: 'Response' }}
     {
       "data": {
-        "id": "rr_abc123"
+        "id": "rr_abc123",
+        "entityId": "ent_abc123"
       }
     }
     ```
@@ -133,7 +159,7 @@ Rules that auto-match bank transactions to ledger entries. Mutations require the
 <Row>
   <Col>
 
-    Partially update a reconciliation rule. Only the fields you send are changed.
+    Partially update a reconciliation rule. Only the fields you send are changed. You may update `entityId` to move a record to another accounting entity when your workflow allows it.
 
   </Col>
   <Col sticky>
