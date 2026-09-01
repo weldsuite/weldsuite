@@ -9,6 +9,8 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Loader2, Mail, Lock, User, Eye, EyeOff, ChevronLeft, CheckCircle } from 'lucide-react';
 import { getClerkErrorMessage } from '../../utils';
 import { getTranslations } from '@/lib/i18n';
+import { useOpenAIPixel } from '@/hooks/use-openai-pixel';
+import { markSignupIntent, measureRegistrationCompleted } from '@/lib/openai-ads';
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -36,6 +38,10 @@ export default function RegisterPage() {
 
   const { signUp, setActive, isLoaded } = useSignUp();
   const { isSignedIn } = useAuth();
+
+  // Loaded on mount rather than at conversion time so the SDK has arrived
+  // before the redirect to /onboarding takes the page away.
+  useOpenAIPixel();
 
   const [step, setStep] = useState<RegisterStep>('form');
   const [isVerifying, setIsVerifying] = useState(false);
@@ -67,6 +73,10 @@ export default function RegisterPage() {
 
     setError(null);
     setIsGoogleLoading(true);
+
+    // Clerk sends sign-in and sign-up through the same callback, so record that
+    // this leg started from the register page.
+    markSignupIntent();
 
     try {
       await signUp.authenticateWithRedirect({
@@ -163,6 +173,11 @@ export default function RegisterPage() {
       });
 
       if (result.status === 'complete') {
+        // The account exists from here on — this is the conversion ChatGPT Ads
+        // optimises against. Measured before the redirect, which the SDK's
+        // pagehide flush covers.
+        measureRegistrationCompleted(result.createdUserId ?? '');
+
         // Set flag to prevent useEffect redirect race condition
         setIsVerifying(true);
         await setActive({ session: result.createdSessionId });
