@@ -1,0 +1,199 @@
+# Bank accounts
+
+Bank accounts linked to the general ledger. Mutations require the `bank_accounts:write` scope; reads require `bank_accounts:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The bank account model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `ba_abc123`).</Property>
+  <Property name="entityId" type="string">Owning accounting entity.</Property>
+  <Property name="name" type="string">Account label.</Property>
+  <Property name="iban" type="string">IBAN.</Property>
+  <Property name="currency" type="string">Account currency.</Property>
+  <Property name="glAccountId" type="string">Linked GL cash account.</Property>
+  <Property name="isActive" type="boolean">Whether the account is active.</Property>
+  <Property name="createdAt" type="timestamp">When created.</Property>
+  <Property name="updatedAt" type="timestamp">When last updated.</Property>
+</Properties>
+
+---
+
+## List bank accounts {{ tag: 'GET', label: '/v1/bank-accounts' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `entityId`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/bank-accounts">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/bank-accounts \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        { "id": "ba_abc123" }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a bank account {{ tag: 'POST', label: '/v1/bank-accounts' }}
+
+<Row>
+  <Col>
+
+    Create a bank account.
+    
+    ### Required attributes
+    
+    <Properties>
+      <Property name="name" type="string">Account name.</Property>
+    </Properties>
+    
+    Optional: `entityId`, `bankName`, `iban`, `accountNumber`, `currency`, `glAccountId`, `isActive`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/bank-accounts">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/bank-accounts \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "entityId": "ent_abc123",
+        "name": "Operating account",
+        "currency": "EUR"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "ba_new456",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a bank account {{ tag: 'GET', label: '/v1/bank-accounts/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single bank account by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/bank-accounts/ba_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/bank-accounts/ba_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "ba_abc123"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a bank account {{ tag: 'PATCH', label: '/v1/bank-accounts/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a bank account. Only the fields you send are changed.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/bank-accounts/ba_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/bank-accounts/ba_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{}'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "ba_abc123",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a bank account {{ tag: 'DELETE', label: '/v1/bank-accounts/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a bank account. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/bank-accounts/ba_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/bank-accounts/ba_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

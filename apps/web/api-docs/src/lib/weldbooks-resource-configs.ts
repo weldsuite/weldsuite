@@ -1,0 +1,21 @@
+/** Sidebar links for WeldBooks API docs (content lives in each route's page.mdx). */
+export const WELDBOOKS_NAV_LINKS = [
+  { title: 'Accounting entities', href: '/accounting-entities' },
+  { title: 'GL accounts', href: '/gl-accounts' },
+  { title: 'Invoices', href: '/invoices' },
+  { title: 'Bills', href: '/bills' },
+  { title: 'Journal entries', href: '/journal-entries' },
+  { title: 'Payments', href: '/payments' },
+  { title: 'Bank accounts', href: '/bank-accounts' },
+  { title: 'Bank transactions', href: '/bank-transactions' },
+  { title: 'Accounting contacts', href: '/accounting-contacts' },
+  { title: 'Tax rates', href: '/tax-rates' },
+  { title: 'Recurring invoices', href: '/recurring-invoices' },
+  { title: 'Reconciliation rules', href: '/reconciliation-rules' },
+  { title: 'Fiscal periods', href: '/fiscal-periods' },
+  { title: 'FX rates', href: '/fx-rates' },
+  { title: 'VAT returns', href: '/vat-returns' },
+  { title: 'Accounting documents', href: '/accounting-documents' },
+  { title: 'ICP declarations', href: '/icp-declarations' },
+  { title: 'Accounting settings', href: '/accounting-settings' },
+]

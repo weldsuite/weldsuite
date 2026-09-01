@@ -24,6 +24,21 @@ module.exports = defineConfig([
     files: ['**/*.ts', '**/*.tsx'],
     plugins: { '@typescript-eslint': tsPlugin },
     rules: {
+      // eslint-config-expo@57 enables React Compiler hooks rules that flag common
+      // Expo Router patterns (mount-fetch setState, refs during render, etc.).
+      // Keep classic rules-of-hooks + exhaustive-deps; disable Compiler rules until
+      // screens move to a shared data layer (same stance as weldcrm / #178).
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/set-state-in-render': 'off',
+      'react-hooks/immutability': 'off',
+      'react-hooks/static-components': 'off',
+      'react-hooks/purity': 'off',
+      'react-hooks/refs': 'off',
+      'react-hooks/preserve-manual-memoization': 'off',
+      'react-hooks/incompatible-library': 'off',
+      'react-hooks/component-hook-factories': 'off',
+      'react-hooks/use-memo': 'off',
+      'react-hooks/void-use-memo': 'off',
       '@typescript-eslint/no-unused-vars': [
         'warn',
         {

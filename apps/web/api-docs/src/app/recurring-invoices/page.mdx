@@ -1,0 +1,192 @@
+# Recurring invoices
+
+Scheduled invoice templates. Mutations require the `recurring_invoices:write` scope; reads require `recurring_invoices:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The recurring invoice model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `ri_abc123`).</Property>
+  <Property name="entityId" type="string">Owning accounting entity.</Property>
+  <Property name="contactId" type="string">Customer contact.</Property>
+  <Property name="frequency" type="string">Billing frequency.</Property>
+  <Property name="status" type="string">Active or paused.</Property>
+  <Property name="nextRunDate" type="string">Next generation date.</Property>
+  <Property name="createdAt" type="timestamp">When created.</Property>
+  <Property name="updatedAt" type="timestamp">When last updated.</Property>
+</Properties>
+
+---
+
+## List recurring invoices {{ tag: 'GET', label: '/v1/recurring-invoices' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `entityId`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/recurring-invoices">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/recurring-invoices \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        { "id": "ri_abc123" }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a recurring invoice {{ tag: 'POST', label: '/v1/recurring-invoices' }}
+
+<Row>
+  <Col>
+
+    Create a recurring invoice.
+    
+    Optional: `entityId`, `contactId`, `frequency`, `currency`, template line items. Generate and pause actions are on the app API.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/recurring-invoices">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/recurring-invoices \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "entityId": "ent_abc123",
+        "contactId": "acn_abc123",
+        "frequency": "monthly"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "ri_new456",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a recurring invoice {{ tag: 'GET', label: '/v1/recurring-invoices/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single recurring invoice by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/recurring-invoices/ri_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/recurring-invoices/ri_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "ri_abc123"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a recurring invoice {{ tag: 'PATCH', label: '/v1/recurring-invoices/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a recurring invoice. Only the fields you send are changed.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/recurring-invoices/ri_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/recurring-invoices/ri_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{}'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "ri_abc123",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a recurring invoice {{ tag: 'DELETE', label: '/v1/recurring-invoices/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a recurring invoice. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/recurring-invoices/ri_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/recurring-invoices/ri_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

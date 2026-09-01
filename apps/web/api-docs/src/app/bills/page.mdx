@@ -1,0 +1,194 @@
+# Bills
+
+Supplier bills (accounts payable). Mutations require the `bills:write` scope; reads require `bills:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The bill model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `bil_abc123`).</Property>
+  <Property name="entityId" type="string">Owning accounting entity.</Property>
+  <Property name="billNumber" type="string">Bill reference number.</Property>
+  <Property name="status" type="string">Approval / payment status.</Property>
+  <Property name="supplierId" type="string">Supplier contact.</Property>
+  <Property name="issueDate" type="string">Bill date.</Property>
+  <Property name="dueDate" type="string">Due date.</Property>
+  <Property name="total" type="string">Grand total (decimal string).</Property>
+  <Property name="createdAt" type="timestamp">When created.</Property>
+  <Property name="updatedAt" type="timestamp">When last updated.</Property>
+</Properties>
+
+---
+
+## List bills {{ tag: 'GET', label: '/v1/bills' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `entityId`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/bills">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/bills \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        { "id": "bil_abc123" }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a bill {{ tag: 'POST', label: '/v1/bills' }}
+
+<Row>
+  <Col>
+
+    Create a bill.
+    
+    Common fields: `entityId`, `supplierId`, `supplierName`, `reference`, `issueDate`, `dueDate`, `currency`, `items`. Approval workflows remain on the app API.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/bills">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/bills \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "entityId": "ent_abc123",
+        "supplierName": "Office Supplies Co",
+        "currency": "EUR"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "bil_new456",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a bill {{ tag: 'GET', label: '/v1/bills/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single bill by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/bills/bil_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/bills/bil_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "bil_abc123"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a bill {{ tag: 'PATCH', label: '/v1/bills/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a bill. Only the fields you send are changed.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/bills/bil_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/bills/bil_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{}'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "bil_abc123",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a bill {{ tag: 'DELETE', label: '/v1/bills/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a bill. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/bills/bil_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/bills/bil_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

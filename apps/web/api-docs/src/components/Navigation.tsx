@@ -11,6 +11,7 @@ import { useIsInsideMobileNavigation } from '@/components/MobileNavigation'
 import { useSectionStore } from '@/components/SectionProvider'
 import { Tag } from '@/components/Tag'
 import { remToPx } from '@/lib/remToPx'
+import { WELDBOOKS_NAV_LINKS } from '@/lib/weldbooks-resource-configs'
 import { CloseButton } from '@headlessui/react'
 
 interface NavGroup {
@@ -302,6 +303,13 @@ export const navigation: Array<NavGroup> = [
       { title: 'Files', href: '/files' },
       { title: 'Folders', href: '/folders' },
       { title: 'Drive', href: '/drive' },
+    ],
+  },
+  {
+    title: 'WeldBooks',
+    links: [
+      { title: 'Accounting settings', href: '/accounting-settings' },
+      ...WELDBOOKS_NAV_LINKS,
     ],
   },
 ]

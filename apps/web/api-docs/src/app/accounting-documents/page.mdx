@@ -1,0 +1,200 @@
+# Accounting documents
+
+Scanned receipts, statements, and other supporting files. Mutations require the `accounting_documents:write` scope; reads require `accounting_documents:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The accounting document model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `doc_abc123`).</Property>
+  <Property name="entityId" type="string">Owning accounting entity.</Property>
+  <Property name="fileName" type="string">Original file name.</Property>
+  <Property name="contentType" type="string">MIME type.</Property>
+  <Property name="url" type="string">Download URL (if stored).</Property>
+  <Property name="status" type="string">Processing status.</Property>
+  <Property name="attachedToType" type="string">Linked entity type (bill, invoice, …).</Property>
+  <Property name="attachedToId" type="string">Linked entity id.</Property>
+  <Property name="createdAt" type="timestamp">When created.</Property>
+  <Property name="updatedAt" type="timestamp">When last updated.</Property>
+</Properties>
+
+---
+
+## List accounting documents {{ tag: 'GET', label: '/v1/accounting-documents' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `entityId`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/accounting-documents">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/accounting-documents \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        { "id": "doc_abc123" }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create an accounting document {{ tag: 'POST', label: '/v1/accounting-documents' }}
+
+<Row>
+  <Col>
+
+    Create an accounting document.
+    
+    ### Required attributes
+    
+    <Properties>
+      <Property name="fileName" type="string">File name.</Property>
+    </Properties>
+    
+    Optional: `entityId`, `contentType`, `url`, `storageKey`, `attachedToType`, `attachedToId`. OCR and process flows are on the app API.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/accounting-documents">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/accounting-documents \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "entityId": "ent_abc123",
+        "fileName": "receipt-jan.pdf",
+        "contentType": "application/pdf"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "doc_new456",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve an accounting document {{ tag: 'GET', label: '/v1/accounting-documents/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single accounting document by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/accounting-documents/doc_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/accounting-documents/doc_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "doc_abc123"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update an accounting document {{ tag: 'PATCH', label: '/v1/accounting-documents/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a accounting document. Only the fields you send are changed.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/accounting-documents/doc_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/accounting-documents/doc_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{}'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "doc_abc123",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete an accounting document {{ tag: 'DELETE', label: '/v1/accounting-documents/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a accounting document. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/accounting-documents/doc_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/accounting-documents/doc_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

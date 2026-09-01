@@ -1,0 +1,201 @@
+# Fiscal periods
+
+Open / closed accounting periods. Mutations require the `fiscal_periods:write` scope; reads require `fiscal_periods:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The fiscal period model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `fp_abc123`).</Property>
+  <Property name="entityId" type="string">Owning accounting entity.</Property>
+  <Property name="name" type="string">Period label.</Property>
+  <Property name="startDate" type="string">Period start.</Property>
+  <Property name="endDate" type="string">Period end.</Property>
+  <Property name="status" type="string">Open or closed.</Property>
+  <Property name="createdAt" type="timestamp">When created.</Property>
+  <Property name="updatedAt" type="timestamp">When last updated.</Property>
+</Properties>
+
+---
+
+## List fiscal periods {{ tag: 'GET', label: '/v1/fiscal-periods' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `entityId`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/fiscal-periods">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/fiscal-periods \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        { "id": "fp_abc123" }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a fiscal period {{ tag: 'POST', label: '/v1/fiscal-periods' }}
+
+<Row>
+  <Col>
+
+    Create a fiscal period.
+    
+    ### Required attributes
+    
+    <Properties>
+      <Property name="name" type="string">Period name.</Property>
+  <Property name="startDate" type="string">Start date.</Property>
+  <Property name="endDate" type="string">End date.</Property>
+    </Properties>
+    
+    Optional: `entityId`, `status`, `type`. Close and reopen actions are on the app API.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/fiscal-periods">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/fiscal-periods \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "entityId": "ent_abc123",
+        "name": "2024-Q4",
+        "startDate": "2024-10-01",
+        "endDate": "2024-12-31"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "fp_new456",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a fiscal period {{ tag: 'GET', label: '/v1/fiscal-periods/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single fiscal period by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/fiscal-periods/fp_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/fiscal-periods/fp_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "fp_abc123"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a fiscal period {{ tag: 'PATCH', label: '/v1/fiscal-periods/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a fiscal period. Only the fields you send are changed.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/fiscal-periods/fp_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/fiscal-periods/fp_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{}'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "fp_abc123",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a fiscal period {{ tag: 'DELETE', label: '/v1/fiscal-periods/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a fiscal period. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/fiscal-periods/fp_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/fiscal-periods/fp_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

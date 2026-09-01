@@ -19,6 +19,14 @@ import { z } from 'zod';
 export const createConversationSchema = z.object({
   name: z.string().optional(),
   moduleKey: z.string().optional(),
+  /** Bind the thread to a workspace agent (tools + instructions). */
+  agentId: z.string().min(1).max(30).optional(),
+});
+
+export const completeTurnSchema = z.object({
+  content: z.string().min(1).max(20000),
+  /** Override the conversation's bound agent for this turn. */
+  agentId: z.string().min(1).max(30).optional(),
 });
 
 export const updateConversationSchema = z.object({
@@ -51,6 +59,7 @@ export const autoTitleSchema = z.object({
 });
 
 export type CreateConversationInput = z.infer<typeof createConversationSchema>;
+export type CompleteTurnInput = z.infer<typeof completeTurnSchema>;
 export type UpdateConversationInput = z.infer<typeof updateConversationSchema>;
 export type SaveMessageInput = z.infer<typeof saveMessageSchema>;
 export type WeldAgentSettingsInput = z.infer<typeof weldAgentSettingsSchema>;
@@ -64,6 +73,7 @@ export interface ConversationSummary {
   id: string;
   name: string;
   moduleKey: string | null;
+  agentId: string | null;
   isPinned: boolean;
   lastMessageAt: string | null;
   messageCount: number;
@@ -113,4 +123,12 @@ export interface AutoTitleResult {
   id: string;
   name: string;
   generated: boolean;
+}
+
+export interface CompleteTurnResult {
+  userMessage: WeldAgentMessageRow;
+  assistantMessage: WeldAgentMessageRow;
+  creditsUsed: number;
+  success: boolean;
+  error?: string;
 }

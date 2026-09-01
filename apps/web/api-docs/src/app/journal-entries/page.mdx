@@ -1,0 +1,193 @@
+# Journal entries
+
+Manual double-entry journal entries. Mutations require the `journal_entries:write` scope; reads require `journal_entries:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The journal entry model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `je_abc123`).</Property>
+  <Property name="entityId" type="string">Owning accounting entity.</Property>
+  <Property name="entryNumber" type="string">Journal entry number.</Property>
+  <Property name="description" type="string">Entry description.</Property>
+  <Property name="date" type="string">Posting date.</Property>
+  <Property name="status" type="string">Draft or posted.</Property>
+  <Property name="totalDebit" type="string">Total debits.</Property>
+  <Property name="totalCredit" type="string">Total credits.</Property>
+  <Property name="createdAt" type="timestamp">When created.</Property>
+  <Property name="updatedAt" type="timestamp">When last updated.</Property>
+</Properties>
+
+---
+
+## List journal entries {{ tag: 'GET', label: '/v1/journal-entries' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `entityId`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/journal-entries">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/journal-entries \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        { "id": "je_abc123" }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a journal entry {{ tag: 'POST', label: '/v1/journal-entries' }}
+
+<Row>
+  <Col>
+
+    Create a journal entry.
+    
+    Optional: `entityId`, `reference`, `description`, `date`, `lines` (debit/credit lines). Post and reverse actions are on the app API.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/journal-entries">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/journal-entries \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "entityId": "ent_abc123",
+        "description": "Month-end accrual"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "je_new456",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a journal entry {{ tag: 'GET', label: '/v1/journal-entries/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single journal entry by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/journal-entries/je_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/journal-entries/je_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "je_abc123"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a journal entry {{ tag: 'PATCH', label: '/v1/journal-entries/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a journal entry. Only the fields you send are changed.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/journal-entries/je_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/journal-entries/je_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{}'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "je_abc123",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a journal entry {{ tag: 'DELETE', label: '/v1/journal-entries/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a journal entry. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/journal-entries/je_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/journal-entries/je_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>
