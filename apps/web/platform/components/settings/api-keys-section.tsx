@@ -98,6 +98,25 @@ const PERMISSION_ENTITIES = [
   // Automation
   { entity: 'Workflows', group: 'Automation', description: 'Workflows, schedules and executions', scopes: rw('workflows') },
   { entity: 'Webhooks', group: 'Automation', description: 'Webhook subscriptions', scopes: rw('webhooks') },
+  // WeldBooks
+  { entity: 'Accounting Entities', group: 'WeldBooks', description: 'Legal entities and books', scopes: rw('accounting_entities') },
+  { entity: 'GL Accounts', group: 'WeldBooks', description: 'Chart of accounts', scopes: rw('gl_accounts') },
+  { entity: 'Invoices', group: 'WeldBooks', description: 'Customer invoices (AR)', scopes: rw('invoices') },
+  { entity: 'Bills', group: 'WeldBooks', description: 'Supplier bills (AP)', scopes: rw('bills') },
+  { entity: 'Journal Entries', group: 'WeldBooks', description: 'Manual journal entries', scopes: rw('journal_entries') },
+  { entity: 'Payments', group: 'WeldBooks', description: 'Payments on invoices and bills', scopes: rw('payments') },
+  { entity: 'Bank Accounts', group: 'WeldBooks', description: 'Linked bank accounts', scopes: rw('bank_accounts') },
+  { entity: 'Bank Transactions', group: 'WeldBooks', description: 'Bank statement lines', scopes: rw('bank_transactions') },
+  { entity: 'Accounting Contacts', group: 'WeldBooks', description: 'Customers and suppliers', scopes: rw('accounting_contacts') },
+  { entity: 'Tax Rates', group: 'WeldBooks', description: 'VAT / GST rates', scopes: rw('tax_rates') },
+  { entity: 'Recurring Invoices', group: 'WeldBooks', description: 'Scheduled invoice templates', scopes: rw('recurring_invoices') },
+  { entity: 'Reconciliation Rules', group: 'WeldBooks', description: 'Auto-match bank transactions', scopes: rw('reconciliation_rules') },
+  { entity: 'Fiscal Periods', group: 'WeldBooks', description: 'Open and closed periods', scopes: rw('fiscal_periods') },
+  { entity: 'FX Rates', group: 'WeldBooks', description: 'Exchange rates', scopes: rw('fx_rates') },
+  { entity: 'VAT Returns', group: 'WeldBooks', description: 'Periodic VAT filings', scopes: rw('vat_returns') },
+  { entity: 'Accounting Documents', group: 'WeldBooks', description: 'Receipts and supporting files', scopes: rw('accounting_documents') },
+  { entity: 'ICP Declarations', group: 'WeldBooks', description: 'Intracommunity supply declarations', scopes: rw('icp_declarations') },
+  { entity: 'Accounting Settings', group: 'WeldBooks', description: 'Workspace accounting defaults', scopes: rw('accounting_settings') },
   // Settings
   { entity: 'Workspace Settings', group: 'Settings', description: 'Workspace configuration', scopes: ro('settings') },
   { entity: 'Members', group: 'Settings', description: 'Workspace members', scopes: ro('members') },
@@ -117,6 +136,7 @@ const GROUP_LOGOS: Record<string, string> = {
   Chat: '/assets/images/weldchat/icon.svg',
   Host: '/assets/images/weldhost/icon.svg',
   Automation: '/assets/images/weldconnect/icon.svg',
+  WeldBooks: '/assets/images/weldbooks/icon.svg',
   Settings: '/assets/images/weldsuite/icon.svg',
 };
 
