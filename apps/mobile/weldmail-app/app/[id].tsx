@@ -40,7 +40,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmailHtmlView from '@/components/EmailHtmlView';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
-import { appApi } from '@/services/app-api';
+import { getMessage, markMessageRead, getThread } from '@/services/mail-tenant';
 import { isApiError } from '@weldsuite/api-client/client';
 import { useMailCache } from '@/hooks/useMailCache';
 import { useMailOutbox } from '@/hooks/useMailOutbox';
@@ -309,8 +309,7 @@ export default function EmailDetailScreen() {
       let gone = false;
       for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
         try {
-          const res = await appApi.mailMessages.get(id);
-          fetched = res.data;
+          fetched = await getMessage(id);
           break;
         } catch (err) {
           if (isApiError(err) && err.status === 404) {
@@ -327,7 +326,7 @@ export default function EmailDetailScreen() {
         setLoadOutcome(null);
         setBodyLoading(false);
         cache.setMessage(id, fetched as Record<string, unknown>);
-        appApi.mailMessages.update(id, { isRead: true }).catch(() => {});
+        markMessageRead(id).catch(() => {});
       } else if (gone) {
         // Genuinely gone server-side. If we had nothing cached, the tapped row
         // was a stale/dead entry in the list — re-sync so it disappears.
@@ -343,10 +342,10 @@ export default function EmailDetailScreen() {
 
       // Thread is best-effort and must never gate the message view.
       try {
-        const t = await appApi.mailMessages.thread(id);
+        const t = await getThread(id);
         if (!cancelled) {
-          cache.setThread(id, t.data.messages);
-          setThreadMessages(t.data.messages.filter((m: any) => m.id !== id));
+          cache.setThread(id, t);
+          setThreadMessages(t.filter((m: { id: string }) => m.id !== id));
         }
       } catch {
         // Keep any cached thread already shown.

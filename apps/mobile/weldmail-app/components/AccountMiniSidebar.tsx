@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -8,10 +8,13 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Plus } from 'lucide-react-native';
+import { Plus, Building2 } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
+import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useMail, getAvatarColor } from '@/contexts/MailContext';
 import { usePermissions } from '@/contexts/PermissionContext';
+import { useNotifications } from '@/contexts/NotificationContext';
 import WeldMailLogo from '@/components/WeldMailLogo';
 import { BRAND } from '@/lib/brand';
 
@@ -21,10 +24,86 @@ export default function AccountMiniSidebar() {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const {
-    accounts, selectedAccount, selectAccount,
-    isUnifiedInbox, selectUnifiedInbox,
+    accounts, selectedAccount, selectAccount, selectAccountById,
+    isUnifiedInbox, selectUnifiedInbox, hasPersonalAccount,
   } = useMail();
   const { can } = usePermissions();
+  const { organizationId } = useClerkAuth();
+  const { workspaces, switchWorkspace } = useWorkspace();
+  const { prepareWorkspaceSwitch } = useNotifications();
+
+  const personalAccounts = accounts.filter((a) => a.tenantKind === 'personal');
+  const currentOrgAccounts = accounts.filter(
+    (a) => a.tenantKind === 'workspace' && (!a.clerkOrgId || a.clerkOrgId === organizationId),
+  );
+  const otherOrgAccounts = accounts.filter(
+    (a) => a.tenantKind === 'workspace' && a.clerkOrgId && a.clerkOrgId !== organizationId,
+  );
+  const listedOrgIds = new Set(
+    accounts.filter((a) => a.tenantKind === 'workspace' && a.clerkOrgId).map((a) => a.clerkOrgId),
+  );
+  const otherWorkspaces = workspaces.filter(
+    (ws) => ws.clerkOrgId !== organizationId && !listedOrgIds.has(ws.clerkOrgId),
+  );
+
+  const openAccount = useCallback(
+    async (account: typeof accounts[number]) => {
+      if (
+        account.tenantKind === 'personal' ||
+        !account.clerkOrgId ||
+        account.clerkOrgId === organizationId
+      ) {
+        selectAccount(account);
+        return;
+      }
+      selectAccountById(account.id);
+      try {
+        await prepareWorkspaceSwitch();
+        await switchWorkspace(account.clerkOrgId);
+      } catch (err) {
+        console.error('Failed to switch workspace for mailbox:', err);
+      }
+    },
+    [organizationId, selectAccount, selectAccountById, prepareWorkspaceSwitch, switchWorkspace],
+  );
+
+  const openWorkspace = useCallback(
+    async (clerkOrgId: string) => {
+      if (clerkOrgId === organizationId) {
+        selectUnifiedInbox();
+        return;
+      }
+      try {
+        await prepareWorkspaceSwitch();
+        await switchWorkspace(clerkOrgId);
+      } catch (err) {
+        console.error('Failed to switch workspace:', err);
+      }
+    },
+    [organizationId, selectUnifiedInbox, prepareWorkspaceSwitch, switchWorkspace],
+  );
+
+  const showAdd = can('accounts:create') || !hasPersonalAccount;
+
+  const renderAccount = (account: typeof accounts[number]) => {
+    const isActive = !isUnifiedInbox && selectedAccount?.id === account.id;
+    const avatarColor = getAvatarColor(account.displayName);
+    return (
+      <TouchableOpacity
+        key={account.id}
+        style={styles.item}
+        onPress={() => openAccount(account)}
+        activeOpacity={0.7}
+      >
+        <View style={[styles.avatar, { backgroundColor: avatarColor }, isActive && styles.avatarRing]}>
+          <Text style={styles.avatarText}>
+            {account.displayName?.charAt(0).toUpperCase() || 'U'}
+          </Text>
+        </View>
+        {isActive && <View style={styles.activeIndicator} />}
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View
@@ -38,7 +117,6 @@ export default function AccountMiniSidebar() {
       ]}
     >
       <ScrollView showsVerticalScrollIndicator={false} style={styles.content}>
-        {/* Unified inbox */}
         <TouchableOpacity style={styles.item} onPress={selectUnifiedInbox} activeOpacity={0.7}>
           <View style={[styles.avatar, isUnifiedInbox ? styles.avatarUnifiedActive : styles.avatarUnified]}>
             <WeldMailLogo size={24} color={isUnifiedInbox ? BRAND : colors.muted} />
@@ -46,35 +124,37 @@ export default function AccountMiniSidebar() {
           {isUnifiedInbox && <View style={styles.activeIndicator} />}
         </TouchableOpacity>
 
-        {accounts.length > 0 && (
+        {personalAccounts.length > 0 && (
           <View style={[styles.divider, { backgroundColor: colors.divider, opacity: 0.4 }]} />
         )}
+        {personalAccounts.map(renderAccount)}
 
-        {accounts.map((account) => {
-          const isActive = !isUnifiedInbox && selectedAccount?.id === account.id;
-          const avatarColor = getAvatarColor(account.displayName);
-          return (
-            <TouchableOpacity
-              key={account.id}
-              style={styles.item}
-              onPress={() => selectAccount(account)}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.avatar, { backgroundColor: avatarColor }, isActive && styles.avatarRing]}>
-                <Text style={styles.avatarText}>
-                  {account.displayName?.charAt(0).toUpperCase() || 'U'}
-                </Text>
-              </View>
-              {isActive && <View style={styles.activeIndicator} />}
-            </TouchableOpacity>
-          );
-        })}
+        {currentOrgAccounts.length > 0 && (
+          <View style={[styles.divider, { backgroundColor: colors.divider, opacity: 0.4 }]} />
+        )}
+        {currentOrgAccounts.map(renderAccount)}
 
-        {/* Add account — only for members who can create mail accounts */}
-        {can('accounts:create') && (
+        {(otherOrgAccounts.length > 0 || otherWorkspaces.length > 0) && (
+          <View style={[styles.divider, { backgroundColor: colors.divider, opacity: 0.4 }]} />
+        )}
+        {otherOrgAccounts.map(renderAccount)}
+        {otherWorkspaces.map((ws) => (
+          <TouchableOpacity
+            key={ws.clerkOrgId}
+            style={styles.item}
+            onPress={() => openWorkspace(ws.clerkOrgId)}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.avatar, styles.workspaceButton, { borderColor: colors.divider }]}>
+              <Building2 size={18} color={colors.muted} strokeWidth={2} />
+            </View>
+          </TouchableOpacity>
+        ))}
+
+        {showAdd && (
           <TouchableOpacity
             style={styles.item}
-            onPress={() => router.push('/add-account' as any)}
+            onPress={() => router.push('/add-account' as never)}
             activeOpacity={0.7}
           >
             <View style={[styles.avatar, styles.addButton]}>
@@ -112,9 +192,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'transparent',
   },
-  avatarActive: {
-    backgroundColor: BRAND,
-  },
   avatarUnified: {
     backgroundColor: '#F3F4F6',
   },
@@ -141,6 +218,10 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
     borderStyle: 'dashed',
   },
+  workspaceButton: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+  },
   activeIndicator: {
     position: 'absolute',
     left: 0,
@@ -155,16 +236,5 @@ const styles = StyleSheet.create({
     height: 0.5,
     marginHorizontal: 12,
     marginVertical: 6,
-  },
-  bottom: {
-    borderTopWidth: 0.5,
-    paddingTop: 8,
-  },
-  settingsIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 15,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
 });

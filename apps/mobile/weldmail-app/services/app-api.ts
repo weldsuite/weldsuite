@@ -25,6 +25,7 @@ import { createMailScheduledApi } from '@weldsuite/app-api-client/domains/mail-s
 import { createMailDomainsApi } from '@weldsuite/app-api-client/domains/mail-domains';
 import { createPushTokensApi } from '@weldsuite/app-api-client/domains/push-tokens';
 import { createWorkspacesApi } from '@weldsuite/app-api-client/domains/workspaces';
+import { createMailboxesApi } from '@weldsuite/app-api-client/domains/mailboxes';
 import { createMeApi } from '@weldsuite/app-api-client/domains/me';
 
 /** app-api base URL. Defaults to the local wrangler dev port. */
@@ -54,6 +55,7 @@ export const appApi = {
   mailDomains: createMailDomainsApi(client),
   pushTokens: createPushTokensApi(client),
   workspaces: createWorkspacesApi(client),
+  mailboxes: createMailboxesApi(client),
   me: createMeApi(client),
 };
 

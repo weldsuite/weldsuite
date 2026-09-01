@@ -18,5 +18,6 @@ module.exports = {
   createMailDomainsApi: factory('mailDomains'),
   createPushTokensApi: factory('pushTokens'),
   createWorkspacesApi: factory('workspaces'),
+  createMailboxesApi: factory('mailboxes'),
   createMeApi: factory('me'),
 };

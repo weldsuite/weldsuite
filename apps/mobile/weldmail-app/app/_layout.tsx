@@ -105,7 +105,10 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
     const hasOrg = membershipCount > 0 || !!organizationId;
 
-    // Team / workspace path — keep existing behaviour.
+    // Team / workspace path. Personal mail is loaded alongside workspace
+    // mail in MailContext — org membership no longer excludes a personal inbox.
+    // `/claim-address` is the no-org onboarding screen; workspace users add a
+    // personal address from Add account instead.
     if (hasOrg) {
       if (inAuthGroup || inNoWorkspace || inClaimAddress || inSsoCallback) {
         router.replace('/');

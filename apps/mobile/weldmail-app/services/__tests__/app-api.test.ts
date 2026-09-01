@@ -54,6 +54,7 @@ describe('services/app-api', () => {
           'pushTokens',
           'workspaces',
           'me',
+          'mailboxes',
         ].sort(),
       );
     });

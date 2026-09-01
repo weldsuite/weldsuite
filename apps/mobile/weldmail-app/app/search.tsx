@@ -19,7 +19,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { formatEmailTime } from '@weldsuite/mobile-ui/utils/dateFormatter';
-import { appApi } from '@/services/app-api';
+import { listInboxMessages } from '@/services/mail-tenant';
 import { getAvatarColor } from '@/contexts/MailContext';
 import type { EmailListItem } from '@/types/mail';
 
@@ -88,7 +88,11 @@ export default function SearchScreen() {
 
     searchTimeoutRef.current = setTimeout(async () => {
       try {
-        const { data: items } = await appApi.mailMessages.list({ search: searchQuery, limit: 50 });
+        const items = await listInboxMessages({
+          isUnified: true,
+          search: searchQuery,
+          limit: 50,
+        });
         setSearchResults(items);
       } catch (error) {
         console.error('Search error:', error);

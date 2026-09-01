@@ -103,6 +103,7 @@
     "./domains/feature-flags": "./src/domains/feature-flags.ts",
     "./domains/push-tokens": "./src/domains/push-tokens.ts",
     "./domains/workspaces": "./src/domains/workspaces.ts",
+    "./domains/mailboxes": "./src/domains/mailboxes.ts",
     "./domains/me": "./src/domains/me.ts",
     "./domains/weldagent": "./src/domains/weldagent.ts",
     "./domains/workspace-agents": "./src/domains/workspace-agents.ts",

@@ -56,6 +56,7 @@ export * from './domains/mail-ai';
 export * from './schemas/push-tokens';
 export * from './domains/push-tokens';
 export * from './domains/workspaces';
+export * from './domains/mailboxes';
 
 // Feature flags — client-exposed flags resolved via Cloudflare Flagship.
 export * from './schemas/feature-flags';

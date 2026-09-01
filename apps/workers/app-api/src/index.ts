@@ -233,6 +233,7 @@ import { searchRoutes } from './routes/search';
 import { workspaceSettingsRoutes } from './routes/workspace-settings';
 import { authDesktopRoutes } from './routes/auth-desktop';
 import { accountRoutes } from './routes/account';
+import { mailboxesRoutes } from './routes/mailboxes';
 import { onboardingRoutes } from './routes/onboarding';
 import { stockAdjustmentsRoutes } from './routes/stock-adjustments';
 import { teamMembersRoutes } from './routes/team-members';
@@ -424,6 +425,13 @@ app.route('/api/auth-desktop', authDesktopRoutes);
 // (BEFORE the global /api/* guard) skips the org requirement. Must stay ABOVE
 // the app.use('/api/*', ...) line below.
 app.route('/api/account', accountRoutes);
+
+// Mailbox directory — Clerk-authenticated but org-LESS: WeldMail lists every
+// workspace mailbox the user can see without flipping the active org (personal
+// inboxes stay on personal-api). clerkMiddleware only; must stay ABOVE the
+// global /api/* workspaceDb guard.
+app.use('/api/mailboxes', clerkMiddleware());
+app.route('/api/mailboxes', mailboxesRoutes);
 
 // GitHub App install callback — PUBLIC (no Clerk). GitHub's server-to-server
 // redirect carries no session; auth is the state JWT signed at /install-url.

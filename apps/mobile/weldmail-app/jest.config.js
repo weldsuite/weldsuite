@@ -45,6 +45,7 @@ module.exports = {
     // under test, so importing app code stays light and resolvable under jest.
     '^@weldsuite/api-client/client$': '<rootDir>/__mocks__/api-client-stub.js',
     '^@weldsuite/app-api-client/domains/(.*)$': '<rootDir>/__mocks__/app-api-domains-stub.js',
+    '^@weldsuite/personal-api-client$': '<rootDir>/__mocks__/personal-api-client-stub.js',
     '^@weldsuite/mobile-ui/contexts/ClerkAuthContext$':
       '<rootDir>/__mocks__/clerk-auth-context-stub.js',
   },
