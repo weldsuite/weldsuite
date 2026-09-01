@@ -72,6 +72,9 @@ export const manifest: Record<string, SecretEntry[]> = {
 
   "external-api": [
     "API_SIGNING_SECRET",
+    // Auth resolves tenant DB URLs from master workspace rows via Neon API.
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
     // Publishes through @weldsuite/social-publishing directly (no dependency on
     // app-api), so it needs the SAME PostPeer key as app-api and mcp-server —
     // one WeldSuite-level PostPeer account backs all three. Unset leaves
