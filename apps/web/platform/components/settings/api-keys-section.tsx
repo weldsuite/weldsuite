@@ -139,6 +139,7 @@ function PermissionsSelector({
   onSelectAllWrite,
   onSelectAll,
   onClearAll,
+  className,
 }: {
   selectedScopes: string[];
   onToggleScope: (scopeId: string) => void;
@@ -146,13 +147,14 @@ function PermissionsSelector({
   onSelectAllWrite: () => void;
   onSelectAll: () => void;
   onClearAll: () => void;
+  className?: string;
 }) {
   const t = useTranslations();
   return (
-    <div className="grid gap-2">
-      <div className="flex items-center justify-between">
+    <div className={cn('flex min-h-0 flex-1 flex-col gap-2', className)}>
+      <div className="flex shrink-0 items-center justify-between gap-2">
         <Label>{t('sweep.settings.apiKeys.permissionsLabel')}</Label>
-        <div className="flex gap-1">
+        <div className="flex flex-wrap justify-end gap-1">
           <Button type="button" variant="ghost" size="sm" onClick={onSelectAllRead}>
             {t('sweep.settings.apiKeys.allRead')}
           </Button>
@@ -167,7 +169,8 @@ function PermissionsSelector({
           </Button>
         </div>
       </div>
-      <div className="space-y-3">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
+        <div className="space-y-3">
         {(() => {
           const groups: { group: string; entities: typeof PERMISSION_ENTITIES[number][] }[] = [];
           for (const entity of PERMISSION_ENTITIES) {
@@ -230,9 +233,10 @@ function PermissionsSelector({
             );
           });
         })()}
+        </div>
       </div>
       {selectedScopes.length > 0 && (
-        <p className="text-xs text-muted-foreground">
+        <p className="shrink-0 text-xs text-muted-foreground">
           {t('sweep.settings.apiKeys.selectedCount', { count: selectedScopes.length })}
         </p>
       )}
@@ -835,16 +839,16 @@ export function ApiKeysSection() {
                   {t('sweep.settings.apiKeys.generateKey')}
                 </Button>
               </DialogTrigger>
-            <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
+            <DialogContent className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[600px]">
+              <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
                 <DialogTitle>{t('sweep.settings.apiKeys.createDialog.title')}</DialogTitle>
                 <DialogDescription>
                   {t('sweep.settings.apiKeys.createDialog.description')}
                 </DialogDescription>
               </DialogHeader>
 
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
+              <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-6 py-2">
+                <div className="grid shrink-0 gap-2">
                   <Label htmlFor="name">{t('sweep.settings.apiKeys.nameLabel')}</Label>
                   <Input
                     id="name"
@@ -854,7 +858,7 @@ export function ApiKeysSection() {
                   />
                 </div>
 
-                <div className="grid gap-2">
+                <div className="grid shrink-0 gap-2">
                   <Label htmlFor="description">{t('sweep.settings.apiKeys.descriptionLabel')}</Label>
                   <Textarea
                     id="description"
@@ -876,13 +880,13 @@ export function ApiKeysSection() {
               </div>
 
               {error && createDialogOpen && (
-                <Alert variant="destructive">
+                <Alert variant="destructive" className="mx-6 shrink-0">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
 
-              <DialogFooter>
+              <DialogFooter className="shrink-0 border-t px-6 py-4">
                 <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
                   {t('sweep.settings.apiKeys.cancel')}
                 </Button>
@@ -897,16 +901,16 @@ export function ApiKeysSection() {
 
         {/* Edit key dialog */}
         <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-          <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
+          <DialogContent className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[600px]">
+            <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
               <DialogTitle>{t('sweep.settings.apiKeys.editDialog.title')}</DialogTitle>
               <DialogDescription>
                 {t('sweep.settings.apiKeys.editDialog.description')}
               </DialogDescription>
             </DialogHeader>
 
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-6 py-2">
+              <div className="grid shrink-0 gap-2">
                 <Label htmlFor="edit-name">{t('sweep.settings.apiKeys.nameLabel')}</Label>
                 <Input
                   id="edit-name"
@@ -916,7 +920,7 @@ export function ApiKeysSection() {
                 />
               </div>
 
-              <div className="grid gap-2">
+              <div className="grid shrink-0 gap-2">
                 <Label htmlFor="edit-description">{t('sweep.settings.apiKeys.descriptionLabel')}</Label>
                 <Textarea
                   id="edit-description"
@@ -938,13 +942,13 @@ export function ApiKeysSection() {
             </div>
 
             {error && editDialogOpen && (
-              <Alert variant="destructive">
+              <Alert variant="destructive" className="mx-6 shrink-0">
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
 
-            <DialogFooter>
+            <DialogFooter className="shrink-0 border-t px-6 py-4">
               <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
                 {t('sweep.settings.apiKeys.cancel')}
               </Button>
