@@ -1,6 +1,8 @@
 # External API - Cloudflare Workers Configuration
 #
 # Secrets (set via `wrangler secret put`, never hardcoded here):
+# - NEON_API_KEY (resolves tenant DB URLs from master workspace rows during auth)
+# - DATABASE_ENCRYPTION_KEY (optional; decrypts stored databaseUrl on master workspaces)
 # - POSTPEER_API_KEY (WeldSocial: single WeldSuite-level PostPeer key, sent as
 #   the `x-access-key` header. Required by POST /v1/social-posts/:id/publish and
 #   /schedule, which publish through @weldsuite/social-publishing directly —
@@ -93,6 +95,12 @@ service = "weldsuite-realtime"
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
+# Master Postgres over Hyperdrive (local dev). Test/production override below.
+[[hyperdrive]]
+binding = "HYPERDRIVE_MASTER"
+id = "f1b2e092e6b64ade8ea7e7e17a1a0d39"
+localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:5432/weldsuite_master?sslmode=require"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 name = "weldsuite-external-api-test"
@@ -122,6 +130,40 @@ service = "weldsuite-realtime-test"
 [[env.test.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage-test"
+
+# Native rate limiting (test) — distinct namespace_id range; not inherited from top-level.
+[[env.test.ratelimits]]
+name = "RL_FREE"
+namespace_id = "20"
+  [env.test.ratelimits.simple]
+  limit = 60
+  period = 60
+
+[[env.test.ratelimits]]
+name = "RL_BUSINESS"
+namespace_id = "21"
+  [env.test.ratelimits.simple]
+  limit = 300
+  period = 60
+
+[[env.test.ratelimits]]
+name = "RL_SCALE"
+namespace_id = "22"
+  [env.test.ratelimits.simple]
+  limit = 1000
+  period = 60
+
+[[env.test.ratelimits]]
+name = "RL_ENTERPRISE"
+namespace_id = "23"
+  [env.test.ratelimits.simple]
+  limit = 5000
+  period = 60
+
+# Master Postgres over Hyperdrive — required for api_key_registry lookups in auth.
+[[env.test.hyperdrive]]
+binding = "HYPERDRIVE_MASTER"
+id = "f1b2e092e6b64ade8ea7e7e17a1a0d39"
 
 [env.test.observability]
 enabled = true
