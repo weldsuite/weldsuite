@@ -6,6 +6,14 @@ Legal entities in WeldBooks — each has its own chart of accounts, tax rates, a
 
 ---
 
+## Multi-entity workspaces
+
+An **accounting entity** is a legal company (a set of books) inside your workspace. Most WeldBooks resources — bills, invoices, bank accounts, tax rates, and so on — carry an `entityId` that points here.
+
+Use this endpoint to list entities, read `isDefault`, and resolve ids before creating entity-scoped records. Workspace-wide defaults (including `defaultEntityId`) live on [accounting settings](/accounting-settings).
+
+---
+
 ## The accounting entity model
 
 ### Properties
@@ -30,7 +38,14 @@ Legal entities in WeldBooks — each has its own chart of accounts, tax rates, a
 <Row>
   <Col>
 
-    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`.
+    Retrieve a cursor-paginated list. All list endpoints accept the query parameters below. See [Pagination](/pagination) for cursor semantics.
+
+    ### Query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Number of items to return. Minimum 1, maximum 200. Defaults to a server-side value (typically 25). See [Pagination](/pagination).</Property>
+      <Property name="cursor" type="string">Opaque cursor from `pagination.cursor` on the previous page. Omit for the first page.</Property>
+    </Properties>
 
   </Col>
   <Col sticky>
@@ -39,7 +54,8 @@ Legal entities in WeldBooks — each has its own chart of accounts, tax rates, a
 
     ```bash {{ title: 'cURL' }}
     curl -G https://api.weldsuite.org/v1/accounting-entities \
-      -H "Authorization: Bearer wsk_your_api_key"
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d limit=25
     ```
 
     </CodeGroup>

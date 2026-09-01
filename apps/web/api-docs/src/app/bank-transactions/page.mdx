@@ -6,6 +6,16 @@ Imported or manual bank statement lines. Mutations require the `bank_transaction
 
 ---
 
+## Accounting entity scoping
+
+Every bank transaction belongs to one **accounting entity** (legal company / set of books). The `entityId` field on each record references an [accounting entity](/accounting-entities) (`ent_*`).
+
+- **On read:** responses include `entityId` — that is how you know which books a record belongs to.
+- **On list:** pass `?entityId=ent_abc123` to restrict results to one entity.
+- **On create:** send `entityId` in the JSON body. The external API does **not** pick a default for you. Read `defaultEntityId` from [accounting settings](/accounting-settings), or list [accounting entities](/accounting-entities) and use the row with `isDefault: true`.
+
+---
+
 ## The bank transaction model
 
 ### Properties
@@ -30,7 +40,15 @@ Imported or manual bank statement lines. Mutations require the `bank_transaction
 <Row>
   <Col>
 
-    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `entityId`.
+    Retrieve a cursor-paginated list. All list endpoints accept the query parameters below. See [Pagination](/pagination) for cursor semantics.
+
+    ### Query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Number of items to return. Minimum 1, maximum 200. Defaults to a server-side value (typically 25). See [Pagination](/pagination).</Property>
+      <Property name="cursor" type="string">Opaque cursor from `pagination.cursor` on the previous page. Omit for the first page.</Property>
+      <Property name="entityId" type="string">Filter to records belonging to one accounting entity (`ent_*`). Omit to list across all entities in the workspace.</Property>
+    </Properties>
 
   </Col>
   <Col sticky>
@@ -39,7 +57,9 @@ Imported or manual bank statement lines. Mutations require the `bank_transaction
 
     ```bash {{ title: 'cURL' }}
     curl -G https://api.weldsuite.org/v1/bank-transactions \
-      -H "Authorization: Bearer wsk_your_api_key"
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d entityId=ent_abc123 \
+      -d limit=25
     ```
 
     </CodeGroup>
@@ -47,7 +67,7 @@ Imported or manual bank statement lines. Mutations require the `bank_transaction
     ```json {{ title: 'Response' }}
     {
       "data": [
-        { "id": "bt_abc123" }
+        { "id": "bt_abc123", "entityId": "ent_abc123" }
       ],
       "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
     }
@@ -64,6 +84,10 @@ Imported or manual bank statement lines. Mutations require the `bank_transaction
   <Col>
 
     Create a bank transaction.
+    
+    ### Accounting entity
+    
+    Include **`entityId`** (an `ent_*` id). The external API does not infer a default — resolve it from [accounting settings](/accounting-settings) (`defaultEntityId`) or [accounting entities](/accounting-entities) (`isDefault`).
     
     Optional: `entityId`, `bankAccountId`, `amount`, `currency`, `transactionDate`, `reference`, `counterpartyName`. Import and reconcile flows are on the app API.
 
@@ -90,6 +114,7 @@ Imported or manual bank statement lines. Mutations require the `bank_transaction
     {
       "data": {
         "id": "bt_new456",
+        "entityId": "ent_abc123",
         "createdAt": "2024-12-01T14:00:00Z",
         "updatedAt": "2024-12-01T14:00:00Z"
       }
@@ -106,7 +131,7 @@ Imported or manual bank statement lines. Mutations require the `bank_transaction
 <Row>
   <Col>
 
-    Retrieve a single bank transaction by ID.
+    Retrieve a single bank transaction by ID. The response includes `entityId` so you can tell which accounting entity owns the record.
 
   </Col>
   <Col sticky>
@@ -123,7 +148,8 @@ Imported or manual bank statement lines. Mutations require the `bank_transaction
     ```json {{ title: 'Response' }}
     {
       "data": {
-        "id": "bt_abc123"
+        "id": "bt_abc123",
+        "entityId": "ent_abc123"
       }
     }
     ```
@@ -138,7 +164,7 @@ Imported or manual bank statement lines. Mutations require the `bank_transaction
 <Row>
   <Col>
 
-    Partially update a bank transaction. Only the fields you send are changed.
+    Partially update a bank transaction. Only the fields you send are changed. You may update `entityId` to move a record to another accounting entity when your workflow allows it.
 
   </Col>
   <Col sticky>
