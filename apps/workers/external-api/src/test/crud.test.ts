@@ -15,13 +15,80 @@ import { createPgliteDb } from './pglite';
 import { CRUD_ENTITIES } from './entities';
 import { buildCreateBody, buildUpdateBody, requiresParentFk } from './factory';
 import type { Database } from '../db';
+import { schema } from '../db';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
+
+/** IDs seeded once for WeldBooks entity-scoped CRUD tests. */
+let seededEntityId = '';
+let seededContactId = '';
+let seededBankAccountId = '';
+
+async function seedAccountingFixtures(db: Database) {
+  const now = new Date();
+  seededEntityId = 'ent_testaccounting001';
+  seededContactId = 'acn_testcontact00001';
+  seededBankAccountId = 'ba_testbankaccount01';
+
+  await db.insert(schema.entities).values({
+    id: seededEntityId,
+    name: 'Test Accounting Entity',
+    jurisdictionCode: 'NL',
+    baseCurrency: 'EUR',
+    locale: 'nl-NL',
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await db.insert(schema.parties).values({
+    id: seededContactId,
+    displayName: 'Test Accounting Contact',
+    role: 'customer',
+    outstandingBalance: '0',
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await db.insert(schema.bankAccounts).values({
+    id: seededBankAccountId,
+    entityId: seededEntityId,
+    name: 'Test Bank',
+    currency: 'EUR',
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+function resolveOverrides(seg: string): Record<string, unknown> {
+  const raw = OVERRIDES[seg] ?? {};
+  return JSON.parse(
+    JSON.stringify(raw)
+      .replaceAll('__SEEDED_ENTITY_ID__', seededEntityId)
+      .replaceAll('__SEEDED_CONTACT_ID__', seededContactId)
+      .replaceAll('__SEEDED_BANK_ACCOUNT_ID__', seededBankAccountId),
+  ) as Record<string, unknown>;
+}
 
 /** Per-segment create-body overrides (merged over the generated body). */
 const OVERRIDES: Record<string, Record<string, unknown>> = {
   // A conversation must identify a customer (route requires customerName).
   conversations: { customerName: 'Test Customer' },
+  // WeldBooks entities share a seeded accounting entity id (see seedAccountingEntity).
+  'gl-accounts': { entityId: '__SEEDED_ENTITY_ID__', code: '1000', name: 'Cash', type: 'asset', normalSide: 'debit' },
+  'tax-rates': { entityId: '__SEEDED_ENTITY_ID__', jurisdiction: 'NL', rate: '21' },
+  'bank-accounts': { entityId: '__SEEDED_ENTITY_ID__' },
+  'bank-transactions': { entityId: '__SEEDED_ENTITY_ID__', bankAccountId: '__SEEDED_BANK_ACCOUNT_ID__' },
+  'fiscal-periods': { entityId: '__SEEDED_ENTITY_ID__' },
+  'fx-rates': { entityId: '__SEEDED_ENTITY_ID__' },
+  'vat-returns': { entityId: '__SEEDED_ENTITY_ID__' },
+  'reconciliation-rules': { entityId: '__SEEDED_ENTITY_ID__' },
+  'recurring-invoices': { entityId: '__SEEDED_ENTITY_ID__', contactId: '__SEEDED_CONTACT_ID__' },
+  'payments': { entityId: '__SEEDED_ENTITY_ID__' },
+  'journal-entries': { entityId: '__SEEDED_ENTITY_ID__' },
+  'accounting-documents': { entityId: '__SEEDED_ENTITY_ID__' },
+  'icp-declarations': { entityId: '__SEEDED_ENTITY_ID__', periodStart: '2025-01-01', periodEnd: '2025-01-31' },
 };
 
 /**
@@ -32,6 +99,8 @@ const OVERRIDES: Record<string, Record<string, unknown>> = {
  * DB-level constraint).
  */
 const CONTRACT_ONLY: Record<string, string> = {
+  invoices: 'needs contactId, issueDate, dueDate (NOT NULL FKs / columns)',
+  bills: 'needs supplierId/contactId, issueDate, dueDate (NOT NULL FKs / columns)',
   'chat-messages': 'needs an existing channel (chat_messages.channel_id NOT NULL)',
   'chat-bookmarks': 'needs an existing message (FK chat_bookmarks.message_id)',
   goals: 'needs an existing project (project_goals.project_id NOT NULL)',
@@ -49,6 +118,7 @@ let db: Database;
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  await seedAccountingFixtures(db);
 }, 60_000);
 
 describe('external-api · CRUD round-trip', () => {
@@ -64,7 +134,7 @@ describe('external-api · CRUD round-trip', () => {
         const { request } = createExternalTestApp({ scopes, tenantDb: db });
 
         // CREATE
-        const createBody = { ...buildCreateBody(create!), ...(OVERRIDES[seg] ?? {}) };
+        const createBody = { ...buildCreateBody(create!), ...resolveOverrides(seg) };
         const createRes = await request(`/v1/${seg}`, {
           method: 'POST',
           headers: JSON_HEADERS,

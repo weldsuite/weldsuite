@@ -56,6 +56,65 @@ import { createSocialPostSchema, updateSocialPostSchema } from '@weldsuite/core-
 import { createWhiteboardSchema, updateWhiteboardSchema } from '@weldsuite/core-api-client/schemas/whiteboards';
 import { createWorkflowSchema, updateWorkflowSchema } from '@weldsuite/core-api-client/schemas/weldconnect';
 
+// WeldBooks / accounting schemas
+import {
+  createAccountingEntitySchema,
+  updateAccountingEntitySchema,
+} from '@weldsuite/core-api-client/schemas/accounting-entities';
+import {
+  createAccountingContactSchema,
+  updateAccountingContactSchema,
+} from '@weldsuite/core-api-client/schemas/accounting-contacts';
+import {
+  createAccountingDocumentSchema,
+  updateAccountingDocumentSchema,
+} from '@weldsuite/core-api-client/schemas/accounting-documents';
+import {
+  createBankAccountSchema,
+  updateBankAccountSchema,
+} from '@weldsuite/core-api-client/schemas/bank-accounts';
+import {
+  createBankTransactionSchema,
+  updateBankTransactionSchema,
+} from '@weldsuite/core-api-client/schemas/bank-transactions';
+import { createBillSchema, updateBillSchema } from '@weldsuite/core-api-client/schemas/bills';
+import {
+  createFiscalPeriodSchema,
+  updateFiscalPeriodSchema,
+} from '@weldsuite/core-api-client/schemas/fiscal-periods';
+import { createFxRateSchema, updateFxRateSchema } from '@weldsuite/core-api-client/schemas/fx-rates';
+import {
+  createGlAccountSchema,
+  updateGlAccountSchema,
+} from '@weldsuite/core-api-client/schemas/gl-accounts';
+import {
+  createInvoiceSchema,
+  updateInvoiceSchema,
+} from '@weldsuite/core-api-client/schemas/invoices';
+import {
+  createJournalEntrySchema,
+  updateJournalEntrySchema,
+} from '@weldsuite/core-api-client/schemas/journal-entries';
+import { createPaymentSchema, updatePaymentSchema } from '@weldsuite/core-api-client/schemas/payments';
+import {
+  createReconciliationRuleSchema,
+  updateReconciliationRuleSchema,
+} from '@weldsuite/core-api-client/schemas/reconciliation-rules';
+import {
+  createRecurringInvoiceSchema,
+  updateRecurringInvoiceSchema,
+} from '@weldsuite/core-api-client/schemas/recurring-invoices';
+import { createTaxRateSchema, updateTaxRateSchema } from '@weldsuite/core-api-client/schemas/tax-rates';
+import { createVatReturnSchema, updateVatReturnSchema } from '@weldsuite/core-api-client/schemas/vat-returns';
+import { z } from 'zod';
+
+const createIcpDeclarationSchema = z.object({
+  entityId: z.string().min(1).max(30),
+  periodStart: z.string(),
+  periodEnd: z.string(),
+});
+const updateIcpDeclarationSchema = createIcpDeclarationSchema.partial();
+
 export interface CrudEntity {
   /** URL + collection segment under /v1. */
   seg: string;
@@ -73,6 +132,23 @@ function e(seg: string, create: ZodTypeAny | null, update: ZodTypeAny | null): C
 
 /** All entities exposing the standard CRUD routes (List/Get/Create/Update/Delete). */
 export const CRUD_ENTITIES: CrudEntity[] = [
+  e('accounting-contacts', createAccountingContactSchema, updateAccountingContactSchema),
+  e('accounting-documents', createAccountingDocumentSchema, updateAccountingDocumentSchema),
+  e('accounting-entities', createAccountingEntitySchema, updateAccountingEntitySchema),
+  e('bank-accounts', createBankAccountSchema, updateBankAccountSchema),
+  e('bank-transactions', createBankTransactionSchema, updateBankTransactionSchema),
+  e('bills', createBillSchema, updateBillSchema),
+  e('fiscal-periods', createFiscalPeriodSchema, updateFiscalPeriodSchema),
+  e('fx-rates', createFxRateSchema, updateFxRateSchema),
+  e('gl-accounts', createGlAccountSchema, updateGlAccountSchema),
+  e('icp-declarations', createIcpDeclarationSchema, updateIcpDeclarationSchema),
+  e('invoices', createInvoiceSchema, updateInvoiceSchema),
+  e('journal-entries', createJournalEntrySchema, updateJournalEntrySchema),
+  e('payments', createPaymentSchema, updatePaymentSchema),
+  e('reconciliation-rules', createReconciliationRuleSchema, updateReconciliationRuleSchema),
+  e('recurring-invoices', createRecurringInvoiceSchema, updateRecurringInvoiceSchema),
+  e('tax-rates', createTaxRateSchema, updateTaxRateSchema),
+  e('vat-returns', createVatReturnSchema, updateVatReturnSchema),
   e('activities', createActivitySchema, updateActivitySchema),
   e('articles', createArticleSchema, updateArticleSchema),
   e('calendar-events', createCalendarEventSchema, updateCalendarEventSchema),

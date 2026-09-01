@@ -3,6 +3,26 @@ import { sql } from 'drizzle-orm';
 import type { HonoEnv } from '../../types';
 import { error, success } from '../../lib/response';
 
+import accountingContacts from './accounting-contacts';
+import accountingSettings from './accounting-settings';
+import {
+  accountingEntities,
+  glAccounts,
+  invoices,
+  bills,
+  journalEntries,
+  payments,
+  bankAccounts,
+  bankTransactions,
+  taxRates,
+  recurringInvoices,
+  reconciliationRules,
+  fiscalPeriods,
+  fxRates,
+  vatReturns,
+  accountingDocuments,
+} from './accounting/crud-routes';
+import icpDeclarations from './icp-declarations';
 import activities from './activities';
 import appStorage from './app-storage';
 import articles from './articles';
@@ -64,9 +84,16 @@ v1.get('/', async (c) => {
     version: 'v1',
     workspace: { id: session.workspaceId, tier: session.tier },
     endpoints: [
+      '/v1/accounting-contacts',
+      '/v1/accounting-documents',
+      '/v1/accounting-entities',
+      '/v1/accounting-settings',
       '/v1/activities',
       '/v1/app-storage',
       '/v1/articles',
+      '/v1/bank-accounts',
+      '/v1/bank-transactions',
+      '/v1/bills',
       '/v1/calendar-events',
       '/v1/calendars',
       '/v1/channel-members',
@@ -82,6 +109,12 @@ v1.get('/', async (c) => {
       '/v1/drive/all',
       '/v1/drive/stats',
       '/v1/files',
+      '/v1/fiscal-periods',
+      '/v1/fx-rates',
+      '/v1/gl-accounts',
+      '/v1/icp-declarations',
+      '/v1/invoices',
+      '/v1/journal-entries',
       '/v1/folders',
       '/v1/goals',
       '/v1/knowledge-pages',
@@ -91,6 +124,7 @@ v1.get('/', async (c) => {
       '/v1/opportunities',
       '/v1/orders',
       '/v1/people',
+      '/v1/payments',
       '/v1/pipeline-stages',
       '/v1/pipelines',
       '/v1/products',
@@ -102,18 +136,22 @@ v1.get('/', async (c) => {
       '/v1/project-sheets',
       '/v1/projects',
       '/v1/quotes',
+      '/v1/reconciliation-rules',
+      '/v1/recurring-invoices',
       '/v1/settings',
       '/v1/social-accounts',
       '/v1/social-analytics',
       '/v1/social-campaigns',
       '/v1/social-posts',
       '/v1/sprints',
+      '/v1/tax-rates',
       '/v1/task-comments',
       '/v1/task-tags',
       '/v1/tasks',
       '/v1/tickets',
       '/v1/time-entries',
       '/v1/user-apps',
+      '/v1/vat-returns',
       '/v1/webhooks',
       '/v1/whiteboards',
       '/v1/workflows',
@@ -136,6 +174,24 @@ v1.get('/health/db', async (c) => {
   }
 });
 
+v1.route('/accounting-contacts', accountingContacts);
+v1.route('/accounting-documents', accountingDocuments);
+v1.route('/accounting-entities', accountingEntities);
+v1.route('/accounting-settings', accountingSettings);
+v1.route('/bank-accounts', bankAccounts);
+v1.route('/bank-transactions', bankTransactions);
+v1.route('/bills', bills);
+v1.route('/fiscal-periods', fiscalPeriods);
+v1.route('/fx-rates', fxRates);
+v1.route('/gl-accounts', glAccounts);
+v1.route('/icp-declarations', icpDeclarations);
+v1.route('/invoices', invoices);
+v1.route('/journal-entries', journalEntries);
+v1.route('/payments', payments);
+v1.route('/reconciliation-rules', reconciliationRules);
+v1.route('/recurring-invoices', recurringInvoices);
+v1.route('/tax-rates', taxRates);
+v1.route('/vat-returns', vatReturns);
 v1.route('/activities', activities);
 v1.route('/app-storage', appStorage);
 v1.route('/articles', articles);
