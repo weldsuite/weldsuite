@@ -6,6 +6,14 @@ Workspace-wide WeldBooks defaults (singleton row). There is at most one settings
 
 ---
 
+## Role in the data model
+
+This endpoint does **not** list multiple rows — it returns the single settings object for your workspace. Use it to read **`defaultEntityId`**, the accounting entity id integrations should prefer when creating bills, invoices, and other entity-scoped records via the external API.
+
+Pair this with [accounting entities](/accounting-entities) (`GET /v1/accounting-entities`) to resolve entity names, jurisdictions, and the `isDefault` flag. See the [WeldBooks overview](/weldbooks) for the full entity-scoping model.
+
+---
+
 ## The settings model
 
 ### Properties

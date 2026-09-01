@@ -6,6 +6,16 @@ Open / closed accounting periods. Mutations require the `fiscal_periods:write` s
 
 ---
 
+## Accounting entity scoping
+
+Every fiscal period belongs to one **accounting entity** (legal company / set of books). The `entityId` field on each record references an [accounting entity](/accounting-entities) (`ent_*`).
+
+- **On read:** responses include `entityId` — that is how you know which books a record belongs to.
+- **On list:** pass `?entityId=ent_abc123` to restrict results to one entity.
+- **On create:** send `entityId` in the JSON body. The external API does **not** pick a default for you. Read `defaultEntityId` from [accounting settings](/accounting-settings), or list [accounting entities](/accounting-entities) and use the row with `isDefault: true`.
+
+---
+
 ## The fiscal period model
 
 ### Properties
@@ -28,7 +38,15 @@ Open / closed accounting periods. Mutations require the `fiscal_periods:write` s
 <Row>
   <Col>
 
-    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `entityId`.
+    Retrieve a cursor-paginated list. All list endpoints accept the query parameters below. See [Pagination](/pagination) for cursor semantics.
+
+    ### Query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Number of items to return. Minimum 1, maximum 200. Defaults to a server-side value (typically 25). See [Pagination](/pagination).</Property>
+      <Property name="cursor" type="string">Opaque cursor from `pagination.cursor` on the previous page. Omit for the first page.</Property>
+      <Property name="entityId" type="string">Filter to records belonging to one accounting entity (`ent_*`). Omit to list across all entities in the workspace.</Property>
+    </Properties>
 
   </Col>
   <Col sticky>
@@ -37,7 +55,9 @@ Open / closed accounting periods. Mutations require the `fiscal_periods:write` s
 
     ```bash {{ title: 'cURL' }}
     curl -G https://api.weldsuite.org/v1/fiscal-periods \
-      -H "Authorization: Bearer wsk_your_api_key"
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d entityId=ent_abc123 \
+      -d limit=25
     ```
 
     </CodeGroup>
@@ -45,7 +65,7 @@ Open / closed accounting periods. Mutations require the `fiscal_periods:write` s
     ```json {{ title: 'Response' }}
     {
       "data": [
-        { "id": "fp_abc123" }
+        { "id": "fp_abc123", "entityId": "ent_abc123" }
       ],
       "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
     }
@@ -62,6 +82,10 @@ Open / closed accounting periods. Mutations require the `fiscal_periods:write` s
   <Col>
 
     Create a fiscal period.
+    
+    ### Accounting entity
+    
+    Include **`entityId`** (an `ent_*` id). The external API does not infer a default — resolve it from [accounting settings](/accounting-settings) (`defaultEntityId`) or [accounting entities](/accounting-entities) (`isDefault`).
     
     ### Required attributes
     
@@ -96,6 +120,7 @@ Open / closed accounting periods. Mutations require the `fiscal_periods:write` s
     {
       "data": {
         "id": "fp_new456",
+        "entityId": "ent_abc123",
         "createdAt": "2024-12-01T14:00:00Z",
         "updatedAt": "2024-12-01T14:00:00Z"
       }
@@ -112,7 +137,7 @@ Open / closed accounting periods. Mutations require the `fiscal_periods:write` s
 <Row>
   <Col>
 
-    Retrieve a single fiscal period by ID.
+    Retrieve a single fiscal period by ID. The response includes `entityId` so you can tell which accounting entity owns the record.
 
   </Col>
   <Col sticky>
@@ -129,7 +154,8 @@ Open / closed accounting periods. Mutations require the `fiscal_periods:write` s
     ```json {{ title: 'Response' }}
     {
       "data": {
-        "id": "fp_abc123"
+        "id": "fp_abc123",
+        "entityId": "ent_abc123"
       }
     }
     ```
@@ -144,7 +170,7 @@ Open / closed accounting periods. Mutations require the `fiscal_periods:write` s
 <Row>
   <Col>
 
-    Partially update a fiscal period. Only the fields you send are changed.
+    Partially update a fiscal period. Only the fields you send are changed. You may update `entityId` to move a record to another accounting entity when your workflow allows it.
 
   </Col>
   <Col sticky>

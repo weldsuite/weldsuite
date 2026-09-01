@@ -83,7 +83,7 @@ const resources: Array<Resource> = [
     },
   },
   {
-    href: '/invoices',
+    href: '/weldbooks',
     name: 'WeldBooks',
     description:
       'Manage accounting entities, invoices, bills, bank accounts, journal entries, tax rates, and the full WeldBooks ledger via the API.',

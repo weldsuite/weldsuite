@@ -1,0 +1,115 @@
+# WeldBooks
+
+WeldBooks is WeldSuite's accounting module exposed on the external API. A workspace can contain **multiple accounting entities** (legal companies), each with its own chart of accounts, tax rates, bank accounts, and documents. Most API resources are scoped to one entity via `entityId`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## Data model
+
+```
+Workspace
+├── Accounting settings (singleton)     → defaultEntityId, fiscal defaults
+├── Accounting contacts (workspace-wide) → customers & suppliers (shared)
+└── Accounting entity (ent_*)
+    ├── GL accounts, tax rates, fiscal periods
+    ├── Bills, invoices, payments
+    ├── Bank accounts & transactions
+    └── VAT returns, documents, …
+```
+
+**Entity-scoped records** (bills, invoices, bank accounts, …) include `entityId` in every response. That id tells you which legal entity owns the record.
+
+**Workspace-scoped records** are [accounting entities](/accounting-entities) themselves and [accounting contacts](/accounting-contacts) (customers/suppliers used across entities).
+
+---
+
+## Discovering the right entity id
+
+Typical integration flow:
+
+1. `GET /v1/accounting-settings` — read `defaultEntityId`
+2. `GET /v1/accounting-entities` — list entities; confirm `isDefault` and read `jurisdictionCode` / `baseCurrency`
+3. Use that `ent_*` id when creating or listing entity-scoped resources
+
+Example — list bills for one entity:
+
+```bash {{ title: 'Filter bills by entity' }}
+curl -G https://api.weldsuite.org/v1/bills \
+  -H "Authorization: Bearer wsk_your_api_key" \
+  -d entityId=ent_abc123 \
+  -d limit=25
+```
+
+Example — create a bill on that entity:
+
+```bash {{ title: 'Create a bill' }}
+curl https://api.weldsuite.org/v1/bills \
+  -H "Authorization: Bearer wsk_your_api_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entityId": "ent_abc123",
+    "supplierName": "Office Supplies Co",
+    "currency": "EUR"
+  }'
+```
+
+The external API **does not** infer `entityId` for you on create. Always pass it explicitly (or read `defaultEntityId` first and inject it in your integration layer).
+
+---
+
+## Common list filters
+
+All WeldBooks list endpoints support cursor [pagination](/pagination):
+
+<Properties>
+  <Property name="limit" type="integer">Items per page (1–200).</Property>
+  <Property name="cursor" type="string">Cursor from the previous response's `pagination.cursor`.</Property>
+</Properties>
+
+**Entity-scoped endpoints** also accept:
+
+<Properties>
+  <Property name="entityId" type="string">Restrict results to one accounting entity (`ent_*`). Omit to search across all entities in the workspace.</Property>
+</Properties>
+
+**Accounting contacts** additionally accept `search` (name / party code) and `role` (`customer`, `supplier`, `both`). Contacts have no `entityId` filter because they are workspace-wide.
+
+---
+
+## Entity-scoped resources
+
+| Resource | Scopes | `entityId` |
+| --- | --- | --- |
+| [GL accounts](/gl-accounts) | `gl_accounts:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
+| [Invoices](/invoices) | `invoices:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
+| [Bills](/bills) | `bills:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
+| [Journal entries](/journal-entries) | `journal_entries:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
+| [Payments](/payments) | `payments:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
+| [Bank accounts](/bank-accounts) | `bank_accounts:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
+| [Bank transactions](/bank-transactions) | `bank_transactions:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
+| [Tax rates](/tax-rates) | `tax_rates:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
+| [Recurring invoices](/recurring-invoices) | `recurring_invoices:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
+| [Reconciliation rules](/reconciliation-rules) | `reconciliation_rules:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
+| [Fiscal periods](/fiscal-periods) | `fiscal_periods:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
+| [FX rates](/fx-rates) | `fx_rates:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
+| [VAT returns](/vat-returns) | `vat_returns:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
+| [Accounting documents](/accounting-documents) | `accounting_documents:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
+| [ICP declarations](/icp-declarations) | `icp_declarations:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
+
+---
+
+## Workspace-scoped resources
+
+| Resource | Scopes | Notes |
+| --- | --- | --- |
+| [Accounting entities](/accounting-entities) | `accounting_entities:read` / `:write` | The entities themselves — root of the hierarchy |
+| [Accounting contacts](/accounting-contacts) | `accounting_contacts:read` / `:write` | Shared customers/suppliers; filter with `search`, `role` |
+| [Accounting settings](/accounting-settings) | `accounting_settings:read` / `:write` | Singleton — no list endpoint |
+
+---
+
+## First-party vs external API
+
+These docs cover the **external API** (`api.weldsuite.org/v1`). Standard CRUD is available here. Workflow actions that remain on the first-party app API include bill approval, invoice finalize/send/PDF, bank import/reconcile, VAT calculate/file, and document OCR — each resource page calls these out where relevant.
