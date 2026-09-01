@@ -1,0 +1,192 @@
+# VAT returns
+
+Periodic VAT / sales-tax filing records. Mutations require the `vat_returns:write` scope; reads require `vat_returns:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The VAT return model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `vat_abc123`).</Property>
+  <Property name="entityId" type="string">Owning accounting entity.</Property>
+  <Property name="periodStart" type="string">Filing period start.</Property>
+  <Property name="periodEnd" type="string">Filing period end.</Property>
+  <Property name="status" type="string">Draft, submitted, etc.</Property>
+  <Property name="totalVat" type="string">Net VAT due (decimal string).</Property>
+  <Property name="createdAt" type="timestamp">When created.</Property>
+  <Property name="updatedAt" type="timestamp">When last updated.</Property>
+</Properties>
+
+---
+
+## List vat returns {{ tag: 'GET', label: '/v1/vat-returns' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `entityId`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/vat-returns">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/vat-returns \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        { "id": "vat_abc123" }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a VAT return {{ tag: 'POST', label: '/v1/vat-returns' }}
+
+<Row>
+  <Col>
+
+    Create a VAT return.
+    
+    Optional: `entityId`, `periodStart`, `periodEnd`, `jurisdiction`, totals. Calculate, file, and XML endpoints are on the app API.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/vat-returns">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/vat-returns \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "entityId": "ent_abc123",
+        "periodStart": "2024-10-01",
+        "periodEnd": "2024-12-31"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "vat_new456",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a VAT return {{ tag: 'GET', label: '/v1/vat-returns/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single VAT return by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/vat-returns/vat_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/vat-returns/vat_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "vat_abc123"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a VAT return {{ tag: 'PATCH', label: '/v1/vat-returns/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a VAT return. Only the fields you send are changed.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/vat-returns/vat_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/vat-returns/vat_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{}'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "vat_abc123",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a VAT return {{ tag: 'DELETE', label: '/v1/vat-returns/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a VAT return. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/vat-returns/vat_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/vat-returns/vat_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

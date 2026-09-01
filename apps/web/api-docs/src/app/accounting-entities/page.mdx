@@ -1,0 +1,200 @@
+# Accounting entities
+
+Legal entities in WeldBooks — each has its own chart of accounts, tax rates, and books. Mutations require the `accounting_entities:write` scope; reads require `accounting_entities:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The accounting entity model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `ent_abc123`).</Property>
+  <Property name="name" type="string">Display name of the entity.</Property>
+  <Property name="legalName" type="string">Registered legal name.</Property>
+  <Property name="jurisdictionCode" type="string">ISO jurisdiction code (e.g. `NL`, `BE`).</Property>
+  <Property name="baseCurrency" type="string">Functional currency (e.g. `EUR`).</Property>
+  <Property name="locale" type="string">Locale for formatting (e.g. `nl-NL`).</Property>
+  <Property name="isDefault" type="boolean">Whether this is the workspace default entity.</Property>
+  <Property name="isActive" type="boolean">Whether the entity is active.</Property>
+  <Property name="createdAt" type="timestamp">When created.</Property>
+  <Property name="updatedAt" type="timestamp">When last updated.</Property>
+</Properties>
+
+---
+
+## List accounting entities {{ tag: 'GET', label: '/v1/accounting-entities' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/accounting-entities">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/accounting-entities \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        { "id": "ent_abc123" }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create an accounting entity {{ tag: 'POST', label: '/v1/accounting-entities' }}
+
+<Row>
+  <Col>
+
+    Create an accounting entity.
+    
+    ### Required attributes
+    
+    <Properties>
+      <Property name="name" type="string">Entity name.</Property>
+    </Properties>
+    
+    Optional: `legalName`, `jurisdiction` / `jurisdictionCode`, `baseCurrency`, `vatNumber`, `registrationNumber`, `fiscalYearStartMonth`, `isDefault`. The API accepts `jurisdiction` as an alias for `jurisdictionCode`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/accounting-entities">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/accounting-entities \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Acme Books BV",
+        "jurisdiction": "NL",
+        "baseCurrency": "EUR"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "ent_new456",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve an accounting entity {{ tag: 'GET', label: '/v1/accounting-entities/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single accounting entity by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/accounting-entities/ent_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/accounting-entities/ent_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "ent_abc123"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update an accounting entity {{ tag: 'PATCH', label: '/v1/accounting-entities/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a accounting entity. Only the fields you send are changed.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/accounting-entities/ent_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/accounting-entities/ent_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{}'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "ent_abc123",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete an accounting entity {{ tag: 'DELETE', label: '/v1/accounting-entities/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a accounting entity. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/accounting-entities/ent_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/accounting-entities/ent_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

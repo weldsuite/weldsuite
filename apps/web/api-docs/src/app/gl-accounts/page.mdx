@@ -1,0 +1,201 @@
+# GL accounts
+
+Chart-of-accounts lines (general ledger). Mutations require the `gl_accounts:write` scope; reads require `gl_accounts:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The GL account model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `acc_abc123`).</Property>
+  <Property name="entityId" type="string">Owning accounting entity.</Property>
+  <Property name="code" type="string">Account code.</Property>
+  <Property name="name" type="string">Account name.</Property>
+  <Property name="type" type="string">Account type (`asset`, `liability`, `equity`, `revenue`, `expense`).</Property>
+  <Property name="normalSide" type="string">Normal balance side (`debit` or `credit`).</Property>
+  <Property name="isActive" type="boolean">Whether the account is active.</Property>
+  <Property name="createdAt" type="timestamp">When created.</Property>
+  <Property name="updatedAt" type="timestamp">When last updated.</Property>
+</Properties>
+
+---
+
+## List gl accounts {{ tag: 'GET', label: '/v1/gl-accounts' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `entityId`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/gl-accounts">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/gl-accounts \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        { "id": "acc_abc123" }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a GL account {{ tag: 'POST', label: '/v1/gl-accounts' }}
+
+<Row>
+  <Col>
+
+    Create a GL account.
+    
+    ### Required attributes
+    
+    <Properties>
+      <Property name="code" type="string">Account code.</Property>
+  <Property name="name" type="string">Account name.</Property>
+    </Properties>
+    
+    Optional: `entityId`, `type`, `parentId`, `description`, `isActive`. Defaults: `type=asset`, `normalSide=debit`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/gl-accounts">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/gl-accounts \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "entityId": "ent_abc123",
+        "code": "1000",
+        "name": "Cash",
+        "type": "asset"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "acc_new456",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a GL account {{ tag: 'GET', label: '/v1/gl-accounts/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single GL account by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/gl-accounts/acc_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/gl-accounts/acc_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "acc_abc123"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a GL account {{ tag: 'PATCH', label: '/v1/gl-accounts/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a GL account. Only the fields you send are changed.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/gl-accounts/acc_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/gl-accounts/acc_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{}'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "acc_abc123",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a GL account {{ tag: 'DELETE', label: '/v1/gl-accounts/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a GL account. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/gl-accounts/acc_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/gl-accounts/acc_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

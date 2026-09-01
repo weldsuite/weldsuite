@@ -2,7 +2,7 @@ import { type Metadata } from 'next'
 
 export const metadata: Metadata = {
   title: 'Accounting entities',
-  description: 'Manage WeldBooks accounting entities via the external API.',
+  description: 'On this page, we dive into the accounting entities endpoints you can use to manage WeldBooks data programmatically.',
 }
 
 export default function Layout({ children }: { children: React.ReactNode }) {

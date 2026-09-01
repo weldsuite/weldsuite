@@ -1,0 +1,190 @@
+# Reconciliation rules
+
+Rules that auto-match bank transactions to ledger entries. Mutations require the `reconciliation_rules:write` scope; reads require `reconciliation_rules:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The reconciliation rule model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `rr_abc123`).</Property>
+  <Property name="entityId" type="string">Owning accounting entity.</Property>
+  <Property name="name" type="string">Rule name.</Property>
+  <Property name="priority" type="number">Evaluation order.</Property>
+  <Property name="isActive" type="boolean">Whether the rule is active.</Property>
+  <Property name="createdAt" type="timestamp">When created.</Property>
+  <Property name="updatedAt" type="timestamp">When last updated.</Property>
+</Properties>
+
+---
+
+## List reconciliation rules {{ tag: 'GET', label: '/v1/reconciliation-rules' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `entityId`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/reconciliation-rules">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/reconciliation-rules \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        { "id": "rr_abc123" }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a reconciliation rule {{ tag: 'POST', label: '/v1/reconciliation-rules' }}
+
+<Row>
+  <Col>
+
+    Create a reconciliation rule.
+    
+    Optional: `entityId`, `name`, `matchCriteria`, `actions` (passthrough JSON).
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/reconciliation-rules">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reconciliation-rules \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "entityId": "ent_abc123",
+        "name": "Match supplier payments"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "rr_new456",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a reconciliation rule {{ tag: 'GET', label: '/v1/reconciliation-rules/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single reconciliation rule by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/reconciliation-rules/rr_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reconciliation-rules/rr_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "rr_abc123"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a reconciliation rule {{ tag: 'PATCH', label: '/v1/reconciliation-rules/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a reconciliation rule. Only the fields you send are changed.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/reconciliation-rules/rr_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/reconciliation-rules/rr_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{}'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "rr_abc123",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a reconciliation rule {{ tag: 'DELETE', label: '/v1/reconciliation-rules/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a reconciliation rule. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/reconciliation-rules/rr_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/reconciliation-rules/rr_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

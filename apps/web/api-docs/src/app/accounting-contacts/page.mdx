@@ -1,0 +1,198 @@
+# Accounting contacts
+
+Customers and suppliers on invoices and bills (backed by the unified `parties` layer). Mutations require the `accounting_contacts:write` scope; reads require `accounting_contacts:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The accounting contact model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `acn_abc123`).</Property>
+  <Property name="name" type="string">Contact display name.</Property>
+  <Property name="type" type="string">Role: `customer`, `supplier`, or `both`.</Property>
+  <Property name="email" type="string">Email address.</Property>
+  <Property name="phone" type="string">Phone number.</Property>
+  <Property name="taxNumber" type="string">VAT / tax number.</Property>
+  <Property name="createdAt" type="timestamp">When created.</Property>
+  <Property name="updatedAt" type="timestamp">When last updated.</Property>
+</Properties>
+
+---
+
+## List accounting contacts {{ tag: 'GET', label: '/v1/accounting-contacts' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `search`, `role`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/accounting-contacts">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/accounting-contacts \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        { "id": "acn_abc123" }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create an accounting contact {{ tag: 'POST', label: '/v1/accounting-contacts' }}
+
+<Row>
+  <Col>
+
+    Create an accounting contact.
+    
+    ### Required attributes
+    
+    <Properties>
+      <Property name="name" type="string">Contact name.</Property>
+    </Properties>
+    
+    Optional: `type`, `email`, `phone`, `taxNumber`, `isActive`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/accounting-contacts">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/accounting-contacts \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Smith Industries",
+        "type": "customer",
+        "email": "ap@smith.example"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "acn_new456",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve an accounting contact {{ tag: 'GET', label: '/v1/accounting-contacts/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single accounting contact by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/accounting-contacts/acn_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/accounting-contacts/acn_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "acn_abc123"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update an accounting contact {{ tag: 'PATCH', label: '/v1/accounting-contacts/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a accounting contact. Only the fields you send are changed.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/accounting-contacts/acn_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/accounting-contacts/acn_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{}'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "acn_abc123",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete an accounting contact {{ tag: 'DELETE', label: '/v1/accounting-contacts/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a accounting contact. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/accounting-contacts/acn_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/accounting-contacts/acn_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>
