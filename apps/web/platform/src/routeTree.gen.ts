@@ -9,350 +9,349 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as NewChatRouteImport } from './routes/new-chat'
-import { Route as CallRoomRouteImport } from './routes/call-room'
-import { Route as SplatRouteImport } from './routes/$'
-import { Route as WeldstashRouteRouteImport } from './routes/weldstash/route'
-import { Route as WeldmeetRouteRouteImport } from './routes/weldmeet/route'
-import { Route as WeldmailRouteRouteImport } from './routes/weldmail/route'
-import { Route as WeldknowRouteRouteImport } from './routes/weldknow/route'
-import { Route as WeldhostRouteRouteImport } from './routes/weldhost/route'
-import { Route as WeldflowRouteRouteImport } from './routes/weldflow/route'
-import { Route as WelddriveRouteRouteImport } from './routes/welddrive/route'
-import { Route as WelddeskRouteRouteImport } from './routes/welddesk/route'
-import { Route as WelddataRouteRouteImport } from './routes/welddata/route'
-import { Route as WeldcrmRouteRouteImport } from './routes/weldcrm/route'
-import { Route as WeldconnectRouteRouteImport } from './routes/weldconnect/route'
-import { Route as WeldcommerceRouteRouteImport } from './routes/weldcommerce/route'
-import { Route as WeldchatRouteRouteImport } from './routes/weldchat/route'
-import { Route as WeldcallRouteRouteImport } from './routes/weldcall/route'
-import { Route as WeldcalendarRouteRouteImport } from './routes/weldcalendar/route'
-import { Route as WeldbooksRouteRouteImport } from './routes/weldbooks/route'
-import { Route as WeldadsRouteRouteImport } from './routes/weldads/route'
-import { Route as SocialRouteRouteImport } from './routes/social/route'
-import { Route as SettingsRouteRouteImport } from './routes/settings/route'
-import { Route as AuthRouteRouteImport } from './routes/auth/route'
-import { Route as AppstoreRouteRouteImport } from './routes/appstore/route'
-import { Route as AgentsRouteRouteImport } from './routes/agents/route'
-import { Route as DashboardRouteRouteImport } from './routes/_dashboard/route'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as WeldstashIndexRouteImport } from './routes/weldstash/index'
-import { Route as WeldmeetIndexRouteImport } from './routes/weldmeet/index'
-import { Route as WeldmailIndexRouteImport } from './routes/weldmail/index'
-import { Route as WeldknowIndexRouteImport } from './routes/weldknow/index'
-import { Route as WeldhostIndexRouteImport } from './routes/weldhost/index'
-import { Route as WeldflowIndexRouteImport } from './routes/weldflow/index'
-import { Route as WelddriveIndexRouteImport } from './routes/welddrive/index'
-import { Route as WelddeskIndexRouteImport } from './routes/welddesk/index'
-import { Route as WelddataIndexRouteImport } from './routes/welddata/index'
-import { Route as WeldcrmIndexRouteImport } from './routes/weldcrm/index'
-import { Route as WeldconnectIndexRouteImport } from './routes/weldconnect/index'
-import { Route as WeldcommerceIndexRouteImport } from './routes/weldcommerce/index'
-import { Route as WeldchatIndexRouteImport } from './routes/weldchat/index'
-import { Route as WeldcallIndexRouteImport } from './routes/weldcall/index'
-import { Route as WeldcalendarIndexRouteImport } from './routes/weldcalendar/index'
-import { Route as WeldbooksIndexRouteImport } from './routes/weldbooks/index'
-import { Route as WeldadsIndexRouteImport } from './routes/weldads/index'
-import { Route as WelcomeIndexRouteImport } from './routes/welcome/index'
-import { Route as SocialIndexRouteImport } from './routes/social/index'
-import { Route as SettingsIndexRouteImport } from './routes/settings/index'
-import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
-import { Route as InviteIndexRouteImport } from './routes/invite/index'
-import { Route as AppstoreIndexRouteImport } from './routes/appstore/index'
+import { Route as SplatRouteImport } from './routes/$'
+import { Route as DashboardRouteRouteImport } from './routes/_dashboard/route'
+import { Route as AgentsRouteRouteImport } from './routes/agents/route'
+import { Route as AppstoreRouteRouteImport } from './routes/appstore/route'
+import { Route as AuthRouteRouteImport } from './routes/auth/route'
+import { Route as CallRoomRouteImport } from './routes/call-room'
+import { Route as NewChatRouteImport } from './routes/new-chat'
+import { Route as SettingsRouteRouteImport } from './routes/settings/route'
+import { Route as SocialRouteRouteImport } from './routes/social/route'
+import { Route as WeldadsRouteRouteImport } from './routes/weldads/route'
+import { Route as WeldbooksRouteRouteImport } from './routes/weldbooks/route'
+import { Route as WeldcalendarRouteRouteImport } from './routes/weldcalendar/route'
+import { Route as WeldcallRouteRouteImport } from './routes/weldcall/route'
+import { Route as WeldchatRouteRouteImport } from './routes/weldchat/route'
+import { Route as WeldcommerceRouteRouteImport } from './routes/weldcommerce/route'
+import { Route as WeldconnectRouteRouteImport } from './routes/weldconnect/route'
+import { Route as WeldcrmRouteRouteImport } from './routes/weldcrm/route'
+import { Route as WelddataRouteRouteImport } from './routes/welddata/route'
+import { Route as WelddeskRouteRouteImport } from './routes/welddesk/route'
+import { Route as WelddriveRouteRouteImport } from './routes/welddrive/route'
+import { Route as WeldflowRouteRouteImport } from './routes/weldflow/route'
+import { Route as WeldhostRouteRouteImport } from './routes/weldhost/route'
+import { Route as WeldknowRouteRouteImport } from './routes/weldknow/route'
+import { Route as WeldmailRouteRouteImport } from './routes/weldmail/route'
+import { Route as WeldmeetRouteRouteImport } from './routes/weldmeet/route'
+import { Route as WeldstashRouteRouteImport } from './routes/weldstash/route'
 import { Route as AgentsIndexRouteImport } from './routes/agents/index'
-import { Route as WelddeskSplatRouteImport } from './routes/welddesk/$'
-import { Route as WeldchatDraftsRouteImport } from './routes/weldchat/drafts'
-import { Route as WeldchatDirectoriesRouteImport } from './routes/weldchat/directories'
-import { Route as WeldchatActivityRouteImport } from './routes/weldchat/activity'
-import { Route as DocumentsFileIdRouteImport } from './routes/documents/$fileId'
 import { Route as AppsAppCodeRouteImport } from './routes/apps/$appCode'
-import { Route as WeldmailSetupRouteRouteImport } from './routes/weldmail/setup/route'
-import { Route as WeldmailAccountIdRouteRouteImport } from './routes/weldmail/$accountId/route'
-import { Route as WeldcrmPeopleRouteRouteImport } from './routes/weldcrm/people/route'
+import { Route as AppstoreIndexRouteImport } from './routes/appstore/index'
+import { Route as DocumentsFileIdRouteImport } from './routes/documents/$fileId'
+import { Route as InviteIndexRouteImport } from './routes/invite/index'
+import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
+import { Route as SettingsIndexRouteImport } from './routes/settings/index'
+import { Route as SocialIndexRouteImport } from './routes/social/index'
+import { Route as WelcomeIndexRouteImport } from './routes/welcome/index'
+import { Route as WeldadsIndexRouteImport } from './routes/weldads/index'
+import { Route as WeldbooksIndexRouteImport } from './routes/weldbooks/index'
+import { Route as WeldcalendarIndexRouteImport } from './routes/weldcalendar/index'
+import { Route as WeldcallIndexRouteImport } from './routes/weldcall/index'
+import { Route as WeldchatIndexRouteImport } from './routes/weldchat/index'
+import { Route as WeldchatActivityRouteImport } from './routes/weldchat/activity'
+import { Route as WeldchatDirectoriesRouteImport } from './routes/weldchat/directories'
+import { Route as WeldchatDraftsRouteImport } from './routes/weldchat/drafts'
+import { Route as WeldcommerceIndexRouteImport } from './routes/weldcommerce/index'
+import { Route as WeldconnectIndexRouteImport } from './routes/weldconnect/index'
+import { Route as WeldcrmIndexRouteImport } from './routes/weldcrm/index'
 import { Route as WeldcrmCompaniesRouteRouteImport } from './routes/weldcrm/companies/route'
-import { Route as WeldstashWarehousesIndexRouteImport } from './routes/weldstash/warehouses/index'
-import { Route as WeldstashSuppliersIndexRouteImport } from './routes/weldstash/suppliers/index'
-import { Route as WeldstashStockIndexRouteImport } from './routes/weldstash/stock/index'
-import { Route as WeldstashProductsIndexRouteImport } from './routes/weldstash/products/index'
-import { Route as WeldstashPickListsIndexRouteImport } from './routes/weldstash/pick-lists/index'
-import { Route as WeldstashPackingIndexRouteImport } from './routes/weldstash/packing/index'
-import { Route as WeldmeetUpcomingIndexRouteImport } from './routes/weldmeet/upcoming/index'
-import { Route as WeldmeetPeopleIndexRouteImport } from './routes/weldmeet/people/index'
-import { Route as WeldmeetNewIndexRouteImport } from './routes/weldmeet/new/index'
-import { Route as WeldmeetHistoryIndexRouteImport } from './routes/weldmeet/history/index'
-import { Route as WeldmeetMeetingIdIndexRouteImport } from './routes/weldmeet/$meetingId/index'
-import { Route as WeldmailSnoozedIndexRouteImport } from './routes/weldmail/snoozed/index'
-import { Route as WeldmailSetupIndexRouteImport } from './routes/weldmail/setup/index'
-import { Route as WeldmailSearchIndexRouteImport } from './routes/weldmail/search/index'
-import { Route as WeldmailScheduledIndexRouteImport } from './routes/weldmail/scheduled/index'
-import { Route as WeldmailInboxIndexRouteImport } from './routes/weldmail/inbox/index'
-import { Route as WeldmailDomainsIndexRouteImport } from './routes/weldmail/domains/index'
-import { Route as WeldknowTrashIndexRouteImport } from './routes/weldknow/trash/index'
-import { Route as WeldhostDomainsIndexRouteImport } from './routes/weldhost/domains/index'
-import { Route as WeldflowWorkloadIndexRouteImport } from './routes/weldflow/workload/index'
-import { Route as WeldflowWhiteboardIndexRouteImport } from './routes/weldflow/whiteboard/index'
-import { Route as WeldflowTimelineIndexRouteImport } from './routes/weldflow/timeline/index'
-import { Route as WeldflowTableIndexRouteImport } from './routes/weldflow/table/index'
-import { Route as WeldflowSettingsIndexRouteImport } from './routes/weldflow/settings/index'
-import { Route as WeldflowProjectsIndexRouteImport } from './routes/weldflow/projects/index'
-import { Route as WeldflowNotesIndexRouteImport } from './routes/weldflow/notes/index'
-import { Route as WeldflowMyTasksIndexRouteImport } from './routes/weldflow/my-tasks/index'
-import { Route as WeldflowGoalsIndexRouteImport } from './routes/weldflow/goals/index'
-import { Route as WeldflowFilesIndexRouteImport } from './routes/weldflow/files/index'
-import { Route as WeldflowDocumentsIndexRouteImport } from './routes/weldflow/documents/index'
-import { Route as WeldflowAnalyticsIndexRouteImport } from './routes/weldflow/analytics/index'
-import { Route as WelddriveUploadsIndexRouteImport } from './routes/welddrive/uploads/index'
-import { Route as WelddriveTrashIndexRouteImport } from './routes/welddrive/trash/index'
-import { Route as WelddriveStarredIndexRouteImport } from './routes/welddrive/starred/index'
-import { Route as WelddriveSharedIndexRouteImport } from './routes/welddrive/shared/index'
-import { Route as WelddriveRecentIndexRouteImport } from './routes/welddrive/recent/index'
-import { Route as WelddriveAllFilesIndexRouteImport } from './routes/welddrive/all-files/index'
-import { Route as WelddeskInboxIndexRouteImport } from './routes/welddesk/inbox/index'
-import { Route as WelddeskHelpCenterIndexRouteImport } from './routes/welddesk/help-center/index'
-import { Route as WelddeskEmailIndexRouteImport } from './routes/welddesk/email/index'
-import { Route as WelddeskChatWidgetIndexRouteImport } from './routes/welddesk/chat-widget/index'
-import { Route as WeldcrmSequencesIndexRouteImport } from './routes/weldcrm/sequences/index'
-import { Route as WeldcrmPeopleIndexRouteImport } from './routes/weldcrm/people/index'
-import { Route as WeldcrmNotesIndexRouteImport } from './routes/weldcrm/notes/index'
-import { Route as WeldcrmCompaniesIndexRouteImport } from './routes/weldcrm/companies/index'
-import { Route as WeldconnectWorkflowsIndexRouteImport } from './routes/weldconnect/workflows/index'
-import { Route as WeldconnectWebhooksIndexRouteImport } from './routes/weldconnect/webhooks/index'
-import { Route as WeldconnectVariablesIndexRouteImport } from './routes/weldconnect/variables/index'
-import { Route as WeldconnectTriggersIndexRouteImport } from './routes/weldconnect/triggers/index'
-import { Route as WeldconnectTemplatesIndexRouteImport } from './routes/weldconnect/templates/index'
-import { Route as WeldconnectIntegrationsIndexRouteImport } from './routes/weldconnect/integrations/index'
-import { Route as WeldconnectExecutionsIndexRouteImport } from './routes/weldconnect/executions/index'
-import { Route as WeldconnectConnectorsIndexRouteImport } from './routes/weldconnect/connectors/index'
-import { Route as WeldconnectAnalyticsIndexRouteImport } from './routes/weldconnect/analytics/index'
-import { Route as WeldconnectActionsIndexRouteImport } from './routes/weldconnect/actions/index'
-import { Route as WeldcommerceSettingsIndexRouteImport } from './routes/weldcommerce/settings/index'
-import { Route as WeldcommerceProductsIndexRouteImport } from './routes/weldcommerce/products/index'
-import { Route as WeldcommerceOrdersIndexRouteImport } from './routes/weldcommerce/orders/index'
-import { Route as WeldcommerceCustomersIndexRouteImport } from './routes/weldcommerce/customers/index'
-import { Route as WeldcommerceCategoriesIndexRouteImport } from './routes/weldcommerce/categories/index'
-import { Route as WeldchatSearchIndexRouteImport } from './routes/weldchat/search/index'
-import { Route as WeldchatDmIndexRouteImport } from './routes/weldchat/dm/index'
-import { Route as WeldchatBookmarksIndexRouteImport } from './routes/weldchat/bookmarks/index'
-import { Route as WeldchatChannelIdIndexRouteImport } from './routes/weldchat/$channelId/index'
-import { Route as WeldcallNewIndexRouteImport } from './routes/weldcall/new/index'
-import { Route as WeldcallHistoryIndexRouteImport } from './routes/weldcall/history/index'
-import { Route as WeldcallContactsIndexRouteImport } from './routes/weldcall/contacts/index'
-import { Route as WeldcallCallIdIndexRouteImport } from './routes/weldcall/$callId/index'
-import { Route as WeldcalendarSchedulingIndexRouteImport } from './routes/weldcalendar/scheduling/index'
-import { Route as WeldcalendarEventsIndexRouteImport } from './routes/weldcalendar/events/index'
-import { Route as WeldbooksVatIndexRouteImport } from './routes/weldbooks/vat/index'
-import { Route as WeldbooksSuppliersIndexRouteImport } from './routes/weldbooks/suppliers/index'
-import { Route as WeldbooksSettingsIndexRouteImport } from './routes/weldbooks/settings/index'
-import { Route as WeldbooksReportsIndexRouteImport } from './routes/weldbooks/reports/index'
-import { Route as WeldbooksRecurringIndexRouteImport } from './routes/weldbooks/recurring/index'
-import { Route as WeldbooksJournalIndexRouteImport } from './routes/weldbooks/journal/index'
-import { Route as WeldbooksInvoicesIndexRouteImport } from './routes/weldbooks/invoices/index'
-import { Route as WeldbooksEntitiesIndexRouteImport } from './routes/weldbooks/entities/index'
-import { Route as WeldbooksDocumentsIndexRouteImport } from './routes/weldbooks/documents/index'
-import { Route as WeldbooksDashboardIndexRouteImport } from './routes/weldbooks/dashboard/index'
-import { Route as WeldbooksCustomersIndexRouteImport } from './routes/weldbooks/customers/index'
-import { Route as WeldbooksCreditNotesIndexRouteImport } from './routes/weldbooks/credit-notes/index'
-import { Route as WeldbooksBillsIndexRouteImport } from './routes/weldbooks/bills/index'
-import { Route as WeldbooksBankingIndexRouteImport } from './routes/weldbooks/banking/index'
-import { Route as WeldbooksAccountsIndexRouteImport } from './routes/weldbooks/accounts/index'
-import { Route as WeldadsCampaignsIndexRouteImport } from './routes/weldads/campaigns/index'
-import { Route as WeldadsAccountsIndexRouteImport } from './routes/weldads/accounts/index'
-import { Route as SocialTeamIndexRouteImport } from './routes/social/team/index'
-import { Route as SocialSettingsIndexRouteImport } from './routes/social/settings/index'
-import { Route as SocialQueueIndexRouteImport } from './routes/social/queue/index'
-import { Route as SocialDraftsIndexRouteImport } from './routes/social/drafts/index'
-import { Route as SocialDashboardIndexRouteImport } from './routes/social/dashboard/index'
-import { Route as SocialCampaignsIndexRouteImport } from './routes/social/campaigns/index'
-import { Route as SocialCalendarIndexRouteImport } from './routes/social/calendar/index'
-import { Route as SocialApprovalsIndexRouteImport } from './routes/social/approvals/index'
-import { Route as SocialAnalyticsIndexRouteImport } from './routes/social/analytics/index'
-import { Route as SocialAccountsIndexRouteImport } from './routes/social/accounts/index'
-import { Route as SettingsWebhooksIndexRouteImport } from './routes/settings/webhooks/index'
-import { Route as SettingsTeamIndexRouteImport } from './routes/settings/team/index'
-import { Route as SettingsShortcutsIndexRouteImport } from './routes/settings/shortcuts/index'
-import { Route as SettingsSecurityIndexRouteImport } from './routes/settings/security/index'
-import { Route as SettingsRolesIndexRouteImport } from './routes/settings/roles/index'
-import { Route as SettingsPrivacyIndexRouteImport } from './routes/settings/privacy/index'
-import { Route as SettingsPlansIndexRouteImport } from './routes/settings/plans/index'
-import { Route as SettingsObjectTemplatesIndexRouteImport } from './routes/settings/object-templates/index'
-import { Route as SettingsNotificationsIndexRouteImport } from './routes/settings/notifications/index'
-import { Route as SettingsIntegrationsIndexRouteImport } from './routes/settings/integrations/index'
-import { Route as SettingsGeneralIndexRouteImport } from './routes/settings/general/index'
-import { Route as SettingsFeedbackIndexRouteImport } from './routes/settings/feedback/index'
-import { Route as SettingsExportIndexRouteImport } from './routes/settings/export/index'
-import { Route as SettingsDesktopIndexRouteImport } from './routes/settings/desktop/index'
-import { Route as SettingsCustomObjectsIndexRouteImport } from './routes/settings/custom-objects/index'
-import { Route as SettingsCustomFieldsIndexRouteImport } from './routes/settings/custom-fields/index'
-import { Route as SettingsBusinessIndexRouteImport } from './routes/settings/business/index'
-import { Route as SettingsBillingIndexRouteImport } from './routes/settings/billing/index'
-import { Route as SettingsAppearanceIndexRouteImport } from './routes/settings/appearance/index'
-import { Route as SettingsApiKeysIndexRouteImport } from './routes/settings/api-keys/index'
-import { Route as SettingsAdvancedIndexRouteImport } from './routes/settings/advanced/index'
-import { Route as SettingsActivityIndexRouteImport } from './routes/settings/activity/index'
-import { Route as PreviewHelpDocsIndexRouteImport } from './routes/preview/help-docs/index'
-import { Route as ObjectsSlugIndexRouteImport } from './routes/objects/$slug/index'
-import { Route as InviteAcceptIndexRouteImport } from './routes/invite/accept/index'
-import { Route as AuthSsoCallbackIndexRouteImport } from './routes/auth/sso-callback/index'
-import { Route as AuthResetPasswordIndexRouteImport } from './routes/auth/reset-password/index'
-import { Route as AuthForgotPasswordIndexRouteImport } from './routes/auth/forgot-password/index'
-import { Route as AuthErrorIndexRouteImport } from './routes/auth/error/index'
-import { Route as AuthDesktopHandoffIndexRouteImport } from './routes/auth/desktop-handoff/index'
-import { Route as AppstoreCodeIndexRouteImport } from './routes/appstore/$code/index'
-import { Route as AppsManageIndexRouteImport } from './routes/apps/manage/index'
+import { Route as WeldcrmPeopleRouteRouteImport } from './routes/weldcrm/people/route'
+import { Route as WelddataIndexRouteImport } from './routes/welddata/index'
+import { Route as WelddeskIndexRouteImport } from './routes/welddesk/index'
+import { Route as WelddeskSplatRouteImport } from './routes/welddesk/$'
+import { Route as WelddriveIndexRouteImport } from './routes/welddrive/index'
+import { Route as WeldflowIndexRouteImport } from './routes/weldflow/index'
+import { Route as WeldhostIndexRouteImport } from './routes/weldhost/index'
+import { Route as WeldknowIndexRouteImport } from './routes/weldknow/index'
+import { Route as WeldmailIndexRouteImport } from './routes/weldmail/index'
+import { Route as WeldmailAccountIdRouteRouteImport } from './routes/weldmail/$accountId/route'
+import { Route as WeldmailSetupRouteRouteImport } from './routes/weldmail/setup/route'
+import { Route as WeldmeetIndexRouteImport } from './routes/weldmeet/index'
+import { Route as WeldstashIndexRouteImport } from './routes/weldstash/index'
 import { Route as AgentsIdIndexRouteImport } from './routes/agents/$id/index'
-import { Route as WeldmeetJoinJoinCodeRouteImport } from './routes/weldmeet/join/$joinCode'
-import { Route as WeldmeetMeetingIdRoomRouteImport } from './routes/weldmeet/$meetingId/room'
-import { Route as WeldconnectIntegrationsCallbackRouteImport } from './routes/weldconnect/integrations/callback'
-import { Route as WeldconnectConnectorsCallbackRouteImport } from './routes/weldconnect/connectors/callback'
-import { Route as WeldchatDmUserIdRouteImport } from './routes/weldchat/dm/$userId'
-import { Route as SettingsCustomObjectsObjectIdRouteImport } from './routes/settings/custom-objects/$objectId'
-import { Route as SettingsAppsWeldcrmRouteImport } from './routes/settings/apps/weldcrm'
-import { Route as ObjectsSlugRecordIdRouteImport } from './routes/objects/$slug/$recordId'
-import { Route as AuthRegisterSplatRouteImport } from './routes/auth/register/$'
+import { Route as AppsManageIndexRouteImport } from './routes/apps/manage/index'
+import { Route as AppstoreCodeIndexRouteImport } from './routes/appstore/$code/index'
+import { Route as AuthDesktopHandoffIndexRouteImport } from './routes/auth/desktop-handoff/index'
+import { Route as AuthErrorIndexRouteImport } from './routes/auth/error/index'
+import { Route as AuthForgotPasswordIndexRouteImport } from './routes/auth/forgot-password/index'
 import { Route as AuthLoginSplatRouteImport } from './routes/auth/login/$'
-import { Route as WeldmailUnifiedLabelSlugRouteRouteImport } from './routes/weldmail/unified/$labelSlug/route'
-import { Route as WeldmailAccountIdLabelSlugRouteRouteImport } from './routes/weldmail/$accountId/$labelSlug/route'
+import { Route as AuthRegisterSplatRouteImport } from './routes/auth/register/$'
+import { Route as AuthResetPasswordIndexRouteImport } from './routes/auth/reset-password/index'
+import { Route as AuthSsoCallbackIndexRouteImport } from './routes/auth/sso-callback/index'
+import { Route as InviteAcceptIndexRouteImport } from './routes/invite/accept/index'
+import { Route as ObjectsSlugIndexRouteImport } from './routes/objects/$slug/index'
+import { Route as ObjectsSlugRecordIdRouteImport } from './routes/objects/$slug/$recordId'
+import { Route as PreviewHelpDocsIndexRouteImport } from './routes/preview/help-docs/index'
+import { Route as SettingsActivityIndexRouteImport } from './routes/settings/activity/index'
+import { Route as SettingsAdvancedIndexRouteImport } from './routes/settings/advanced/index'
+import { Route as SettingsApiKeysIndexRouteImport } from './routes/settings/api-keys/index'
+import { Route as SettingsAppearanceIndexRouteImport } from './routes/settings/appearance/index'
+import { Route as SettingsAppsWeldcrmRouteImport } from './routes/settings/apps/weldcrm'
+import { Route as SettingsBillingIndexRouteImport } from './routes/settings/billing/index'
+import { Route as SettingsBusinessIndexRouteImport } from './routes/settings/business/index'
+import { Route as SettingsCustomFieldsIndexRouteImport } from './routes/settings/custom-fields/index'
+import { Route as SettingsCustomObjectsIndexRouteImport } from './routes/settings/custom-objects/index'
+import { Route as SettingsCustomObjectsObjectIdRouteImport } from './routes/settings/custom-objects/$objectId'
+import { Route as SettingsDesktopIndexRouteImport } from './routes/settings/desktop/index'
+import { Route as SettingsExportIndexRouteImport } from './routes/settings/export/index'
+import { Route as SettingsFeedbackIndexRouteImport } from './routes/settings/feedback/index'
+import { Route as SettingsGeneralIndexRouteImport } from './routes/settings/general/index'
+import { Route as SettingsIntegrationsIndexRouteImport } from './routes/settings/integrations/index'
+import { Route as SettingsNotificationsIndexRouteImport } from './routes/settings/notifications/index'
+import { Route as SettingsObjectTemplatesIndexRouteImport } from './routes/settings/object-templates/index'
+import { Route as SettingsPlansIndexRouteImport } from './routes/settings/plans/index'
+import { Route as SettingsPrivacyIndexRouteImport } from './routes/settings/privacy/index'
+import { Route as SettingsRolesIndexRouteImport } from './routes/settings/roles/index'
+import { Route as SettingsSecurityIndexRouteImport } from './routes/settings/security/index'
+import { Route as SettingsShortcutsIndexRouteImport } from './routes/settings/shortcuts/index'
+import { Route as SettingsTeamIndexRouteImport } from './routes/settings/team/index'
+import { Route as SettingsWebhooksIndexRouteImport } from './routes/settings/webhooks/index'
+import { Route as SocialAccountsIndexRouteImport } from './routes/social/accounts/index'
+import { Route as SocialAnalyticsIndexRouteImport } from './routes/social/analytics/index'
+import { Route as SocialApprovalsIndexRouteImport } from './routes/social/approvals/index'
+import { Route as SocialCalendarIndexRouteImport } from './routes/social/calendar/index'
+import { Route as SocialCampaignsIndexRouteImport } from './routes/social/campaigns/index'
+import { Route as SocialDashboardIndexRouteImport } from './routes/social/dashboard/index'
+import { Route as SocialDraftsIndexRouteImport } from './routes/social/drafts/index'
+import { Route as SocialQueueIndexRouteImport } from './routes/social/queue/index'
+import { Route as SocialSettingsIndexRouteImport } from './routes/social/settings/index'
+import { Route as SocialTeamIndexRouteImport } from './routes/social/team/index'
+import { Route as WeldadsAccountsIndexRouteImport } from './routes/weldads/accounts/index'
+import { Route as WeldadsCampaignsIndexRouteImport } from './routes/weldads/campaigns/index'
+import { Route as WeldbooksAccountsIndexRouteImport } from './routes/weldbooks/accounts/index'
+import { Route as WeldbooksBankingIndexRouteImport } from './routes/weldbooks/banking/index'
+import { Route as WeldbooksBillsIndexRouteImport } from './routes/weldbooks/bills/index'
+import { Route as WeldbooksCreditNotesIndexRouteImport } from './routes/weldbooks/credit-notes/index'
+import { Route as WeldbooksCustomersIndexRouteImport } from './routes/weldbooks/customers/index'
+import { Route as WeldbooksDashboardIndexRouteImport } from './routes/weldbooks/dashboard/index'
+import { Route as WeldbooksDocumentsIndexRouteImport } from './routes/weldbooks/documents/index'
+import { Route as WeldbooksEntitiesIndexRouteImport } from './routes/weldbooks/entities/index'
+import { Route as WeldbooksInvoicesIndexRouteImport } from './routes/weldbooks/invoices/index'
+import { Route as WeldbooksJournalIndexRouteImport } from './routes/weldbooks/journal/index'
+import { Route as WeldbooksRecurringIndexRouteImport } from './routes/weldbooks/recurring/index'
+import { Route as WeldbooksReportsIndexRouteImport } from './routes/weldbooks/reports/index'
+import { Route as WeldbooksSettingsIndexRouteImport } from './routes/weldbooks/settings/index'
+import { Route as WeldbooksSuppliersIndexRouteImport } from './routes/weldbooks/suppliers/index'
+import { Route as WeldbooksVatIndexRouteImport } from './routes/weldbooks/vat/index'
+import { Route as WeldcalendarEventsIndexRouteImport } from './routes/weldcalendar/events/index'
+import { Route as WeldcalendarSchedulingIndexRouteImport } from './routes/weldcalendar/scheduling/index'
+import { Route as WeldcallCallIdIndexRouteImport } from './routes/weldcall/$callId/index'
+import { Route as WeldcallContactsIndexRouteImport } from './routes/weldcall/contacts/index'
+import { Route as WeldcallHistoryIndexRouteImport } from './routes/weldcall/history/index'
+import { Route as WeldcallNewIndexRouteImport } from './routes/weldcall/new/index'
+import { Route as WeldchatChannelIdIndexRouteImport } from './routes/weldchat/$channelId/index'
+import { Route as WeldchatBookmarksIndexRouteImport } from './routes/weldchat/bookmarks/index'
+import { Route as WeldchatDmIndexRouteImport } from './routes/weldchat/dm/index'
+import { Route as WeldchatDmUserIdRouteImport } from './routes/weldchat/dm/$userId'
+import { Route as WeldchatSearchIndexRouteImport } from './routes/weldchat/search/index'
+import { Route as WeldcommerceCategoriesIndexRouteImport } from './routes/weldcommerce/categories/index'
+import { Route as WeldcommerceCustomersIndexRouteImport } from './routes/weldcommerce/customers/index'
+import { Route as WeldcommerceOrdersIndexRouteImport } from './routes/weldcommerce/orders/index'
+import { Route as WeldcommerceProductsIndexRouteImport } from './routes/weldcommerce/products/index'
+import { Route as WeldcommerceSettingsIndexRouteImport } from './routes/weldcommerce/settings/index'
+import { Route as WeldconnectActionsIndexRouteImport } from './routes/weldconnect/actions/index'
+import { Route as WeldconnectAnalyticsIndexRouteImport } from './routes/weldconnect/analytics/index'
+import { Route as WeldconnectConnectorsIndexRouteImport } from './routes/weldconnect/connectors/index'
+import { Route as WeldconnectConnectorsCallbackRouteImport } from './routes/weldconnect/connectors/callback'
+import { Route as WeldconnectExecutionsIndexRouteImport } from './routes/weldconnect/executions/index'
+import { Route as WeldconnectIntegrationsIndexRouteImport } from './routes/weldconnect/integrations/index'
+import { Route as WeldconnectIntegrationsCallbackRouteImport } from './routes/weldconnect/integrations/callback'
+import { Route as WeldconnectTemplatesIndexRouteImport } from './routes/weldconnect/templates/index'
+import { Route as WeldconnectTriggersIndexRouteImport } from './routes/weldconnect/triggers/index'
+import { Route as WeldconnectVariablesIndexRouteImport } from './routes/weldconnect/variables/index'
+import { Route as WeldconnectWebhooksIndexRouteImport } from './routes/weldconnect/webhooks/index'
+import { Route as WeldconnectWorkflowsIndexRouteImport } from './routes/weldconnect/workflows/index'
+import { Route as WeldcrmCompaniesIndexRouteImport } from './routes/weldcrm/companies/index'
+import { Route as WeldcrmNotesIndexRouteImport } from './routes/weldcrm/notes/index'
+import { Route as WeldcrmPeopleIndexRouteImport } from './routes/weldcrm/people/index'
+import { Route as WeldcrmSequencesIndexRouteImport } from './routes/weldcrm/sequences/index'
+import { Route as WelddeskAiAgentsIndexRouteImport } from './routes/welddesk/ai-agents/index'
+import { Route as WelddeskChatWidgetIndexRouteImport } from './routes/welddesk/chat-widget/index'
+import { Route as WelddeskEmailIndexRouteImport } from './routes/welddesk/email/index'
+import { Route as WelddeskHelpCenterIndexRouteImport } from './routes/welddesk/help-center/index'
+import { Route as WelddeskInboxIndexRouteImport } from './routes/welddesk/inbox/index'
+import { Route as WelddriveAllFilesIndexRouteImport } from './routes/welddrive/all-files/index'
+import { Route as WelddriveRecentIndexRouteImport } from './routes/welddrive/recent/index'
+import { Route as WelddriveSharedIndexRouteImport } from './routes/welddrive/shared/index'
+import { Route as WelddriveStarredIndexRouteImport } from './routes/welddrive/starred/index'
+import { Route as WelddriveTrashIndexRouteImport } from './routes/welddrive/trash/index'
+import { Route as WelddriveUploadsIndexRouteImport } from './routes/welddrive/uploads/index'
+import { Route as WeldflowAnalyticsIndexRouteImport } from './routes/weldflow/analytics/index'
+import { Route as WeldflowDocumentsIndexRouteImport } from './routes/weldflow/documents/index'
+import { Route as WeldflowFilesIndexRouteImport } from './routes/weldflow/files/index'
+import { Route as WeldflowGoalsIndexRouteImport } from './routes/weldflow/goals/index'
+import { Route as WeldflowMyTasksIndexRouteImport } from './routes/weldflow/my-tasks/index'
+import { Route as WeldflowNotesIndexRouteImport } from './routes/weldflow/notes/index'
 import { Route as WeldflowProjectProjectIdRouteRouteImport } from './routes/weldflow/project/$projectId/route'
-import { Route as WeldmailUnifiedLabelSlugIndexRouteImport } from './routes/weldmail/unified/$labelSlug/index'
-import { Route as WeldmailSettingsLabelsIndexRouteImport } from './routes/weldmail/settings/labels/index'
-import { Route as WeldmailSettingsAccountsIndexRouteImport } from './routes/weldmail/settings/accounts/index'
-import { Route as WeldmailInboxComposeIndexRouteImport } from './routes/weldmail/inbox/compose/index'
-import { Route as WeldmailAiSummaryIndexRouteImport } from './routes/weldmail/ai/summary/index'
-import { Route as WeldmailAiSmartReplyIndexRouteImport } from './routes/weldmail/ai/smart-reply/index'
-import { Route as WeldmailAccountIdLabelSlugIndexRouteImport } from './routes/weldmail/$accountId/$labelSlug/index'
-import { Route as WeldknowPagePageIdIndexRouteImport } from './routes/weldknow/page/$pageId/index'
-import { Route as WeldhostDomainsSearchIndexRouteImport } from './routes/weldhost/domains/search/index'
-import { Route as WeldhostDomainsRegisterIndexRouteImport } from './routes/weldhost/domains/register/index'
-import { Route as WeldhostDomainsExternalIndexRouteImport } from './routes/weldhost/domains/external/index'
-import { Route as WeldhostDomainsIdIndexRouteImport } from './routes/weldhost/domains/$id/index'
-import { Route as WeldflowSpaceSpaceIdIndexRouteImport } from './routes/weldflow/space/$spaceId/index'
-import { Route as WeldflowProjectProjectIdIndexRouteImport } from './routes/weldflow/project/$projectId/index'
-import { Route as WeldflowAnalyticsBuilderIndexRouteImport } from './routes/weldflow/analytics/builder/index'
-import { Route as WeldflowAnalyticsIdIndexRouteImport } from './routes/weldflow/analytics/$id/index'
-import { Route as WelddeskInboxConversationIdIndexRouteImport } from './routes/welddesk/inbox/$conversationId/index'
-import { Route as WelddeskHelpCenterArticlesIndexRouteImport } from './routes/welddesk/help-center/articles/index'
-import { Route as WelddeskChatWidgetWidgetIdIndexRouteImport } from './routes/welddesk/chat-widget/$widgetId/index'
-import { Route as WelddataListsIdIndexRouteImport } from './routes/welddata/lists/$id/index'
-import { Route as WeldcrmSequencesIdIndexRouteImport } from './routes/weldcrm/sequences/$id/index'
-import { Route as WeldcrmPipelineIdIndexRouteImport } from './routes/weldcrm/pipeline/$id/index'
-import { Route as WeldcrmListsListIdIndexRouteImport } from './routes/weldcrm/lists/$listId/index'
-import { Route as WeldcrmCompaniesListsIndexRouteImport } from './routes/weldcrm/companies/lists/index'
-import { Route as WeldconnectWorkflowsIdIndexRouteImport } from './routes/weldconnect/workflows/$id/index'
-import { Route as WeldconnectWebhooksIdIndexRouteImport } from './routes/weldconnect/webhooks/$id/index'
-import { Route as WeldconnectExecutionsIdIndexRouteImport } from './routes/weldconnect/executions/$id/index'
-import { Route as WeldcalendarSchedulingNewIndexRouteImport } from './routes/weldcalendar/scheduling/new/index'
-import { Route as WeldcalendarSchedulingIdIndexRouteImport } from './routes/weldcalendar/scheduling/$id/index'
-import { Route as WeldbooksVatIdIndexRouteImport } from './routes/weldbooks/vat/$id/index'
-import { Route as WeldbooksReportsTrialBalanceIndexRouteImport } from './routes/weldbooks/reports/trial-balance/index'
-import { Route as WeldbooksReportsProfitLossIndexRouteImport } from './routes/weldbooks/reports/profit-loss/index'
-import { Route as WeldbooksReportsGeneralLedgerIndexRouteImport } from './routes/weldbooks/reports/general-ledger/index'
-import { Route as WeldbooksReportsCashFlowIndexRouteImport } from './routes/weldbooks/reports/cash-flow/index'
-import { Route as WeldbooksReportsBalanceSheetIndexRouteImport } from './routes/weldbooks/reports/balance-sheet/index'
-import { Route as WeldbooksReportsAgedReceivablesIndexRouteImport } from './routes/weldbooks/reports/aged-receivables/index'
-import { Route as WeldbooksReportsAgedPayablesIndexRouteImport } from './routes/weldbooks/reports/aged-payables/index'
-import { Route as WeldbooksRecurringAddIndexRouteImport } from './routes/weldbooks/recurring/add/index'
-import { Route as WeldbooksRecurringIdIndexRouteImport } from './routes/weldbooks/recurring/$id/index'
-import { Route as WeldbooksJournalAddIndexRouteImport } from './routes/weldbooks/journal/add/index'
-import { Route as WeldbooksJournalIdIndexRouteImport } from './routes/weldbooks/journal/$id/index'
-import { Route as WeldbooksInvoicesAddIndexRouteImport } from './routes/weldbooks/invoices/add/index'
-import { Route as WeldbooksInvoicesIdIndexRouteImport } from './routes/weldbooks/invoices/$id/index'
-import { Route as WeldbooksEntitiesAddIndexRouteImport } from './routes/weldbooks/entities/add/index'
-import { Route as WeldbooksCustomersAddIndexRouteImport } from './routes/weldbooks/customers/add/index'
-import { Route as WeldbooksCustomersIdIndexRouteImport } from './routes/weldbooks/customers/$id/index'
-import { Route as WeldbooksBillsAddIndexRouteImport } from './routes/weldbooks/bills/add/index'
-import { Route as WeldbooksBillsIdIndexRouteImport } from './routes/weldbooks/bills/$id/index'
-import { Route as WeldbooksBankingTransactionsIndexRouteImport } from './routes/weldbooks/banking/transactions/index'
-import { Route as WeldbooksBankingRulesIndexRouteImport } from './routes/weldbooks/banking/rules/index'
-import { Route as WeldbooksBankingReconciliationIndexRouteImport } from './routes/weldbooks/banking/reconciliation/index'
-import { Route as WeldbooksBankingImportIndexRouteImport } from './routes/weldbooks/banking/import/index'
-import { Route as WeldbooksBankingIdIndexRouteImport } from './routes/weldbooks/banking/$id/index'
-import { Route as WeldbooksAccountsAddIndexRouteImport } from './routes/weldbooks/accounts/add/index'
-import { Route as WeldbooksAccountsIdIndexRouteImport } from './routes/weldbooks/accounts/$id/index'
-import { Route as WeldadsConnectCallbackIndexRouteImport } from './routes/weldads/connect/callback/index'
-import { Route as SettingsTeamMemberIdIndexRouteImport } from './routes/settings/team/$memberId/index'
-import { Route as SettingsRolesRoleIdIndexRouteImport } from './routes/settings/roles/$roleId/index'
-import { Route as SettingsIntegrationsSlackIndexRouteImport } from './routes/settings/integrations/slack/index'
-import { Route as SettingsIntegrationsSendcloudIndexRouteImport } from './routes/settings/integrations/sendcloud/index'
-import { Route as SettingsIntegrationsSalesforceIndexRouteImport } from './routes/settings/integrations/salesforce/index'
-import { Route as SettingsIntegrationsMoneybirdIndexRouteImport } from './routes/settings/integrations/moneybird/index'
-import { Route as SettingsIntegrationsMcpServersIndexRouteImport } from './routes/settings/integrations/mcp-servers/index'
-import { Route as SettingsIntegrationsHubspotIndexRouteImport } from './routes/settings/integrations/hubspot/index'
-import { Route as SettingsIntegrationsGoogleCalendarIndexRouteImport } from './routes/settings/integrations/google-calendar/index'
-import { Route as SettingsIntegrationsGithubIndexRouteImport } from './routes/settings/integrations/github/index'
-import { Route as SettingsIntegrationsDiscordIndexRouteImport } from './routes/settings/integrations/discord/index'
-import { Route as SettingsIntegrationsCrmSyncIndexRouteImport } from './routes/settings/integrations/crm-sync/index'
-import { Route as SettingsIntegrationsAttioIndexRouteImport } from './routes/settings/integrations/attio/index'
-import { Route as SettingsIntegrationsIdIndexRouteImport } from './routes/settings/integrations/$id/index'
-import { Route as SettingsAppsWeldsuiteIndexRouteImport } from './routes/settings/apps/weldsuite/index'
-import { Route as SettingsAppsWeldmailIndexRouteImport } from './routes/settings/apps/weldmail/index'
-import { Route as SettingsAppsWelddeskIndexRouteImport } from './routes/settings/apps/welddesk/index'
-import { Route as SettingsAppsPhoneNumbersIndexRouteImport } from './routes/settings/apps/phone-numbers/index'
-import { Route as DashboardCheckoutSuccessIndexRouteImport } from './routes/_dashboard/checkout/success/index'
+import { Route as WeldflowProjectsIndexRouteImport } from './routes/weldflow/projects/index'
+import { Route as WeldflowSettingsIndexRouteImport } from './routes/weldflow/settings/index'
+import { Route as WeldflowTableIndexRouteImport } from './routes/weldflow/table/index'
+import { Route as WeldflowTimelineIndexRouteImport } from './routes/weldflow/timeline/index'
+import { Route as WeldflowWhiteboardIndexRouteImport } from './routes/weldflow/whiteboard/index'
+import { Route as WeldflowWorkloadIndexRouteImport } from './routes/weldflow/workload/index'
+import { Route as WeldhostDomainsIndexRouteImport } from './routes/weldhost/domains/index'
+import { Route as WeldknowTrashIndexRouteImport } from './routes/weldknow/trash/index'
+import { Route as WeldmailAccountIdLabelSlugRouteRouteImport } from './routes/weldmail/$accountId/$labelSlug/route'
+import { Route as WeldmailDomainsIndexRouteImport } from './routes/weldmail/domains/index'
+import { Route as WeldmailInboxIndexRouteImport } from './routes/weldmail/inbox/index'
+import { Route as WeldmailScheduledIndexRouteImport } from './routes/weldmail/scheduled/index'
+import { Route as WeldmailSearchIndexRouteImport } from './routes/weldmail/search/index'
+import { Route as WeldmailSetupIndexRouteImport } from './routes/weldmail/setup/index'
+import { Route as WeldmailSnoozedIndexRouteImport } from './routes/weldmail/snoozed/index'
+import { Route as WeldmailUnifiedLabelSlugRouteRouteImport } from './routes/weldmail/unified/$labelSlug/route'
+import { Route as WeldmeetMeetingIdIndexRouteImport } from './routes/weldmeet/$meetingId/index'
+import { Route as WeldmeetMeetingIdRoomRouteImport } from './routes/weldmeet/$meetingId/room'
+import { Route as WeldmeetHistoryIndexRouteImport } from './routes/weldmeet/history/index'
+import { Route as WeldmeetJoinJoinCodeRouteImport } from './routes/weldmeet/join/$joinCode'
+import { Route as WeldmeetNewIndexRouteImport } from './routes/weldmeet/new/index'
+import { Route as WeldmeetPeopleIndexRouteImport } from './routes/weldmeet/people/index'
+import { Route as WeldmeetUpcomingIndexRouteImport } from './routes/weldmeet/upcoming/index'
+import { Route as WeldstashPackingIndexRouteImport } from './routes/weldstash/packing/index'
+import { Route as WeldstashPickListsIndexRouteImport } from './routes/weldstash/pick-lists/index'
+import { Route as WeldstashProductsIndexRouteImport } from './routes/weldstash/products/index'
+import { Route as WeldstashStockIndexRouteImport } from './routes/weldstash/stock/index'
+import { Route as WeldstashSuppliersIndexRouteImport } from './routes/weldstash/suppliers/index'
+import { Route as WeldstashWarehousesIndexRouteImport } from './routes/weldstash/warehouses/index'
 import { Route as DashboardCheckoutCancelIndexRouteImport } from './routes/_dashboard/checkout/cancel/index'
-import { Route as WeldchatDmGroupChannelIdRouteImport } from './routes/weldchat/dm/group/$channelId'
-import { Route as WeldchatChannelIdThreadMessageIdRouteImport } from './routes/weldchat/$channelId/thread/$messageId'
-import { Route as SettingsIntegrationsHubspotCallbackRouteImport } from './routes/settings/integrations/hubspot/callback'
-import { Route as SettingsIntegrationsGoogleCalendarCallbackRouteImport } from './routes/settings/integrations/google-calendar/callback'
-import { Route as SettingsIntegrationsAttioCallbackRouteImport } from './routes/settings/integrations/attio/callback'
-import { Route as AuthRegisterTasksSplatRouteImport } from './routes/auth/register/tasks/$'
+import { Route as DashboardCheckoutSuccessIndexRouteImport } from './routes/_dashboard/checkout/success/index'
 import { Route as AuthLoginTasksSplatRouteImport } from './routes/auth/login/tasks/$'
-import { Route as WeldmailUnifiedLabelSlugComposeIndexRouteImport } from './routes/weldmail/unified/$labelSlug/compose/index'
-import { Route as WeldmailUnifiedLabelSlugMessageIdIndexRouteImport } from './routes/weldmail/unified/$labelSlug/$messageId/index'
-import { Route as WeldmailAccountIdLabelSlugComposeIndexRouteImport } from './routes/weldmail/$accountId/$labelSlug/compose/index'
-import { Route as WeldmailAccountIdLabelSlugMessageIdIndexRouteImport } from './routes/weldmail/$accountId/$labelSlug/$messageId/index'
-import { Route as WeldhostDomainsPurchaseSuccessIndexRouteImport } from './routes/weldhost/domains/purchase/success/index'
-import { Route as WeldhostDomainsPurchaseCancelIndexRouteImport } from './routes/weldhost/domains/purchase/cancel/index'
-import { Route as WeldflowSpaceSpaceIdModuleTypeIndexRouteImport } from './routes/weldflow/space/$spaceId/$moduleType/index'
-import { Route as WeldflowProjectProjectIdWorkloadIndexRouteImport } from './routes/weldflow/project/$projectId/workload/index'
-import { Route as WeldflowProjectProjectIdWhiteboardIndexRouteImport } from './routes/weldflow/project/$projectId/whiteboard/index'
-import { Route as WeldflowProjectProjectIdTimesheetIndexRouteImport } from './routes/weldflow/project/$projectId/timesheet/index'
-import { Route as WeldflowProjectProjectIdTimelineIndexRouteImport } from './routes/weldflow/project/$projectId/timeline/index'
-import { Route as WeldflowProjectProjectIdTasksIndexRouteImport } from './routes/weldflow/project/$projectId/tasks/index'
-import { Route as WeldflowProjectProjectIdTableIndexRouteImport } from './routes/weldflow/project/$projectId/table/index'
-import { Route as WeldflowProjectProjectIdSettingsIndexRouteImport } from './routes/weldflow/project/$projectId/settings/index'
-import { Route as WeldflowProjectProjectIdPipelineIndexRouteImport } from './routes/weldflow/project/$projectId/pipeline/index'
-import { Route as WeldflowProjectProjectIdMessagesIndexRouteImport } from './routes/weldflow/project/$projectId/messages/index'
-import { Route as WeldflowProjectProjectIdMembersIndexRouteImport } from './routes/weldflow/project/$projectId/members/index'
-import { Route as WeldflowProjectProjectIdListIndexRouteImport } from './routes/weldflow/project/$projectId/list/index'
-import { Route as WeldflowProjectProjectIdGoalsIndexRouteImport } from './routes/weldflow/project/$projectId/goals/index'
-import { Route as WeldflowProjectProjectIdGanttIndexRouteImport } from './routes/weldflow/project/$projectId/gantt/index'
-import { Route as WeldflowProjectProjectIdFilesIndexRouteImport } from './routes/weldflow/project/$projectId/files/index'
-import { Route as WeldflowProjectProjectIdDocumentsIndexRouteImport } from './routes/weldflow/project/$projectId/documents/index'
-import { Route as WeldflowProjectProjectIdCalendarIndexRouteImport } from './routes/weldflow/project/$projectId/calendar/index'
-import { Route as WeldflowProjectProjectIdAnalyticsIndexRouteImport } from './routes/weldflow/project/$projectId/analytics/index'
-import { Route as WelddeskHelpCenterArticlesIdIndexRouteImport } from './routes/welddesk/help-center/articles/$id/index'
-import { Route as WeldcrmSequencesIdSettingsIndexRouteImport } from './routes/weldcrm/sequences/$id/settings/index'
-import { Route as WeldcrmSequencesIdPeopleIndexRouteImport } from './routes/weldcrm/sequences/$id/people/index'
-import { Route as WeldcrmSequencesIdEditIndexRouteImport } from './routes/weldcrm/sequences/$id/edit/index'
-import { Route as WeldcrmCompaniesListsIdIndexRouteImport } from './routes/weldcrm/companies/lists/$id/index'
-import { Route as WeldconnectWorkflowsIdSettingsIndexRouteImport } from './routes/weldconnect/workflows/$id/settings/index'
-import { Route as WeldconnectWorkflowsIdEditIndexRouteImport } from './routes/weldconnect/workflows/$id/edit/index'
-import { Route as WeldconnectTemplatesIdEditIndexRouteImport } from './routes/weldconnect/templates/$id/edit/index'
-import { Route as WeldcalendarSchedulingIdViewIndexRouteImport } from './routes/weldcalendar/scheduling/$id/view/index'
-import { Route as WeldcalendarSchedulingIdEditIndexRouteImport } from './routes/weldcalendar/scheduling/$id/edit/index'
-import { Route as WeldbooksInvoicesIdEditIndexRouteImport } from './routes/weldbooks/invoices/$id/edit/index'
-import { Route as WeldbooksCustomersIdEditIndexRouteImport } from './routes/weldbooks/customers/$id/edit/index'
-import { Route as WeldbooksBillsIdEditIndexRouteImport } from './routes/weldbooks/bills/$id/edit/index'
-import { Route as WeldbooksAccountsIdEditIndexRouteImport } from './routes/weldbooks/accounts/$id/edit/index'
-import { Route as SettingsAppsPhoneNumbersPortIndexRouteImport } from './routes/settings/apps/phone-numbers/port/index'
+import { Route as AuthRegisterTasksSplatRouteImport } from './routes/auth/register/tasks/$'
+import { Route as SettingsAppsPhoneNumbersIndexRouteImport } from './routes/settings/apps/phone-numbers/index'
+import { Route as SettingsAppsWelddeskIndexRouteImport } from './routes/settings/apps/welddesk/index'
+import { Route as SettingsAppsWeldmailIndexRouteImport } from './routes/settings/apps/weldmail/index'
+import { Route as SettingsAppsWeldsuiteIndexRouteImport } from './routes/settings/apps/weldsuite/index'
+import { Route as SettingsIntegrationsIdIndexRouteImport } from './routes/settings/integrations/$id/index'
+import { Route as SettingsIntegrationsAttioIndexRouteImport } from './routes/settings/integrations/attio/index'
+import { Route as SettingsIntegrationsAttioCallbackRouteImport } from './routes/settings/integrations/attio/callback'
+import { Route as SettingsIntegrationsCrmSyncIndexRouteImport } from './routes/settings/integrations/crm-sync/index'
+import { Route as SettingsIntegrationsDiscordIndexRouteImport } from './routes/settings/integrations/discord/index'
+import { Route as SettingsIntegrationsGithubIndexRouteImport } from './routes/settings/integrations/github/index'
+import { Route as SettingsIntegrationsGoogleCalendarIndexRouteImport } from './routes/settings/integrations/google-calendar/index'
+import { Route as SettingsIntegrationsGoogleCalendarCallbackRouteImport } from './routes/settings/integrations/google-calendar/callback'
+import { Route as SettingsIntegrationsHubspotIndexRouteImport } from './routes/settings/integrations/hubspot/index'
+import { Route as SettingsIntegrationsHubspotCallbackRouteImport } from './routes/settings/integrations/hubspot/callback'
+import { Route as SettingsIntegrationsMcpServersIndexRouteImport } from './routes/settings/integrations/mcp-servers/index'
+import { Route as SettingsIntegrationsMoneybirdIndexRouteImport } from './routes/settings/integrations/moneybird/index'
+import { Route as SettingsIntegrationsSalesforceIndexRouteImport } from './routes/settings/integrations/salesforce/index'
+import { Route as SettingsIntegrationsSendcloudIndexRouteImport } from './routes/settings/integrations/sendcloud/index'
+import { Route as SettingsIntegrationsSlackIndexRouteImport } from './routes/settings/integrations/slack/index'
+import { Route as SettingsRolesRoleIdIndexRouteImport } from './routes/settings/roles/$roleId/index'
+import { Route as SettingsTeamMemberIdIndexRouteImport } from './routes/settings/team/$memberId/index'
+import { Route as WeldadsConnectCallbackIndexRouteImport } from './routes/weldads/connect/callback/index'
+import { Route as WeldbooksAccountsIdIndexRouteImport } from './routes/weldbooks/accounts/$id/index'
+import { Route as WeldbooksAccountsAddIndexRouteImport } from './routes/weldbooks/accounts/add/index'
+import { Route as WeldbooksBankingIdIndexRouteImport } from './routes/weldbooks/banking/$id/index'
+import { Route as WeldbooksBankingImportIndexRouteImport } from './routes/weldbooks/banking/import/index'
+import { Route as WeldbooksBankingReconciliationIndexRouteImport } from './routes/weldbooks/banking/reconciliation/index'
+import { Route as WeldbooksBankingRulesIndexRouteImport } from './routes/weldbooks/banking/rules/index'
+import { Route as WeldbooksBankingTransactionsIndexRouteImport } from './routes/weldbooks/banking/transactions/index'
+import { Route as WeldbooksBillsIdIndexRouteImport } from './routes/weldbooks/bills/$id/index'
+import { Route as WeldbooksBillsAddIndexRouteImport } from './routes/weldbooks/bills/add/index'
+import { Route as WeldbooksCustomersIdIndexRouteImport } from './routes/weldbooks/customers/$id/index'
+import { Route as WeldbooksCustomersAddIndexRouteImport } from './routes/weldbooks/customers/add/index'
+import { Route as WeldbooksEntitiesAddIndexRouteImport } from './routes/weldbooks/entities/add/index'
+import { Route as WeldbooksInvoicesIdIndexRouteImport } from './routes/weldbooks/invoices/$id/index'
+import { Route as WeldbooksInvoicesAddIndexRouteImport } from './routes/weldbooks/invoices/add/index'
+import { Route as WeldbooksJournalIdIndexRouteImport } from './routes/weldbooks/journal/$id/index'
+import { Route as WeldbooksJournalAddIndexRouteImport } from './routes/weldbooks/journal/add/index'
+import { Route as WeldbooksRecurringIdIndexRouteImport } from './routes/weldbooks/recurring/$id/index'
+import { Route as WeldbooksRecurringAddIndexRouteImport } from './routes/weldbooks/recurring/add/index'
+import { Route as WeldbooksReportsAgedPayablesIndexRouteImport } from './routes/weldbooks/reports/aged-payables/index'
+import { Route as WeldbooksReportsAgedReceivablesIndexRouteImport } from './routes/weldbooks/reports/aged-receivables/index'
+import { Route as WeldbooksReportsBalanceSheetIndexRouteImport } from './routes/weldbooks/reports/balance-sheet/index'
+import { Route as WeldbooksReportsCashFlowIndexRouteImport } from './routes/weldbooks/reports/cash-flow/index'
+import { Route as WeldbooksReportsGeneralLedgerIndexRouteImport } from './routes/weldbooks/reports/general-ledger/index'
+import { Route as WeldbooksReportsProfitLossIndexRouteImport } from './routes/weldbooks/reports/profit-loss/index'
+import { Route as WeldbooksReportsTrialBalanceIndexRouteImport } from './routes/weldbooks/reports/trial-balance/index'
+import { Route as WeldbooksVatIdIndexRouteImport } from './routes/weldbooks/vat/$id/index'
+import { Route as WeldcalendarSchedulingIdIndexRouteImport } from './routes/weldcalendar/scheduling/$id/index'
+import { Route as WeldcalendarSchedulingNewIndexRouteImport } from './routes/weldcalendar/scheduling/new/index'
+import { Route as WeldchatChannelIdThreadMessageIdRouteImport } from './routes/weldchat/$channelId/thread/$messageId'
+import { Route as WeldchatDmGroupChannelIdRouteImport } from './routes/weldchat/dm/group/$channelId'
+import { Route as WeldconnectExecutionsIdIndexRouteImport } from './routes/weldconnect/executions/$id/index'
+import { Route as WeldconnectWebhooksIdIndexRouteImport } from './routes/weldconnect/webhooks/$id/index'
+import { Route as WeldconnectWorkflowsIdIndexRouteImport } from './routes/weldconnect/workflows/$id/index'
+import { Route as WeldcrmCompaniesListsIndexRouteImport } from './routes/weldcrm/companies/lists/index'
+import { Route as WeldcrmListsListIdIndexRouteImport } from './routes/weldcrm/lists/$listId/index'
+import { Route as WeldcrmPipelineIdIndexRouteImport } from './routes/weldcrm/pipeline/$id/index'
+import { Route as WeldcrmSequencesIdIndexRouteImport } from './routes/weldcrm/sequences/$id/index'
+import { Route as WelddataListsIdIndexRouteImport } from './routes/welddata/lists/$id/index'
+import { Route as WelddeskChatWidgetWidgetIdIndexRouteImport } from './routes/welddesk/chat-widget/$widgetId/index'
+import { Route as WelddeskHelpCenterArticlesIndexRouteImport } from './routes/welddesk/help-center/articles/index'
+import { Route as WelddeskInboxConversationIdIndexRouteImport } from './routes/welddesk/inbox/$conversationId/index'
+import { Route as WelddeskInboxPhoneIndexRouteImport } from './routes/welddesk/inbox/phone/index'
+import { Route as WelddeskSettingsPhoneIndexRouteImport } from './routes/welddesk/settings/phone/index'
+import { Route as WeldflowAnalyticsIdIndexRouteImport } from './routes/weldflow/analytics/$id/index'
+import { Route as WeldflowAnalyticsBuilderIndexRouteImport } from './routes/weldflow/analytics/builder/index'
+import { Route as WeldflowProjectProjectIdIndexRouteImport } from './routes/weldflow/project/$projectId/index'
+import { Route as WeldflowSpaceSpaceIdIndexRouteImport } from './routes/weldflow/space/$spaceId/index'
+import { Route as WeldhostDomainsIdIndexRouteImport } from './routes/weldhost/domains/$id/index'
+import { Route as WeldhostDomainsExternalIndexRouteImport } from './routes/weldhost/domains/external/index'
+import { Route as WeldhostDomainsRegisterIndexRouteImport } from './routes/weldhost/domains/register/index'
+import { Route as WeldhostDomainsSearchIndexRouteImport } from './routes/weldhost/domains/search/index'
+import { Route as WeldknowPagePageIdIndexRouteImport } from './routes/weldknow/page/$pageId/index'
+import { Route as WeldmailAccountIdLabelSlugIndexRouteImport } from './routes/weldmail/$accountId/$labelSlug/index'
+import { Route as WeldmailAiSmartReplyIndexRouteImport } from './routes/weldmail/ai/smart-reply/index'
+import { Route as WeldmailAiSummaryIndexRouteImport } from './routes/weldmail/ai/summary/index'
+import { Route as WeldmailInboxComposeIndexRouteImport } from './routes/weldmail/inbox/compose/index'
+import { Route as WeldmailSettingsAccountsIndexRouteImport } from './routes/weldmail/settings/accounts/index'
+import { Route as WeldmailSettingsLabelsIndexRouteImport } from './routes/weldmail/settings/labels/index'
+import { Route as WeldmailUnifiedLabelSlugIndexRouteImport } from './routes/weldmail/unified/$labelSlug/index'
 import { Route as SettingsAppsPhoneNumbersNewNumberIndexRouteImport } from './routes/settings/apps/phone-numbers/new-number/index'
-import { Route as WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRouteImport } from './routes/weldflow/project/$projectId/whiteboard/$whiteboardId/index'
-import { Route as WeldflowProjectProjectIdTableFileIdIndexRouteImport } from './routes/weldflow/project/$projectId/table/$fileId/index'
-import { Route as WeldflowProjectProjectIdMembersMemberIdIndexRouteImport } from './routes/weldflow/project/$projectId/members/$memberId/index'
-import { Route as WeldflowProjectProjectIdDocumentsFileIdIndexRouteImport } from './routes/weldflow/project/$projectId/documents/$fileId/index'
-import { Route as WeldflowProjectProjectIdAnalyticsBuilderIndexRouteImport } from './routes/weldflow/project/$projectId/analytics/builder/index'
-import { Route as WeldflowProjectProjectIdAnalyticsIdIndexRouteImport } from './routes/weldflow/project/$projectId/analytics/$id/index'
-import { Route as WelddeskHelpCenterArticlesIdEditIndexRouteImport } from './routes/welddesk/help-center/articles/$id/edit/index'
+import { Route as SettingsAppsPhoneNumbersPortIndexRouteImport } from './routes/settings/apps/phone-numbers/port/index'
+import { Route as WeldbooksAccountsIdEditIndexRouteImport } from './routes/weldbooks/accounts/$id/edit/index'
+import { Route as WeldbooksBillsIdEditIndexRouteImport } from './routes/weldbooks/bills/$id/edit/index'
+import { Route as WeldbooksCustomersIdEditIndexRouteImport } from './routes/weldbooks/customers/$id/edit/index'
+import { Route as WeldbooksInvoicesIdEditIndexRouteImport } from './routes/weldbooks/invoices/$id/edit/index'
+import { Route as WeldcalendarSchedulingIdEditIndexRouteImport } from './routes/weldcalendar/scheduling/$id/edit/index'
+import { Route as WeldcalendarSchedulingIdViewIndexRouteImport } from './routes/weldcalendar/scheduling/$id/view/index'
+import { Route as WeldconnectTemplatesIdEditIndexRouteImport } from './routes/weldconnect/templates/$id/edit/index'
+import { Route as WeldconnectWorkflowsIdEditIndexRouteImport } from './routes/weldconnect/workflows/$id/edit/index'
+import { Route as WeldconnectWorkflowsIdSettingsIndexRouteImport } from './routes/weldconnect/workflows/$id/settings/index'
+import { Route as WeldcrmCompaniesListsIdIndexRouteImport } from './routes/weldcrm/companies/lists/$id/index'
+import { Route as WeldcrmSequencesIdEditIndexRouteImport } from './routes/weldcrm/sequences/$id/edit/index'
+import { Route as WeldcrmSequencesIdPeopleIndexRouteImport } from './routes/weldcrm/sequences/$id/people/index'
+import { Route as WeldcrmSequencesIdSettingsIndexRouteImport } from './routes/weldcrm/sequences/$id/settings/index'
+import { Route as WelddeskHelpCenterArticlesIdIndexRouteImport } from './routes/welddesk/help-center/articles/$id/index'
+import { Route as WelddeskInboxPhoneConversationIdIndexRouteImport } from './routes/welddesk/inbox/phone/$conversationId/index'
+import { Route as WeldflowProjectProjectIdAnalyticsIndexRouteImport } from './routes/weldflow/project/$projectId/analytics/index'
+import { Route as WeldflowProjectProjectIdCalendarIndexRouteImport } from './routes/weldflow/project/$projectId/calendar/index'
+import { Route as WeldflowProjectProjectIdDocumentsIndexRouteImport } from './routes/weldflow/project/$projectId/documents/index'
+import { Route as WeldflowProjectProjectIdFilesIndexRouteImport } from './routes/weldflow/project/$projectId/files/index'
+import { Route as WeldflowProjectProjectIdGanttIndexRouteImport } from './routes/weldflow/project/$projectId/gantt/index'
+import { Route as WeldflowProjectProjectIdGoalsIndexRouteImport } from './routes/weldflow/project/$projectId/goals/index'
+import { Route as WeldflowProjectProjectIdListIndexRouteImport } from './routes/weldflow/project/$projectId/list/index'
+import { Route as WeldflowProjectProjectIdMembersIndexRouteImport } from './routes/weldflow/project/$projectId/members/index'
+import { Route as WeldflowProjectProjectIdMessagesIndexRouteImport } from './routes/weldflow/project/$projectId/messages/index'
+import { Route as WeldflowProjectProjectIdPipelineIndexRouteImport } from './routes/weldflow/project/$projectId/pipeline/index'
+import { Route as WeldflowProjectProjectIdSettingsIndexRouteImport } from './routes/weldflow/project/$projectId/settings/index'
+import { Route as WeldflowProjectProjectIdTableIndexRouteImport } from './routes/weldflow/project/$projectId/table/index'
+import { Route as WeldflowProjectProjectIdTasksIndexRouteImport } from './routes/weldflow/project/$projectId/tasks/index'
+import { Route as WeldflowProjectProjectIdTimelineIndexRouteImport } from './routes/weldflow/project/$projectId/timeline/index'
+import { Route as WeldflowProjectProjectIdTimesheetIndexRouteImport } from './routes/weldflow/project/$projectId/timesheet/index'
+import { Route as WeldflowProjectProjectIdWhiteboardIndexRouteImport } from './routes/weldflow/project/$projectId/whiteboard/index'
+import { Route as WeldflowProjectProjectIdWorkloadIndexRouteImport } from './routes/weldflow/project/$projectId/workload/index'
+import { Route as WeldflowSpaceSpaceIdModuleTypeIndexRouteImport } from './routes/weldflow/space/$spaceId/$moduleType/index'
+import { Route as WeldhostDomainsPurchaseCancelIndexRouteImport } from './routes/weldhost/domains/purchase/cancel/index'
+import { Route as WeldhostDomainsPurchaseSuccessIndexRouteImport } from './routes/weldhost/domains/purchase/success/index'
+import { Route as WeldmailAccountIdLabelSlugMessageIdIndexRouteImport } from './routes/weldmail/$accountId/$labelSlug/$messageId/index'
+import { Route as WeldmailAccountIdLabelSlugComposeIndexRouteImport } from './routes/weldmail/$accountId/$labelSlug/compose/index'
+import { Route as WeldmailUnifiedLabelSlugMessageIdIndexRouteImport } from './routes/weldmail/unified/$labelSlug/$messageId/index'
+import { Route as WeldmailUnifiedLabelSlugComposeIndexRouteImport } from './routes/weldmail/unified/$labelSlug/compose/index'
 import { Route as SettingsAppsPhoneNumbersPortIdIndexRouteImport } from './routes/settings/apps/phone-numbers/port/$id/index'
+import { Route as WelddeskHelpCenterArticlesIdEditIndexRouteImport } from './routes/welddesk/help-center/articles/$id/edit/index'
+import { Route as WeldflowProjectProjectIdAnalyticsIdIndexRouteImport } from './routes/weldflow/project/$projectId/analytics/$id/index'
+import { Route as WeldflowProjectProjectIdAnalyticsBuilderIndexRouteImport } from './routes/weldflow/project/$projectId/analytics/builder/index'
+import { Route as WeldflowProjectProjectIdDocumentsFileIdIndexRouteImport } from './routes/weldflow/project/$projectId/documents/$fileId/index'
+import { Route as WeldflowProjectProjectIdMembersMemberIdIndexRouteImport } from './routes/weldflow/project/$projectId/members/$memberId/index'
+import { Route as WeldflowProjectProjectIdTableFileIdIndexRouteImport } from './routes/weldflow/project/$projectId/table/$fileId/index'
+import { Route as WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRouteImport } from './routes/weldflow/project/$projectId/whiteboard/$whiteboardId/index'
 
-const NewChatRoute = NewChatRouteImport.update({
-  id: '/new-chat',
-  path: '/new-chat',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CallRoomRoute = CallRoomRouteImport.update({
-  id: '/call-room',
-  path: '/call-room',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SplatRoute = SplatRouteImport.update({
@@ -360,109 +359,8 @@ const SplatRoute = SplatRouteImport.update({
   path: '/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const WeldstashRouteRoute = WeldstashRouteRouteImport.update({
-  id: '/weldstash',
-  path: '/weldstash',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WeldmeetRouteRoute = WeldmeetRouteRouteImport.update({
-  id: '/weldmeet',
-  path: '/weldmeet',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WeldmailRouteRoute = WeldmailRouteRouteImport.update({
-  id: '/weldmail',
-  path: '/weldmail',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WeldknowRouteRoute = WeldknowRouteRouteImport.update({
-  id: '/weldknow',
-  path: '/weldknow',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WeldhostRouteRoute = WeldhostRouteRouteImport.update({
-  id: '/weldhost',
-  path: '/weldhost',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WeldflowRouteRoute = WeldflowRouteRouteImport.update({
-  id: '/weldflow',
-  path: '/weldflow',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WelddriveRouteRoute = WelddriveRouteRouteImport.update({
-  id: '/welddrive',
-  path: '/welddrive',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WelddeskRouteRoute = WelddeskRouteRouteImport.update({
-  id: '/welddesk',
-  path: '/welddesk',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WelddataRouteRoute = WelddataRouteRouteImport.update({
-  id: '/welddata',
-  path: '/welddata',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WeldcrmRouteRoute = WeldcrmRouteRouteImport.update({
-  id: '/weldcrm',
-  path: '/weldcrm',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WeldconnectRouteRoute = WeldconnectRouteRouteImport.update({
-  id: '/weldconnect',
-  path: '/weldconnect',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WeldcommerceRouteRoute = WeldcommerceRouteRouteImport.update({
-  id: '/weldcommerce',
-  path: '/weldcommerce',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WeldchatRouteRoute = WeldchatRouteRouteImport.update({
-  id: '/weldchat',
-  path: '/weldchat',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WeldcallRouteRoute = WeldcallRouteRouteImport.update({
-  id: '/weldcall',
-  path: '/weldcall',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WeldcalendarRouteRoute = WeldcalendarRouteRouteImport.update({
-  id: '/weldcalendar',
-  path: '/weldcalendar',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WeldbooksRouteRoute = WeldbooksRouteRouteImport.update({
-  id: '/weldbooks',
-  path: '/weldbooks',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const WeldadsRouteRoute = WeldadsRouteRouteImport.update({
-  id: '/weldads',
-  path: '/weldads',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SocialRouteRoute = SocialRouteRouteImport.update({
-  id: '/social',
-  path: '/social',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SettingsRouteRoute = SettingsRouteRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthRouteRoute = AuthRouteRouteImport.update({
-  id: '/auth',
-  path: '/auth',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AppstoreRouteRoute = AppstoreRouteRouteImport.update({
-  id: '/appstore',
-  path: '/appstore',
+const DashboardRouteRoute = DashboardRouteRouteImport.update({
+  id: '/_dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AgentsRouteRoute = AgentsRouteRouteImport.update({
@@ -470,123 +368,129 @@ const AgentsRouteRoute = AgentsRouteRouteImport.update({
   path: '/agents',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DashboardRouteRoute = DashboardRouteRouteImport.update({
-  id: '/_dashboard',
+const AppstoreRouteRoute = AppstoreRouteRouteImport.update({
+  id: '/appstore',
+  path: '/appstore',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const AuthRouteRoute = AuthRouteRouteImport.update({
+  id: '/auth',
+  path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
-const WeldstashIndexRoute = WeldstashIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WeldstashRouteRoute,
-} as any)
-const WeldmeetIndexRoute = WeldmeetIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WeldmeetRouteRoute,
-} as any)
-const WeldmailIndexRoute = WeldmailIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WeldmailRouteRoute,
-} as any)
-const WeldknowIndexRoute = WeldknowIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WeldknowRouteRoute,
-} as any)
-const WeldhostIndexRoute = WeldhostIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WeldhostRouteRoute,
-} as any)
-const WeldflowIndexRoute = WeldflowIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WeldflowRouteRoute,
-} as any)
-const WelddriveIndexRoute = WelddriveIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WelddriveRouteRoute,
-} as any)
-const WelddeskIndexRoute = WelddeskIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WelddeskRouteRoute,
-} as any)
-const WelddataIndexRoute = WelddataIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WelddataRouteRoute,
-} as any)
-const WeldcrmIndexRoute = WeldcrmIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WeldcrmRouteRoute,
-} as any)
-const WeldconnectIndexRoute = WeldconnectIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WeldconnectRouteRoute,
-} as any)
-const WeldcommerceIndexRoute = WeldcommerceIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WeldcommerceRouteRoute,
-} as any)
-const WeldchatIndexRoute = WeldchatIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WeldchatRouteRoute,
-} as any)
-const WeldcallIndexRoute = WeldcallIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WeldcallRouteRoute,
-} as any)
-const WeldcalendarIndexRoute = WeldcalendarIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WeldcalendarRouteRoute,
-} as any)
-const WeldbooksIndexRoute = WeldbooksIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WeldbooksRouteRoute,
-} as any)
-const WeldadsIndexRoute = WeldadsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WeldadsRouteRoute,
-} as any)
-const WelcomeIndexRoute = WelcomeIndexRouteImport.update({
-  id: '/welcome/',
-  path: '/welcome/',
+const CallRoomRoute = CallRoomRouteImport.update({
+  id: '/call-room',
+  path: '/call-room',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SocialIndexRoute = SocialIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => SocialRouteRoute,
-} as any)
-const SettingsIndexRoute = SettingsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => SettingsRouteRoute,
-} as any)
-const OnboardingIndexRoute = OnboardingIndexRouteImport.update({
-  id: '/onboarding/',
-  path: '/onboarding/',
+const NewChatRoute = NewChatRouteImport.update({
+  id: '/new-chat',
+  path: '/new-chat',
   getParentRoute: () => rootRouteImport,
 } as any)
-const InviteIndexRoute = InviteIndexRouteImport.update({
-  id: '/invite/',
-  path: '/invite/',
+const SettingsRouteRoute = SettingsRouteRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SocialRouteRoute = SocialRouteRouteImport.update({
+  id: '/social',
+  path: '/social',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WeldadsRouteRoute = WeldadsRouteRouteImport.update({
+  id: '/weldads',
+  path: '/weldads',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WeldbooksRouteRoute = WeldbooksRouteRouteImport.update({
+  id: '/weldbooks',
+  path: '/weldbooks',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WeldcalendarRouteRoute = WeldcalendarRouteRouteImport.update({
+  id: '/weldcalendar',
+  path: '/weldcalendar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WeldcallRouteRoute = WeldcallRouteRouteImport.update({
+  id: '/weldcall',
+  path: '/weldcall',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WeldchatRouteRoute = WeldchatRouteRouteImport.update({
+  id: '/weldchat',
+  path: '/weldchat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WeldcommerceRouteRoute = WeldcommerceRouteRouteImport.update({
+  id: '/weldcommerce',
+  path: '/weldcommerce',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WeldconnectRouteRoute = WeldconnectRouteRouteImport.update({
+  id: '/weldconnect',
+  path: '/weldconnect',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WeldcrmRouteRoute = WeldcrmRouteRouteImport.update({
+  id: '/weldcrm',
+  path: '/weldcrm',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WelddataRouteRoute = WelddataRouteRouteImport.update({
+  id: '/welddata',
+  path: '/welddata',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WelddeskRouteRoute = WelddeskRouteRouteImport.update({
+  id: '/welddesk',
+  path: '/welddesk',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WelddriveRouteRoute = WelddriveRouteRouteImport.update({
+  id: '/welddrive',
+  path: '/welddrive',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WeldflowRouteRoute = WeldflowRouteRouteImport.update({
+  id: '/weldflow',
+  path: '/weldflow',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WeldhostRouteRoute = WeldhostRouteRouteImport.update({
+  id: '/weldhost',
+  path: '/weldhost',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WeldknowRouteRoute = WeldknowRouteRouteImport.update({
+  id: '/weldknow',
+  path: '/weldknow',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WeldmailRouteRoute = WeldmailRouteRouteImport.update({
+  id: '/weldmail',
+  path: '/weldmail',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WeldmeetRouteRoute = WeldmeetRouteRouteImport.update({
+  id: '/weldmeet',
+  path: '/weldmeet',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WeldstashRouteRoute = WeldstashRouteRouteImport.update({
+  id: '/weldstash',
+  path: '/weldstash',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentsIndexRoute = AgentsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AgentsRouteRoute,
+} as any)
+const AppsAppCodeRoute = AppsAppCodeRouteImport.update({
+  id: '/apps/$appCode',
+  path: '/apps/$appCode',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppstoreIndexRoute = AppstoreIndexRouteImport.update({
@@ -594,24 +498,59 @@ const AppstoreIndexRoute = AppstoreIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppstoreRouteRoute,
 } as any)
-const AgentsIndexRoute = AgentsIndexRouteImport.update({
+const DocumentsFileIdRoute = DocumentsFileIdRouteImport.update({
+  id: '/documents/$fileId',
+  path: '/documents/$fileId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InviteIndexRoute = InviteIndexRouteImport.update({
+  id: '/invite/',
+  path: '/invite/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OnboardingIndexRoute = OnboardingIndexRouteImport.update({
+  id: '/onboarding/',
+  path: '/onboarding/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => AgentsRouteRoute,
+  getParentRoute: () => SettingsRouteRoute,
 } as any)
-const WelddeskSplatRoute = WelddeskSplatRouteImport.update({
-  id: '/$',
-  path: '/$',
-  getParentRoute: () => WelddeskRouteRoute,
+const SocialIndexRoute = SocialIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SocialRouteRoute,
 } as any)
-const WeldchatDraftsRoute = WeldchatDraftsRouteImport.update({
-  id: '/drafts',
-  path: '/drafts',
-  getParentRoute: () => WeldchatRouteRoute,
+const WelcomeIndexRoute = WelcomeIndexRouteImport.update({
+  id: '/welcome/',
+  path: '/welcome/',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const WeldchatDirectoriesRoute = WeldchatDirectoriesRouteImport.update({
-  id: '/directories',
-  path: '/directories',
+const WeldadsIndexRoute = WeldadsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldadsRouteRoute,
+} as any)
+const WeldbooksIndexRoute = WeldbooksIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldcalendarIndexRoute = WeldcalendarIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldcalendarRouteRoute,
+} as any)
+const WeldcallIndexRoute = WeldcallIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldcallRouteRoute,
+} as any)
+const WeldchatIndexRoute = WeldchatIndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => WeldchatRouteRoute,
 } as any)
 const WeldchatActivityRoute = WeldchatActivityRouteImport.update({
@@ -619,29 +558,29 @@ const WeldchatActivityRoute = WeldchatActivityRouteImport.update({
   path: '/activity',
   getParentRoute: () => WeldchatRouteRoute,
 } as any)
-const DocumentsFileIdRoute = DocumentsFileIdRouteImport.update({
-  id: '/documents/$fileId',
-  path: '/documents/$fileId',
-  getParentRoute: () => rootRouteImport,
+const WeldchatDirectoriesRoute = WeldchatDirectoriesRouteImport.update({
+  id: '/directories',
+  path: '/directories',
+  getParentRoute: () => WeldchatRouteRoute,
 } as any)
-const AppsAppCodeRoute = AppsAppCodeRouteImport.update({
-  id: '/apps/$appCode',
-  path: '/apps/$appCode',
-  getParentRoute: () => rootRouteImport,
+const WeldchatDraftsRoute = WeldchatDraftsRouteImport.update({
+  id: '/drafts',
+  path: '/drafts',
+  getParentRoute: () => WeldchatRouteRoute,
 } as any)
-const WeldmailSetupRouteRoute = WeldmailSetupRouteRouteImport.update({
-  id: '/setup',
-  path: '/setup',
-  getParentRoute: () => WeldmailRouteRoute,
+const WeldcommerceIndexRoute = WeldcommerceIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldcommerceRouteRoute,
 } as any)
-const WeldmailAccountIdRouteRoute = WeldmailAccountIdRouteRouteImport.update({
-  id: '/$accountId',
-  path: '/$accountId',
-  getParentRoute: () => WeldmailRouteRoute,
+const WeldconnectIndexRoute = WeldconnectIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldconnectRouteRoute,
 } as any)
-const WeldcrmPeopleRouteRoute = WeldcrmPeopleRouteRouteImport.update({
-  id: '/people',
-  path: '/people',
+const WeldcrmIndexRoute = WeldcrmIndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => WeldcrmRouteRoute,
 } as any)
 const WeldcrmCompaniesRouteRoute = WeldcrmCompaniesRouteRouteImport.update({
@@ -649,546 +588,218 @@ const WeldcrmCompaniesRouteRoute = WeldcrmCompaniesRouteRouteImport.update({
   path: '/companies',
   getParentRoute: () => WeldcrmRouteRoute,
 } as any)
-const WeldstashWarehousesIndexRoute =
-  WeldstashWarehousesIndexRouteImport.update({
-    id: '/warehouses/',
-    path: '/warehouses/',
-    getParentRoute: () => WeldstashRouteRoute,
-  } as any)
-const WeldstashSuppliersIndexRoute = WeldstashSuppliersIndexRouteImport.update({
-  id: '/suppliers/',
-  path: '/suppliers/',
-  getParentRoute: () => WeldstashRouteRoute,
+const WeldcrmPeopleRouteRoute = WeldcrmPeopleRouteRouteImport.update({
+  id: '/people',
+  path: '/people',
+  getParentRoute: () => WeldcrmRouteRoute,
 } as any)
-const WeldstashStockIndexRoute = WeldstashStockIndexRouteImport.update({
-  id: '/stock/',
-  path: '/stock/',
-  getParentRoute: () => WeldstashRouteRoute,
-} as any)
-const WeldstashProductsIndexRoute = WeldstashProductsIndexRouteImport.update({
-  id: '/products/',
-  path: '/products/',
-  getParentRoute: () => WeldstashRouteRoute,
-} as any)
-const WeldstashPickListsIndexRoute = WeldstashPickListsIndexRouteImport.update({
-  id: '/pick-lists/',
-  path: '/pick-lists/',
-  getParentRoute: () => WeldstashRouteRoute,
-} as any)
-const WeldstashPackingIndexRoute = WeldstashPackingIndexRouteImport.update({
-  id: '/packing/',
-  path: '/packing/',
-  getParentRoute: () => WeldstashRouteRoute,
-} as any)
-const WeldmeetUpcomingIndexRoute = WeldmeetUpcomingIndexRouteImport.update({
-  id: '/upcoming/',
-  path: '/upcoming/',
-  getParentRoute: () => WeldmeetRouteRoute,
-} as any)
-const WeldmeetPeopleIndexRoute = WeldmeetPeopleIndexRouteImport.update({
-  id: '/people/',
-  path: '/people/',
-  getParentRoute: () => WeldmeetRouteRoute,
-} as any)
-const WeldmeetNewIndexRoute = WeldmeetNewIndexRouteImport.update({
-  id: '/new/',
-  path: '/new/',
-  getParentRoute: () => WeldmeetRouteRoute,
-} as any)
-const WeldmeetHistoryIndexRoute = WeldmeetHistoryIndexRouteImport.update({
-  id: '/history/',
-  path: '/history/',
-  getParentRoute: () => WeldmeetRouteRoute,
-} as any)
-const WeldmeetMeetingIdIndexRoute = WeldmeetMeetingIdIndexRouteImport.update({
-  id: '/$meetingId/',
-  path: '/$meetingId/',
-  getParentRoute: () => WeldmeetRouteRoute,
-} as any)
-const WeldmailSnoozedIndexRoute = WeldmailSnoozedIndexRouteImport.update({
-  id: '/snoozed/',
-  path: '/snoozed/',
-  getParentRoute: () => WeldmailRouteRoute,
-} as any)
-const WeldmailSetupIndexRoute = WeldmailSetupIndexRouteImport.update({
+const WelddataIndexRoute = WelddataIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => WeldmailSetupRouteRoute,
+  getParentRoute: () => WelddataRouteRoute,
 } as any)
-const WeldmailSearchIndexRoute = WeldmailSearchIndexRouteImport.update({
-  id: '/search/',
-  path: '/search/',
-  getParentRoute: () => WeldmailRouteRoute,
+const WelddeskIndexRoute = WelddeskIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WelddeskRouteRoute,
 } as any)
-const WeldmailScheduledIndexRoute = WeldmailScheduledIndexRouteImport.update({
-  id: '/scheduled/',
-  path: '/scheduled/',
-  getParentRoute: () => WeldmailRouteRoute,
+const WelddeskSplatRoute = WelddeskSplatRouteImport.update({
+  id: '/$',
+  path: '/$',
+  getParentRoute: () => WelddeskRouteRoute,
 } as any)
-const WeldmailInboxIndexRoute = WeldmailInboxIndexRouteImport.update({
-  id: '/inbox/',
-  path: '/inbox/',
-  getParentRoute: () => WeldmailRouteRoute,
+const WelddriveIndexRoute = WelddriveIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WelddriveRouteRoute,
 } as any)
-const WeldmailDomainsIndexRoute = WeldmailDomainsIndexRouteImport.update({
-  id: '/domains/',
-  path: '/domains/',
-  getParentRoute: () => WeldmailRouteRoute,
+const WeldflowIndexRoute = WeldflowIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldflowRouteRoute,
 } as any)
-const WeldknowTrashIndexRoute = WeldknowTrashIndexRouteImport.update({
-  id: '/trash/',
-  path: '/trash/',
-  getParentRoute: () => WeldknowRouteRoute,
-} as any)
-const WeldhostDomainsIndexRoute = WeldhostDomainsIndexRouteImport.update({
-  id: '/domains/',
-  path: '/domains/',
+const WeldhostIndexRoute = WeldhostIndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => WeldhostRouteRoute,
 } as any)
-const WeldflowWorkloadIndexRoute = WeldflowWorkloadIndexRouteImport.update({
-  id: '/workload/',
-  path: '/workload/',
-  getParentRoute: () => WeldflowRouteRoute,
-} as any)
-const WeldflowWhiteboardIndexRoute = WeldflowWhiteboardIndexRouteImport.update({
-  id: '/whiteboard/',
-  path: '/whiteboard/',
-  getParentRoute: () => WeldflowRouteRoute,
-} as any)
-const WeldflowTimelineIndexRoute = WeldflowTimelineIndexRouteImport.update({
-  id: '/timeline/',
-  path: '/timeline/',
-  getParentRoute: () => WeldflowRouteRoute,
-} as any)
-const WeldflowTableIndexRoute = WeldflowTableIndexRouteImport.update({
-  id: '/table/',
-  path: '/table/',
-  getParentRoute: () => WeldflowRouteRoute,
-} as any)
-const WeldflowSettingsIndexRoute = WeldflowSettingsIndexRouteImport.update({
-  id: '/settings/',
-  path: '/settings/',
-  getParentRoute: () => WeldflowRouteRoute,
-} as any)
-const WeldflowProjectsIndexRoute = WeldflowProjectsIndexRouteImport.update({
-  id: '/projects/',
-  path: '/projects/',
-  getParentRoute: () => WeldflowRouteRoute,
-} as any)
-const WeldflowNotesIndexRoute = WeldflowNotesIndexRouteImport.update({
-  id: '/notes/',
-  path: '/notes/',
-  getParentRoute: () => WeldflowRouteRoute,
-} as any)
-const WeldflowMyTasksIndexRoute = WeldflowMyTasksIndexRouteImport.update({
-  id: '/my-tasks/',
-  path: '/my-tasks/',
-  getParentRoute: () => WeldflowRouteRoute,
-} as any)
-const WeldflowGoalsIndexRoute = WeldflowGoalsIndexRouteImport.update({
-  id: '/goals/',
-  path: '/goals/',
-  getParentRoute: () => WeldflowRouteRoute,
-} as any)
-const WeldflowFilesIndexRoute = WeldflowFilesIndexRouteImport.update({
-  id: '/files/',
-  path: '/files/',
-  getParentRoute: () => WeldflowRouteRoute,
-} as any)
-const WeldflowDocumentsIndexRoute = WeldflowDocumentsIndexRouteImport.update({
-  id: '/documents/',
-  path: '/documents/',
-  getParentRoute: () => WeldflowRouteRoute,
-} as any)
-const WeldflowAnalyticsIndexRoute = WeldflowAnalyticsIndexRouteImport.update({
-  id: '/analytics/',
-  path: '/analytics/',
-  getParentRoute: () => WeldflowRouteRoute,
-} as any)
-const WelddriveUploadsIndexRoute = WelddriveUploadsIndexRouteImport.update({
-  id: '/uploads/',
-  path: '/uploads/',
-  getParentRoute: () => WelddriveRouteRoute,
-} as any)
-const WelddriveTrashIndexRoute = WelddriveTrashIndexRouteImport.update({
-  id: '/trash/',
-  path: '/trash/',
-  getParentRoute: () => WelddriveRouteRoute,
-} as any)
-const WelddriveStarredIndexRoute = WelddriveStarredIndexRouteImport.update({
-  id: '/starred/',
-  path: '/starred/',
-  getParentRoute: () => WelddriveRouteRoute,
-} as any)
-const WelddriveSharedIndexRoute = WelddriveSharedIndexRouteImport.update({
-  id: '/shared/',
-  path: '/shared/',
-  getParentRoute: () => WelddriveRouteRoute,
-} as any)
-const WelddriveRecentIndexRoute = WelddriveRecentIndexRouteImport.update({
-  id: '/recent/',
-  path: '/recent/',
-  getParentRoute: () => WelddriveRouteRoute,
-} as any)
-const WelddriveAllFilesIndexRoute = WelddriveAllFilesIndexRouteImport.update({
-  id: '/all-files/',
-  path: '/all-files/',
-  getParentRoute: () => WelddriveRouteRoute,
-} as any)
-const WelddeskInboxIndexRoute = WelddeskInboxIndexRouteImport.update({
-  id: '/inbox/',
-  path: '/inbox/',
-  getParentRoute: () => WelddeskRouteRoute,
-} as any)
-const WelddeskHelpCenterIndexRoute = WelddeskHelpCenterIndexRouteImport.update({
-  id: '/help-center/',
-  path: '/help-center/',
-  getParentRoute: () => WelddeskRouteRoute,
-} as any)
-const WelddeskEmailIndexRoute = WelddeskEmailIndexRouteImport.update({
-  id: '/email/',
-  path: '/email/',
-  getParentRoute: () => WelddeskRouteRoute,
-} as any)
-const WelddeskChatWidgetIndexRoute = WelddeskChatWidgetIndexRouteImport.update({
-  id: '/chat-widget/',
-  path: '/chat-widget/',
-  getParentRoute: () => WelddeskRouteRoute,
-} as any)
-const WeldcrmSequencesIndexRoute = WeldcrmSequencesIndexRouteImport.update({
-  id: '/sequences/',
-  path: '/sequences/',
-  getParentRoute: () => WeldcrmRouteRoute,
-} as any)
-const WeldcrmPeopleIndexRoute = WeldcrmPeopleIndexRouteImport.update({
+const WeldknowIndexRoute = WeldknowIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => WeldcrmPeopleRouteRoute,
+  getParentRoute: () => WeldknowRouteRoute,
 } as any)
-const WeldcrmNotesIndexRoute = WeldcrmNotesIndexRouteImport.update({
-  id: '/notes/',
-  path: '/notes/',
-  getParentRoute: () => WeldcrmRouteRoute,
-} as any)
-const WeldcrmCompaniesIndexRoute = WeldcrmCompaniesIndexRouteImport.update({
+const WeldmailIndexRoute = WeldmailIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => WeldcrmCompaniesRouteRoute,
+  getParentRoute: () => WeldmailRouteRoute,
 } as any)
-const WeldconnectWorkflowsIndexRoute =
-  WeldconnectWorkflowsIndexRouteImport.update({
-    id: '/workflows/',
-    path: '/workflows/',
-    getParentRoute: () => WeldconnectRouteRoute,
+const WeldmailAccountIdRouteRoute = WeldmailAccountIdRouteRouteImport.update({
+  id: '/$accountId',
+  path: '/$accountId',
+  getParentRoute: () => WeldmailRouteRoute,
+} as any)
+const WeldmailSetupRouteRoute = WeldmailSetupRouteRouteImport.update({
+  id: '/setup',
+  path: '/setup',
+  getParentRoute: () => WeldmailRouteRoute,
+} as any)
+const WeldmeetIndexRoute = WeldmeetIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldmeetRouteRoute,
+} as any)
+const WeldstashIndexRoute = WeldstashIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldstashRouteRoute,
+} as any)
+const AgentsIdIndexRoute = AgentsIdIndexRouteImport.update({
+  id: '/$id/',
+  path: '/$id/',
+  getParentRoute: () => AgentsRouteRoute,
+} as any)
+const AppsManageIndexRoute = AppsManageIndexRouteImport.update({
+  id: '/apps/manage/',
+  path: '/apps/manage/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppstoreCodeIndexRoute = AppstoreCodeIndexRouteImport.update({
+  id: '/$code/',
+  path: '/$code/',
+  getParentRoute: () => AppstoreRouteRoute,
+} as any)
+const AuthDesktopHandoffIndexRoute = AuthDesktopHandoffIndexRouteImport.update({
+  id: '/desktop-handoff/',
+  path: '/desktop-handoff/',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthErrorIndexRoute = AuthErrorIndexRouteImport.update({
+  id: '/error/',
+  path: '/error/',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthForgotPasswordIndexRoute = AuthForgotPasswordIndexRouteImport.update({
+  id: '/forgot-password/',
+  path: '/forgot-password/',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthLoginSplatRoute = AuthLoginSplatRouteImport.update({
+  id: '/login/$',
+  path: '/login/$',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthRegisterSplatRoute = AuthRegisterSplatRouteImport.update({
+  id: '/register/$',
+  path: '/register/$',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthResetPasswordIndexRoute = AuthResetPasswordIndexRouteImport.update({
+  id: '/reset-password/',
+  path: '/reset-password/',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthSsoCallbackIndexRoute = AuthSsoCallbackIndexRouteImport.update({
+  id: '/sso-callback/',
+  path: '/sso-callback/',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const InviteAcceptIndexRoute = InviteAcceptIndexRouteImport.update({
+  id: '/invite/accept/',
+  path: '/invite/accept/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ObjectsSlugIndexRoute = ObjectsSlugIndexRouteImport.update({
+  id: '/objects/$slug/',
+  path: '/objects/$slug/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ObjectsSlugRecordIdRoute = ObjectsSlugRecordIdRouteImport.update({
+  id: '/objects/$slug/$recordId',
+  path: '/objects/$slug/$recordId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PreviewHelpDocsIndexRoute = PreviewHelpDocsIndexRouteImport.update({
+  id: '/preview/help-docs/',
+  path: '/preview/help-docs/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsActivityIndexRoute = SettingsActivityIndexRouteImport.update({
+  id: '/activity/',
+  path: '/activity/',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsAdvancedIndexRoute = SettingsAdvancedIndexRouteImport.update({
+  id: '/advanced/',
+  path: '/advanced/',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsApiKeysIndexRoute = SettingsApiKeysIndexRouteImport.update({
+  id: '/api-keys/',
+  path: '/api-keys/',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsAppearanceIndexRoute = SettingsAppearanceIndexRouteImport.update({
+  id: '/appearance/',
+  path: '/appearance/',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsAppsWeldcrmRoute = SettingsAppsWeldcrmRouteImport.update({
+  id: '/apps/weldcrm',
+  path: '/apps/weldcrm',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsBillingIndexRoute = SettingsBillingIndexRouteImport.update({
+  id: '/billing/',
+  path: '/billing/',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsBusinessIndexRoute = SettingsBusinessIndexRouteImport.update({
+  id: '/business/',
+  path: '/business/',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsCustomFieldsIndexRoute =
+  SettingsCustomFieldsIndexRouteImport.update({
+    id: '/custom-fields/',
+    path: '/custom-fields/',
+    getParentRoute: () => SettingsRouteRoute,
   } as any)
-const WeldconnectWebhooksIndexRoute =
-  WeldconnectWebhooksIndexRouteImport.update({
-    id: '/webhooks/',
-    path: '/webhooks/',
-    getParentRoute: () => WeldconnectRouteRoute,
+const SettingsCustomObjectsIndexRoute =
+  SettingsCustomObjectsIndexRouteImport.update({
+    id: '/custom-objects/',
+    path: '/custom-objects/',
+    getParentRoute: () => SettingsRouteRoute,
   } as any)
-const WeldconnectVariablesIndexRoute =
-  WeldconnectVariablesIndexRouteImport.update({
-    id: '/variables/',
-    path: '/variables/',
-    getParentRoute: () => WeldconnectRouteRoute,
+const SettingsCustomObjectsObjectIdRoute =
+  SettingsCustomObjectsObjectIdRouteImport.update({
+    id: '/custom-objects/$objectId',
+    path: '/custom-objects/$objectId',
+    getParentRoute: () => SettingsRouteRoute,
   } as any)
-const WeldconnectTriggersIndexRoute =
-  WeldconnectTriggersIndexRouteImport.update({
-    id: '/triggers/',
-    path: '/triggers/',
-    getParentRoute: () => WeldconnectRouteRoute,
-  } as any)
-const WeldconnectTemplatesIndexRoute =
-  WeldconnectTemplatesIndexRouteImport.update({
-    id: '/templates/',
-    path: '/templates/',
-    getParentRoute: () => WeldconnectRouteRoute,
-  } as any)
-const WeldconnectIntegrationsIndexRoute =
-  WeldconnectIntegrationsIndexRouteImport.update({
+const SettingsDesktopIndexRoute = SettingsDesktopIndexRouteImport.update({
+  id: '/desktop/',
+  path: '/desktop/',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsExportIndexRoute = SettingsExportIndexRouteImport.update({
+  id: '/export/',
+  path: '/export/',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsFeedbackIndexRoute = SettingsFeedbackIndexRouteImport.update({
+  id: '/feedback/',
+  path: '/feedback/',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsGeneralIndexRoute = SettingsGeneralIndexRouteImport.update({
+  id: '/general/',
+  path: '/general/',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsIntegrationsIndexRoute =
+  SettingsIntegrationsIndexRouteImport.update({
     id: '/integrations/',
     path: '/integrations/',
-    getParentRoute: () => WeldconnectRouteRoute,
-  } as any)
-const WeldconnectExecutionsIndexRoute =
-  WeldconnectExecutionsIndexRouteImport.update({
-    id: '/executions/',
-    path: '/executions/',
-    getParentRoute: () => WeldconnectRouteRoute,
-  } as any)
-const WeldconnectConnectorsIndexRoute =
-  WeldconnectConnectorsIndexRouteImport.update({
-    id: '/connectors/',
-    path: '/connectors/',
-    getParentRoute: () => WeldconnectRouteRoute,
-  } as any)
-const WeldconnectAnalyticsIndexRoute =
-  WeldconnectAnalyticsIndexRouteImport.update({
-    id: '/analytics/',
-    path: '/analytics/',
-    getParentRoute: () => WeldconnectRouteRoute,
-  } as any)
-const WeldconnectActionsIndexRoute = WeldconnectActionsIndexRouteImport.update({
-  id: '/actions/',
-  path: '/actions/',
-  getParentRoute: () => WeldconnectRouteRoute,
-} as any)
-const WeldcommerceSettingsIndexRoute =
-  WeldcommerceSettingsIndexRouteImport.update({
-    id: '/settings/',
-    path: '/settings/',
-    getParentRoute: () => WeldcommerceRouteRoute,
-  } as any)
-const WeldcommerceProductsIndexRoute =
-  WeldcommerceProductsIndexRouteImport.update({
-    id: '/products/',
-    path: '/products/',
-    getParentRoute: () => WeldcommerceRouteRoute,
-  } as any)
-const WeldcommerceOrdersIndexRoute = WeldcommerceOrdersIndexRouteImport.update({
-  id: '/orders/',
-  path: '/orders/',
-  getParentRoute: () => WeldcommerceRouteRoute,
-} as any)
-const WeldcommerceCustomersIndexRoute =
-  WeldcommerceCustomersIndexRouteImport.update({
-    id: '/customers/',
-    path: '/customers/',
-    getParentRoute: () => WeldcommerceRouteRoute,
-  } as any)
-const WeldcommerceCategoriesIndexRoute =
-  WeldcommerceCategoriesIndexRouteImport.update({
-    id: '/categories/',
-    path: '/categories/',
-    getParentRoute: () => WeldcommerceRouteRoute,
-  } as any)
-const WeldchatSearchIndexRoute = WeldchatSearchIndexRouteImport.update({
-  id: '/search/',
-  path: '/search/',
-  getParentRoute: () => WeldchatRouteRoute,
-} as any)
-const WeldchatDmIndexRoute = WeldchatDmIndexRouteImport.update({
-  id: '/dm/',
-  path: '/dm/',
-  getParentRoute: () => WeldchatRouteRoute,
-} as any)
-const WeldchatBookmarksIndexRoute = WeldchatBookmarksIndexRouteImport.update({
-  id: '/bookmarks/',
-  path: '/bookmarks/',
-  getParentRoute: () => WeldchatRouteRoute,
-} as any)
-const WeldchatChannelIdIndexRoute = WeldchatChannelIdIndexRouteImport.update({
-  id: '/$channelId/',
-  path: '/$channelId/',
-  getParentRoute: () => WeldchatRouteRoute,
-} as any)
-const WeldcallNewIndexRoute = WeldcallNewIndexRouteImport.update({
-  id: '/new/',
-  path: '/new/',
-  getParentRoute: () => WeldcallRouteRoute,
-} as any)
-const WeldcallHistoryIndexRoute = WeldcallHistoryIndexRouteImport.update({
-  id: '/history/',
-  path: '/history/',
-  getParentRoute: () => WeldcallRouteRoute,
-} as any)
-const WeldcallContactsIndexRoute = WeldcallContactsIndexRouteImport.update({
-  id: '/contacts/',
-  path: '/contacts/',
-  getParentRoute: () => WeldcallRouteRoute,
-} as any)
-const WeldcallCallIdIndexRoute = WeldcallCallIdIndexRouteImport.update({
-  id: '/$callId/',
-  path: '/$callId/',
-  getParentRoute: () => WeldcallRouteRoute,
-} as any)
-const WeldcalendarSchedulingIndexRoute =
-  WeldcalendarSchedulingIndexRouteImport.update({
-    id: '/scheduling/',
-    path: '/scheduling/',
-    getParentRoute: () => WeldcalendarRouteRoute,
-  } as any)
-const WeldcalendarEventsIndexRoute = WeldcalendarEventsIndexRouteImport.update({
-  id: '/events/',
-  path: '/events/',
-  getParentRoute: () => WeldcalendarRouteRoute,
-} as any)
-const WeldbooksVatIndexRoute = WeldbooksVatIndexRouteImport.update({
-  id: '/vat/',
-  path: '/vat/',
-  getParentRoute: () => WeldbooksRouteRoute,
-} as any)
-const WeldbooksSuppliersIndexRoute = WeldbooksSuppliersIndexRouteImport.update({
-  id: '/suppliers/',
-  path: '/suppliers/',
-  getParentRoute: () => WeldbooksRouteRoute,
-} as any)
-const WeldbooksSettingsIndexRoute = WeldbooksSettingsIndexRouteImport.update({
-  id: '/settings/',
-  path: '/settings/',
-  getParentRoute: () => WeldbooksRouteRoute,
-} as any)
-const WeldbooksReportsIndexRoute = WeldbooksReportsIndexRouteImport.update({
-  id: '/reports/',
-  path: '/reports/',
-  getParentRoute: () => WeldbooksRouteRoute,
-} as any)
-const WeldbooksRecurringIndexRoute = WeldbooksRecurringIndexRouteImport.update({
-  id: '/recurring/',
-  path: '/recurring/',
-  getParentRoute: () => WeldbooksRouteRoute,
-} as any)
-const WeldbooksJournalIndexRoute = WeldbooksJournalIndexRouteImport.update({
-  id: '/journal/',
-  path: '/journal/',
-  getParentRoute: () => WeldbooksRouteRoute,
-} as any)
-const WeldbooksInvoicesIndexRoute = WeldbooksInvoicesIndexRouteImport.update({
-  id: '/invoices/',
-  path: '/invoices/',
-  getParentRoute: () => WeldbooksRouteRoute,
-} as any)
-const WeldbooksEntitiesIndexRoute = WeldbooksEntitiesIndexRouteImport.update({
-  id: '/entities/',
-  path: '/entities/',
-  getParentRoute: () => WeldbooksRouteRoute,
-} as any)
-const WeldbooksDocumentsIndexRoute = WeldbooksDocumentsIndexRouteImport.update({
-  id: '/documents/',
-  path: '/documents/',
-  getParentRoute: () => WeldbooksRouteRoute,
-} as any)
-const WeldbooksDashboardIndexRoute = WeldbooksDashboardIndexRouteImport.update({
-  id: '/dashboard/',
-  path: '/dashboard/',
-  getParentRoute: () => WeldbooksRouteRoute,
-} as any)
-const WeldbooksCustomersIndexRoute = WeldbooksCustomersIndexRouteImport.update({
-  id: '/customers/',
-  path: '/customers/',
-  getParentRoute: () => WeldbooksRouteRoute,
-} as any)
-const WeldbooksCreditNotesIndexRoute =
-  WeldbooksCreditNotesIndexRouteImport.update({
-    id: '/credit-notes/',
-    path: '/credit-notes/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksBillsIndexRoute = WeldbooksBillsIndexRouteImport.update({
-  id: '/bills/',
-  path: '/bills/',
-  getParentRoute: () => WeldbooksRouteRoute,
-} as any)
-const WeldbooksBankingIndexRoute = WeldbooksBankingIndexRouteImport.update({
-  id: '/banking/',
-  path: '/banking/',
-  getParentRoute: () => WeldbooksRouteRoute,
-} as any)
-const WeldbooksAccountsIndexRoute = WeldbooksAccountsIndexRouteImport.update({
-  id: '/accounts/',
-  path: '/accounts/',
-  getParentRoute: () => WeldbooksRouteRoute,
-} as any)
-const WeldadsCampaignsIndexRoute = WeldadsCampaignsIndexRouteImport.update({
-  id: '/campaigns/',
-  path: '/campaigns/',
-  getParentRoute: () => WeldadsRouteRoute,
-} as any)
-const WeldadsAccountsIndexRoute = WeldadsAccountsIndexRouteImport.update({
-  id: '/accounts/',
-  path: '/accounts/',
-  getParentRoute: () => WeldadsRouteRoute,
-} as any)
-const SocialTeamIndexRoute = SocialTeamIndexRouteImport.update({
-  id: '/team/',
-  path: '/team/',
-  getParentRoute: () => SocialRouteRoute,
-} as any)
-const SocialSettingsIndexRoute = SocialSettingsIndexRouteImport.update({
-  id: '/settings/',
-  path: '/settings/',
-  getParentRoute: () => SocialRouteRoute,
-} as any)
-const SocialQueueIndexRoute = SocialQueueIndexRouteImport.update({
-  id: '/queue/',
-  path: '/queue/',
-  getParentRoute: () => SocialRouteRoute,
-} as any)
-const SocialDraftsIndexRoute = SocialDraftsIndexRouteImport.update({
-  id: '/drafts/',
-  path: '/drafts/',
-  getParentRoute: () => SocialRouteRoute,
-} as any)
-const SocialDashboardIndexRoute = SocialDashboardIndexRouteImport.update({
-  id: '/dashboard/',
-  path: '/dashboard/',
-  getParentRoute: () => SocialRouteRoute,
-} as any)
-const SocialCampaignsIndexRoute = SocialCampaignsIndexRouteImport.update({
-  id: '/campaigns/',
-  path: '/campaigns/',
-  getParentRoute: () => SocialRouteRoute,
-} as any)
-const SocialCalendarIndexRoute = SocialCalendarIndexRouteImport.update({
-  id: '/calendar/',
-  path: '/calendar/',
-  getParentRoute: () => SocialRouteRoute,
-} as any)
-const SocialApprovalsIndexRoute = SocialApprovalsIndexRouteImport.update({
-  id: '/approvals/',
-  path: '/approvals/',
-  getParentRoute: () => SocialRouteRoute,
-} as any)
-const SocialAnalyticsIndexRoute = SocialAnalyticsIndexRouteImport.update({
-  id: '/analytics/',
-  path: '/analytics/',
-  getParentRoute: () => SocialRouteRoute,
-} as any)
-const SocialAccountsIndexRoute = SocialAccountsIndexRouteImport.update({
-  id: '/accounts/',
-  path: '/accounts/',
-  getParentRoute: () => SocialRouteRoute,
-} as any)
-const SettingsWebhooksIndexRoute = SettingsWebhooksIndexRouteImport.update({
-  id: '/webhooks/',
-  path: '/webhooks/',
-  getParentRoute: () => SettingsRouteRoute,
-} as any)
-const SettingsTeamIndexRoute = SettingsTeamIndexRouteImport.update({
-  id: '/team/',
-  path: '/team/',
-  getParentRoute: () => SettingsRouteRoute,
-} as any)
-const SettingsShortcutsIndexRoute = SettingsShortcutsIndexRouteImport.update({
-  id: '/shortcuts/',
-  path: '/shortcuts/',
-  getParentRoute: () => SettingsRouteRoute,
-} as any)
-const SettingsSecurityIndexRoute = SettingsSecurityIndexRouteImport.update({
-  id: '/security/',
-  path: '/security/',
-  getParentRoute: () => SettingsRouteRoute,
-} as any)
-const SettingsRolesIndexRoute = SettingsRolesIndexRouteImport.update({
-  id: '/roles/',
-  path: '/roles/',
-  getParentRoute: () => SettingsRouteRoute,
-} as any)
-const SettingsPrivacyIndexRoute = SettingsPrivacyIndexRouteImport.update({
-  id: '/privacy/',
-  path: '/privacy/',
-  getParentRoute: () => SettingsRouteRoute,
-} as any)
-const SettingsPlansIndexRoute = SettingsPlansIndexRouteImport.update({
-  id: '/plans/',
-  path: '/plans/',
-  getParentRoute: () => SettingsRouteRoute,
-} as any)
-const SettingsObjectTemplatesIndexRoute =
-  SettingsObjectTemplatesIndexRouteImport.update({
-    id: '/object-templates/',
-    path: '/object-templates/',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
 const SettingsNotificationsIndexRoute =
@@ -1197,143 +808,283 @@ const SettingsNotificationsIndexRoute =
     path: '/notifications/',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
-const SettingsIntegrationsIndexRoute =
-  SettingsIntegrationsIndexRouteImport.update({
-    id: '/integrations/',
-    path: '/integrations/',
+const SettingsObjectTemplatesIndexRoute =
+  SettingsObjectTemplatesIndexRouteImport.update({
+    id: '/object-templates/',
+    path: '/object-templates/',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
-const SettingsGeneralIndexRoute = SettingsGeneralIndexRouteImport.update({
-  id: '/general/',
-  path: '/general/',
+const SettingsPlansIndexRoute = SettingsPlansIndexRouteImport.update({
+  id: '/plans/',
+  path: '/plans/',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
-const SettingsFeedbackIndexRoute = SettingsFeedbackIndexRouteImport.update({
-  id: '/feedback/',
-  path: '/feedback/',
+const SettingsPrivacyIndexRoute = SettingsPrivacyIndexRouteImport.update({
+  id: '/privacy/',
+  path: '/privacy/',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
-const SettingsExportIndexRoute = SettingsExportIndexRouteImport.update({
-  id: '/export/',
-  path: '/export/',
+const SettingsRolesIndexRoute = SettingsRolesIndexRouteImport.update({
+  id: '/roles/',
+  path: '/roles/',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
-const SettingsDesktopIndexRoute = SettingsDesktopIndexRouteImport.update({
-  id: '/desktop/',
-  path: '/desktop/',
+const SettingsSecurityIndexRoute = SettingsSecurityIndexRouteImport.update({
+  id: '/security/',
+  path: '/security/',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
-const SettingsCustomObjectsIndexRoute =
-  SettingsCustomObjectsIndexRouteImport.update({
-    id: '/custom-objects/',
-    path: '/custom-objects/',
-    getParentRoute: () => SettingsRouteRoute,
+const SettingsShortcutsIndexRoute = SettingsShortcutsIndexRouteImport.update({
+  id: '/shortcuts/',
+  path: '/shortcuts/',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsTeamIndexRoute = SettingsTeamIndexRouteImport.update({
+  id: '/team/',
+  path: '/team/',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsWebhooksIndexRoute = SettingsWebhooksIndexRouteImport.update({
+  id: '/webhooks/',
+  path: '/webhooks/',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SocialAccountsIndexRoute = SocialAccountsIndexRouteImport.update({
+  id: '/accounts/',
+  path: '/accounts/',
+  getParentRoute: () => SocialRouteRoute,
+} as any)
+const SocialAnalyticsIndexRoute = SocialAnalyticsIndexRouteImport.update({
+  id: '/analytics/',
+  path: '/analytics/',
+  getParentRoute: () => SocialRouteRoute,
+} as any)
+const SocialApprovalsIndexRoute = SocialApprovalsIndexRouteImport.update({
+  id: '/approvals/',
+  path: '/approvals/',
+  getParentRoute: () => SocialRouteRoute,
+} as any)
+const SocialCalendarIndexRoute = SocialCalendarIndexRouteImport.update({
+  id: '/calendar/',
+  path: '/calendar/',
+  getParentRoute: () => SocialRouteRoute,
+} as any)
+const SocialCampaignsIndexRoute = SocialCampaignsIndexRouteImport.update({
+  id: '/campaigns/',
+  path: '/campaigns/',
+  getParentRoute: () => SocialRouteRoute,
+} as any)
+const SocialDashboardIndexRoute = SocialDashboardIndexRouteImport.update({
+  id: '/dashboard/',
+  path: '/dashboard/',
+  getParentRoute: () => SocialRouteRoute,
+} as any)
+const SocialDraftsIndexRoute = SocialDraftsIndexRouteImport.update({
+  id: '/drafts/',
+  path: '/drafts/',
+  getParentRoute: () => SocialRouteRoute,
+} as any)
+const SocialQueueIndexRoute = SocialQueueIndexRouteImport.update({
+  id: '/queue/',
+  path: '/queue/',
+  getParentRoute: () => SocialRouteRoute,
+} as any)
+const SocialSettingsIndexRoute = SocialSettingsIndexRouteImport.update({
+  id: '/settings/',
+  path: '/settings/',
+  getParentRoute: () => SocialRouteRoute,
+} as any)
+const SocialTeamIndexRoute = SocialTeamIndexRouteImport.update({
+  id: '/team/',
+  path: '/team/',
+  getParentRoute: () => SocialRouteRoute,
+} as any)
+const WeldadsAccountsIndexRoute = WeldadsAccountsIndexRouteImport.update({
+  id: '/accounts/',
+  path: '/accounts/',
+  getParentRoute: () => WeldadsRouteRoute,
+} as any)
+const WeldadsCampaignsIndexRoute = WeldadsCampaignsIndexRouteImport.update({
+  id: '/campaigns/',
+  path: '/campaigns/',
+  getParentRoute: () => WeldadsRouteRoute,
+} as any)
+const WeldbooksAccountsIndexRoute = WeldbooksAccountsIndexRouteImport.update({
+  id: '/accounts/',
+  path: '/accounts/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldbooksBankingIndexRoute = WeldbooksBankingIndexRouteImport.update({
+  id: '/banking/',
+  path: '/banking/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldbooksBillsIndexRoute = WeldbooksBillsIndexRouteImport.update({
+  id: '/bills/',
+  path: '/bills/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldbooksCreditNotesIndexRoute =
+  WeldbooksCreditNotesIndexRouteImport.update({
+    id: '/credit-notes/',
+    path: '/credit-notes/',
+    getParentRoute: () => WeldbooksRouteRoute,
   } as any)
-const SettingsCustomFieldsIndexRoute =
-  SettingsCustomFieldsIndexRouteImport.update({
-    id: '/custom-fields/',
-    path: '/custom-fields/',
-    getParentRoute: () => SettingsRouteRoute,
+const WeldbooksCustomersIndexRoute = WeldbooksCustomersIndexRouteImport.update({
+  id: '/customers/',
+  path: '/customers/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldbooksDashboardIndexRoute = WeldbooksDashboardIndexRouteImport.update({
+  id: '/dashboard/',
+  path: '/dashboard/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldbooksDocumentsIndexRoute = WeldbooksDocumentsIndexRouteImport.update({
+  id: '/documents/',
+  path: '/documents/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldbooksEntitiesIndexRoute = WeldbooksEntitiesIndexRouteImport.update({
+  id: '/entities/',
+  path: '/entities/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldbooksInvoicesIndexRoute = WeldbooksInvoicesIndexRouteImport.update({
+  id: '/invoices/',
+  path: '/invoices/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldbooksJournalIndexRoute = WeldbooksJournalIndexRouteImport.update({
+  id: '/journal/',
+  path: '/journal/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldbooksRecurringIndexRoute = WeldbooksRecurringIndexRouteImport.update({
+  id: '/recurring/',
+  path: '/recurring/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldbooksReportsIndexRoute = WeldbooksReportsIndexRouteImport.update({
+  id: '/reports/',
+  path: '/reports/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldbooksSettingsIndexRoute = WeldbooksSettingsIndexRouteImport.update({
+  id: '/settings/',
+  path: '/settings/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldbooksSuppliersIndexRoute = WeldbooksSuppliersIndexRouteImport.update({
+  id: '/suppliers/',
+  path: '/suppliers/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldbooksVatIndexRoute = WeldbooksVatIndexRouteImport.update({
+  id: '/vat/',
+  path: '/vat/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldcalendarEventsIndexRoute = WeldcalendarEventsIndexRouteImport.update({
+  id: '/events/',
+  path: '/events/',
+  getParentRoute: () => WeldcalendarRouteRoute,
+} as any)
+const WeldcalendarSchedulingIndexRoute =
+  WeldcalendarSchedulingIndexRouteImport.update({
+    id: '/scheduling/',
+    path: '/scheduling/',
+    getParentRoute: () => WeldcalendarRouteRoute,
   } as any)
-const SettingsBusinessIndexRoute = SettingsBusinessIndexRouteImport.update({
-  id: '/business/',
-  path: '/business/',
-  getParentRoute: () => SettingsRouteRoute,
+const WeldcallCallIdIndexRoute = WeldcallCallIdIndexRouteImport.update({
+  id: '/$callId/',
+  path: '/$callId/',
+  getParentRoute: () => WeldcallRouteRoute,
 } as any)
-const SettingsBillingIndexRoute = SettingsBillingIndexRouteImport.update({
-  id: '/billing/',
-  path: '/billing/',
-  getParentRoute: () => SettingsRouteRoute,
+const WeldcallContactsIndexRoute = WeldcallContactsIndexRouteImport.update({
+  id: '/contacts/',
+  path: '/contacts/',
+  getParentRoute: () => WeldcallRouteRoute,
 } as any)
-const SettingsAppearanceIndexRoute = SettingsAppearanceIndexRouteImport.update({
-  id: '/appearance/',
-  path: '/appearance/',
-  getParentRoute: () => SettingsRouteRoute,
+const WeldcallHistoryIndexRoute = WeldcallHistoryIndexRouteImport.update({
+  id: '/history/',
+  path: '/history/',
+  getParentRoute: () => WeldcallRouteRoute,
 } as any)
-const SettingsApiKeysIndexRoute = SettingsApiKeysIndexRouteImport.update({
-  id: '/api-keys/',
-  path: '/api-keys/',
-  getParentRoute: () => SettingsRouteRoute,
+const WeldcallNewIndexRoute = WeldcallNewIndexRouteImport.update({
+  id: '/new/',
+  path: '/new/',
+  getParentRoute: () => WeldcallRouteRoute,
 } as any)
-const SettingsAdvancedIndexRoute = SettingsAdvancedIndexRouteImport.update({
-  id: '/advanced/',
-  path: '/advanced/',
-  getParentRoute: () => SettingsRouteRoute,
+const WeldchatChannelIdIndexRoute = WeldchatChannelIdIndexRouteImport.update({
+  id: '/$channelId/',
+  path: '/$channelId/',
+  getParentRoute: () => WeldchatRouteRoute,
 } as any)
-const SettingsActivityIndexRoute = SettingsActivityIndexRouteImport.update({
-  id: '/activity/',
-  path: '/activity/',
-  getParentRoute: () => SettingsRouteRoute,
+const WeldchatBookmarksIndexRoute = WeldchatBookmarksIndexRouteImport.update({
+  id: '/bookmarks/',
+  path: '/bookmarks/',
+  getParentRoute: () => WeldchatRouteRoute,
 } as any)
-const PreviewHelpDocsIndexRoute = PreviewHelpDocsIndexRouteImport.update({
-  id: '/preview/help-docs/',
-  path: '/preview/help-docs/',
-  getParentRoute: () => rootRouteImport,
+const WeldchatDmIndexRoute = WeldchatDmIndexRouteImport.update({
+  id: '/dm/',
+  path: '/dm/',
+  getParentRoute: () => WeldchatRouteRoute,
 } as any)
-const ObjectsSlugIndexRoute = ObjectsSlugIndexRouteImport.update({
-  id: '/objects/$slug/',
-  path: '/objects/$slug/',
-  getParentRoute: () => rootRouteImport,
+const WeldchatDmUserIdRoute = WeldchatDmUserIdRouteImport.update({
+  id: '/dm/$userId',
+  path: '/dm/$userId',
+  getParentRoute: () => WeldchatRouteRoute,
 } as any)
-const InviteAcceptIndexRoute = InviteAcceptIndexRouteImport.update({
-  id: '/invite/accept/',
-  path: '/invite/accept/',
-  getParentRoute: () => rootRouteImport,
+const WeldchatSearchIndexRoute = WeldchatSearchIndexRouteImport.update({
+  id: '/search/',
+  path: '/search/',
+  getParentRoute: () => WeldchatRouteRoute,
 } as any)
-const AuthSsoCallbackIndexRoute = AuthSsoCallbackIndexRouteImport.update({
-  id: '/sso-callback/',
-  path: '/sso-callback/',
-  getParentRoute: () => AuthRouteRoute,
+const WeldcommerceCategoriesIndexRoute =
+  WeldcommerceCategoriesIndexRouteImport.update({
+    id: '/categories/',
+    path: '/categories/',
+    getParentRoute: () => WeldcommerceRouteRoute,
+  } as any)
+const WeldcommerceCustomersIndexRoute =
+  WeldcommerceCustomersIndexRouteImport.update({
+    id: '/customers/',
+    path: '/customers/',
+    getParentRoute: () => WeldcommerceRouteRoute,
+  } as any)
+const WeldcommerceOrdersIndexRoute = WeldcommerceOrdersIndexRouteImport.update({
+  id: '/orders/',
+  path: '/orders/',
+  getParentRoute: () => WeldcommerceRouteRoute,
 } as any)
-const AuthResetPasswordIndexRoute = AuthResetPasswordIndexRouteImport.update({
-  id: '/reset-password/',
-  path: '/reset-password/',
-  getParentRoute: () => AuthRouteRoute,
+const WeldcommerceProductsIndexRoute =
+  WeldcommerceProductsIndexRouteImport.update({
+    id: '/products/',
+    path: '/products/',
+    getParentRoute: () => WeldcommerceRouteRoute,
+  } as any)
+const WeldcommerceSettingsIndexRoute =
+  WeldcommerceSettingsIndexRouteImport.update({
+    id: '/settings/',
+    path: '/settings/',
+    getParentRoute: () => WeldcommerceRouteRoute,
+  } as any)
+const WeldconnectActionsIndexRoute = WeldconnectActionsIndexRouteImport.update({
+  id: '/actions/',
+  path: '/actions/',
+  getParentRoute: () => WeldconnectRouteRoute,
 } as any)
-const AuthForgotPasswordIndexRoute = AuthForgotPasswordIndexRouteImport.update({
-  id: '/forgot-password/',
-  path: '/forgot-password/',
-  getParentRoute: () => AuthRouteRoute,
-} as any)
-const AuthErrorIndexRoute = AuthErrorIndexRouteImport.update({
-  id: '/error/',
-  path: '/error/',
-  getParentRoute: () => AuthRouteRoute,
-} as any)
-const AuthDesktopHandoffIndexRoute = AuthDesktopHandoffIndexRouteImport.update({
-  id: '/desktop-handoff/',
-  path: '/desktop-handoff/',
-  getParentRoute: () => AuthRouteRoute,
-} as any)
-const AppstoreCodeIndexRoute = AppstoreCodeIndexRouteImport.update({
-  id: '/$code/',
-  path: '/$code/',
-  getParentRoute: () => AppstoreRouteRoute,
-} as any)
-const AppsManageIndexRoute = AppsManageIndexRouteImport.update({
-  id: '/apps/manage/',
-  path: '/apps/manage/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AgentsIdIndexRoute = AgentsIdIndexRouteImport.update({
-  id: '/$id/',
-  path: '/$id/',
-  getParentRoute: () => AgentsRouteRoute,
-} as any)
-const WeldmeetJoinJoinCodeRoute = WeldmeetJoinJoinCodeRouteImport.update({
-  id: '/join/$joinCode',
-  path: '/join/$joinCode',
-  getParentRoute: () => WeldmeetRouteRoute,
-} as any)
-const WeldmeetMeetingIdRoomRoute = WeldmeetMeetingIdRoomRouteImport.update({
-  id: '/$meetingId/room',
-  path: '/$meetingId/room',
-  getParentRoute: () => WeldmeetRouteRoute,
-} as any)
-const WeldconnectIntegrationsCallbackRoute =
-  WeldconnectIntegrationsCallbackRouteImport.update({
-    id: '/integrations/callback',
-    path: '/integrations/callback',
+const WeldconnectAnalyticsIndexRoute =
+  WeldconnectAnalyticsIndexRouteImport.update({
+    id: '/analytics/',
+    path: '/analytics/',
+    getParentRoute: () => WeldconnectRouteRoute,
+  } as any)
+const WeldconnectConnectorsIndexRoute =
+  WeldconnectConnectorsIndexRouteImport.update({
+    id: '/connectors/',
+    path: '/connectors/',
     getParentRoute: () => WeldconnectRouteRoute,
   } as any)
 const WeldconnectConnectorsCallbackRoute =
@@ -1342,36 +1093,240 @@ const WeldconnectConnectorsCallbackRoute =
     path: '/connectors/callback',
     getParentRoute: () => WeldconnectRouteRoute,
   } as any)
-const WeldchatDmUserIdRoute = WeldchatDmUserIdRouteImport.update({
-  id: '/dm/$userId',
-  path: '/dm/$userId',
-  getParentRoute: () => WeldchatRouteRoute,
-} as any)
-const SettingsCustomObjectsObjectIdRoute =
-  SettingsCustomObjectsObjectIdRouteImport.update({
-    id: '/custom-objects/$objectId',
-    path: '/custom-objects/$objectId',
-    getParentRoute: () => SettingsRouteRoute,
+const WeldconnectExecutionsIndexRoute =
+  WeldconnectExecutionsIndexRouteImport.update({
+    id: '/executions/',
+    path: '/executions/',
+    getParentRoute: () => WeldconnectRouteRoute,
   } as any)
-const SettingsAppsWeldcrmRoute = SettingsAppsWeldcrmRouteImport.update({
-  id: '/apps/weldcrm',
-  path: '/apps/weldcrm',
-  getParentRoute: () => SettingsRouteRoute,
+const WeldconnectIntegrationsIndexRoute =
+  WeldconnectIntegrationsIndexRouteImport.update({
+    id: '/integrations/',
+    path: '/integrations/',
+    getParentRoute: () => WeldconnectRouteRoute,
+  } as any)
+const WeldconnectIntegrationsCallbackRoute =
+  WeldconnectIntegrationsCallbackRouteImport.update({
+    id: '/integrations/callback',
+    path: '/integrations/callback',
+    getParentRoute: () => WeldconnectRouteRoute,
+  } as any)
+const WeldconnectTemplatesIndexRoute =
+  WeldconnectTemplatesIndexRouteImport.update({
+    id: '/templates/',
+    path: '/templates/',
+    getParentRoute: () => WeldconnectRouteRoute,
+  } as any)
+const WeldconnectTriggersIndexRoute =
+  WeldconnectTriggersIndexRouteImport.update({
+    id: '/triggers/',
+    path: '/triggers/',
+    getParentRoute: () => WeldconnectRouteRoute,
+  } as any)
+const WeldconnectVariablesIndexRoute =
+  WeldconnectVariablesIndexRouteImport.update({
+    id: '/variables/',
+    path: '/variables/',
+    getParentRoute: () => WeldconnectRouteRoute,
+  } as any)
+const WeldconnectWebhooksIndexRoute =
+  WeldconnectWebhooksIndexRouteImport.update({
+    id: '/webhooks/',
+    path: '/webhooks/',
+    getParentRoute: () => WeldconnectRouteRoute,
+  } as any)
+const WeldconnectWorkflowsIndexRoute =
+  WeldconnectWorkflowsIndexRouteImport.update({
+    id: '/workflows/',
+    path: '/workflows/',
+    getParentRoute: () => WeldconnectRouteRoute,
+  } as any)
+const WeldcrmCompaniesIndexRoute = WeldcrmCompaniesIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldcrmCompaniesRouteRoute,
 } as any)
-const ObjectsSlugRecordIdRoute = ObjectsSlugRecordIdRouteImport.update({
-  id: '/objects/$slug/$recordId',
-  path: '/objects/$slug/$recordId',
-  getParentRoute: () => rootRouteImport,
+const WeldcrmNotesIndexRoute = WeldcrmNotesIndexRouteImport.update({
+  id: '/notes/',
+  path: '/notes/',
+  getParentRoute: () => WeldcrmRouteRoute,
 } as any)
-const AuthRegisterSplatRoute = AuthRegisterSplatRouteImport.update({
-  id: '/register/$',
-  path: '/register/$',
-  getParentRoute: () => AuthRouteRoute,
+const WeldcrmPeopleIndexRoute = WeldcrmPeopleIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldcrmPeopleRouteRoute,
 } as any)
-const AuthLoginSplatRoute = AuthLoginSplatRouteImport.update({
-  id: '/login/$',
-  path: '/login/$',
-  getParentRoute: () => AuthRouteRoute,
+const WeldcrmSequencesIndexRoute = WeldcrmSequencesIndexRouteImport.update({
+  id: '/sequences/',
+  path: '/sequences/',
+  getParentRoute: () => WeldcrmRouteRoute,
+} as any)
+const WelddeskAiAgentsIndexRoute = WelddeskAiAgentsIndexRouteImport.update({
+  id: '/ai-agents/',
+  path: '/ai-agents/',
+  getParentRoute: () => WelddeskRouteRoute,
+} as any)
+const WelddeskChatWidgetIndexRoute = WelddeskChatWidgetIndexRouteImport.update({
+  id: '/chat-widget/',
+  path: '/chat-widget/',
+  getParentRoute: () => WelddeskRouteRoute,
+} as any)
+const WelddeskEmailIndexRoute = WelddeskEmailIndexRouteImport.update({
+  id: '/email/',
+  path: '/email/',
+  getParentRoute: () => WelddeskRouteRoute,
+} as any)
+const WelddeskHelpCenterIndexRoute = WelddeskHelpCenterIndexRouteImport.update({
+  id: '/help-center/',
+  path: '/help-center/',
+  getParentRoute: () => WelddeskRouteRoute,
+} as any)
+const WelddeskInboxIndexRoute = WelddeskInboxIndexRouteImport.update({
+  id: '/inbox/',
+  path: '/inbox/',
+  getParentRoute: () => WelddeskRouteRoute,
+} as any)
+const WelddriveAllFilesIndexRoute = WelddriveAllFilesIndexRouteImport.update({
+  id: '/all-files/',
+  path: '/all-files/',
+  getParentRoute: () => WelddriveRouteRoute,
+} as any)
+const WelddriveRecentIndexRoute = WelddriveRecentIndexRouteImport.update({
+  id: '/recent/',
+  path: '/recent/',
+  getParentRoute: () => WelddriveRouteRoute,
+} as any)
+const WelddriveSharedIndexRoute = WelddriveSharedIndexRouteImport.update({
+  id: '/shared/',
+  path: '/shared/',
+  getParentRoute: () => WelddriveRouteRoute,
+} as any)
+const WelddriveStarredIndexRoute = WelddriveStarredIndexRouteImport.update({
+  id: '/starred/',
+  path: '/starred/',
+  getParentRoute: () => WelddriveRouteRoute,
+} as any)
+const WelddriveTrashIndexRoute = WelddriveTrashIndexRouteImport.update({
+  id: '/trash/',
+  path: '/trash/',
+  getParentRoute: () => WelddriveRouteRoute,
+} as any)
+const WelddriveUploadsIndexRoute = WelddriveUploadsIndexRouteImport.update({
+  id: '/uploads/',
+  path: '/uploads/',
+  getParentRoute: () => WelddriveRouteRoute,
+} as any)
+const WeldflowAnalyticsIndexRoute = WeldflowAnalyticsIndexRouteImport.update({
+  id: '/analytics/',
+  path: '/analytics/',
+  getParentRoute: () => WeldflowRouteRoute,
+} as any)
+const WeldflowDocumentsIndexRoute = WeldflowDocumentsIndexRouteImport.update({
+  id: '/documents/',
+  path: '/documents/',
+  getParentRoute: () => WeldflowRouteRoute,
+} as any)
+const WeldflowFilesIndexRoute = WeldflowFilesIndexRouteImport.update({
+  id: '/files/',
+  path: '/files/',
+  getParentRoute: () => WeldflowRouteRoute,
+} as any)
+const WeldflowGoalsIndexRoute = WeldflowGoalsIndexRouteImport.update({
+  id: '/goals/',
+  path: '/goals/',
+  getParentRoute: () => WeldflowRouteRoute,
+} as any)
+const WeldflowMyTasksIndexRoute = WeldflowMyTasksIndexRouteImport.update({
+  id: '/my-tasks/',
+  path: '/my-tasks/',
+  getParentRoute: () => WeldflowRouteRoute,
+} as any)
+const WeldflowNotesIndexRoute = WeldflowNotesIndexRouteImport.update({
+  id: '/notes/',
+  path: '/notes/',
+  getParentRoute: () => WeldflowRouteRoute,
+} as any)
+const WeldflowProjectProjectIdRouteRoute =
+  WeldflowProjectProjectIdRouteRouteImport.update({
+    id: '/project/$projectId',
+    path: '/project/$projectId',
+    getParentRoute: () => WeldflowRouteRoute,
+  } as any)
+const WeldflowProjectsIndexRoute = WeldflowProjectsIndexRouteImport.update({
+  id: '/projects/',
+  path: '/projects/',
+  getParentRoute: () => WeldflowRouteRoute,
+} as any)
+const WeldflowSettingsIndexRoute = WeldflowSettingsIndexRouteImport.update({
+  id: '/settings/',
+  path: '/settings/',
+  getParentRoute: () => WeldflowRouteRoute,
+} as any)
+const WeldflowTableIndexRoute = WeldflowTableIndexRouteImport.update({
+  id: '/table/',
+  path: '/table/',
+  getParentRoute: () => WeldflowRouteRoute,
+} as any)
+const WeldflowTimelineIndexRoute = WeldflowTimelineIndexRouteImport.update({
+  id: '/timeline/',
+  path: '/timeline/',
+  getParentRoute: () => WeldflowRouteRoute,
+} as any)
+const WeldflowWhiteboardIndexRoute = WeldflowWhiteboardIndexRouteImport.update({
+  id: '/whiteboard/',
+  path: '/whiteboard/',
+  getParentRoute: () => WeldflowRouteRoute,
+} as any)
+const WeldflowWorkloadIndexRoute = WeldflowWorkloadIndexRouteImport.update({
+  id: '/workload/',
+  path: '/workload/',
+  getParentRoute: () => WeldflowRouteRoute,
+} as any)
+const WeldhostDomainsIndexRoute = WeldhostDomainsIndexRouteImport.update({
+  id: '/domains/',
+  path: '/domains/',
+  getParentRoute: () => WeldhostRouteRoute,
+} as any)
+const WeldknowTrashIndexRoute = WeldknowTrashIndexRouteImport.update({
+  id: '/trash/',
+  path: '/trash/',
+  getParentRoute: () => WeldknowRouteRoute,
+} as any)
+const WeldmailAccountIdLabelSlugRouteRoute =
+  WeldmailAccountIdLabelSlugRouteRouteImport.update({
+    id: '/$labelSlug',
+    path: '/$labelSlug',
+    getParentRoute: () => WeldmailAccountIdRouteRoute,
+  } as any)
+const WeldmailDomainsIndexRoute = WeldmailDomainsIndexRouteImport.update({
+  id: '/domains/',
+  path: '/domains/',
+  getParentRoute: () => WeldmailRouteRoute,
+} as any)
+const WeldmailInboxIndexRoute = WeldmailInboxIndexRouteImport.update({
+  id: '/inbox/',
+  path: '/inbox/',
+  getParentRoute: () => WeldmailRouteRoute,
+} as any)
+const WeldmailScheduledIndexRoute = WeldmailScheduledIndexRouteImport.update({
+  id: '/scheduled/',
+  path: '/scheduled/',
+  getParentRoute: () => WeldmailRouteRoute,
+} as any)
+const WeldmailSearchIndexRoute = WeldmailSearchIndexRouteImport.update({
+  id: '/search/',
+  path: '/search/',
+  getParentRoute: () => WeldmailRouteRoute,
+} as any)
+const WeldmailSetupIndexRoute = WeldmailSetupIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldmailSetupRouteRoute,
+} as any)
+const WeldmailSnoozedIndexRoute = WeldmailSnoozedIndexRouteImport.update({
+  id: '/snoozed/',
+  path: '/snoozed/',
+  getParentRoute: () => WeldmailRouteRoute,
 } as any)
 const WeldmailUnifiedLabelSlugRouteRoute =
   WeldmailUnifiedLabelSlugRouteRouteImport.update({
@@ -1379,436 +1334,98 @@ const WeldmailUnifiedLabelSlugRouteRoute =
     path: '/unified/$labelSlug',
     getParentRoute: () => WeldmailRouteRoute,
   } as any)
-const WeldmailAccountIdLabelSlugRouteRoute =
-  WeldmailAccountIdLabelSlugRouteRouteImport.update({
-    id: '/$labelSlug',
-    path: '/$labelSlug',
-    getParentRoute: () => WeldmailAccountIdRouteRoute,
-  } as any)
-const WeldflowProjectProjectIdRouteRoute =
-  WeldflowProjectProjectIdRouteRouteImport.update({
-    id: '/project/$projectId',
-    path: '/project/$projectId',
-    getParentRoute: () => WeldflowRouteRoute,
-  } as any)
-const WeldmailUnifiedLabelSlugIndexRoute =
-  WeldmailUnifiedLabelSlugIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => WeldmailUnifiedLabelSlugRouteRoute,
-  } as any)
-const WeldmailSettingsLabelsIndexRoute =
-  WeldmailSettingsLabelsIndexRouteImport.update({
-    id: '/settings/labels/',
-    path: '/settings/labels/',
-    getParentRoute: () => WeldmailRouteRoute,
-  } as any)
-const WeldmailSettingsAccountsIndexRoute =
-  WeldmailSettingsAccountsIndexRouteImport.update({
-    id: '/settings/accounts/',
-    path: '/settings/accounts/',
-    getParentRoute: () => WeldmailRouteRoute,
-  } as any)
-const WeldmailInboxComposeIndexRoute =
-  WeldmailInboxComposeIndexRouteImport.update({
-    id: '/inbox/compose/',
-    path: '/inbox/compose/',
-    getParentRoute: () => WeldmailRouteRoute,
-  } as any)
-const WeldmailAiSummaryIndexRoute = WeldmailAiSummaryIndexRouteImport.update({
-  id: '/ai/summary/',
-  path: '/ai/summary/',
-  getParentRoute: () => WeldmailRouteRoute,
+const WeldmeetMeetingIdIndexRoute = WeldmeetMeetingIdIndexRouteImport.update({
+  id: '/$meetingId/',
+  path: '/$meetingId/',
+  getParentRoute: () => WeldmeetRouteRoute,
 } as any)
-const WeldmailAiSmartReplyIndexRoute =
-  WeldmailAiSmartReplyIndexRouteImport.update({
-    id: '/ai/smart-reply/',
-    path: '/ai/smart-reply/',
-    getParentRoute: () => WeldmailRouteRoute,
-  } as any)
-const WeldmailAccountIdLabelSlugIndexRoute =
-  WeldmailAccountIdLabelSlugIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => WeldmailAccountIdLabelSlugRouteRoute,
-  } as any)
-const WeldknowPagePageIdIndexRoute = WeldknowPagePageIdIndexRouteImport.update({
-  id: '/page/$pageId/',
-  path: '/page/$pageId/',
-  getParentRoute: () => WeldknowRouteRoute,
+const WeldmeetMeetingIdRoomRoute = WeldmeetMeetingIdRoomRouteImport.update({
+  id: '/$meetingId/room',
+  path: '/$meetingId/room',
+  getParentRoute: () => WeldmeetRouteRoute,
 } as any)
-const WeldhostDomainsSearchIndexRoute =
-  WeldhostDomainsSearchIndexRouteImport.update({
-    id: '/domains/search/',
-    path: '/domains/search/',
-    getParentRoute: () => WeldhostRouteRoute,
-  } as any)
-const WeldhostDomainsRegisterIndexRoute =
-  WeldhostDomainsRegisterIndexRouteImport.update({
-    id: '/domains/register/',
-    path: '/domains/register/',
-    getParentRoute: () => WeldhostRouteRoute,
-  } as any)
-const WeldhostDomainsExternalIndexRoute =
-  WeldhostDomainsExternalIndexRouteImport.update({
-    id: '/domains/external/',
-    path: '/domains/external/',
-    getParentRoute: () => WeldhostRouteRoute,
-  } as any)
-const WeldhostDomainsIdIndexRoute = WeldhostDomainsIdIndexRouteImport.update({
-  id: '/domains/$id/',
-  path: '/domains/$id/',
-  getParentRoute: () => WeldhostRouteRoute,
+const WeldmeetHistoryIndexRoute = WeldmeetHistoryIndexRouteImport.update({
+  id: '/history/',
+  path: '/history/',
+  getParentRoute: () => WeldmeetRouteRoute,
 } as any)
-const WeldflowSpaceSpaceIdIndexRoute =
-  WeldflowSpaceSpaceIdIndexRouteImport.update({
-    id: '/space/$spaceId/',
-    path: '/space/$spaceId/',
-    getParentRoute: () => WeldflowRouteRoute,
-  } as any)
-const WeldflowProjectProjectIdIndexRoute =
-  WeldflowProjectProjectIdIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
-  } as any)
-const WeldflowAnalyticsBuilderIndexRoute =
-  WeldflowAnalyticsBuilderIndexRouteImport.update({
-    id: '/analytics/builder/',
-    path: '/analytics/builder/',
-    getParentRoute: () => WeldflowRouteRoute,
-  } as any)
-const WeldflowAnalyticsIdIndexRoute =
-  WeldflowAnalyticsIdIndexRouteImport.update({
-    id: '/analytics/$id/',
-    path: '/analytics/$id/',
-    getParentRoute: () => WeldflowRouteRoute,
-  } as any)
-const WelddeskInboxConversationIdIndexRoute =
-  WelddeskInboxConversationIdIndexRouteImport.update({
-    id: '/inbox/$conversationId/',
-    path: '/inbox/$conversationId/',
-    getParentRoute: () => WelddeskRouteRoute,
-  } as any)
-const WelddeskHelpCenterArticlesIndexRoute =
-  WelddeskHelpCenterArticlesIndexRouteImport.update({
-    id: '/help-center/articles/',
-    path: '/help-center/articles/',
-    getParentRoute: () => WelddeskRouteRoute,
-  } as any)
-const WelddeskChatWidgetWidgetIdIndexRoute =
-  WelddeskChatWidgetWidgetIdIndexRouteImport.update({
-    id: '/chat-widget/$widgetId/',
-    path: '/chat-widget/$widgetId/',
-    getParentRoute: () => WelddeskRouteRoute,
-  } as any)
-const WelddataListsIdIndexRoute = WelddataListsIdIndexRouteImport.update({
-  id: '/lists/$id/',
-  path: '/lists/$id/',
-  getParentRoute: () => WelddataRouteRoute,
+const WeldmeetJoinJoinCodeRoute = WeldmeetJoinJoinCodeRouteImport.update({
+  id: '/join/$joinCode',
+  path: '/join/$joinCode',
+  getParentRoute: () => WeldmeetRouteRoute,
 } as any)
-const WeldcrmSequencesIdIndexRoute = WeldcrmSequencesIdIndexRouteImport.update({
-  id: '/sequences/$id/',
-  path: '/sequences/$id/',
-  getParentRoute: () => WeldcrmRouteRoute,
+const WeldmeetNewIndexRoute = WeldmeetNewIndexRouteImport.update({
+  id: '/new/',
+  path: '/new/',
+  getParentRoute: () => WeldmeetRouteRoute,
 } as any)
-const WeldcrmPipelineIdIndexRoute = WeldcrmPipelineIdIndexRouteImport.update({
-  id: '/pipeline/$id/',
-  path: '/pipeline/$id/',
-  getParentRoute: () => WeldcrmRouteRoute,
+const WeldmeetPeopleIndexRoute = WeldmeetPeopleIndexRouteImport.update({
+  id: '/people/',
+  path: '/people/',
+  getParentRoute: () => WeldmeetRouteRoute,
 } as any)
-const WeldcrmListsListIdIndexRoute = WeldcrmListsListIdIndexRouteImport.update({
-  id: '/lists/$listId/',
-  path: '/lists/$listId/',
-  getParentRoute: () => WeldcrmRouteRoute,
+const WeldmeetUpcomingIndexRoute = WeldmeetUpcomingIndexRouteImport.update({
+  id: '/upcoming/',
+  path: '/upcoming/',
+  getParentRoute: () => WeldmeetRouteRoute,
 } as any)
-const WeldcrmCompaniesListsIndexRoute =
-  WeldcrmCompaniesListsIndexRouteImport.update({
-    id: '/lists/',
-    path: '/lists/',
-    getParentRoute: () => WeldcrmCompaniesRouteRoute,
-  } as any)
-const WeldconnectWorkflowsIdIndexRoute =
-  WeldconnectWorkflowsIdIndexRouteImport.update({
-    id: '/workflows/$id/',
-    path: '/workflows/$id/',
-    getParentRoute: () => WeldconnectRouteRoute,
-  } as any)
-const WeldconnectWebhooksIdIndexRoute =
-  WeldconnectWebhooksIdIndexRouteImport.update({
-    id: '/webhooks/$id/',
-    path: '/webhooks/$id/',
-    getParentRoute: () => WeldconnectRouteRoute,
-  } as any)
-const WeldconnectExecutionsIdIndexRoute =
-  WeldconnectExecutionsIdIndexRouteImport.update({
-    id: '/executions/$id/',
-    path: '/executions/$id/',
-    getParentRoute: () => WeldconnectRouteRoute,
-  } as any)
-const WeldcalendarSchedulingNewIndexRoute =
-  WeldcalendarSchedulingNewIndexRouteImport.update({
-    id: '/scheduling/new/',
-    path: '/scheduling/new/',
-    getParentRoute: () => WeldcalendarRouteRoute,
-  } as any)
-const WeldcalendarSchedulingIdIndexRoute =
-  WeldcalendarSchedulingIdIndexRouteImport.update({
-    id: '/scheduling/$id/',
-    path: '/scheduling/$id/',
-    getParentRoute: () => WeldcalendarRouteRoute,
-  } as any)
-const WeldbooksVatIdIndexRoute = WeldbooksVatIdIndexRouteImport.update({
-  id: '/vat/$id/',
-  path: '/vat/$id/',
-  getParentRoute: () => WeldbooksRouteRoute,
+const WeldstashPackingIndexRoute = WeldstashPackingIndexRouteImport.update({
+  id: '/packing/',
+  path: '/packing/',
+  getParentRoute: () => WeldstashRouteRoute,
 } as any)
-const WeldbooksReportsTrialBalanceIndexRoute =
-  WeldbooksReportsTrialBalanceIndexRouteImport.update({
-    id: '/reports/trial-balance/',
-    path: '/reports/trial-balance/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksReportsProfitLossIndexRoute =
-  WeldbooksReportsProfitLossIndexRouteImport.update({
-    id: '/reports/profit-loss/',
-    path: '/reports/profit-loss/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksReportsGeneralLedgerIndexRoute =
-  WeldbooksReportsGeneralLedgerIndexRouteImport.update({
-    id: '/reports/general-ledger/',
-    path: '/reports/general-ledger/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksReportsCashFlowIndexRoute =
-  WeldbooksReportsCashFlowIndexRouteImport.update({
-    id: '/reports/cash-flow/',
-    path: '/reports/cash-flow/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksReportsBalanceSheetIndexRoute =
-  WeldbooksReportsBalanceSheetIndexRouteImport.update({
-    id: '/reports/balance-sheet/',
-    path: '/reports/balance-sheet/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksReportsAgedReceivablesIndexRoute =
-  WeldbooksReportsAgedReceivablesIndexRouteImport.update({
-    id: '/reports/aged-receivables/',
-    path: '/reports/aged-receivables/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksReportsAgedPayablesIndexRoute =
-  WeldbooksReportsAgedPayablesIndexRouteImport.update({
-    id: '/reports/aged-payables/',
-    path: '/reports/aged-payables/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksRecurringAddIndexRoute =
-  WeldbooksRecurringAddIndexRouteImport.update({
-    id: '/recurring/add/',
-    path: '/recurring/add/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksRecurringIdIndexRoute =
-  WeldbooksRecurringIdIndexRouteImport.update({
-    id: '/recurring/$id/',
-    path: '/recurring/$id/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksJournalAddIndexRoute =
-  WeldbooksJournalAddIndexRouteImport.update({
-    id: '/journal/add/',
-    path: '/journal/add/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksJournalIdIndexRoute = WeldbooksJournalIdIndexRouteImport.update({
-  id: '/journal/$id/',
-  path: '/journal/$id/',
-  getParentRoute: () => WeldbooksRouteRoute,
+const WeldstashPickListsIndexRoute = WeldstashPickListsIndexRouteImport.update({
+  id: '/pick-lists/',
+  path: '/pick-lists/',
+  getParentRoute: () => WeldstashRouteRoute,
 } as any)
-const WeldbooksInvoicesAddIndexRoute =
-  WeldbooksInvoicesAddIndexRouteImport.update({
-    id: '/invoices/add/',
-    path: '/invoices/add/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksInvoicesIdIndexRoute =
-  WeldbooksInvoicesIdIndexRouteImport.update({
-    id: '/invoices/$id/',
-    path: '/invoices/$id/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksEntitiesAddIndexRoute =
-  WeldbooksEntitiesAddIndexRouteImport.update({
-    id: '/entities/add/',
-    path: '/entities/add/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksCustomersAddIndexRoute =
-  WeldbooksCustomersAddIndexRouteImport.update({
-    id: '/customers/add/',
-    path: '/customers/add/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksCustomersIdIndexRoute =
-  WeldbooksCustomersIdIndexRouteImport.update({
-    id: '/customers/$id/',
-    path: '/customers/$id/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksBillsAddIndexRoute = WeldbooksBillsAddIndexRouteImport.update({
-  id: '/bills/add/',
-  path: '/bills/add/',
-  getParentRoute: () => WeldbooksRouteRoute,
+const WeldstashProductsIndexRoute = WeldstashProductsIndexRouteImport.update({
+  id: '/products/',
+  path: '/products/',
+  getParentRoute: () => WeldstashRouteRoute,
 } as any)
-const WeldbooksBillsIdIndexRoute = WeldbooksBillsIdIndexRouteImport.update({
-  id: '/bills/$id/',
-  path: '/bills/$id/',
-  getParentRoute: () => WeldbooksRouteRoute,
+const WeldstashStockIndexRoute = WeldstashStockIndexRouteImport.update({
+  id: '/stock/',
+  path: '/stock/',
+  getParentRoute: () => WeldstashRouteRoute,
 } as any)
-const WeldbooksBankingTransactionsIndexRoute =
-  WeldbooksBankingTransactionsIndexRouteImport.update({
-    id: '/banking/transactions/',
-    path: '/banking/transactions/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksBankingRulesIndexRoute =
-  WeldbooksBankingRulesIndexRouteImport.update({
-    id: '/banking/rules/',
-    path: '/banking/rules/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksBankingReconciliationIndexRoute =
-  WeldbooksBankingReconciliationIndexRouteImport.update({
-    id: '/banking/reconciliation/',
-    path: '/banking/reconciliation/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksBankingImportIndexRoute =
-  WeldbooksBankingImportIndexRouteImport.update({
-    id: '/banking/import/',
-    path: '/banking/import/',
-    getParentRoute: () => WeldbooksRouteRoute,
-  } as any)
-const WeldbooksBankingIdIndexRoute = WeldbooksBankingIdIndexRouteImport.update({
-  id: '/banking/$id/',
-  path: '/banking/$id/',
-  getParentRoute: () => WeldbooksRouteRoute,
+const WeldstashSuppliersIndexRoute = WeldstashSuppliersIndexRouteImport.update({
+  id: '/suppliers/',
+  path: '/suppliers/',
+  getParentRoute: () => WeldstashRouteRoute,
 } as any)
-const WeldbooksAccountsAddIndexRoute =
-  WeldbooksAccountsAddIndexRouteImport.update({
-    id: '/accounts/add/',
-    path: '/accounts/add/',
-    getParentRoute: () => WeldbooksRouteRoute,
+const WeldstashWarehousesIndexRoute =
+  WeldstashWarehousesIndexRouteImport.update({
+    id: '/warehouses/',
+    path: '/warehouses/',
+    getParentRoute: () => WeldstashRouteRoute,
   } as any)
-const WeldbooksAccountsIdIndexRoute =
-  WeldbooksAccountsIdIndexRouteImport.update({
-    id: '/accounts/$id/',
-    path: '/accounts/$id/',
-    getParentRoute: () => WeldbooksRouteRoute,
+const DashboardCheckoutCancelIndexRoute =
+  DashboardCheckoutCancelIndexRouteImport.update({
+    id: '/checkout/cancel/',
+    path: '/checkout/cancel/',
+    getParentRoute: () => DashboardRouteRoute,
   } as any)
-const WeldadsConnectCallbackIndexRoute =
-  WeldadsConnectCallbackIndexRouteImport.update({
-    id: '/connect/callback/',
-    path: '/connect/callback/',
-    getParentRoute: () => WeldadsRouteRoute,
+const DashboardCheckoutSuccessIndexRoute =
+  DashboardCheckoutSuccessIndexRouteImport.update({
+    id: '/checkout/success/',
+    path: '/checkout/success/',
+    getParentRoute: () => DashboardRouteRoute,
   } as any)
-const SettingsTeamMemberIdIndexRoute =
-  SettingsTeamMemberIdIndexRouteImport.update({
-    id: '/team/$memberId/',
-    path: '/team/$memberId/',
-    getParentRoute: () => SettingsRouteRoute,
-  } as any)
-const SettingsRolesRoleIdIndexRoute =
-  SettingsRolesRoleIdIndexRouteImport.update({
-    id: '/roles/$roleId/',
-    path: '/roles/$roleId/',
-    getParentRoute: () => SettingsRouteRoute,
-  } as any)
-const SettingsIntegrationsSlackIndexRoute =
-  SettingsIntegrationsSlackIndexRouteImport.update({
-    id: '/integrations/slack/',
-    path: '/integrations/slack/',
-    getParentRoute: () => SettingsRouteRoute,
-  } as any)
-const SettingsIntegrationsSendcloudIndexRoute =
-  SettingsIntegrationsSendcloudIndexRouteImport.update({
-    id: '/integrations/sendcloud/',
-    path: '/integrations/sendcloud/',
-    getParentRoute: () => SettingsRouteRoute,
-  } as any)
-const SettingsIntegrationsSalesforceIndexRoute =
-  SettingsIntegrationsSalesforceIndexRouteImport.update({
-    id: '/integrations/salesforce/',
-    path: '/integrations/salesforce/',
-    getParentRoute: () => SettingsRouteRoute,
-  } as any)
-const SettingsIntegrationsMoneybirdIndexRoute =
-  SettingsIntegrationsMoneybirdIndexRouteImport.update({
-    id: '/integrations/moneybird/',
-    path: '/integrations/moneybird/',
-    getParentRoute: () => SettingsRouteRoute,
-  } as any)
-const SettingsIntegrationsMcpServersIndexRoute =
-  SettingsIntegrationsMcpServersIndexRouteImport.update({
-    id: '/integrations/mcp-servers/',
-    path: '/integrations/mcp-servers/',
-    getParentRoute: () => SettingsRouteRoute,
-  } as any)
-const SettingsIntegrationsHubspotIndexRoute =
-  SettingsIntegrationsHubspotIndexRouteImport.update({
-    id: '/integrations/hubspot/',
-    path: '/integrations/hubspot/',
-    getParentRoute: () => SettingsRouteRoute,
-  } as any)
-const SettingsIntegrationsGoogleCalendarIndexRoute =
-  SettingsIntegrationsGoogleCalendarIndexRouteImport.update({
-    id: '/integrations/google-calendar/',
-    path: '/integrations/google-calendar/',
-    getParentRoute: () => SettingsRouteRoute,
-  } as any)
-const SettingsIntegrationsGithubIndexRoute =
-  SettingsIntegrationsGithubIndexRouteImport.update({
-    id: '/integrations/github/',
-    path: '/integrations/github/',
-    getParentRoute: () => SettingsRouteRoute,
-  } as any)
-const SettingsIntegrationsDiscordIndexRoute =
-  SettingsIntegrationsDiscordIndexRouteImport.update({
-    id: '/integrations/discord/',
-    path: '/integrations/discord/',
-    getParentRoute: () => SettingsRouteRoute,
-  } as any)
-const SettingsIntegrationsCrmSyncIndexRoute =
-  SettingsIntegrationsCrmSyncIndexRouteImport.update({
-    id: '/integrations/crm-sync/',
-    path: '/integrations/crm-sync/',
-    getParentRoute: () => SettingsRouteRoute,
-  } as any)
-const SettingsIntegrationsAttioIndexRoute =
-  SettingsIntegrationsAttioIndexRouteImport.update({
-    id: '/integrations/attio/',
-    path: '/integrations/attio/',
-    getParentRoute: () => SettingsRouteRoute,
-  } as any)
-const SettingsIntegrationsIdIndexRoute =
-  SettingsIntegrationsIdIndexRouteImport.update({
-    id: '/integrations/$id/',
-    path: '/integrations/$id/',
-    getParentRoute: () => SettingsRouteRoute,
-  } as any)
-const SettingsAppsWeldsuiteIndexRoute =
-  SettingsAppsWeldsuiteIndexRouteImport.update({
-    id: '/apps/weldsuite/',
-    path: '/apps/weldsuite/',
-    getParentRoute: () => SettingsRouteRoute,
-  } as any)
-const SettingsAppsWeldmailIndexRoute =
-  SettingsAppsWeldmailIndexRouteImport.update({
-    id: '/apps/weldmail/',
-    path: '/apps/weldmail/',
+const AuthLoginTasksSplatRoute = AuthLoginTasksSplatRouteImport.update({
+  id: '/login/tasks/$',
+  path: '/login/tasks/$',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const AuthRegisterTasksSplatRoute = AuthRegisterTasksSplatRouteImport.update({
+  id: '/register/tasks/$',
+  path: '/register/tasks/$',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
+const SettingsAppsPhoneNumbersIndexRoute =
+  SettingsAppsPhoneNumbersIndexRouteImport.update({
+    id: '/apps/phone-numbers/',
+    path: '/apps/phone-numbers/',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
 const SettingsAppsWelddeskIndexRoute =
@@ -1817,46 +1434,28 @@ const SettingsAppsWelddeskIndexRoute =
     path: '/apps/welddesk/',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
-const SettingsAppsPhoneNumbersIndexRoute =
-  SettingsAppsPhoneNumbersIndexRouteImport.update({
-    id: '/apps/phone-numbers/',
-    path: '/apps/phone-numbers/',
+const SettingsAppsWeldmailIndexRoute =
+  SettingsAppsWeldmailIndexRouteImport.update({
+    id: '/apps/weldmail/',
+    path: '/apps/weldmail/',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
-const DashboardCheckoutSuccessIndexRoute =
-  DashboardCheckoutSuccessIndexRouteImport.update({
-    id: '/checkout/success/',
-    path: '/checkout/success/',
-    getParentRoute: () => DashboardRouteRoute,
-  } as any)
-const DashboardCheckoutCancelIndexRoute =
-  DashboardCheckoutCancelIndexRouteImport.update({
-    id: '/checkout/cancel/',
-    path: '/checkout/cancel/',
-    getParentRoute: () => DashboardRouteRoute,
-  } as any)
-const WeldchatDmGroupChannelIdRoute =
-  WeldchatDmGroupChannelIdRouteImport.update({
-    id: '/dm/group/$channelId',
-    path: '/dm/group/$channelId',
-    getParentRoute: () => WeldchatRouteRoute,
-  } as any)
-const WeldchatChannelIdThreadMessageIdRoute =
-  WeldchatChannelIdThreadMessageIdRouteImport.update({
-    id: '/$channelId/thread/$messageId',
-    path: '/$channelId/thread/$messageId',
-    getParentRoute: () => WeldchatRouteRoute,
-  } as any)
-const SettingsIntegrationsHubspotCallbackRoute =
-  SettingsIntegrationsHubspotCallbackRouteImport.update({
-    id: '/integrations/hubspot/callback',
-    path: '/integrations/hubspot/callback',
+const SettingsAppsWeldsuiteIndexRoute =
+  SettingsAppsWeldsuiteIndexRouteImport.update({
+    id: '/apps/weldsuite/',
+    path: '/apps/weldsuite/',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
-const SettingsIntegrationsGoogleCalendarCallbackRoute =
-  SettingsIntegrationsGoogleCalendarCallbackRouteImport.update({
-    id: '/integrations/google-calendar/callback',
-    path: '/integrations/google-calendar/callback',
+const SettingsIntegrationsIdIndexRoute =
+  SettingsIntegrationsIdIndexRouteImport.update({
+    id: '/integrations/$id/',
+    path: '/integrations/$id/',
+    getParentRoute: () => SettingsRouteRoute,
+  } as any)
+const SettingsIntegrationsAttioIndexRoute =
+  SettingsIntegrationsAttioIndexRouteImport.update({
+    id: '/integrations/attio/',
+    path: '/integrations/attio/',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
 const SettingsIntegrationsAttioCallbackRoute =
@@ -1865,230 +1464,453 @@ const SettingsIntegrationsAttioCallbackRoute =
     path: '/integrations/attio/callback',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
-const AuthRegisterTasksSplatRoute = AuthRegisterTasksSplatRouteImport.update({
-  id: '/register/tasks/$',
-  path: '/register/tasks/$',
-  getParentRoute: () => AuthRouteRoute,
-} as any)
-const AuthLoginTasksSplatRoute = AuthLoginTasksSplatRouteImport.update({
-  id: '/login/tasks/$',
-  path: '/login/tasks/$',
-  getParentRoute: () => AuthRouteRoute,
-} as any)
-const WeldmailUnifiedLabelSlugComposeIndexRoute =
-  WeldmailUnifiedLabelSlugComposeIndexRouteImport.update({
-    id: '/compose/',
-    path: '/compose/',
-    getParentRoute: () => WeldmailUnifiedLabelSlugRouteRoute,
+const SettingsIntegrationsCrmSyncIndexRoute =
+  SettingsIntegrationsCrmSyncIndexRouteImport.update({
+    id: '/integrations/crm-sync/',
+    path: '/integrations/crm-sync/',
+    getParentRoute: () => SettingsRouteRoute,
   } as any)
-const WeldmailUnifiedLabelSlugMessageIdIndexRoute =
-  WeldmailUnifiedLabelSlugMessageIdIndexRouteImport.update({
-    id: '/$messageId/',
-    path: '/$messageId/',
-    getParentRoute: () => WeldmailUnifiedLabelSlugRouteRoute,
+const SettingsIntegrationsDiscordIndexRoute =
+  SettingsIntegrationsDiscordIndexRouteImport.update({
+    id: '/integrations/discord/',
+    path: '/integrations/discord/',
+    getParentRoute: () => SettingsRouteRoute,
   } as any)
-const WeldmailAccountIdLabelSlugComposeIndexRoute =
-  WeldmailAccountIdLabelSlugComposeIndexRouteImport.update({
-    id: '/compose/',
-    path: '/compose/',
-    getParentRoute: () => WeldmailAccountIdLabelSlugRouteRoute,
+const SettingsIntegrationsGithubIndexRoute =
+  SettingsIntegrationsGithubIndexRouteImport.update({
+    id: '/integrations/github/',
+    path: '/integrations/github/',
+    getParentRoute: () => SettingsRouteRoute,
   } as any)
-const WeldmailAccountIdLabelSlugMessageIdIndexRoute =
-  WeldmailAccountIdLabelSlugMessageIdIndexRouteImport.update({
-    id: '/$messageId/',
-    path: '/$messageId/',
-    getParentRoute: () => WeldmailAccountIdLabelSlugRouteRoute,
+const SettingsIntegrationsGoogleCalendarIndexRoute =
+  SettingsIntegrationsGoogleCalendarIndexRouteImport.update({
+    id: '/integrations/google-calendar/',
+    path: '/integrations/google-calendar/',
+    getParentRoute: () => SettingsRouteRoute,
   } as any)
-const WeldhostDomainsPurchaseSuccessIndexRoute =
-  WeldhostDomainsPurchaseSuccessIndexRouteImport.update({
-    id: '/domains/purchase/success/',
-    path: '/domains/purchase/success/',
-    getParentRoute: () => WeldhostRouteRoute,
+const SettingsIntegrationsGoogleCalendarCallbackRoute =
+  SettingsIntegrationsGoogleCalendarCallbackRouteImport.update({
+    id: '/integrations/google-calendar/callback',
+    path: '/integrations/google-calendar/callback',
+    getParentRoute: () => SettingsRouteRoute,
   } as any)
-const WeldhostDomainsPurchaseCancelIndexRoute =
-  WeldhostDomainsPurchaseCancelIndexRouteImport.update({
-    id: '/domains/purchase/cancel/',
-    path: '/domains/purchase/cancel/',
-    getParentRoute: () => WeldhostRouteRoute,
+const SettingsIntegrationsHubspotIndexRoute =
+  SettingsIntegrationsHubspotIndexRouteImport.update({
+    id: '/integrations/hubspot/',
+    path: '/integrations/hubspot/',
+    getParentRoute: () => SettingsRouteRoute,
   } as any)
-const WeldflowSpaceSpaceIdModuleTypeIndexRoute =
-  WeldflowSpaceSpaceIdModuleTypeIndexRouteImport.update({
-    id: '/space/$spaceId/$moduleType/',
-    path: '/space/$spaceId/$moduleType/',
-    getParentRoute: () => WeldflowRouteRoute,
+const SettingsIntegrationsHubspotCallbackRoute =
+  SettingsIntegrationsHubspotCallbackRouteImport.update({
+    id: '/integrations/hubspot/callback',
+    path: '/integrations/hubspot/callback',
+    getParentRoute: () => SettingsRouteRoute,
   } as any)
-const WeldflowProjectProjectIdWorkloadIndexRoute =
-  WeldflowProjectProjectIdWorkloadIndexRouteImport.update({
-    id: '/workload/',
-    path: '/workload/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+const SettingsIntegrationsMcpServersIndexRoute =
+  SettingsIntegrationsMcpServersIndexRouteImport.update({
+    id: '/integrations/mcp-servers/',
+    path: '/integrations/mcp-servers/',
+    getParentRoute: () => SettingsRouteRoute,
   } as any)
-const WeldflowProjectProjectIdWhiteboardIndexRoute =
-  WeldflowProjectProjectIdWhiteboardIndexRouteImport.update({
-    id: '/whiteboard/',
-    path: '/whiteboard/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+const SettingsIntegrationsMoneybirdIndexRoute =
+  SettingsIntegrationsMoneybirdIndexRouteImport.update({
+    id: '/integrations/moneybird/',
+    path: '/integrations/moneybird/',
+    getParentRoute: () => SettingsRouteRoute,
   } as any)
-const WeldflowProjectProjectIdTimesheetIndexRoute =
-  WeldflowProjectProjectIdTimesheetIndexRouteImport.update({
-    id: '/timesheet/',
-    path: '/timesheet/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+const SettingsIntegrationsSalesforceIndexRoute =
+  SettingsIntegrationsSalesforceIndexRouteImport.update({
+    id: '/integrations/salesforce/',
+    path: '/integrations/salesforce/',
+    getParentRoute: () => SettingsRouteRoute,
   } as any)
-const WeldflowProjectProjectIdTimelineIndexRoute =
-  WeldflowProjectProjectIdTimelineIndexRouteImport.update({
-    id: '/timeline/',
-    path: '/timeline/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+const SettingsIntegrationsSendcloudIndexRoute =
+  SettingsIntegrationsSendcloudIndexRouteImport.update({
+    id: '/integrations/sendcloud/',
+    path: '/integrations/sendcloud/',
+    getParentRoute: () => SettingsRouteRoute,
   } as any)
-const WeldflowProjectProjectIdTasksIndexRoute =
-  WeldflowProjectProjectIdTasksIndexRouteImport.update({
-    id: '/tasks/',
-    path: '/tasks/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+const SettingsIntegrationsSlackIndexRoute =
+  SettingsIntegrationsSlackIndexRouteImport.update({
+    id: '/integrations/slack/',
+    path: '/integrations/slack/',
+    getParentRoute: () => SettingsRouteRoute,
   } as any)
-const WeldflowProjectProjectIdTableIndexRoute =
-  WeldflowProjectProjectIdTableIndexRouteImport.update({
-    id: '/table/',
-    path: '/table/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+const SettingsRolesRoleIdIndexRoute =
+  SettingsRolesRoleIdIndexRouteImport.update({
+    id: '/roles/$roleId/',
+    path: '/roles/$roleId/',
+    getParentRoute: () => SettingsRouteRoute,
   } as any)
-const WeldflowProjectProjectIdSettingsIndexRoute =
-  WeldflowProjectProjectIdSettingsIndexRouteImport.update({
-    id: '/settings/',
-    path: '/settings/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+const SettingsTeamMemberIdIndexRoute =
+  SettingsTeamMemberIdIndexRouteImport.update({
+    id: '/team/$memberId/',
+    path: '/team/$memberId/',
+    getParentRoute: () => SettingsRouteRoute,
   } as any)
-const WeldflowProjectProjectIdPipelineIndexRoute =
-  WeldflowProjectProjectIdPipelineIndexRouteImport.update({
-    id: '/pipeline/',
-    path: '/pipeline/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+const WeldadsConnectCallbackIndexRoute =
+  WeldadsConnectCallbackIndexRouteImport.update({
+    id: '/connect/callback/',
+    path: '/connect/callback/',
+    getParentRoute: () => WeldadsRouteRoute,
   } as any)
-const WeldflowProjectProjectIdMessagesIndexRoute =
-  WeldflowProjectProjectIdMessagesIndexRouteImport.update({
-    id: '/messages/',
-    path: '/messages/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
-  } as any)
-const WeldflowProjectProjectIdMembersIndexRoute =
-  WeldflowProjectProjectIdMembersIndexRouteImport.update({
-    id: '/members/',
-    path: '/members/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
-  } as any)
-const WeldflowProjectProjectIdListIndexRoute =
-  WeldflowProjectProjectIdListIndexRouteImport.update({
-    id: '/list/',
-    path: '/list/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
-  } as any)
-const WeldflowProjectProjectIdGoalsIndexRoute =
-  WeldflowProjectProjectIdGoalsIndexRouteImport.update({
-    id: '/goals/',
-    path: '/goals/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
-  } as any)
-const WeldflowProjectProjectIdGanttIndexRoute =
-  WeldflowProjectProjectIdGanttIndexRouteImport.update({
-    id: '/gantt/',
-    path: '/gantt/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
-  } as any)
-const WeldflowProjectProjectIdFilesIndexRoute =
-  WeldflowProjectProjectIdFilesIndexRouteImport.update({
-    id: '/files/',
-    path: '/files/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
-  } as any)
-const WeldflowProjectProjectIdDocumentsIndexRoute =
-  WeldflowProjectProjectIdDocumentsIndexRouteImport.update({
-    id: '/documents/',
-    path: '/documents/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
-  } as any)
-const WeldflowProjectProjectIdCalendarIndexRoute =
-  WeldflowProjectProjectIdCalendarIndexRouteImport.update({
-    id: '/calendar/',
-    path: '/calendar/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
-  } as any)
-const WeldflowProjectProjectIdAnalyticsIndexRoute =
-  WeldflowProjectProjectIdAnalyticsIndexRouteImport.update({
-    id: '/analytics/',
-    path: '/analytics/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
-  } as any)
-const WelddeskHelpCenterArticlesIdIndexRoute =
-  WelddeskHelpCenterArticlesIdIndexRouteImport.update({
-    id: '/help-center/articles/$id/',
-    path: '/help-center/articles/$id/',
-    getParentRoute: () => WelddeskRouteRoute,
-  } as any)
-const WeldcrmSequencesIdSettingsIndexRoute =
-  WeldcrmSequencesIdSettingsIndexRouteImport.update({
-    id: '/sequences/$id/settings/',
-    path: '/sequences/$id/settings/',
-    getParentRoute: () => WeldcrmRouteRoute,
-  } as any)
-const WeldcrmSequencesIdPeopleIndexRoute =
-  WeldcrmSequencesIdPeopleIndexRouteImport.update({
-    id: '/sequences/$id/people/',
-    path: '/sequences/$id/people/',
-    getParentRoute: () => WeldcrmRouteRoute,
-  } as any)
-const WeldcrmSequencesIdEditIndexRoute =
-  WeldcrmSequencesIdEditIndexRouteImport.update({
-    id: '/sequences/$id/edit/',
-    path: '/sequences/$id/edit/',
-    getParentRoute: () => WeldcrmRouteRoute,
-  } as any)
-const WeldcrmCompaniesListsIdIndexRoute =
-  WeldcrmCompaniesListsIdIndexRouteImport.update({
-    id: '/lists/$id/',
-    path: '/lists/$id/',
-    getParentRoute: () => WeldcrmCompaniesRouteRoute,
-  } as any)
-const WeldconnectWorkflowsIdSettingsIndexRoute =
-  WeldconnectWorkflowsIdSettingsIndexRouteImport.update({
-    id: '/workflows/$id/settings/',
-    path: '/workflows/$id/settings/',
-    getParentRoute: () => WeldconnectRouteRoute,
-  } as any)
-const WeldconnectWorkflowsIdEditIndexRoute =
-  WeldconnectWorkflowsIdEditIndexRouteImport.update({
-    id: '/workflows/$id/edit/',
-    path: '/workflows/$id/edit/',
-    getParentRoute: () => WeldconnectRouteRoute,
-  } as any)
-const WeldconnectTemplatesIdEditIndexRoute =
-  WeldconnectTemplatesIdEditIndexRouteImport.update({
-    id: '/templates/$id/edit/',
-    path: '/templates/$id/edit/',
-    getParentRoute: () => WeldconnectRouteRoute,
-  } as any)
-const WeldcalendarSchedulingIdViewIndexRoute =
-  WeldcalendarSchedulingIdViewIndexRouteImport.update({
-    id: '/scheduling/$id/view/',
-    path: '/scheduling/$id/view/',
-    getParentRoute: () => WeldcalendarRouteRoute,
-  } as any)
-const WeldcalendarSchedulingIdEditIndexRoute =
-  WeldcalendarSchedulingIdEditIndexRouteImport.update({
-    id: '/scheduling/$id/edit/',
-    path: '/scheduling/$id/edit/',
-    getParentRoute: () => WeldcalendarRouteRoute,
-  } as any)
-const WeldbooksInvoicesIdEditIndexRoute =
-  WeldbooksInvoicesIdEditIndexRouteImport.update({
-    id: '/invoices/$id/edit/',
-    path: '/invoices/$id/edit/',
+const WeldbooksAccountsIdIndexRoute =
+  WeldbooksAccountsIdIndexRouteImport.update({
+    id: '/accounts/$id/',
+    path: '/accounts/$id/',
     getParentRoute: () => WeldbooksRouteRoute,
   } as any)
-const WeldbooksCustomersIdEditIndexRoute =
-  WeldbooksCustomersIdEditIndexRouteImport.update({
-    id: '/customers/$id/edit/',
-    path: '/customers/$id/edit/',
+const WeldbooksAccountsAddIndexRoute =
+  WeldbooksAccountsAddIndexRouteImport.update({
+    id: '/accounts/add/',
+    path: '/accounts/add/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksBankingIdIndexRoute = WeldbooksBankingIdIndexRouteImport.update({
+  id: '/banking/$id/',
+  path: '/banking/$id/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldbooksBankingImportIndexRoute =
+  WeldbooksBankingImportIndexRouteImport.update({
+    id: '/banking/import/',
+    path: '/banking/import/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksBankingReconciliationIndexRoute =
+  WeldbooksBankingReconciliationIndexRouteImport.update({
+    id: '/banking/reconciliation/',
+    path: '/banking/reconciliation/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksBankingRulesIndexRoute =
+  WeldbooksBankingRulesIndexRouteImport.update({
+    id: '/banking/rules/',
+    path: '/banking/rules/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksBankingTransactionsIndexRoute =
+  WeldbooksBankingTransactionsIndexRouteImport.update({
+    id: '/banking/transactions/',
+    path: '/banking/transactions/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksBillsIdIndexRoute = WeldbooksBillsIdIndexRouteImport.update({
+  id: '/bills/$id/',
+  path: '/bills/$id/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldbooksBillsAddIndexRoute = WeldbooksBillsAddIndexRouteImport.update({
+  id: '/bills/add/',
+  path: '/bills/add/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldbooksCustomersIdIndexRoute =
+  WeldbooksCustomersIdIndexRouteImport.update({
+    id: '/customers/$id/',
+    path: '/customers/$id/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksCustomersAddIndexRoute =
+  WeldbooksCustomersAddIndexRouteImport.update({
+    id: '/customers/add/',
+    path: '/customers/add/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksEntitiesAddIndexRoute =
+  WeldbooksEntitiesAddIndexRouteImport.update({
+    id: '/entities/add/',
+    path: '/entities/add/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksInvoicesIdIndexRoute =
+  WeldbooksInvoicesIdIndexRouteImport.update({
+    id: '/invoices/$id/',
+    path: '/invoices/$id/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksInvoicesAddIndexRoute =
+  WeldbooksInvoicesAddIndexRouteImport.update({
+    id: '/invoices/add/',
+    path: '/invoices/add/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksJournalIdIndexRoute = WeldbooksJournalIdIndexRouteImport.update({
+  id: '/journal/$id/',
+  path: '/journal/$id/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldbooksJournalAddIndexRoute =
+  WeldbooksJournalAddIndexRouteImport.update({
+    id: '/journal/add/',
+    path: '/journal/add/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksRecurringIdIndexRoute =
+  WeldbooksRecurringIdIndexRouteImport.update({
+    id: '/recurring/$id/',
+    path: '/recurring/$id/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksRecurringAddIndexRoute =
+  WeldbooksRecurringAddIndexRouteImport.update({
+    id: '/recurring/add/',
+    path: '/recurring/add/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksReportsAgedPayablesIndexRoute =
+  WeldbooksReportsAgedPayablesIndexRouteImport.update({
+    id: '/reports/aged-payables/',
+    path: '/reports/aged-payables/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksReportsAgedReceivablesIndexRoute =
+  WeldbooksReportsAgedReceivablesIndexRouteImport.update({
+    id: '/reports/aged-receivables/',
+    path: '/reports/aged-receivables/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksReportsBalanceSheetIndexRoute =
+  WeldbooksReportsBalanceSheetIndexRouteImport.update({
+    id: '/reports/balance-sheet/',
+    path: '/reports/balance-sheet/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksReportsCashFlowIndexRoute =
+  WeldbooksReportsCashFlowIndexRouteImport.update({
+    id: '/reports/cash-flow/',
+    path: '/reports/cash-flow/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksReportsGeneralLedgerIndexRoute =
+  WeldbooksReportsGeneralLedgerIndexRouteImport.update({
+    id: '/reports/general-ledger/',
+    path: '/reports/general-ledger/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksReportsProfitLossIndexRoute =
+  WeldbooksReportsProfitLossIndexRouteImport.update({
+    id: '/reports/profit-loss/',
+    path: '/reports/profit-loss/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksReportsTrialBalanceIndexRoute =
+  WeldbooksReportsTrialBalanceIndexRouteImport.update({
+    id: '/reports/trial-balance/',
+    path: '/reports/trial-balance/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksVatIdIndexRoute = WeldbooksVatIdIndexRouteImport.update({
+  id: '/vat/$id/',
+  path: '/vat/$id/',
+  getParentRoute: () => WeldbooksRouteRoute,
+} as any)
+const WeldcalendarSchedulingIdIndexRoute =
+  WeldcalendarSchedulingIdIndexRouteImport.update({
+    id: '/scheduling/$id/',
+    path: '/scheduling/$id/',
+    getParentRoute: () => WeldcalendarRouteRoute,
+  } as any)
+const WeldcalendarSchedulingNewIndexRoute =
+  WeldcalendarSchedulingNewIndexRouteImport.update({
+    id: '/scheduling/new/',
+    path: '/scheduling/new/',
+    getParentRoute: () => WeldcalendarRouteRoute,
+  } as any)
+const WeldchatChannelIdThreadMessageIdRoute =
+  WeldchatChannelIdThreadMessageIdRouteImport.update({
+    id: '/$channelId/thread/$messageId',
+    path: '/$channelId/thread/$messageId',
+    getParentRoute: () => WeldchatRouteRoute,
+  } as any)
+const WeldchatDmGroupChannelIdRoute =
+  WeldchatDmGroupChannelIdRouteImport.update({
+    id: '/dm/group/$channelId',
+    path: '/dm/group/$channelId',
+    getParentRoute: () => WeldchatRouteRoute,
+  } as any)
+const WeldconnectExecutionsIdIndexRoute =
+  WeldconnectExecutionsIdIndexRouteImport.update({
+    id: '/executions/$id/',
+    path: '/executions/$id/',
+    getParentRoute: () => WeldconnectRouteRoute,
+  } as any)
+const WeldconnectWebhooksIdIndexRoute =
+  WeldconnectWebhooksIdIndexRouteImport.update({
+    id: '/webhooks/$id/',
+    path: '/webhooks/$id/',
+    getParentRoute: () => WeldconnectRouteRoute,
+  } as any)
+const WeldconnectWorkflowsIdIndexRoute =
+  WeldconnectWorkflowsIdIndexRouteImport.update({
+    id: '/workflows/$id/',
+    path: '/workflows/$id/',
+    getParentRoute: () => WeldconnectRouteRoute,
+  } as any)
+const WeldcrmCompaniesListsIndexRoute =
+  WeldcrmCompaniesListsIndexRouteImport.update({
+    id: '/lists/',
+    path: '/lists/',
+    getParentRoute: () => WeldcrmCompaniesRouteRoute,
+  } as any)
+const WeldcrmListsListIdIndexRoute = WeldcrmListsListIdIndexRouteImport.update({
+  id: '/lists/$listId/',
+  path: '/lists/$listId/',
+  getParentRoute: () => WeldcrmRouteRoute,
+} as any)
+const WeldcrmPipelineIdIndexRoute = WeldcrmPipelineIdIndexRouteImport.update({
+  id: '/pipeline/$id/',
+  path: '/pipeline/$id/',
+  getParentRoute: () => WeldcrmRouteRoute,
+} as any)
+const WeldcrmSequencesIdIndexRoute = WeldcrmSequencesIdIndexRouteImport.update({
+  id: '/sequences/$id/',
+  path: '/sequences/$id/',
+  getParentRoute: () => WeldcrmRouteRoute,
+} as any)
+const WelddataListsIdIndexRoute = WelddataListsIdIndexRouteImport.update({
+  id: '/lists/$id/',
+  path: '/lists/$id/',
+  getParentRoute: () => WelddataRouteRoute,
+} as any)
+const WelddeskChatWidgetWidgetIdIndexRoute =
+  WelddeskChatWidgetWidgetIdIndexRouteImport.update({
+    id: '/chat-widget/$widgetId/',
+    path: '/chat-widget/$widgetId/',
+    getParentRoute: () => WelddeskRouteRoute,
+  } as any)
+const WelddeskHelpCenterArticlesIndexRoute =
+  WelddeskHelpCenterArticlesIndexRouteImport.update({
+    id: '/help-center/articles/',
+    path: '/help-center/articles/',
+    getParentRoute: () => WelddeskRouteRoute,
+  } as any)
+const WelddeskInboxConversationIdIndexRoute =
+  WelddeskInboxConversationIdIndexRouteImport.update({
+    id: '/inbox/$conversationId/',
+    path: '/inbox/$conversationId/',
+    getParentRoute: () => WelddeskRouteRoute,
+  } as any)
+const WelddeskInboxPhoneIndexRoute = WelddeskInboxPhoneIndexRouteImport.update({
+  id: '/inbox/phone/',
+  path: '/inbox/phone/',
+  getParentRoute: () => WelddeskRouteRoute,
+} as any)
+const WelddeskSettingsPhoneIndexRoute =
+  WelddeskSettingsPhoneIndexRouteImport.update({
+    id: '/settings/phone/',
+    path: '/settings/phone/',
+    getParentRoute: () => WelddeskRouteRoute,
+  } as any)
+const WeldflowAnalyticsIdIndexRoute =
+  WeldflowAnalyticsIdIndexRouteImport.update({
+    id: '/analytics/$id/',
+    path: '/analytics/$id/',
+    getParentRoute: () => WeldflowRouteRoute,
+  } as any)
+const WeldflowAnalyticsBuilderIndexRoute =
+  WeldflowAnalyticsBuilderIndexRouteImport.update({
+    id: '/analytics/builder/',
+    path: '/analytics/builder/',
+    getParentRoute: () => WeldflowRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdIndexRoute =
+  WeldflowProjectProjectIdIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowSpaceSpaceIdIndexRoute =
+  WeldflowSpaceSpaceIdIndexRouteImport.update({
+    id: '/space/$spaceId/',
+    path: '/space/$spaceId/',
+    getParentRoute: () => WeldflowRouteRoute,
+  } as any)
+const WeldhostDomainsIdIndexRoute = WeldhostDomainsIdIndexRouteImport.update({
+  id: '/domains/$id/',
+  path: '/domains/$id/',
+  getParentRoute: () => WeldhostRouteRoute,
+} as any)
+const WeldhostDomainsExternalIndexRoute =
+  WeldhostDomainsExternalIndexRouteImport.update({
+    id: '/domains/external/',
+    path: '/domains/external/',
+    getParentRoute: () => WeldhostRouteRoute,
+  } as any)
+const WeldhostDomainsRegisterIndexRoute =
+  WeldhostDomainsRegisterIndexRouteImport.update({
+    id: '/domains/register/',
+    path: '/domains/register/',
+    getParentRoute: () => WeldhostRouteRoute,
+  } as any)
+const WeldhostDomainsSearchIndexRoute =
+  WeldhostDomainsSearchIndexRouteImport.update({
+    id: '/domains/search/',
+    path: '/domains/search/',
+    getParentRoute: () => WeldhostRouteRoute,
+  } as any)
+const WeldknowPagePageIdIndexRoute = WeldknowPagePageIdIndexRouteImport.update({
+  id: '/page/$pageId/',
+  path: '/page/$pageId/',
+  getParentRoute: () => WeldknowRouteRoute,
+} as any)
+const WeldmailAccountIdLabelSlugIndexRoute =
+  WeldmailAccountIdLabelSlugIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => WeldmailAccountIdLabelSlugRouteRoute,
+  } as any)
+const WeldmailAiSmartReplyIndexRoute =
+  WeldmailAiSmartReplyIndexRouteImport.update({
+    id: '/ai/smart-reply/',
+    path: '/ai/smart-reply/',
+    getParentRoute: () => WeldmailRouteRoute,
+  } as any)
+const WeldmailAiSummaryIndexRoute = WeldmailAiSummaryIndexRouteImport.update({
+  id: '/ai/summary/',
+  path: '/ai/summary/',
+  getParentRoute: () => WeldmailRouteRoute,
+} as any)
+const WeldmailInboxComposeIndexRoute =
+  WeldmailInboxComposeIndexRouteImport.update({
+    id: '/inbox/compose/',
+    path: '/inbox/compose/',
+    getParentRoute: () => WeldmailRouteRoute,
+  } as any)
+const WeldmailSettingsAccountsIndexRoute =
+  WeldmailSettingsAccountsIndexRouteImport.update({
+    id: '/settings/accounts/',
+    path: '/settings/accounts/',
+    getParentRoute: () => WeldmailRouteRoute,
+  } as any)
+const WeldmailSettingsLabelsIndexRoute =
+  WeldmailSettingsLabelsIndexRouteImport.update({
+    id: '/settings/labels/',
+    path: '/settings/labels/',
+    getParentRoute: () => WeldmailRouteRoute,
+  } as any)
+const WeldmailUnifiedLabelSlugIndexRoute =
+  WeldmailUnifiedLabelSlugIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => WeldmailUnifiedLabelSlugRouteRoute,
+  } as any)
+const SettingsAppsPhoneNumbersNewNumberIndexRoute =
+  SettingsAppsPhoneNumbersNewNumberIndexRouteImport.update({
+    id: '/apps/phone-numbers/new-number/',
+    path: '/apps/phone-numbers/new-number/',
+    getParentRoute: () => SettingsRouteRoute,
+  } as any)
+const SettingsAppsPhoneNumbersPortIndexRoute =
+  SettingsAppsPhoneNumbersPortIndexRouteImport.update({
+    id: '/apps/phone-numbers/port/',
+    path: '/apps/phone-numbers/port/',
+    getParentRoute: () => SettingsRouteRoute,
+  } as any)
+const WeldbooksAccountsIdEditIndexRoute =
+  WeldbooksAccountsIdEditIndexRouteImport.update({
+    id: '/accounts/$id/edit/',
+    path: '/accounts/$id/edit/',
     getParentRoute: () => WeldbooksRouteRoute,
   } as any)
 const WeldbooksBillsIdEditIndexRoute =
@@ -2097,46 +1919,244 @@ const WeldbooksBillsIdEditIndexRoute =
     path: '/bills/$id/edit/',
     getParentRoute: () => WeldbooksRouteRoute,
   } as any)
-const WeldbooksAccountsIdEditIndexRoute =
-  WeldbooksAccountsIdEditIndexRouteImport.update({
-    id: '/accounts/$id/edit/',
-    path: '/accounts/$id/edit/',
+const WeldbooksCustomersIdEditIndexRoute =
+  WeldbooksCustomersIdEditIndexRouteImport.update({
+    id: '/customers/$id/edit/',
+    path: '/customers/$id/edit/',
     getParentRoute: () => WeldbooksRouteRoute,
   } as any)
-const SettingsAppsPhoneNumbersPortIndexRoute =
-  SettingsAppsPhoneNumbersPortIndexRouteImport.update({
-    id: '/apps/phone-numbers/port/',
-    path: '/apps/phone-numbers/port/',
+const WeldbooksInvoicesIdEditIndexRoute =
+  WeldbooksInvoicesIdEditIndexRouteImport.update({
+    id: '/invoices/$id/edit/',
+    path: '/invoices/$id/edit/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldcalendarSchedulingIdEditIndexRoute =
+  WeldcalendarSchedulingIdEditIndexRouteImport.update({
+    id: '/scheduling/$id/edit/',
+    path: '/scheduling/$id/edit/',
+    getParentRoute: () => WeldcalendarRouteRoute,
+  } as any)
+const WeldcalendarSchedulingIdViewIndexRoute =
+  WeldcalendarSchedulingIdViewIndexRouteImport.update({
+    id: '/scheduling/$id/view/',
+    path: '/scheduling/$id/view/',
+    getParentRoute: () => WeldcalendarRouteRoute,
+  } as any)
+const WeldconnectTemplatesIdEditIndexRoute =
+  WeldconnectTemplatesIdEditIndexRouteImport.update({
+    id: '/templates/$id/edit/',
+    path: '/templates/$id/edit/',
+    getParentRoute: () => WeldconnectRouteRoute,
+  } as any)
+const WeldconnectWorkflowsIdEditIndexRoute =
+  WeldconnectWorkflowsIdEditIndexRouteImport.update({
+    id: '/workflows/$id/edit/',
+    path: '/workflows/$id/edit/',
+    getParentRoute: () => WeldconnectRouteRoute,
+  } as any)
+const WeldconnectWorkflowsIdSettingsIndexRoute =
+  WeldconnectWorkflowsIdSettingsIndexRouteImport.update({
+    id: '/workflows/$id/settings/',
+    path: '/workflows/$id/settings/',
+    getParentRoute: () => WeldconnectRouteRoute,
+  } as any)
+const WeldcrmCompaniesListsIdIndexRoute =
+  WeldcrmCompaniesListsIdIndexRouteImport.update({
+    id: '/lists/$id/',
+    path: '/lists/$id/',
+    getParentRoute: () => WeldcrmCompaniesRouteRoute,
+  } as any)
+const WeldcrmSequencesIdEditIndexRoute =
+  WeldcrmSequencesIdEditIndexRouteImport.update({
+    id: '/sequences/$id/edit/',
+    path: '/sequences/$id/edit/',
+    getParentRoute: () => WeldcrmRouteRoute,
+  } as any)
+const WeldcrmSequencesIdPeopleIndexRoute =
+  WeldcrmSequencesIdPeopleIndexRouteImport.update({
+    id: '/sequences/$id/people/',
+    path: '/sequences/$id/people/',
+    getParentRoute: () => WeldcrmRouteRoute,
+  } as any)
+const WeldcrmSequencesIdSettingsIndexRoute =
+  WeldcrmSequencesIdSettingsIndexRouteImport.update({
+    id: '/sequences/$id/settings/',
+    path: '/sequences/$id/settings/',
+    getParentRoute: () => WeldcrmRouteRoute,
+  } as any)
+const WelddeskHelpCenterArticlesIdIndexRoute =
+  WelddeskHelpCenterArticlesIdIndexRouteImport.update({
+    id: '/help-center/articles/$id/',
+    path: '/help-center/articles/$id/',
+    getParentRoute: () => WelddeskRouteRoute,
+  } as any)
+const WelddeskInboxPhoneConversationIdIndexRoute =
+  WelddeskInboxPhoneConversationIdIndexRouteImport.update({
+    id: '/inbox/phone/$conversationId/',
+    path: '/inbox/phone/$conversationId/',
+    getParentRoute: () => WelddeskRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdAnalyticsIndexRoute =
+  WeldflowProjectProjectIdAnalyticsIndexRouteImport.update({
+    id: '/analytics/',
+    path: '/analytics/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdCalendarIndexRoute =
+  WeldflowProjectProjectIdCalendarIndexRouteImport.update({
+    id: '/calendar/',
+    path: '/calendar/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdDocumentsIndexRoute =
+  WeldflowProjectProjectIdDocumentsIndexRouteImport.update({
+    id: '/documents/',
+    path: '/documents/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdFilesIndexRoute =
+  WeldflowProjectProjectIdFilesIndexRouteImport.update({
+    id: '/files/',
+    path: '/files/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdGanttIndexRoute =
+  WeldflowProjectProjectIdGanttIndexRouteImport.update({
+    id: '/gantt/',
+    path: '/gantt/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdGoalsIndexRoute =
+  WeldflowProjectProjectIdGoalsIndexRouteImport.update({
+    id: '/goals/',
+    path: '/goals/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdListIndexRoute =
+  WeldflowProjectProjectIdListIndexRouteImport.update({
+    id: '/list/',
+    path: '/list/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdMembersIndexRoute =
+  WeldflowProjectProjectIdMembersIndexRouteImport.update({
+    id: '/members/',
+    path: '/members/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdMessagesIndexRoute =
+  WeldflowProjectProjectIdMessagesIndexRouteImport.update({
+    id: '/messages/',
+    path: '/messages/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdPipelineIndexRoute =
+  WeldflowProjectProjectIdPipelineIndexRouteImport.update({
+    id: '/pipeline/',
+    path: '/pipeline/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdSettingsIndexRoute =
+  WeldflowProjectProjectIdSettingsIndexRouteImport.update({
+    id: '/settings/',
+    path: '/settings/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdTableIndexRoute =
+  WeldflowProjectProjectIdTableIndexRouteImport.update({
+    id: '/table/',
+    path: '/table/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdTasksIndexRoute =
+  WeldflowProjectProjectIdTasksIndexRouteImport.update({
+    id: '/tasks/',
+    path: '/tasks/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdTimelineIndexRoute =
+  WeldflowProjectProjectIdTimelineIndexRouteImport.update({
+    id: '/timeline/',
+    path: '/timeline/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdTimesheetIndexRoute =
+  WeldflowProjectProjectIdTimesheetIndexRouteImport.update({
+    id: '/timesheet/',
+    path: '/timesheet/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdWhiteboardIndexRoute =
+  WeldflowProjectProjectIdWhiteboardIndexRouteImport.update({
+    id: '/whiteboard/',
+    path: '/whiteboard/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdWorkloadIndexRoute =
+  WeldflowProjectProjectIdWorkloadIndexRouteImport.update({
+    id: '/workload/',
+    path: '/workload/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowSpaceSpaceIdModuleTypeIndexRoute =
+  WeldflowSpaceSpaceIdModuleTypeIndexRouteImport.update({
+    id: '/space/$spaceId/$moduleType/',
+    path: '/space/$spaceId/$moduleType/',
+    getParentRoute: () => WeldflowRouteRoute,
+  } as any)
+const WeldhostDomainsPurchaseCancelIndexRoute =
+  WeldhostDomainsPurchaseCancelIndexRouteImport.update({
+    id: '/domains/purchase/cancel/',
+    path: '/domains/purchase/cancel/',
+    getParentRoute: () => WeldhostRouteRoute,
+  } as any)
+const WeldhostDomainsPurchaseSuccessIndexRoute =
+  WeldhostDomainsPurchaseSuccessIndexRouteImport.update({
+    id: '/domains/purchase/success/',
+    path: '/domains/purchase/success/',
+    getParentRoute: () => WeldhostRouteRoute,
+  } as any)
+const WeldmailAccountIdLabelSlugMessageIdIndexRoute =
+  WeldmailAccountIdLabelSlugMessageIdIndexRouteImport.update({
+    id: '/$messageId/',
+    path: '/$messageId/',
+    getParentRoute: () => WeldmailAccountIdLabelSlugRouteRoute,
+  } as any)
+const WeldmailAccountIdLabelSlugComposeIndexRoute =
+  WeldmailAccountIdLabelSlugComposeIndexRouteImport.update({
+    id: '/compose/',
+    path: '/compose/',
+    getParentRoute: () => WeldmailAccountIdLabelSlugRouteRoute,
+  } as any)
+const WeldmailUnifiedLabelSlugMessageIdIndexRoute =
+  WeldmailUnifiedLabelSlugMessageIdIndexRouteImport.update({
+    id: '/$messageId/',
+    path: '/$messageId/',
+    getParentRoute: () => WeldmailUnifiedLabelSlugRouteRoute,
+  } as any)
+const WeldmailUnifiedLabelSlugComposeIndexRoute =
+  WeldmailUnifiedLabelSlugComposeIndexRouteImport.update({
+    id: '/compose/',
+    path: '/compose/',
+    getParentRoute: () => WeldmailUnifiedLabelSlugRouteRoute,
+  } as any)
+const SettingsAppsPhoneNumbersPortIdIndexRoute =
+  SettingsAppsPhoneNumbersPortIdIndexRouteImport.update({
+    id: '/apps/phone-numbers/port/$id/',
+    path: '/apps/phone-numbers/port/$id/',
     getParentRoute: () => SettingsRouteRoute,
   } as any)
-const SettingsAppsPhoneNumbersNewNumberIndexRoute =
-  SettingsAppsPhoneNumbersNewNumberIndexRouteImport.update({
-    id: '/apps/phone-numbers/new-number/',
-    path: '/apps/phone-numbers/new-number/',
-    getParentRoute: () => SettingsRouteRoute,
+const WelddeskHelpCenterArticlesIdEditIndexRoute =
+  WelddeskHelpCenterArticlesIdEditIndexRouteImport.update({
+    id: '/help-center/articles/$id/edit/',
+    path: '/help-center/articles/$id/edit/',
+    getParentRoute: () => WelddeskRouteRoute,
   } as any)
-const WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRoute =
-  WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRouteImport.update({
-    id: '/whiteboard/$whiteboardId/',
-    path: '/whiteboard/$whiteboardId/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
-  } as any)
-const WeldflowProjectProjectIdTableFileIdIndexRoute =
-  WeldflowProjectProjectIdTableFileIdIndexRouteImport.update({
-    id: '/table/$fileId/',
-    path: '/table/$fileId/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
-  } as any)
-const WeldflowProjectProjectIdMembersMemberIdIndexRoute =
-  WeldflowProjectProjectIdMembersMemberIdIndexRouteImport.update({
-    id: '/members/$memberId/',
-    path: '/members/$memberId/',
-    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
-  } as any)
-const WeldflowProjectProjectIdDocumentsFileIdIndexRoute =
-  WeldflowProjectProjectIdDocumentsFileIdIndexRouteImport.update({
-    id: '/documents/$fileId/',
-    path: '/documents/$fileId/',
+const WeldflowProjectProjectIdAnalyticsIdIndexRoute =
+  WeldflowProjectProjectIdAnalyticsIdIndexRouteImport.update({
+    id: '/analytics/$id/',
+    path: '/analytics/$id/',
     getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
   } as any)
 const WeldflowProjectProjectIdAnalyticsBuilderIndexRoute =
@@ -2145,23 +2165,29 @@ const WeldflowProjectProjectIdAnalyticsBuilderIndexRoute =
     path: '/analytics/builder/',
     getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
   } as any)
-const WeldflowProjectProjectIdAnalyticsIdIndexRoute =
-  WeldflowProjectProjectIdAnalyticsIdIndexRouteImport.update({
-    id: '/analytics/$id/',
-    path: '/analytics/$id/',
+const WeldflowProjectProjectIdDocumentsFileIdIndexRoute =
+  WeldflowProjectProjectIdDocumentsFileIdIndexRouteImport.update({
+    id: '/documents/$fileId/',
+    path: '/documents/$fileId/',
     getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
   } as any)
-const WelddeskHelpCenterArticlesIdEditIndexRoute =
-  WelddeskHelpCenterArticlesIdEditIndexRouteImport.update({
-    id: '/help-center/articles/$id/edit/',
-    path: '/help-center/articles/$id/edit/',
-    getParentRoute: () => WelddeskRouteRoute,
+const WeldflowProjectProjectIdMembersMemberIdIndexRoute =
+  WeldflowProjectProjectIdMembersMemberIdIndexRouteImport.update({
+    id: '/members/$memberId/',
+    path: '/members/$memberId/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
   } as any)
-const SettingsAppsPhoneNumbersPortIdIndexRoute =
-  SettingsAppsPhoneNumbersPortIdIndexRouteImport.update({
-    id: '/apps/phone-numbers/port/$id/',
-    path: '/apps/phone-numbers/port/$id/',
-    getParentRoute: () => SettingsRouteRoute,
+const WeldflowProjectProjectIdTableFileIdIndexRoute =
+  WeldflowProjectProjectIdTableFileIdIndexRouteImport.update({
+    id: '/table/$fileId/',
+    path: '/table/$fileId/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
+  } as any)
+const WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRoute =
+  WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRouteImport.update({
+    id: '/whiteboard/$whiteboardId/',
+    path: '/whiteboard/$whiteboardId/',
+    getParentRoute: () => WeldflowProjectProjectIdRouteRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -2327,6 +2353,7 @@ export interface FileRoutesByFullPath {
   '/weldcrm/notes/': typeof WeldcrmNotesIndexRoute
   '/weldcrm/people/': typeof WeldcrmPeopleIndexRoute
   '/weldcrm/sequences/': typeof WeldcrmSequencesIndexRoute
+  '/welddesk/ai-agents/': typeof WelddeskAiAgentsIndexRoute
   '/welddesk/chat-widget/': typeof WelddeskChatWidgetIndexRoute
   '/welddesk/email/': typeof WelddeskEmailIndexRoute
   '/welddesk/help-center/': typeof WelddeskHelpCenterIndexRoute
@@ -2435,6 +2462,8 @@ export interface FileRoutesByFullPath {
   '/welddesk/chat-widget/$widgetId/': typeof WelddeskChatWidgetWidgetIdIndexRoute
   '/welddesk/help-center/articles/': typeof WelddeskHelpCenterArticlesIndexRoute
   '/welddesk/inbox/$conversationId/': typeof WelddeskInboxConversationIdIndexRoute
+  '/welddesk/inbox/phone/': typeof WelddeskInboxPhoneIndexRoute
+  '/welddesk/settings/phone/': typeof WelddeskSettingsPhoneIndexRoute
   '/weldflow/analytics/$id/': typeof WeldflowAnalyticsIdIndexRoute
   '/weldflow/analytics/builder/': typeof WeldflowAnalyticsBuilderIndexRoute
   '/weldflow/project/$projectId/': typeof WeldflowProjectProjectIdIndexRoute
@@ -2467,6 +2496,7 @@ export interface FileRoutesByFullPath {
   '/weldcrm/sequences/$id/people/': typeof WeldcrmSequencesIdPeopleIndexRoute
   '/weldcrm/sequences/$id/settings/': typeof WeldcrmSequencesIdSettingsIndexRoute
   '/welddesk/help-center/articles/$id/': typeof WelddeskHelpCenterArticlesIdIndexRoute
+  '/welddesk/inbox/phone/$conversationId/': typeof WelddeskInboxPhoneConversationIdIndexRoute
   '/weldflow/project/$projectId/analytics/': typeof WeldflowProjectProjectIdAnalyticsIndexRoute
   '/weldflow/project/$projectId/calendar/': typeof WeldflowProjectProjectIdCalendarIndexRoute
   '/weldflow/project/$projectId/documents/': typeof WeldflowProjectProjectIdDocumentsIndexRoute
@@ -2636,6 +2666,7 @@ export interface FileRoutesByTo {
   '/weldcrm/notes': typeof WeldcrmNotesIndexRoute
   '/weldcrm/people': typeof WeldcrmPeopleIndexRoute
   '/weldcrm/sequences': typeof WeldcrmSequencesIndexRoute
+  '/welddesk/ai-agents': typeof WelddeskAiAgentsIndexRoute
   '/welddesk/chat-widget': typeof WelddeskChatWidgetIndexRoute
   '/welddesk/email': typeof WelddeskEmailIndexRoute
   '/welddesk/help-center': typeof WelddeskHelpCenterIndexRoute
@@ -2744,6 +2775,8 @@ export interface FileRoutesByTo {
   '/welddesk/chat-widget/$widgetId': typeof WelddeskChatWidgetWidgetIdIndexRoute
   '/welddesk/help-center/articles': typeof WelddeskHelpCenterArticlesIndexRoute
   '/welddesk/inbox/$conversationId': typeof WelddeskInboxConversationIdIndexRoute
+  '/welddesk/inbox/phone': typeof WelddeskInboxPhoneIndexRoute
+  '/welddesk/settings/phone': typeof WelddeskSettingsPhoneIndexRoute
   '/weldflow/analytics/$id': typeof WeldflowAnalyticsIdIndexRoute
   '/weldflow/analytics/builder': typeof WeldflowAnalyticsBuilderIndexRoute
   '/weldflow/project/$projectId': typeof WeldflowProjectProjectIdIndexRoute
@@ -2776,6 +2809,7 @@ export interface FileRoutesByTo {
   '/weldcrm/sequences/$id/people': typeof WeldcrmSequencesIdPeopleIndexRoute
   '/weldcrm/sequences/$id/settings': typeof WeldcrmSequencesIdSettingsIndexRoute
   '/welddesk/help-center/articles/$id': typeof WelddeskHelpCenterArticlesIdIndexRoute
+  '/welddesk/inbox/phone/$conversationId': typeof WelddeskInboxPhoneConversationIdIndexRoute
   '/weldflow/project/$projectId/analytics': typeof WeldflowProjectProjectIdAnalyticsIndexRoute
   '/weldflow/project/$projectId/calendar': typeof WeldflowProjectProjectIdCalendarIndexRoute
   '/weldflow/project/$projectId/documents': typeof WeldflowProjectProjectIdDocumentsIndexRoute
@@ -2974,6 +3008,7 @@ export interface FileRoutesById {
   '/weldcrm/notes/': typeof WeldcrmNotesIndexRoute
   '/weldcrm/people/': typeof WeldcrmPeopleIndexRoute
   '/weldcrm/sequences/': typeof WeldcrmSequencesIndexRoute
+  '/welddesk/ai-agents/': typeof WelddeskAiAgentsIndexRoute
   '/welddesk/chat-widget/': typeof WelddeskChatWidgetIndexRoute
   '/welddesk/email/': typeof WelddeskEmailIndexRoute
   '/welddesk/help-center/': typeof WelddeskHelpCenterIndexRoute
@@ -3082,6 +3117,8 @@ export interface FileRoutesById {
   '/welddesk/chat-widget/$widgetId/': typeof WelddeskChatWidgetWidgetIdIndexRoute
   '/welddesk/help-center/articles/': typeof WelddeskHelpCenterArticlesIndexRoute
   '/welddesk/inbox/$conversationId/': typeof WelddeskInboxConversationIdIndexRoute
+  '/welddesk/inbox/phone/': typeof WelddeskInboxPhoneIndexRoute
+  '/welddesk/settings/phone/': typeof WelddeskSettingsPhoneIndexRoute
   '/weldflow/analytics/$id/': typeof WeldflowAnalyticsIdIndexRoute
   '/weldflow/analytics/builder/': typeof WeldflowAnalyticsBuilderIndexRoute
   '/weldflow/project/$projectId/': typeof WeldflowProjectProjectIdIndexRoute
@@ -3114,6 +3151,7 @@ export interface FileRoutesById {
   '/weldcrm/sequences/$id/people/': typeof WeldcrmSequencesIdPeopleIndexRoute
   '/weldcrm/sequences/$id/settings/': typeof WeldcrmSequencesIdSettingsIndexRoute
   '/welddesk/help-center/articles/$id/': typeof WelddeskHelpCenterArticlesIdIndexRoute
+  '/welddesk/inbox/phone/$conversationId/': typeof WelddeskInboxPhoneConversationIdIndexRoute
   '/weldflow/project/$projectId/analytics/': typeof WeldflowProjectProjectIdAnalyticsIndexRoute
   '/weldflow/project/$projectId/calendar/': typeof WeldflowProjectProjectIdCalendarIndexRoute
   '/weldflow/project/$projectId/documents/': typeof WeldflowProjectProjectIdDocumentsIndexRoute
@@ -3312,6 +3350,7 @@ export interface FileRouteTypes {
     | '/weldcrm/notes/'
     | '/weldcrm/people/'
     | '/weldcrm/sequences/'
+    | '/welddesk/ai-agents/'
     | '/welddesk/chat-widget/'
     | '/welddesk/email/'
     | '/welddesk/help-center/'
@@ -3420,6 +3459,8 @@ export interface FileRouteTypes {
     | '/welddesk/chat-widget/$widgetId/'
     | '/welddesk/help-center/articles/'
     | '/welddesk/inbox/$conversationId/'
+    | '/welddesk/inbox/phone/'
+    | '/welddesk/settings/phone/'
     | '/weldflow/analytics/$id/'
     | '/weldflow/analytics/builder/'
     | '/weldflow/project/$projectId/'
@@ -3452,6 +3493,7 @@ export interface FileRouteTypes {
     | '/weldcrm/sequences/$id/people/'
     | '/weldcrm/sequences/$id/settings/'
     | '/welddesk/help-center/articles/$id/'
+    | '/welddesk/inbox/phone/$conversationId/'
     | '/weldflow/project/$projectId/analytics/'
     | '/weldflow/project/$projectId/calendar/'
     | '/weldflow/project/$projectId/documents/'
@@ -3621,6 +3663,7 @@ export interface FileRouteTypes {
     | '/weldcrm/notes'
     | '/weldcrm/people'
     | '/weldcrm/sequences'
+    | '/welddesk/ai-agents'
     | '/welddesk/chat-widget'
     | '/welddesk/email'
     | '/welddesk/help-center'
@@ -3729,6 +3772,8 @@ export interface FileRouteTypes {
     | '/welddesk/chat-widget/$widgetId'
     | '/welddesk/help-center/articles'
     | '/welddesk/inbox/$conversationId'
+    | '/welddesk/inbox/phone'
+    | '/welddesk/settings/phone'
     | '/weldflow/analytics/$id'
     | '/weldflow/analytics/builder'
     | '/weldflow/project/$projectId'
@@ -3761,6 +3806,7 @@ export interface FileRouteTypes {
     | '/weldcrm/sequences/$id/people'
     | '/weldcrm/sequences/$id/settings'
     | '/welddesk/help-center/articles/$id'
+    | '/welddesk/inbox/phone/$conversationId'
     | '/weldflow/project/$projectId/analytics'
     | '/weldflow/project/$projectId/calendar'
     | '/weldflow/project/$projectId/documents'
@@ -3958,6 +4004,7 @@ export interface FileRouteTypes {
     | '/weldcrm/notes/'
     | '/weldcrm/people/'
     | '/weldcrm/sequences/'
+    | '/welddesk/ai-agents/'
     | '/welddesk/chat-widget/'
     | '/welddesk/email/'
     | '/welddesk/help-center/'
@@ -4066,6 +4113,8 @@ export interface FileRouteTypes {
     | '/welddesk/chat-widget/$widgetId/'
     | '/welddesk/help-center/articles/'
     | '/welddesk/inbox/$conversationId/'
+    | '/welddesk/inbox/phone/'
+    | '/welddesk/settings/phone/'
     | '/weldflow/analytics/$id/'
     | '/weldflow/analytics/builder/'
     | '/weldflow/project/$projectId/'
@@ -4098,6 +4147,7 @@ export interface FileRouteTypes {
     | '/weldcrm/sequences/$id/people/'
     | '/weldcrm/sequences/$id/settings/'
     | '/welddesk/help-center/articles/$id/'
+    | '/welddesk/inbox/phone/$conversationId/'
     | '/weldflow/project/$projectId/analytics/'
     | '/weldflow/project/$projectId/calendar/'
     | '/weldflow/project/$projectId/documents/'
@@ -4174,18 +4224,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/new-chat': {
-      id: '/new-chat'
-      path: '/new-chat'
-      fullPath: '/new-chat'
-      preLoaderRoute: typeof NewChatRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/call-room': {
-      id: '/call-room'
-      path: '/call-room'
-      fullPath: '/call-room'
-      preLoaderRoute: typeof CallRoomRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$': {
@@ -4195,151 +4238,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SplatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/weldstash': {
-      id: '/weldstash'
-      path: '/weldstash'
-      fullPath: '/weldstash'
-      preLoaderRoute: typeof WeldstashRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/weldmeet': {
-      id: '/weldmeet'
-      path: '/weldmeet'
-      fullPath: '/weldmeet'
-      preLoaderRoute: typeof WeldmeetRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/weldmail': {
-      id: '/weldmail'
-      path: '/weldmail'
-      fullPath: '/weldmail'
-      preLoaderRoute: typeof WeldmailRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/weldknow': {
-      id: '/weldknow'
-      path: '/weldknow'
-      fullPath: '/weldknow'
-      preLoaderRoute: typeof WeldknowRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/weldhost': {
-      id: '/weldhost'
-      path: '/weldhost'
-      fullPath: '/weldhost'
-      preLoaderRoute: typeof WeldhostRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/weldflow': {
-      id: '/weldflow'
-      path: '/weldflow'
-      fullPath: '/weldflow'
-      preLoaderRoute: typeof WeldflowRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/welddrive': {
-      id: '/welddrive'
-      path: '/welddrive'
-      fullPath: '/welddrive'
-      preLoaderRoute: typeof WelddriveRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/welddesk': {
-      id: '/welddesk'
-      path: '/welddesk'
-      fullPath: '/welddesk'
-      preLoaderRoute: typeof WelddeskRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/welddata': {
-      id: '/welddata'
-      path: '/welddata'
-      fullPath: '/welddata'
-      preLoaderRoute: typeof WelddataRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/weldcrm': {
-      id: '/weldcrm'
-      path: '/weldcrm'
-      fullPath: '/weldcrm'
-      preLoaderRoute: typeof WeldcrmRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/weldconnect': {
-      id: '/weldconnect'
-      path: '/weldconnect'
-      fullPath: '/weldconnect'
-      preLoaderRoute: typeof WeldconnectRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/weldcommerce': {
-      id: '/weldcommerce'
-      path: '/weldcommerce'
-      fullPath: '/weldcommerce'
-      preLoaderRoute: typeof WeldcommerceRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/weldchat': {
-      id: '/weldchat'
-      path: '/weldchat'
-      fullPath: '/weldchat'
-      preLoaderRoute: typeof WeldchatRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/weldcall': {
-      id: '/weldcall'
-      path: '/weldcall'
-      fullPath: '/weldcall'
-      preLoaderRoute: typeof WeldcallRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/weldcalendar': {
-      id: '/weldcalendar'
-      path: '/weldcalendar'
-      fullPath: '/weldcalendar'
-      preLoaderRoute: typeof WeldcalendarRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/weldbooks': {
-      id: '/weldbooks'
-      path: '/weldbooks'
-      fullPath: '/weldbooks'
-      preLoaderRoute: typeof WeldbooksRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/weldads': {
-      id: '/weldads'
-      path: '/weldads'
-      fullPath: '/weldads'
-      preLoaderRoute: typeof WeldadsRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/social': {
-      id: '/social'
-      path: '/social'
-      fullPath: '/social'
-      preLoaderRoute: typeof SocialRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/settings': {
-      id: '/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof SettingsRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth': {
-      id: '/auth'
-      path: '/auth'
-      fullPath: '/auth'
-      preLoaderRoute: typeof AuthRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/appstore': {
-      id: '/appstore'
-      path: '/appstore'
-      fullPath: '/appstore'
-      preLoaderRoute: typeof AppstoreRouteRouteImport
+    '/_dashboard': {
+      id: '/_dashboard'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof DashboardRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/agents': {
@@ -4349,172 +4252,179 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AgentsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_dashboard': {
-      id: '/_dashboard'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof DashboardRouteRouteImport
+    '/appstore': {
+      id: '/appstore'
+      path: '/appstore'
+      fullPath: '/appstore'
+      preLoaderRoute: typeof AppstoreRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/weldstash/': {
-      id: '/weldstash/'
-      path: '/'
-      fullPath: '/weldstash/'
-      preLoaderRoute: typeof WeldstashIndexRouteImport
-      parentRoute: typeof WeldstashRouteRoute
-    }
-    '/weldmeet/': {
-      id: '/weldmeet/'
-      path: '/'
-      fullPath: '/weldmeet/'
-      preLoaderRoute: typeof WeldmeetIndexRouteImport
-      parentRoute: typeof WeldmeetRouteRoute
-    }
-    '/weldmail/': {
-      id: '/weldmail/'
-      path: '/'
-      fullPath: '/weldmail/'
-      preLoaderRoute: typeof WeldmailIndexRouteImport
-      parentRoute: typeof WeldmailRouteRoute
-    }
-    '/weldknow/': {
-      id: '/weldknow/'
-      path: '/'
-      fullPath: '/weldknow/'
-      preLoaderRoute: typeof WeldknowIndexRouteImport
-      parentRoute: typeof WeldknowRouteRoute
-    }
-    '/weldhost/': {
-      id: '/weldhost/'
-      path: '/'
-      fullPath: '/weldhost/'
-      preLoaderRoute: typeof WeldhostIndexRouteImport
-      parentRoute: typeof WeldhostRouteRoute
-    }
-    '/weldflow/': {
-      id: '/weldflow/'
-      path: '/'
-      fullPath: '/weldflow/'
-      preLoaderRoute: typeof WeldflowIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
-    }
-    '/welddrive/': {
-      id: '/welddrive/'
-      path: '/'
-      fullPath: '/welddrive/'
-      preLoaderRoute: typeof WelddriveIndexRouteImport
-      parentRoute: typeof WelddriveRouteRoute
-    }
-    '/welddesk/': {
-      id: '/welddesk/'
-      path: '/'
-      fullPath: '/welddesk/'
-      preLoaderRoute: typeof WelddeskIndexRouteImport
-      parentRoute: typeof WelddeskRouteRoute
-    }
-    '/welddata/': {
-      id: '/welddata/'
-      path: '/'
-      fullPath: '/welddata/'
-      preLoaderRoute: typeof WelddataIndexRouteImport
-      parentRoute: typeof WelddataRouteRoute
-    }
-    '/weldcrm/': {
-      id: '/weldcrm/'
-      path: '/'
-      fullPath: '/weldcrm/'
-      preLoaderRoute: typeof WeldcrmIndexRouteImport
-      parentRoute: typeof WeldcrmRouteRoute
-    }
-    '/weldconnect/': {
-      id: '/weldconnect/'
-      path: '/'
-      fullPath: '/weldconnect/'
-      preLoaderRoute: typeof WeldconnectIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
-    '/weldcommerce/': {
-      id: '/weldcommerce/'
-      path: '/'
-      fullPath: '/weldcommerce/'
-      preLoaderRoute: typeof WeldcommerceIndexRouteImport
-      parentRoute: typeof WeldcommerceRouteRoute
-    }
-    '/weldchat/': {
-      id: '/weldchat/'
-      path: '/'
-      fullPath: '/weldchat/'
-      preLoaderRoute: typeof WeldchatIndexRouteImport
-      parentRoute: typeof WeldchatRouteRoute
-    }
-    '/weldcall/': {
-      id: '/weldcall/'
-      path: '/'
-      fullPath: '/weldcall/'
-      preLoaderRoute: typeof WeldcallIndexRouteImport
-      parentRoute: typeof WeldcallRouteRoute
-    }
-    '/weldcalendar/': {
-      id: '/weldcalendar/'
-      path: '/'
-      fullPath: '/weldcalendar/'
-      preLoaderRoute: typeof WeldcalendarIndexRouteImport
-      parentRoute: typeof WeldcalendarRouteRoute
-    }
-    '/weldbooks/': {
-      id: '/weldbooks/'
-      path: '/'
-      fullPath: '/weldbooks/'
-      preLoaderRoute: typeof WeldbooksIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldads/': {
-      id: '/weldads/'
-      path: '/'
-      fullPath: '/weldads/'
-      preLoaderRoute: typeof WeldadsIndexRouteImport
-      parentRoute: typeof WeldadsRouteRoute
-    }
-    '/welcome/': {
-      id: '/welcome/'
-      path: '/welcome'
-      fullPath: '/welcome/'
-      preLoaderRoute: typeof WelcomeIndexRouteImport
+    '/call-room': {
+      id: '/call-room'
+      path: '/call-room'
+      fullPath: '/call-room'
+      preLoaderRoute: typeof CallRoomRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/social/': {
-      id: '/social/'
-      path: '/'
-      fullPath: '/social/'
-      preLoaderRoute: typeof SocialIndexRouteImport
-      parentRoute: typeof SocialRouteRoute
-    }
-    '/settings/': {
-      id: '/settings/'
-      path: '/'
-      fullPath: '/settings/'
-      preLoaderRoute: typeof SettingsIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/onboarding/': {
-      id: '/onboarding/'
-      path: '/onboarding'
-      fullPath: '/onboarding/'
-      preLoaderRoute: typeof OnboardingIndexRouteImport
+    '/new-chat': {
+      id: '/new-chat'
+      path: '/new-chat'
+      fullPath: '/new-chat'
+      preLoaderRoute: typeof NewChatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/invite/': {
-      id: '/invite/'
-      path: '/invite'
-      fullPath: '/invite/'
-      preLoaderRoute: typeof InviteIndexRouteImport
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/social': {
+      id: '/social'
+      path: '/social'
+      fullPath: '/social'
+      preLoaderRoute: typeof SocialRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldads': {
+      id: '/weldads'
+      path: '/weldads'
+      fullPath: '/weldads'
+      preLoaderRoute: typeof WeldadsRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldbooks': {
+      id: '/weldbooks'
+      path: '/weldbooks'
+      fullPath: '/weldbooks'
+      preLoaderRoute: typeof WeldbooksRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldcalendar': {
+      id: '/weldcalendar'
+      path: '/weldcalendar'
+      fullPath: '/weldcalendar'
+      preLoaderRoute: typeof WeldcalendarRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldcall': {
+      id: '/weldcall'
+      path: '/weldcall'
+      fullPath: '/weldcall'
+      preLoaderRoute: typeof WeldcallRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldchat': {
+      id: '/weldchat'
+      path: '/weldchat'
+      fullPath: '/weldchat'
+      preLoaderRoute: typeof WeldchatRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldcommerce': {
+      id: '/weldcommerce'
+      path: '/weldcommerce'
+      fullPath: '/weldcommerce'
+      preLoaderRoute: typeof WeldcommerceRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldconnect': {
+      id: '/weldconnect'
+      path: '/weldconnect'
+      fullPath: '/weldconnect'
+      preLoaderRoute: typeof WeldconnectRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldcrm': {
+      id: '/weldcrm'
+      path: '/weldcrm'
+      fullPath: '/weldcrm'
+      preLoaderRoute: typeof WeldcrmRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/welddata': {
+      id: '/welddata'
+      path: '/welddata'
+      fullPath: '/welddata'
+      preLoaderRoute: typeof WelddataRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/welddesk': {
+      id: '/welddesk'
+      path: '/welddesk'
+      fullPath: '/welddesk'
+      preLoaderRoute: typeof WelddeskRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/welddrive': {
+      id: '/welddrive'
+      path: '/welddrive'
+      fullPath: '/welddrive'
+      preLoaderRoute: typeof WelddriveRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldflow': {
+      id: '/weldflow'
+      path: '/weldflow'
+      fullPath: '/weldflow'
+      preLoaderRoute: typeof WeldflowRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldhost': {
+      id: '/weldhost'
+      path: '/weldhost'
+      fullPath: '/weldhost'
+      preLoaderRoute: typeof WeldhostRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldknow': {
+      id: '/weldknow'
+      path: '/weldknow'
+      fullPath: '/weldknow'
+      preLoaderRoute: typeof WeldknowRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldmail': {
+      id: '/weldmail'
+      path: '/weldmail'
+      fullPath: '/weldmail'
+      preLoaderRoute: typeof WeldmailRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldmeet': {
+      id: '/weldmeet'
+      path: '/weldmeet'
+      fullPath: '/weldmeet'
+      preLoaderRoute: typeof WeldmeetRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldstash': {
+      id: '/weldstash'
+      path: '/weldstash'
+      fullPath: '/weldstash'
+      preLoaderRoute: typeof WeldstashRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agents/': {
+      id: '/agents/'
+      path: '/'
+      fullPath: '/agents/'
+      preLoaderRoute: typeof AgentsIndexRouteImport
+      parentRoute: typeof AgentsRouteRoute
+    }
+    '/apps/$appCode': {
+      id: '/apps/$appCode'
+      path: '/apps/$appCode'
+      fullPath: '/apps/$appCode'
+      preLoaderRoute: typeof AppsAppCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/appstore/': {
@@ -4524,32 +4434,81 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppstoreIndexRouteImport
       parentRoute: typeof AppstoreRouteRoute
     }
-    '/agents/': {
-      id: '/agents/'
+    '/documents/$fileId': {
+      id: '/documents/$fileId'
+      path: '/documents/$fileId'
+      fullPath: '/documents/$fileId'
+      preLoaderRoute: typeof DocumentsFileIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/invite/': {
+      id: '/invite/'
+      path: '/invite'
+      fullPath: '/invite/'
+      preLoaderRoute: typeof InviteIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/onboarding/': {
+      id: '/onboarding/'
+      path: '/onboarding'
+      fullPath: '/onboarding/'
+      preLoaderRoute: typeof OnboardingIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/': {
+      id: '/settings/'
       path: '/'
-      fullPath: '/agents/'
-      preLoaderRoute: typeof AgentsIndexRouteImport
-      parentRoute: typeof AgentsRouteRoute
+      fullPath: '/settings/'
+      preLoaderRoute: typeof SettingsIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
-    '/welddesk/$': {
-      id: '/welddesk/$'
-      path: '/$'
-      fullPath: '/welddesk/$'
-      preLoaderRoute: typeof WelddeskSplatRouteImport
-      parentRoute: typeof WelddeskRouteRoute
+    '/social/': {
+      id: '/social/'
+      path: '/'
+      fullPath: '/social/'
+      preLoaderRoute: typeof SocialIndexRouteImport
+      parentRoute: typeof SocialRouteRoute
     }
-    '/weldchat/drafts': {
-      id: '/weldchat/drafts'
-      path: '/drafts'
-      fullPath: '/weldchat/drafts'
-      preLoaderRoute: typeof WeldchatDraftsRouteImport
-      parentRoute: typeof WeldchatRouteRoute
+    '/welcome/': {
+      id: '/welcome/'
+      path: '/welcome'
+      fullPath: '/welcome/'
+      preLoaderRoute: typeof WelcomeIndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/weldchat/directories': {
-      id: '/weldchat/directories'
-      path: '/directories'
-      fullPath: '/weldchat/directories'
-      preLoaderRoute: typeof WeldchatDirectoriesRouteImport
+    '/weldads/': {
+      id: '/weldads/'
+      path: '/'
+      fullPath: '/weldads/'
+      preLoaderRoute: typeof WeldadsIndexRouteImport
+      parentRoute: typeof WeldadsRouteRoute
+    }
+    '/weldbooks/': {
+      id: '/weldbooks/'
+      path: '/'
+      fullPath: '/weldbooks/'
+      preLoaderRoute: typeof WeldbooksIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldcalendar/': {
+      id: '/weldcalendar/'
+      path: '/'
+      fullPath: '/weldcalendar/'
+      preLoaderRoute: typeof WeldcalendarIndexRouteImport
+      parentRoute: typeof WeldcalendarRouteRoute
+    }
+    '/weldcall/': {
+      id: '/weldcall/'
+      path: '/'
+      fullPath: '/weldcall/'
+      preLoaderRoute: typeof WeldcallIndexRouteImport
+      parentRoute: typeof WeldcallRouteRoute
+    }
+    '/weldchat/': {
+      id: '/weldchat/'
+      path: '/'
+      fullPath: '/weldchat/'
+      preLoaderRoute: typeof WeldchatIndexRouteImport
       parentRoute: typeof WeldchatRouteRoute
     }
     '/weldchat/activity': {
@@ -4559,39 +4518,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldchatActivityRouteImport
       parentRoute: typeof WeldchatRouteRoute
     }
-    '/documents/$fileId': {
-      id: '/documents/$fileId'
-      path: '/documents/$fileId'
-      fullPath: '/documents/$fileId'
-      preLoaderRoute: typeof DocumentsFileIdRouteImport
-      parentRoute: typeof rootRouteImport
+    '/weldchat/directories': {
+      id: '/weldchat/directories'
+      path: '/directories'
+      fullPath: '/weldchat/directories'
+      preLoaderRoute: typeof WeldchatDirectoriesRouteImport
+      parentRoute: typeof WeldchatRouteRoute
     }
-    '/apps/$appCode': {
-      id: '/apps/$appCode'
-      path: '/apps/$appCode'
-      fullPath: '/apps/$appCode'
-      preLoaderRoute: typeof AppsAppCodeRouteImport
-      parentRoute: typeof rootRouteImport
+    '/weldchat/drafts': {
+      id: '/weldchat/drafts'
+      path: '/drafts'
+      fullPath: '/weldchat/drafts'
+      preLoaderRoute: typeof WeldchatDraftsRouteImport
+      parentRoute: typeof WeldchatRouteRoute
     }
-    '/weldmail/setup': {
-      id: '/weldmail/setup'
-      path: '/setup'
-      fullPath: '/weldmail/setup'
-      preLoaderRoute: typeof WeldmailSetupRouteRouteImport
-      parentRoute: typeof WeldmailRouteRoute
+    '/weldcommerce/': {
+      id: '/weldcommerce/'
+      path: '/'
+      fullPath: '/weldcommerce/'
+      preLoaderRoute: typeof WeldcommerceIndexRouteImport
+      parentRoute: typeof WeldcommerceRouteRoute
     }
-    '/weldmail/$accountId': {
-      id: '/weldmail/$accountId'
-      path: '/$accountId'
-      fullPath: '/weldmail/$accountId'
-      preLoaderRoute: typeof WeldmailAccountIdRouteRouteImport
-      parentRoute: typeof WeldmailRouteRoute
+    '/weldconnect/': {
+      id: '/weldconnect/'
+      path: '/'
+      fullPath: '/weldconnect/'
+      preLoaderRoute: typeof WeldconnectIndexRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
     }
-    '/weldcrm/people': {
-      id: '/weldcrm/people'
-      path: '/people'
-      fullPath: '/weldcrm/people'
-      preLoaderRoute: typeof WeldcrmPeopleRouteRouteImport
+    '/weldcrm/': {
+      id: '/weldcrm/'
+      path: '/'
+      fullPath: '/weldcrm/'
+      preLoaderRoute: typeof WeldcrmIndexRouteImport
       parentRoute: typeof WeldcrmRouteRoute
     }
     '/weldcrm/companies': {
@@ -4601,879 +4560,123 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldcrmCompaniesRouteRouteImport
       parentRoute: typeof WeldcrmRouteRoute
     }
-    '/weldstash/warehouses/': {
-      id: '/weldstash/warehouses/'
-      path: '/warehouses'
-      fullPath: '/weldstash/warehouses/'
-      preLoaderRoute: typeof WeldstashWarehousesIndexRouteImport
-      parentRoute: typeof WeldstashRouteRoute
-    }
-    '/weldstash/suppliers/': {
-      id: '/weldstash/suppliers/'
-      path: '/suppliers'
-      fullPath: '/weldstash/suppliers/'
-      preLoaderRoute: typeof WeldstashSuppliersIndexRouteImport
-      parentRoute: typeof WeldstashRouteRoute
-    }
-    '/weldstash/stock/': {
-      id: '/weldstash/stock/'
-      path: '/stock'
-      fullPath: '/weldstash/stock/'
-      preLoaderRoute: typeof WeldstashStockIndexRouteImport
-      parentRoute: typeof WeldstashRouteRoute
-    }
-    '/weldstash/products/': {
-      id: '/weldstash/products/'
-      path: '/products'
-      fullPath: '/weldstash/products/'
-      preLoaderRoute: typeof WeldstashProductsIndexRouteImport
-      parentRoute: typeof WeldstashRouteRoute
-    }
-    '/weldstash/pick-lists/': {
-      id: '/weldstash/pick-lists/'
-      path: '/pick-lists'
-      fullPath: '/weldstash/pick-lists/'
-      preLoaderRoute: typeof WeldstashPickListsIndexRouteImport
-      parentRoute: typeof WeldstashRouteRoute
-    }
-    '/weldstash/packing/': {
-      id: '/weldstash/packing/'
-      path: '/packing'
-      fullPath: '/weldstash/packing/'
-      preLoaderRoute: typeof WeldstashPackingIndexRouteImport
-      parentRoute: typeof WeldstashRouteRoute
-    }
-    '/weldmeet/upcoming/': {
-      id: '/weldmeet/upcoming/'
-      path: '/upcoming'
-      fullPath: '/weldmeet/upcoming/'
-      preLoaderRoute: typeof WeldmeetUpcomingIndexRouteImport
-      parentRoute: typeof WeldmeetRouteRoute
-    }
-    '/weldmeet/people/': {
-      id: '/weldmeet/people/'
+    '/weldcrm/people': {
+      id: '/weldcrm/people'
       path: '/people'
-      fullPath: '/weldmeet/people/'
-      preLoaderRoute: typeof WeldmeetPeopleIndexRouteImport
-      parentRoute: typeof WeldmeetRouteRoute
+      fullPath: '/weldcrm/people'
+      preLoaderRoute: typeof WeldcrmPeopleRouteRouteImport
+      parentRoute: typeof WeldcrmRouteRoute
     }
-    '/weldmeet/new/': {
-      id: '/weldmeet/new/'
-      path: '/new'
-      fullPath: '/weldmeet/new/'
-      preLoaderRoute: typeof WeldmeetNewIndexRouteImport
-      parentRoute: typeof WeldmeetRouteRoute
-    }
-    '/weldmeet/history/': {
-      id: '/weldmeet/history/'
-      path: '/history'
-      fullPath: '/weldmeet/history/'
-      preLoaderRoute: typeof WeldmeetHistoryIndexRouteImport
-      parentRoute: typeof WeldmeetRouteRoute
-    }
-    '/weldmeet/$meetingId/': {
-      id: '/weldmeet/$meetingId/'
-      path: '/$meetingId'
-      fullPath: '/weldmeet/$meetingId/'
-      preLoaderRoute: typeof WeldmeetMeetingIdIndexRouteImport
-      parentRoute: typeof WeldmeetRouteRoute
-    }
-    '/weldmail/snoozed/': {
-      id: '/weldmail/snoozed/'
-      path: '/snoozed'
-      fullPath: '/weldmail/snoozed/'
-      preLoaderRoute: typeof WeldmailSnoozedIndexRouteImport
-      parentRoute: typeof WeldmailRouteRoute
-    }
-    '/weldmail/setup/': {
-      id: '/weldmail/setup/'
+    '/welddata/': {
+      id: '/welddata/'
       path: '/'
-      fullPath: '/weldmail/setup/'
-      preLoaderRoute: typeof WeldmailSetupIndexRouteImport
-      parentRoute: typeof WeldmailSetupRouteRoute
+      fullPath: '/welddata/'
+      preLoaderRoute: typeof WelddataIndexRouteImport
+      parentRoute: typeof WelddataRouteRoute
     }
-    '/weldmail/search/': {
-      id: '/weldmail/search/'
-      path: '/search'
-      fullPath: '/weldmail/search/'
-      preLoaderRoute: typeof WeldmailSearchIndexRouteImport
-      parentRoute: typeof WeldmailRouteRoute
+    '/welddesk/': {
+      id: '/welddesk/'
+      path: '/'
+      fullPath: '/welddesk/'
+      preLoaderRoute: typeof WelddeskIndexRouteImport
+      parentRoute: typeof WelddeskRouteRoute
     }
-    '/weldmail/scheduled/': {
-      id: '/weldmail/scheduled/'
-      path: '/scheduled'
-      fullPath: '/weldmail/scheduled/'
-      preLoaderRoute: typeof WeldmailScheduledIndexRouteImport
-      parentRoute: typeof WeldmailRouteRoute
+    '/welddesk/$': {
+      id: '/welddesk/$'
+      path: '/$'
+      fullPath: '/welddesk/$'
+      preLoaderRoute: typeof WelddeskSplatRouteImport
+      parentRoute: typeof WelddeskRouteRoute
     }
-    '/weldmail/inbox/': {
-      id: '/weldmail/inbox/'
-      path: '/inbox'
-      fullPath: '/weldmail/inbox/'
-      preLoaderRoute: typeof WeldmailInboxIndexRouteImport
-      parentRoute: typeof WeldmailRouteRoute
+    '/welddrive/': {
+      id: '/welddrive/'
+      path: '/'
+      fullPath: '/welddrive/'
+      preLoaderRoute: typeof WelddriveIndexRouteImport
+      parentRoute: typeof WelddriveRouteRoute
     }
-    '/weldmail/domains/': {
-      id: '/weldmail/domains/'
-      path: '/domains'
-      fullPath: '/weldmail/domains/'
-      preLoaderRoute: typeof WeldmailDomainsIndexRouteImport
-      parentRoute: typeof WeldmailRouteRoute
+    '/weldflow/': {
+      id: '/weldflow/'
+      path: '/'
+      fullPath: '/weldflow/'
+      preLoaderRoute: typeof WeldflowIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
     }
-    '/weldknow/trash/': {
-      id: '/weldknow/trash/'
-      path: '/trash'
-      fullPath: '/weldknow/trash/'
-      preLoaderRoute: typeof WeldknowTrashIndexRouteImport
-      parentRoute: typeof WeldknowRouteRoute
-    }
-    '/weldhost/domains/': {
-      id: '/weldhost/domains/'
-      path: '/domains'
-      fullPath: '/weldhost/domains/'
-      preLoaderRoute: typeof WeldhostDomainsIndexRouteImport
+    '/weldhost/': {
+      id: '/weldhost/'
+      path: '/'
+      fullPath: '/weldhost/'
+      preLoaderRoute: typeof WeldhostIndexRouteImport
       parentRoute: typeof WeldhostRouteRoute
     }
-    '/weldflow/workload/': {
-      id: '/weldflow/workload/'
-      path: '/workload'
-      fullPath: '/weldflow/workload/'
-      preLoaderRoute: typeof WeldflowWorkloadIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
-    }
-    '/weldflow/whiteboard/': {
-      id: '/weldflow/whiteboard/'
-      path: '/whiteboard'
-      fullPath: '/weldflow/whiteboard/'
-      preLoaderRoute: typeof WeldflowWhiteboardIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
-    }
-    '/weldflow/timeline/': {
-      id: '/weldflow/timeline/'
-      path: '/timeline'
-      fullPath: '/weldflow/timeline/'
-      preLoaderRoute: typeof WeldflowTimelineIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
-    }
-    '/weldflow/table/': {
-      id: '/weldflow/table/'
-      path: '/table'
-      fullPath: '/weldflow/table/'
-      preLoaderRoute: typeof WeldflowTableIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
-    }
-    '/weldflow/settings/': {
-      id: '/weldflow/settings/'
-      path: '/settings'
-      fullPath: '/weldflow/settings/'
-      preLoaderRoute: typeof WeldflowSettingsIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
-    }
-    '/weldflow/projects/': {
-      id: '/weldflow/projects/'
-      path: '/projects'
-      fullPath: '/weldflow/projects/'
-      preLoaderRoute: typeof WeldflowProjectsIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
-    }
-    '/weldflow/notes/': {
-      id: '/weldflow/notes/'
-      path: '/notes'
-      fullPath: '/weldflow/notes/'
-      preLoaderRoute: typeof WeldflowNotesIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
-    }
-    '/weldflow/my-tasks/': {
-      id: '/weldflow/my-tasks/'
-      path: '/my-tasks'
-      fullPath: '/weldflow/my-tasks/'
-      preLoaderRoute: typeof WeldflowMyTasksIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
-    }
-    '/weldflow/goals/': {
-      id: '/weldflow/goals/'
-      path: '/goals'
-      fullPath: '/weldflow/goals/'
-      preLoaderRoute: typeof WeldflowGoalsIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
-    }
-    '/weldflow/files/': {
-      id: '/weldflow/files/'
-      path: '/files'
-      fullPath: '/weldflow/files/'
-      preLoaderRoute: typeof WeldflowFilesIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
-    }
-    '/weldflow/documents/': {
-      id: '/weldflow/documents/'
-      path: '/documents'
-      fullPath: '/weldflow/documents/'
-      preLoaderRoute: typeof WeldflowDocumentsIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
-    }
-    '/weldflow/analytics/': {
-      id: '/weldflow/analytics/'
-      path: '/analytics'
-      fullPath: '/weldflow/analytics/'
-      preLoaderRoute: typeof WeldflowAnalyticsIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
-    }
-    '/welddrive/uploads/': {
-      id: '/welddrive/uploads/'
-      path: '/uploads'
-      fullPath: '/welddrive/uploads/'
-      preLoaderRoute: typeof WelddriveUploadsIndexRouteImport
-      parentRoute: typeof WelddriveRouteRoute
-    }
-    '/welddrive/trash/': {
-      id: '/welddrive/trash/'
-      path: '/trash'
-      fullPath: '/welddrive/trash/'
-      preLoaderRoute: typeof WelddriveTrashIndexRouteImport
-      parentRoute: typeof WelddriveRouteRoute
-    }
-    '/welddrive/starred/': {
-      id: '/welddrive/starred/'
-      path: '/starred'
-      fullPath: '/welddrive/starred/'
-      preLoaderRoute: typeof WelddriveStarredIndexRouteImport
-      parentRoute: typeof WelddriveRouteRoute
-    }
-    '/welddrive/shared/': {
-      id: '/welddrive/shared/'
-      path: '/shared'
-      fullPath: '/welddrive/shared/'
-      preLoaderRoute: typeof WelddriveSharedIndexRouteImport
-      parentRoute: typeof WelddriveRouteRoute
-    }
-    '/welddrive/recent/': {
-      id: '/welddrive/recent/'
-      path: '/recent'
-      fullPath: '/welddrive/recent/'
-      preLoaderRoute: typeof WelddriveRecentIndexRouteImport
-      parentRoute: typeof WelddriveRouteRoute
-    }
-    '/welddrive/all-files/': {
-      id: '/welddrive/all-files/'
-      path: '/all-files'
-      fullPath: '/welddrive/all-files/'
-      preLoaderRoute: typeof WelddriveAllFilesIndexRouteImport
-      parentRoute: typeof WelddriveRouteRoute
-    }
-    '/welddesk/inbox/': {
-      id: '/welddesk/inbox/'
-      path: '/inbox'
-      fullPath: '/welddesk/inbox/'
-      preLoaderRoute: typeof WelddeskInboxIndexRouteImport
-      parentRoute: typeof WelddeskRouteRoute
-    }
-    '/welddesk/help-center/': {
-      id: '/welddesk/help-center/'
-      path: '/help-center'
-      fullPath: '/welddesk/help-center/'
-      preLoaderRoute: typeof WelddeskHelpCenterIndexRouteImport
-      parentRoute: typeof WelddeskRouteRoute
-    }
-    '/welddesk/email/': {
-      id: '/welddesk/email/'
-      path: '/email'
-      fullPath: '/welddesk/email/'
-      preLoaderRoute: typeof WelddeskEmailIndexRouteImport
-      parentRoute: typeof WelddeskRouteRoute
-    }
-    '/welddesk/chat-widget/': {
-      id: '/welddesk/chat-widget/'
-      path: '/chat-widget'
-      fullPath: '/welddesk/chat-widget/'
-      preLoaderRoute: typeof WelddeskChatWidgetIndexRouteImport
-      parentRoute: typeof WelddeskRouteRoute
-    }
-    '/weldcrm/sequences/': {
-      id: '/weldcrm/sequences/'
-      path: '/sequences'
-      fullPath: '/weldcrm/sequences/'
-      preLoaderRoute: typeof WeldcrmSequencesIndexRouteImport
-      parentRoute: typeof WeldcrmRouteRoute
-    }
-    '/weldcrm/people/': {
-      id: '/weldcrm/people/'
+    '/weldknow/': {
+      id: '/weldknow/'
       path: '/'
-      fullPath: '/weldcrm/people/'
-      preLoaderRoute: typeof WeldcrmPeopleIndexRouteImport
-      parentRoute: typeof WeldcrmPeopleRouteRoute
+      fullPath: '/weldknow/'
+      preLoaderRoute: typeof WeldknowIndexRouteImport
+      parentRoute: typeof WeldknowRouteRoute
     }
-    '/weldcrm/notes/': {
-      id: '/weldcrm/notes/'
-      path: '/notes'
-      fullPath: '/weldcrm/notes/'
-      preLoaderRoute: typeof WeldcrmNotesIndexRouteImport
-      parentRoute: typeof WeldcrmRouteRoute
-    }
-    '/weldcrm/companies/': {
-      id: '/weldcrm/companies/'
+    '/weldmail/': {
+      id: '/weldmail/'
       path: '/'
-      fullPath: '/weldcrm/companies/'
-      preLoaderRoute: typeof WeldcrmCompaniesIndexRouteImport
-      parentRoute: typeof WeldcrmCompaniesRouteRoute
-    }
-    '/weldconnect/workflows/': {
-      id: '/weldconnect/workflows/'
-      path: '/workflows'
-      fullPath: '/weldconnect/workflows/'
-      preLoaderRoute: typeof WeldconnectWorkflowsIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
-    '/weldconnect/webhooks/': {
-      id: '/weldconnect/webhooks/'
-      path: '/webhooks'
-      fullPath: '/weldconnect/webhooks/'
-      preLoaderRoute: typeof WeldconnectWebhooksIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
-    '/weldconnect/variables/': {
-      id: '/weldconnect/variables/'
-      path: '/variables'
-      fullPath: '/weldconnect/variables/'
-      preLoaderRoute: typeof WeldconnectVariablesIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
-    '/weldconnect/triggers/': {
-      id: '/weldconnect/triggers/'
-      path: '/triggers'
-      fullPath: '/weldconnect/triggers/'
-      preLoaderRoute: typeof WeldconnectTriggersIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
-    '/weldconnect/templates/': {
-      id: '/weldconnect/templates/'
-      path: '/templates'
-      fullPath: '/weldconnect/templates/'
-      preLoaderRoute: typeof WeldconnectTemplatesIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
-    '/weldconnect/integrations/': {
-      id: '/weldconnect/integrations/'
-      path: '/integrations'
-      fullPath: '/weldconnect/integrations/'
-      preLoaderRoute: typeof WeldconnectIntegrationsIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
-    '/weldconnect/executions/': {
-      id: '/weldconnect/executions/'
-      path: '/executions'
-      fullPath: '/weldconnect/executions/'
-      preLoaderRoute: typeof WeldconnectExecutionsIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
-    '/weldconnect/connectors/': {
-      id: '/weldconnect/connectors/'
-      path: '/connectors'
-      fullPath: '/weldconnect/connectors/'
-      preLoaderRoute: typeof WeldconnectConnectorsIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
-    '/weldconnect/analytics/': {
-      id: '/weldconnect/analytics/'
-      path: '/analytics'
-      fullPath: '/weldconnect/analytics/'
-      preLoaderRoute: typeof WeldconnectAnalyticsIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
-    '/weldconnect/actions/': {
-      id: '/weldconnect/actions/'
-      path: '/actions'
-      fullPath: '/weldconnect/actions/'
-      preLoaderRoute: typeof WeldconnectActionsIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
-    '/weldcommerce/settings/': {
-      id: '/weldcommerce/settings/'
-      path: '/settings'
-      fullPath: '/weldcommerce/settings/'
-      preLoaderRoute: typeof WeldcommerceSettingsIndexRouteImport
-      parentRoute: typeof WeldcommerceRouteRoute
-    }
-    '/weldcommerce/products/': {
-      id: '/weldcommerce/products/'
-      path: '/products'
-      fullPath: '/weldcommerce/products/'
-      preLoaderRoute: typeof WeldcommerceProductsIndexRouteImport
-      parentRoute: typeof WeldcommerceRouteRoute
-    }
-    '/weldcommerce/orders/': {
-      id: '/weldcommerce/orders/'
-      path: '/orders'
-      fullPath: '/weldcommerce/orders/'
-      preLoaderRoute: typeof WeldcommerceOrdersIndexRouteImport
-      parentRoute: typeof WeldcommerceRouteRoute
-    }
-    '/weldcommerce/customers/': {
-      id: '/weldcommerce/customers/'
-      path: '/customers'
-      fullPath: '/weldcommerce/customers/'
-      preLoaderRoute: typeof WeldcommerceCustomersIndexRouteImport
-      parentRoute: typeof WeldcommerceRouteRoute
-    }
-    '/weldcommerce/categories/': {
-      id: '/weldcommerce/categories/'
-      path: '/categories'
-      fullPath: '/weldcommerce/categories/'
-      preLoaderRoute: typeof WeldcommerceCategoriesIndexRouteImport
-      parentRoute: typeof WeldcommerceRouteRoute
-    }
-    '/weldchat/search/': {
-      id: '/weldchat/search/'
-      path: '/search'
-      fullPath: '/weldchat/search/'
-      preLoaderRoute: typeof WeldchatSearchIndexRouteImport
-      parentRoute: typeof WeldchatRouteRoute
-    }
-    '/weldchat/dm/': {
-      id: '/weldchat/dm/'
-      path: '/dm'
-      fullPath: '/weldchat/dm/'
-      preLoaderRoute: typeof WeldchatDmIndexRouteImport
-      parentRoute: typeof WeldchatRouteRoute
-    }
-    '/weldchat/bookmarks/': {
-      id: '/weldchat/bookmarks/'
-      path: '/bookmarks'
-      fullPath: '/weldchat/bookmarks/'
-      preLoaderRoute: typeof WeldchatBookmarksIndexRouteImport
-      parentRoute: typeof WeldchatRouteRoute
-    }
-    '/weldchat/$channelId/': {
-      id: '/weldchat/$channelId/'
-      path: '/$channelId'
-      fullPath: '/weldchat/$channelId/'
-      preLoaderRoute: typeof WeldchatChannelIdIndexRouteImport
-      parentRoute: typeof WeldchatRouteRoute
-    }
-    '/weldcall/new/': {
-      id: '/weldcall/new/'
-      path: '/new'
-      fullPath: '/weldcall/new/'
-      preLoaderRoute: typeof WeldcallNewIndexRouteImport
-      parentRoute: typeof WeldcallRouteRoute
-    }
-    '/weldcall/history/': {
-      id: '/weldcall/history/'
-      path: '/history'
-      fullPath: '/weldcall/history/'
-      preLoaderRoute: typeof WeldcallHistoryIndexRouteImport
-      parentRoute: typeof WeldcallRouteRoute
-    }
-    '/weldcall/contacts/': {
-      id: '/weldcall/contacts/'
-      path: '/contacts'
-      fullPath: '/weldcall/contacts/'
-      preLoaderRoute: typeof WeldcallContactsIndexRouteImport
-      parentRoute: typeof WeldcallRouteRoute
-    }
-    '/weldcall/$callId/': {
-      id: '/weldcall/$callId/'
-      path: '/$callId'
-      fullPath: '/weldcall/$callId/'
-      preLoaderRoute: typeof WeldcallCallIdIndexRouteImport
-      parentRoute: typeof WeldcallRouteRoute
-    }
-    '/weldcalendar/scheduling/': {
-      id: '/weldcalendar/scheduling/'
-      path: '/scheduling'
-      fullPath: '/weldcalendar/scheduling/'
-      preLoaderRoute: typeof WeldcalendarSchedulingIndexRouteImport
-      parentRoute: typeof WeldcalendarRouteRoute
-    }
-    '/weldcalendar/events/': {
-      id: '/weldcalendar/events/'
-      path: '/events'
-      fullPath: '/weldcalendar/events/'
-      preLoaderRoute: typeof WeldcalendarEventsIndexRouteImport
-      parentRoute: typeof WeldcalendarRouteRoute
-    }
-    '/weldbooks/vat/': {
-      id: '/weldbooks/vat/'
-      path: '/vat'
-      fullPath: '/weldbooks/vat/'
-      preLoaderRoute: typeof WeldbooksVatIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/suppliers/': {
-      id: '/weldbooks/suppliers/'
-      path: '/suppliers'
-      fullPath: '/weldbooks/suppliers/'
-      preLoaderRoute: typeof WeldbooksSuppliersIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/settings/': {
-      id: '/weldbooks/settings/'
-      path: '/settings'
-      fullPath: '/weldbooks/settings/'
-      preLoaderRoute: typeof WeldbooksSettingsIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/reports/': {
-      id: '/weldbooks/reports/'
-      path: '/reports'
-      fullPath: '/weldbooks/reports/'
-      preLoaderRoute: typeof WeldbooksReportsIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/recurring/': {
-      id: '/weldbooks/recurring/'
-      path: '/recurring'
-      fullPath: '/weldbooks/recurring/'
-      preLoaderRoute: typeof WeldbooksRecurringIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/journal/': {
-      id: '/weldbooks/journal/'
-      path: '/journal'
-      fullPath: '/weldbooks/journal/'
-      preLoaderRoute: typeof WeldbooksJournalIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/invoices/': {
-      id: '/weldbooks/invoices/'
-      path: '/invoices'
-      fullPath: '/weldbooks/invoices/'
-      preLoaderRoute: typeof WeldbooksInvoicesIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/entities/': {
-      id: '/weldbooks/entities/'
-      path: '/entities'
-      fullPath: '/weldbooks/entities/'
-      preLoaderRoute: typeof WeldbooksEntitiesIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/documents/': {
-      id: '/weldbooks/documents/'
-      path: '/documents'
-      fullPath: '/weldbooks/documents/'
-      preLoaderRoute: typeof WeldbooksDocumentsIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/dashboard/': {
-      id: '/weldbooks/dashboard/'
-      path: '/dashboard'
-      fullPath: '/weldbooks/dashboard/'
-      preLoaderRoute: typeof WeldbooksDashboardIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/customers/': {
-      id: '/weldbooks/customers/'
-      path: '/customers'
-      fullPath: '/weldbooks/customers/'
-      preLoaderRoute: typeof WeldbooksCustomersIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/credit-notes/': {
-      id: '/weldbooks/credit-notes/'
-      path: '/credit-notes'
-      fullPath: '/weldbooks/credit-notes/'
-      preLoaderRoute: typeof WeldbooksCreditNotesIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/bills/': {
-      id: '/weldbooks/bills/'
-      path: '/bills'
-      fullPath: '/weldbooks/bills/'
-      preLoaderRoute: typeof WeldbooksBillsIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/banking/': {
-      id: '/weldbooks/banking/'
-      path: '/banking'
-      fullPath: '/weldbooks/banking/'
-      preLoaderRoute: typeof WeldbooksBankingIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/accounts/': {
-      id: '/weldbooks/accounts/'
-      path: '/accounts'
-      fullPath: '/weldbooks/accounts/'
-      preLoaderRoute: typeof WeldbooksAccountsIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldads/campaigns/': {
-      id: '/weldads/campaigns/'
-      path: '/campaigns'
-      fullPath: '/weldads/campaigns/'
-      preLoaderRoute: typeof WeldadsCampaignsIndexRouteImport
-      parentRoute: typeof WeldadsRouteRoute
-    }
-    '/weldads/accounts/': {
-      id: '/weldads/accounts/'
-      path: '/accounts'
-      fullPath: '/weldads/accounts/'
-      preLoaderRoute: typeof WeldadsAccountsIndexRouteImport
-      parentRoute: typeof WeldadsRouteRoute
-    }
-    '/social/team/': {
-      id: '/social/team/'
-      path: '/team'
-      fullPath: '/social/team/'
-      preLoaderRoute: typeof SocialTeamIndexRouteImport
-      parentRoute: typeof SocialRouteRoute
-    }
-    '/social/settings/': {
-      id: '/social/settings/'
-      path: '/settings'
-      fullPath: '/social/settings/'
-      preLoaderRoute: typeof SocialSettingsIndexRouteImport
-      parentRoute: typeof SocialRouteRoute
-    }
-    '/social/queue/': {
-      id: '/social/queue/'
-      path: '/queue'
-      fullPath: '/social/queue/'
-      preLoaderRoute: typeof SocialQueueIndexRouteImport
-      parentRoute: typeof SocialRouteRoute
-    }
-    '/social/drafts/': {
-      id: '/social/drafts/'
-      path: '/drafts'
-      fullPath: '/social/drafts/'
-      preLoaderRoute: typeof SocialDraftsIndexRouteImport
-      parentRoute: typeof SocialRouteRoute
-    }
-    '/social/dashboard/': {
-      id: '/social/dashboard/'
-      path: '/dashboard'
-      fullPath: '/social/dashboard/'
-      preLoaderRoute: typeof SocialDashboardIndexRouteImport
-      parentRoute: typeof SocialRouteRoute
-    }
-    '/social/campaigns/': {
-      id: '/social/campaigns/'
-      path: '/campaigns'
-      fullPath: '/social/campaigns/'
-      preLoaderRoute: typeof SocialCampaignsIndexRouteImport
-      parentRoute: typeof SocialRouteRoute
-    }
-    '/social/calendar/': {
-      id: '/social/calendar/'
-      path: '/calendar'
-      fullPath: '/social/calendar/'
-      preLoaderRoute: typeof SocialCalendarIndexRouteImport
-      parentRoute: typeof SocialRouteRoute
-    }
-    '/social/approvals/': {
-      id: '/social/approvals/'
-      path: '/approvals'
-      fullPath: '/social/approvals/'
-      preLoaderRoute: typeof SocialApprovalsIndexRouteImport
-      parentRoute: typeof SocialRouteRoute
-    }
-    '/social/analytics/': {
-      id: '/social/analytics/'
-      path: '/analytics'
-      fullPath: '/social/analytics/'
-      preLoaderRoute: typeof SocialAnalyticsIndexRouteImport
-      parentRoute: typeof SocialRouteRoute
-    }
-    '/social/accounts/': {
-      id: '/social/accounts/'
-      path: '/accounts'
-      fullPath: '/social/accounts/'
-      preLoaderRoute: typeof SocialAccountsIndexRouteImport
-      parentRoute: typeof SocialRouteRoute
-    }
-    '/settings/webhooks/': {
-      id: '/settings/webhooks/'
-      path: '/webhooks'
-      fullPath: '/settings/webhooks/'
-      preLoaderRoute: typeof SettingsWebhooksIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/team/': {
-      id: '/settings/team/'
-      path: '/team'
-      fullPath: '/settings/team/'
-      preLoaderRoute: typeof SettingsTeamIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/shortcuts/': {
-      id: '/settings/shortcuts/'
-      path: '/shortcuts'
-      fullPath: '/settings/shortcuts/'
-      preLoaderRoute: typeof SettingsShortcutsIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/security/': {
-      id: '/settings/security/'
-      path: '/security'
-      fullPath: '/settings/security/'
-      preLoaderRoute: typeof SettingsSecurityIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/roles/': {
-      id: '/settings/roles/'
-      path: '/roles'
-      fullPath: '/settings/roles/'
-      preLoaderRoute: typeof SettingsRolesIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/privacy/': {
-      id: '/settings/privacy/'
-      path: '/privacy'
-      fullPath: '/settings/privacy/'
-      preLoaderRoute: typeof SettingsPrivacyIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/plans/': {
-      id: '/settings/plans/'
-      path: '/plans'
-      fullPath: '/settings/plans/'
-      preLoaderRoute: typeof SettingsPlansIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/object-templates/': {
-      id: '/settings/object-templates/'
-      path: '/object-templates'
-      fullPath: '/settings/object-templates/'
-      preLoaderRoute: typeof SettingsObjectTemplatesIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/notifications/': {
-      id: '/settings/notifications/'
-      path: '/notifications'
-      fullPath: '/settings/notifications/'
-      preLoaderRoute: typeof SettingsNotificationsIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/integrations/': {
-      id: '/settings/integrations/'
-      path: '/integrations'
-      fullPath: '/settings/integrations/'
-      preLoaderRoute: typeof SettingsIntegrationsIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/general/': {
-      id: '/settings/general/'
-      path: '/general'
-      fullPath: '/settings/general/'
-      preLoaderRoute: typeof SettingsGeneralIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/feedback/': {
-      id: '/settings/feedback/'
-      path: '/feedback'
-      fullPath: '/settings/feedback/'
-      preLoaderRoute: typeof SettingsFeedbackIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/export/': {
-      id: '/settings/export/'
-      path: '/export'
-      fullPath: '/settings/export/'
-      preLoaderRoute: typeof SettingsExportIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/desktop/': {
-      id: '/settings/desktop/'
-      path: '/desktop'
-      fullPath: '/settings/desktop/'
-      preLoaderRoute: typeof SettingsDesktopIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/custom-objects/': {
-      id: '/settings/custom-objects/'
-      path: '/custom-objects'
-      fullPath: '/settings/custom-objects/'
-      preLoaderRoute: typeof SettingsCustomObjectsIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/custom-fields/': {
-      id: '/settings/custom-fields/'
-      path: '/custom-fields'
-      fullPath: '/settings/custom-fields/'
-      preLoaderRoute: typeof SettingsCustomFieldsIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/business/': {
-      id: '/settings/business/'
-      path: '/business'
-      fullPath: '/settings/business/'
-      preLoaderRoute: typeof SettingsBusinessIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/billing/': {
-      id: '/settings/billing/'
-      path: '/billing'
-      fullPath: '/settings/billing/'
-      preLoaderRoute: typeof SettingsBillingIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/appearance/': {
-      id: '/settings/appearance/'
-      path: '/appearance'
-      fullPath: '/settings/appearance/'
-      preLoaderRoute: typeof SettingsAppearanceIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/api-keys/': {
-      id: '/settings/api-keys/'
-      path: '/api-keys'
-      fullPath: '/settings/api-keys/'
-      preLoaderRoute: typeof SettingsApiKeysIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/advanced/': {
-      id: '/settings/advanced/'
-      path: '/advanced'
-      fullPath: '/settings/advanced/'
-      preLoaderRoute: typeof SettingsAdvancedIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/activity/': {
-      id: '/settings/activity/'
-      path: '/activity'
-      fullPath: '/settings/activity/'
-      preLoaderRoute: typeof SettingsActivityIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/preview/help-docs/': {
-      id: '/preview/help-docs/'
-      path: '/preview/help-docs'
-      fullPath: '/preview/help-docs/'
-      preLoaderRoute: typeof PreviewHelpDocsIndexRouteImport
+      fullPath: '/weldmail/'
+      preLoaderRoute: typeof WeldmailIndexRouteImport
+      parentRoute: typeof WeldmailRouteRoute
+    }
+    '/weldmail/$accountId': {
+      id: '/weldmail/$accountId'
+      path: '/$accountId'
+      fullPath: '/weldmail/$accountId'
+      preLoaderRoute: typeof WeldmailAccountIdRouteRouteImport
+      parentRoute: typeof WeldmailRouteRoute
+    }
+    '/weldmail/setup': {
+      id: '/weldmail/setup'
+      path: '/setup'
+      fullPath: '/weldmail/setup'
+      preLoaderRoute: typeof WeldmailSetupRouteRouteImport
+      parentRoute: typeof WeldmailRouteRoute
+    }
+    '/weldmeet/': {
+      id: '/weldmeet/'
+      path: '/'
+      fullPath: '/weldmeet/'
+      preLoaderRoute: typeof WeldmeetIndexRouteImport
+      parentRoute: typeof WeldmeetRouteRoute
+    }
+    '/weldstash/': {
+      id: '/weldstash/'
+      path: '/'
+      fullPath: '/weldstash/'
+      preLoaderRoute: typeof WeldstashIndexRouteImport
+      parentRoute: typeof WeldstashRouteRoute
+    }
+    '/agents/$id/': {
+      id: '/agents/$id/'
+      path: '/$id'
+      fullPath: '/agents/$id/'
+      preLoaderRoute: typeof AgentsIdIndexRouteImport
+      parentRoute: typeof AgentsRouteRoute
+    }
+    '/apps/manage/': {
+      id: '/apps/manage/'
+      path: '/apps/manage'
+      fullPath: '/apps/manage/'
+      preLoaderRoute: typeof AppsManageIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/objects/$slug/': {
-      id: '/objects/$slug/'
-      path: '/objects/$slug'
-      fullPath: '/objects/$slug/'
-      preLoaderRoute: typeof ObjectsSlugIndexRouteImport
-      parentRoute: typeof rootRouteImport
+    '/appstore/$code/': {
+      id: '/appstore/$code/'
+      path: '/$code'
+      fullPath: '/appstore/$code/'
+      preLoaderRoute: typeof AppstoreCodeIndexRouteImport
+      parentRoute: typeof AppstoreRouteRoute
     }
-    '/invite/accept/': {
-      id: '/invite/accept/'
-      path: '/invite/accept'
-      fullPath: '/invite/accept/'
-      preLoaderRoute: typeof InviteAcceptIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth/sso-callback/': {
-      id: '/auth/sso-callback/'
-      path: '/sso-callback'
-      fullPath: '/auth/sso-callback/'
-      preLoaderRoute: typeof AuthSsoCallbackIndexRouteImport
-      parentRoute: typeof AuthRouteRoute
-    }
-    '/auth/reset-password/': {
-      id: '/auth/reset-password/'
-      path: '/reset-password'
-      fullPath: '/auth/reset-password/'
-      preLoaderRoute: typeof AuthResetPasswordIndexRouteImport
-      parentRoute: typeof AuthRouteRoute
-    }
-    '/auth/forgot-password/': {
-      id: '/auth/forgot-password/'
-      path: '/forgot-password'
-      fullPath: '/auth/forgot-password/'
-      preLoaderRoute: typeof AuthForgotPasswordIndexRouteImport
+    '/auth/desktop-handoff/': {
+      id: '/auth/desktop-handoff/'
+      path: '/desktop-handoff'
+      fullPath: '/auth/desktop-handoff/'
+      preLoaderRoute: typeof AuthDesktopHandoffIndexRouteImport
       parentRoute: typeof AuthRouteRoute
     }
     '/auth/error/': {
@@ -5483,95 +4686,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthErrorIndexRouteImport
       parentRoute: typeof AuthRouteRoute
     }
-    '/auth/desktop-handoff/': {
-      id: '/auth/desktop-handoff/'
-      path: '/desktop-handoff'
-      fullPath: '/auth/desktop-handoff/'
-      preLoaderRoute: typeof AuthDesktopHandoffIndexRouteImport
-      parentRoute: typeof AuthRouteRoute
-    }
-    '/appstore/$code/': {
-      id: '/appstore/$code/'
-      path: '/$code'
-      fullPath: '/appstore/$code/'
-      preLoaderRoute: typeof AppstoreCodeIndexRouteImport
-      parentRoute: typeof AppstoreRouteRoute
-    }
-    '/apps/manage/': {
-      id: '/apps/manage/'
-      path: '/apps/manage'
-      fullPath: '/apps/manage/'
-      preLoaderRoute: typeof AppsManageIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/agents/$id/': {
-      id: '/agents/$id/'
-      path: '/$id'
-      fullPath: '/agents/$id/'
-      preLoaderRoute: typeof AgentsIdIndexRouteImport
-      parentRoute: typeof AgentsRouteRoute
-    }
-    '/weldmeet/join/$joinCode': {
-      id: '/weldmeet/join/$joinCode'
-      path: '/join/$joinCode'
-      fullPath: '/weldmeet/join/$joinCode'
-      preLoaderRoute: typeof WeldmeetJoinJoinCodeRouteImport
-      parentRoute: typeof WeldmeetRouteRoute
-    }
-    '/weldmeet/$meetingId/room': {
-      id: '/weldmeet/$meetingId/room'
-      path: '/$meetingId/room'
-      fullPath: '/weldmeet/$meetingId/room'
-      preLoaderRoute: typeof WeldmeetMeetingIdRoomRouteImport
-      parentRoute: typeof WeldmeetRouteRoute
-    }
-    '/weldconnect/integrations/callback': {
-      id: '/weldconnect/integrations/callback'
-      path: '/integrations/callback'
-      fullPath: '/weldconnect/integrations/callback'
-      preLoaderRoute: typeof WeldconnectIntegrationsCallbackRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
-    '/weldconnect/connectors/callback': {
-      id: '/weldconnect/connectors/callback'
-      path: '/connectors/callback'
-      fullPath: '/weldconnect/connectors/callback'
-      preLoaderRoute: typeof WeldconnectConnectorsCallbackRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
-    '/weldchat/dm/$userId': {
-      id: '/weldchat/dm/$userId'
-      path: '/dm/$userId'
-      fullPath: '/weldchat/dm/$userId'
-      preLoaderRoute: typeof WeldchatDmUserIdRouteImport
-      parentRoute: typeof WeldchatRouteRoute
-    }
-    '/settings/custom-objects/$objectId': {
-      id: '/settings/custom-objects/$objectId'
-      path: '/custom-objects/$objectId'
-      fullPath: '/settings/custom-objects/$objectId'
-      preLoaderRoute: typeof SettingsCustomObjectsObjectIdRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/apps/weldcrm': {
-      id: '/settings/apps/weldcrm'
-      path: '/apps/weldcrm'
-      fullPath: '/settings/apps/weldcrm'
-      preLoaderRoute: typeof SettingsAppsWeldcrmRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/objects/$slug/$recordId': {
-      id: '/objects/$slug/$recordId'
-      path: '/objects/$slug/$recordId'
-      fullPath: '/objects/$slug/$recordId'
-      preLoaderRoute: typeof ObjectsSlugRecordIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth/register/$': {
-      id: '/auth/register/$'
-      path: '/register/$'
-      fullPath: '/auth/register/$'
-      preLoaderRoute: typeof AuthRegisterSplatRouteImport
+    '/auth/forgot-password/': {
+      id: '/auth/forgot-password/'
+      path: '/forgot-password'
+      fullPath: '/auth/forgot-password/'
+      preLoaderRoute: typeof AuthForgotPasswordIndexRouteImport
       parentRoute: typeof AuthRouteRoute
     }
     '/auth/login/$': {
@@ -5581,19 +4700,754 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthLoginSplatRouteImport
       parentRoute: typeof AuthRouteRoute
     }
-    '/weldmail/unified/$labelSlug': {
-      id: '/weldmail/unified/$labelSlug'
-      path: '/unified/$labelSlug'
-      fullPath: '/weldmail/unified/$labelSlug'
-      preLoaderRoute: typeof WeldmailUnifiedLabelSlugRouteRouteImport
-      parentRoute: typeof WeldmailRouteRoute
+    '/auth/register/$': {
+      id: '/auth/register/$'
+      path: '/register/$'
+      fullPath: '/auth/register/$'
+      preLoaderRoute: typeof AuthRegisterSplatRouteImport
+      parentRoute: typeof AuthRouteRoute
     }
-    '/weldmail/$accountId/$labelSlug': {
-      id: '/weldmail/$accountId/$labelSlug'
-      path: '/$labelSlug'
-      fullPath: '/weldmail/$accountId/$labelSlug'
-      preLoaderRoute: typeof WeldmailAccountIdLabelSlugRouteRouteImport
-      parentRoute: typeof WeldmailAccountIdRouteRoute
+    '/auth/reset-password/': {
+      id: '/auth/reset-password/'
+      path: '/reset-password'
+      fullPath: '/auth/reset-password/'
+      preLoaderRoute: typeof AuthResetPasswordIndexRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/auth/sso-callback/': {
+      id: '/auth/sso-callback/'
+      path: '/sso-callback'
+      fullPath: '/auth/sso-callback/'
+      preLoaderRoute: typeof AuthSsoCallbackIndexRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
+    '/invite/accept/': {
+      id: '/invite/accept/'
+      path: '/invite/accept'
+      fullPath: '/invite/accept/'
+      preLoaderRoute: typeof InviteAcceptIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/objects/$slug/': {
+      id: '/objects/$slug/'
+      path: '/objects/$slug'
+      fullPath: '/objects/$slug/'
+      preLoaderRoute: typeof ObjectsSlugIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/objects/$slug/$recordId': {
+      id: '/objects/$slug/$recordId'
+      path: '/objects/$slug/$recordId'
+      fullPath: '/objects/$slug/$recordId'
+      preLoaderRoute: typeof ObjectsSlugRecordIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/preview/help-docs/': {
+      id: '/preview/help-docs/'
+      path: '/preview/help-docs'
+      fullPath: '/preview/help-docs/'
+      preLoaderRoute: typeof PreviewHelpDocsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/activity/': {
+      id: '/settings/activity/'
+      path: '/activity'
+      fullPath: '/settings/activity/'
+      preLoaderRoute: typeof SettingsActivityIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/advanced/': {
+      id: '/settings/advanced/'
+      path: '/advanced'
+      fullPath: '/settings/advanced/'
+      preLoaderRoute: typeof SettingsAdvancedIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/api-keys/': {
+      id: '/settings/api-keys/'
+      path: '/api-keys'
+      fullPath: '/settings/api-keys/'
+      preLoaderRoute: typeof SettingsApiKeysIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/appearance/': {
+      id: '/settings/appearance/'
+      path: '/appearance'
+      fullPath: '/settings/appearance/'
+      preLoaderRoute: typeof SettingsAppearanceIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/apps/weldcrm': {
+      id: '/settings/apps/weldcrm'
+      path: '/apps/weldcrm'
+      fullPath: '/settings/apps/weldcrm'
+      preLoaderRoute: typeof SettingsAppsWeldcrmRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/billing/': {
+      id: '/settings/billing/'
+      path: '/billing'
+      fullPath: '/settings/billing/'
+      preLoaderRoute: typeof SettingsBillingIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/business/': {
+      id: '/settings/business/'
+      path: '/business'
+      fullPath: '/settings/business/'
+      preLoaderRoute: typeof SettingsBusinessIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/custom-fields/': {
+      id: '/settings/custom-fields/'
+      path: '/custom-fields'
+      fullPath: '/settings/custom-fields/'
+      preLoaderRoute: typeof SettingsCustomFieldsIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/custom-objects/': {
+      id: '/settings/custom-objects/'
+      path: '/custom-objects'
+      fullPath: '/settings/custom-objects/'
+      preLoaderRoute: typeof SettingsCustomObjectsIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/custom-objects/$objectId': {
+      id: '/settings/custom-objects/$objectId'
+      path: '/custom-objects/$objectId'
+      fullPath: '/settings/custom-objects/$objectId'
+      preLoaderRoute: typeof SettingsCustomObjectsObjectIdRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/desktop/': {
+      id: '/settings/desktop/'
+      path: '/desktop'
+      fullPath: '/settings/desktop/'
+      preLoaderRoute: typeof SettingsDesktopIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/export/': {
+      id: '/settings/export/'
+      path: '/export'
+      fullPath: '/settings/export/'
+      preLoaderRoute: typeof SettingsExportIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/feedback/': {
+      id: '/settings/feedback/'
+      path: '/feedback'
+      fullPath: '/settings/feedback/'
+      preLoaderRoute: typeof SettingsFeedbackIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/general/': {
+      id: '/settings/general/'
+      path: '/general'
+      fullPath: '/settings/general/'
+      preLoaderRoute: typeof SettingsGeneralIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/integrations/': {
+      id: '/settings/integrations/'
+      path: '/integrations'
+      fullPath: '/settings/integrations/'
+      preLoaderRoute: typeof SettingsIntegrationsIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/notifications/': {
+      id: '/settings/notifications/'
+      path: '/notifications'
+      fullPath: '/settings/notifications/'
+      preLoaderRoute: typeof SettingsNotificationsIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/object-templates/': {
+      id: '/settings/object-templates/'
+      path: '/object-templates'
+      fullPath: '/settings/object-templates/'
+      preLoaderRoute: typeof SettingsObjectTemplatesIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/plans/': {
+      id: '/settings/plans/'
+      path: '/plans'
+      fullPath: '/settings/plans/'
+      preLoaderRoute: typeof SettingsPlansIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/privacy/': {
+      id: '/settings/privacy/'
+      path: '/privacy'
+      fullPath: '/settings/privacy/'
+      preLoaderRoute: typeof SettingsPrivacyIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/roles/': {
+      id: '/settings/roles/'
+      path: '/roles'
+      fullPath: '/settings/roles/'
+      preLoaderRoute: typeof SettingsRolesIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/security/': {
+      id: '/settings/security/'
+      path: '/security'
+      fullPath: '/settings/security/'
+      preLoaderRoute: typeof SettingsSecurityIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/shortcuts/': {
+      id: '/settings/shortcuts/'
+      path: '/shortcuts'
+      fullPath: '/settings/shortcuts/'
+      preLoaderRoute: typeof SettingsShortcutsIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/team/': {
+      id: '/settings/team/'
+      path: '/team'
+      fullPath: '/settings/team/'
+      preLoaderRoute: typeof SettingsTeamIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/webhooks/': {
+      id: '/settings/webhooks/'
+      path: '/webhooks'
+      fullPath: '/settings/webhooks/'
+      preLoaderRoute: typeof SettingsWebhooksIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/social/accounts/': {
+      id: '/social/accounts/'
+      path: '/accounts'
+      fullPath: '/social/accounts/'
+      preLoaderRoute: typeof SocialAccountsIndexRouteImport
+      parentRoute: typeof SocialRouteRoute
+    }
+    '/social/analytics/': {
+      id: '/social/analytics/'
+      path: '/analytics'
+      fullPath: '/social/analytics/'
+      preLoaderRoute: typeof SocialAnalyticsIndexRouteImport
+      parentRoute: typeof SocialRouteRoute
+    }
+    '/social/approvals/': {
+      id: '/social/approvals/'
+      path: '/approvals'
+      fullPath: '/social/approvals/'
+      preLoaderRoute: typeof SocialApprovalsIndexRouteImport
+      parentRoute: typeof SocialRouteRoute
+    }
+    '/social/calendar/': {
+      id: '/social/calendar/'
+      path: '/calendar'
+      fullPath: '/social/calendar/'
+      preLoaderRoute: typeof SocialCalendarIndexRouteImport
+      parentRoute: typeof SocialRouteRoute
+    }
+    '/social/campaigns/': {
+      id: '/social/campaigns/'
+      path: '/campaigns'
+      fullPath: '/social/campaigns/'
+      preLoaderRoute: typeof SocialCampaignsIndexRouteImport
+      parentRoute: typeof SocialRouteRoute
+    }
+    '/social/dashboard/': {
+      id: '/social/dashboard/'
+      path: '/dashboard'
+      fullPath: '/social/dashboard/'
+      preLoaderRoute: typeof SocialDashboardIndexRouteImport
+      parentRoute: typeof SocialRouteRoute
+    }
+    '/social/drafts/': {
+      id: '/social/drafts/'
+      path: '/drafts'
+      fullPath: '/social/drafts/'
+      preLoaderRoute: typeof SocialDraftsIndexRouteImport
+      parentRoute: typeof SocialRouteRoute
+    }
+    '/social/queue/': {
+      id: '/social/queue/'
+      path: '/queue'
+      fullPath: '/social/queue/'
+      preLoaderRoute: typeof SocialQueueIndexRouteImport
+      parentRoute: typeof SocialRouteRoute
+    }
+    '/social/settings/': {
+      id: '/social/settings/'
+      path: '/settings'
+      fullPath: '/social/settings/'
+      preLoaderRoute: typeof SocialSettingsIndexRouteImport
+      parentRoute: typeof SocialRouteRoute
+    }
+    '/social/team/': {
+      id: '/social/team/'
+      path: '/team'
+      fullPath: '/social/team/'
+      preLoaderRoute: typeof SocialTeamIndexRouteImport
+      parentRoute: typeof SocialRouteRoute
+    }
+    '/weldads/accounts/': {
+      id: '/weldads/accounts/'
+      path: '/accounts'
+      fullPath: '/weldads/accounts/'
+      preLoaderRoute: typeof WeldadsAccountsIndexRouteImport
+      parentRoute: typeof WeldadsRouteRoute
+    }
+    '/weldads/campaigns/': {
+      id: '/weldads/campaigns/'
+      path: '/campaigns'
+      fullPath: '/weldads/campaigns/'
+      preLoaderRoute: typeof WeldadsCampaignsIndexRouteImport
+      parentRoute: typeof WeldadsRouteRoute
+    }
+    '/weldbooks/accounts/': {
+      id: '/weldbooks/accounts/'
+      path: '/accounts'
+      fullPath: '/weldbooks/accounts/'
+      preLoaderRoute: typeof WeldbooksAccountsIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/banking/': {
+      id: '/weldbooks/banking/'
+      path: '/banking'
+      fullPath: '/weldbooks/banking/'
+      preLoaderRoute: typeof WeldbooksBankingIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/bills/': {
+      id: '/weldbooks/bills/'
+      path: '/bills'
+      fullPath: '/weldbooks/bills/'
+      preLoaderRoute: typeof WeldbooksBillsIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/credit-notes/': {
+      id: '/weldbooks/credit-notes/'
+      path: '/credit-notes'
+      fullPath: '/weldbooks/credit-notes/'
+      preLoaderRoute: typeof WeldbooksCreditNotesIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/customers/': {
+      id: '/weldbooks/customers/'
+      path: '/customers'
+      fullPath: '/weldbooks/customers/'
+      preLoaderRoute: typeof WeldbooksCustomersIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/dashboard/': {
+      id: '/weldbooks/dashboard/'
+      path: '/dashboard'
+      fullPath: '/weldbooks/dashboard/'
+      preLoaderRoute: typeof WeldbooksDashboardIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/documents/': {
+      id: '/weldbooks/documents/'
+      path: '/documents'
+      fullPath: '/weldbooks/documents/'
+      preLoaderRoute: typeof WeldbooksDocumentsIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/entities/': {
+      id: '/weldbooks/entities/'
+      path: '/entities'
+      fullPath: '/weldbooks/entities/'
+      preLoaderRoute: typeof WeldbooksEntitiesIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/invoices/': {
+      id: '/weldbooks/invoices/'
+      path: '/invoices'
+      fullPath: '/weldbooks/invoices/'
+      preLoaderRoute: typeof WeldbooksInvoicesIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/journal/': {
+      id: '/weldbooks/journal/'
+      path: '/journal'
+      fullPath: '/weldbooks/journal/'
+      preLoaderRoute: typeof WeldbooksJournalIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/recurring/': {
+      id: '/weldbooks/recurring/'
+      path: '/recurring'
+      fullPath: '/weldbooks/recurring/'
+      preLoaderRoute: typeof WeldbooksRecurringIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/reports/': {
+      id: '/weldbooks/reports/'
+      path: '/reports'
+      fullPath: '/weldbooks/reports/'
+      preLoaderRoute: typeof WeldbooksReportsIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/settings/': {
+      id: '/weldbooks/settings/'
+      path: '/settings'
+      fullPath: '/weldbooks/settings/'
+      preLoaderRoute: typeof WeldbooksSettingsIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/suppliers/': {
+      id: '/weldbooks/suppliers/'
+      path: '/suppliers'
+      fullPath: '/weldbooks/suppliers/'
+      preLoaderRoute: typeof WeldbooksSuppliersIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/vat/': {
+      id: '/weldbooks/vat/'
+      path: '/vat'
+      fullPath: '/weldbooks/vat/'
+      preLoaderRoute: typeof WeldbooksVatIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldcalendar/events/': {
+      id: '/weldcalendar/events/'
+      path: '/events'
+      fullPath: '/weldcalendar/events/'
+      preLoaderRoute: typeof WeldcalendarEventsIndexRouteImport
+      parentRoute: typeof WeldcalendarRouteRoute
+    }
+    '/weldcalendar/scheduling/': {
+      id: '/weldcalendar/scheduling/'
+      path: '/scheduling'
+      fullPath: '/weldcalendar/scheduling/'
+      preLoaderRoute: typeof WeldcalendarSchedulingIndexRouteImport
+      parentRoute: typeof WeldcalendarRouteRoute
+    }
+    '/weldcall/$callId/': {
+      id: '/weldcall/$callId/'
+      path: '/$callId'
+      fullPath: '/weldcall/$callId/'
+      preLoaderRoute: typeof WeldcallCallIdIndexRouteImport
+      parentRoute: typeof WeldcallRouteRoute
+    }
+    '/weldcall/contacts/': {
+      id: '/weldcall/contacts/'
+      path: '/contacts'
+      fullPath: '/weldcall/contacts/'
+      preLoaderRoute: typeof WeldcallContactsIndexRouteImport
+      parentRoute: typeof WeldcallRouteRoute
+    }
+    '/weldcall/history/': {
+      id: '/weldcall/history/'
+      path: '/history'
+      fullPath: '/weldcall/history/'
+      preLoaderRoute: typeof WeldcallHistoryIndexRouteImport
+      parentRoute: typeof WeldcallRouteRoute
+    }
+    '/weldcall/new/': {
+      id: '/weldcall/new/'
+      path: '/new'
+      fullPath: '/weldcall/new/'
+      preLoaderRoute: typeof WeldcallNewIndexRouteImport
+      parentRoute: typeof WeldcallRouteRoute
+    }
+    '/weldchat/$channelId/': {
+      id: '/weldchat/$channelId/'
+      path: '/$channelId'
+      fullPath: '/weldchat/$channelId/'
+      preLoaderRoute: typeof WeldchatChannelIdIndexRouteImport
+      parentRoute: typeof WeldchatRouteRoute
+    }
+    '/weldchat/bookmarks/': {
+      id: '/weldchat/bookmarks/'
+      path: '/bookmarks'
+      fullPath: '/weldchat/bookmarks/'
+      preLoaderRoute: typeof WeldchatBookmarksIndexRouteImport
+      parentRoute: typeof WeldchatRouteRoute
+    }
+    '/weldchat/dm/': {
+      id: '/weldchat/dm/'
+      path: '/dm'
+      fullPath: '/weldchat/dm/'
+      preLoaderRoute: typeof WeldchatDmIndexRouteImport
+      parentRoute: typeof WeldchatRouteRoute
+    }
+    '/weldchat/dm/$userId': {
+      id: '/weldchat/dm/$userId'
+      path: '/dm/$userId'
+      fullPath: '/weldchat/dm/$userId'
+      preLoaderRoute: typeof WeldchatDmUserIdRouteImport
+      parentRoute: typeof WeldchatRouteRoute
+    }
+    '/weldchat/search/': {
+      id: '/weldchat/search/'
+      path: '/search'
+      fullPath: '/weldchat/search/'
+      preLoaderRoute: typeof WeldchatSearchIndexRouteImport
+      parentRoute: typeof WeldchatRouteRoute
+    }
+    '/weldcommerce/categories/': {
+      id: '/weldcommerce/categories/'
+      path: '/categories'
+      fullPath: '/weldcommerce/categories/'
+      preLoaderRoute: typeof WeldcommerceCategoriesIndexRouteImport
+      parentRoute: typeof WeldcommerceRouteRoute
+    }
+    '/weldcommerce/customers/': {
+      id: '/weldcommerce/customers/'
+      path: '/customers'
+      fullPath: '/weldcommerce/customers/'
+      preLoaderRoute: typeof WeldcommerceCustomersIndexRouteImport
+      parentRoute: typeof WeldcommerceRouteRoute
+    }
+    '/weldcommerce/orders/': {
+      id: '/weldcommerce/orders/'
+      path: '/orders'
+      fullPath: '/weldcommerce/orders/'
+      preLoaderRoute: typeof WeldcommerceOrdersIndexRouteImport
+      parentRoute: typeof WeldcommerceRouteRoute
+    }
+    '/weldcommerce/products/': {
+      id: '/weldcommerce/products/'
+      path: '/products'
+      fullPath: '/weldcommerce/products/'
+      preLoaderRoute: typeof WeldcommerceProductsIndexRouteImport
+      parentRoute: typeof WeldcommerceRouteRoute
+    }
+    '/weldcommerce/settings/': {
+      id: '/weldcommerce/settings/'
+      path: '/settings'
+      fullPath: '/weldcommerce/settings/'
+      preLoaderRoute: typeof WeldcommerceSettingsIndexRouteImport
+      parentRoute: typeof WeldcommerceRouteRoute
+    }
+    '/weldconnect/actions/': {
+      id: '/weldconnect/actions/'
+      path: '/actions'
+      fullPath: '/weldconnect/actions/'
+      preLoaderRoute: typeof WeldconnectActionsIndexRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldconnect/analytics/': {
+      id: '/weldconnect/analytics/'
+      path: '/analytics'
+      fullPath: '/weldconnect/analytics/'
+      preLoaderRoute: typeof WeldconnectAnalyticsIndexRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldconnect/connectors/': {
+      id: '/weldconnect/connectors/'
+      path: '/connectors'
+      fullPath: '/weldconnect/connectors/'
+      preLoaderRoute: typeof WeldconnectConnectorsIndexRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldconnect/connectors/callback': {
+      id: '/weldconnect/connectors/callback'
+      path: '/connectors/callback'
+      fullPath: '/weldconnect/connectors/callback'
+      preLoaderRoute: typeof WeldconnectConnectorsCallbackRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldconnect/executions/': {
+      id: '/weldconnect/executions/'
+      path: '/executions'
+      fullPath: '/weldconnect/executions/'
+      preLoaderRoute: typeof WeldconnectExecutionsIndexRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldconnect/integrations/': {
+      id: '/weldconnect/integrations/'
+      path: '/integrations'
+      fullPath: '/weldconnect/integrations/'
+      preLoaderRoute: typeof WeldconnectIntegrationsIndexRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldconnect/integrations/callback': {
+      id: '/weldconnect/integrations/callback'
+      path: '/integrations/callback'
+      fullPath: '/weldconnect/integrations/callback'
+      preLoaderRoute: typeof WeldconnectIntegrationsCallbackRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldconnect/templates/': {
+      id: '/weldconnect/templates/'
+      path: '/templates'
+      fullPath: '/weldconnect/templates/'
+      preLoaderRoute: typeof WeldconnectTemplatesIndexRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldconnect/triggers/': {
+      id: '/weldconnect/triggers/'
+      path: '/triggers'
+      fullPath: '/weldconnect/triggers/'
+      preLoaderRoute: typeof WeldconnectTriggersIndexRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldconnect/variables/': {
+      id: '/weldconnect/variables/'
+      path: '/variables'
+      fullPath: '/weldconnect/variables/'
+      preLoaderRoute: typeof WeldconnectVariablesIndexRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldconnect/webhooks/': {
+      id: '/weldconnect/webhooks/'
+      path: '/webhooks'
+      fullPath: '/weldconnect/webhooks/'
+      preLoaderRoute: typeof WeldconnectWebhooksIndexRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldconnect/workflows/': {
+      id: '/weldconnect/workflows/'
+      path: '/workflows'
+      fullPath: '/weldconnect/workflows/'
+      preLoaderRoute: typeof WeldconnectWorkflowsIndexRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldcrm/companies/': {
+      id: '/weldcrm/companies/'
+      path: '/'
+      fullPath: '/weldcrm/companies/'
+      preLoaderRoute: typeof WeldcrmCompaniesIndexRouteImport
+      parentRoute: typeof WeldcrmCompaniesRouteRoute
+    }
+    '/weldcrm/notes/': {
+      id: '/weldcrm/notes/'
+      path: '/notes'
+      fullPath: '/weldcrm/notes/'
+      preLoaderRoute: typeof WeldcrmNotesIndexRouteImport
+      parentRoute: typeof WeldcrmRouteRoute
+    }
+    '/weldcrm/people/': {
+      id: '/weldcrm/people/'
+      path: '/'
+      fullPath: '/weldcrm/people/'
+      preLoaderRoute: typeof WeldcrmPeopleIndexRouteImport
+      parentRoute: typeof WeldcrmPeopleRouteRoute
+    }
+    '/weldcrm/sequences/': {
+      id: '/weldcrm/sequences/'
+      path: '/sequences'
+      fullPath: '/weldcrm/sequences/'
+      preLoaderRoute: typeof WeldcrmSequencesIndexRouteImport
+      parentRoute: typeof WeldcrmRouteRoute
+    }
+    '/welddesk/ai-agents/': {
+      id: '/welddesk/ai-agents/'
+      path: '/ai-agents'
+      fullPath: '/welddesk/ai-agents/'
+      preLoaderRoute: typeof WelddeskAiAgentsIndexRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/welddesk/chat-widget/': {
+      id: '/welddesk/chat-widget/'
+      path: '/chat-widget'
+      fullPath: '/welddesk/chat-widget/'
+      preLoaderRoute: typeof WelddeskChatWidgetIndexRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/welddesk/email/': {
+      id: '/welddesk/email/'
+      path: '/email'
+      fullPath: '/welddesk/email/'
+      preLoaderRoute: typeof WelddeskEmailIndexRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/welddesk/help-center/': {
+      id: '/welddesk/help-center/'
+      path: '/help-center'
+      fullPath: '/welddesk/help-center/'
+      preLoaderRoute: typeof WelddeskHelpCenterIndexRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/welddesk/inbox/': {
+      id: '/welddesk/inbox/'
+      path: '/inbox'
+      fullPath: '/welddesk/inbox/'
+      preLoaderRoute: typeof WelddeskInboxIndexRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/welddrive/all-files/': {
+      id: '/welddrive/all-files/'
+      path: '/all-files'
+      fullPath: '/welddrive/all-files/'
+      preLoaderRoute: typeof WelddriveAllFilesIndexRouteImport
+      parentRoute: typeof WelddriveRouteRoute
+    }
+    '/welddrive/recent/': {
+      id: '/welddrive/recent/'
+      path: '/recent'
+      fullPath: '/welddrive/recent/'
+      preLoaderRoute: typeof WelddriveRecentIndexRouteImport
+      parentRoute: typeof WelddriveRouteRoute
+    }
+    '/welddrive/shared/': {
+      id: '/welddrive/shared/'
+      path: '/shared'
+      fullPath: '/welddrive/shared/'
+      preLoaderRoute: typeof WelddriveSharedIndexRouteImport
+      parentRoute: typeof WelddriveRouteRoute
+    }
+    '/welddrive/starred/': {
+      id: '/welddrive/starred/'
+      path: '/starred'
+      fullPath: '/welddrive/starred/'
+      preLoaderRoute: typeof WelddriveStarredIndexRouteImport
+      parentRoute: typeof WelddriveRouteRoute
+    }
+    '/welddrive/trash/': {
+      id: '/welddrive/trash/'
+      path: '/trash'
+      fullPath: '/welddrive/trash/'
+      preLoaderRoute: typeof WelddriveTrashIndexRouteImport
+      parentRoute: typeof WelddriveRouteRoute
+    }
+    '/welddrive/uploads/': {
+      id: '/welddrive/uploads/'
+      path: '/uploads'
+      fullPath: '/welddrive/uploads/'
+      preLoaderRoute: typeof WelddriveUploadsIndexRouteImport
+      parentRoute: typeof WelddriveRouteRoute
+    }
+    '/weldflow/analytics/': {
+      id: '/weldflow/analytics/'
+      path: '/analytics'
+      fullPath: '/weldflow/analytics/'
+      preLoaderRoute: typeof WeldflowAnalyticsIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
+    }
+    '/weldflow/documents/': {
+      id: '/weldflow/documents/'
+      path: '/documents'
+      fullPath: '/weldflow/documents/'
+      preLoaderRoute: typeof WeldflowDocumentsIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
+    }
+    '/weldflow/files/': {
+      id: '/weldflow/files/'
+      path: '/files'
+      fullPath: '/weldflow/files/'
+      preLoaderRoute: typeof WeldflowFilesIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
+    }
+    '/weldflow/goals/': {
+      id: '/weldflow/goals/'
+      path: '/goals'
+      fullPath: '/weldflow/goals/'
+      preLoaderRoute: typeof WeldflowGoalsIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
+    }
+    '/weldflow/my-tasks/': {
+      id: '/weldflow/my-tasks/'
+      path: '/my-tasks'
+      fullPath: '/weldflow/my-tasks/'
+      preLoaderRoute: typeof WeldflowMyTasksIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
+    }
+    '/weldflow/notes/': {
+      id: '/weldflow/notes/'
+      path: '/notes'
+      fullPath: '/weldflow/notes/'
+      preLoaderRoute: typeof WeldflowNotesIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
     }
     '/weldflow/project/$projectId': {
       id: '/weldflow/project/$projectId'
@@ -5602,508 +5456,242 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldflowProjectProjectIdRouteRouteImport
       parentRoute: typeof WeldflowRouteRoute
     }
-    '/weldmail/unified/$labelSlug/': {
-      id: '/weldmail/unified/$labelSlug/'
-      path: '/'
-      fullPath: '/weldmail/unified/$labelSlug/'
-      preLoaderRoute: typeof WeldmailUnifiedLabelSlugIndexRouteImport
-      parentRoute: typeof WeldmailUnifiedLabelSlugRouteRoute
+    '/weldflow/projects/': {
+      id: '/weldflow/projects/'
+      path: '/projects'
+      fullPath: '/weldflow/projects/'
+      preLoaderRoute: typeof WeldflowProjectsIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
     }
-    '/weldmail/settings/labels/': {
-      id: '/weldmail/settings/labels/'
-      path: '/settings/labels'
-      fullPath: '/weldmail/settings/labels/'
-      preLoaderRoute: typeof WeldmailSettingsLabelsIndexRouteImport
-      parentRoute: typeof WeldmailRouteRoute
+    '/weldflow/settings/': {
+      id: '/weldflow/settings/'
+      path: '/settings'
+      fullPath: '/weldflow/settings/'
+      preLoaderRoute: typeof WeldflowSettingsIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
     }
-    '/weldmail/settings/accounts/': {
-      id: '/weldmail/settings/accounts/'
-      path: '/settings/accounts'
-      fullPath: '/weldmail/settings/accounts/'
-      preLoaderRoute: typeof WeldmailSettingsAccountsIndexRouteImport
-      parentRoute: typeof WeldmailRouteRoute
+    '/weldflow/table/': {
+      id: '/weldflow/table/'
+      path: '/table'
+      fullPath: '/weldflow/table/'
+      preLoaderRoute: typeof WeldflowTableIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
     }
-    '/weldmail/inbox/compose/': {
-      id: '/weldmail/inbox/compose/'
-      path: '/inbox/compose'
-      fullPath: '/weldmail/inbox/compose/'
-      preLoaderRoute: typeof WeldmailInboxComposeIndexRouteImport
-      parentRoute: typeof WeldmailRouteRoute
+    '/weldflow/timeline/': {
+      id: '/weldflow/timeline/'
+      path: '/timeline'
+      fullPath: '/weldflow/timeline/'
+      preLoaderRoute: typeof WeldflowTimelineIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
     }
-    '/weldmail/ai/summary/': {
-      id: '/weldmail/ai/summary/'
-      path: '/ai/summary'
-      fullPath: '/weldmail/ai/summary/'
-      preLoaderRoute: typeof WeldmailAiSummaryIndexRouteImport
-      parentRoute: typeof WeldmailRouteRoute
+    '/weldflow/whiteboard/': {
+      id: '/weldflow/whiteboard/'
+      path: '/whiteboard'
+      fullPath: '/weldflow/whiteboard/'
+      preLoaderRoute: typeof WeldflowWhiteboardIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
     }
-    '/weldmail/ai/smart-reply/': {
-      id: '/weldmail/ai/smart-reply/'
-      path: '/ai/smart-reply'
-      fullPath: '/weldmail/ai/smart-reply/'
-      preLoaderRoute: typeof WeldmailAiSmartReplyIndexRouteImport
-      parentRoute: typeof WeldmailRouteRoute
+    '/weldflow/workload/': {
+      id: '/weldflow/workload/'
+      path: '/workload'
+      fullPath: '/weldflow/workload/'
+      preLoaderRoute: typeof WeldflowWorkloadIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
     }
-    '/weldmail/$accountId/$labelSlug/': {
-      id: '/weldmail/$accountId/$labelSlug/'
-      path: '/'
-      fullPath: '/weldmail/$accountId/$labelSlug/'
-      preLoaderRoute: typeof WeldmailAccountIdLabelSlugIndexRouteImport
-      parentRoute: typeof WeldmailAccountIdLabelSlugRouteRoute
+    '/weldhost/domains/': {
+      id: '/weldhost/domains/'
+      path: '/domains'
+      fullPath: '/weldhost/domains/'
+      preLoaderRoute: typeof WeldhostDomainsIndexRouteImport
+      parentRoute: typeof WeldhostRouteRoute
     }
-    '/weldknow/page/$pageId/': {
-      id: '/weldknow/page/$pageId/'
-      path: '/page/$pageId'
-      fullPath: '/weldknow/page/$pageId/'
-      preLoaderRoute: typeof WeldknowPagePageIdIndexRouteImport
+    '/weldknow/trash/': {
+      id: '/weldknow/trash/'
+      path: '/trash'
+      fullPath: '/weldknow/trash/'
+      preLoaderRoute: typeof WeldknowTrashIndexRouteImport
       parentRoute: typeof WeldknowRouteRoute
     }
-    '/weldhost/domains/search/': {
-      id: '/weldhost/domains/search/'
-      path: '/domains/search'
-      fullPath: '/weldhost/domains/search/'
-      preLoaderRoute: typeof WeldhostDomainsSearchIndexRouteImport
-      parentRoute: typeof WeldhostRouteRoute
+    '/weldmail/$accountId/$labelSlug': {
+      id: '/weldmail/$accountId/$labelSlug'
+      path: '/$labelSlug'
+      fullPath: '/weldmail/$accountId/$labelSlug'
+      preLoaderRoute: typeof WeldmailAccountIdLabelSlugRouteRouteImport
+      parentRoute: typeof WeldmailAccountIdRouteRoute
     }
-    '/weldhost/domains/register/': {
-      id: '/weldhost/domains/register/'
-      path: '/domains/register'
-      fullPath: '/weldhost/domains/register/'
-      preLoaderRoute: typeof WeldhostDomainsRegisterIndexRouteImport
-      parentRoute: typeof WeldhostRouteRoute
+    '/weldmail/domains/': {
+      id: '/weldmail/domains/'
+      path: '/domains'
+      fullPath: '/weldmail/domains/'
+      preLoaderRoute: typeof WeldmailDomainsIndexRouteImport
+      parentRoute: typeof WeldmailRouteRoute
     }
-    '/weldhost/domains/external/': {
-      id: '/weldhost/domains/external/'
-      path: '/domains/external'
-      fullPath: '/weldhost/domains/external/'
-      preLoaderRoute: typeof WeldhostDomainsExternalIndexRouteImport
-      parentRoute: typeof WeldhostRouteRoute
+    '/weldmail/inbox/': {
+      id: '/weldmail/inbox/'
+      path: '/inbox'
+      fullPath: '/weldmail/inbox/'
+      preLoaderRoute: typeof WeldmailInboxIndexRouteImport
+      parentRoute: typeof WeldmailRouteRoute
     }
-    '/weldhost/domains/$id/': {
-      id: '/weldhost/domains/$id/'
-      path: '/domains/$id'
-      fullPath: '/weldhost/domains/$id/'
-      preLoaderRoute: typeof WeldhostDomainsIdIndexRouteImport
-      parentRoute: typeof WeldhostRouteRoute
+    '/weldmail/scheduled/': {
+      id: '/weldmail/scheduled/'
+      path: '/scheduled'
+      fullPath: '/weldmail/scheduled/'
+      preLoaderRoute: typeof WeldmailScheduledIndexRouteImport
+      parentRoute: typeof WeldmailRouteRoute
     }
-    '/weldflow/space/$spaceId/': {
-      id: '/weldflow/space/$spaceId/'
-      path: '/space/$spaceId'
-      fullPath: '/weldflow/space/$spaceId/'
-      preLoaderRoute: typeof WeldflowSpaceSpaceIdIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
+    '/weldmail/search/': {
+      id: '/weldmail/search/'
+      path: '/search'
+      fullPath: '/weldmail/search/'
+      preLoaderRoute: typeof WeldmailSearchIndexRouteImport
+      parentRoute: typeof WeldmailRouteRoute
     }
-    '/weldflow/project/$projectId/': {
-      id: '/weldflow/project/$projectId/'
+    '/weldmail/setup/': {
+      id: '/weldmail/setup/'
       path: '/'
-      fullPath: '/weldflow/project/$projectId/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+      fullPath: '/weldmail/setup/'
+      preLoaderRoute: typeof WeldmailSetupIndexRouteImport
+      parentRoute: typeof WeldmailSetupRouteRoute
     }
-    '/weldflow/analytics/builder/': {
-      id: '/weldflow/analytics/builder/'
-      path: '/analytics/builder'
-      fullPath: '/weldflow/analytics/builder/'
-      preLoaderRoute: typeof WeldflowAnalyticsBuilderIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
+    '/weldmail/snoozed/': {
+      id: '/weldmail/snoozed/'
+      path: '/snoozed'
+      fullPath: '/weldmail/snoozed/'
+      preLoaderRoute: typeof WeldmailSnoozedIndexRouteImport
+      parentRoute: typeof WeldmailRouteRoute
     }
-    '/weldflow/analytics/$id/': {
-      id: '/weldflow/analytics/$id/'
-      path: '/analytics/$id'
-      fullPath: '/weldflow/analytics/$id/'
-      preLoaderRoute: typeof WeldflowAnalyticsIdIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
+    '/weldmail/unified/$labelSlug': {
+      id: '/weldmail/unified/$labelSlug'
+      path: '/unified/$labelSlug'
+      fullPath: '/weldmail/unified/$labelSlug'
+      preLoaderRoute: typeof WeldmailUnifiedLabelSlugRouteRouteImport
+      parentRoute: typeof WeldmailRouteRoute
     }
-    '/welddesk/inbox/$conversationId/': {
-      id: '/welddesk/inbox/$conversationId/'
-      path: '/inbox/$conversationId'
-      fullPath: '/welddesk/inbox/$conversationId/'
-      preLoaderRoute: typeof WelddeskInboxConversationIdIndexRouteImport
-      parentRoute: typeof WelddeskRouteRoute
+    '/weldmeet/$meetingId/': {
+      id: '/weldmeet/$meetingId/'
+      path: '/$meetingId'
+      fullPath: '/weldmeet/$meetingId/'
+      preLoaderRoute: typeof WeldmeetMeetingIdIndexRouteImport
+      parentRoute: typeof WeldmeetRouteRoute
     }
-    '/welddesk/help-center/articles/': {
-      id: '/welddesk/help-center/articles/'
-      path: '/help-center/articles'
-      fullPath: '/welddesk/help-center/articles/'
-      preLoaderRoute: typeof WelddeskHelpCenterArticlesIndexRouteImport
-      parentRoute: typeof WelddeskRouteRoute
+    '/weldmeet/$meetingId/room': {
+      id: '/weldmeet/$meetingId/room'
+      path: '/$meetingId/room'
+      fullPath: '/weldmeet/$meetingId/room'
+      preLoaderRoute: typeof WeldmeetMeetingIdRoomRouteImport
+      parentRoute: typeof WeldmeetRouteRoute
     }
-    '/welddesk/chat-widget/$widgetId/': {
-      id: '/welddesk/chat-widget/$widgetId/'
-      path: '/chat-widget/$widgetId'
-      fullPath: '/welddesk/chat-widget/$widgetId/'
-      preLoaderRoute: typeof WelddeskChatWidgetWidgetIdIndexRouteImport
-      parentRoute: typeof WelddeskRouteRoute
+    '/weldmeet/history/': {
+      id: '/weldmeet/history/'
+      path: '/history'
+      fullPath: '/weldmeet/history/'
+      preLoaderRoute: typeof WeldmeetHistoryIndexRouteImport
+      parentRoute: typeof WeldmeetRouteRoute
     }
-    '/welddata/lists/$id/': {
-      id: '/welddata/lists/$id/'
-      path: '/lists/$id'
-      fullPath: '/welddata/lists/$id/'
-      preLoaderRoute: typeof WelddataListsIdIndexRouteImport
-      parentRoute: typeof WelddataRouteRoute
+    '/weldmeet/join/$joinCode': {
+      id: '/weldmeet/join/$joinCode'
+      path: '/join/$joinCode'
+      fullPath: '/weldmeet/join/$joinCode'
+      preLoaderRoute: typeof WeldmeetJoinJoinCodeRouteImport
+      parentRoute: typeof WeldmeetRouteRoute
     }
-    '/weldcrm/sequences/$id/': {
-      id: '/weldcrm/sequences/$id/'
-      path: '/sequences/$id'
-      fullPath: '/weldcrm/sequences/$id/'
-      preLoaderRoute: typeof WeldcrmSequencesIdIndexRouteImport
-      parentRoute: typeof WeldcrmRouteRoute
+    '/weldmeet/new/': {
+      id: '/weldmeet/new/'
+      path: '/new'
+      fullPath: '/weldmeet/new/'
+      preLoaderRoute: typeof WeldmeetNewIndexRouteImport
+      parentRoute: typeof WeldmeetRouteRoute
     }
-    '/weldcrm/pipeline/$id/': {
-      id: '/weldcrm/pipeline/$id/'
-      path: '/pipeline/$id'
-      fullPath: '/weldcrm/pipeline/$id/'
-      preLoaderRoute: typeof WeldcrmPipelineIdIndexRouteImport
-      parentRoute: typeof WeldcrmRouteRoute
+    '/weldmeet/people/': {
+      id: '/weldmeet/people/'
+      path: '/people'
+      fullPath: '/weldmeet/people/'
+      preLoaderRoute: typeof WeldmeetPeopleIndexRouteImport
+      parentRoute: typeof WeldmeetRouteRoute
     }
-    '/weldcrm/lists/$listId/': {
-      id: '/weldcrm/lists/$listId/'
-      path: '/lists/$listId'
-      fullPath: '/weldcrm/lists/$listId/'
-      preLoaderRoute: typeof WeldcrmListsListIdIndexRouteImport
-      parentRoute: typeof WeldcrmRouteRoute
+    '/weldmeet/upcoming/': {
+      id: '/weldmeet/upcoming/'
+      path: '/upcoming'
+      fullPath: '/weldmeet/upcoming/'
+      preLoaderRoute: typeof WeldmeetUpcomingIndexRouteImport
+      parentRoute: typeof WeldmeetRouteRoute
     }
-    '/weldcrm/companies/lists/': {
-      id: '/weldcrm/companies/lists/'
-      path: '/lists'
-      fullPath: '/weldcrm/companies/lists/'
-      preLoaderRoute: typeof WeldcrmCompaniesListsIndexRouteImport
-      parentRoute: typeof WeldcrmCompaniesRouteRoute
+    '/weldstash/packing/': {
+      id: '/weldstash/packing/'
+      path: '/packing'
+      fullPath: '/weldstash/packing/'
+      preLoaderRoute: typeof WeldstashPackingIndexRouteImport
+      parentRoute: typeof WeldstashRouteRoute
     }
-    '/weldconnect/workflows/$id/': {
-      id: '/weldconnect/workflows/$id/'
-      path: '/workflows/$id'
-      fullPath: '/weldconnect/workflows/$id/'
-      preLoaderRoute: typeof WeldconnectWorkflowsIdIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
+    '/weldstash/pick-lists/': {
+      id: '/weldstash/pick-lists/'
+      path: '/pick-lists'
+      fullPath: '/weldstash/pick-lists/'
+      preLoaderRoute: typeof WeldstashPickListsIndexRouteImport
+      parentRoute: typeof WeldstashRouteRoute
     }
-    '/weldconnect/webhooks/$id/': {
-      id: '/weldconnect/webhooks/$id/'
-      path: '/webhooks/$id'
-      fullPath: '/weldconnect/webhooks/$id/'
-      preLoaderRoute: typeof WeldconnectWebhooksIdIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
+    '/weldstash/products/': {
+      id: '/weldstash/products/'
+      path: '/products'
+      fullPath: '/weldstash/products/'
+      preLoaderRoute: typeof WeldstashProductsIndexRouteImport
+      parentRoute: typeof WeldstashRouteRoute
     }
-    '/weldconnect/executions/$id/': {
-      id: '/weldconnect/executions/$id/'
-      path: '/executions/$id'
-      fullPath: '/weldconnect/executions/$id/'
-      preLoaderRoute: typeof WeldconnectExecutionsIdIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
+    '/weldstash/stock/': {
+      id: '/weldstash/stock/'
+      path: '/stock'
+      fullPath: '/weldstash/stock/'
+      preLoaderRoute: typeof WeldstashStockIndexRouteImport
+      parentRoute: typeof WeldstashRouteRoute
     }
-    '/weldcalendar/scheduling/new/': {
-      id: '/weldcalendar/scheduling/new/'
-      path: '/scheduling/new'
-      fullPath: '/weldcalendar/scheduling/new/'
-      preLoaderRoute: typeof WeldcalendarSchedulingNewIndexRouteImport
-      parentRoute: typeof WeldcalendarRouteRoute
+    '/weldstash/suppliers/': {
+      id: '/weldstash/suppliers/'
+      path: '/suppliers'
+      fullPath: '/weldstash/suppliers/'
+      preLoaderRoute: typeof WeldstashSuppliersIndexRouteImport
+      parentRoute: typeof WeldstashRouteRoute
     }
-    '/weldcalendar/scheduling/$id/': {
-      id: '/weldcalendar/scheduling/$id/'
-      path: '/scheduling/$id'
-      fullPath: '/weldcalendar/scheduling/$id/'
-      preLoaderRoute: typeof WeldcalendarSchedulingIdIndexRouteImport
-      parentRoute: typeof WeldcalendarRouteRoute
+    '/weldstash/warehouses/': {
+      id: '/weldstash/warehouses/'
+      path: '/warehouses'
+      fullPath: '/weldstash/warehouses/'
+      preLoaderRoute: typeof WeldstashWarehousesIndexRouteImport
+      parentRoute: typeof WeldstashRouteRoute
     }
-    '/weldbooks/vat/$id/': {
-      id: '/weldbooks/vat/$id/'
-      path: '/vat/$id'
-      fullPath: '/weldbooks/vat/$id/'
-      preLoaderRoute: typeof WeldbooksVatIdIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
+    '/_dashboard/checkout/cancel/': {
+      id: '/_dashboard/checkout/cancel/'
+      path: '/checkout/cancel'
+      fullPath: '/checkout/cancel/'
+      preLoaderRoute: typeof DashboardCheckoutCancelIndexRouteImport
+      parentRoute: typeof DashboardRouteRoute
     }
-    '/weldbooks/reports/trial-balance/': {
-      id: '/weldbooks/reports/trial-balance/'
-      path: '/reports/trial-balance'
-      fullPath: '/weldbooks/reports/trial-balance/'
-      preLoaderRoute: typeof WeldbooksReportsTrialBalanceIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
+    '/_dashboard/checkout/success/': {
+      id: '/_dashboard/checkout/success/'
+      path: '/checkout/success'
+      fullPath: '/checkout/success/'
+      preLoaderRoute: typeof DashboardCheckoutSuccessIndexRouteImport
+      parentRoute: typeof DashboardRouteRoute
     }
-    '/weldbooks/reports/profit-loss/': {
-      id: '/weldbooks/reports/profit-loss/'
-      path: '/reports/profit-loss'
-      fullPath: '/weldbooks/reports/profit-loss/'
-      preLoaderRoute: typeof WeldbooksReportsProfitLossIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
+    '/auth/login/tasks/$': {
+      id: '/auth/login/tasks/$'
+      path: '/login/tasks/$'
+      fullPath: '/auth/login/tasks/$'
+      preLoaderRoute: typeof AuthLoginTasksSplatRouteImport
+      parentRoute: typeof AuthRouteRoute
     }
-    '/weldbooks/reports/general-ledger/': {
-      id: '/weldbooks/reports/general-ledger/'
-      path: '/reports/general-ledger'
-      fullPath: '/weldbooks/reports/general-ledger/'
-      preLoaderRoute: typeof WeldbooksReportsGeneralLedgerIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
+    '/auth/register/tasks/$': {
+      id: '/auth/register/tasks/$'
+      path: '/register/tasks/$'
+      fullPath: '/auth/register/tasks/$'
+      preLoaderRoute: typeof AuthRegisterTasksSplatRouteImport
+      parentRoute: typeof AuthRouteRoute
     }
-    '/weldbooks/reports/cash-flow/': {
-      id: '/weldbooks/reports/cash-flow/'
-      path: '/reports/cash-flow'
-      fullPath: '/weldbooks/reports/cash-flow/'
-      preLoaderRoute: typeof WeldbooksReportsCashFlowIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/reports/balance-sheet/': {
-      id: '/weldbooks/reports/balance-sheet/'
-      path: '/reports/balance-sheet'
-      fullPath: '/weldbooks/reports/balance-sheet/'
-      preLoaderRoute: typeof WeldbooksReportsBalanceSheetIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/reports/aged-receivables/': {
-      id: '/weldbooks/reports/aged-receivables/'
-      path: '/reports/aged-receivables'
-      fullPath: '/weldbooks/reports/aged-receivables/'
-      preLoaderRoute: typeof WeldbooksReportsAgedReceivablesIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/reports/aged-payables/': {
-      id: '/weldbooks/reports/aged-payables/'
-      path: '/reports/aged-payables'
-      fullPath: '/weldbooks/reports/aged-payables/'
-      preLoaderRoute: typeof WeldbooksReportsAgedPayablesIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/recurring/add/': {
-      id: '/weldbooks/recurring/add/'
-      path: '/recurring/add'
-      fullPath: '/weldbooks/recurring/add/'
-      preLoaderRoute: typeof WeldbooksRecurringAddIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/recurring/$id/': {
-      id: '/weldbooks/recurring/$id/'
-      path: '/recurring/$id'
-      fullPath: '/weldbooks/recurring/$id/'
-      preLoaderRoute: typeof WeldbooksRecurringIdIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/journal/add/': {
-      id: '/weldbooks/journal/add/'
-      path: '/journal/add'
-      fullPath: '/weldbooks/journal/add/'
-      preLoaderRoute: typeof WeldbooksJournalAddIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/journal/$id/': {
-      id: '/weldbooks/journal/$id/'
-      path: '/journal/$id'
-      fullPath: '/weldbooks/journal/$id/'
-      preLoaderRoute: typeof WeldbooksJournalIdIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/invoices/add/': {
-      id: '/weldbooks/invoices/add/'
-      path: '/invoices/add'
-      fullPath: '/weldbooks/invoices/add/'
-      preLoaderRoute: typeof WeldbooksInvoicesAddIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/invoices/$id/': {
-      id: '/weldbooks/invoices/$id/'
-      path: '/invoices/$id'
-      fullPath: '/weldbooks/invoices/$id/'
-      preLoaderRoute: typeof WeldbooksInvoicesIdIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/entities/add/': {
-      id: '/weldbooks/entities/add/'
-      path: '/entities/add'
-      fullPath: '/weldbooks/entities/add/'
-      preLoaderRoute: typeof WeldbooksEntitiesAddIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/customers/add/': {
-      id: '/weldbooks/customers/add/'
-      path: '/customers/add'
-      fullPath: '/weldbooks/customers/add/'
-      preLoaderRoute: typeof WeldbooksCustomersAddIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/customers/$id/': {
-      id: '/weldbooks/customers/$id/'
-      path: '/customers/$id'
-      fullPath: '/weldbooks/customers/$id/'
-      preLoaderRoute: typeof WeldbooksCustomersIdIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/bills/add/': {
-      id: '/weldbooks/bills/add/'
-      path: '/bills/add'
-      fullPath: '/weldbooks/bills/add/'
-      preLoaderRoute: typeof WeldbooksBillsAddIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/bills/$id/': {
-      id: '/weldbooks/bills/$id/'
-      path: '/bills/$id'
-      fullPath: '/weldbooks/bills/$id/'
-      preLoaderRoute: typeof WeldbooksBillsIdIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/banking/transactions/': {
-      id: '/weldbooks/banking/transactions/'
-      path: '/banking/transactions'
-      fullPath: '/weldbooks/banking/transactions/'
-      preLoaderRoute: typeof WeldbooksBankingTransactionsIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/banking/rules/': {
-      id: '/weldbooks/banking/rules/'
-      path: '/banking/rules'
-      fullPath: '/weldbooks/banking/rules/'
-      preLoaderRoute: typeof WeldbooksBankingRulesIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/banking/reconciliation/': {
-      id: '/weldbooks/banking/reconciliation/'
-      path: '/banking/reconciliation'
-      fullPath: '/weldbooks/banking/reconciliation/'
-      preLoaderRoute: typeof WeldbooksBankingReconciliationIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/banking/import/': {
-      id: '/weldbooks/banking/import/'
-      path: '/banking/import'
-      fullPath: '/weldbooks/banking/import/'
-      preLoaderRoute: typeof WeldbooksBankingImportIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/banking/$id/': {
-      id: '/weldbooks/banking/$id/'
-      path: '/banking/$id'
-      fullPath: '/weldbooks/banking/$id/'
-      preLoaderRoute: typeof WeldbooksBankingIdIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/accounts/add/': {
-      id: '/weldbooks/accounts/add/'
-      path: '/accounts/add'
-      fullPath: '/weldbooks/accounts/add/'
-      preLoaderRoute: typeof WeldbooksAccountsAddIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldbooks/accounts/$id/': {
-      id: '/weldbooks/accounts/$id/'
-      path: '/accounts/$id'
-      fullPath: '/weldbooks/accounts/$id/'
-      preLoaderRoute: typeof WeldbooksAccountsIdIndexRouteImport
-      parentRoute: typeof WeldbooksRouteRoute
-    }
-    '/weldads/connect/callback/': {
-      id: '/weldads/connect/callback/'
-      path: '/connect/callback'
-      fullPath: '/weldads/connect/callback/'
-      preLoaderRoute: typeof WeldadsConnectCallbackIndexRouteImport
-      parentRoute: typeof WeldadsRouteRoute
-    }
-    '/settings/team/$memberId/': {
-      id: '/settings/team/$memberId/'
-      path: '/team/$memberId'
-      fullPath: '/settings/team/$memberId/'
-      preLoaderRoute: typeof SettingsTeamMemberIdIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/roles/$roleId/': {
-      id: '/settings/roles/$roleId/'
-      path: '/roles/$roleId'
-      fullPath: '/settings/roles/$roleId/'
-      preLoaderRoute: typeof SettingsRolesRoleIdIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/integrations/slack/': {
-      id: '/settings/integrations/slack/'
-      path: '/integrations/slack'
-      fullPath: '/settings/integrations/slack/'
-      preLoaderRoute: typeof SettingsIntegrationsSlackIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/integrations/sendcloud/': {
-      id: '/settings/integrations/sendcloud/'
-      path: '/integrations/sendcloud'
-      fullPath: '/settings/integrations/sendcloud/'
-      preLoaderRoute: typeof SettingsIntegrationsSendcloudIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/integrations/salesforce/': {
-      id: '/settings/integrations/salesforce/'
-      path: '/integrations/salesforce'
-      fullPath: '/settings/integrations/salesforce/'
-      preLoaderRoute: typeof SettingsIntegrationsSalesforceIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/integrations/moneybird/': {
-      id: '/settings/integrations/moneybird/'
-      path: '/integrations/moneybird'
-      fullPath: '/settings/integrations/moneybird/'
-      preLoaderRoute: typeof SettingsIntegrationsMoneybirdIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/integrations/mcp-servers/': {
-      id: '/settings/integrations/mcp-servers/'
-      path: '/integrations/mcp-servers'
-      fullPath: '/settings/integrations/mcp-servers/'
-      preLoaderRoute: typeof SettingsIntegrationsMcpServersIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/integrations/hubspot/': {
-      id: '/settings/integrations/hubspot/'
-      path: '/integrations/hubspot'
-      fullPath: '/settings/integrations/hubspot/'
-      preLoaderRoute: typeof SettingsIntegrationsHubspotIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/integrations/google-calendar/': {
-      id: '/settings/integrations/google-calendar/'
-      path: '/integrations/google-calendar'
-      fullPath: '/settings/integrations/google-calendar/'
-      preLoaderRoute: typeof SettingsIntegrationsGoogleCalendarIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/integrations/github/': {
-      id: '/settings/integrations/github/'
-      path: '/integrations/github'
-      fullPath: '/settings/integrations/github/'
-      preLoaderRoute: typeof SettingsIntegrationsGithubIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/integrations/discord/': {
-      id: '/settings/integrations/discord/'
-      path: '/integrations/discord'
-      fullPath: '/settings/integrations/discord/'
-      preLoaderRoute: typeof SettingsIntegrationsDiscordIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/integrations/crm-sync/': {
-      id: '/settings/integrations/crm-sync/'
-      path: '/integrations/crm-sync'
-      fullPath: '/settings/integrations/crm-sync/'
-      preLoaderRoute: typeof SettingsIntegrationsCrmSyncIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/integrations/attio/': {
-      id: '/settings/integrations/attio/'
-      path: '/integrations/attio'
-      fullPath: '/settings/integrations/attio/'
-      preLoaderRoute: typeof SettingsIntegrationsAttioIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/integrations/$id/': {
-      id: '/settings/integrations/$id/'
-      path: '/integrations/$id'
-      fullPath: '/settings/integrations/$id/'
-      preLoaderRoute: typeof SettingsIntegrationsIdIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/apps/weldsuite/': {
-      id: '/settings/apps/weldsuite/'
-      path: '/apps/weldsuite'
-      fullPath: '/settings/apps/weldsuite/'
-      preLoaderRoute: typeof SettingsAppsWeldsuiteIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
-    '/settings/apps/weldmail/': {
-      id: '/settings/apps/weldmail/'
-      path: '/apps/weldmail'
-      fullPath: '/settings/apps/weldmail/'
-      preLoaderRoute: typeof SettingsAppsWeldmailIndexRouteImport
+    '/settings/apps/phone-numbers/': {
+      id: '/settings/apps/phone-numbers/'
+      path: '/apps/phone-numbers'
+      fullPath: '/settings/apps/phone-numbers/'
+      preLoaderRoute: typeof SettingsAppsPhoneNumbersIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
     '/settings/apps/welddesk/': {
@@ -6113,53 +5701,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsAppsWelddeskIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
-    '/settings/apps/phone-numbers/': {
-      id: '/settings/apps/phone-numbers/'
-      path: '/apps/phone-numbers'
-      fullPath: '/settings/apps/phone-numbers/'
-      preLoaderRoute: typeof SettingsAppsPhoneNumbersIndexRouteImport
+    '/settings/apps/weldmail/': {
+      id: '/settings/apps/weldmail/'
+      path: '/apps/weldmail'
+      fullPath: '/settings/apps/weldmail/'
+      preLoaderRoute: typeof SettingsAppsWeldmailIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
-    '/_dashboard/checkout/success/': {
-      id: '/_dashboard/checkout/success/'
-      path: '/checkout/success'
-      fullPath: '/checkout/success/'
-      preLoaderRoute: typeof DashboardCheckoutSuccessIndexRouteImport
-      parentRoute: typeof DashboardRouteRoute
-    }
-    '/_dashboard/checkout/cancel/': {
-      id: '/_dashboard/checkout/cancel/'
-      path: '/checkout/cancel'
-      fullPath: '/checkout/cancel/'
-      preLoaderRoute: typeof DashboardCheckoutCancelIndexRouteImport
-      parentRoute: typeof DashboardRouteRoute
-    }
-    '/weldchat/dm/group/$channelId': {
-      id: '/weldchat/dm/group/$channelId'
-      path: '/dm/group/$channelId'
-      fullPath: '/weldchat/dm/group/$channelId'
-      preLoaderRoute: typeof WeldchatDmGroupChannelIdRouteImport
-      parentRoute: typeof WeldchatRouteRoute
-    }
-    '/weldchat/$channelId/thread/$messageId': {
-      id: '/weldchat/$channelId/thread/$messageId'
-      path: '/$channelId/thread/$messageId'
-      fullPath: '/weldchat/$channelId/thread/$messageId'
-      preLoaderRoute: typeof WeldchatChannelIdThreadMessageIdRouteImport
-      parentRoute: typeof WeldchatRouteRoute
-    }
-    '/settings/integrations/hubspot/callback': {
-      id: '/settings/integrations/hubspot/callback'
-      path: '/integrations/hubspot/callback'
-      fullPath: '/settings/integrations/hubspot/callback'
-      preLoaderRoute: typeof SettingsIntegrationsHubspotCallbackRouteImport
+    '/settings/apps/weldsuite/': {
+      id: '/settings/apps/weldsuite/'
+      path: '/apps/weldsuite'
+      fullPath: '/settings/apps/weldsuite/'
+      preLoaderRoute: typeof SettingsAppsWeldsuiteIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
-    '/settings/integrations/google-calendar/callback': {
-      id: '/settings/integrations/google-calendar/callback'
-      path: '/integrations/google-calendar/callback'
-      fullPath: '/settings/integrations/google-calendar/callback'
-      preLoaderRoute: typeof SettingsIntegrationsGoogleCalendarCallbackRouteImport
+    '/settings/integrations/$id/': {
+      id: '/settings/integrations/$id/'
+      path: '/integrations/$id'
+      fullPath: '/settings/integrations/$id/'
+      preLoaderRoute: typeof SettingsIntegrationsIdIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/integrations/attio/': {
+      id: '/settings/integrations/attio/'
+      path: '/integrations/attio'
+      fullPath: '/settings/integrations/attio/'
+      preLoaderRoute: typeof SettingsIntegrationsAttioIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
     '/settings/integrations/attio/callback': {
@@ -6169,270 +5736,543 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsIntegrationsAttioCallbackRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
-    '/auth/register/tasks/$': {
-      id: '/auth/register/tasks/$'
-      path: '/register/tasks/$'
-      fullPath: '/auth/register/tasks/$'
-      preLoaderRoute: typeof AuthRegisterTasksSplatRouteImport
-      parentRoute: typeof AuthRouteRoute
+    '/settings/integrations/crm-sync/': {
+      id: '/settings/integrations/crm-sync/'
+      path: '/integrations/crm-sync'
+      fullPath: '/settings/integrations/crm-sync/'
+      preLoaderRoute: typeof SettingsIntegrationsCrmSyncIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
-    '/auth/login/tasks/$': {
-      id: '/auth/login/tasks/$'
-      path: '/login/tasks/$'
-      fullPath: '/auth/login/tasks/$'
-      preLoaderRoute: typeof AuthLoginTasksSplatRouteImport
-      parentRoute: typeof AuthRouteRoute
+    '/settings/integrations/discord/': {
+      id: '/settings/integrations/discord/'
+      path: '/integrations/discord'
+      fullPath: '/settings/integrations/discord/'
+      preLoaderRoute: typeof SettingsIntegrationsDiscordIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
-    '/weldmail/unified/$labelSlug/compose/': {
-      id: '/weldmail/unified/$labelSlug/compose/'
-      path: '/compose'
-      fullPath: '/weldmail/unified/$labelSlug/compose/'
-      preLoaderRoute: typeof WeldmailUnifiedLabelSlugComposeIndexRouteImport
-      parentRoute: typeof WeldmailUnifiedLabelSlugRouteRoute
+    '/settings/integrations/github/': {
+      id: '/settings/integrations/github/'
+      path: '/integrations/github'
+      fullPath: '/settings/integrations/github/'
+      preLoaderRoute: typeof SettingsIntegrationsGithubIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
-    '/weldmail/unified/$labelSlug/$messageId/': {
-      id: '/weldmail/unified/$labelSlug/$messageId/'
-      path: '/$messageId'
-      fullPath: '/weldmail/unified/$labelSlug/$messageId/'
-      preLoaderRoute: typeof WeldmailUnifiedLabelSlugMessageIdIndexRouteImport
-      parentRoute: typeof WeldmailUnifiedLabelSlugRouteRoute
+    '/settings/integrations/google-calendar/': {
+      id: '/settings/integrations/google-calendar/'
+      path: '/integrations/google-calendar'
+      fullPath: '/settings/integrations/google-calendar/'
+      preLoaderRoute: typeof SettingsIntegrationsGoogleCalendarIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
-    '/weldmail/$accountId/$labelSlug/compose/': {
-      id: '/weldmail/$accountId/$labelSlug/compose/'
-      path: '/compose'
-      fullPath: '/weldmail/$accountId/$labelSlug/compose/'
-      preLoaderRoute: typeof WeldmailAccountIdLabelSlugComposeIndexRouteImport
-      parentRoute: typeof WeldmailAccountIdLabelSlugRouteRoute
+    '/settings/integrations/google-calendar/callback': {
+      id: '/settings/integrations/google-calendar/callback'
+      path: '/integrations/google-calendar/callback'
+      fullPath: '/settings/integrations/google-calendar/callback'
+      preLoaderRoute: typeof SettingsIntegrationsGoogleCalendarCallbackRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
-    '/weldmail/$accountId/$labelSlug/$messageId/': {
-      id: '/weldmail/$accountId/$labelSlug/$messageId/'
-      path: '/$messageId'
-      fullPath: '/weldmail/$accountId/$labelSlug/$messageId/'
-      preLoaderRoute: typeof WeldmailAccountIdLabelSlugMessageIdIndexRouteImport
-      parentRoute: typeof WeldmailAccountIdLabelSlugRouteRoute
+    '/settings/integrations/hubspot/': {
+      id: '/settings/integrations/hubspot/'
+      path: '/integrations/hubspot'
+      fullPath: '/settings/integrations/hubspot/'
+      preLoaderRoute: typeof SettingsIntegrationsHubspotIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
-    '/weldhost/domains/purchase/success/': {
-      id: '/weldhost/domains/purchase/success/'
-      path: '/domains/purchase/success'
-      fullPath: '/weldhost/domains/purchase/success/'
-      preLoaderRoute: typeof WeldhostDomainsPurchaseSuccessIndexRouteImport
-      parentRoute: typeof WeldhostRouteRoute
+    '/settings/integrations/hubspot/callback': {
+      id: '/settings/integrations/hubspot/callback'
+      path: '/integrations/hubspot/callback'
+      fullPath: '/settings/integrations/hubspot/callback'
+      preLoaderRoute: typeof SettingsIntegrationsHubspotCallbackRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
-    '/weldhost/domains/purchase/cancel/': {
-      id: '/weldhost/domains/purchase/cancel/'
-      path: '/domains/purchase/cancel'
-      fullPath: '/weldhost/domains/purchase/cancel/'
-      preLoaderRoute: typeof WeldhostDomainsPurchaseCancelIndexRouteImport
-      parentRoute: typeof WeldhostRouteRoute
+    '/settings/integrations/mcp-servers/': {
+      id: '/settings/integrations/mcp-servers/'
+      path: '/integrations/mcp-servers'
+      fullPath: '/settings/integrations/mcp-servers/'
+      preLoaderRoute: typeof SettingsIntegrationsMcpServersIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
-    '/weldflow/space/$spaceId/$moduleType/': {
-      id: '/weldflow/space/$spaceId/$moduleType/'
-      path: '/space/$spaceId/$moduleType'
-      fullPath: '/weldflow/space/$spaceId/$moduleType/'
-      preLoaderRoute: typeof WeldflowSpaceSpaceIdModuleTypeIndexRouteImport
-      parentRoute: typeof WeldflowRouteRoute
+    '/settings/integrations/moneybird/': {
+      id: '/settings/integrations/moneybird/'
+      path: '/integrations/moneybird'
+      fullPath: '/settings/integrations/moneybird/'
+      preLoaderRoute: typeof SettingsIntegrationsMoneybirdIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
-    '/weldflow/project/$projectId/workload/': {
-      id: '/weldflow/project/$projectId/workload/'
-      path: '/workload'
-      fullPath: '/weldflow/project/$projectId/workload/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdWorkloadIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    '/settings/integrations/salesforce/': {
+      id: '/settings/integrations/salesforce/'
+      path: '/integrations/salesforce'
+      fullPath: '/settings/integrations/salesforce/'
+      preLoaderRoute: typeof SettingsIntegrationsSalesforceIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
-    '/weldflow/project/$projectId/whiteboard/': {
-      id: '/weldflow/project/$projectId/whiteboard/'
-      path: '/whiteboard'
-      fullPath: '/weldflow/project/$projectId/whiteboard/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdWhiteboardIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    '/settings/integrations/sendcloud/': {
+      id: '/settings/integrations/sendcloud/'
+      path: '/integrations/sendcloud'
+      fullPath: '/settings/integrations/sendcloud/'
+      preLoaderRoute: typeof SettingsIntegrationsSendcloudIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
-    '/weldflow/project/$projectId/timesheet/': {
-      id: '/weldflow/project/$projectId/timesheet/'
-      path: '/timesheet'
-      fullPath: '/weldflow/project/$projectId/timesheet/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdTimesheetIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    '/settings/integrations/slack/': {
+      id: '/settings/integrations/slack/'
+      path: '/integrations/slack'
+      fullPath: '/settings/integrations/slack/'
+      preLoaderRoute: typeof SettingsIntegrationsSlackIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
-    '/weldflow/project/$projectId/timeline/': {
-      id: '/weldflow/project/$projectId/timeline/'
-      path: '/timeline'
-      fullPath: '/weldflow/project/$projectId/timeline/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdTimelineIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    '/settings/roles/$roleId/': {
+      id: '/settings/roles/$roleId/'
+      path: '/roles/$roleId'
+      fullPath: '/settings/roles/$roleId/'
+      preLoaderRoute: typeof SettingsRolesRoleIdIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
-    '/weldflow/project/$projectId/tasks/': {
-      id: '/weldflow/project/$projectId/tasks/'
-      path: '/tasks'
-      fullPath: '/weldflow/project/$projectId/tasks/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdTasksIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    '/settings/team/$memberId/': {
+      id: '/settings/team/$memberId/'
+      path: '/team/$memberId'
+      fullPath: '/settings/team/$memberId/'
+      preLoaderRoute: typeof SettingsTeamMemberIdIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
-    '/weldflow/project/$projectId/table/': {
-      id: '/weldflow/project/$projectId/table/'
-      path: '/table'
-      fullPath: '/weldflow/project/$projectId/table/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdTableIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    '/weldads/connect/callback/': {
+      id: '/weldads/connect/callback/'
+      path: '/connect/callback'
+      fullPath: '/weldads/connect/callback/'
+      preLoaderRoute: typeof WeldadsConnectCallbackIndexRouteImport
+      parentRoute: typeof WeldadsRouteRoute
     }
-    '/weldflow/project/$projectId/settings/': {
-      id: '/weldflow/project/$projectId/settings/'
-      path: '/settings'
-      fullPath: '/weldflow/project/$projectId/settings/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdSettingsIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
-    }
-    '/weldflow/project/$projectId/pipeline/': {
-      id: '/weldflow/project/$projectId/pipeline/'
-      path: '/pipeline'
-      fullPath: '/weldflow/project/$projectId/pipeline/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdPipelineIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
-    }
-    '/weldflow/project/$projectId/messages/': {
-      id: '/weldflow/project/$projectId/messages/'
-      path: '/messages'
-      fullPath: '/weldflow/project/$projectId/messages/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdMessagesIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
-    }
-    '/weldflow/project/$projectId/members/': {
-      id: '/weldflow/project/$projectId/members/'
-      path: '/members'
-      fullPath: '/weldflow/project/$projectId/members/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdMembersIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
-    }
-    '/weldflow/project/$projectId/list/': {
-      id: '/weldflow/project/$projectId/list/'
-      path: '/list'
-      fullPath: '/weldflow/project/$projectId/list/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdListIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
-    }
-    '/weldflow/project/$projectId/goals/': {
-      id: '/weldflow/project/$projectId/goals/'
-      path: '/goals'
-      fullPath: '/weldflow/project/$projectId/goals/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdGoalsIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
-    }
-    '/weldflow/project/$projectId/gantt/': {
-      id: '/weldflow/project/$projectId/gantt/'
-      path: '/gantt'
-      fullPath: '/weldflow/project/$projectId/gantt/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdGanttIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
-    }
-    '/weldflow/project/$projectId/files/': {
-      id: '/weldflow/project/$projectId/files/'
-      path: '/files'
-      fullPath: '/weldflow/project/$projectId/files/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdFilesIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
-    }
-    '/weldflow/project/$projectId/documents/': {
-      id: '/weldflow/project/$projectId/documents/'
-      path: '/documents'
-      fullPath: '/weldflow/project/$projectId/documents/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdDocumentsIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
-    }
-    '/weldflow/project/$projectId/calendar/': {
-      id: '/weldflow/project/$projectId/calendar/'
-      path: '/calendar'
-      fullPath: '/weldflow/project/$projectId/calendar/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdCalendarIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
-    }
-    '/weldflow/project/$projectId/analytics/': {
-      id: '/weldflow/project/$projectId/analytics/'
-      path: '/analytics'
-      fullPath: '/weldflow/project/$projectId/analytics/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdAnalyticsIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
-    }
-    '/welddesk/help-center/articles/$id/': {
-      id: '/welddesk/help-center/articles/$id/'
-      path: '/help-center/articles/$id'
-      fullPath: '/welddesk/help-center/articles/$id/'
-      preLoaderRoute: typeof WelddeskHelpCenterArticlesIdIndexRouteImport
-      parentRoute: typeof WelddeskRouteRoute
-    }
-    '/weldcrm/sequences/$id/settings/': {
-      id: '/weldcrm/sequences/$id/settings/'
-      path: '/sequences/$id/settings'
-      fullPath: '/weldcrm/sequences/$id/settings/'
-      preLoaderRoute: typeof WeldcrmSequencesIdSettingsIndexRouteImport
-      parentRoute: typeof WeldcrmRouteRoute
-    }
-    '/weldcrm/sequences/$id/people/': {
-      id: '/weldcrm/sequences/$id/people/'
-      path: '/sequences/$id/people'
-      fullPath: '/weldcrm/sequences/$id/people/'
-      preLoaderRoute: typeof WeldcrmSequencesIdPeopleIndexRouteImport
-      parentRoute: typeof WeldcrmRouteRoute
-    }
-    '/weldcrm/sequences/$id/edit/': {
-      id: '/weldcrm/sequences/$id/edit/'
-      path: '/sequences/$id/edit'
-      fullPath: '/weldcrm/sequences/$id/edit/'
-      preLoaderRoute: typeof WeldcrmSequencesIdEditIndexRouteImport
-      parentRoute: typeof WeldcrmRouteRoute
-    }
-    '/weldcrm/companies/lists/$id/': {
-      id: '/weldcrm/companies/lists/$id/'
-      path: '/lists/$id'
-      fullPath: '/weldcrm/companies/lists/$id/'
-      preLoaderRoute: typeof WeldcrmCompaniesListsIdIndexRouteImport
-      parentRoute: typeof WeldcrmCompaniesRouteRoute
-    }
-    '/weldconnect/workflows/$id/settings/': {
-      id: '/weldconnect/workflows/$id/settings/'
-      path: '/workflows/$id/settings'
-      fullPath: '/weldconnect/workflows/$id/settings/'
-      preLoaderRoute: typeof WeldconnectWorkflowsIdSettingsIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
-    '/weldconnect/workflows/$id/edit/': {
-      id: '/weldconnect/workflows/$id/edit/'
-      path: '/workflows/$id/edit'
-      fullPath: '/weldconnect/workflows/$id/edit/'
-      preLoaderRoute: typeof WeldconnectWorkflowsIdEditIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
-    '/weldconnect/templates/$id/edit/': {
-      id: '/weldconnect/templates/$id/edit/'
-      path: '/templates/$id/edit'
-      fullPath: '/weldconnect/templates/$id/edit/'
-      preLoaderRoute: typeof WeldconnectTemplatesIdEditIndexRouteImport
-      parentRoute: typeof WeldconnectRouteRoute
-    }
-    '/weldcalendar/scheduling/$id/view/': {
-      id: '/weldcalendar/scheduling/$id/view/'
-      path: '/scheduling/$id/view'
-      fullPath: '/weldcalendar/scheduling/$id/view/'
-      preLoaderRoute: typeof WeldcalendarSchedulingIdViewIndexRouteImport
-      parentRoute: typeof WeldcalendarRouteRoute
-    }
-    '/weldcalendar/scheduling/$id/edit/': {
-      id: '/weldcalendar/scheduling/$id/edit/'
-      path: '/scheduling/$id/edit'
-      fullPath: '/weldcalendar/scheduling/$id/edit/'
-      preLoaderRoute: typeof WeldcalendarSchedulingIdEditIndexRouteImport
-      parentRoute: typeof WeldcalendarRouteRoute
-    }
-    '/weldbooks/invoices/$id/edit/': {
-      id: '/weldbooks/invoices/$id/edit/'
-      path: '/invoices/$id/edit'
-      fullPath: '/weldbooks/invoices/$id/edit/'
-      preLoaderRoute: typeof WeldbooksInvoicesIdEditIndexRouteImport
+    '/weldbooks/accounts/$id/': {
+      id: '/weldbooks/accounts/$id/'
+      path: '/accounts/$id'
+      fullPath: '/weldbooks/accounts/$id/'
+      preLoaderRoute: typeof WeldbooksAccountsIdIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
     }
-    '/weldbooks/customers/$id/edit/': {
-      id: '/weldbooks/customers/$id/edit/'
-      path: '/customers/$id/edit'
-      fullPath: '/weldbooks/customers/$id/edit/'
-      preLoaderRoute: typeof WeldbooksCustomersIdEditIndexRouteImport
+    '/weldbooks/accounts/add/': {
+      id: '/weldbooks/accounts/add/'
+      path: '/accounts/add'
+      fullPath: '/weldbooks/accounts/add/'
+      preLoaderRoute: typeof WeldbooksAccountsAddIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/banking/$id/': {
+      id: '/weldbooks/banking/$id/'
+      path: '/banking/$id'
+      fullPath: '/weldbooks/banking/$id/'
+      preLoaderRoute: typeof WeldbooksBankingIdIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/banking/import/': {
+      id: '/weldbooks/banking/import/'
+      path: '/banking/import'
+      fullPath: '/weldbooks/banking/import/'
+      preLoaderRoute: typeof WeldbooksBankingImportIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/banking/reconciliation/': {
+      id: '/weldbooks/banking/reconciliation/'
+      path: '/banking/reconciliation'
+      fullPath: '/weldbooks/banking/reconciliation/'
+      preLoaderRoute: typeof WeldbooksBankingReconciliationIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/banking/rules/': {
+      id: '/weldbooks/banking/rules/'
+      path: '/banking/rules'
+      fullPath: '/weldbooks/banking/rules/'
+      preLoaderRoute: typeof WeldbooksBankingRulesIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/banking/transactions/': {
+      id: '/weldbooks/banking/transactions/'
+      path: '/banking/transactions'
+      fullPath: '/weldbooks/banking/transactions/'
+      preLoaderRoute: typeof WeldbooksBankingTransactionsIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/bills/$id/': {
+      id: '/weldbooks/bills/$id/'
+      path: '/bills/$id'
+      fullPath: '/weldbooks/bills/$id/'
+      preLoaderRoute: typeof WeldbooksBillsIdIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/bills/add/': {
+      id: '/weldbooks/bills/add/'
+      path: '/bills/add'
+      fullPath: '/weldbooks/bills/add/'
+      preLoaderRoute: typeof WeldbooksBillsAddIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/customers/$id/': {
+      id: '/weldbooks/customers/$id/'
+      path: '/customers/$id'
+      fullPath: '/weldbooks/customers/$id/'
+      preLoaderRoute: typeof WeldbooksCustomersIdIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/customers/add/': {
+      id: '/weldbooks/customers/add/'
+      path: '/customers/add'
+      fullPath: '/weldbooks/customers/add/'
+      preLoaderRoute: typeof WeldbooksCustomersAddIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/entities/add/': {
+      id: '/weldbooks/entities/add/'
+      path: '/entities/add'
+      fullPath: '/weldbooks/entities/add/'
+      preLoaderRoute: typeof WeldbooksEntitiesAddIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/invoices/$id/': {
+      id: '/weldbooks/invoices/$id/'
+      path: '/invoices/$id'
+      fullPath: '/weldbooks/invoices/$id/'
+      preLoaderRoute: typeof WeldbooksInvoicesIdIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/invoices/add/': {
+      id: '/weldbooks/invoices/add/'
+      path: '/invoices/add'
+      fullPath: '/weldbooks/invoices/add/'
+      preLoaderRoute: typeof WeldbooksInvoicesAddIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/journal/$id/': {
+      id: '/weldbooks/journal/$id/'
+      path: '/journal/$id'
+      fullPath: '/weldbooks/journal/$id/'
+      preLoaderRoute: typeof WeldbooksJournalIdIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/journal/add/': {
+      id: '/weldbooks/journal/add/'
+      path: '/journal/add'
+      fullPath: '/weldbooks/journal/add/'
+      preLoaderRoute: typeof WeldbooksJournalAddIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/recurring/$id/': {
+      id: '/weldbooks/recurring/$id/'
+      path: '/recurring/$id'
+      fullPath: '/weldbooks/recurring/$id/'
+      preLoaderRoute: typeof WeldbooksRecurringIdIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/recurring/add/': {
+      id: '/weldbooks/recurring/add/'
+      path: '/recurring/add'
+      fullPath: '/weldbooks/recurring/add/'
+      preLoaderRoute: typeof WeldbooksRecurringAddIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/reports/aged-payables/': {
+      id: '/weldbooks/reports/aged-payables/'
+      path: '/reports/aged-payables'
+      fullPath: '/weldbooks/reports/aged-payables/'
+      preLoaderRoute: typeof WeldbooksReportsAgedPayablesIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/reports/aged-receivables/': {
+      id: '/weldbooks/reports/aged-receivables/'
+      path: '/reports/aged-receivables'
+      fullPath: '/weldbooks/reports/aged-receivables/'
+      preLoaderRoute: typeof WeldbooksReportsAgedReceivablesIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/reports/balance-sheet/': {
+      id: '/weldbooks/reports/balance-sheet/'
+      path: '/reports/balance-sheet'
+      fullPath: '/weldbooks/reports/balance-sheet/'
+      preLoaderRoute: typeof WeldbooksReportsBalanceSheetIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/reports/cash-flow/': {
+      id: '/weldbooks/reports/cash-flow/'
+      path: '/reports/cash-flow'
+      fullPath: '/weldbooks/reports/cash-flow/'
+      preLoaderRoute: typeof WeldbooksReportsCashFlowIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/reports/general-ledger/': {
+      id: '/weldbooks/reports/general-ledger/'
+      path: '/reports/general-ledger'
+      fullPath: '/weldbooks/reports/general-ledger/'
+      preLoaderRoute: typeof WeldbooksReportsGeneralLedgerIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/reports/profit-loss/': {
+      id: '/weldbooks/reports/profit-loss/'
+      path: '/reports/profit-loss'
+      fullPath: '/weldbooks/reports/profit-loss/'
+      preLoaderRoute: typeof WeldbooksReportsProfitLossIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/reports/trial-balance/': {
+      id: '/weldbooks/reports/trial-balance/'
+      path: '/reports/trial-balance'
+      fullPath: '/weldbooks/reports/trial-balance/'
+      preLoaderRoute: typeof WeldbooksReportsTrialBalanceIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/vat/$id/': {
+      id: '/weldbooks/vat/$id/'
+      path: '/vat/$id'
+      fullPath: '/weldbooks/vat/$id/'
+      preLoaderRoute: typeof WeldbooksVatIdIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldcalendar/scheduling/$id/': {
+      id: '/weldcalendar/scheduling/$id/'
+      path: '/scheduling/$id'
+      fullPath: '/weldcalendar/scheduling/$id/'
+      preLoaderRoute: typeof WeldcalendarSchedulingIdIndexRouteImport
+      parentRoute: typeof WeldcalendarRouteRoute
+    }
+    '/weldcalendar/scheduling/new/': {
+      id: '/weldcalendar/scheduling/new/'
+      path: '/scheduling/new'
+      fullPath: '/weldcalendar/scheduling/new/'
+      preLoaderRoute: typeof WeldcalendarSchedulingNewIndexRouteImport
+      parentRoute: typeof WeldcalendarRouteRoute
+    }
+    '/weldchat/$channelId/thread/$messageId': {
+      id: '/weldchat/$channelId/thread/$messageId'
+      path: '/$channelId/thread/$messageId'
+      fullPath: '/weldchat/$channelId/thread/$messageId'
+      preLoaderRoute: typeof WeldchatChannelIdThreadMessageIdRouteImport
+      parentRoute: typeof WeldchatRouteRoute
+    }
+    '/weldchat/dm/group/$channelId': {
+      id: '/weldchat/dm/group/$channelId'
+      path: '/dm/group/$channelId'
+      fullPath: '/weldchat/dm/group/$channelId'
+      preLoaderRoute: typeof WeldchatDmGroupChannelIdRouteImport
+      parentRoute: typeof WeldchatRouteRoute
+    }
+    '/weldconnect/executions/$id/': {
+      id: '/weldconnect/executions/$id/'
+      path: '/executions/$id'
+      fullPath: '/weldconnect/executions/$id/'
+      preLoaderRoute: typeof WeldconnectExecutionsIdIndexRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldconnect/webhooks/$id/': {
+      id: '/weldconnect/webhooks/$id/'
+      path: '/webhooks/$id'
+      fullPath: '/weldconnect/webhooks/$id/'
+      preLoaderRoute: typeof WeldconnectWebhooksIdIndexRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldconnect/workflows/$id/': {
+      id: '/weldconnect/workflows/$id/'
+      path: '/workflows/$id'
+      fullPath: '/weldconnect/workflows/$id/'
+      preLoaderRoute: typeof WeldconnectWorkflowsIdIndexRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldcrm/companies/lists/': {
+      id: '/weldcrm/companies/lists/'
+      path: '/lists'
+      fullPath: '/weldcrm/companies/lists/'
+      preLoaderRoute: typeof WeldcrmCompaniesListsIndexRouteImport
+      parentRoute: typeof WeldcrmCompaniesRouteRoute
+    }
+    '/weldcrm/lists/$listId/': {
+      id: '/weldcrm/lists/$listId/'
+      path: '/lists/$listId'
+      fullPath: '/weldcrm/lists/$listId/'
+      preLoaderRoute: typeof WeldcrmListsListIdIndexRouteImport
+      parentRoute: typeof WeldcrmRouteRoute
+    }
+    '/weldcrm/pipeline/$id/': {
+      id: '/weldcrm/pipeline/$id/'
+      path: '/pipeline/$id'
+      fullPath: '/weldcrm/pipeline/$id/'
+      preLoaderRoute: typeof WeldcrmPipelineIdIndexRouteImport
+      parentRoute: typeof WeldcrmRouteRoute
+    }
+    '/weldcrm/sequences/$id/': {
+      id: '/weldcrm/sequences/$id/'
+      path: '/sequences/$id'
+      fullPath: '/weldcrm/sequences/$id/'
+      preLoaderRoute: typeof WeldcrmSequencesIdIndexRouteImport
+      parentRoute: typeof WeldcrmRouteRoute
+    }
+    '/welddata/lists/$id/': {
+      id: '/welddata/lists/$id/'
+      path: '/lists/$id'
+      fullPath: '/welddata/lists/$id/'
+      preLoaderRoute: typeof WelddataListsIdIndexRouteImport
+      parentRoute: typeof WelddataRouteRoute
+    }
+    '/welddesk/chat-widget/$widgetId/': {
+      id: '/welddesk/chat-widget/$widgetId/'
+      path: '/chat-widget/$widgetId'
+      fullPath: '/welddesk/chat-widget/$widgetId/'
+      preLoaderRoute: typeof WelddeskChatWidgetWidgetIdIndexRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/welddesk/help-center/articles/': {
+      id: '/welddesk/help-center/articles/'
+      path: '/help-center/articles'
+      fullPath: '/welddesk/help-center/articles/'
+      preLoaderRoute: typeof WelddeskHelpCenterArticlesIndexRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/welddesk/inbox/$conversationId/': {
+      id: '/welddesk/inbox/$conversationId/'
+      path: '/inbox/$conversationId'
+      fullPath: '/welddesk/inbox/$conversationId/'
+      preLoaderRoute: typeof WelddeskInboxConversationIdIndexRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/welddesk/inbox/phone/': {
+      id: '/welddesk/inbox/phone/'
+      path: '/inbox/phone'
+      fullPath: '/welddesk/inbox/phone/'
+      preLoaderRoute: typeof WelddeskInboxPhoneIndexRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/welddesk/settings/phone/': {
+      id: '/welddesk/settings/phone/'
+      path: '/settings/phone'
+      fullPath: '/welddesk/settings/phone/'
+      preLoaderRoute: typeof WelddeskSettingsPhoneIndexRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/weldflow/analytics/$id/': {
+      id: '/weldflow/analytics/$id/'
+      path: '/analytics/$id'
+      fullPath: '/weldflow/analytics/$id/'
+      preLoaderRoute: typeof WeldflowAnalyticsIdIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
+    }
+    '/weldflow/analytics/builder/': {
+      id: '/weldflow/analytics/builder/'
+      path: '/analytics/builder'
+      fullPath: '/weldflow/analytics/builder/'
+      preLoaderRoute: typeof WeldflowAnalyticsBuilderIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
+    }
+    '/weldflow/project/$projectId/': {
+      id: '/weldflow/project/$projectId/'
+      path: '/'
+      fullPath: '/weldflow/project/$projectId/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/space/$spaceId/': {
+      id: '/weldflow/space/$spaceId/'
+      path: '/space/$spaceId'
+      fullPath: '/weldflow/space/$spaceId/'
+      preLoaderRoute: typeof WeldflowSpaceSpaceIdIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
+    }
+    '/weldhost/domains/$id/': {
+      id: '/weldhost/domains/$id/'
+      path: '/domains/$id'
+      fullPath: '/weldhost/domains/$id/'
+      preLoaderRoute: typeof WeldhostDomainsIdIndexRouteImport
+      parentRoute: typeof WeldhostRouteRoute
+    }
+    '/weldhost/domains/external/': {
+      id: '/weldhost/domains/external/'
+      path: '/domains/external'
+      fullPath: '/weldhost/domains/external/'
+      preLoaderRoute: typeof WeldhostDomainsExternalIndexRouteImport
+      parentRoute: typeof WeldhostRouteRoute
+    }
+    '/weldhost/domains/register/': {
+      id: '/weldhost/domains/register/'
+      path: '/domains/register'
+      fullPath: '/weldhost/domains/register/'
+      preLoaderRoute: typeof WeldhostDomainsRegisterIndexRouteImport
+      parentRoute: typeof WeldhostRouteRoute
+    }
+    '/weldhost/domains/search/': {
+      id: '/weldhost/domains/search/'
+      path: '/domains/search'
+      fullPath: '/weldhost/domains/search/'
+      preLoaderRoute: typeof WeldhostDomainsSearchIndexRouteImport
+      parentRoute: typeof WeldhostRouteRoute
+    }
+    '/weldknow/page/$pageId/': {
+      id: '/weldknow/page/$pageId/'
+      path: '/page/$pageId'
+      fullPath: '/weldknow/page/$pageId/'
+      preLoaderRoute: typeof WeldknowPagePageIdIndexRouteImport
+      parentRoute: typeof WeldknowRouteRoute
+    }
+    '/weldmail/$accountId/$labelSlug/': {
+      id: '/weldmail/$accountId/$labelSlug/'
+      path: '/'
+      fullPath: '/weldmail/$accountId/$labelSlug/'
+      preLoaderRoute: typeof WeldmailAccountIdLabelSlugIndexRouteImport
+      parentRoute: typeof WeldmailAccountIdLabelSlugRouteRoute
+    }
+    '/weldmail/ai/smart-reply/': {
+      id: '/weldmail/ai/smart-reply/'
+      path: '/ai/smart-reply'
+      fullPath: '/weldmail/ai/smart-reply/'
+      preLoaderRoute: typeof WeldmailAiSmartReplyIndexRouteImport
+      parentRoute: typeof WeldmailRouteRoute
+    }
+    '/weldmail/ai/summary/': {
+      id: '/weldmail/ai/summary/'
+      path: '/ai/summary'
+      fullPath: '/weldmail/ai/summary/'
+      preLoaderRoute: typeof WeldmailAiSummaryIndexRouteImport
+      parentRoute: typeof WeldmailRouteRoute
+    }
+    '/weldmail/inbox/compose/': {
+      id: '/weldmail/inbox/compose/'
+      path: '/inbox/compose'
+      fullPath: '/weldmail/inbox/compose/'
+      preLoaderRoute: typeof WeldmailInboxComposeIndexRouteImport
+      parentRoute: typeof WeldmailRouteRoute
+    }
+    '/weldmail/settings/accounts/': {
+      id: '/weldmail/settings/accounts/'
+      path: '/settings/accounts'
+      fullPath: '/weldmail/settings/accounts/'
+      preLoaderRoute: typeof WeldmailSettingsAccountsIndexRouteImport
+      parentRoute: typeof WeldmailRouteRoute
+    }
+    '/weldmail/settings/labels/': {
+      id: '/weldmail/settings/labels/'
+      path: '/settings/labels'
+      fullPath: '/weldmail/settings/labels/'
+      preLoaderRoute: typeof WeldmailSettingsLabelsIndexRouteImport
+      parentRoute: typeof WeldmailRouteRoute
+    }
+    '/weldmail/unified/$labelSlug/': {
+      id: '/weldmail/unified/$labelSlug/'
+      path: '/'
+      fullPath: '/weldmail/unified/$labelSlug/'
+      preLoaderRoute: typeof WeldmailUnifiedLabelSlugIndexRouteImport
+      parentRoute: typeof WeldmailUnifiedLabelSlugRouteRoute
+    }
+    '/settings/apps/phone-numbers/new-number/': {
+      id: '/settings/apps/phone-numbers/new-number/'
+      path: '/apps/phone-numbers/new-number'
+      fullPath: '/settings/apps/phone-numbers/new-number/'
+      preLoaderRoute: typeof SettingsAppsPhoneNumbersNewNumberIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/apps/phone-numbers/port/': {
+      id: '/settings/apps/phone-numbers/port/'
+      path: '/apps/phone-numbers/port'
+      fullPath: '/settings/apps/phone-numbers/port/'
+      preLoaderRoute: typeof SettingsAppsPhoneNumbersPortIndexRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/weldbooks/accounts/$id/edit/': {
+      id: '/weldbooks/accounts/$id/edit/'
+      path: '/accounts/$id/edit'
+      fullPath: '/weldbooks/accounts/$id/edit/'
+      preLoaderRoute: typeof WeldbooksAccountsIdEditIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
     }
     '/weldbooks/bills/$id/edit/': {
@@ -6442,53 +6282,284 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldbooksBillsIdEditIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
     }
-    '/weldbooks/accounts/$id/edit/': {
-      id: '/weldbooks/accounts/$id/edit/'
-      path: '/accounts/$id/edit'
-      fullPath: '/weldbooks/accounts/$id/edit/'
-      preLoaderRoute: typeof WeldbooksAccountsIdEditIndexRouteImport
+    '/weldbooks/customers/$id/edit/': {
+      id: '/weldbooks/customers/$id/edit/'
+      path: '/customers/$id/edit'
+      fullPath: '/weldbooks/customers/$id/edit/'
+      preLoaderRoute: typeof WeldbooksCustomersIdEditIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
     }
-    '/settings/apps/phone-numbers/port/': {
-      id: '/settings/apps/phone-numbers/port/'
-      path: '/apps/phone-numbers/port'
-      fullPath: '/settings/apps/phone-numbers/port/'
-      preLoaderRoute: typeof SettingsAppsPhoneNumbersPortIndexRouteImport
+    '/weldbooks/invoices/$id/edit/': {
+      id: '/weldbooks/invoices/$id/edit/'
+      path: '/invoices/$id/edit'
+      fullPath: '/weldbooks/invoices/$id/edit/'
+      preLoaderRoute: typeof WeldbooksInvoicesIdEditIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldcalendar/scheduling/$id/edit/': {
+      id: '/weldcalendar/scheduling/$id/edit/'
+      path: '/scheduling/$id/edit'
+      fullPath: '/weldcalendar/scheduling/$id/edit/'
+      preLoaderRoute: typeof WeldcalendarSchedulingIdEditIndexRouteImport
+      parentRoute: typeof WeldcalendarRouteRoute
+    }
+    '/weldcalendar/scheduling/$id/view/': {
+      id: '/weldcalendar/scheduling/$id/view/'
+      path: '/scheduling/$id/view'
+      fullPath: '/weldcalendar/scheduling/$id/view/'
+      preLoaderRoute: typeof WeldcalendarSchedulingIdViewIndexRouteImport
+      parentRoute: typeof WeldcalendarRouteRoute
+    }
+    '/weldconnect/templates/$id/edit/': {
+      id: '/weldconnect/templates/$id/edit/'
+      path: '/templates/$id/edit'
+      fullPath: '/weldconnect/templates/$id/edit/'
+      preLoaderRoute: typeof WeldconnectTemplatesIdEditIndexRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldconnect/workflows/$id/edit/': {
+      id: '/weldconnect/workflows/$id/edit/'
+      path: '/workflows/$id/edit'
+      fullPath: '/weldconnect/workflows/$id/edit/'
+      preLoaderRoute: typeof WeldconnectWorkflowsIdEditIndexRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldconnect/workflows/$id/settings/': {
+      id: '/weldconnect/workflows/$id/settings/'
+      path: '/workflows/$id/settings'
+      fullPath: '/weldconnect/workflows/$id/settings/'
+      preLoaderRoute: typeof WeldconnectWorkflowsIdSettingsIndexRouteImport
+      parentRoute: typeof WeldconnectRouteRoute
+    }
+    '/weldcrm/companies/lists/$id/': {
+      id: '/weldcrm/companies/lists/$id/'
+      path: '/lists/$id'
+      fullPath: '/weldcrm/companies/lists/$id/'
+      preLoaderRoute: typeof WeldcrmCompaniesListsIdIndexRouteImport
+      parentRoute: typeof WeldcrmCompaniesRouteRoute
+    }
+    '/weldcrm/sequences/$id/edit/': {
+      id: '/weldcrm/sequences/$id/edit/'
+      path: '/sequences/$id/edit'
+      fullPath: '/weldcrm/sequences/$id/edit/'
+      preLoaderRoute: typeof WeldcrmSequencesIdEditIndexRouteImport
+      parentRoute: typeof WeldcrmRouteRoute
+    }
+    '/weldcrm/sequences/$id/people/': {
+      id: '/weldcrm/sequences/$id/people/'
+      path: '/sequences/$id/people'
+      fullPath: '/weldcrm/sequences/$id/people/'
+      preLoaderRoute: typeof WeldcrmSequencesIdPeopleIndexRouteImport
+      parentRoute: typeof WeldcrmRouteRoute
+    }
+    '/weldcrm/sequences/$id/settings/': {
+      id: '/weldcrm/sequences/$id/settings/'
+      path: '/sequences/$id/settings'
+      fullPath: '/weldcrm/sequences/$id/settings/'
+      preLoaderRoute: typeof WeldcrmSequencesIdSettingsIndexRouteImport
+      parentRoute: typeof WeldcrmRouteRoute
+    }
+    '/welddesk/help-center/articles/$id/': {
+      id: '/welddesk/help-center/articles/$id/'
+      path: '/help-center/articles/$id'
+      fullPath: '/welddesk/help-center/articles/$id/'
+      preLoaderRoute: typeof WelddeskHelpCenterArticlesIdIndexRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/welddesk/inbox/phone/$conversationId/': {
+      id: '/welddesk/inbox/phone/$conversationId/'
+      path: '/inbox/phone/$conversationId'
+      fullPath: '/welddesk/inbox/phone/$conversationId/'
+      preLoaderRoute: typeof WelddeskInboxPhoneConversationIdIndexRouteImport
+      parentRoute: typeof WelddeskRouteRoute
+    }
+    '/weldflow/project/$projectId/analytics/': {
+      id: '/weldflow/project/$projectId/analytics/'
+      path: '/analytics'
+      fullPath: '/weldflow/project/$projectId/analytics/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdAnalyticsIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/calendar/': {
+      id: '/weldflow/project/$projectId/calendar/'
+      path: '/calendar'
+      fullPath: '/weldflow/project/$projectId/calendar/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdCalendarIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/documents/': {
+      id: '/weldflow/project/$projectId/documents/'
+      path: '/documents'
+      fullPath: '/weldflow/project/$projectId/documents/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdDocumentsIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/files/': {
+      id: '/weldflow/project/$projectId/files/'
+      path: '/files'
+      fullPath: '/weldflow/project/$projectId/files/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdFilesIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/gantt/': {
+      id: '/weldflow/project/$projectId/gantt/'
+      path: '/gantt'
+      fullPath: '/weldflow/project/$projectId/gantt/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdGanttIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/goals/': {
+      id: '/weldflow/project/$projectId/goals/'
+      path: '/goals'
+      fullPath: '/weldflow/project/$projectId/goals/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdGoalsIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/list/': {
+      id: '/weldflow/project/$projectId/list/'
+      path: '/list'
+      fullPath: '/weldflow/project/$projectId/list/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdListIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/members/': {
+      id: '/weldflow/project/$projectId/members/'
+      path: '/members'
+      fullPath: '/weldflow/project/$projectId/members/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdMembersIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/messages/': {
+      id: '/weldflow/project/$projectId/messages/'
+      path: '/messages'
+      fullPath: '/weldflow/project/$projectId/messages/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdMessagesIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/pipeline/': {
+      id: '/weldflow/project/$projectId/pipeline/'
+      path: '/pipeline'
+      fullPath: '/weldflow/project/$projectId/pipeline/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdPipelineIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/settings/': {
+      id: '/weldflow/project/$projectId/settings/'
+      path: '/settings'
+      fullPath: '/weldflow/project/$projectId/settings/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdSettingsIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/table/': {
+      id: '/weldflow/project/$projectId/table/'
+      path: '/table'
+      fullPath: '/weldflow/project/$projectId/table/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdTableIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/tasks/': {
+      id: '/weldflow/project/$projectId/tasks/'
+      path: '/tasks'
+      fullPath: '/weldflow/project/$projectId/tasks/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdTasksIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/timeline/': {
+      id: '/weldflow/project/$projectId/timeline/'
+      path: '/timeline'
+      fullPath: '/weldflow/project/$projectId/timeline/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdTimelineIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/timesheet/': {
+      id: '/weldflow/project/$projectId/timesheet/'
+      path: '/timesheet'
+      fullPath: '/weldflow/project/$projectId/timesheet/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdTimesheetIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/whiteboard/': {
+      id: '/weldflow/project/$projectId/whiteboard/'
+      path: '/whiteboard'
+      fullPath: '/weldflow/project/$projectId/whiteboard/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdWhiteboardIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/workload/': {
+      id: '/weldflow/project/$projectId/workload/'
+      path: '/workload'
+      fullPath: '/weldflow/project/$projectId/workload/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdWorkloadIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/space/$spaceId/$moduleType/': {
+      id: '/weldflow/space/$spaceId/$moduleType/'
+      path: '/space/$spaceId/$moduleType'
+      fullPath: '/weldflow/space/$spaceId/$moduleType/'
+      preLoaderRoute: typeof WeldflowSpaceSpaceIdModuleTypeIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
+    }
+    '/weldhost/domains/purchase/cancel/': {
+      id: '/weldhost/domains/purchase/cancel/'
+      path: '/domains/purchase/cancel'
+      fullPath: '/weldhost/domains/purchase/cancel/'
+      preLoaderRoute: typeof WeldhostDomainsPurchaseCancelIndexRouteImport
+      parentRoute: typeof WeldhostRouteRoute
+    }
+    '/weldhost/domains/purchase/success/': {
+      id: '/weldhost/domains/purchase/success/'
+      path: '/domains/purchase/success'
+      fullPath: '/weldhost/domains/purchase/success/'
+      preLoaderRoute: typeof WeldhostDomainsPurchaseSuccessIndexRouteImport
+      parentRoute: typeof WeldhostRouteRoute
+    }
+    '/weldmail/$accountId/$labelSlug/$messageId/': {
+      id: '/weldmail/$accountId/$labelSlug/$messageId/'
+      path: '/$messageId'
+      fullPath: '/weldmail/$accountId/$labelSlug/$messageId/'
+      preLoaderRoute: typeof WeldmailAccountIdLabelSlugMessageIdIndexRouteImport
+      parentRoute: typeof WeldmailAccountIdLabelSlugRouteRoute
+    }
+    '/weldmail/$accountId/$labelSlug/compose/': {
+      id: '/weldmail/$accountId/$labelSlug/compose/'
+      path: '/compose'
+      fullPath: '/weldmail/$accountId/$labelSlug/compose/'
+      preLoaderRoute: typeof WeldmailAccountIdLabelSlugComposeIndexRouteImport
+      parentRoute: typeof WeldmailAccountIdLabelSlugRouteRoute
+    }
+    '/weldmail/unified/$labelSlug/$messageId/': {
+      id: '/weldmail/unified/$labelSlug/$messageId/'
+      path: '/$messageId'
+      fullPath: '/weldmail/unified/$labelSlug/$messageId/'
+      preLoaderRoute: typeof WeldmailUnifiedLabelSlugMessageIdIndexRouteImport
+      parentRoute: typeof WeldmailUnifiedLabelSlugRouteRoute
+    }
+    '/weldmail/unified/$labelSlug/compose/': {
+      id: '/weldmail/unified/$labelSlug/compose/'
+      path: '/compose'
+      fullPath: '/weldmail/unified/$labelSlug/compose/'
+      preLoaderRoute: typeof WeldmailUnifiedLabelSlugComposeIndexRouteImport
+      parentRoute: typeof WeldmailUnifiedLabelSlugRouteRoute
+    }
+    '/settings/apps/phone-numbers/port/$id/': {
+      id: '/settings/apps/phone-numbers/port/$id/'
+      path: '/apps/phone-numbers/port/$id'
+      fullPath: '/settings/apps/phone-numbers/port/$id/'
+      preLoaderRoute: typeof SettingsAppsPhoneNumbersPortIdIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
-    '/settings/apps/phone-numbers/new-number/': {
-      id: '/settings/apps/phone-numbers/new-number/'
-      path: '/apps/phone-numbers/new-number'
-      fullPath: '/settings/apps/phone-numbers/new-number/'
-      preLoaderRoute: typeof SettingsAppsPhoneNumbersNewNumberIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
+    '/welddesk/help-center/articles/$id/edit/': {
+      id: '/welddesk/help-center/articles/$id/edit/'
+      path: '/help-center/articles/$id/edit'
+      fullPath: '/welddesk/help-center/articles/$id/edit/'
+      preLoaderRoute: typeof WelddeskHelpCenterArticlesIdEditIndexRouteImport
+      parentRoute: typeof WelddeskRouteRoute
     }
-    '/weldflow/project/$projectId/whiteboard/$whiteboardId/': {
-      id: '/weldflow/project/$projectId/whiteboard/$whiteboardId/'
-      path: '/whiteboard/$whiteboardId'
-      fullPath: '/weldflow/project/$projectId/whiteboard/$whiteboardId/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
-    }
-    '/weldflow/project/$projectId/table/$fileId/': {
-      id: '/weldflow/project/$projectId/table/$fileId/'
-      path: '/table/$fileId'
-      fullPath: '/weldflow/project/$projectId/table/$fileId/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdTableFileIdIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
-    }
-    '/weldflow/project/$projectId/members/$memberId/': {
-      id: '/weldflow/project/$projectId/members/$memberId/'
-      path: '/members/$memberId'
-      fullPath: '/weldflow/project/$projectId/members/$memberId/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdMembersMemberIdIndexRouteImport
-      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
-    }
-    '/weldflow/project/$projectId/documents/$fileId/': {
-      id: '/weldflow/project/$projectId/documents/$fileId/'
-      path: '/documents/$fileId'
-      fullPath: '/weldflow/project/$projectId/documents/$fileId/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdDocumentsFileIdIndexRouteImport
+    '/weldflow/project/$projectId/analytics/$id/': {
+      id: '/weldflow/project/$projectId/analytics/$id/'
+      path: '/analytics/$id'
+      fullPath: '/weldflow/project/$projectId/analytics/$id/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdAnalyticsIdIndexRouteImport
       parentRoute: typeof WeldflowProjectProjectIdRouteRoute
     }
     '/weldflow/project/$projectId/analytics/builder/': {
@@ -6498,26 +6569,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldflowProjectProjectIdAnalyticsBuilderIndexRouteImport
       parentRoute: typeof WeldflowProjectProjectIdRouteRoute
     }
-    '/weldflow/project/$projectId/analytics/$id/': {
-      id: '/weldflow/project/$projectId/analytics/$id/'
-      path: '/analytics/$id'
-      fullPath: '/weldflow/project/$projectId/analytics/$id/'
-      preLoaderRoute: typeof WeldflowProjectProjectIdAnalyticsIdIndexRouteImport
+    '/weldflow/project/$projectId/documents/$fileId/': {
+      id: '/weldflow/project/$projectId/documents/$fileId/'
+      path: '/documents/$fileId'
+      fullPath: '/weldflow/project/$projectId/documents/$fileId/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdDocumentsFileIdIndexRouteImport
       parentRoute: typeof WeldflowProjectProjectIdRouteRoute
     }
-    '/welddesk/help-center/articles/$id/edit/': {
-      id: '/welddesk/help-center/articles/$id/edit/'
-      path: '/help-center/articles/$id/edit'
-      fullPath: '/welddesk/help-center/articles/$id/edit/'
-      preLoaderRoute: typeof WelddeskHelpCenterArticlesIdEditIndexRouteImport
-      parentRoute: typeof WelddeskRouteRoute
+    '/weldflow/project/$projectId/members/$memberId/': {
+      id: '/weldflow/project/$projectId/members/$memberId/'
+      path: '/members/$memberId'
+      fullPath: '/weldflow/project/$projectId/members/$memberId/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdMembersMemberIdIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
     }
-    '/settings/apps/phone-numbers/port/$id/': {
-      id: '/settings/apps/phone-numbers/port/$id/'
-      path: '/apps/phone-numbers/port/$id'
-      fullPath: '/settings/apps/phone-numbers/port/$id/'
-      preLoaderRoute: typeof SettingsAppsPhoneNumbersPortIdIndexRouteImport
-      parentRoute: typeof SettingsRouteRoute
+    '/weldflow/project/$projectId/table/$fileId/': {
+      id: '/weldflow/project/$projectId/table/$fileId/'
+      path: '/table/$fileId'
+      fullPath: '/weldflow/project/$projectId/table/$fileId/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdTableFileIdIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
+    }
+    '/weldflow/project/$projectId/whiteboard/$whiteboardId/': {
+      id: '/weldflow/project/$projectId/whiteboard/$whiteboardId/'
+      path: '/whiteboard/$whiteboardId'
+      fullPath: '/weldflow/project/$projectId/whiteboard/$whiteboardId/'
+      preLoaderRoute: typeof WeldflowProjectProjectIdWhiteboardWhiteboardIdIndexRouteImport
+      parentRoute: typeof WeldflowProjectProjectIdRouteRoute
     }
   }
 }
@@ -7093,6 +7171,7 @@ const WelddataRouteRouteWithChildren = WelddataRouteRoute._addFileChildren(
 interface WelddeskRouteRouteChildren {
   WelddeskSplatRoute: typeof WelddeskSplatRoute
   WelddeskIndexRoute: typeof WelddeskIndexRoute
+  WelddeskAiAgentsIndexRoute: typeof WelddeskAiAgentsIndexRoute
   WelddeskChatWidgetIndexRoute: typeof WelddeskChatWidgetIndexRoute
   WelddeskEmailIndexRoute: typeof WelddeskEmailIndexRoute
   WelddeskHelpCenterIndexRoute: typeof WelddeskHelpCenterIndexRoute
@@ -7100,13 +7179,17 @@ interface WelddeskRouteRouteChildren {
   WelddeskChatWidgetWidgetIdIndexRoute: typeof WelddeskChatWidgetWidgetIdIndexRoute
   WelddeskHelpCenterArticlesIndexRoute: typeof WelddeskHelpCenterArticlesIndexRoute
   WelddeskInboxConversationIdIndexRoute: typeof WelddeskInboxConversationIdIndexRoute
+  WelddeskInboxPhoneIndexRoute: typeof WelddeskInboxPhoneIndexRoute
+  WelddeskSettingsPhoneIndexRoute: typeof WelddeskSettingsPhoneIndexRoute
   WelddeskHelpCenterArticlesIdIndexRoute: typeof WelddeskHelpCenterArticlesIdIndexRoute
+  WelddeskInboxPhoneConversationIdIndexRoute: typeof WelddeskInboxPhoneConversationIdIndexRoute
   WelddeskHelpCenterArticlesIdEditIndexRoute: typeof WelddeskHelpCenterArticlesIdEditIndexRoute
 }
 
 const WelddeskRouteRouteChildren: WelddeskRouteRouteChildren = {
   WelddeskSplatRoute: WelddeskSplatRoute,
   WelddeskIndexRoute: WelddeskIndexRoute,
+  WelddeskAiAgentsIndexRoute: WelddeskAiAgentsIndexRoute,
   WelddeskChatWidgetIndexRoute: WelddeskChatWidgetIndexRoute,
   WelddeskEmailIndexRoute: WelddeskEmailIndexRoute,
   WelddeskHelpCenterIndexRoute: WelddeskHelpCenterIndexRoute,
@@ -7114,8 +7197,12 @@ const WelddeskRouteRouteChildren: WelddeskRouteRouteChildren = {
   WelddeskChatWidgetWidgetIdIndexRoute: WelddeskChatWidgetWidgetIdIndexRoute,
   WelddeskHelpCenterArticlesIndexRoute: WelddeskHelpCenterArticlesIndexRoute,
   WelddeskInboxConversationIdIndexRoute: WelddeskInboxConversationIdIndexRoute,
+  WelddeskInboxPhoneIndexRoute: WelddeskInboxPhoneIndexRoute,
+  WelddeskSettingsPhoneIndexRoute: WelddeskSettingsPhoneIndexRoute,
   WelddeskHelpCenterArticlesIdIndexRoute:
     WelddeskHelpCenterArticlesIdIndexRoute,
+  WelddeskInboxPhoneConversationIdIndexRoute:
+    WelddeskInboxPhoneConversationIdIndexRoute,
   WelddeskHelpCenterArticlesIdEditIndexRoute:
     WelddeskHelpCenterArticlesIdEditIndexRoute,
 }

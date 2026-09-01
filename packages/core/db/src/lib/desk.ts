@@ -72,6 +72,7 @@ export async function upsertDeskVisitor(
     id: string;
     name?: string | null;
     email?: string | null;
+    phone?: string | null;
     widgetId?: string | null;
   },
 ): Promise<DeskVisitor> {
@@ -90,6 +91,7 @@ export async function upsertDeskVisitor(
         updatedAt: now,
         name: input.name !== undefined ? input.name : existing[0].name,
         email: input.email !== undefined ? input.email : existing[0].email,
+        phone: input.phone !== undefined ? input.phone : existing[0].phone,
         widgetId: input.widgetId !== undefined ? input.widgetId : existing[0].widgetId,
       })
       .where(eq(visitors.id, input.id))
@@ -106,6 +108,7 @@ export async function upsertDeskVisitor(
       lastSeenAt: now,
       name: input.name ?? null,
       email: input.email ?? null,
+      phone: input.phone ?? null,
       widgetId: input.widgetId ?? null,
     })
     .returning();
@@ -402,6 +405,103 @@ export async function findDeskVisitorByEmail(
     .where(eq(visitors.email, email.toLowerCase()))
     .limit(1);
   return row ?? null;
+}
+
+export async function findDeskVisitorByPhone(
+  db: AnyDb,
+  phone: string,
+): Promise<DeskVisitor | null> {
+  const [row] = await db
+    .select()
+    .from(visitors)
+    .where(eq(visitors.phone, phone))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function findOpenPhoneConversationByPhone(
+  db: AnyDb,
+  phone: string,
+): Promise<DeskConversation | null> {
+  const visitor = await findDeskVisitorByPhone(db, phone);
+  if (!visitor) return null;
+  const [row] = await db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.visitorId, visitor.id),
+        eq(conversations.channel, 'phone'),
+        eq(conversations.state, 'open'),
+      ),
+    )
+    .orderBy(desc(conversations.lastMessageAt))
+    .limit(1);
+  return row ?? null;
+}
+
+export interface IngestDeskPhoneInput {
+  generateId: IdGenerator;
+  fromNumber: string;
+  toNumber: string;
+  /** voip_calls.id */
+  callId: string;
+  callControlId?: string | null;
+  body?: string;
+}
+
+export async function ingestDeskPhone(
+  db: AnyDb,
+  input: IngestDeskPhoneInput,
+): Promise<{ conversation: DeskConversation; message: DeskMessage; created: boolean }> {
+  const fromNumber = input.fromNumber.trim();
+  const title = `Call from ${fromNumber}`;
+  const body =
+    input.body ??
+    `Inbound call from ${fromNumber} to ${input.toNumber}`;
+
+  let conversation = await findOpenPhoneConversationByPhone(db, fromNumber);
+
+  let visitor = await findDeskVisitorByPhone(db, fromNumber);
+  visitor = await upsertDeskVisitor(db, {
+    id: visitor?.id ?? input.generateId('dvis'),
+    name: visitor?.name ?? fromNumber,
+    phone: fromNumber,
+  });
+
+  const phoneMeta: DeskMessageMetadata = {
+    callId: input.callId,
+    callControlId: input.callControlId ?? undefined,
+    fromNumber,
+    toNumber: input.toNumber,
+    event: 'call_started',
+  };
+
+  if (conversation) {
+    const result = await appendDeskMessage(db, {
+      generateId: input.generateId,
+      conversationId: conversation.id,
+      kind: 'message',
+      authorType: 'visitor',
+      authorId: visitor.id,
+      body,
+      metadata: phoneMeta,
+    });
+    return { ...result, created: false };
+  }
+
+  const result = await createDeskConversation(db, {
+    generateId: input.generateId,
+    channel: 'phone',
+    visitorId: visitor.id,
+    name: fromNumber,
+    title,
+    body,
+    authorType: 'visitor',
+    authorId: visitor.id,
+    metadata: phoneMeta,
+  });
+  return { ...result, created: true };
 }
 
 export async function findDeskConversationByRfcMessageIds(

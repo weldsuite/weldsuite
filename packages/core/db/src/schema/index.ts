@@ -172,6 +172,8 @@ export * from './desk-conversations';
 export * from './desk-messages';
 export * from './desk-visitors';
 export * from './desk-widget-settings';
+export * from './desk-voice-agents';
+export * from './desk-phone-routes';
 export * from './search-index';
 
 // Generic analytics (shared across apps)

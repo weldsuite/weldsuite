@@ -107,6 +107,8 @@ export const navigation = {
       "inbox": "[TRANSLATE] Inbox",
       "chatWidget": "[TRANSLATE] Chat Widget",
       "email": "[TRANSLATE] Email",
+      "phone": "[TRANSLATE] Phone",
+      "voiceAgents": "[TRANSLATE] Voice agents",
       "helpCenter": "[TRANSLATE] Help Center",
       "articles": "[TRANSLATE] Articles"
     },

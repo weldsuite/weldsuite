@@ -100,6 +100,9 @@ export const voipCalls = pgTable('voip_calls', {
   opportunityId: varchar('opportunity_id', { length: 30 }),
   activityId: varchar('activity_id', { length: 30 }), // Link to CRM activity
 
+  /** WeldDesk phone-channel conversation created for this call (inbound). */
+  deskConversationId: varchar('desk_conversation_id', { length: 30 }),
+
   // Credits
   creditsConsumed: integer('credits_consumed').default(0),
   creditTransactionId: varchar('credit_transaction_id', { length: 30 }),
@@ -133,6 +136,7 @@ export const voipCalls = pgTable('voip_calls', {
   index('voip_calls_provider_call_idx').on(table.providerCallId),
   index('voip_calls_initiated_at_idx').on(table.initiatedAt),
   index('voip_calls_provider_idx').on(table.provider),
+  index('voip_calls_desk_conversation_idx').on(table.deskConversationId),
 ]);
 
 export type VoipCall = typeof voipCalls.$inferSelect;

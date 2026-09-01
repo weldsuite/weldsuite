@@ -31,6 +31,10 @@ import {
   billingWorkerUrl,
   type TelnyxEnv,
 } from '../../lib/telnyx';
+import {
+  upsertPhoneNumberRegistry,
+  deactivatePhoneNumberRegistry,
+} from '../../lib/phone-registry';
 
 const READ_TELEPHONY = 'telephony:read';
 const MANAGE_TELEPHONY = 'telephony:manage';
@@ -187,6 +191,12 @@ app.delete('/phone-numbers/:id', requirePermission(MANAGE_TELEPHONY), async (c) 
       .update(voipPhoneNumbers)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(eq(voipPhoneNumbers.id, id));
+
+    try {
+      await deactivatePhoneNumberRegistry(c.env, phone.phoneNumber);
+    } catch (regErr) {
+      console.error('[Telephony] Failed to deactivate phone registry:', regErr);
+    }
 
     publishEntityEvent({
       c,
@@ -413,6 +423,7 @@ app.post('/phone-numbers/sync', requirePermission(MANAGE_TELEPHONY), async (c) =
 
   try {
     const db = c.get('tenantDb');
+    const clerkOrgId = c.get('workspaceId');
     const { voipPhoneNumbers } = schema;
 
     const connectionId = c.env.TELNYX_CONNECTION_ID;
@@ -445,7 +456,9 @@ app.post('/phone-numbers/sync', requirePermission(MANAGE_TELEPHONY), async (c) =
           (p: any) => p.providerPhoneNumberId === number.id || p.phoneNumber === number.phone_number,
         );
 
+        let voipId: string;
         if (existingNumber) {
+          voipId = existingNumber.id;
           await db.update(voipPhoneNumbers).set({
             status: 'active',
             providerPhoneNumberId: number.id,
@@ -453,9 +466,9 @@ app.post('/phone-numbers/sync', requirePermission(MANAGE_TELEPHONY), async (c) =
             updatedAt: new Date(),
           }).where(eq(voipPhoneNumbers.id, existingNumber.id));
         } else {
-          const newId = generateId('vpn');
+          voipId = generateId('vpn');
           await db.insert(voipPhoneNumbers).values({
-            id: newId,
+            id: voipId,
             provider: 'telnyx',
             phoneNumber: number.phone_number,
             formattedNumber: number.phone_number,
@@ -472,10 +485,22 @@ app.post('/phone-numbers/sync', requirePermission(MANAGE_TELEPHONY), async (c) =
             c,
             entityType: 'voip_phone_number',
             action: 'created',
-            entityId: newId,
-            data: { id: newId, phoneNumber: number.phone_number, status: 'active' },
+            entityId: voipId,
+            data: { id: voipId, phoneNumber: number.phone_number, status: 'active' },
           });
         }
+
+        try {
+          await upsertPhoneNumberRegistry(c.env, {
+            phoneNumber: number.phone_number,
+            clerkOrgId,
+            voipPhoneNumberId: voipId,
+            isActive: true,
+          });
+        } catch (regErr) {
+          console.error(`[Telephony] Failed to register ${number.phone_number}:`, regErr);
+        }
+
         synced++;
       } catch (e) {
         console.error(`[Telephony] Failed to sync number ${number.phone_number}:`, e);

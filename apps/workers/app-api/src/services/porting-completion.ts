@@ -31,6 +31,7 @@ import {
 import { generateId } from '../lib/id';
 import { getPortingOrder } from '../lib/telnyx-porting';
 import type { TelnyxEnv } from '../lib/telnyx';
+import { upsertPhoneNumberRegistry } from '../lib/phone-registry';
 
 interface CompletionContext {
   env: TelnyxEnv;
@@ -130,6 +131,17 @@ export async function handlePortingCompleted(ctx: CompletionContext): Promise<vo
     notificationType: 'system_update',
     category: 'system',
   });
+
+  try {
+    await upsertPhoneNumberRegistry(env, {
+      phoneNumber: draft.phoneNumber,
+      clerkOrgId,
+      voipPhoneNumberId,
+      isActive: true,
+    });
+  } catch (regErr) {
+    console.error('[porting] Failed to register phone for inbound routing:', regErr);
+  }
 
   // Cleanup master index — terminal state, no more webhooks expected.
   await getMasterDb(env)

@@ -590,6 +590,27 @@ export type TelnyxPortingOrderIndex = typeof telnyxPortingOrderIndex.$inferSelec
 export type NewTelnyxPortingOrderIndex = typeof telnyxPortingOrderIndex.$inferInsert;
 
 // ----------------------------------------------------------------------------
+// Phone number registry — inbound call routing
+// ----------------------------------------------------------------------------
+// Telnyx inbound webhooks carry the dialed E.164 but no tenant context. Map
+// phone_number → clerkOrgId so /public/webhooks/telnyx can open the right
+// tenant DB. Same clerkOrgId convention as telnyx_porting_order_index.
+export const phoneNumberRegistry = pgTable('phone_number_registry', {
+  phoneNumber: varchar('phone_number', { length: 50 }).primaryKey(),
+  clerkOrgId: varchar('clerk_org_id', { length: 255 }).notNull(),
+  voipPhoneNumberId: varchar('voip_phone_number_id', { length: 30 }).notNull(),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('phone_number_registry_org_idx').on(table.clerkOrgId),
+  index('phone_number_registry_active_idx').on(table.isActive),
+]);
+
+export type PhoneNumberRegistry = typeof phoneNumberRegistry.$inferSelect;
+export type NewPhoneNumberRegistry = typeof phoneNumberRegistry.$inferInsert;
+
+// ----------------------------------------------------------------------------
 // PostPeer post index — webhook routing
 // ----------------------------------------------------------------------------
 // Exactly the same problem as the Telnyx index above: PostPeer delivery
