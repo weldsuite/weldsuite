@@ -2,7 +2,7 @@ import { type Metadata } from 'next'
 
 export const metadata: Metadata = {
   title: 'VAT returns',
-  description: 'Manage WeldBooks vat returns via the external API.',
+  description: 'On this page, we dive into the vat returns endpoints you can use to manage WeldBooks data programmatically.',
 }
 
 export default function Layout({ children }: { children: React.ReactNode }) {

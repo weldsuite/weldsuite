@@ -1,0 +1,195 @@
+# Invoices
+
+Customer invoices (accounts receivable). Mutations require the `invoices:write` scope; reads require `invoices:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The invoice model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `inv_abc123`).</Property>
+  <Property name="entityId" type="string">Owning accounting entity.</Property>
+  <Property name="invoiceNumber" type="string">Human-readable invoice number.</Property>
+  <Property name="status" type="string">Lifecycle status (`draft`, `sent`, `paid`, …).</Property>
+  <Property name="contactId" type="string">Customer / accounting contact.</Property>
+  <Property name="issueDate" type="string">Issue date.</Property>
+  <Property name="dueDate" type="string">Due date.</Property>
+  <Property name="currency" type="string">Invoice currency.</Property>
+  <Property name="total" type="string">Grand total (decimal string).</Property>
+  <Property name="createdAt" type="timestamp">When created.</Property>
+  <Property name="updatedAt" type="timestamp">When last updated.</Property>
+</Properties>
+
+---
+
+## List invoices {{ tag: 'GET', label: '/v1/invoices' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `entityId`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/invoices">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/invoices \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        { "id": "inv_abc123" }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create an invoice {{ tag: 'POST', label: '/v1/invoices' }}
+
+<Row>
+  <Col>
+
+    Create an invoice.
+    
+    Common fields: `entityId`, `customerId`, `customerName`, `reference`, `issueDate`, `dueDate`, `currency`, line items via `items`. Workflow actions (finalize, send, PDF) are available on the first-party app API.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/invoices">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/invoices \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "entityId": "ent_abc123",
+        "customerName": "Smith Industries",
+        "currency": "EUR"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "inv_new456",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve an invoice {{ tag: 'GET', label: '/v1/invoices/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single invoice by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/invoices/inv_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/invoices/inv_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "inv_abc123"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update an invoice {{ tag: 'PATCH', label: '/v1/invoices/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a invoice. Only the fields you send are changed.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/invoices/inv_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/invoices/inv_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{}'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "inv_abc123",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete an invoice {{ tag: 'DELETE', label: '/v1/invoices/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a invoice. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/invoices/inv_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/invoices/inv_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

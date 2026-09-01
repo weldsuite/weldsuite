@@ -1,0 +1,193 @@
+# FX rates
+
+Exchange rates for multi-currency bookkeeping. Mutations require the `fx_rates:write` scope; reads require `fx_rates:read`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## The FX rate model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `fx_abc123`).</Property>
+  <Property name="entityId" type="string">Owning accounting entity.</Property>
+  <Property name="fromCurrency" type="string">Source currency.</Property>
+  <Property name="toCurrency" type="string">Target currency.</Property>
+  <Property name="rate" type="string">Exchange rate (decimal string).</Property>
+  <Property name="effectiveDate" type="string">Date the rate applies.</Property>
+  <Property name="createdAt" type="timestamp">When created.</Property>
+  <Property name="updatedAt" type="timestamp">When last updated.</Property>
+</Properties>
+
+---
+
+## List fx rates {{ tag: 'GET', label: '/v1/fx-rates' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list. Optional query parameters: `limit`, `cursor`, `entityId`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/fx-rates">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/fx-rates \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        { "id": "fx_abc123" }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a FX rate {{ tag: 'POST', label: '/v1/fx-rates' }}
+
+<Row>
+  <Col>
+
+    Create a FX rate.
+    
+    Optional: `entityId`, `fromCurrency`, `toCurrency`, `rate`, `effectiveDate`, `source`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/fx-rates">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/fx-rates \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "entityId": "ent_abc123",
+        "fromCurrency": "USD",
+        "toCurrency": "EUR",
+        "rate": "0.92"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "fx_new456",
+        "createdAt": "2024-12-01T14:00:00Z",
+        "updatedAt": "2024-12-01T14:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a FX rate {{ tag: 'GET', label: '/v1/fx-rates/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single FX rate by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/fx-rates/fx_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/fx-rates/fx_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "fx_abc123"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a FX rate {{ tag: 'PATCH', label: '/v1/fx-rates/:id' }}
+
+<Row>
+  <Col>
+
+    Partially update a FX rate. Only the fields you send are changed.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/fx-rates/fx_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/fx-rates/fx_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{}'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "fx_abc123",
+        "updatedAt": "2024-12-01T15:00:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a FX rate {{ tag: 'DELETE', label: '/v1/fx-rates/:id' }}
+
+<Row>
+  <Col>
+
+    Soft-delete a FX rate. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/fx-rates/fx_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/fx-rates/fx_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>
