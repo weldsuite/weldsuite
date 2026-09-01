@@ -14,6 +14,7 @@ import { UsersIcon } from '@/components/icons/UsersIcon'
 import { ClipboardIcon } from '@/components/icons/ClipboardIcon'
 import { ChatBubbleIcon } from '@/components/icons/ChatBubbleIcon'
 import { CalendarIcon } from '@/components/icons/CalendarIcon'
+import { BookIcon } from '@/components/icons/BookIcon'
 import { FolderIcon } from '@/components/icons/FolderIcon'
 
 interface Resource {
@@ -79,6 +80,20 @@ const resources: Array<Resource> = [
     pattern: {
       y: 22,
       squares: [[0, 1]],
+    },
+  },
+  {
+    href: '/invoices',
+    name: 'WeldBooks',
+    description:
+      'Manage accounting entities, invoices, bills, bank accounts, journal entries, tax rates, and the full WeldBooks ledger via the API.',
+    icon: BookIcon,
+    pattern: {
+      y: 18,
+      squares: [
+        [0, 2],
+        [1, 3],
+      ],
     },
   },
   {
