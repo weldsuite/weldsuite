@@ -27,6 +27,7 @@ import Svg, { Path } from 'react-native-svg';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { appApi } from '@/services/app-api';
+import { personalApi } from '@/services/personal-api';
 import { createMailAccountSchema } from '@weldsuite/app-api-client/schemas/mail-accounts';
 import { useMail } from '@/contexts/MailContext';
 import { usePermissions } from '@/contexts/PermissionContext';
@@ -44,25 +45,24 @@ const WeldMailIcon = ({ size = 24 }: { size?: number }) => (
   </Svg>
 );
 
-type ScreenState = 'select' | 'weldmail' | 'custom-domain';
+type ScreenState = 'select' | 'weldmail' | 'personal' | 'custom-domain';
 
 export default function AddAccountScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { showToast } = useToast();
-  const { refreshLabels, refreshAccounts } = useMail();
+  const { refreshLabels, refreshAccounts, hasPersonalAccount } = useMail();
   const { can, isLoading: permissionsLoading } = usePermissions();
 
-  // Defense-in-depth: this route is reachable directly (deep link), so don't
-  // rely on the hidden sidebar button alone. Bounce out once we know the user
-  // lacks `accounts:create`. The server enforces it too — this is UX only.
-  const canCreate = can('accounts:create');
+  const canCreateWorkspace = can('accounts:create');
+  const canAddPersonal = !hasPersonalAccount;
+  const canStay = canCreateWorkspace || canAddPersonal;
   useEffect(() => {
-    if (!permissionsLoading && !canCreate) {
+    if (!permissionsLoading && !canStay) {
       router.back();
     }
-  }, [permissionsLoading, canCreate, router]);
+  }, [permissionsLoading, canStay, router]);
 
   const [screen, setScreen] = useState<ScreenState>('select');
   const [focusedField, setFocusedField] = useState<string | null>(null);
@@ -89,6 +89,10 @@ export default function AddAccountScreen() {
 
   // Fetch available domains on mount
   useEffect(() => {
+    if (!canCreateWorkspace) {
+      setLoadingDomains(false);
+      return;
+    }
     setLoadingDomains(true);
     appApi.mailDomains.list()
       .then(({ data }) => {
@@ -98,13 +102,16 @@ export default function AddAccountScreen() {
       })
       .catch(() => {})
       .finally(() => setLoadingDomains(false));
-  }, []);
+  }, [canCreateWorkspace]);
 
   // Fetch WeldMail domain when switching to form
   useEffect(() => {
-    if (screen === 'weldmail' && !domain) {
+    if ((screen === 'weldmail' || screen === 'personal') && !domain) {
       setLoadingDomain(true);
-      appApi.mailWeldmail.domain()
+      const load = screen === 'personal'
+        ? personalApi.weldmail.domain()
+        : appApi.mailWeldmail.domain();
+      load
         .then(({ data }) => {
           if (data?.domain) setDomain(data.domain);
         })
@@ -115,23 +122,33 @@ export default function AddAccountScreen() {
 
   // Debounced availability check
   useEffect(() => {
-    if (screen !== 'weldmail') return;
+    if (screen !== 'weldmail' && screen !== 'personal') return;
     if (checkTimerRef.current) clearTimeout(checkTimerRef.current);
     setAvailability(null);
 
     if (address.length >= 3) {
       setChecking(true);
       checkTimerRef.current = setTimeout(() => {
-        appApi.mailWeldmail.check({ address })
-          .then(({ data }) => {
-            if (data.available) {
-              setAvailability({ available: true });
-            } else {
-              setAvailability({ available: false, message: (data as any).reason || 'Not available' });
-            }
-          })
-          .catch(() => setAvailability(null))
-          .finally(() => setChecking(false));
+        const check = screen === 'personal'
+          ? personalApi.weldmail.check(address).then(({ data }) => {
+              if (data.available) {
+                setAvailability({ available: true });
+              } else {
+                const reason = 'reason' in data ? data.reason : 'taken';
+                setAvailability({
+                  available: false,
+                  message: reason === 'reserved' ? 'Reserved' : 'Already taken',
+                });
+              }
+            })
+          : appApi.mailWeldmail.check({ address }).then(({ data }) => {
+              if (data.available) {
+                setAvailability({ available: true });
+              } else {
+                setAvailability({ available: false, message: (data as { reason?: string }).reason || 'Not available' });
+              }
+            });
+        check.catch(() => setAvailability(null)).finally(() => setChecking(false));
       }, 500);
     } else {
       setChecking(false);
@@ -152,12 +169,25 @@ export default function AddAccountScreen() {
 
     setSubmitting(true);
     try {
-      const { data: result } = await appApi.mailWeldmail.reserve({
-        address,
-        name: displayName || address,
-        displayName: displayName || address,
-      });
-      showToast(`Email address ${result.email || address} created`, 'success');
+      if (screen === 'personal') {
+        const me = (await personalApi.me()).data;
+        if (!me.account) {
+          await personalApi.onboard({ displayName: displayName || undefined });
+        }
+        const { data: result } = await personalApi.weldmail.reserve({
+          address,
+          name: displayName || address,
+          displayName: displayName || address,
+        });
+        showToast(`Email address ${result.email || address} created`, 'success');
+      } else {
+        const { data: result } = await appApi.mailWeldmail.reserve({
+          address,
+          name: displayName || address,
+          displayName: displayName || address,
+        });
+        showToast(`Email address ${result.email || address} created`, 'success');
+      }
       await refreshAccounts();
       refreshLabels();
       router.back();
@@ -166,7 +196,7 @@ export default function AddAccountScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [address, displayName, availability, showToast, refreshAccounts, refreshLabels, router]);
+  }, [address, displayName, availability, showToast, refreshAccounts, refreshLabels, router, screen]);
 
   const handleCustomDomainSubmit = useCallback(async () => {
     if (!emailPrefix || !selectedDomain) {
@@ -226,6 +256,27 @@ export default function AddAccountScreen() {
       </View>
 
       <View style={styles.cardList}>
+        {canAddPersonal ? (
+          <TouchableOpacity
+            style={[styles.optionCard, { backgroundColor: colors.card, borderColor: colors.divider }]}
+            onPress={() => setScreen('personal')}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.optionIcon, { backgroundColor: ACCENT + '15' }]}>
+              <WeldMailIcon size={24} />
+            </View>
+            <View style={styles.optionInfo}>
+              <Text style={[styles.optionTitle, { color: colors.text }]}>Personal WeldMail</Text>
+              <Text style={[styles.optionSub, { color: colors.muted }]}>
+                Your own @weldmail.com — works alongside any workspace
+              </Text>
+            </View>
+            <ChevronRight size={20} color={colors.muted} />
+          </TouchableOpacity>
+        ) : null}
+
+        {canCreateWorkspace ? (
+          <>
         <TouchableOpacity
           style={[styles.optionCard, { backgroundColor: colors.card, borderColor: colors.divider }]}
           onPress={() => setScreen('weldmail')}
@@ -235,8 +286,8 @@ export default function AddAccountScreen() {
             <WeldMailIcon size={24} />
           </View>
           <View style={styles.optionInfo}>
-            <Text style={[styles.optionTitle, { color: colors.text }]}>WeldMail Address</Text>
-            <Text style={[styles.optionSub, { color: colors.muted }]}>Get a free @weldmail.com address in seconds</Text>
+            <Text style={[styles.optionTitle, { color: colors.text }]}>Workspace WeldMail</Text>
+            <Text style={[styles.optionSub, { color: colors.muted }]}>A @weldmail.com address on this workspace</Text>
           </View>
           <ChevronRight size={20} color={colors.muted} />
         </TouchableOpacity>
@@ -261,6 +312,8 @@ export default function AddAccountScreen() {
             </View>
             <ChevronRight size={20} color={colors.muted} />
           </TouchableOpacity>
+        ) : null}
+          </>
         ) : null}
       </View>
 
@@ -455,26 +508,25 @@ export default function AddAccountScreen() {
   const headerTitle = screen === 'select'
     ? 'Add account'
     : screen === 'weldmail'
-    ? 'WeldMail address'
+    ? 'Workspace address'
+    : screen === 'personal'
+    ? 'Personal address'
     : 'Custom domain';
 
-  // Footer CTA config per form
-  const cta = screen === 'weldmail'
+  const cta = (screen === 'weldmail' || screen === 'personal')
     ? { label: 'Create address', onPress: handleWeldMailSubmit, disabled: !availability?.available || submitting }
     : screen === 'custom-domain'
     ? { label: 'Create email', onPress: handleCustomDomainSubmit, disabled: !emailPrefix || !selectedDomain || submitting }
     : null;
 
-  // Render nothing while we're unsure or the user lacks permission — the
-  // effect above redirects out, this just avoids flashing the form first.
-  if (permissionsLoading || !canCreate) {
+  if (permissionsLoading || !canStay) {
     return <View style={[styles.container, { backgroundColor: colors.background }]} />;
   }
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
-      <View style={[styles.header, { borderBottomColor: colors.divider }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 14, borderBottomColor: colors.divider }]}>
         <TouchableOpacity onPress={handleBack} hitSlop={10} style={styles.headerButton}>
           {screen === 'select' ? (
             <X size={24} color={colors.text} />
@@ -488,12 +540,12 @@ export default function AddAccountScreen() {
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={{ paddingBottom: 24 }}
+        contentContainerStyle={{ paddingBottom: cta ? 24 : insets.bottom + 24 }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         {screen === 'select' && renderProviderSelection()}
-        {screen === 'weldmail' && renderWeldMailForm()}
+        {(screen === 'weldmail' || screen === 'personal') && renderWeldMailForm()}
         {screen === 'custom-domain' && renderCustomDomainForm()}
       </ScrollView>
 

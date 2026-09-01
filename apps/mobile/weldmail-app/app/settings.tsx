@@ -9,15 +9,17 @@ import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
 import { Card } from '@weldsuite/mobile-ui/components/Card';
 import { Spinner } from '@weldsuite/mobile-ui/components/Spinner';
 import { useNotifications } from '@/contexts/NotificationContext';
-import { LogOut, Moon, Sun, Building2, Check } from 'lucide-react-native';
+import { useMail } from '@/contexts/MailContext';
+import { LogOut, Moon, Sun, Building2, Check, User } from 'lucide-react-native';
 import { Screen, ScreenHeader, SectionLabel } from '@/components/screen';
 import { BRAND, BRAND_TINT, tint, ACCENTS } from '@/lib/brand';
 
 export default function SettingsScreen() {
   const { theme, colors, toggleTheme } = useTheme();
   const { user, signOut } = useClerkAuth();
-  const { currentWorkspace, workspaces, switchWorkspace, hasMultipleWorkspaces } = useWorkspace();
+  const { currentWorkspace, workspaces, switchWorkspace } = useWorkspace();
   const { unregisterDevice, prepareWorkspaceSwitch } = useNotifications();
+  const { hasPersonalAccount, accounts, selectAccount, selectUnifiedInbox } = useMail();
   const [switchingId, setSwitchingId] = useState<string | null>(null);
   const router = useRouter();
 
@@ -76,49 +78,74 @@ export default function SettingsScreen() {
           ) : null}
         </Card>
 
-        {hasMultipleWorkspaces ? (
-          <>
-            <SectionLabel>Workspace</SectionLabel>
-            <Card style={styles.card}>
-              {workspaces.map((ws, i) => {
-                const isActive = currentWorkspace?.clerkOrgId === ws.clerkOrgId;
-                const isLast = i === workspaces.length - 1;
-                const isSwitching = switchingId === ws.clerkOrgId;
-                return (
-                  <TouchableOpacity
-                    key={ws.id}
-                    style={[styles.row, !isLast ? { borderBottomColor: colors.border } : { borderBottomWidth: 0 }]}
-                    onPress={() => !isActive && handleSwitchWorkspace(ws.clerkOrgId)}
-                    activeOpacity={isActive ? 1 : 0.6}
+        <SectionLabel>Inboxes</SectionLabel>
+        <Card style={styles.card}>
+          <TouchableOpacity
+            style={[
+              styles.row,
+              workspaces.length > 0 ? { borderBottomColor: colors.border } : { borderBottomWidth: 0 },
+            ]}
+            onPress={() => {
+              if (hasPersonalAccount) {
+                const personal = accounts.find((a) => a.tenantKind === 'personal');
+                if (personal) selectAccount(personal);
+                else selectUnifiedInbox();
+                router.back();
+              } else {
+                router.push('/add-account' as never);
+              }
+            }}
+            activeOpacity={0.6}
+          >
+            <View style={styles.rowLeft}>
+              <View style={[styles.iconTile, { backgroundColor: tint(ACCENTS.settings) }]}>
+                <User size={16} color={colors.muted} strokeWidth={2.2} />
+              </View>
+              <Text style={[styles.label, { color: colors.text }]}>
+                {hasPersonalAccount ? 'Personal' : 'Add personal inbox'}
+              </Text>
+            </View>
+            {hasPersonalAccount ? (
+              <View style={[styles.emptyCircle, { borderColor: colors.border }]} />
+            ) : null}
+          </TouchableOpacity>
+          {workspaces.map((ws, i) => {
+            const isActive = currentWorkspace?.clerkOrgId === ws.clerkOrgId;
+            const isLast = i === workspaces.length - 1;
+            const isSwitching = switchingId === ws.clerkOrgId;
+            return (
+              <TouchableOpacity
+                key={ws.id}
+                style={[styles.row, !isLast ? { borderBottomColor: colors.border } : { borderBottomWidth: 0 }]}
+                onPress={() => !isActive && handleSwitchWorkspace(ws.clerkOrgId)}
+                activeOpacity={isActive ? 1 : 0.6}
+              >
+                <View style={styles.rowLeft}>
+                  <View
+                    style={[
+                      styles.iconTile,
+                      { backgroundColor: isActive ? BRAND_TINT : tint(ACCENTS.settings) },
+                    ]}
                   >
-                    <View style={styles.rowLeft}>
-                      <View
-                        style={[
-                          styles.iconTile,
-                          { backgroundColor: isActive ? BRAND_TINT : tint(ACCENTS.settings) },
-                        ]}
-                      >
-                        <Building2 size={16} color={isActive ? BRAND : colors.muted} strokeWidth={2.2} />
-                      </View>
-                      <Text style={[styles.label, { color: colors.text }, isActive && { fontWeight: '600' }]}>
-                        {ws.name}
-                      </Text>
-                    </View>
-                    {isSwitching ? (
-                      <Spinner size="small" color={BRAND} />
-                    ) : isActive ? (
-                      <View style={[styles.checkCircle, { backgroundColor: BRAND }]}>
-                        <Check size={14} color="#FFFFFF" strokeWidth={3} />
-                      </View>
-                    ) : (
-                      <View style={[styles.emptyCircle, { borderColor: colors.border }]} />
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </Card>
-          </>
-        ) : null}
+                    <Building2 size={16} color={isActive ? BRAND : colors.muted} strokeWidth={2.2} />
+                  </View>
+                  <Text style={[styles.label, { color: colors.text }, isActive && { fontWeight: '600' }]}>
+                    {ws.name}
+                  </Text>
+                </View>
+                {isSwitching ? (
+                  <Spinner size="small" color={BRAND} />
+                ) : isActive ? (
+                  <View style={[styles.checkCircle, { backgroundColor: BRAND }]}>
+                    <Check size={14} color="#FFFFFF" strokeWidth={3} />
+                  </View>
+                ) : (
+                  <View style={[styles.emptyCircle, { borderColor: colors.border }]} />
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </Card>
 
         <SectionLabel>Appearance</SectionLabel>
         <Card style={styles.card}>

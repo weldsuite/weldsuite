@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
-import { appApi } from '@/services/app-api';
+import { createDraft } from '@/services/mail-tenant';
 import ComposeScreen, { type ComposeCloseInfo, type ComposePrefill } from '@/app/compose';
 
 type OpenComposeOptions = {
@@ -60,7 +60,7 @@ export function ComposeOverlayProvider({ children }: { children: React.ReactNode
       // Reply/forward openers don't supply a handler: persist in the
       // background and surface a toast, without blocking the close.
       if (info.draftAccountId) {
-        appApi.mailDrafts.create({
+        createDraft({
           accountId: info.draftAccountId,
           to: info.draftTo ? info.draftTo.split(/[,;]\s*/).filter(Boolean) : undefined,
           cc: info.draftCc ? info.draftCc.split(/[,;]\s*/).filter(Boolean) : undefined,

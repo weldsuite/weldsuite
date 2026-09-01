@@ -3,6 +3,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { isNetworkError } from '@weldsuite/api-client/client';
 import { appApi } from '@/services/app-api';
+import { personalApi } from '@/services/personal-api';
+import {
+  rememberPersonalAccounts,
+  listLabelsForAccount,
+  type TenantMailAccount,
+} from '@/services/mail-tenant';
 import { isSystemLabel } from '@/utils/label-utils';
 import { mailCache, scopeKey } from '@/lib/offline/cache';
 import { useCacheOrgId } from '@/hooks/useCacheOrgId';
@@ -34,14 +40,7 @@ export const SECONDARY_LABELS: MailLabel[] = [
 
 export const DEFAULT_LABELS: MailLabel[] = [...MAIN_LABELS, ...SECONDARY_LABELS];
 
-interface MailAccount {
-  id: string;
-  emailAddress: string;
-  displayName: string;
-  provider?: string;
-  isDefault?: boolean;
-  isActive?: boolean;
-}
+export type MailAccount = TenantMailAccount;
 
 const STORAGE_KEY_SELECTED_ACCOUNT = '@weldmail_selected_account';
 
@@ -79,6 +78,8 @@ interface MailContextValue {
   // without relying on navigation focus events.
   mailVersion: number;
   refreshMail: () => void;
+  /** True when this Clerk user already has a personal WeldMail address. */
+  hasPersonalAccount: boolean;
   /**
    * Message a notification tap wants the inbox to contain. The list retries
    * until this id appears (or retries run out), then clears it. Null when
@@ -182,33 +183,78 @@ export function MailProvider({ children }: { children: React.ReactNode }) {
   const fetchAccounts = useCallback(async () => {
     const orgId = orgIdRef.current;
     try {
-      const { data: items } = await appApi.mailAccounts.list();
-      // Mark a successful fetch so the init effect won't refetch, and clear the
-      // retry budget for any future session.
+      const [personalResult, workspaceResult, directoryResult] = await Promise.allSettled([
+        personalApi.me(),
+        organizationId
+          ? appApi.mailAccounts.list({ limit: 100 })
+          : Promise.resolve({ data: [] as Awaited<ReturnType<typeof appApi.mailAccounts.list>>['data'] }),
+        appApi.mailboxes.list(),
+      ]);
+
       initializedRef.current = true;
       retryCountRef.current = 0;
-      const normalized: MailAccount[] = items.map((a) => ({
+
+      const personalRows =
+        personalResult.status === 'fulfilled' ? (personalResult.value.data.mailAccounts ?? []) : [];
+      rememberPersonalAccounts(personalRows.map((a) => a.id));
+      const personalAccounts: MailAccount[] = personalRows.map((a) => ({
         id: a.id,
         emailAddress: a.email,
         displayName: a.displayName ?? a.name ?? a.email,
         provider: a.provider,
         isDefault: a.isDefault,
         isActive: a.status === 'active',
+        tenantKind: 'personal',
+        clerkOrgId: null,
+        workspaceName: 'Personal',
       }));
+
+      const liveWorkspace =
+        workspaceResult.status === 'fulfilled' ? workspaceResult.value.data : [];
+      const currentOrgAccounts: MailAccount[] = liveWorkspace.map((a) => ({
+        id: a.id,
+        emailAddress: a.email,
+        displayName: a.displayName ?? a.name ?? a.email,
+        provider: a.provider,
+        isDefault: a.isDefault,
+        isActive: a.status === 'active',
+        tenantKind: 'workspace',
+        clerkOrgId: organizationId ?? orgId,
+        workspaceName: null,
+      }));
+      const currentIds = new Set(currentOrgAccounts.map((a) => a.id));
+
+      const directory =
+        directoryResult.status === 'fulfilled' ? directoryResult.value.data : [];
+      const otherOrgAccounts: MailAccount[] = [];
+      for (const group of directory) {
+        if (organizationId && group.clerkOrgId === organizationId) continue;
+        for (const a of group.accounts) {
+          if (currentIds.has(a.id)) continue;
+          otherOrgAccounts.push({
+            id: a.id,
+            emailAddress: a.email,
+            displayName: a.displayName,
+            provider: a.provider ?? undefined,
+            isDefault: a.isDefault,
+            isActive: a.status === 'active',
+            tenantKind: 'workspace',
+            clerkOrgId: group.clerkOrgId,
+            workspaceName: group.workspaceName,
+          });
+        }
+      }
+
+      const normalized = [...personalAccounts, ...currentOrgAccounts, ...otherOrgAccounts];
       setAccounts(normalized);
-      // Persist so the next launch (and offline opens) have an account list.
-      // Skip while the org id is unknown so we never write to a shared bucket.
       if (orgId) mailCache.setAccounts(orgId, normalized);
       await applySavedSelection(normalized);
     } catch (error) {
-      // The first fetch can lose the race against Clerk org activation (the
-      // app-api returns 403 ORG_REQUIRED until the session token carries an
-      // active org), or the device may simply be offline. Hydrate the cached
-      // account list so the mailbox shell still works, reset the guard, and
-      // schedule a bounded retry so it self-heals once the network/token is
-      // available instead of leaving the mailbox empty for the whole session.
       const cached = orgId ? ((await mailCache.getAccounts(orgId)) as MailAccount[] | null) : null;
       if (cached && cached.length) {
+        rememberPersonalAccounts(
+          cached.filter((a) => a.tenantKind === 'personal').map((a) => a.id),
+        );
         setAccounts(cached);
         await applySavedSelection(cached);
       }
@@ -219,7 +265,7 @@ export function MailProvider({ children }: { children: React.ReactNode }) {
         setTimeout(() => setRetryTick((t) => t + 1), 600);
       }
     }
-  }, [applySavedSelection]);
+  }, [applySavedSelection, organizationId]);
 
   const selectAccount = useCallback((account: MailAccount) => {
     setIsUnifiedInbox(false);
@@ -323,11 +369,12 @@ export function MailProvider({ children }: { children: React.ReactNode }) {
         if (accounts.length === 0) return;
         const allItems: any[] = [];
         const results = await Promise.allSettled(
-          accounts.map(acc => appApi.mailLabels.list({ accountId: acc.id }))
+          accounts.filter((acc) => acc.tenantKind !== 'workspace' || !acc.clerkOrgId || acc.clerkOrgId === organizationId)
+            .map((acc) => listLabelsForAccount(acc)),
         );
         for (const result of results) {
           if (result.status === 'fulfilled') {
-            allItems.push(...result.value.data);
+            allItems.push(...result.value);
           }
         }
         if (allItems.length > 0) {
@@ -335,7 +382,7 @@ export function MailProvider({ children }: { children: React.ReactNode }) {
           applyLabels(scope, mainCounts, secondaryCounts, custom);
         }
       } else if (selectedAccount) {
-        const { data: items } = await appApi.mailLabels.list({ accountId: selectedAccount.id });
+        const items = await listLabelsForAccount(selectedAccount);
         if (items.length > 0) {
           const { mainCounts, secondaryCounts, custom } = processLabelsResponse(items);
           applyLabels(scope, mainCounts, secondaryCounts, custom);
@@ -352,7 +399,7 @@ export function MailProvider({ children }: { children: React.ReactNode }) {
       }
       if (!isNetworkError(error)) console.error('Failed to fetch labels:', error);
     }
-  }, [selectedAccount?.id, isUnifiedInbox, accounts, processLabelsResponse, applyLabels]);
+  }, [selectedAccount?.id, isUnifiedInbox, accounts, processLabelsResponse, applyLabels, organizationId]);
 
   const refreshLabels = useCallback(async () => {
     await fetchLabels();
@@ -408,19 +455,17 @@ export function MailProvider({ children }: { children: React.ReactNode }) {
     if (prev && next && prev !== next) {
       initializedRef.current = false;
       retryCountRef.current = 0;
-      // Any queued notification account belongs to the org we're leaving.
-      pendingAccountIdRef.current = null;
-      setPendingNotificationEmailId(null);
-      setAccounts([]);
-      setSelectedAccount(null);
-      setIsUnifiedInbox(true);
+      // Keep a pending account request — the sidebar may have asked us to land
+      // on a mailbox in the org we're switching to.
+      setAccounts((prevAccounts) => prevAccounts.filter((a) => a.tenantKind === 'personal'));
+      setSelectedAccount((sel) => (sel?.tenantKind === 'personal' ? sel : null));
+      setIsUnifiedInbox((unified) => unified);
       setCustomLabels([]);
       setMainLabelCounts({});
       setSecondaryLabelCounts({});
       setSelectedLabel('INBOX');
       setIsLoading(true);
-      AsyncStorage.removeItem(STORAGE_KEY_SELECTED_ACCOUNT);
-      setRetryTick((t) => t + 1); // re-trigger the init effect to refetch
+      setRetryTick((t) => t + 1);
     }
   }, [organizationId]);
 
@@ -431,6 +476,11 @@ export function MailProvider({ children }: { children: React.ReactNode }) {
       fetchLabels();
     }
   }, [selectedAccount?.id, isUnifiedInbox, accounts.length, fetchLabels]);
+
+  const hasPersonalAccount = useMemo(
+    () => accounts.some((a) => a.tenantKind === 'personal'),
+    [accounts],
+  );
 
   const value = useMemo(
     () => ({
@@ -452,6 +502,7 @@ export function MailProvider({ children }: { children: React.ReactNode }) {
       updateLabelCount,
       mailVersion,
       refreshMail,
+      hasPersonalAccount,
       pendingNotificationEmailId,
       expectNotificationEmail,
       clearPendingNotificationEmail,
@@ -474,6 +525,7 @@ export function MailProvider({ children }: { children: React.ReactNode }) {
       updateLabelCount,
       mailVersion,
       refreshMail,
+      hasPersonalAccount,
       pendingNotificationEmailId,
       expectNotificationEmail,
       clearPendingNotificationEmail,

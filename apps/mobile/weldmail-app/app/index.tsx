@@ -26,7 +26,7 @@ import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { Chip } from '@weldsuite/mobile-ui/components/Chip';
 import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
-import { appApi } from '@/services/app-api';
+import { listInboxMessages, listDrafts, createDraft, deleteDraft } from '@/services/mail-tenant';
 import { isNetworkError } from '@weldsuite/api-client/client';
 import { useMailCache } from '@/hooks/useMailCache';
 import { useMailOutbox } from '@/hooks/useMailOutbox';
@@ -345,10 +345,13 @@ export default function MailScreen() {
     // the wrong list.
     const requestScope = activeScopeRef.current;
     try {
-      const queryParams: Record<string, any> = { label: selectedLabel, limit: 50 };
-      if (!isUnifiedInbox && selectedAccount?.id) queryParams.accountId = selectedAccount.id;
-      if (search) queryParams.search = search;
-      const { data: list } = await appApi.mailMessages.list(queryParams);
+      const list = await listInboxMessages({
+        isUnified: isUnifiedInbox,
+        selected: selectedAccount,
+        label: selectedLabel,
+        search,
+        limit: 50,
+      });
       if (activeScopeRef.current !== requestScope) return;
       // Enrich with thread count
       const threadCounts: Record<string, number> = {};
@@ -383,7 +386,7 @@ export default function MailScreen() {
         setRefreshing(false);
       }
     }
-  }, [selectedLabel, selectedAccount?.id, isUnifiedInbox, scopeId, cache, outbox, updateLabelCount]);
+  }, [selectedLabel, selectedAccount, isUnifiedInbox, scopeId, cache, outbox, updateLabelCount]);
 
   // Always call the latest fetchMessages from effects/refs without re-subscribing.
   const fetchMessagesRef = useRef(fetchMessages);
@@ -427,7 +430,11 @@ export default function MailScreen() {
     const fetchDraftCount = async () => {
       try {
         const accountId = !isUnifiedInbox && selectedAccount?.id ? selectedAccount.id : undefined;
-        const { data: drafts } = await appApi.mailDrafts.list(accountId ? { accountId } : {});
+        const { data: drafts } = await listDrafts({
+          accountId,
+          isUnified: isUnifiedInbox,
+          selected: selectedAccount,
+        });
         if (drafts.length > 0) updateLabelCount('DRAFTS', drafts.length);
       } catch {}
     };
@@ -659,7 +666,7 @@ export default function MailScreen() {
     // persist the draft here in the background and capture its id (used by the
     // snackbar's Discard action to delete the draft).
     if (!info.draftId && draftData.emailAccountId) {
-      appApi.mailDrafts.create({
+      createDraft({
         accountId: draftData.emailAccountId,
         to: draftData.to ? draftData.to.split(/[,;]\s*/).map(s => s.trim()).filter(Boolean) : undefined,
         cc: draftData.cc ? draftData.cc.split(/[,;]\s*/).map(s => s.trim()).filter(Boolean) : undefined,
@@ -966,7 +973,7 @@ export default function MailScreen() {
                 if (!draftData?.emailAccountId) { dismissSnackbar(); return; }
                 dismissSnackbar();
                 try {
-                  const res = await appApi.mailDrafts.create({
+                  const res = await createDraft({
                     accountId: draftData.emailAccountId,
                     to: draftData.to ? draftData.to.split(/[,;]\s*/).map((s: string) => s.trim()).filter(Boolean) : undefined,
                     cc: draftData.cc ? draftData.cc.split(/[,;]\s*/).map((s: string) => s.trim()).filter(Boolean) : undefined,
@@ -990,7 +997,7 @@ export default function MailScreen() {
                 if (!draftId) { dismissSnackbar(); return; }
                 dismissSnackbar();
                 try {
-                  await appApi.mailDrafts.delete(draftId);
+                  await deleteDraft(draftId, lastDraftDataRef.current?.emailAccountId);
                   lastDraftIdRef.current = null;
                   showSnackbar('Draft discarded', 2000);
                 } catch { showSnackbar('Draft discarded', 2000); }

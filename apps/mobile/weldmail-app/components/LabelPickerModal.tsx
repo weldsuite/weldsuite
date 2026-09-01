@@ -11,7 +11,7 @@ import CenteredModalShell from './CenteredModalShell';
 import { X, Check, Tag } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useMail } from '@/contexts/MailContext';
-import { appApi } from '@/services/app-api';
+import { applyMessageLabels } from '@/services/mail-tenant';
 
 interface LabelPickerModalProps {
   visible: boolean;
@@ -57,15 +57,7 @@ export default function LabelPickerModal({ visible, onClose, messageId, currentL
 
     setSaving(true);
     try {
-      let finalLabels: string[] = [...selected];
-      if (addLabels.length > 0) {
-        const res = await appApi.mailMessages.addLabels(messageId, { labels: addLabels });
-        finalLabels = res.data.labels;
-      }
-      if (removeLabels.length > 0) {
-        const res = await appApi.mailMessages.removeLabels(messageId, { labels: removeLabels });
-        finalLabels = res.data.labels;
-      }
+      const finalLabels = await applyMessageLabels(messageId, addLabels, removeLabels, [...selected]);
       onLabelsChanged(finalLabels);
       onClose();
     } catch (err) {

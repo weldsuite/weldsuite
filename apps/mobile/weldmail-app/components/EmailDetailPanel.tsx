@@ -36,7 +36,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmailHtmlView from '@/components/EmailHtmlView';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { appApi } from '@/services/app-api';
+import { getMessage, markMessageRead, getThread } from '@/services/mail-tenant';
 import { isApiError } from '@weldsuite/api-client/client';
 import { useMailOutbox } from '@/hooks/useMailOutbox';
 import { useComposeOverlay } from '@/contexts/ComposeOverlayContext';
@@ -239,8 +239,7 @@ export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchi
       let gone = false;
       for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
         try {
-          const res = await appApi.mailMessages.get(emailId);
-          fetched = res.data;
+          fetched = await getMessage(emailId);
           break;
         } catch (err) {
           if (isApiError(err) && err.status === 404) {
@@ -255,16 +254,15 @@ export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchi
       if (fetched) {
         setEmail(fetched);
         setLoadOutcome(null);
-        appApi.mailMessages.update(emailId, { isRead: true }).catch(() => {});
+        markMessageRead(emailId).catch(() => {});
       } else {
         setEmail(null);
         setLoadOutcome(gone ? 'gone' : 'failed');
       }
 
-      // Thread is best-effort and must never gate the message view.
       try {
-        const t = await appApi.mailMessages.thread(emailId);
-        if (!cancelled) setThreadMessages(t.data.messages.filter((m: any) => m.id !== emailId));
+        const t = await getThread(emailId);
+        if (!cancelled) setThreadMessages(t.filter((m: { id: string }) => m.id !== emailId));
       } catch {
         // ignore — a threadless email or a transient thread error is harmless.
       }
