@@ -29,6 +29,24 @@ import {
   type PlatformToolDefinition,
 } from './tools';
 
+/**
+ * Third-party models (`anthropic/…`, `openai/…`) need Cloudflare AI Gateway
+ * (`CF_AI_GATEWAY`). Direct Workers AI only serves `@cf/…`. Without a gateway,
+ * fall back to the free Workers AI default so chat doesn't 404.
+ */
+export function resolveAgentModelId(env: Env, requested: string | null | undefined): string {
+  const fallback = recommended.copilot.free;
+  const modelId = (requested?.trim() || fallback);
+  const hasGateway = Boolean(
+    typeof env.CF_AI_GATEWAY === 'string' && env.CF_AI_GATEWAY.length > 0,
+  );
+  if (hasGateway || modelId.startsWith('@cf/')) return modelId;
+  console.warn(
+    `[weldagent] Model "${modelId}" needs CF_AI_GATEWAY; falling back to ${fallback}`,
+  );
+  return fallback;
+}
+
 export interface StoredToolInvocation {
   toolName: string;
   state: 'call' | 'result' | 'error';
@@ -124,7 +142,7 @@ export async function runAgentOnce(input: AgentExecutorInput): Promise<AgentExec
   const defs = resolveAgentTools(input.agent.permissions, input.agent.enabledTools);
   const invocations: StoredToolInvocation[] = [];
   const sdkTools = toSdkTools(defs, input.toolContext, invocations);
-  const modelId = input.agent.modelId || recommended.copilot.free;
+  const modelId = resolveAgentModelId(input.env, input.agent.modelId);
   const temperature = Number.parseFloat(input.agent.temperature) || 0.7;
   const system = buildSystemPrompt(input.agent, input.extraSystem);
 
@@ -193,7 +211,7 @@ export async function streamAgentChat(input: StreamAgentParams) {
   const defs = resolveAgentTools(input.agent.permissions, input.agent.enabledTools);
   const invocations: StoredToolInvocation[] = [];
   const sdkTools = toSdkTools(defs, input.toolContext, invocations);
-  const modelId = input.agent.modelId || recommended.copilot.free;
+  const modelId = resolveAgentModelId(input.env, input.agent.modelId);
   const temperature = Number.parseFloat(input.agent.temperature) || 0.7;
   const system = buildSystemPrompt(input.agent, input.extraSystem);
 

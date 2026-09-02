@@ -3,6 +3,7 @@
  */
 
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { recommended } from '@weldsuite/ai';
 import { schema } from '../../db';
 import { generateId } from '../../lib/id';
 import type { Variables } from '../../types';
@@ -102,7 +103,7 @@ export async function createAgent(db: AgentDb, input: CreateAgentInput) {
     icon: input.icon ?? null,
     status: 'draft',
     systemPrompt: input.systemPrompt ?? '',
-    modelId: input.modelId ?? 'anthropic/claude-sonnet-4-5',
+    modelId: input.modelId ?? recommended.copilot.free,
     temperature: input.temperature ?? '0.70',
     maxTokens: input.maxTokens ?? 2048,
     permissions: input.permissions ?? [],
