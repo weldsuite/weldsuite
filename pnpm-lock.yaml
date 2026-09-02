@@ -3217,6 +3217,9 @@ importers:
       '@weldsuite/personal-api-client':
         specifier: workspace:*
         version: link:../../../packages/clients/personal-api-client
+      '@weldsuite/realtime':
+        specifier: workspace:*
+        version: link:../../../packages/core/realtime
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
@@ -3845,10 +3848,13 @@ importers:
         version: 4.20260113.0
       '@types/node':
         specifier: ^20
-        version: 20.19.43
+        version: 20.19.27
       typescript:
         specifier: ^5.7
         version: 5.9.2
+      vitest:
+        specifier: ^3.2.6
+        version: 3.2.7(@types/debug@4.1.12)(@types/node@20.19.27)(jiti@2.7.0)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(lightningcss@1.32.0)(sass@1.51.0)(terser@5.50.0)(tsx@4.21.0)(yaml@2.8.2)
       wrangler:
         specifier: ^4.0.0
         version: 4.95.0(@cloudflare/workers-types@4.20260113.0)(bufferutil@4.1.0)(utf-8-validate@6.0.6)

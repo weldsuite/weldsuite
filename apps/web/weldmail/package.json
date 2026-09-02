@@ -14,6 +14,7 @@
   "dependencies": {
     "@clerk/clerk-react": "^5.31.0",
     "@weldsuite/personal-api-client": "workspace:*",
+    "@weldsuite/realtime": "workspace:*",
     "clsx": "^2.1.1",
     "lucide-react": "^0.544.0",
     "react": "^19.0.0",

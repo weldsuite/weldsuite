@@ -2,9 +2,16 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { Env } from './lib/protocol';
 import { AUTH_HEADERS } from './lib/protocol';
-import { verifyClerkJwt, verifyAuth, pemToBuffer, base64UrlToBuffer } from './lib/auth';
+import {
+  verifyClerkJwt,
+  verifyPersonalClerkJwt,
+  verifyAuth,
+  pemToBuffer,
+  base64UrlToBuffer,
+} from './lib/auth';
 import {
   getWorkspacePermissions,
+  getPersonalPermissions,
   getConversationPermissions,
   getChatPermissions,
 } from './lib/permissions';
@@ -105,6 +112,43 @@ app.get('/ws', async (c) => {
   const stub = c.env.WORKSPACE_HUB.get(id);
 
   // Forward the upgrade request to the DO with auth info in headers
+  const headers = new Headers(c.req.raw.headers);
+  headers.set(AUTH_HEADERS.USER_ID, auth.userId);
+  headers.set(AUTH_HEADERS.USER_NAME, auth.userName);
+  headers.set(AUTH_HEADERS.ROLE, auth.role);
+  headers.set(AUTH_HEADERS.SUBSCRIBE_TOPICS, permissions.subscribe.join(','));
+  headers.set(AUTH_HEADERS.WORKSPACE_ID, auth.workspaceId);
+
+  return stub.fetch(new Request(c.req.url, { headers, method: 'GET' }));
+});
+
+/**
+ * Client WebSocket upgrade for a PERSONAL (consumer) account — e.g. WeldMail
+ * web/mobile, where the signed-in user has no Clerk organization.
+ *
+ * The hub is named `personal:<clerkUserId>` so each user gets an isolated DO,
+ * and the subscribe allow list is limited to that user's own mail/notification
+ * topics. Workspace connections keep using `/ws`.
+ */
+app.get('/ws/personal', async (c) => {
+  if (c.req.header('Upgrade') !== 'websocket') {
+    return c.text('Expected WebSocket upgrade', 426);
+  }
+
+  let auth;
+  try {
+    auth = await verifyPersonalClerkJwt(c);
+  } catch (err) {
+    console.error('[realtime /ws/personal] Auth failed:', (err as Error).message);
+    return c.text(`Unauthorized: ${(err as Error).message}`, 401);
+  }
+
+  console.log('[realtime /ws/personal] Authenticated:', auth.userId);
+
+  const permissions = getPersonalPermissions(auth);
+  const id = c.env.WORKSPACE_HUB.idFromName(auth.workspaceId);
+  const stub = c.env.WORKSPACE_HUB.get(id);
+
   const headers = new Headers(c.req.raw.headers);
   headers.set(AUTH_HEADERS.USER_ID, auth.userId);
   headers.set(AUTH_HEADERS.USER_NAME, auth.userName);

@@ -132,6 +132,7 @@ jobs:
             weldmail-web:
               - 'apps/web/weldmail/**'
               - 'packages/clients/personal-api-client/**'
+              - 'packages/core/realtime/**'
             weldchat:
               - 'apps/mobile/weldchat-app/**'
               - 'packages/clients/app-api-client/**'
@@ -214,6 +215,7 @@ jobs:
             personal-api:
               - 'apps/workers/personal-api/**'
               - 'packages/clients/personal-api-client/**'
+              - 'packages/core/email/**'
               - 'packages/core/db/src/schema/personal/**'
               - 'packages/core/db/src/schema/personal.ts'
               - 'packages/core/db/src/schema/master.ts'

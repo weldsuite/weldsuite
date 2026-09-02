@@ -1,8 +1,9 @@
 import { useEffect, type ReactNode } from 'react';
 import { useAuth, useUser } from '@clerk/clerk-react';
-import { Inbox, PenSquare, CreditCard, LogOut } from 'lucide-react';
+import { Inbox, PenSquare, CreditCard, LogOut, Send } from 'lucide-react';
 import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { setPersonalApiTokenGetter } from '@/lib/api';
+import { useMailEvents } from '@/contexts/mail-events';
 import { cn } from '@/lib/utils';
 
 export function TokenBridge({ children }: { children: ReactNode }) {
@@ -98,6 +99,7 @@ function SidebarProfile() {
 export function AppShell() {
   const { has } = useAuth();
   const isPro = Boolean(has?.({ plan: 'weldmail_pro' }));
+  const { unreadCount } = useMailEvents();
 
   return (
     <div className="h-screen bg-[var(--shell-chrome)] p-2">
@@ -122,9 +124,18 @@ export function AppShell() {
           </div>
 
           <nav className="flex flex-1 flex-col gap-0.5">
-            <NavLink to="/inbox" className={navLinkClass}>
+            <NavLink to="/inbox" end className={navLinkClass}>
               <Inbox className="h-4 w-4" />
-              Inbox
+              <span className="flex-1">Inbox</span>
+              {unreadCount > 0 && (
+                <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
+            </NavLink>
+            <NavLink to="/inbox?folder=SENT" className={navLinkClass}>
+              <Send className="h-4 w-4" />
+              Sent
             </NavLink>
             <NavLink to="/compose" className={navLinkClass}>
               <PenSquare className="h-4 w-4" />
