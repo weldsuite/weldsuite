@@ -194,7 +194,20 @@ app.post('/', requirePermission('channels:create'), zValidator('json', createCha
     const content =
       typeof data.body === 'string' ? data.body : typeof data.content === 'string' ? data.content : '';
     const message = await postChatMessage(
-      { db, env: c.env, orgId, channelId, authorUserId: userId },
+      {
+        db,
+        env: c.env,
+        orgId,
+        channelId,
+        authorUserId: userId,
+        waitUntil: (p) => {
+          try {
+            c.executionCtx.waitUntil(p);
+          } catch {
+            void p.catch(() => undefined);
+          }
+        },
+      },
       {
         content,
         htmlContent: typeof data.htmlContent === 'string' ? data.htmlContent : undefined,

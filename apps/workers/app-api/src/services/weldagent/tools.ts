@@ -23,6 +23,11 @@ export interface ToolContext {
   /** Human who triggered the run (chat user or event actor). */
   actorUserId: string;
   workspaceId: string;
+  /** When running inside a WeldChat room reply. */
+  channelId?: string;
+  env?: import('../../types').Env;
+  agentHop?: number;
+  maxAgentHops?: number;
 }
 
 export interface PlatformToolDefinition {
@@ -83,6 +88,18 @@ const createTaskParams = z.object({
   projectId: z.string().max(30).optional(),
   priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
   status: z.string().max(30).optional(),
+});
+
+const messageAgentParams = z.object({
+  agentId: z.string().min(1).max(30),
+  message: z.string().min(1).max(4000),
+});
+
+const createAgentGroupChatParams = z.object({
+  name: z.string().min(1).max(255),
+  agentIds: z.array(z.string().min(1).max(30)).min(1).max(20),
+  openingMessage: z.string().min(1).max(4000).optional(),
+  replyPolicy: z.enum(['mentions', 'always', 'none']).optional(),
 });
 
 export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
@@ -276,6 +293,170 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         updatedAt: now,
       });
       return { id, title: args.title, status: args.status ?? 'todo' };
+    },
+  },
+  {
+    id: 'chat.message_agent',
+    name: 'message_agent',
+    description:
+      'Mention another workspace agent in the current WeldChat room so they can reply. Requires an active channel context.',
+    requiredPermissions: [],
+    parameters: messageAgentParams,
+    async execute(ctx, raw) {
+      const args = messageAgentParams.parse(raw);
+      if (!ctx.channelId) {
+        return { error: 'No active channel — this tool only works inside a WeldChat room reply.' };
+      }
+      if (!args.agentId.startsWith('agt_')) {
+        return { error: 'agentId must be a workspace agent id (agt_…)' };
+      }
+      if (args.agentId === ctx.agentId) {
+        return { error: 'Cannot message yourself' };
+      }
+      const hop = (ctx.agentHop ?? 0) + 1;
+      const maxHops = ctx.maxAgentHops ?? 2;
+      if (hop > maxHops) {
+        return { error: `Agent hop limit reached (${maxHops})` };
+      }
+
+      const { chatChannelMembers, weldagentAgents } = schema;
+      const [membership] = await ctx.db
+        .select({ id: chatChannelMembers.id })
+        .from(chatChannelMembers)
+        .where(
+          and(
+            eq(chatChannelMembers.channelId, ctx.channelId),
+            eq(chatChannelMembers.userId, args.agentId),
+            eq(chatChannelMembers.memberType, 'agent'),
+          ),
+        )
+        .limit(1);
+      if (!membership) {
+        return { error: 'Target agent is not a member of this channel' };
+      }
+
+      const [target] = await ctx.db
+        .select({ id: weldagentAgents.id, name: weldagentAgents.name, status: weldagentAgents.status })
+        .from(weldagentAgents)
+        .where(and(eq(weldagentAgents.id, args.agentId), isNull(weldagentAgents.deletedAt)))
+        .limit(1);
+      if (!target || target.status !== 'active') {
+        return { error: 'Target agent not found or not active' };
+      }
+
+      // Return a mention token the model should include; actual dispatch happens
+      // when the reply is posted and scanned for <@agt_…> mentions.
+      return {
+        ok: true,
+        mentionToken: `<@${args.agentId}>`,
+        agentName: target.name,
+        hint: `Include ${`<@${args.agentId}>`} in your reply text to ping ${target.name}. Message draft: ${args.message}`,
+        draft: args.message,
+      };
+    },
+  },
+  {
+    id: 'chat.create_agent_group',
+    name: 'create_agent_group_chat',
+    description:
+      'Create a private WeldChat room with the current agent, other agents, and the human who invoked this run.',
+    requiredPermissions: [],
+    parameters: createAgentGroupChatParams,
+    async execute(ctx, raw) {
+      const args = createAgentGroupChatParams.parse(raw);
+      if (!ctx.env) {
+        return { error: 'Chat environment unavailable' };
+      }
+
+      const agentIds = Array.from(new Set([ctx.agentId, ...args.agentIds]));
+      const { weldagentAgents } = schema;
+      const active = await ctx.db
+        .select({ id: weldagentAgents.id, name: weldagentAgents.name })
+        .from(weldagentAgents)
+        .where(and(eq(weldagentAgents.status, 'active'), isNull(weldagentAgents.deletedAt)));
+      const activeIds = new Set(active.map((a) => a.id));
+      const missing = agentIds.filter((id) => !activeIds.has(id));
+      if (missing.length > 0) {
+        return { error: `Unknown or inactive agent(s): ${missing.join(', ')}` };
+      }
+
+      const { createChannel } = await import('../chat/create-channel');
+      const { addChannelMembers } = await import('../chat/channel-members');
+      const { mergeAgentRoomPolicy } = await import('../chat/agent-room-policy');
+      const { postAgentChatMessage } = await import('../chat/post-agent-message');
+      const { dispatchAgentRoomReplies } = await import('../chat/agent-mention-dispatch');
+
+      const { channel } = await createChannel(ctx.db, ctx.actorUserId, {
+        name: args.name,
+        type: 'private',
+        memberIds: [ctx.actorUserId],
+        metadata: mergeAgentRoomPolicy(null, {
+          agentReplyPolicy: args.replyPolicy ?? 'mentions',
+          agentMaxHops: 2,
+        }),
+      });
+
+      const addResult = await addChannelMembers(ctx.db, {
+        channelId: channel.id,
+        userIds: agentIds,
+        memberType: 'agent',
+      });
+      if (!addResult.ok) {
+        return { error: addResult.message };
+      }
+
+      const self = active.find((a) => a.id === ctx.agentId);
+      let openingMessageId: string | null = null;
+      if (args.openingMessage?.trim()) {
+        const posted = await postAgentChatMessage(
+          {
+            db: ctx.db,
+            env: ctx.env,
+            orgId: ctx.workspaceId,
+            channelId: channel.id,
+            agentId: ctx.agentId,
+            agentName: self?.name ?? 'Agent',
+            invokerUserId: ctx.actorUserId,
+          },
+          {
+            content: args.openingMessage.trim(),
+            hop: 0,
+          },
+        );
+        openingMessageId = posted.id;
+
+        const mentioned = args.agentIds.filter((id) => id !== ctx.agentId);
+        if (mentioned.length > 0) {
+          await dispatchAgentRoomReplies(
+            {
+              db: ctx.db,
+              env: ctx.env,
+              orgId: ctx.workspaceId,
+              invokerUserId: ctx.actorUserId,
+            },
+            {
+              channelId: channel.id,
+              messageId: posted.id,
+              messageContent: args.openingMessage.trim(),
+              authorId: ctx.agentId,
+              authorType: 'agent',
+              authorName: self?.name ?? 'Agent',
+              mentionedAgentIds: mentioned,
+              hop: 1,
+              maxHops: 2,
+              replyPolicy: args.replyPolicy ?? 'mentions',
+            },
+          );
+        }
+      }
+
+      return {
+        ok: true,
+        channelId: channel.id,
+        channelName: channel.name,
+        agentMemberCount: addResult.addedCount,
+        openingMessageId,
+      };
     },
   },
 ];
