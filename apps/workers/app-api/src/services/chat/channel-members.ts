@@ -26,16 +26,9 @@ export type AddChannelMembersResult =
 /**
  * Validate the ids being invited.
  *
- * `user` → each id must resolve to an ACTIVE workspace member. Stops callers
- * "inviting" arbitrary Clerk user ids into a channel without going through the
- * team invite flow first.
- *
- * `agent` → legacy also probed an `agents` table for existence. That table was
- * physically removed in the 2026-07-08 AI teardown and is not exported from
- * `@weldsuite/db/schema` any more, so the legacy probe would throw on
- * `select().from(undefined)` — i.e. agent invites are broken on api-worker
- * today. Only the id-format half of the legacy check survives the port; the
- * existence probe is reported as a gap rather than faked.
+ * `user` → each id must resolve to an ACTIVE workspace member.
+ * `agent` → each id must be `agt_*` and resolve to an active, non-deleted
+ *           `weldagent_agents` row.
  */
 async function validateMemberIds(
   db: Database,
@@ -46,6 +39,22 @@ async function validateMemberIds(
     const invalidFormat = userIds.filter((id) => !id.startsWith('agt_'));
     if (invalidFormat.length > 0) {
       return { ok: false, message: `Invalid agent id(s): ${invalidFormat.join(', ')}` };
+    }
+    const { weldagentAgents } = schema;
+    const existing = await db
+      .select({ id: weldagentAgents.id })
+      .from(weldagentAgents)
+      .where(
+        and(
+          inArray(weldagentAgents.id, userIds),
+          eq(weldagentAgents.status, 'active'),
+          isNull(weldagentAgents.deletedAt),
+        ),
+      );
+    const found = new Set(existing.map((a) => a.id));
+    const missing = userIds.filter((id) => !found.has(id));
+    if (missing.length > 0) {
+      return { ok: false, message: `Active agent(s) not found: ${missing.join(', ')}` };
     }
     return { ok: true };
   }

@@ -9,7 +9,8 @@ import { useAppApi } from '@/lib/api/use-app-api';
 export const weldagentKeys = {
   all: ['weldagent'] as const,
   conversations: () => [...weldagentKeys.all, 'conversations'] as const,
-  conversationList: () => [...weldagentKeys.conversations(), 'list'] as const,
+  conversationList: (agentId?: string | null) =>
+    [...weldagentKeys.conversations(), 'list', agentId ?? 'all'] as const,
   conversationMessages: (id: string) => [...weldagentKeys.conversations(), id, 'messages'] as const,
   settings: () => [...weldagentKeys.all, 'settings'] as const,
   credits: () => [...weldagentKeys.all, 'credits'] as const,
@@ -24,6 +25,7 @@ export interface ConversationSummary {
   id: string;
   name: string;
   moduleKey: string | null;
+  agentId?: string | null;
   isPinned: boolean;
   // Wire format: ISO strings (the API serializes timestamps to JSON).
   lastMessageAt: string | null;
@@ -64,12 +66,15 @@ export interface WeldAgentUserSettings {
 
 // Lists the current user's saved chats for the home sidebar's "Recent" /
 // "Pinned" groups. Backed by app-api `GET /api/weldagent/conversations`.
-export function useWeldAgentConversations(limit = 50) {
+// Pass `agentId` to scope to one workspace agent (Grok-bot style history).
+export function useWeldAgentConversations(limit = 50, agentId?: string | null) {
   const { weldAgent } = useAppApi();
   return useQuery({
-    queryKey: weldagentKeys.conversationList(),
+    queryKey: weldagentKeys.conversationList(agentId),
     queryFn: async (): Promise<ConversationSummary[]> => {
-      const result = await weldAgent.listConversations(limit);
+      const result = await weldAgent.listConversations(limit, {
+        ...(agentId ? { agentId } : {}),
+      });
       return (result.data || []) as unknown as ConversationSummary[];
     },
   });
@@ -92,12 +97,33 @@ export function useCreateConversation() {
   const { weldAgent } = useAppApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (params: { name?: string; moduleKey?: string }) => {
+    mutationFn: async (params: { name?: string; moduleKey?: string; agentId?: string }) => {
       const result = await weldAgent.createConversation(params);
       return result.data as unknown as ConversationSummary;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: weldagentKeys.conversationList() });
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: weldagentKeys.conversations() });
+      if (data?.agentId) {
+        qc.invalidateQueries({ queryKey: weldagentKeys.conversationList(data.agentId) });
+      }
+    },
+  });
+}
+
+export function useCompleteConversationTurn() {
+  const { weldAgent } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: { conversationId: string; content: string; agentId?: string }) => {
+      const { conversationId, ...body } = params;
+      const result = await weldAgent.completeTurn(conversationId, body);
+      return result.data;
+    },
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({
+        queryKey: weldagentKeys.conversationMessages(variables.conversationId),
+      });
+      qc.invalidateQueries({ queryKey: weldagentKeys.conversations() });
     },
   });
 }
@@ -119,7 +145,7 @@ export function useSaveMessage() {
     },
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: weldagentKeys.conversationMessages(variables.conversationId) });
-      qc.invalidateQueries({ queryKey: weldagentKeys.conversationList() });
+      qc.invalidateQueries({ queryKey: weldagentKeys.conversations() });
     },
   });
 }
@@ -134,7 +160,7 @@ export function useUpdateConversation() {
       return result.data as unknown as ConversationSummary;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: weldagentKeys.conversationList() });
+      qc.invalidateQueries({ queryKey: weldagentKeys.conversations() });
     },
   });
 }
@@ -147,7 +173,7 @@ export function useDeleteConversation() {
       await weldAgent.deleteConversation(conversationId);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: weldagentKeys.conversationList() });
+      qc.invalidateQueries({ queryKey: weldagentKeys.conversations() });
     },
   });
 }

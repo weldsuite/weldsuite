@@ -7,7 +7,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, gt, isNull, like, lt, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, like, lt, or, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { updateChannelMembershipSchema } from '@weldsuite/app-api-client/schemas/chat-dm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -31,6 +31,9 @@ import {
   markChannelUnreadFrom,
 } from '../../services/chat/channel-reads';
 import { forwardMessage } from '../../services/chat/forward-message';
+import {
+  mergeAgentRoomPolicy,
+} from '../../services/chat/agent-room-policy';
 import {
   publishChatChannelUpdated,
   publishChatMemberJoined,
@@ -62,6 +65,10 @@ const createChannelBodySchema = z.object({
   icon: z.string().max(50).optional(),
   sectionId: z.string().optional(),
   memberIds: z.array(z.string()).optional(),
+  /** Workspace agents to invite into the room (`agt_*`). */
+  agentIds: z.array(z.string()).optional(),
+  agentReplyPolicy: z.enum(['mentions', 'always', 'none']).optional(),
+  agentMaxHops: z.number().int().min(1).max(5).optional(),
 });
 
 const updateChannelBodySchema = z.object({
@@ -80,6 +87,8 @@ const updateChannelBodySchema = z.object({
   // is how a channel is removed from a section.
   isArchived: z.boolean().optional(),
   sectionId: z.string().nullable().optional(),
+  agentReplyPolicy: z.enum(['mentions', 'always', 'none']).optional(),
+  agentMaxHops: z.number().int().min(1).max(5).optional(),
 });
 
 app.get('/', requirePermission('channels:read'), async (c) => {
@@ -198,9 +207,25 @@ app.post(
     const data = c.req.valid('json');
 
     try {
-      const { channel, memberUserIds } = await createChannel(db, userId, data);
+      const { agentIds, agentReplyPolicy, agentMaxHops, ...channelFields } = data;
+      const metadata =
+        agentReplyPolicy || agentMaxHops
+          ? mergeAgentRoomPolicy(null, {
+              ...(agentReplyPolicy ? { agentReplyPolicy } : {}),
+              ...(agentMaxHops ? { agentMaxHops } : {}),
+            })
+          : agentIds && agentIds.length > 0
+            ? mergeAgentRoomPolicy(null, { agentReplyPolicy: 'mentions' })
+            : undefined;
+
+      const { channel, memberUserIds } = await createChannel(db, userId, {
+        ...channelFields,
+        agentIds,
+        metadata,
+      });
 
       for (const uid of memberUserIds) {
+        if (uid.startsWith('agt_')) continue;
         try {
           await publishChatUserChannelNew(c.env, orgId, uid, channel.id, channel.name);
         } catch (e) {
@@ -240,8 +265,18 @@ app.patch('/:id', requirePermission('channels:update'), zValidator('json', updat
     if (!(await canAccessChannel(db, id, userId))) {
       return error.notFound(c, 'Channel', id);
     }
+    const { agentReplyPolicy, agentMaxHops, ...rest } = data;
     const update: Record<string, any> = { updatedAt: new Date() };
-    for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
+    for (const [k, v] of Object.entries(rest)) if (v !== undefined) update[k] = v;
+    if (agentReplyPolicy !== undefined || agentMaxHops !== undefined) {
+      update.metadata = mergeAgentRoomPolicy(
+        (existing.metadata as Record<string, unknown> | null) ?? null,
+        {
+          ...(agentReplyPolicy !== undefined ? { agentReplyPolicy } : {}),
+          ...(agentMaxHops !== undefined ? { agentMaxHops } : {}),
+        },
+      );
+    }
     // Renaming re-derives the slug, as the legacy handler did — the slug backs
     // the channel's URL, so leaving it on the old name silently rots links.
     if (data.name !== undefined) update.slug = slugifyChannelName(data.name) || id;
@@ -431,6 +466,13 @@ app.post(
           orgId,
           channelId,
           authorUserId: c.get('userId'),
+          waitUntil: (p) => {
+            try {
+              c.executionCtx.waitUntil(p);
+            } catch {
+              void p.catch(() => undefined);
+            }
+          },
         },
         input,
       );
@@ -477,20 +519,36 @@ app.get('/:channelId/members', requirePermission('channels:read'), async (c) => 
       .leftJoin(workspaceMembers, eq(chatChannelMembers.userId, workspaceMembers.userId))
       .where(eq(chatChannelMembers.channelId, channelId));
 
-    // Chat "agent" members are a legacy concept: the AI agents table was removed
-    // in the 2026-07-08 AI teardown, so there is nothing left to hydrate them
-    // from (`schema.agents` no longer exists). Any surviving agent-type rows
-    // render with a generic label; the response shape is unchanged for the
-    // frontend.
+    const agentIds = rows.filter((r) => r.memberType === 'agent').map((r) => r.userId);
+    const agentById = new Map<
+      string,
+      { name: string; icon: string | null; description: string | null }
+    >();
+    if (agentIds.length > 0) {
+      const agents = await db
+        .select({
+          id: schema.weldagentAgents.id,
+          name: schema.weldagentAgents.name,
+          icon: schema.weldagentAgents.icon,
+          description: schema.weldagentAgents.description,
+        })
+        .from(schema.weldagentAgents)
+        .where(and(inArray(schema.weldagentAgents.id, agentIds), isNull(schema.weldagentAgents.deletedAt)));
+      for (const a of agents) {
+        agentById.set(a.id, { name: a.name, icon: a.icon, description: a.description });
+      }
+    }
+
     const members = rows.map((r) => {
       if (r.memberType === 'agent') {
+        const agent = agentById.get(r.userId);
         return {
           ...r,
-          name: 'Agent',
+          name: agent?.name ?? 'Agent',
           email: null,
           picture: null,
-          agentIcon: null,
-          agentDescription: null,
+          agentIcon: agent?.icon ?? null,
+          agentDescription: agent?.description ?? null,
         };
       }
       return r;

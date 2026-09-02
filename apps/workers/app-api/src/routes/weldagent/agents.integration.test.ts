@@ -91,5 +91,7 @@ describe('weldagent agents routes', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: Array<{ id: string }> };
     expect(body.data.some((t) => t.id === 'people.list')).toBe(true);
+    expect(body.data.some((t) => t.id === 'chat.message_agent')).toBe(true);
+    expect(body.data.some((t) => t.id === 'chat.create_agent_group')).toBe(true);
   });
 });

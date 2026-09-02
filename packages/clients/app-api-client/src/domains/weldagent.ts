@@ -36,9 +36,15 @@ export interface MentionSearchQuery {
 export function createWeldAgentApi(api: ClientApi) {
   return {
     // --- Conversations ---
-    listConversations(limit = 50): Promise<DataResponse<ConversationSummary[]>> {
+    listConversations(
+      limit = 50,
+      opts: { agentId?: string } = {},
+    ): Promise<DataResponse<ConversationSummary[]>> {
       return api.get<DataResponse<ConversationSummary[]>>(
-        `/weldagent/conversations${buildQueryString({ limit })}`,
+        `/weldagent/conversations${buildQueryString({
+          limit,
+          ...(opts.agentId ? { agentId: opts.agentId } : {}),
+        })}`,
       );
     },
 

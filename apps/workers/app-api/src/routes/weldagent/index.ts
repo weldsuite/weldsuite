@@ -72,16 +72,23 @@ function toConversationSummary(conv: {
 app.get('/conversations', async (c) => {
   const userId = c.get('userId');
   const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 100);
+  const agentId = c.req.query('agentId') || undefined;
   const db = c.get('tenantDb');
   const { weldagentConversations } = schema;
 
   try {
+    const conditions = [
+      eq(weldagentConversations.userId, userId),
+      isNull(weldagentConversations.deletedAt),
+    ];
+    if (agentId) {
+      conditions.push(eq(weldagentConversations.agentId, agentId));
+    }
+
     const conversations = await db
       .select()
       .from(weldagentConversations)
-      .where(
-        and(eq(weldagentConversations.userId, userId), isNull(weldagentConversations.deletedAt)),
-      )
+      .where(and(...conditions))
       .orderBy(
         desc(weldagentConversations.isPinned),
         // Fall back to createdAt when a conversation has no messages yet, so

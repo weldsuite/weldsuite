@@ -97,7 +97,20 @@ app.post('/:entityType/:entityId/messages', writePerm, zValidator('json', sendEn
     });
 
     const message = await postChatMessage(
-      { db, env: c.env, orgId, channelId: channel.id, authorUserId: userId },
+      {
+        db,
+        env: c.env,
+        orgId,
+        channelId: channel.id,
+        authorUserId: userId,
+        waitUntil: (p) => {
+          try {
+            c.executionCtx.waitUntil(p);
+          } catch {
+            void p.catch(() => undefined);
+          }
+        },
+      },
       input,
     );
 

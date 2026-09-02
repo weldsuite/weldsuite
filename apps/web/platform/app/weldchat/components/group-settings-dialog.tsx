@@ -206,18 +206,35 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: GroupSetting
     attachmentsEnabled: boolean;
     reactionsEnabled: boolean;
     slowModeSeconds: number;
+    agentReplyPolicy: 'mentions' | 'always' | 'none';
+    agentMaxHops: number;
   };
-  const channelBaseline = useMemo<ChannelDraft>(() => ({
-    name: sourceChannel?.name ?? '',
-    description: sourceChannel?.description ?? '',
-    topic: sourceChannel?.topic ?? '',
-    voiceCallsEnabled: sourceChannel?.voiceCallsEnabled ?? true,
-    videoCallsEnabled: sourceChannel?.videoCallsEnabled ?? true,
-    threadsEnabled: sourceChannel?.threadsEnabled ?? true,
-    attachmentsEnabled: sourceChannel?.attachmentsEnabled ?? true,
-    reactionsEnabled: sourceChannel?.reactionsEnabled ?? true,
-    slowModeSeconds: sourceChannel?.slowModeSeconds ?? 0,
-  }), [sourceChannel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const channelBaseline = useMemo<ChannelDraft>(() => {
+    const meta = (sourceChannel?.metadata as Record<string, unknown> | null | undefined) ?? null;
+    const policy =
+      meta?.agentReplyPolicy === 'always' ||
+      meta?.agentReplyPolicy === 'none' ||
+      meta?.agentReplyPolicy === 'mentions'
+        ? meta.agentReplyPolicy
+        : 'mentions';
+    const hops =
+      typeof meta?.agentMaxHops === 'number' && Number.isFinite(meta.agentMaxHops)
+        ? Math.min(5, Math.max(1, Math.floor(meta.agentMaxHops)))
+        : 2;
+    return {
+      name: sourceChannel?.name ?? '',
+      description: sourceChannel?.description ?? '',
+      topic: sourceChannel?.topic ?? '',
+      voiceCallsEnabled: sourceChannel?.voiceCallsEnabled ?? true,
+      videoCallsEnabled: sourceChannel?.videoCallsEnabled ?? true,
+      threadsEnabled: sourceChannel?.threadsEnabled ?? true,
+      attachmentsEnabled: sourceChannel?.attachmentsEnabled ?? true,
+      reactionsEnabled: sourceChannel?.reactionsEnabled ?? true,
+      slowModeSeconds: sourceChannel?.slowModeSeconds ?? 0,
+      agentReplyPolicy: policy,
+      agentMaxHops: hops,
+    };
+  }, [sourceChannel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [channelDraft, setChannelDraft] = useState<ChannelDraft>(channelBaseline);
   const channelDirty = useMemo(
     () => JSON.stringify(channelDraft) !== JSON.stringify(channelBaseline),
@@ -582,6 +599,69 @@ export function GroupSettingsDialog({ open, onOpenChange, target }: GroupSetting
                         <SelectItem value="21600">{t.weldchat.groupSettings.general.slowMode6h}</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+
+                  <Divider />
+
+                  {/* Multi-agent room policy */}
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">
+                        {t.weldchat.groupSettings.general.agentReplies}
+                      </Label>
+                      <p className="text-xs text-muted-foreground pb-1">
+                        {t.weldchat.groupSettings.general.agentRepliesHint}
+                      </p>
+                      <Select
+                        value={channelDraft.agentReplyPolicy}
+                        onValueChange={(v) =>
+                          setChannelDraft((d) => ({
+                            ...d,
+                            agentReplyPolicy: v as ChannelDraft['agentReplyPolicy'],
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="w-64">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="mentions">
+                            {t.weldchat.groupSettings.general.agentReplyMentions}
+                          </SelectItem>
+                          <SelectItem value="always">
+                            {t.weldchat.groupSettings.general.agentReplyAlways}
+                          </SelectItem>
+                          <SelectItem value="none">
+                            {t.weldchat.groupSettings.general.agentReplyNone}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">
+                        {t.weldchat.groupSettings.general.agentMaxHops}
+                      </Label>
+                      <p className="text-xs text-muted-foreground pb-1">
+                        {t.weldchat.groupSettings.general.agentMaxHopsHint}
+                      </p>
+                      <Select
+                        value={String(channelDraft.agentMaxHops)}
+                        onValueChange={(v) =>
+                          setChannelDraft((d) => ({ ...d, agentMaxHops: Number(v) }))
+                        }
+                      >
+                        <SelectTrigger className="w-32">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[1, 2, 3, 4, 5].map((n) => (
+                            <SelectItem key={n} value={String(n)}>
+                              {n}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 </div>
               )}

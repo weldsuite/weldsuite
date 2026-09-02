@@ -23,6 +23,7 @@ import { schema } from '../../db';
 import { generateId } from '../../lib/id';
 import type { Env } from '../../types';
 import { dispatchAgentMentions } from './agent-mention-dispatch';
+import { parseAgentRoomPolicy } from './agent-room-policy';
 
 // Runtime allow-list used to classify chat mention tokens. Mirrors
 // SEARCH_ENTITY_TYPES in @weldsuite/core-api-client/schemas/search; inlined
@@ -253,6 +254,7 @@ export async function postChatMessage(
         const authorName = author?.name ?? 'Unknown';
         for (const m of dmMembers) {
           if (m.userId === authorUserId || allMentions.includes(m.userId)) continue;
+          if (m.userId.startsWith('agt_')) continue;
           try {
             await sendChatDmNotification({
               db,
@@ -281,6 +283,8 @@ export async function postChatMessage(
       // Skip entity tags — stored for future search/notification partitioning
       // but do NOT trigger user-mention notifications today.
       if (mentionedUserId.startsWith('entity:')) continue;
+      // Agents are not human recipients — room dispatch handles their replies.
+      if (mentionedUserId.startsWith('agt_')) continue;
 
       try {
         await db
@@ -319,12 +323,13 @@ export async function postChatMessage(
   if (rt) {
     try {
       const members = await db
-        .select({ userId: chatChannelMembers.userId })
+        .select({ userId: chatChannelMembers.userId, memberType: chatChannelMembers.memberType })
         .from(chatChannelMembers)
         .where(eq(chatChannelMembers.channelId, channelId));
 
       for (const member of members) {
         if (member.userId === authorUserId) continue;
+        if (member.memberType === 'agent') continue;
         try {
           await rt.chatUserUnreadUpdate(orgId, member.userId, { channelId, unreadCount: 1 });
         } catch {
@@ -333,6 +338,49 @@ export async function postChatMessage(
       }
     } catch (e) {
       console.error('[app-api/chat] unread fan-out failed:', e);
+    }
+  }
+
+  // Multi-agent room replies: @mentions and/or always-on policy.
+  {
+    const agentMentionIds = allMentions.filter((m) => m.startsWith('agt_'));
+    const [channelMeta] = await db
+      .select({ metadata: chatChannels.metadata })
+      .from(chatChannels)
+      .where(eq(chatChannels.id, channelId))
+      .limit(1);
+    const policy = parseAgentRoomPolicy(channelMeta?.metadata as Record<string, unknown> | null);
+    const shouldDispatch =
+      policy.agentReplyPolicy !== 'none' &&
+      (agentMentionIds.length > 0 || policy.agentReplyPolicy === 'always');
+
+    if (shouldDispatch) {
+      const dispatchPromise = dispatchAgentMentions(
+        {
+          db,
+          env,
+          orgId,
+          invokerUserId: authorUserId,
+          waitUntil: ctx.waitUntil,
+        },
+        {
+          agentMentionIds,
+          channelId,
+          messageId: id,
+          messageContent: input.content,
+        },
+      );
+      if (ctx.waitUntil) {
+        ctx.waitUntil(
+          dispatchPromise.catch((e) =>
+            console.error('[app-api/chat] agent mention dispatch failed:', e),
+          ),
+        );
+      } else {
+        void dispatchPromise.catch((e) =>
+          console.error('[app-api/chat] agent mention dispatch failed:', e),
+        );
+      }
     }
   }
 

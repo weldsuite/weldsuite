@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Bot, Play, Pause, Save } from 'lucide-react';
+import { ArrowLeft, Bot, MessageSquare, Play, Pause, Save, Settings2 } from 'lucide-react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useRouter, useParams } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
@@ -9,6 +9,7 @@ import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Label } from '@weldsuite/ui/components/label';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
+import { cn } from '@/lib/utils';
 import {
   useAgent,
   useUpdateAgent,
@@ -18,6 +19,9 @@ import {
   useGrantablePermissions,
   useAgentTools,
 } from '@/hooks/queries/use-agent-queries';
+import { AgentChatPanel } from '../components/agent-chat-panel';
+
+type DetailTab = 'chat' | 'configure';
 
 export default function AgentDetailPage() {
   const t = getTranslations('common');
@@ -33,6 +37,7 @@ export default function AgentDetailPage() {
   const pauseAgent = usePauseAgent();
   const runAgent = useRunAgent();
 
+  const [tab, setTab] = useState<DetailTab>('chat');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
@@ -123,115 +128,154 @@ export default function AgentDetailPage() {
             {t.agents.actions.activate}
           </Button>
         )}
+        {tab === 'configure' && (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={runAgent.isPending}
+              onClick={() => void runAgent.mutateAsync({ id })}
+            >
+              {runAgent.isPending ? t.agents.actions.running : t.agents.actions.runNow}
+            </Button>
+            <Button size="sm" disabled={updateAgent.isPending} onClick={() => void handleSave()}>
+              <Save className="h-3.5 w-3.5 mr-1" />
+              {updateAgent.isPending ? t.agents.actions.saving : t.agents.actions.save}
+            </Button>
+          </>
+        )}
+      </div>
+
+      <div className="flex gap-1 px-4 pt-2 border-b shrink-0">
         <Button
+          type="button"
+          variant="ghost"
           size="sm"
-          variant="outline"
-          disabled={runAgent.isPending}
-          onClick={() => void runAgent.mutateAsync({ id })}
+          className={cn(
+            'rounded-b-none border-b-2 border-transparent gap-1.5',
+            tab === 'chat' && 'border-primary text-foreground',
+          )}
+          onClick={() => setTab('chat')}
         >
-          {runAgent.isPending ? t.agents.actions.running : t.agents.actions.runNow}
+          <MessageSquare className="h-3.5 w-3.5" />
+          {t.agents.detail.tabs.chat}
         </Button>
-        <Button size="sm" disabled={updateAgent.isPending} onClick={() => void handleSave()}>
-          <Save className="h-3.5 w-3.5 mr-1" />
-          {updateAgent.isPending ? t.agents.actions.saving : t.agents.actions.save}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className={cn(
+            'rounded-b-none border-b-2 border-transparent gap-1.5',
+            tab === 'configure' && 'border-primary text-foreground',
+          )}
+          onClick={() => setTab('configure')}
+        >
+          <Settings2 className="h-3.5 w-3.5" />
+          {t.agents.detail.tabs.configure}
         </Button>
       </div>
 
-      <div className="flex-1 overflow-auto">
-        <div className="max-w-3xl mx-auto p-6 space-y-8">
-          <section className="space-y-3">
-            <h2 className="text-xs font-semibold tracking-wide text-muted-foreground">
-              {t.agents.detail.configureHeading}
-            </h2>
-            <div className="space-y-2">
-              <Label>{t.agents.detail.general.nameLabel}</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>{t.agents.detail.general.descriptionLabel}</Label>
-              <Input
-                value={description}
-                placeholder={t.agents.detail.general.descriptionPlaceholder}
-                onChange={(e) => setDescription(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{t.agents.detail.sections.instructions.label}</Label>
-              <Textarea
-                className="min-h-[160px]"
-                value={systemPrompt}
-                placeholder={t.agents.detail.instructions.placeholder}
-                onChange={(e) => setSystemPrompt(e.target.value)}
-              />
-            </div>
-          </section>
-
-          <section className="space-y-3">
-            <h2 className="text-sm font-medium">{t.agents.detail.sections.permissions.label}</h2>
-            <p className="text-sm text-muted-foreground">
-              {t.agents.detail.sections.permissions.description}
-            </p>
-            <div className="grid sm:grid-cols-2 gap-2 max-h-64 overflow-auto rounded-md border p-3">
-              {grantable.slice(0, 80).map((key) => (
-                <label key={key} className="flex items-center gap-2 text-sm">
-                  <Checkbox
-                    checked={permissions.includes(key)}
-                    onCheckedChange={() => togglePermission(key)}
-                  />
-                  <span className="font-mono text-xs">{key}</span>
-                </label>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {t.agents.detail.sections.permissions.unlockedTools}:{' '}
-              {availableFromGrants.length
-                ? availableFromGrants.map((tool) => tool.name).join(', ')
-                : t.agents.detail.sections.permissions.none}
-            </p>
-          </section>
-
-          <section className="space-y-3">
-            <h2 className="text-sm font-medium">{t.agents.detail.sections.listening.label}</h2>
-            <div className="flex flex-wrap gap-2">
-              {(agent.eventSubscriptions ?? []).length === 0 ? (
-                <span className="text-sm text-muted-foreground">
-                  {t.agents.detail.sections.listening.empty}
-                </span>
-              ) : (
-                agent.eventSubscriptions.map((ev) => (
-                  <Badge key={ev} variant="outline">
-                    {ev}
-                  </Badge>
-                ))
-              )}
-            </div>
-          </section>
-
-          <section className="space-y-3">
-            <h2 className="text-sm font-medium">{t.agents.detail.tabs.activity}</h2>
-            {(agent.recentRuns ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t.agents.detail.runs.emptyDescription}</p>
-            ) : (
+      {tab === 'chat' ? (
+        <div className="flex-1 min-h-0">
+          <AgentChatPanel agentId={id} agentName={agent.name} />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-auto">
+          <div className="max-w-3xl mx-auto p-6 space-y-8">
+            <section className="space-y-3">
+              <h2 className="text-xs font-semibold tracking-wide text-muted-foreground">
+                {t.agents.detail.configureHeading}
+              </h2>
               <div className="space-y-2">
-                {agent.recentRuns.map((run) => (
-                  <div key={run.id} className="rounded-md border p-3 text-sm">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline">{run.status}</Badge>
-                      <span className="text-xs text-muted-foreground">
-                        {run.triggerType} · {new Date(run.createdAt).toLocaleString()}
-                      </span>
-                    </div>
-                    {run.result?.summary && (
-                      <p className="mt-2 text-muted-foreground line-clamp-3">{run.result.summary}</p>
-                    )}
-                    {run.error && <p className="mt-2 text-destructive">{run.error}</p>}
-                  </div>
+                <Label>{t.agents.detail.general.nameLabel}</Label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>{t.agents.detail.general.descriptionLabel}</Label>
+                <Input
+                  value={description}
+                  placeholder={t.agents.detail.general.descriptionPlaceholder}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>{t.agents.detail.sections.instructions.label}</Label>
+                <Textarea
+                  className="min-h-[160px]"
+                  value={systemPrompt}
+                  placeholder={t.agents.detail.instructions.placeholder}
+                  onChange={(e) => setSystemPrompt(e.target.value)}
+                />
+              </div>
+            </section>
+
+            <section className="space-y-3">
+              <h2 className="text-sm font-medium">{t.agents.detail.sections.permissions.label}</h2>
+              <p className="text-sm text-muted-foreground">
+                {t.agents.detail.sections.permissions.description}
+              </p>
+              <div className="grid sm:grid-cols-2 gap-2 max-h-64 overflow-auto rounded-md border p-3">
+                {grantable.slice(0, 80).map((key) => (
+                  <label key={key} className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={permissions.includes(key)}
+                      onCheckedChange={() => togglePermission(key)}
+                    />
+                    <span className="font-mono text-xs">{key}</span>
+                  </label>
                 ))}
               </div>
-            )}
-          </section>
+              <p className="text-xs text-muted-foreground">
+                {t.agents.detail.sections.permissions.unlockedTools}:{' '}
+                {availableFromGrants.length
+                  ? availableFromGrants.map((tool) => tool.name).join(', ')
+                  : t.agents.detail.sections.permissions.none}
+              </p>
+            </section>
+
+            <section className="space-y-3">
+              <h2 className="text-sm font-medium">{t.agents.detail.sections.listening.label}</h2>
+              <div className="flex flex-wrap gap-2">
+                {(agent.eventSubscriptions ?? []).length === 0 ? (
+                  <span className="text-sm text-muted-foreground">
+                    {t.agents.detail.sections.listening.empty}
+                  </span>
+                ) : (
+                  agent.eventSubscriptions.map((ev) => (
+                    <Badge key={ev} variant="outline">
+                      {ev}
+                    </Badge>
+                  ))
+                )}
+              </div>
+            </section>
+
+            <section className="space-y-3">
+              <h2 className="text-sm font-medium">{t.agents.detail.tabs.activity}</h2>
+              {(agent.recentRuns ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t.agents.detail.runs.emptyDescription}</p>
+              ) : (
+                <div className="space-y-2">
+                  {agent.recentRuns.map((run) => (
+                    <div key={run.id} className="rounded-md border p-3 text-sm">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">{run.status}</Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {run.triggerType} · {new Date(run.createdAt).toLocaleString()}
+                        </span>
+                      </div>
+                      {run.result?.summary && (
+                        <p className="mt-2 text-muted-foreground line-clamp-3">{run.result.summary}</p>
+                      )}
+                      {run.error && <p className="mt-2 text-destructive">{run.error}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
