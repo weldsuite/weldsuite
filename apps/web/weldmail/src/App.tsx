@@ -6,6 +6,7 @@ import {
   TokenBridge,
   useSyncPersonalToken,
 } from '@/components/auth';
+import { MailEventsProvider } from '@/contexts/mail-events';
 import { HomePage } from '@/pages/HomePage';
 import { InboxPage } from '@/pages/InboxPage';
 import { MessagePage } from '@/pages/MessagePage';
@@ -58,7 +59,9 @@ export default function App() {
         <Route path="/sign-up/*" element={<SignUpPage />} />
 
         <Route element={<ProtectedRoute />}>
-          <Route element={<AppShell />}>
+          {/* Inside ProtectedRoute so the realtime socket only opens once a
+              user is signed in and Clerk can mint a token for it. */}
+          <Route element={<MailEventsProvider><AppShell /></MailEventsProvider>}>
             <Route path="/" element={<HomePage />} />
             <Route path="/inbox" element={<InboxPage />} />
             <Route path="/inbox/:id" element={<MessagePage />} />

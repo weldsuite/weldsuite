@@ -61,6 +61,10 @@ export interface CreateChannelInput {
   slug?: string;
   isPrivate?: boolean;
   metadata?: unknown;
+  memberIds?: string[];
+  agentIds?: string[];
+  agentReplyPolicy?: 'mentions' | 'always' | 'none';
+  agentMaxHops?: number;
   [key: string]: unknown;
 }
 

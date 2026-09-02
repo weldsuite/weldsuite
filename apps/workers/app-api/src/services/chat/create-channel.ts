@@ -31,6 +31,10 @@ export interface CreateChannelInput {
   icon?: string;
   sectionId?: string;
   memberIds?: string[];
+  /** Workspace agent ids (`agt_*`) to join as `memberType: 'agent'`. */
+  agentIds?: string[];
+  /** Stored on `chat_channels.metadata` (e.g. agentReplyPolicy). */
+  metadata?: Record<string, unknown>;
 }
 
 export interface CreateChannelResult {
@@ -114,6 +118,7 @@ export async function createChannel(
     sectionId: input.sectionId,
     createdBy: creatorUserId,
     memberCount: 1,
+    metadata: input.metadata ?? null,
     createdAt: now,
     updatedAt: now,
   });
@@ -167,6 +172,42 @@ export async function createChannel(
         )
         .onConflictDoNothing();
       for (const uid of remaining) addedMemberIds.add(uid);
+    }
+  }
+
+  // 3b. Optional agent members (multi-agent rooms).
+  const agentIds = Array.from(
+    new Set((input.agentIds ?? []).filter((aid) => aid.startsWith('agt_') && !addedMemberIds.has(aid))),
+  );
+  if (agentIds.length > 0) {
+    const { weldagentAgents } = schema;
+    const active = await db
+      .select({ id: weldagentAgents.id })
+      .from(weldagentAgents)
+      .where(
+        and(
+          inArray(weldagentAgents.id, agentIds),
+          eq(weldagentAgents.status, 'active'),
+          isNull(weldagentAgents.deletedAt),
+        ),
+      );
+    const validAgentIds = active.map((a) => a.id);
+    if (validAgentIds.length > 0) {
+      await db
+        .insert(chatChannelMembers)
+        .values(
+          validAgentIds.map((aid) => ({
+            id: generateId('cmb'),
+            channelId: id,
+            userId: aid,
+            memberType: 'agent' as const,
+            role: 'member',
+            joinedAt: now,
+            createdAt: now,
+          })),
+        )
+        .onConflictDoNothing();
+      for (const aid of validAgentIds) addedMemberIds.add(aid);
     }
   }
 

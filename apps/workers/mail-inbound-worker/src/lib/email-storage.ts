@@ -14,6 +14,7 @@ import {
 } from '@weldsuite/db/lib/desk';
 import {
   publishNewEmailToUser,
+  publishNewPersonalEmail,
   publishDeskInbound,
 } from './realtime';
 import { sendNewEmailPushNotification } from './push-notifications';
@@ -413,7 +414,7 @@ export async function storeEmail(
 
     // Check if this is a reply to an existing message in the DB
     const isReply = Boolean(email.inReplyTo || (email.references && email.references.length > 0));
-    let threadId: string;
+    let threadId: string = email.messageId;
 
     if (isReply) {
       // Look up existing messages by inReplyTo or references to find the thread
@@ -450,8 +451,9 @@ export async function storeEmail(
           )
           .limit(1);
 
-        if (existingMessages.length > 0 && existingMessages[0].threadId) {
-          threadId = existingMessages[0].threadId;
+        const existingThreadId = existingMessages[0]?.threadId;
+        if (existingThreadId) {
+          threadId = existingThreadId;
           matched = true;
           console.log(`[Store] Found existing thread ${threadId} for reply (by messageId)`);
         }
@@ -480,8 +482,9 @@ export async function storeEmail(
             .orderBy(desc(tenantSchema.mailMessages.sentDate))
             .limit(1);
 
-          if (subjectMatch.length > 0 && subjectMatch[0].threadId) {
-            threadId = subjectMatch[0].threadId;
+          const subjectThreadId = subjectMatch[0]?.threadId;
+          if (subjectThreadId) {
+            threadId = subjectThreadId;
             matched = true;
             console.log(`[Store] Found existing thread ${threadId} for reply (by subject)`);
           }
@@ -570,107 +573,222 @@ export async function processInboundEmail(
 
   for (const account of accounts) {
     const result = await storeEmail(env, account, email);
-    if (result) {
-      stored++;
+    if (!result) continue;
+    stored++;
 
-      // Store attachments to R2 + DB
-      if (email.hasAttachments && attachments && attachments.length > 0 && env.STORAGE) {
-        try {
-          const cidMap = await storeInboundAttachments(env, account.workspaceId, result.messageId, attachments);
+    const preview = email.textBody?.substring(0, 200) || email.subject;
 
-          // Rewrite cid: references in HTML body to point to R2 URLs
-          if (cidMap.size > 0 && email.htmlBody) {
-            let rewrittenHtml = email.htmlBody;
-            for (const [cid, url] of cidMap) {
-              // Replace "cid:xxx" references (in src="cid:xxx" or url(cid:xxx) etc.)
-              rewrittenHtml = rewrittenHtml.replaceAll(`cid:${cid}`, url);
-            }
-
-            if (rewrittenHtml !== email.htmlBody) {
-              const tenantDb = await getTenantDbForWorkspaceById(env, account.workspaceId);
-              await tenantDb
-                .update(tenantSchema.mailMessages)
-                .set({ htmlBody: rewrittenHtml })
-                .where(eq(tenantSchema.mailMessages.id, result.messageId));
-              console.log(`[Store] Rewrote ${cidMap.size} inline CID reference(s) in HTML body for ${result.messageId}`);
-            }
-          }
-        } catch (attachErr) {
-          console.error(`[Store] Failed to store attachments for ${result.messageId}:`, attachErr);
-        }
-      }
-
-      // Run AI semantic classification + mail rules (non-blocking)
-      try {
-        await classifyAndRunRules(env, account, result.messageId, email);
-      } catch (classifyErr) {
-        console.error(`[Store] AI classify/rules failed for ${result.messageId}:`, classifyErr);
-      }
-
-      // Upsert mail addresses into the shared contacts table so senders +
-      // recipients become first-class records (autocomplete, avatars, …).
-      // Best-effort — never blocks downstream notifications.
-      try {
-        await upsertContactsFromMailMessage(env, account.workspaceId, account.clerkOrgId ?? null, {
-          from: email.from,
-          to: email.to,
-          cc: email.cc,
-        });
-      } catch (contactErr) {
-        console.error(`[Store] Contact upsert failed for ${result.messageId}:`, contactErr);
-      }
-
-      // Send real-time + push notifications to all workspace members.
-      // Use clerkOrgId (NOT internal workspaceId) — WorkspaceHub DO is keyed
-      // by clerkOrgId on the WS-auth side, so the publish must use the same
-      // key or it lands on a different DO and never reaches the client.
-      const senderEmail = email.from.email.toLowerCase();
-      for (const member of account.members) {
-        // Skip the sender: when a message is sent to an internal recipient, a
-        // shared mailbox, or the sender's own address, the sent copy is routed
-        // back into this worker. Without this guard the sender gets an in-app +
-        // push "New email from <themselves>" notification for their own send.
-        if (member.email && member.email.toLowerCase() === senderEmail) {
-          continue;
-        }
-        const userId = member.userId;
-        try {
-          await publishNewEmailToUser(env, account.clerkOrgId, userId, {
-            accountId: account.accountId,
-            messageId: email.messageId,
-            threadId: result.threadId,
-            from: email.from,
-            subject: email.subject,
-            preview: email.textBody?.substring(0, 200) || email.subject,
-            receivedAt: email.receivedAt.toISOString(),
-            isRead: false,
-            hasAttachments: email.hasAttachments,
-          });
-          notified++;
-        } catch (notifyErr) {
-          console.error(`[Mailgun] Failed to notify user ${userId}:`, notifyErr);
-        }
-
-        // Send push notification to mobile devices
-        try {
-          await sendNewEmailPushNotification(env, {
-            userId,
-            workspaceId: account.workspaceId,
-            clerkOrgId: account.clerkOrgId,
-            messageId: result.messageId,
-            accountId: account.accountId,
-            from: email.from,
-            subject: email.subject,
-            preview: email.textBody?.substring(0, 200) || email.subject,
-          });
-        } catch (pushErr) {
-          console.error(`[Push] Failed to send push to user ${userId}:`, pushErr);
-        }
-      }
+    if (account.tenantKind === 'personal') {
+      notified += await finishPersonalDelivery(env, account, email, attachments, result, preview);
+      continue;
     }
+
+    notified += await finishWorkspaceDelivery(env, account, email, attachments, result, preview);
   }
 
   return { stored, notified, recipients: accounts.length };
+}
+
+/**
+ * Post-store steps for a WORKSPACE mailbox: attachments, AI classification +
+ * rules, contact upsert, then realtime + push notification per eligible member.
+ * Returns how many members were notified in-app.
+ */
+async function finishWorkspaceDelivery(
+  env: Env,
+  account: RecipientAccount,
+  email: ParsedEmail,
+  attachments: ParsedAttachment[] | undefined,
+  result: { messageId: string; threadId: string },
+  preview: string,
+): Promise<number> {
+  const workspaceId = account.workspaceId;
+  if (!workspaceId || !account.clerkOrgId) {
+    console.error(`[Store] Workspace account ${account.accountId} is missing workspace ids`);
+    return 0;
+  }
+
+  // Store attachments to R2 + DB
+  if (email.hasAttachments && attachments && attachments.length > 0 && env.STORAGE) {
+    try {
+      const cidMap = await storeInboundAttachments(env, workspaceId, result.messageId, attachments);
+
+      // Rewrite cid: references in HTML body to point to R2 URLs
+      const rewrittenHtml = rewriteCidReferences(email.htmlBody, cidMap);
+      if (rewrittenHtml) {
+        const tenantDb = await getTenantDbForWorkspaceById(env, workspaceId);
+        await tenantDb
+          .update(tenantSchema.mailMessages)
+          .set({ htmlBody: rewrittenHtml })
+          .where(eq(tenantSchema.mailMessages.id, result.messageId));
+        console.log(`[Store] Rewrote ${cidMap.size} inline CID reference(s) in HTML body for ${result.messageId}`);
+      }
+    } catch (attachErr) {
+      console.error(`[Store] Failed to store attachments for ${result.messageId}:`, attachErr);
+    }
+  }
+
+  // Run AI semantic classification + mail rules (non-blocking)
+  try {
+    await classifyAndRunRules(env, account, workspaceId, result.messageId, email);
+  } catch (classifyErr) {
+    console.error(`[Store] AI classify/rules failed for ${result.messageId}:`, classifyErr);
+  }
+
+  // Upsert mail addresses into the shared contacts table so senders +
+  // recipients become first-class records (autocomplete, avatars, …).
+  // Best-effort — never blocks downstream notifications.
+  try {
+    await upsertContactsFromMailMessage(env, workspaceId, account.clerkOrgId, {
+      from: email.from,
+      to: email.to,
+      cc: email.cc,
+    });
+  } catch (contactErr) {
+    console.error(`[Store] Contact upsert failed for ${result.messageId}:`, contactErr);
+  }
+
+  // Send real-time + push notifications to all workspace members.
+  // Use clerkOrgId (NOT internal workspaceId) — WorkspaceHub DO is keyed
+  // by clerkOrgId on the WS-auth side, so the publish must use the same
+  // key or it lands on a different DO and never reaches the client.
+  const senderEmail = email.from.email.toLowerCase();
+  let notified = 0;
+
+  for (const member of account.members) {
+    // Skip the sender: when a message is sent to an internal recipient, a
+    // shared mailbox, or the sender's own address, the sent copy is routed
+    // back into this worker. Without this guard the sender gets an in-app +
+    // push "New email from <themselves>" notification for their own send.
+    if (member.email && member.email.toLowerCase() === senderEmail) {
+      continue;
+    }
+    const userId = member.userId;
+    try {
+      await publishNewEmailToUser(env, account.clerkOrgId, userId, {
+        accountId: account.accountId,
+        messageId: result.messageId,
+        smtpMessageId: email.messageId,
+        threadId: result.threadId,
+        from: email.from,
+        subject: email.subject,
+        preview,
+        receivedAt: email.receivedAt.toISOString(),
+        isRead: false,
+        hasAttachments: email.hasAttachments,
+      });
+      notified++;
+    } catch (notifyErr) {
+      console.error(`[Mail] Failed to notify user ${userId}:`, notifyErr);
+    }
+
+    // Send push notification to mobile devices
+    try {
+      await sendNewEmailPushNotification(env, {
+        userId,
+        workspaceId,
+        clerkOrgId: account.clerkOrgId,
+        messageId: result.messageId,
+        accountId: account.accountId,
+        from: email.from,
+        subject: email.subject,
+        preview,
+      });
+    } catch (pushErr) {
+      console.error(`[Push] Failed to send push to user ${userId}:`, pushErr);
+    }
+  }
+
+  return notified;
+}
+
+/**
+ * Post-store steps for a PERSONAL (consumer WeldMail) mailbox.
+ *
+ * Personal accounts have no workspace, no tenant DB and no Clerk org, so the
+ * workspace-only stages (AI rules, CRM contact upsert, workspace push) don't
+ * apply. What remains is attachments into the personal DB + R2, and a realtime
+ * event on the owner's own hub so the inbox updates live.
+ */
+async function finishPersonalDelivery(
+  env: Env,
+  account: RecipientAccount,
+  email: ParsedEmail,
+  attachments: ParsedAttachment[] | undefined,
+  result: { messageId: string; threadId: string },
+  preview: string,
+): Promise<number> {
+  const { personalAccountId, clerkUserId } = account;
+  if (!personalAccountId || !clerkUserId) {
+    console.error(`[Store] Personal account ${account.accountId} is missing owner ids`);
+    return 0;
+  }
+
+  if (email.hasAttachments && attachments && attachments.length > 0 && env.STORAGE) {
+    try {
+      const cidMap = await storePersonalAttachments(
+        env,
+        personalAccountId,
+        result.messageId,
+        attachments,
+      );
+
+      const rewrittenHtml = rewriteCidReferences(email.htmlBody, cidMap);
+      if (rewrittenHtml) {
+        const personalDb = getPersonalDb(env);
+        await personalDb
+          .update(personalSchema.personalMailMessages)
+          .set({ htmlBody: rewrittenHtml })
+          .where(eq(personalSchema.personalMailMessages.id, result.messageId));
+        console.log(
+          `[Store] Rewrote ${cidMap.size} inline CID reference(s) in personal message ${result.messageId}`,
+        );
+      }
+    } catch (attachErr) {
+      console.error(`[Store] Failed to store personal attachments for ${result.messageId}:`, attachErr);
+    }
+  }
+
+  // Don't notify the owner about their own outbound copy landing back here.
+  if (email.from.email.toLowerCase() === account.accountEmail.toLowerCase()) {
+    return 0;
+  }
+
+  try {
+    await publishNewPersonalEmail(env, clerkUserId, {
+      accountId: account.accountId,
+      messageId: result.messageId,
+      smtpMessageId: email.messageId,
+      threadId: result.threadId,
+      from: email.from,
+      subject: email.subject,
+      preview,
+      receivedAt: email.receivedAt.toISOString(),
+      isRead: false,
+      hasAttachments: email.hasAttachments,
+    });
+    return 1;
+  } catch (notifyErr) {
+    console.error(`[Mail] Failed to notify personal user ${clerkUserId}:`, notifyErr);
+    return 0;
+  }
+}
+
+/**
+ * Point `cid:` references in an HTML body at their uploaded R2 URLs.
+ * Returns null when there is nothing to rewrite, so callers can skip the write.
+ */
+function rewriteCidReferences(
+  htmlBody: string | null,
+  cidMap: Map<string, string>,
+): string | null {
+  if (!htmlBody || cidMap.size === 0) return null;
+  let rewritten = htmlBody;
+  for (const [cid, url] of cidMap) {
+    // Replace "cid:xxx" references (in src="cid:xxx" or url(cid:xxx) etc.)
+    rewritten = rewritten.replaceAll(`cid:${cid}`, url);
+  }
+  return rewritten === htmlBody ? null : rewritten;
 }
 
 /**
@@ -789,10 +907,11 @@ async function callAiClassifier(
 async function classifyAndRunRules(
   env: Env,
   account: RecipientAccount,
+  workspaceId: string,
   messageId: string,
   email: ParsedEmail,
 ): Promise<void> {
-  const tenantDb = await getTenantDbForWorkspaceById(env, account.workspaceId);
+  const tenantDb = await getTenantDbForWorkspaceById(env, workspaceId);
   const { mailMessages, mailLabels, mailRules } = tenantSchema;
 
   // ---- Phase 1: AI Semantic Classification ----
@@ -855,7 +974,7 @@ If no labels match, return { "labels": [] }.`;
       const aiContent = await callAiClassifier(
         env,
         {
-          workspaceId: account.workspaceId,
+          workspaceId,
           agentId,
           userId: account.members[0]?.userId ?? 'system',
           tenantDb,
@@ -1201,6 +1320,68 @@ async function storeInboundAttachments(
 }
 
 /**
+ * Store inbound attachments for a PERSONAL mailbox.
+ *
+ * Mirrors `storeInboundAttachments`, but writes to the shared personal DB and
+ * keys R2 objects under `personal/<personalAccountId>/…` so nothing lands in a
+ * workspace prefix. Returns the CID → URL map for inline-image rewriting.
+ */
+async function storePersonalAttachments(
+  env: Env,
+  personalAccountId: string,
+  dbMessageId: string,
+  attachments: ParsedAttachment[],
+): Promise<Map<string, string>> {
+  const cidMap = new Map<string, string>();
+  const personalDb = getPersonalDb(env);
+  const r2PublicUrl = env.R2_PUBLIC_URL || '';
+
+  for (let i = 0; i < attachments.length; i++) {
+    const att = attachments[i]!;
+
+    try {
+      const contentType = att.contentType || 'application/octet-stream';
+      const sanitizedName = att.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const r2Key = `personal/${personalAccountId}/mail/attachments/${dbMessageId}/${i + 1}_${sanitizedName}`;
+
+      await env.STORAGE.put(r2Key, att.content, {
+        httpMetadata: { contentType },
+      });
+
+      const downloadUrl = r2PublicUrl ? `${r2PublicUrl}/${r2Key}` : '';
+      const attachId = generateId('attach');
+
+      await personalDb.insert(personalSchema.personalMailAttachments).values({
+        id: attachId,
+        personalAccountId,
+        messageId: dbMessageId,
+        fileName: att.fileName,
+        contentType,
+        size: att.content.length,
+        storagePath: r2Key,
+        downloadUrl,
+        isInline: att.disposition === 'inline',
+        contentId: att.contentId ?? null,
+        contentDisposition: att.disposition ?? null,
+      });
+
+      if (att.contentId && downloadUrl) {
+        const cid = att.contentId.replace(/^</, '').replace(/>$/, '');
+        cidMap.set(cid, downloadUrl);
+      }
+
+      console.log(
+        `[Store] Saved personal attachment ${attachId} (${att.fileName}, ${att.content.length} bytes) → ${r2Key}`,
+      );
+    } catch (attErr) {
+      console.error(`[Store] Failed to store personal attachment ${i + 1} (${att.fileName}):`, attErr);
+    }
+  }
+
+  return cidMap;
+}
+
+/**
  * Guess MIME type from file extension
  */
 function mimeFromExt(ext: string): string {
@@ -1274,13 +1455,21 @@ export async function processHelpdeskInboxEmail(
       )
     );
 
+  // `mail_account_registry.workspace_id` is nullable (personal WeldMail rows
+  // carry a personalAccountId instead), so drop any row without one before it
+  // reaches a tenant-DB lookup. The inner join above already excludes them;
+  // this narrows the type and keeps the guarantee local.
+  const workspaceInboxes = inboxAccounts.filter(
+    (a): a is typeof a & { workspaceId: string } => a.workspaceId !== null,
+  );
+
   // Collect helpdesk-specific registry entries
   const helpdeskInboxes: Array<{ email: string; accountId: string; workspaceId: string; clerkOrgId: string | null }> =
-    inboxAccounts.filter(a => a.accountId.startsWith('helpdesk_'));
+    workspaceInboxes.filter(a => a.accountId.startsWith('helpdesk_'));
 
   // Also check for mail accounts with helpdeskEnabled metadata
   // For each registered email (non-helpdesk), check tenant DB
-  const nonHelpdeskAccounts = inboxAccounts.filter(a => !a.accountId.startsWith('helpdesk_') && !a.accountId.startsWith('acct_inbox_'));
+  const nonHelpdeskAccounts = workspaceInboxes.filter(a => !a.accountId.startsWith('helpdesk_') && !a.accountId.startsWith('acct_inbox_'));
   const seenEmails = new Set(helpdeskInboxes.map(h => h.email));
 
   for (const reg of nonHelpdeskAccounts) {
@@ -1414,8 +1603,13 @@ export async function processAccountingInboxEmail(
       )
     );
 
-  // Filter to only accounting inbox accounts (accountId starts with 'acct_inbox_')
-  const accountingInboxes = inboxAccounts.filter(a => a.accountId.startsWith('acct_inbox_'));
+  // Filter to only accounting inbox accounts (accountId starts with 'acct_inbox_').
+  // Personal WeldMail rows have a null workspaceId and never use this prefix,
+  // but narrow explicitly so no null reaches the tenant-DB lookup below.
+  const accountingInboxes = inboxAccounts.filter(
+    (a): a is typeof a & { workspaceId: string } =>
+      a.workspaceId !== null && a.accountId.startsWith('acct_inbox_'),
+  );
 
   if (accountingInboxes.length === 0) {
     return { processed: false, documentIds: [] };

@@ -680,8 +680,22 @@ export const common = {
         agentNotFound: 'Agent niet gevonden',
         configureHeading: 'CONFIGUREREN',
         tabs: {
+          chat: 'Chat',
           configure: 'Configureren',
           activity: 'Activiteit',
+        },
+        chat: {
+          newChat: 'Nieuwe chat',
+          newChatName: 'Nieuwe chat',
+          loadingHistory: 'Chats laden…',
+          emptyHistory: 'Nog geen chats',
+          noMessagesYet: 'Nog geen berichten',
+          chattingWith: 'Chat met {name}',
+          emptyTitle: 'Chat met {name}',
+          emptyHint: 'Stel een vraag — geschiedenis wordt bewaard voor deze agent.',
+          inputPlaceholder: 'Bericht aan {name}…',
+          thinking: 'Aan het denken…',
+          sendFailed: 'Bericht versturen mislukt. Probeer opnieuw.',
         },
         general: {
           profilePicture: 'Profielfoto',

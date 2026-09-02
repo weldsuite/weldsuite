@@ -1,39 +1,36 @@
 /**
- * Personal mail messages — list, get, patch, send via Cloudflare Email Sending.
+ * Personal mail messages — list, get, patch, and the outbound paths
+ * (compose / reply / forward) via Cloudflare Email Sending.
+ *
+ * Every send funnels through `services/mail-send.ts`, so the daily plan limit,
+ * idempotency, HTML sanitizing and thread stitching behave identically no
+ * matter which endpoint the client used.
  */
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import { getPersonalDb, personalSchema } from '../db';
-import { generateId } from '../lib/id';
 import { cursorPagination, error, list, success } from '../lib/response';
-import { sendEmail } from '../lib/cloudflare-email';
+import {
+  PersonalMailSendError,
+  forwardAndPersist,
+  replyAndPersist,
+  requireMessage,
+  sendAndPersist,
+} from '../services/mail-send';
 import type { Env, Variables } from '../types';
-import type { PersonalMailEmailAddress } from '@weldsuite/db/schema/personal';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-const { personalMailAccounts, personalMailMessages } = personalSchema;
-
-function asAddresses(
-  value: string | string[] | undefined,
-): PersonalMailEmailAddress[] | undefined {
-  if (value === undefined) return undefined;
-  const arr = Array.isArray(value) ? value : [value];
-  return arr.map((email) => ({ email }));
-}
-
-function previewFrom(textBody?: string, htmlBody?: string): string | null {
-  const raw = textBody?.trim() || htmlBody?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() || '';
-  if (!raw) return null;
-  return raw.slice(0, 500);
-}
+const { personalMailAttachments, personalMailMessages } = personalSchema;
 
 const listQuery = z.object({
   accountId: z.string().optional(),
   label: z.string().optional(),
+  threadId: z.string().optional(),
+  unreadOnly: z.coerce.boolean().optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
@@ -47,6 +44,12 @@ const updateBody = z.object({
 
 const emailOrList = z.union([z.string().email(), z.array(z.string().email()).min(1)]);
 
+/** Accept a single address or a list, and always hand the service an array. */
+function asList(value: string | string[] | undefined): string[] | undefined {
+  if (value === undefined) return undefined;
+  return Array.isArray(value) ? value : [value];
+}
+
 const sendBody = z.object({
   accountId: z.string().min(1),
   to: emailOrList,
@@ -56,9 +59,43 @@ const sendBody = z.object({
   textBody: z.string().optional(),
   htmlBody: z.string().optional(),
   inReplyTo: z.string().max(500).optional(),
+  references: z.array(z.string().max(500)).max(50).optional(),
   threadId: z.string().max(255).optional(),
   idempotencyKey: z.string().min(1).max(64).optional(),
 });
+
+const replyBody = z.object({
+  textBody: z.string().optional(),
+  htmlBody: z.string().optional(),
+  replyAll: z.boolean().optional(),
+  idempotencyKey: z.string().min(1).max(64).optional(),
+});
+
+const forwardBody = z.object({
+  to: emailOrList,
+  cc: emailOrList.optional(),
+  textBody: z.string().optional(),
+  htmlBody: z.string().optional(),
+  idempotencyKey: z.string().min(1).max(64).optional(),
+});
+
+/** Map the one service error type onto the response shapes. */
+function mapSendError(c: Parameters<typeof error.badRequest>[0], err: PersonalMailSendError) {
+  switch (err.code) {
+    case 'ACCOUNT_NOT_FOUND':
+      return error.notFound(c, 'Mail account');
+    case 'MESSAGE_NOT_FOUND':
+      return error.notFound(c, 'Message');
+    case 'DAILY_LIMIT_REACHED':
+      return error.planLimit(c, err.message, err.details);
+    case 'NO_RECIPIENTS':
+      return error.badRequest(c, err.message);
+    case 'DELIVERY_FAILED':
+      return error.unavailable(c, err.message);
+    default:
+      return error.internal(c, err.message);
+  }
+}
 
 app.get('/', zValidator('query', listQuery), async (c) => {
   const personalAccountId = c.get('personalAccountId');
@@ -82,6 +119,16 @@ app.get('/', zValidator('query', listQuery), async (c) => {
         sql`${personalMailMessages.labels} @> ${JSON.stringify([filters.label])}::jsonb`,
       );
     }
+    if (filters.threadId) {
+      conditions.push(eq(personalMailMessages.threadId, filters.threadId));
+    }
+    if (filters.unreadOnly) {
+      conditions.push(eq(personalMailMessages.isRead, false));
+    }
+
+    // A thread view reads oldest-first (conversation order); every other view
+    // is newest-first, and the cursor comparison has to match that direction.
+    const ascending = Boolean(filters.threadId);
 
     if (filters.cursor) {
       const [cur] = await personalDb
@@ -94,7 +141,9 @@ app.get('/', zValidator('query', listQuery), async (c) => {
         .limit(1);
       if (cur?.sentDate) {
         conditions.push(
-          sql`(${personalMailMessages.sentDate} < ${cur.sentDate} OR (${personalMailMessages.sentDate} = ${cur.sentDate} AND ${personalMailMessages.id} < ${cur.id}))`,
+          ascending
+            ? sql`(${personalMailMessages.sentDate} > ${cur.sentDate} OR (${personalMailMessages.sentDate} = ${cur.sentDate} AND ${personalMailMessages.id} > ${cur.id}))`
+            : sql`(${personalMailMessages.sentDate} < ${cur.sentDate} OR (${personalMailMessages.sentDate} = ${cur.sentDate} AND ${personalMailMessages.id} < ${cur.id}))`,
         );
       }
     }
@@ -108,7 +157,12 @@ app.get('/', zValidator('query', listQuery), async (c) => {
         .select()
         .from(personalMailMessages)
         .where(where)
-        .orderBy(desc(personalMailMessages.sentDate), desc(personalMailMessages.id))
+        .orderBy(
+          ascending
+            ? asc(personalMailMessages.sentDate)
+            : desc(personalMailMessages.sentDate),
+          ascending ? asc(personalMailMessages.id) : desc(personalMailMessages.id),
+        )
         .limit(limit + 1),
       personalDb
         .select({ count: sql<number>`count(*)::int` })
@@ -128,180 +182,173 @@ app.get('/', zValidator('query', listQuery), async (c) => {
   }
 });
 
+/**
+ * Unread counts for the inbox badge — total plus a per-account breakdown.
+ *
+ * Registered before `/:id` so the literal path wins the match.
+ */
+app.get('/unread-count', async (c) => {
+  const personalAccountId = c.get('personalAccountId');
+  if (!personalAccountId) return error.personalAccountRequired(c);
+
+  try {
+    const personalDb = getPersonalDb(c.env);
+    const rows = await personalDb
+      .select({
+        accountId: personalMailMessages.accountId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(personalMailMessages)
+      .where(
+        and(
+          eq(personalMailMessages.personalAccountId, personalAccountId),
+          eq(personalMailMessages.isRead, false),
+          eq(personalMailMessages.isTrash, false),
+          isNull(personalMailMessages.deletedAt),
+          sql`${personalMailMessages.labels} @> ${JSON.stringify(['INBOX'])}::jsonb`,
+        ),
+      )
+      .groupBy(personalMailMessages.accountId);
+
+    const byAccount: Record<string, number> = {};
+    let total = 0;
+    for (const row of rows) {
+      const count = Number(row.count ?? 0);
+      byAccount[row.accountId] = count;
+      total += count;
+    }
+
+    return success(c, { total, byAccount });
+  } catch (err) {
+    console.error('[personal-api/mail-messages] unread-count failed:', err);
+    return error.internal(c, 'Failed to count unread messages');
+  }
+});
+
 app.post('/send', zValidator('json', sendBody), async (c) => {
   const personalAccountId = c.get('personalAccountId');
   if (!personalAccountId) return error.personalAccountRequired(c);
 
-  const entitlements = c.get('entitlements');
   const data = c.req.valid('json');
 
   try {
     const personalDb = getPersonalDb(c.env);
-
-    const [account] = await personalDb
-      .select()
-      .from(personalMailAccounts)
-      .where(
-        and(
-          eq(personalMailAccounts.id, data.accountId),
-          eq(personalMailAccounts.personalAccountId, personalAccountId),
-          isNull(personalMailAccounts.deletedAt),
-        ),
-      )
-      .limit(1);
-
-    if (!account) return error.notFound(c, 'Mail account', data.accountId);
-
-    // Daily send limit from Clerk Billing entitlements
-    const dayStart = new Date();
-    dayStart.setUTCHours(0, 0, 0, 0);
-    const [sentTodayRow] = await personalDb
-      .select({ count: sql<number>`count(*)::int` })
-      .from(personalMailMessages)
-      .where(
-        and(
-          eq(personalMailMessages.accountId, data.accountId),
-          eq(personalMailMessages.source, 'composed'),
-          sql`${personalMailMessages.sentDate} >= ${dayStart}`,
-          isNull(personalMailMessages.deletedAt),
-        ),
-      );
-    const sentToday = Number(sentTodayRow?.count ?? 0);
-    if (sentToday >= entitlements.dailySendLimit) {
-      return error.planLimit(
-        c,
-        `Daily send limit of ${entitlements.dailySendLimit} reached. Upgrade to Pro for a higher limit.`,
-        { plan: entitlements.plan, dailySendLimit: entitlements.dailySendLimit },
-      );
-    }
-
-    if (data.idempotencyKey) {
-      const [prior] = await personalDb
-        .select()
-        .from(personalMailMessages)
-        .where(
-          and(
-            eq(personalMailMessages.accountId, data.accountId),
-            eq(personalMailMessages.idempotencyKey, data.idempotencyKey),
-          ),
-        )
-        .limit(1);
-      if (prior) return success(c, prior);
-    }
-
-    const to = asAddresses(data.to)!;
-    const cc = asAddresses(data.cc);
-    const bcc = asAddresses(data.bcc);
-
-    const fromHeader = account.displayName
-      ? `"${account.displayName}" <${account.email}>`
-      : account.email;
-
-    let providerMessageId: string;
-    let pendingVerification = false;
-    try {
-      const sent = await sendEmail(c.env, {
-        from: fromHeader,
-        to: to.map((a) => a.email),
-        cc: cc?.map((a) => a.email),
-        bcc: bcc?.map((a) => a.email),
-        subject: data.subject,
-        text: data.textBody,
-        html: data.htmlBody,
-        inReplyTo: data.inReplyTo,
-      });
-      providerMessageId = sent.messageId;
-      pendingVerification = !!sent.pendingVerification;
-    } catch (err) {
-      console.error('[personal-api/mail-messages] CF send failed:', err);
-      return error.unavailable(
-        c,
-        err instanceof Error ? err.message : 'Email delivery failed',
-      );
-    }
-
-    const id = generateId('msg');
-    const now = new Date();
-    const messageId = providerMessageId.startsWith('<')
-      ? providerMessageId
-      : `<${providerMessageId}@weldmail.com>`;
-
-    const [created] = await personalDb
-      .insert(personalMailMessages)
-      .values({
-        id,
-        personalAccountId,
+    const { message, pendingVerification } = await sendAndPersist(
+      c.env,
+      personalDb,
+      personalAccountId,
+      c.get('entitlements'),
+      {
         accountId: data.accountId,
-        messageId,
-        threadId: data.threadId ?? id,
-        from: {
-          email: account.email,
-          name: account.displayName ?? account.name,
-        },
-        to,
-        cc: cc ?? null,
-        bcc: bcc ?? null,
+        to: asList(data.to)!,
+        cc: asList(data.cc),
+        bcc: asList(data.bcc),
         subject: data.subject,
-        preview: previewFrom(data.textBody, data.htmlBody),
-        textBody: data.textBody ?? null,
-        htmlBody: data.htmlBody ?? null,
-        sentDate: now,
-        receivedDate: now,
-        isRead: true,
-        isStarred: false,
-        isDraft: false,
-        isSpam: false,
-        isTrash: false,
-        hasAttachments: false,
-        inReplyTo: data.inReplyTo ?? null,
-        isReply: Boolean(data.inReplyTo),
-        labels: ['SENT'],
-        sendStatus: pendingVerification ? 'pending_verification' : 'sent',
-        sendProvider: 'cloudflare',
-        providerMessageId,
-        source: 'composed',
-        idempotencyKey: data.idempotencyKey ?? null,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning();
+        textBody: data.textBody,
+        htmlBody: data.htmlBody,
+        inReplyTo: data.inReplyTo,
+        references: data.references,
+        threadId: data.threadId,
+        idempotencyKey: data.idempotencyKey,
+      },
+    );
 
-    await personalDb
-      .update(personalMailAccounts)
-      .set({
-        sentToday: (account.sentToday ?? 0) + 1,
-        updatedAt: now,
-      })
-      .where(eq(personalMailAccounts.id, account.id));
-
-    return success(c, { ...created!, pendingVerification }, 201);
+    return success(c, { ...message, pendingVerification }, 201);
   } catch (err) {
-    if (
-      typeof err === 'object' &&
-      err !== null &&
-      'code' in err &&
-      (err as { code: string }).code === '23505' &&
-      data.idempotencyKey
-    ) {
-      try {
-        const personalDb = getPersonalDb(c.env);
-        const [prior] = await personalDb
-          .select()
-          .from(personalMailMessages)
-          .where(
-            and(
-              eq(personalMailMessages.accountId, data.accountId),
-              eq(personalMailMessages.idempotencyKey, data.idempotencyKey),
-            ),
-          )
-          .limit(1);
-        if (prior) return success(c, prior);
-      } catch {
-        // fall through
-      }
-    }
+    if (err instanceof PersonalMailSendError) return mapSendError(c, err);
     console.error('[personal-api/mail-messages] send failed:', err);
     return error.internal(c, 'Failed to send message');
+  }
+});
+
+app.post('/:id/reply', zValidator('json', replyBody), async (c) => {
+  const personalAccountId = c.get('personalAccountId');
+  if (!personalAccountId) return error.personalAccountRequired(c);
+
+  const id = c.req.param('id');
+  const data = c.req.valid('json');
+
+  try {
+    const personalDb = getPersonalDb(c.env);
+    const { message, pendingVerification, repliedTo } = await replyAndPersist(
+      c.env,
+      personalDb,
+      personalAccountId,
+      c.get('entitlements'),
+      id,
+      data,
+    );
+
+    return success(c, { ...message, pendingVerification, repliedTo }, 201);
+  } catch (err) {
+    if (err instanceof PersonalMailSendError) return mapSendError(c, err);
+    console.error('[personal-api/mail-messages] reply failed:', err);
+    return error.internal(c, 'Failed to send reply');
+  }
+});
+
+app.post('/:id/forward', zValidator('json', forwardBody), async (c) => {
+  const personalAccountId = c.get('personalAccountId');
+  if (!personalAccountId) return error.personalAccountRequired(c);
+
+  const id = c.req.param('id');
+  const data = c.req.valid('json');
+
+  try {
+    const personalDb = getPersonalDb(c.env);
+    const { message, pendingVerification, forwardedFrom } = await forwardAndPersist(
+      c.env,
+      personalDb,
+      personalAccountId,
+      c.get('entitlements'),
+      id,
+      {
+        to: asList(data.to)!,
+        cc: asList(data.cc),
+        textBody: data.textBody,
+        htmlBody: data.htmlBody,
+        idempotencyKey: data.idempotencyKey,
+      },
+    );
+
+    return success(c, { ...message, pendingVerification, forwardedFrom }, 201);
+  } catch (err) {
+    if (err instanceof PersonalMailSendError) return mapSendError(c, err);
+    console.error('[personal-api/mail-messages] forward failed:', err);
+    return error.internal(c, 'Failed to forward message');
+  }
+});
+
+/** Attachments stored by the inbound worker for one message. */
+app.get('/:id/attachments', async (c) => {
+  const personalAccountId = c.get('personalAccountId');
+  if (!personalAccountId) return error.personalAccountRequired(c);
+
+  const id = c.req.param('id');
+
+  try {
+    const personalDb = getPersonalDb(c.env);
+    // Ownership is checked on the message, not the attachment rows, so a
+    // guessed message id can't leak another account's files.
+    await requireMessage(personalDb, personalAccountId, id);
+
+    const rows = await personalDb
+      .select()
+      .from(personalMailAttachments)
+      .where(
+        and(
+          eq(personalMailAttachments.messageId, id),
+          eq(personalMailAttachments.personalAccountId, personalAccountId),
+          isNull(personalMailAttachments.deletedAt),
+        ),
+      )
+      .orderBy(asc(personalMailAttachments.createdAt));
+
+    return success(c, rows);
+  } catch (err) {
+    if (err instanceof PersonalMailSendError) return mapSendError(c, err);
+    console.error('[personal-api/mail-messages] attachments failed:', err);
+    return error.internal(c, 'Failed to list attachments');
   }
 });
 

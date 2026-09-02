@@ -2,7 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import type { Env } from '../lib/protocol';
 import { AUTH_HEADERS } from '../lib/protocol';
 import { canSubscribe, isPersonalTopicForOtherUser } from '../lib/permissions';
-import { topicMatches } from '@weldsuite/realtime/topics';
+import { topicMatches, isPersonalHubKey } from '@weldsuite/realtime/topics';
 import { getTenantDbForWorkspace, setUserOffline, setUserOnlineIfOffline } from '../lib/db';
 
 /**
@@ -732,6 +732,8 @@ export class WorkspaceHub extends DurableObject<Env> {
   }
 
   private async persistOfflineToDb(workspaceId: string, userId: string): Promise<void> {
+    // Personal (consumer) hubs have no tenant DB — presence lives only in the DO.
+    if (isPersonalHubKey(workspaceId)) return;
     try {
       const db = await getTenantDbForWorkspace(this.env, workspaceId);
       await setUserOffline(db, userId);
@@ -747,6 +749,8 @@ export class WorkspaceHub extends DurableObject<Env> {
    * a `status_changed online` so any subscribed clients update too.
    */
   private async repairOnlineInDb(workspaceId: string, userId: string): Promise<void> {
+    // Personal (consumer) hubs have no tenant DB — presence lives only in the DO.
+    if (isPersonalHubKey(workspaceId)) return;
     try {
       const db = await getTenantDbForWorkspace(this.env, workspaceId);
       const updated = await setUserOnlineIfOffline(db, userId);

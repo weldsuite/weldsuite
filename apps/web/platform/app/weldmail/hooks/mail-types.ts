@@ -8,7 +8,10 @@
 /** New email event data */
 export interface NewEmailEvent {
   accountId: string;
+  /** Stored row id (`msg_…`) — the id `GET /mail-messages/:id` takes. */
   messageId: string;
+  /** RFC 5322 Message-ID header of the delivered mail. */
+  smtpMessageId?: string;
   threadId?: string;
   from: {
     email: string;

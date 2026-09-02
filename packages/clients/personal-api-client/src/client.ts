@@ -2,15 +2,20 @@ import type {
   ApiError,
   CreateDraftBody,
   DataResponse,
+  ForwardMessageBody,
+  ListMessagesParams,
   ListResponse,
   MailAccount,
+  MailAttachment,
   MailDraft,
   MailLabel,
   MailMessage,
   MeResponse,
   PatchMessageBody,
   PersonalAccount,
+  ReplyMessageBody,
   SendMessageBody,
+  UnreadCount,
   UpdateDraftBody,
   WeldmailCheckResult,
   WeldmailDomain,
@@ -30,7 +35,7 @@ export class PersonalApiClientError extends Error {
   }
 }
 
-function buildQuery(params: Record<string, unknown>): string {
+function buildQuery(params: Record<string, unknown> | object): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
@@ -130,13 +135,15 @@ export class PersonalApiClient {
   };
 
   readonly mailMessages = {
-    list: (params?: {
-      accountId?: string;
-      label?: string;
-      cursor?: string;
-      limit?: number;
-    }): Promise<ListResponse<MailMessage>> =>
+    list: (params?: ListMessagesParams): Promise<ListResponse<MailMessage>> =>
       this.request('GET', `/mail/messages${buildQuery(params ?? {})}`),
+
+    /** Every message in one conversation, oldest first. */
+    thread: (
+      threadId: string,
+      params?: Omit<ListMessagesParams, 'threadId'>,
+    ): Promise<ListResponse<MailMessage>> =>
+      this.request('GET', `/mail/messages${buildQuery({ ...params, threadId })}`),
 
     get: (id: string): Promise<DataResponse<MailMessage>> =>
       this.request('GET', `/mail/messages/${encodeURIComponent(id)}`),
@@ -146,6 +153,18 @@ export class PersonalApiClient {
 
     send: (body: SendMessageBody): Promise<DataResponse<MailMessage>> =>
       this.request('POST', '/mail/messages/send', body),
+
+    reply: (id: string, body: ReplyMessageBody): Promise<DataResponse<MailMessage>> =>
+      this.request('POST', `/mail/messages/${encodeURIComponent(id)}/reply`, body),
+
+    forward: (id: string, body: ForwardMessageBody): Promise<DataResponse<MailMessage>> =>
+      this.request('POST', `/mail/messages/${encodeURIComponent(id)}/forward`, body),
+
+    attachments: (id: string): Promise<DataResponse<MailAttachment[]>> =>
+      this.request('GET', `/mail/messages/${encodeURIComponent(id)}/attachments`),
+
+    unreadCount: (): Promise<DataResponse<UnreadCount>> =>
+      this.request('GET', '/mail/messages/unread-count'),
   };
 
   readonly mailLabels = {

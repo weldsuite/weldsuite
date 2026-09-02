@@ -28,7 +28,10 @@ export async function publishNewEmailToUser(
   userId: string,
   emailData: {
     accountId: string;
+    /** Stored row id (`msg_…`) — what the client fetches by. */
     messageId: string;
+    /** RFC 5322 Message-ID header, for callers that key off the wire id. */
+    smtpMessageId: string;
     threadId: string;
     from: { email: string; name?: string };
     subject: string;
@@ -40,6 +43,34 @@ export async function publishNewEmailToUser(
 ): Promise<void> {
   const rt = getPublisher(env);
   await rt.mailEvent(workspaceId, userId, 'mail:new', emailData);
+}
+
+/**
+ * Publish a new email notification to a PERSONAL (consumer) account.
+ *
+ * Personal WeldMail users have no Clerk org, so there is no workspace hub to
+ * publish into. `personalMailEvent` targets the user's own hub
+ * (`personal:<clerkUserId>`) on topic `mail.<clerkUserId>` — the same topic
+ * shape the workspace path uses, so clients share one subscription helper.
+ */
+export async function publishNewPersonalEmail(
+  env: Env,
+  clerkUserId: string,
+  emailData: {
+    accountId: string;
+    messageId: string;
+    smtpMessageId: string;
+    threadId: string;
+    from: { email: string; name?: string };
+    subject: string;
+    preview: string;
+    receivedAt: string;
+    isRead: boolean;
+    hasAttachments: boolean;
+  }
+): Promise<void> {
+  const rt = getPublisher(env);
+  await rt.personalMailEvent(clerkUserId, 'mail:new', emailData);
 }
 
 /**

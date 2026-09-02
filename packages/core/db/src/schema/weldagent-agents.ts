@@ -30,7 +30,7 @@ export const weldagentAgents = pgTable(
     /** Natural-language instructions / system prompt. */
     systemPrompt: text('system_prompt').notNull().default(''),
 
-    modelId: varchar('model_id', { length: 100 }).notNull().default('anthropic/claude-sonnet-4-5'),
+    modelId: varchar('model_id', { length: 100 }).notNull().default('@cf/meta/llama-3.3-70b-instruct-fp8-fast'),
     temperature: varchar('temperature', { length: 10 }).notNull().default('0.70'),
     maxTokens: integer('max_tokens').notNull().default(2048),
 

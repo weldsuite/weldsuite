@@ -134,4 +134,36 @@ describe('weldagent conversations', () => {
       }),
     ).rejects.toBeInstanceOf(ConversationNotFoundError);
   });
+
+  it('lists conversations filtered by agentId', async () => {
+    const { request } = app();
+
+    const createAgent = await request('/api/weldagent/agents', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'History Bot', systemPrompt: 'Chat helper' }),
+    });
+    expect(createAgent.status).toBe(201);
+    const agent = (await createAgent.json()) as { data: { id: string } };
+
+    await request('/api/weldagent/conversations', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Bound', agentId: agent.data.id }),
+    });
+    await request('/api/weldagent/conversations', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Unbound' }),
+    });
+
+    const filtered = await request(`/api/weldagent/conversations?agentId=${agent.data.id}`);
+    expect(filtered.status).toBe(200);
+    const body = (await filtered.json()) as {
+      data: Array<{ name: string; agentId: string | null }>;
+    };
+    expect(body.data.every((c) => c.agentId === agent.data.id)).toBe(true);
+    expect(body.data.some((c) => c.name === 'Bound')).toBe(true);
+    expect(body.data.every((c) => c.name !== 'Unbound')).toBe(true);
+  });
 });

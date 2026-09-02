@@ -21,6 +21,10 @@ export interface CreateChannelRequest {
   type?: 'public' | 'private';
   icon?: string;
   memberIds?: string[];
+  /** Workspace agent ids (`agt_*`) to add as channel members. */
+  agentIds?: string[];
+  agentReplyPolicy?: 'mentions' | 'always' | 'none';
+  agentMaxHops?: number;
 }
 
 export interface UpdateChannelRequest {
@@ -34,6 +38,8 @@ export interface UpdateChannelRequest {
   attachmentsEnabled?: boolean;
   reactionsEnabled?: boolean;
   slowModeSeconds?: number;
+  agentReplyPolicy?: 'mentions' | 'always' | 'none';
+  agentMaxHops?: number;
 }
 
 export interface SendMessageRequest {

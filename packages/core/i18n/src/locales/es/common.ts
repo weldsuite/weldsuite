@@ -668,8 +668,22 @@ export const common = {
         agentNotFound: 'Agente no encontrado',
         configureHeading: 'CONFIGURAR',
         tabs: {
+          chat: 'Chat',
           configure: 'Configurar',
           activity: 'Actividad',
+        },
+        chat: {
+          newChat: 'Nuevo chat',
+          newChatName: 'Nuevo chat',
+          loadingHistory: 'Cargando chats…',
+          emptyHistory: 'Aún no hay chats',
+          noMessagesYet: 'Aún no hay mensajes',
+          chattingWith: 'Chat con {name}',
+          emptyTitle: 'Chat con {name}',
+          emptyHint: 'Haz una pregunta — el historial se guarda para este agente.',
+          inputPlaceholder: 'Mensaje para {name}…',
+          thinking: 'Pensando…',
+          sendFailed: 'No se pudo enviar el mensaje. Inténtalo de nuevo.',
         },
         general: {
           profilePicture: 'Foto de perfil',
