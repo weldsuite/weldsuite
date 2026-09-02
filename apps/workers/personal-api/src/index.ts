@@ -46,8 +46,8 @@ app.get('/health', (c) =>
 // Clerk on all /api/* routes
 app.use('/api/*', clerkMiddleware());
 
-// Personal account lookup — allows missing on /api/onboard and /api/me;
-// returns PERSONAL_ACCOUNT_REQUIRED elsewhere.
+// Personal account lookup — allows missing on /api/onboard, /api/me, and
+// weldmail check/domain; returns PERSONAL_ACCOUNT_REQUIRED elsewhere.
 app.use('/api/*', personalAccountMiddleware());
 
 app.route('/api/onboard', onboardRoutes);

@@ -16,7 +16,11 @@ function allowsMissingAccount(path: string): boolean {
     path === '/api/onboard' ||
     path.startsWith('/api/onboard/') ||
     path === '/api/me' ||
-    path.startsWith('/api/me/')
+    path.startsWith('/api/me/') ||
+    // Availability + domain lookup happen before the user has a personal
+    // account (workspace users adding a personal inbox from Add account).
+    path === '/api/mail/weldmail/domain' ||
+    path === '/api/mail/weldmail/check'
   );
 }
 

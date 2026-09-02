@@ -148,7 +148,16 @@ export default function AddAccountScreen() {
                 setAvailability({ available: false, message: (data as { reason?: string }).reason || 'Not available' });
               }
             });
-        check.catch(() => setAvailability(null)).finally(() => setChecking(false));
+        check
+          .catch((err: { status?: number }) => {
+            setAvailability({
+              available: false,
+              message: err?.status === 401
+                ? 'Could not verify your session'
+                : 'Could not check availability',
+            });
+          })
+          .finally(() => setChecking(false));
       }, 500);
     } else {
       setChecking(false);
