@@ -24,6 +24,8 @@ export const hostKeys = {
   domains: () => [...hostKeys.all, 'domains'] as const,
   domainList: (filters?: Record<string, unknown>) => [...hostKeys.domains(), 'list', filters] as const,
   domain: (id: string) => [...hostKeys.all, 'domains', id] as const,
+  /** Kept outside `domain()` so invalidating the domain query cannot re-trigger zone polling. */
+  zoneStatus: (domainId: string) => [...hostKeys.all, 'zone-status', domainId] as const,
   dnsZones: (domainId: string) => [...hostKeys.all, 'domains', domainId, 'dns'] as const,
   dnsRecords: (domainId: string) => [...hostKeys.all, 'domains', domainId, 'dns', 'records'] as const,
   dashboard: () => [...hostKeys.all, 'dashboard'] as const,
@@ -206,12 +208,18 @@ interface RefreshZoneStatusResponse {
 export function useRefreshZoneStatus(domainId: string, enabled = true) {
   const { domains } = useAppApi();
   const qc = useQueryClient();
+  const zoneStatusKey = hostKeys.zoneStatus(domainId);
   return useQuery({
-    queryKey: [...hostKeys.domain(domainId), 'zone-status'],
+    queryKey: zoneStatusKey,
     queryFn: async () => {
+      const previous = qc.getQueryData<RefreshZoneStatusResponse>(zoneStatusKey);
       const res = (await domains.refreshZoneStatus(domainId)) as unknown as RefreshZoneStatusResponse;
-      if (res.data.zoneStatus === 'active') {
-        qc.invalidateQueries({ queryKey: hostKeys.domain(domainId) });
+      const becameActive =
+        res.data.zoneStatus === 'active' && previous?.data.zoneStatus !== 'active';
+      if (becameActive) {
+        // `exact: true` — a prefix invalidate on `hostKeys.domain()` would also
+        // match this hook's old key and cause an infinite refetch loop.
+        qc.invalidateQueries({ queryKey: hostKeys.domain(domainId), exact: true });
         qc.invalidateQueries({ queryKey: hostKeys.dnsZones(domainId) });
       }
       return res;
