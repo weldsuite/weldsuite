@@ -13,6 +13,8 @@ import type {
   MeResponse,
   PatchMessageBody,
   PersonalAccount,
+  PushTokenResult,
+  RegisterPushTokenBody,
   ReplyMessageBody,
   SendMessageBody,
   UnreadCount,
@@ -165,6 +167,16 @@ export class PersonalApiClient {
 
     unreadCount: (): Promise<DataResponse<UnreadCount>> =>
       this.request('GET', '/mail/messages/unread-count'),
+  };
+
+  readonly pushTokens = {
+    /** Upsert this device's push token for the signed-in personal account. */
+    register: (body: RegisterPushTokenBody): Promise<DataResponse<PushTokenResult>> =>
+      this.request('POST', '/push-tokens', body),
+
+    /** Deactivate this device's token (workspace switch, sign-out). */
+    unregister: (deviceId: string): Promise<DataResponse<PushTokenResult>> =>
+      this.request('DELETE', `/push-tokens${buildQuery({ deviceId })}`),
   };
 
   readonly mailLabels = {

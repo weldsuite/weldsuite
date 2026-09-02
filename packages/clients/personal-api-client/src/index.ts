@@ -16,6 +16,8 @@ export type {
   PaginationMeta,
   PatchMessageBody,
   PersonalAccount,
+  PushTokenResult,
+  RegisterPushTokenBody,
   ReplyMessageBody,
   SendMessageBody,
   UnreadCount,
