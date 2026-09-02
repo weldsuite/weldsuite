@@ -19,6 +19,13 @@ interface CliOptions {
   dryRun: boolean;
   only: string | null;
   verbose: boolean;
+  redact: boolean;
+}
+
+// The repo is public, so CI logs are world-readable. Tenant identities stay out
+// of the output unless someone opts in locally.
+function redactByDefault(): boolean {
+  return process.env.CI === 'true' || Boolean(process.env.GITHUB_ACTIONS);
 }
 
 function parseArgs(): CliOptions {
@@ -27,6 +34,7 @@ function parseArgs(): CliOptions {
     dryRun: false,
     only: null,
     verbose: false,
+    redact: redactByDefault(),
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -37,6 +45,10 @@ function parseArgs(): CliOptions {
       options.only = args[++i] ?? null;
     } else if (arg === '--verbose') {
       options.verbose = true;
+    } else if (arg === '--redact') {
+      options.redact = true;
+    } else if (arg === '--show-workspaces') {
+      options.redact = false;
     } else if (arg === '--help' || arg === '-h') {
       printHelp();
       process.exit(0);
@@ -54,10 +66,16 @@ Usage:
   pnpm migrate [options]
 
 Options:
-  --dry-run        List all workspaces without running migrations
-  --only <id>      Migrate only a specific workspace by ID (Clerk org ID)
-  --verbose        Show detailed migration output
-  --help, -h       Show this help message
+  --dry-run          List all workspaces without running migrations
+  --only <id>        Migrate only a specific workspace by ID (Clerk org ID)
+  --verbose          Show detailed migration output
+  --redact           Hide workspace names, IDs and database hosts
+  --show-workspaces  Show workspace details (overrides --redact)
+  --help, -h         Show this help message
+
+Workspace details are redacted by default in CI (CI / GITHUB_ACTIONS set) so
+tenant identities never land in public workflow logs. Pass --show-workspaces
+when running locally to see them.
 
 Examples:
   pnpm migrate                    # Run migrations on all workspace databases
@@ -79,6 +97,24 @@ interface MigrationResult {
   workspaceName: string;
   success: boolean;
   error?: string;
+}
+
+// Set once from CLI options, consulted by the logging helpers below.
+let redactWorkspaces = redactByDefault();
+
+// Anonymous positional label used in place of name/ID when redacting.
+function workspaceLabel(index: number, name: string, id: string): string {
+  return redactWorkspaces ? `workspace #${index}` : `${name} (${id})`;
+}
+
+// Driver errors routinely quote the connection string or the Neon host, so
+// scrub anything identifying before it reaches the log.
+function sanitizeMessage(message: string): string {
+  if (!redactWorkspaces) return message;
+  return message
+    .replace(/postgres(?:ql)?:\/\/\S+/gi, '<redacted-connection-string>')
+    .replace(/\b[\w.-]+\.neon\.tech\b/gi, '<redacted-host>')
+    .replace(/\borg_[A-Za-z0-9]+/g, '<redacted-workspace-id>');
 }
 
 async function getWorkspaces(masterClient: postgres.Sql, only: string | null): Promise<WorkspaceInfo[]> {
@@ -139,7 +175,7 @@ async function migrateWorkspace(
     // Create connection with SSL (Neon requires SSL)
     client = postgres(workspace.databaseUrl, {
       max: 1,
-      onnotice: verbose ? (msg) => console.log(`  Notice: ${msg.message}`) : () => {},
+      onnotice: verbose ? (msg) => console.log(`  Notice: ${sanitizeMessage(msg.message)}`) : () => {},
     });
 
     const db = drizzle(client);
@@ -161,7 +197,7 @@ async function migrateWorkspace(
       workspaceId: workspace.id,
       workspaceName: workspace.name,
       success: false,
-      error: errorMessage,
+      error: sanitizeMessage(errorMessage),
     };
   } finally {
     if (client) {
@@ -182,6 +218,7 @@ function maskDatabaseUrl(url: string): string {
 
 async function main(): Promise<void> {
   const options = parseArgs();
+  redactWorkspaces = options.redact;
 
   console.log('\n===========================================');
   console.log('  Multi-Tenant Database Migration Tool');
@@ -205,6 +242,10 @@ async function main(): Promise<void> {
     console.log('Mode: LIVE (migrations will be applied)\n');
   }
 
+  if (redactWorkspaces) {
+    console.log('Output: REDACTED (workspace details hidden, use --show-workspaces to reveal)\n');
+  }
+
   // Connect to master database
   console.log('Connecting to master database...');
   const masterClient = postgres(masterDbUrl, { max: 1 });
@@ -216,7 +257,11 @@ async function main(): Promise<void> {
 
     if (workspaceList.length === 0) {
       if (options.only) {
-        console.log(`No active workspace found with ID: ${options.only}`);
+        console.log(
+          redactWorkspaces
+            ? 'No active workspace found with the requested ID.'
+            : `No active workspace found with ID: ${options.only}`
+        );
       } else {
         console.log('No active workspaces with database URLs found.');
       }
@@ -227,10 +272,16 @@ async function main(): Promise<void> {
     console.log('-------------------------------------------');
 
     // List workspaces
+    let listIndex = 0;
     for (const workspace of workspaceList) {
-      console.log(`  ID:   ${workspace.id}`);
-      console.log(`  Name: ${workspace.name}`);
-      console.log(`  DB:   ${maskDatabaseUrl(workspace.databaseUrl)}`);
+      listIndex++;
+      if (redactWorkspaces) {
+        console.log(`  ${workspaceLabel(listIndex, workspace.name, workspace.id)}`);
+      } else {
+        console.log(`  ID:   ${workspace.id}`);
+        console.log(`  Name: ${workspace.name}`);
+        console.log(`  DB:   ${maskDatabaseUrl(workspace.databaseUrl)}`);
+      }
       console.log('');
     }
     console.log('-------------------------------------------\n');
@@ -244,11 +295,14 @@ async function main(): Promise<void> {
     // Run migrations
     console.log('Starting migrations...\n');
     const results: MigrationResult[] = [];
+    const labels = new Map<string, string>();
     let current = 0;
 
     for (const workspace of workspaceList) {
       current++;
-      console.log(`[${current}/${workspaceList.length}] Migrating: ${workspace.name} (${workspace.id})`);
+      const label = workspaceLabel(current, workspace.name, workspace.id);
+      labels.set(workspace.id, label);
+      console.log(`[${current}/${workspaceList.length}] Migrating: ${label}`);
 
       const result = await migrateWorkspace(workspace, migrationsFolder, options.verbose);
       results.push(result);
@@ -275,8 +329,11 @@ async function main(): Promise<void> {
     if (failed.length > 0) {
       console.log('\nFailed workspaces:');
       for (const f of failed) {
-        console.log(`  - ${f.workspaceName} (${f.workspaceId})`);
+        console.log(`  - ${labels.get(f.workspaceId) ?? f.workspaceId}`);
         console.log(`    Error: ${f.error}`);
+      }
+      if (redactWorkspaces) {
+        console.log('\n  Re-run locally with --show-workspaces to identify them.');
       }
       console.log('');
       process.exit(1);
@@ -290,6 +347,7 @@ async function main(): Promise<void> {
 
 // Run main function
 main().catch((error) => {
-  console.error('Fatal error:', error);
+  const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
+  console.error('Fatal error:', sanitizeMessage(message));
   process.exit(1);
 });
