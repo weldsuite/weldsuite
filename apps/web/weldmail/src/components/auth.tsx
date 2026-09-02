@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode } from 'react';
-import { useAuth } from '@clerk/clerk-react';
-import { Inbox, PenSquare, CreditCard, User, LogOut } from 'lucide-react';
+import { useAuth, useUser } from '@clerk/clerk-react';
+import { Inbox, PenSquare, CreditCard, LogOut } from 'lucide-react';
 import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { setPersonalApiTokenGetter } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -45,8 +45,58 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
       : 'text-muted-foreground hover:bg-background/60 hover:text-foreground',
   );
 
+function SidebarProfile() {
+  const { user } = useUser();
+  const { signOut } = useAuth();
+  const name = user?.fullName || user?.firstName || 'Account';
+  const email = user?.primaryEmailAddress?.emailAddress ?? '';
+  const initials =
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((part) => part[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase() || '?';
+
+  return (
+    <div className="mt-auto flex items-center gap-0.5 border-t border-border/40 pt-2">
+      <Link
+        to="/account"
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 hover:bg-background/60"
+      >
+        {user?.imageUrl ? (
+          <img
+            src={user.imageUrl}
+            alt=""
+            className="h-8 w-8 shrink-0 rounded-full object-cover"
+          />
+        ) : (
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground">
+            {initials}
+          </span>
+        )}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium text-foreground">{name}</span>
+          {email ? (
+            <span className="block truncate text-xs text-muted-foreground">{email}</span>
+          ) : null}
+        </span>
+      </Link>
+      <button
+        type="button"
+        onClick={() => signOut({ redirectUrl: '/sign-in' })}
+        className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-background/60 hover:text-foreground"
+        aria-label="Sign out"
+      >
+        <LogOut className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
 export function AppShell() {
-  const { signOut, has } = useAuth();
+  const { has } = useAuth();
   const isPro = Boolean(has?.({ plan: 'weldmail_pro' }));
 
   return (
@@ -84,20 +134,9 @@ export function AppShell() {
               <CreditCard className="h-4 w-4" />
               Pricing
             </NavLink>
-            <NavLink to="/account" className={navLinkClass}>
-              <User className="h-4 w-4" />
-              Account
-            </NavLink>
           </nav>
 
-          <button
-            type="button"
-            onClick={() => signOut()}
-            className="mt-auto flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-background/60 hover:text-foreground"
-          >
-            <LogOut className="h-4 w-4" />
-            Sign out
-          </button>
+          <SidebarProfile />
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background">
