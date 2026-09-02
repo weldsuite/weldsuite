@@ -87,8 +87,12 @@ export function AgentChatPanel({ agentId, agentName }: AgentChatPanelProps) {
       // Clear optimistic bubbles once query refetches.
       setPendingUser(null);
       setPendingAssistant(null);
-    } catch {
-      setSendError(t.sendFailed);
+    } catch (err) {
+      const msg =
+        err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string'
+          ? (err as { message: string }).message
+          : t.sendFailed;
+      setSendError(msg || t.sendFailed);
       setPendingUser(null);
     }
   }, [

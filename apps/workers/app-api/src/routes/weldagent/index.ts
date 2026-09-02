@@ -34,6 +34,12 @@ import {
   ConversationNotFoundError,
 } from '../../services/weldagent/complete-turn';
 import { getAgent } from '../../services/weldagent/agents';
+import {
+  AllGatewaysFailedError,
+  GatewayConfigError,
+  isAuthFailure,
+  isGatewayConfigured,
+} from '@weldsuite/ai';
 import type { Env, Variables } from '../../types';
 import { error, success, noContent } from '../../lib/response';
 import { generateId } from '../../lib/id';
@@ -300,6 +306,26 @@ app.post(
           required: err.required,
           shortfall: err.shortfall,
         });
+      }
+      // Surface AI Gateway misconfig clearly — otherwise ops only see a bare 500
+      // in Workers Observability while the real cause is in a sibling console line.
+      const authCause =
+        err instanceof AllGatewaysFailedError ? err.cause : err;
+      if (
+        err instanceof GatewayConfigError ||
+        !isGatewayConfigured(c.env) ||
+        isAuthFailure(err) ||
+        isAuthFailure(authCause)
+      ) {
+        console.error('[app-api/weldagent] complete-turn AI gateway auth/config failed:', err);
+        return error.badGateway(
+          c,
+          'AI gateway rejected the request. On weldsuite-app-api-test set secret AI_GATEWAY_API_TOKEN (Workers AI + AI Gateway Run scopes) for account CF_ACCOUNT_ID.',
+        );
+      }
+      if (err instanceof AllGatewaysFailedError) {
+        console.error('[app-api/weldagent] complete-turn AI gateway upstream failed:', err);
+        return error.badGateway(c, err.message);
       }
       console.error('[app-api/weldagent] complete-turn failed:', err);
       return error.internal(c, err instanceof Error ? err.message : 'Failed to complete turn');
