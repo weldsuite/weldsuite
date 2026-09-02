@@ -35,7 +35,7 @@ export function useSeedPreviewHostData(records: HostDnsRecord[]) {
         },
       },
     });
-    queryClient.setQueryData([...hostKeys.domain(domainId), 'zone-status'], {
+    queryClient.setQueryData(hostKeys.zoneStatus(domainId), {
       data: {
         zoneStatus: 'active',
         domainStatus: 'active',
