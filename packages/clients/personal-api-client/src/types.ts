@@ -208,6 +208,25 @@ export interface ListMessagesParams {
   limit?: number;
 }
 
+export interface RegisterPushTokenBody {
+  token: string;
+  platform: 'ios' | 'android' | 'web';
+  deviceId: string;
+  tokenType?: 'expo' | 'fcm' | 'apns';
+  /** Defaults to 'weldmail' server-side. */
+  appCode?: string;
+  deviceModel?: string;
+  osVersion?: string;
+  appVersion?: string;
+}
+
+export interface PushTokenResult {
+  deviceId: string;
+  platform?: string;
+  registered?: boolean;
+  unregistered?: boolean;
+}
+
 export interface PatchMessageBody {
   isRead?: boolean;
   isStarred?: boolean;
