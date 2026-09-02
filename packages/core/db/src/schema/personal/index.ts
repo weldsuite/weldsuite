@@ -10,3 +10,4 @@ export * from './mail-messages';
 export * from './mail-labels';
 export * from './mail-drafts';
 export * from './mail-attachments';
+export * from './device-tokens';

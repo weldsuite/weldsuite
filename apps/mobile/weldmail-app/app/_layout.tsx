@@ -33,6 +33,7 @@ import { NetworkProvider } from '@/contexts/NetworkContext';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { OutboxFlusher } from '@/components/OutboxFlusher';
 import { useMailRealtime } from '@/hooks/useMailRealtime';
+import { usePersonalMailRealtime } from '@/hooks/usePersonalMailRealtime';
 import { useUpdateGate } from '@/hooks/useUpdateGate';
 import { BRAND } from '@/lib/brand';
 
@@ -213,6 +214,9 @@ const installedAppsApi = {
  */
 function MailRealtimeWatcher() {
   useMailRealtime();
+  // Personal addresses publish to their own per-user hub, which the org-keyed
+  // RealtimeProvider socket can't reach; this opens the second connection.
+  usePersonalMailRealtime();
   return null;
 }
 

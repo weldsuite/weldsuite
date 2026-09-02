@@ -17,6 +17,7 @@ import { mailAccountsRoutes } from './routes/mail-accounts';
 import { mailMessagesRoutes } from './routes/mail-messages';
 import { mailLabelsRoutes } from './routes/mail-labels';
 import { mailDraftsRoutes } from './routes/mail-drafts';
+import { pushTokensRoutes } from './routes/push-tokens';
 import type { Env, Variables } from './types';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -58,6 +59,8 @@ app.route('/api/mail/accounts', mailAccountsRoutes);
 app.route('/api/mail/messages', mailMessagesRoutes);
 app.route('/api/mail/labels', mailLabelsRoutes);
 app.route('/api/mail/drafts', mailDraftsRoutes);
+
+app.route('/api/push-tokens', pushTokensRoutes);
 
 app.notFound((c) =>
   c.json({ error: { code: 'NOT_FOUND', message: 'Not Found', details: { path: c.req.path } } }, 404),

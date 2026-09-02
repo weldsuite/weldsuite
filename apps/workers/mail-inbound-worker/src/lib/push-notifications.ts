@@ -6,7 +6,7 @@
  */
 
 import { and, eq, isNull } from 'drizzle-orm';
-import { getTenantDbForWorkspaceById, tenantSchema } from '../db';
+import { getTenantDbForWorkspaceById, getPersonalDb, tenantSchema, personalSchema } from '../db';
 import {
   sendExpoPush,
   EXPO_PROJECT_IDS,
@@ -164,6 +164,135 @@ export async function sendNewEmailPushNotification(
     return result;
   } catch (error) {
     console.error(`[PushNotify] Failed to send push for user ${userId}:`, error);
+    return null;
+  }
+}
+
+interface PersonalEmailPushParams {
+  /** Clerk user id that owns the personal account (the push target). */
+  clerkUserId: string;
+  messageId: string;
+  accountId: string;
+  from: EmailAddress;
+  subject: string;
+  preview: string;
+}
+
+/**
+ * Send push notifications for a new email on a PERSONAL (consumer WeldMail)
+ * account.
+ *
+ * Same delivery + token-hygiene rules as the workspace path, but the tokens
+ * come from `personal_device_tokens` in the shared personal DB: a personal
+ * account has no Clerk org and no tenant DB, so `device_tokens` is unreachable
+ * for it. Without this, a personal `@weldmail.com` address is stored on
+ * delivery but never raises a banner on the phone.
+ */
+export async function sendPersonalEmailPushNotification(
+  env: Env,
+  params: PersonalEmailPushParams,
+): Promise<SendExpoPushResult | null> {
+  const { clerkUserId, messageId, accountId, from, subject, preview } = params;
+
+  try {
+    const personalDb = getPersonalDb(env);
+
+    // isActive IS NULL means active; a non-null value is the deactivation time.
+    const activeTokens = await personalDb
+      .select({
+        token: personalSchema.personalDeviceTokens.token,
+        tokenType: personalSchema.personalDeviceTokens.tokenType,
+      })
+      .from(personalSchema.personalDeviceTokens)
+      .where(
+        and(
+          eq(personalSchema.personalDeviceTokens.clerkUserId, clerkUserId),
+          eq(personalSchema.personalDeviceTokens.appCode, 'weldmail'),
+          isNull(personalSchema.personalDeviceTokens.isActive),
+        ),
+      );
+
+    if (activeTokens.length === 0) {
+      return null;
+    }
+
+    const senderName = from.name || from.email;
+
+    const messages: ExpoPushMessage[] = activeTokens.map((t) => ({
+      to: t.token,
+      title: `New email from ${senderName}`,
+      body: subject || preview || 'New email received',
+      sound: 'default' as const,
+      priority: 'high' as const,
+      channelId: 'email',
+      data: {
+        type: 'new_email',
+        emailId: messageId,
+        emailAccountId: accountId,
+        // No clerkOrgId: a personal inbox is not workspace-scoped, and the app
+        // uses its absence to route the tap to the personal account rather
+        // than filtering the banner out on a workspace mismatch.
+        tenantKind: 'personal',
+        fromName: (senderName || '').slice(0, 80),
+        fromEmail: (from.email || '').slice(0, 120),
+        subject: (subject || '').slice(0, 120),
+        preview: (preview || '').slice(0, 160),
+      },
+    }));
+
+    const result = await sendExpoPush(messages, {
+      projectId: EXPO_PROJECT_IDS.weldmail,
+    });
+
+    if (result.tickets.length > 0) {
+      const ok = result.tickets.filter((t) => t.status === 'ok').length;
+      const err = result.tickets.filter((t) => t.status === 'error').length;
+      console.log(
+        `[PushNotify] Personal push sent to ${ok} device(s) for ${clerkUserId} (${err} failed)`,
+      );
+    }
+
+    for (const ticket of result.tickets) {
+      if (ticket.status === 'error') {
+        const code = ticket.details?.error ?? 'Unknown';
+        if (TRANSIENT_ERROR_CODES.has(code)) {
+          console.warn(
+            `[PushNotify] Transient personal push error for ${clerkUserId}: ${code} — ${ticket.message ?? ''}`,
+          );
+        }
+      }
+    }
+
+    const tokensToDeactivate = new Set<string>(result.invalidTokens);
+    result.tickets.forEach((ticket, idx) => {
+      if (ticket.status === 'error') {
+        const code = ticket.details?.error ?? '';
+        if (PERMANENT_TOKEN_ERROR_CODES.has(code) && code !== 'DeviceNotRegistered') {
+          const token = messages[idx]?.to;
+          if (token) tokensToDeactivate.add(token);
+        }
+      }
+    });
+
+    if (tokensToDeactivate.size > 0) {
+      console.log(
+        `[PushNotify] Deactivating ${tokensToDeactivate.size} invalid personal token(s)`,
+      );
+      for (const invalidToken of tokensToDeactivate) {
+        try {
+          await personalDb
+            .update(personalSchema.personalDeviceTokens)
+            .set({ isActive: new Date(), updatedAt: new Date() })
+            .where(eq(personalSchema.personalDeviceTokens.token, invalidToken));
+        } catch (err) {
+          console.error('[PushNotify] Failed to deactivate personal token:', err);
+        }
+      }
+    }
+
+    return result;
+  } catch (error) {
+    console.error(`[PushNotify] Failed to send personal push for ${clerkUserId}:`, error);
     return null;
   }
 }

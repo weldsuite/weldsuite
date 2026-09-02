@@ -17,6 +17,7 @@ import {
   addPushTokenRefreshListener,
 } from '@weldsuite/mobile-ui/services/notifications';
 import { appApi } from '@/services/app-api';
+import { personalApi } from '@/services/personal-api';
 import { useMail } from '@/contexts/MailContext';
 import {
   parseNotificationContent,
@@ -82,7 +83,13 @@ export const useNotifications = () => useContext(NotificationContext);
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const { user, getCredentials, organizationId, isLoading: authLoading } = useClerkAuth();
-  const { selectAccountById, setSelectedLabel, refreshMail, expectNotificationEmail } = useMail();
+  const {
+    selectAccountById,
+    setSelectedLabel,
+    refreshMail,
+    expectNotificationEmail,
+    hasPersonalAccount,
+  } = useMail();
   const router = useRouter();
   const segments = useSegments();
   const rootNavigationState = useRootNavigationState();
@@ -174,18 +181,29 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     const deviceId = await getDeviceId();
     const isExpoToken = token.startsWith('ExponentPushToken[');
     const tokenType = isExpoToken ? 'expo' : (Platform.OS === 'android' ? 'fcm' : 'apns');
-    await appApi.pushTokens
-      .register({
-        token,
-        platform: Platform.OS as 'ios' | 'android',
-        deviceId,
-        appCode: APP_CODE,
-        tokenType: tokenType as 'expo' | 'fcm' | 'apns',
-        deviceModel: Device.modelName || undefined,
-        osVersion: Device.osVersion || undefined,
-        appVersion: Application.nativeApplicationVersion || undefined,
-      })
-      .catch(() => {});
+    const payload = {
+      token,
+      platform: Platform.OS as 'ios' | 'android',
+      deviceId,
+      appCode: APP_CODE,
+      tokenType: tokenType as 'expo' | 'fcm' | 'apns',
+      deviceModel: Device.modelName || undefined,
+      osVersion: Device.osVersion || undefined,
+      appVersion: Application.nativeApplicationVersion || undefined,
+    };
+
+    // Workspace addresses push from the tenant DB (app-api); a personal
+    // @weldmail.com address has no tenant, so its token lives in the personal
+    // DB behind personal-api. This app shows both side by side, so register
+    // with whichever backends apply — registering with only one silently drops
+    // notifications for the other tenancy.
+    const registrations: Promise<unknown>[] = [
+      appApi.pushTokens.register(payload).catch(() => {}),
+    ];
+    if (hasPersonalAccount) {
+      registrations.push(personalApi.pushTokens.register(payload).catch(() => {}));
+    }
+    await Promise.all(registrations);
   };
 
   const requestPermissions = async (): Promise<boolean> => {
@@ -217,7 +235,13 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const unregisterDevice = async () => {
     try {
       const deviceId = await getDeviceId();
-      await appApi.pushTokens.unregister(deviceId).catch(() => {});
+      await Promise.all([
+        appApi.pushTokens.unregister(deviceId).catch(() => {}),
+        // Always attempt the personal side too: on sign-out the account list
+        // may already be cleared, so `hasPersonalAccount` can't be trusted to
+        // decide whether there is a personal token to deactivate.
+        personalApi.pushTokens.unregister(deviceId).catch(() => {}),
+      ]);
     } catch {
       // ignore — best-effort cleanup
     }
@@ -228,7 +252,20 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   // Same cleanup as sign-out, but keep the session: deactivate the token while
   // the JWT still points at the *leaving* workspace, then clear the shade.
   // NotificationContext re-registers against the new org after setActive.
-  const prepareWorkspaceSwitch = unregisterDevice;
+  //
+  // Deliberately NOT `unregisterDevice`: that also deactivates the personal
+  // token, and the personal inbox is not workspace-scoped — switching orgs
+  // must not silence @weldmail.com notifications.
+  const prepareWorkspaceSwitch = async () => {
+    try {
+      const deviceId = await getDeviceId();
+      await appApi.pushTokens.unregister(deviceId).catch(() => {});
+    } catch {
+      // ignore — best-effort cleanup
+    }
+    await dismissAllPresentedNotifications();
+    await setBadgeCount(0);
+  };
 
   // Cold-start replay + tap listener: do this on mount, not after org hydrates.
   // Waiting for organizationId was what left the inbox on screen first.
@@ -273,9 +310,13 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     };
   }, [queueNavigationFromResponse]);
 
-  // Device token registration still needs a signed-in user + org-scoped JWT.
+  // Registration needs a signed-in user. It does NOT need an org: a
+  // personal-only user has no Clerk org, and gating on one left them with no
+  // token registered anywhere. `hasPersonalAccount` is in the deps so the
+  // personal token registers as soon as the account list resolves — it is
+  // usually still false on the first pass.
   useEffect(() => {
-    if (!user || !organizationId) return;
+    if (!user) return;
     let removeTokenRefresh: (() => void) | undefined;
 
     const initToken = async () => {
@@ -309,7 +350,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     initToken();
     return () => { removeTokenRefresh?.(); };
-  }, [user, organizationId, getCredentials]);
+  }, [user, organizationId, hasPersonalAccount, getCredentials]);
 
   return (
     <NotificationContext.Provider value={{

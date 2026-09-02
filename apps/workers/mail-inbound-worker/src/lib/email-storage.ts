@@ -17,7 +17,10 @@ import {
   publishNewPersonalEmail,
   publishDeskInbound,
 } from './realtime';
-import { sendNewEmailPushNotification } from './push-notifications';
+import {
+  sendNewEmailPushNotification,
+  sendPersonalEmailPushNotification,
+} from './push-notifications';
 import { upsertContactsFromMailMessage } from './contact-upsert';
 import type { Env } from '../index';
 
@@ -752,6 +755,22 @@ async function finishPersonalDelivery(
   // Don't notify the owner about their own outbound copy landing back here.
   if (email.from.email.toLowerCase() === account.accountEmail.toLowerCase()) {
     return 0;
+  }
+
+  // Push first: it is what surfaces a banner when the app is backgrounded or
+  // closed, which is the common case for inbound mail. The realtime publish
+  // below only reaches a client that already has the app open.
+  try {
+    await sendPersonalEmailPushNotification(env, {
+      clerkUserId,
+      messageId: result.messageId,
+      accountId: account.accountId,
+      from: email.from,
+      subject: email.subject,
+      preview,
+    });
+  } catch (pushErr) {
+    console.error(`[Push] Failed to send personal push to ${clerkUserId}:`, pushErr);
   }
 
   try {
