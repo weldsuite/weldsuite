@@ -70,6 +70,20 @@ export function getWorkspacePermissions(auth: AuthInfo): WorkspacePermissions {
 }
 
 /**
+ * Topics a PERSONAL (consumer) connection may subscribe to.
+ *
+ * A personal hub holds exactly one user, so the allow list is just that user's
+ * own streams — no entity topics, no workspace-wide broadcasts. Combined with
+ * `isPersonalTopicForOtherUser` (which still runs at subscribe time), a personal
+ * connection can reach nothing but its own mail and notifications.
+ */
+export function getPersonalPermissions(auth: AuthInfo): WorkspacePermissions {
+  return {
+    subscribe: [`mail.${auth.userId}`, `notification.${auth.userId}`],
+  };
+}
+
+/**
  * Return true when `topic` is a personal topic whose target is NOT the
  * caller. Used by the WorkspaceHub subscribe handler to reject attempts
  * like `notification.<some-other-user-id>`, including for admins/owners

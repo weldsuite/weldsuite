@@ -16,7 +16,13 @@ export type {
 } from './types';
 
 // Topics
-export { topics, topicMatches } from './topics';
+export {
+  topics,
+  topicMatches,
+  personalHubKey,
+  isPersonalHubKey,
+  PERSONAL_HUB_PREFIX,
+} from './topics';
 
 // Client
 export { WorkspaceClient, type WorkspaceClientConfig, type CursorStore } from './client/workspace-client';

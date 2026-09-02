@@ -1,4 +1,5 @@
 import type { Context } from 'hono';
+import { personalHubKey } from '@weldsuite/realtime/topics';
 import type { Env, AuthInfo } from './protocol';
 
 // ============================================================
@@ -106,7 +107,9 @@ function extractToken(
  * Token can arrive via query param `?token=`, Authorization: Bearer, or the
  * `authorization` WebSocket subprotocol.
  */
-export async function verifyClerkJwt(c: Context<{ Bindings: Env }>): Promise<AuthInfo> {
+async function verifyClerkPayload(
+  c: Context<{ Bindings: Env }>,
+): Promise<Record<string, any>> {
   const url = new URL(c.req.url);
   const token = extractToken(
     url,
@@ -139,6 +142,16 @@ export async function verifyClerkJwt(c: Context<{ Bindings: Env }>): Promise<Aut
     throw new Error('Invalid token issuer');
   }
 
+  if (!payload.sub) {
+    throw new Error('No subject in token');
+  }
+
+  return payload;
+}
+
+export async function verifyClerkJwt(c: Context<{ Bindings: Env }>): Promise<AuthInfo> {
+  const payload = await verifyClerkPayload(c);
+
   // Clerk v2 tokens use `o.id` for org, v1 used `org_id`.
   const orgId = payload.o?.id || payload.org_id || null;
   const orgRole = payload.o?.rol || payload.org_role || 'member';
@@ -152,6 +165,29 @@ export async function verifyClerkJwt(c: Context<{ Bindings: Env }>): Promise<Aut
     userName: payload.name || payload.first_name || 'Unknown',
     workspaceId: orgId,
     role: orgRole.replace('org:', ''), // "org:admin" → "admin"
+    type: 'agent',
+  };
+}
+
+/**
+ * Verify a Clerk JWT for a PERSONAL (consumer) account.
+ *
+ * Same signature/expiry/issuer checks as `verifyClerkJwt`, but no Clerk org is
+ * required — consumer WeldMail users have none. The connection is bound to a
+ * hub named `personal:<clerkUserId>` (see `personalHubKey`), which is private
+ * to that user; any org claim on the token is deliberately ignored so a
+ * workspace member's token can't be used to reach another hub through here.
+ */
+export async function verifyPersonalClerkJwt(
+  c: Context<{ Bindings: Env }>,
+): Promise<AuthInfo> {
+  const payload = await verifyClerkPayload(c);
+
+  return {
+    userId: payload.sub,
+    userName: payload.name || payload.first_name || 'Unknown',
+    workspaceId: personalHubKey(payload.sub),
+    role: 'personal',
     type: 'agent',
   };
 }

@@ -53,11 +53,37 @@ export interface MailMessage {
   isSpam?: boolean | null;
   isTrash?: boolean | null;
   hasAttachments: boolean;
+  attachmentCount?: number | null;
+  inReplyTo?: string | null;
+  references?: string[] | null;
+  isReply?: boolean | null;
   labels?: string[] | null;
   sendStatus?: string | null;
   source?: string | null;
   createdAt?: string | Date;
   updatedAt?: string | Date;
+  /** Present on send/reply/forward responses when a recipient must verify. */
+  pendingVerification?: boolean;
+}
+
+export interface MailAttachment {
+  id: string;
+  personalAccountId: string;
+  messageId: string;
+  fileName: string;
+  contentType?: string | null;
+  size: number;
+  isInline?: boolean | null;
+  contentId?: string | null;
+  downloadUrl?: string | null;
+  storagePath?: string | null;
+  createdAt?: string | Date;
+}
+
+/** Unread totals for the inbox badge. */
+export interface UnreadCount {
+  total: number;
+  byAccount: Record<string, number>;
 }
 
 export interface MailLabel {
@@ -148,9 +174,38 @@ export interface SendMessageBody {
   subject: string;
   textBody?: string;
   htmlBody?: string;
+  /** RFC 5322 Message-ID being answered. */
   inReplyTo?: string;
+  /** Ancestry chain; the first entry roots the thread. */
+  references?: string[];
   threadId?: string;
   idempotencyKey?: string;
+}
+
+export interface ReplyMessageBody {
+  textBody?: string;
+  htmlBody?: string;
+  /** Keep the original To/Cc participants on the reply. */
+  replyAll?: boolean;
+  idempotencyKey?: string;
+}
+
+export interface ForwardMessageBody {
+  to: string | string[];
+  cc?: string | string[];
+  textBody?: string;
+  htmlBody?: string;
+  idempotencyKey?: string;
+}
+
+export interface ListMessagesParams {
+  accountId?: string;
+  label?: string;
+  /** Return one conversation, oldest message first. */
+  threadId?: string;
+  unreadOnly?: boolean;
+  cursor?: string;
+  limit?: number;
 }
 
 export interface PatchMessageBody {

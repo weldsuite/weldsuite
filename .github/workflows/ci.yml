@@ -114,6 +114,17 @@ jobs:
         working-directory: apps/workers/app-api
         run: pnpm test
 
+  unit-personal-api:
+    name: Unit · personal-api
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Run Vitest
+        working-directory: apps/workers/personal-api
+        run: pnpm test
+
   unit-platform:
     name: Unit · platform
     runs-on: ubuntu-latest

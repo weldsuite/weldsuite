@@ -49,6 +49,26 @@ export const topics = {
 } as const;
 
 /**
+ * Hub key for a personal (consumer) account.
+ *
+ * WorkspaceHub DOs are addressed by name, and workspace hubs use the Clerk org
+ * id. Personal WeldMail users have no org, so they get their own hub named
+ * `personal:<clerkUserId>` — a namespace no Clerk org id can collide with
+ * (org ids never contain a colon). Inside that hub the same per-user topics
+ * apply (`mail.<clerkUserId>`, `notification.<clerkUserId>`), so the existing
+ * personal-topic isolation carries over unchanged.
+ */
+export const PERSONAL_HUB_PREFIX = 'personal:';
+
+export function personalHubKey(clerkUserId: string): string {
+  return `${PERSONAL_HUB_PREFIX}${clerkUserId}`;
+}
+
+export function isPersonalHubKey(hubKey: string): boolean {
+  return hubKey.startsWith(PERSONAL_HUB_PREFIX);
+}
+
+/**
  * Check if an event topic matches a subscription topic.
  * "project" matches "project" and "project.proj_123".
  */

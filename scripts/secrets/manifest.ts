@@ -52,8 +52,29 @@ export const manifest: Record<string, SecretEntry[]> = {
     ["BETTERSTACK_TOKEN_WORKSPACE_WORKER", "BETTERSTACK_TOKEN"],
   ],
 
+  // Inbound mail for BOTH tenancies. Workspace mail resolves a per-workspace
+  // Neon URL (NEON_API_KEY + DATABASE_URL_MASTER + the encryption keys);
+  // consumer WeldMail writes to the single shared personal DB, so without
+  // DATABASE_URL_PERSONAL every @weldmail.com delivery fails to store.
   "mail-inbound-worker": [
+    "DATABASE_URL_MASTER",
+    "DATABASE_URL_PERSONAL",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    // Semantic label classification for inbound workspace mail.
+    "CF_ACCOUNT_ID",
+    "CF_AIG_TOKEN",
     ["BETTERSTACK_TOKEN_MAIL_INBOUND_WORKER", "BETTERSTACK_TOKEN"],
+  ],
+
+  // Consumer WeldMail backend (api.weldmail.com). Personal accounts live in
+  // master; their mail lives in the shared personal DB. No Neon-per-tenant
+  // resolution here, so no NEON_API_KEY / encryption keys.
+  "personal-api": [
+    "DATABASE_URL_MASTER",
+    "DATABASE_URL_PERSONAL",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
   ],
 
   "helpdesk-widget-api": [

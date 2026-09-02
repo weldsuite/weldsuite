@@ -1,4 +1,5 @@
 import type { Attachment } from '../types';
+import { personalHubKey } from '../topics';
 
 /** Service binding interface — compatible with Cloudflare's Fetcher */
 interface ServiceBinding {
@@ -90,6 +91,39 @@ export class RealtimePublisher {
 
   async inboxEvent(workspaceId: string, agentId: string, event: string, data: unknown) {
     return this.publishPersonal(workspaceId, `inbox.${agentId}`, event, data, agentId);
+  }
+
+  // ============================================
+  // Personal (consumer) Events → per-user WorkspaceHub DO
+  // ============================================
+
+  /**
+   * Publish a mail event to a personal (org-less) account's own hub.
+   *
+   * Consumer WeldMail users have no Clerk org, so there is no workspace hub to
+   * address. `personalHubKey` gives each user a dedicated hub; the topic stays
+   * `mail.<clerkUserId>` so the DO's personal-topic isolation still applies and
+   * clients use the same `useTopic('mail.<id>')` shape as the platform.
+   */
+  async personalMailEvent(clerkUserId: string, event: string, data: unknown) {
+    return this.publishPersonal(
+      personalHubKey(clerkUserId),
+      `mail.${clerkUserId}`,
+      event,
+      data,
+      clerkUserId,
+    );
+  }
+
+  /** Generic in-app notification for a personal account. */
+  async personalNotify(clerkUserId: string, notification: unknown) {
+    return this.publishPersonal(
+      personalHubKey(clerkUserId),
+      `notification.${clerkUserId}`,
+      'created',
+      notification,
+      clerkUserId,
+    );
   }
 
   async helpdeskEvent(workspaceId: string, event: string, data: unknown) {
