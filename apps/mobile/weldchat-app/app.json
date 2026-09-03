@@ -16,7 +16,8 @@
         "NSCameraUsageDescription": "WeldChat needs camera access for video calls.",
         "NSMicrophoneUsageDescription": "WeldChat needs microphone access for voice and video calls.",
         "NSBluetoothAlwaysUsageDescription": "WeldChat uses Bluetooth to route voice and video call audio to nearby Bluetooth headsets and speakers.",
-        "NSLocalNetworkUsageDescription": "WeldChat uses your local network for low-latency call audio and video."
+        "NSLocalNetworkUsageDescription": "WeldChat uses your local network for low-latency call audio and video.",
+        "UIBackgroundModes": ["remote-notification", "audio"]
       },
       "bitcode": false
     },
@@ -37,6 +38,7 @@
         "android.permission.BLUETOOTH_CONNECT",
         "android.permission.INTERNET",
         "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.USE_FULL_SCREEN_INTENT",
         "android.permission.WAKE_LOCK",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.WRITE_EXTERNAL_STORAGE",

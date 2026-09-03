@@ -5,25 +5,27 @@
  * navigation — the user can minimize the call to a top bar and move between
  * chats while the WebRTC connection stays alive, exactly like WhatsApp.
  *
- * Owns the RealtimeKit client lifecycle that used to live in the `call-room`
- * route: init / join / leave, room lifecycle bridging, and releasing the local
- * camera/mic tracks. The full-screen <CallScreen> is kept mounted while
- * minimized (just hidden) so its state — and the media — don't reset when the
- * user pops back into the call.
+ * In-call UI is Cloudflare RealtimeKit's official `RtkMeeting` (same path as
+ * WeldMeet mobile). This host owns init / join / leave, room lifecycle
+ * bridging, the minimize bar, and releasing local camera/mic tracks.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets, SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Phone, Mic, MicOff } from 'lucide-react-native';
+import { Phone, Mic, MicOff, ChevronDown } from 'lucide-react-native';
 import {
   RealtimeKitProvider,
   useRealtimeKitClient,
 } from '@cloudflare/realtimekit-react-native';
+import {
+  RtkUIProvider,
+  RtkMeeting,
+  RtkWaitingScreen,
+} from '@cloudflare/realtimekit-react-native-ui';
 import { useCall, type CallSession } from '@/contexts/CallContext';
 import { useLoopingSound } from '@/hooks/useLoopingSound';
-import { CallScreen, OutgoingCallPlaceholder } from './CallScreen';
 
 const RINGBACK = require('@/assets/sounds/ringback.wav');
 
@@ -83,10 +85,6 @@ export function CallInsetContainer({ children }: { children: React.ReactNode }) 
   const insets = useSafeAreaInsets();
   const { minimized, session } = useCall();
   const showBar = minimized && !!session;
-  // While minimized the container already clears the status bar, so children
-  // get a zeroed top inset. Headers that want a comfortable height handle it
-  // with a fixed centered content row (see ChannelView) so their content stays
-  // vertically centered — a non-zero inset here would push it down on top only.
   const childInsets = useMemo(
     () => (showBar ? { ...insets, top: 0 } : insets),
     [showBar, insets],
@@ -98,8 +96,6 @@ export function CallInsetContainer({ children }: { children: React.ReactNode }) 
         showBar && { backgroundColor: CALL_BAR_BG, paddingTop: insets.top + CALL_BAR_BODY_HEIGHT },
       ]}
     >
-      {/* The page peeks out below the bar with rounded top corners; the dark
-          backdrop shows through the corner curves (exactly like WhatsApp). */}
       <View
         style={[
           { flex: 1, overflow: 'hidden' },
@@ -117,8 +113,6 @@ export function CallInsetContainer({ children }: { children: React.ReactNode }) 
 export function CallHost() {
   const { session } = useCall();
   if (!session) return null;
-  // Key by callId so each call gets a fresh RealtimeKit client + clean unmount
-  // cleanup (mirrors the old per-route lifecycle).
   return <ActiveCall key={session.callId} session={session} />;
 }
 
@@ -133,14 +127,12 @@ function ActiveCall({ session }: { session: CallSession }) {
   const leaveCallRef = useRef(leaveCall);
   leaveCallRef.current = leaveCall;
 
-  // ── Answered latch + duration (owned here so they survive minimize/expand) ──
   const [connected, setConnected] = useState(false);
   const connectedRef = useRef(false);
   connectedRef.current = connected;
   const [duration, setDuration] = useState(0);
   const startedAtRef = useRef(0);
 
-  // Mic state — mirrored so the minimized bar's mute button stays in sync.
   const [audioEnabled, setAudioEnabled] = useState(true);
   useEffect(() => {
     if (!meeting) return;
@@ -154,6 +146,7 @@ function ActiveCall({ session }: { session: CallSession }) {
     self.on?.('audioUpdate', sync);
     return () => self.off?.('audioUpdate', sync);
   }, [meeting]);
+
   const toggleMute = useCallback(() => {
     const m = meetingRef.current;
     if (!m) return;
@@ -161,7 +154,6 @@ function ActiveCall({ session }: { session: CallSession }) {
     else m.self.enableAudio();
   }, []);
 
-  // Single, idempotent leave path.
   const handleLeave = useCallback(async () => {
     if (leftRef.current) return;
     leftRef.current = true;
@@ -174,7 +166,6 @@ function ActiveCall({ session }: { session: CallSession }) {
     await leaveCallRef.current();
   }, []);
 
-  // Init the RealtimeKit client once we have an auth token.
   useEffect(() => {
     if (!session.authToken || initTriggered.current) return;
     initTriggered.current = true;
@@ -196,7 +187,6 @@ function ActiveCall({ session }: { session: CallSession }) {
     };
   }, [session.authToken, session.callType, initMeeting, leaveCall]);
 
-  // Bridge SFU room lifecycle into the call context.
   useEffect(() => {
     if (!meeting) return;
     const onJoined = () => markConnected();
@@ -211,8 +201,7 @@ function ActiveCall({ session }: { session: CallSession }) {
     };
   }, [meeting, markConnected, handleLeave]);
 
-  // Latch "answered" once a remote participant stays present for a short beat —
-  // ignores transient join/leave blips while their media connects.
+  // Latch "answered" once a remote participant stays present (for ringback + bar status).
   useEffect(() => {
     if (!meeting) return;
     const parts = meeting.participants as unknown as {
@@ -249,11 +238,8 @@ function ActiveCall({ session }: { session: CallSession }) {
     };
   }, [meeting]);
 
-  // Outgoing "calling…" ringback — plays for a direct (1:1) call we placed
-  // until the other side answers (the connected latch flips).
   useLoopingSound(!!session.isDirect && !connected, RINGBACK);
 
-  // Tick the call duration once answered.
   useEffect(() => {
     if (!connected) return;
     if (!startedAtRef.current) startedAtRef.current = Date.now();
@@ -263,7 +249,6 @@ function ActiveCall({ session }: { session: CallSession }) {
     return () => clearInterval(id);
   }, [connected]);
 
-  // Belt-and-suspenders: release camera/mic if we ever unmount without leaving.
   useEffect(() => {
     return () => {
       if (leftRef.current) return;
@@ -275,49 +260,44 @@ function ActiveCall({ session }: { session: CallSession }) {
         /* best effort */
       }
     };
-     
   }, []);
+
+  const insets = useSafeAreaInsets();
 
   return (
     <>
-      {/* Full-screen call — kept mounted while minimized (just hidden) so its
-          state and the media stream don't reset on expand. */}
       <View
         style={[styles.overlay, minimized && styles.hidden]}
         pointerEvents={minimized ? 'none' : 'auto'}
       >
         {meeting ? (
-          <RealtimeKitProvider value={meeting as never}>
-            <CallScreen
-              onLeave={handleLeave}
-              onMinimize={minimizeCall}
-              isDirect={session.isDirect}
-              peerName={session.peerName}
-              peerAvatar={session.peerAvatar}
-              callType={session.callType}
-              connected={connected}
-              duration={duration}
-            />
+          <RealtimeKitProvider value={meeting as never} fallback={<RtkWaitingScreen />}>
+            <RtkUIProvider>
+              <RtkMeeting meeting={meeting as never} showSetupScreen={false} />
+            </RtkUIProvider>
           </RealtimeKitProvider>
-        ) : session.isDirect ? (
-          // Direct call: show the "Calling…" screen instantly, no spinner — the
-          // live CallScreen takes over seamlessly once the meeting initializes.
-          <OutgoingCallPlaceholder
-            peerName={session.peerName}
-            peerAvatar={session.peerAvatar}
-            callType={session.callType}
-            onLeave={handleLeave}
-            onMinimize={minimizeCall}
-          />
         ) : (
           <View style={styles.connecting}>
             <ActivityIndicator size="large" color="#0095f6" />
-            <Text style={styles.connectingText}>Connecting…</Text>
+            <Text style={styles.connectingText}>
+              {session.isDirect
+                ? `Calling${session.peerName ? ` ${session.peerName}` : ''}…`
+                : 'Connecting…'}
+            </Text>
           </View>
         )}
+
+        {/* Minimize — WeldChat chrome outside RTK UI */}
+        <TouchableOpacity
+          style={[styles.minimizeBtn, { top: insets.top + 8 }]}
+          onPress={minimizeCall}
+          hitSlop={10}
+          accessibilityLabel="Minimize call"
+        >
+          <ChevronDown size={22} color="#fff" />
+        </TouchableOpacity>
       </View>
 
-      {/* WhatsApp-style minimized top bar */}
       {minimized && (
         <MinimizedCallBar
           peerName={session.peerName}
@@ -350,17 +330,12 @@ function MinimizedCallBar({
   const insets = useSafeAreaInsets();
   return (
     <View style={[styles.bar, { paddingTop: insets.top }]}>
-      {/* The bar's dark backdrop fills the status-bar area, so force the OS
-          status-bar icons (clock, wifi, battery) to light/white — otherwise the
-          default dark icons are invisible black-on-black while minimized. */}
       <StatusBar style="light" />
       <View style={styles.barRow}>
-        {/* Mute toggle */}
         <TouchableOpacity style={styles.circleBtn} onPress={onToggleMute} hitSlop={6} accessibilityLabel={isMuted ? 'Unmute' : 'Mute'}>
           {isMuted ? <MicOff size={17} color="#fff" /> : <Mic size={17} color="#fff" />}
         </TouchableOpacity>
 
-        {/* Name + status — tap to return to the call */}
         <TouchableOpacity style={styles.barCenter} onPress={onExpand} activeOpacity={0.7} accessibilityLabel="Return to call">
           <Phone size={15} color={CALL_GREEN} fill={CALL_GREEN} />
           <Text style={styles.barText} numberOfLines={1}>
@@ -368,7 +343,6 @@ function MinimizedCallBar({
           </Text>
         </TouchableOpacity>
 
-        {/* Hang up */}
         <TouchableOpacity style={styles.circleBtn} onPress={onLeave} hitSlop={6} accessibilityLabel="End call">
           <View style={styles.hangupIcon}>
             <Phone size={17} color={HANGUP_RED} fill={HANGUP_RED} />
@@ -380,7 +354,6 @@ function MinimizedCallBar({
 }
 
 const styles = StyleSheet.create({
-  // Sits above the navigation stack; absolute-fills the screen when shown.
   overlay: {
     position: 'absolute',
     top: 0,
@@ -389,11 +362,22 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 1000,
     elevation: 1000,
+    backgroundColor: '#000',
   },
   hidden: { display: 'none' },
   connecting: { flex: 1, backgroundColor: '#1c1d1f', justifyContent: 'center', alignItems: 'center', gap: 12 },
   connectingText: { color: '#fff', fontSize: 14, marginTop: 8 },
-  // WhatsApp ongoing-call bar — "very light black", pinned to the very top.
+  minimizeBtn: {
+    position: 'absolute',
+    left: 12,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   bar: {
     position: 'absolute',
     top: 0,

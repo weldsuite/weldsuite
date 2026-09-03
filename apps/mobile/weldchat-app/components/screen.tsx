@@ -1,9 +1,10 @@
 /**
  * Screen chrome shared by every WeldChat route.
  *
- * Matches the WeldMail / WeldBooks messaging-app pattern: large title on root
- * screens, compact title + back chevron on detail screens, optional pill of
- * icon actions. No hairline under the header — floating chrome is the language.
+ * Matches the WeldBooks messaging-app pattern: large title on root screens,
+ * compact title + back chevron on detail screens, optional pill of icon
+ * actions — the same chrome as the floating bottom nav. No hairline under
+ * the header; the floating pill is the primary piece of chrome.
  */
 
 import React from 'react';

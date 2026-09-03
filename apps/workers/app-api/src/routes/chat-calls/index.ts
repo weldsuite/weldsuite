@@ -35,7 +35,7 @@ import {
   publishChatCallIncoming,
   broadcastChatCallToMembers,
 } from '../../services/realtime/weldchat-call-publisher';
-import { endChatCall } from '../../services/chat/call-lifecycle';
+import { endChatCall, scheduleRingTimeout } from '../../services/chat/call-lifecycle';
 import { canAccessChannel } from '../../services/chat/channel-access';
 import {
   dedupeParticipants,
@@ -252,6 +252,7 @@ app.post('/', requirePermission('channels:create'), zValidator('json', startCall
             }
           }
         }
+        scheduleRingTimeout(c.executionCtx.waitUntil.bind(c.executionCtx), db, c.env, orgId, callId);
       }
     } catch (e) {
       console.error('[Chat:Calls] Realtime publish failed:', e);
@@ -513,6 +514,7 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
                   }).catch(() => {}),
                 ]),
             );
+            scheduleRingTimeout(c.executionCtx.waitUntil.bind(c.executionCtx), db, c.env, orgId, callId);
           }
         })(),
       ]).catch((e) => console.error('[Chat:Calls] Background tasks failed:', e)),

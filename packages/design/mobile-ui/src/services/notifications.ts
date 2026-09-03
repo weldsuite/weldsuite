@@ -200,6 +200,29 @@ export async function dismissAllPresentedNotifications(): Promise<void> {
 }
 
 /**
+ * Dismiss presented notifications whose `data` matches a predicate.
+ * Used to clear a ringing incoming-call banner when the caller hangs up
+ * (`call_ended`) so it doesn't linger after the call is gone.
+ */
+export async function dismissPresentedNotificationsWhere(
+  match: (data: Record<string, unknown>) => boolean,
+): Promise<void> {
+  try {
+    const presented = await Notifications.getPresentedNotificationsAsync();
+    await Promise.all(
+      presented
+        .filter((n) => {
+          const data = (n.request.content.data ?? {}) as Record<string, unknown>;
+          return match(data);
+        })
+        .map((n) => Notifications.dismissNotificationAsync(n.request.identifier)),
+    );
+  } catch (error) {
+    console.error('Error dismissing matched notifications:', error);
+  }
+}
+
+/**
  * Get badge count
  */
 export async function getBadgeCount(): Promise<number> {
