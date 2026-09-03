@@ -52,3 +52,4 @@ eas submit --profile production --platform android
 - [ ] Missed / declined call → missed-call notification opens the DM
 - [ ] Deep link `weldchat://` resolves
 - [ ] Privacy policy URL `https://weldsuite.org/privacy`
+- [ ] Store screenshots generated (`node store/screenshots/capture.mjs`)
