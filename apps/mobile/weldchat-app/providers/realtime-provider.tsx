@@ -3,7 +3,6 @@ import { AppState } from 'react-native';
 import { RealtimeProvider as BaseProvider, useWorkspaceClientMaybe } from '@weldsuite/realtime/react';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { createAsyncStorageCursorStore } from '@/lib/realtime/cursor-store';
-import { RealtimeStatusBanner } from '@/components/RealtimeStatusBanner';
 
 const REALTIME_URL = process.env.EXPO_PUBLIC_REALTIME_URL || 'ws://localhost:8790';
 
@@ -55,7 +54,6 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       cursorStore={cursorStore}
     >
       <ForegroundReconnect />
-      <RealtimeStatusBanner />
       {children}
     </BaseProvider>
   );

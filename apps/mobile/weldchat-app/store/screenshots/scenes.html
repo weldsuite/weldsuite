@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WeldChat store screens</title>
+  <style>
+    :root {
+      --bg: #fff;
+      --text: #000;
+      --muted: #6b7280;
+      --subtle: #8e8e93;
+      --secondary: #f2f2f7;
+      --border: #e5e5ea;
+      --brand: #00bb67;
+      --brand-tint: rgba(0, 187, 103, 0.12);
+      --destructive: #dc2626;
+      --success: #10b981;
+      --tab-muted: #999;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: #111; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+    .phone {
+      width: 100%;
+      height: 100%;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+    .status {
+      height: 54px;
+      padding: 14px 28px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 15px;
+      font-weight: 600;
+      flex-shrink: 0;
+      letter-spacing: -0.2px;
+    }
+    .status-right { display: flex; gap: 7px; align-items: center; font-size: 13px; }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 16px 8px;
+      flex-shrink: 0;
+      position: relative;
+      min-height: 52px;
+    }
+    .header-title {
+      position: absolute; left: 0; right: 0;
+      text-align: center; font-size: 19px; font-weight: 700; pointer-events: none;
+    }
+    .header.plain .header-title { position: static; text-align: left; font-size: 26px; }
+    .sq {
+      width: 40px; height: 40px; border-radius: 13px;
+      border: 0.5px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      background: #fff;
+    }
+    .sq svg { width: 20px; height: 20px; }
+    .avatar-btn {
+      width: 40px; height: 40px; border-radius: 13px;
+      border: 0.5px solid var(--border); padding: 3px;
+    }
+    .avatar-btn i {
+      display: block; width: 32px; height: 32px; border-radius: 10px;
+      background: var(--brand); color: #fff;
+      font-style: normal; font-weight: 700; font-size: 15px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .search {
+      margin: 8px 16px 0; background: var(--secondary); border-radius: 14px;
+      padding: 10px 16px; color: #9ca3af; font-size: 16px; font-weight: 500;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .search svg { width: 20px; height: 20px; color: var(--muted); flex-shrink: 0; }
+    .quick {
+      display: flex; gap: 8px; padding: 8px 16px 10px; flex-shrink: 0;
+    }
+    .qcard {
+      flex: 1; border: 1px solid var(--secondary); border-radius: 12px;
+      padding: 12px; background: #fff;
+    }
+    .qcard svg { width: 20px; height: 20px; }
+    .qcard .t { font-size: 14px; font-weight: 600; margin-top: 6px; }
+    .scroll { flex: 1; overflow: hidden; padding: 0 16px 88px; }
+    .sec {
+      display: flex; align-items: center; gap: 4px;
+      padding: 12px 0; font-size: 15px; font-weight: 700;
+    }
+    .sec .ch { font-size: 15px; transform: rotate(90deg); line-height: 1; }
+    .ch-row {
+      display: flex; align-items: center; gap: 14px;
+      padding: 11px 10px; margin: 0 -10px; border-radius: 10px;
+    }
+    .ch-row svg { width: 18px; height: 18px; color: var(--subtle); flex-shrink: 0; }
+    .ch-row .n { flex: 1; font-size: 15px; font-weight: 500; opacity: 0.7; }
+    .ch-row.unread .n { opacity: 1; font-weight: 700; }
+    .badge {
+      background: var(--destructive); color: #fff; border-radius: 8px;
+      min-width: 18px; height: 18px; padding: 0 5px;
+      font-size: 11px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .tabwrap {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      display: flex; justify-content: center;
+      padding: 0 20px 28px;
+      pointer-events: none;
+    }
+    .tabbar {
+      width: 100%; max-width: 420px; height: 56px; border-radius: 28px;
+      background: rgba(255,255,255,0.94);
+      border: 0.5px solid rgba(0,0,0,0.06);
+      box-shadow: 0 8px 16px rgba(0,0,0,0.18);
+      display: flex; align-items: center;
+      padding: 0 6px;
+    }
+    .tab {
+      flex: 1; height: 44px; margin: 6px 2px; border-radius: 20px;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--tab-muted); position: relative;
+    }
+    .tab.active { color: var(--text); background: rgba(0,0,0,0.06); }
+    .tab svg { width: 22px; height: 22px; }
+    .dot {
+      position: absolute; top: 8px; right: 22%;
+      width: 8px; height: 8px; border-radius: 4px; background: var(--destructive);
+    }
+    .home-bar {
+      position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+      width: 134px; height: 5px; background: #000; border-radius: 3px;
+    }
+    .chips { display: flex; gap: 8px; padding: 8px 16px 4px; overflow: hidden; }
+    .chip {
+      padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 600;
+      background: var(--secondary); color: var(--muted); white-space: nowrap;
+    }
+    .chip.on { background: #000; color: #fff; }
+    .dm {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 16px;
+    }
+    .dm + .dm { border-top: 0.5px solid var(--border); }
+    .av {
+      width: 48px; height: 48px; border-radius: 16px;
+      background: var(--brand); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 18px; flex-shrink: 0;
+    }
+    .av.g { background: #6366f1; }
+    .av.a { background: #0ea5e9; }
+    .av.s { background: #10b981; }
+    .av.m { background: #f59e0b; }
+    .dm-main { flex: 1; min-width: 0; }
+    .dm-top { display: flex; justify-content: space-between; gap: 8px; }
+    .dm-name { font-size: 16px; font-weight: 600; }
+    .dm-time { font-size: 13px; color: var(--muted); }
+    .dm-time.un { color: var(--brand); font-weight: 600; }
+    .dm-prev { font-size: 14px; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dm-prev.un { color: var(--text); font-weight: 500; }
+    .login {
+      flex: 1; display: flex; flex-direction: column;
+      padding: 24px 24px 40px;
+    }
+    .login-inner { width: 100%; max-width: 440px; margin: 0 auto; }
+    .login-mark {
+      width: 72px; height: 72px; border-radius: 20px;
+      background: var(--brand-tint);
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 24px;
+    }
+    .login-mark .mark { width: 40px; height: 44px; }
+    .welcome { text-align: left; margin-bottom: 28px; }
+    .welcome h1 {
+      font-size: 26px; font-weight: 600; letter-spacing: -0.4px;
+      line-height: 32px; margin-bottom: 4px;
+    }
+    .welcome p { font-size: 15px; color: var(--muted); line-height: 22px; }
+    .field {
+      width: 100%; height: 52px; border: 2px solid var(--border); border-radius: 14px;
+      padding: 0 16px; color: #9ca3af; font-size: 16px;
+      display: flex; align-items: center; margin-bottom: 12px; background: #fff;
+    }
+    .field.pw { justify-content: space-between; }
+    .forgot {
+      text-align: right; font-size: 14px; font-weight: 600;
+      color: var(--brand); margin: -4px 0 24px;
+    }
+    .signin {
+      width: 100%; height: 52px; background: var(--brand); color: #fff; border-radius: 14px;
+      font-weight: 600; font-size: 16px; letter-spacing: -0.2px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .or {
+      display: flex; align-items: center; gap: 12px;
+      margin: 24px 0; color: var(--muted); font-size: 13px; font-weight: 500;
+    }
+    .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+    .oauth {
+      width: 100%; height: 52px; border: 2px solid var(--border); border-radius: 14px;
+      font-weight: 600; font-size: 16px;
+      display: flex; align-items: center; justify-content: center; gap: 12px;
+      margin-bottom: 10px; background: #fff;
+    }
+    .oauth.apple { background: #000; color: #fff; border: 0; }
+    .g { width: 20px; height: 20px; }
+    .conv-head {
+      display: flex; align-items: center; gap: 4px;
+      padding: 4px 8px 10px 16px;
+      border-bottom: 0.5px solid var(--border);
+      flex-shrink: 0;
+    }
+    .back { font-size: 28px; font-weight: 300; color: var(--muted); width: 28px; line-height: 1; }
+    .conv-id { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding-left: 6px; }
+    .conv-title { font-size: 16px; font-weight: 600; }
+    .conv-sub { font-size: 12px; color: var(--muted); }
+    .conv-actions { display: flex; gap: 4px; }
+    .conv-actions .sq { width: 36px; height: 40px; border: 0; }
+    .msgs { flex: 1; overflow: hidden; padding: 16px 16px 96px; display: flex; flex-direction: column; gap: 14px; }
+    .msg { display: flex; gap: 10px; align-items: flex-start; }
+    .msg .av { width: 36px; height: 36px; border-radius: 12px; font-size: 14px; }
+    .msg .who { font-size: 14px; font-weight: 700; }
+    .msg .when { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 8px; }
+    .msg .body { font-size: 15px; line-height: 21px; margin-top: 2px; }
+    .msg.me { flex-direction: row-reverse; }
+    .msg.me .bubble {
+      background: var(--brand); color: #fff; border-radius: 16px 16px 4px 16px;
+      padding: 10px 12px; max-width: 78%;
+    }
+    .composer-wrap {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      padding: 8px 12px 28px;
+      background: linear-gradient(180deg, transparent, #fff 18%);
+    }
+    .composer {
+      height: 48px; border-radius: 16px; background: var(--secondary);
+      display: flex; align-items: center; padding: 0 14px; color: #9ca3af; font-size: 16px;
+    }
+    .call {
+      flex: 1; background: var(--secondary);
+      display: flex; flex-direction: column; justify-content: space-between;
+      padding: 48px 24px 56px;
+    }
+    .call-top { display: flex; flex-direction: column; align-items: center; padding-top: 24px; }
+    .call-av {
+      width: 120px; height: 120px; border-radius: 40px;
+      background: var(--brand); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 48px; font-weight: 700; margin-bottom: 20px;
+    }
+    .call-name { font-size: 28px; font-weight: 700; letter-spacing: -0.4px; }
+    .call-sub { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--muted); font-size: 16px; }
+    .call-actions { display: flex; justify-content: center; gap: 64px; }
+    .call-act { text-align: center; }
+    .call-btn {
+      width: 72px; height: 72px; border-radius: 36px;
+      display: flex; align-items: center; justify-content: center; color: #fff;
+    }
+    .call-btn.no { background: var(--destructive); }
+    .call-btn.yes { background: var(--success); }
+    .call-act span { display: block; margin-top: 10px; font-size: 14px; color: var(--muted); font-weight: 500; }
+    .act-row {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 14px 16px;
+    }
+    .act-row + .act-row { border-top: 0.5px solid var(--border); }
+    .act-icon {
+      width: 40px; height: 40px; border-radius: 12px;
+      background: var(--brand-tint); color: var(--brand);
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .act-icon.miss { background: rgba(220,38,38,0.12); color: var(--destructive); }
+    .act-icon svg { width: 18px; height: 18px; }
+    .act-t { font-size: 15px; font-weight: 600; }
+    .act-b { font-size: 13px; color: var(--muted); margin-top: 2px; line-height: 18px; }
+    .act-when { font-size: 12px; color: var(--muted); flex-shrink: 0; }
+    .split { display: flex; flex: 1; min-height: 0; }
+    .side {
+      width: 320px; flex-shrink: 0; border-right: 0.5px solid var(--border);
+      display: none; flex-direction: column; background: #fff;
+    }
+    .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+    .wide .side { display: flex; }
+    .wide .tabwrap { display: none; }
+    .wide .scroll { padding-bottom: 24px; }
+    .wide .msgs { padding-bottom: 24px; }
+    .wide .composer-wrap { padding-bottom: 16px; }
+    .side-head { padding: 8px 16px 4px; font-size: 22px; font-weight: 700; }
+    .feature {
+      width: 100%; height: 100%;
+      background: linear-gradient(135deg, #ecfdf5 0%, #fff 48%, #d1fae5 100%);
+      display: flex; align-items: center; padding: 40px 48px; gap: 32px;
+    }
+    .feature h1 { font-size: 48px; font-weight: 800; letter-spacing: -1.2px; }
+    .feature p { font-size: 20px; color: var(--muted); margin-top: 8px; max-width: 560px; line-height: 1.35; }
+    .mark { width: 40px; height: 44px; object-fit: contain; }
+    .mark.lg { width: 110px; height: 120px; }
+    .feature-icon {
+      width: 120px; height: 120px; border-radius: 28px; overflow: hidden;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    }
+    .feature-icon img { width: 100%; height: 100%; display: block; }
+    .join {
+      background: var(--success); color: #fff; font-weight: 700; font-size: 13px;
+      padding: 8px 14px; border-radius: 10px;
+    }
+    .call-list-row {
+      display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+    }
+    .call-list-icon {
+      width: 44px; height: 44px; border-radius: 14px;
+      background: rgba(16,185,129,0.12); color: var(--success);
+      display: flex; align-items: center; justify-content: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="phone" id="app"></div>
+  <script>
+    // Official WeldChat mark (platform public/assets/images/weldchat/icon.svg).
+    // Login uses transparent logo.png in a brand-tinted tile (WeldBooks / WeldAgent).
+    const MARK = `<svg class="mark" viewBox="0 0 670 733" xmlns="http://www.w3.org/2000/svg"><path fill="#00bb67" d="M0,130C0,58.2,58.2,0,130,0H540c71.8,0,130,58.2,130,130V468c0,63.5-51.5,115-115,115H240L0,733V130Z"/></svg>`;
+    const LOGIN_MARK = `<div class="login-mark">${MARK}</div>`;
+    const APP_ICON = `<img class="mark" src="../../assets/images/icon.png" alt="WeldChat" />`;
+    const APP_ICON_LG = `<img class="mark lg" src="../../assets/images/icon.png" alt="WeldChat" />`;
+    const params = new URLSearchParams(location.search);
+    const scene = params.get('scene') || 'home';
+    const isIos = params.get('platform') !== 'android';
+    const isWide = window.innerWidth >= 800;
+    if (isWide) document.body.classList.add('wide');
+
+    const svg = (d, w = 24) => `<svg viewBox="0 0 24 24" width="${w}" height="${w}" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+    const I = {
+      home: svg('<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>'),
+      dms: svg('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'),
+      at: svg('<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"/>'),
+      phone: svg('<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.81.36 1.6.68 2.35a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.75.32 1.54.55 2.35.68A2 2 0 0 1 22 16.92z"/>'),
+      video: svg('<polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>'),
+      phoneOff: svg('<path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="1" y1="1" x2="23" y2="23"/>'),
+      hash: svg('<line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/>'),
+      lock: svg('<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'),
+      plus: svg('<path d="M12 5v14M5 12h14"/>'),
+      search: svg('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'),
+      eye: svg('<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M1 1l22 22"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/>'),
+      bookmark: svg('<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>'),
+      pen: svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>'),
+      g: `<svg class="g" viewBox="0 0 24 24"><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5c-.3 1.5-1.1 2.8-2.4 3.6v3h3.9c2.3-2.1 3.5-5.2 3.5-8.7z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-2.9l-3.9-3c-1.1.7-2.5 1.2-4.1 1.2-3.2 0-5.8-2.1-6.8-5H1.2v3.1C3.2 21.4 7.3 24 12 24z"/><path fill="#FBBC05" d="M5.2 14.3A7.2 7.2 0 0 1 4.8 12c0-.8.1-1.6.4-2.3V6.6H1.2A12 12 0 0 0 0 12c0 1.9.5 3.8 1.2 5.4l4-3.1z"/><path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4C18 1.2 15.2 0 12 0 7.3 0 3.2 2.6 1.2 6.6l4 3.1c1-2.9 3.6-4.9 6.8-4.9z"/></svg>`,
+      apple: `<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.2-2.8.9-3.5.9s-1.8-.8-3-.8c-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.3 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7 2-.1 2.9-2.2c1.1-1.5 1.5-2.9 1.5-3 0-.1-2.8-1.1-2.8-4.5zM14.6 5.8c.6-.8 1.1-1.8.9-2.8-.9 0-2 .6-2.6 1.3-.6.7-1.1 1.8-.9 2.8 1 .1 2-.5 2.6-1.3z"/></svg>`,
+    };
+
+    const status = () => `<div class="status"><span>9:41</span><span class="status-right">●●●● ▲ 100%</span></div>`;
+    const tabbar = (active) => isWide ? '' : `
+      <div class="tabwrap">
+        <div class="tabbar">
+          <div class="tab ${active===0?'active':''}">${I.home}</div>
+          <div class="tab ${active===1?'active':''}">${I.dms}</div>
+          <div class="tab ${active===2?'active':''}">${I.at}<span class="dot"></span></div>
+          <div class="tab ${active===3?'active':''}">${I.phone}</div>
+        </div>
+      </div>
+      <div class="home-bar"></div>`;
+
+    const channelsBlock = `
+      <div class="sec">Channels <span class="ch">›</span></div>
+      <div class="ch-row unread">${I.hash}<span class="n">general</span><span class="badge">3</span></div>
+      <div class="ch-row">${I.hash}<span class="n">engineering</span></div>
+      <div class="ch-row unread">${I.hash}<span class="n">support</span><span class="badge">1</span></div>
+      <div class="ch-row">${I.lock}<span class="n">leadership</span></div>
+      <div class="sec">Projects <span class="ch">›</span></div>
+      <div class="ch-row">${I.hash}<span class="n">q3-rollout</span></div>
+      <div class="ch-row">${I.hash}<span class="n">onboarding</span></div>`;
+
+    const dmsList = `
+      <div class="dm">
+        <div class="av">A</div>
+        <div class="dm-main">
+          <div class="dm-top"><span class="dm-name">Anna Vermeer</span><span class="dm-time un">9:18</span></div>
+          <div class="dm-prev un">Can you join the standup in 5?</div>
+        </div>
+        <span class="badge">2</span>
+      </div>
+      <div class="dm">
+        <div class="av g">J</div>
+        <div class="dm-main">
+          <div class="dm-top"><span class="dm-name">Jules Hart</span><span class="dm-time">8:41</span></div>
+          <div class="dm-prev">Invoice pack is in #finance</div>
+        </div>
+      </div>
+      <div class="dm">
+        <div class="av a">S</div>
+        <div class="dm-main">
+          <div class="dm-top"><span class="dm-name">Sofia Lind</span><span class="dm-time">Yesterday</span></div>
+          <div class="dm-prev">Voice call · 4 min</div>
+        </div>
+      </div>
+      <div class="dm">
+        <div class="av s">M</div>
+        <div class="dm-main">
+          <div class="dm-top"><span class="dm-name">Maya Chen</span><span class="dm-time">Yesterday</span></div>
+          <div class="dm-prev">Thanks — shipping the patch tonight</div>
+        </div>
+      </div>
+      <div class="dm">
+        <div class="av m">T</div>
+        <div class="dm-main">
+          <div class="dm-top"><span class="dm-name">Tom Bakker</span><span class="dm-time">Monday</span></div>
+          <div class="dm-prev">Draft for the customer update</div>
+        </div>
+      </div>`;
+
+    const conversation = `
+      <div class="conv-head">
+        ${isWide ? '' : '<div class="back">‹</div>'}
+        <div class="conv-id">
+          <div class="av" style="width:33px;height:33px;border-radius:12px;font-size:16px;background:var(--brand-tint);color:var(--brand)">#</div>
+          <div>
+            <div class="conv-title">general</div>
+            <div class="conv-sub">12 members</div>
+          </div>
+        </div>
+        <div class="conv-actions">
+          <div class="sq">${I.phone}</div>
+          <div class="sq">${I.video}</div>
+        </div>
+      </div>
+      <div class="msgs">
+        <div class="msg">
+          <div class="av g">J</div>
+          <div>
+            <div><span class="who">Jules Hart</span><span class="when">9:02</span></div>
+            <div class="body">Morning — standup notes are in the thread. Who can take the Android listing?</div>
+          </div>
+        </div>
+        <div class="msg">
+          <div class="av">A</div>
+          <div>
+            <div><span class="who">Anna Vermeer</span><span class="when">9:04</span></div>
+            <div class="body">I can. Push tokens are live on preview; we still need the store shots.</div>
+          </div>
+        </div>
+        <div class="msg">
+          <div class="av s">M</div>
+          <div>
+            <div><span class="who">Maya Chen</span><span class="when">9:06</span></div>
+            <div class="body">Incoming calls from a killed app now open the room. Please test a DM video call.</div>
+          </div>
+        </div>
+      </div>
+      <div class="composer-wrap"><div class="composer">Message #general</div></div>`;
+
+    const homeMain = `
+      <div class="header">
+        <div class="header-title">Home</div>
+        <div class="avatar-btn"><i>G</i></div>
+        <div class="sq">${I.plus}</div>
+      </div>
+      <div class="search">${I.search} Search</div>
+      <div class="quick">
+        <div class="qcard">${I.bookmark}<div class="t">Saved</div></div>
+        <div class="qcard">${I.pen}<div class="t">Drafts</div></div>
+      </div>
+      <div class="scroll">${channelsBlock}</div>`;
+
+    const scenes = {
+      login: () => `
+        ${status()}
+        <div class="login">
+          <div class="login-inner">
+            ${LOGIN_MARK}
+            <div class="welcome">
+              <h1>Sign in to your account</h1>
+              <p>Team communication for your workspace</p>
+            </div>
+            <div class="field">Email address</div>
+            <div class="field pw"><span>Password</span>${I.eye}</div>
+            <div class="forgot">Forgot password?</div>
+            <div class="signin">Sign In</div>
+            <div class="or">or</div>
+            <div class="oauth">${I.g} Continue with Google</div>
+            ${isIos ? `<div class="oauth apple">${I.apple} Continue with Apple</div>` : ''}
+          </div>
+        </div>
+        <div class="home-bar"></div>`,
+      home: () => isWide ? `
+        ${status()}
+        <div class="split">
+          <div class="side">${homeMain}</div>
+          <div class="pane">${conversation}</div>
+        </div>
+        <div class="home-bar"></div>` : `
+        ${status()}
+        ${homeMain}
+        ${tabbar(0)}`,
+      dms: () => isWide ? `
+        ${status()}
+        <div class="split">
+          <div class="side">
+            <div class="header"><div class="header-title">Chats</div><div></div><div class="sq">${I.plus}</div></div>
+            <div class="search">${I.search} Search</div>
+            <div class="chips"><div class="chip on">All</div><div class="chip">Unread</div><div class="chip">Favourites</div></div>
+            <div class="scroll" style="padding:0">${dmsList}</div>
+          </div>
+          <div class="pane">
+            <div class="conv-head">
+              <div class="conv-id">
+                <div class="av" style="width:33px;height:33px;border-radius:12px;font-size:14px">A</div>
+                <div>
+                  <div class="conv-title">Anna Vermeer</div>
+                  <div class="conv-sub">Online</div>
+                </div>
+              </div>
+              <div class="conv-actions"><div class="sq">${I.phone}</div><div class="sq">${I.video}</div></div>
+            </div>
+            <div class="msgs">
+              <div class="msg"><div class="av">A</div><div><div><span class="who">Anna Vermeer</span><span class="when">9:14</span></div><div class="body">Can you join the standup in 5?</div></div></div>
+              <div class="msg me"><div class="bubble">On my way — grabbing the Android shots first.</div></div>
+            </div>
+            <div class="composer-wrap"><div class="composer">Message Anna</div></div>
+          </div>
+        </div>
+        <div class="home-bar"></div>` : `
+        ${status()}
+        <div class="header">
+          <div class="header-title">Chats</div>
+          <div></div>
+          <div class="sq">${I.plus}</div>
+        </div>
+        <div class="search">${I.search} Search</div>
+        <div class="chips">
+          <div class="chip on">All</div>
+          <div class="chip">Unread</div>
+          <div class="chip">Favourites</div>
+          <div class="chip">Muted</div>
+        </div>
+        <div class="scroll" style="padding:0 0 88px">${dmsList}</div>
+        ${tabbar(1)}`,
+      channel: () => isWide ? `
+        ${status()}
+        <div class="split">
+          <div class="side">${homeMain}</div>
+          <div class="pane">${conversation}</div>
+        </div>
+        <div class="home-bar"></div>` : `
+        ${status()}
+        ${conversation}
+        <div class="home-bar"></div>`,
+      call: () => `
+        ${status()}
+        <div class="call">
+          <div class="call-top">
+            <div class="call-av">A</div>
+            <div class="call-name">Anna Vermeer</div>
+            <div class="call-sub">${I.video} Incoming video call</div>
+          </div>
+          <div class="call-actions">
+            <div class="call-act"><div class="call-btn no">${I.phoneOff}</div><span>Decline</span></div>
+            <div class="call-act"><div class="call-btn yes">${I.video}</div><span>Accept</span></div>
+          </div>
+        </div>
+        <div class="home-bar"></div>`,
+      mentions: () => `
+        ${status()}
+        <div class="header plain"><div class="header-title">Mentions</div></div>
+        <div class="chips">
+          <div class="chip on">All</div>
+          <div class="chip">Unread</div>
+        </div>
+        <div class="scroll" style="padding:0 0 88px">
+          <div class="act-row">
+            <div class="act-icon">${I.at}</div>
+            <div style="flex:1">
+              <div class="act-t">Anna mentioned you in #general</div>
+              <div class="act-b">@you can you take the Android listing?</div>
+            </div>
+            <div class="act-when">9:04</div>
+          </div>
+          <div class="act-row">
+            <div class="act-icon miss">${I.phone}</div>
+            <div style="flex:1">
+              <div class="act-t">Missed video call</div>
+              <div class="act-b">Sofia Lind · 8:12</div>
+            </div>
+            <div class="act-when">8:12</div>
+          </div>
+          <div class="act-row">
+            <div class="act-icon">${I.dms}</div>
+            <div style="flex:1">
+              <div class="act-t">Jules Hart</div>
+              <div class="act-b">Invoice pack is in #finance</div>
+            </div>
+            <div class="act-when">Yesterday</div>
+          </div>
+        </div>
+        ${tabbar(2)}`,
+      feature: () => `
+        <div class="feature">
+          <div class="feature-icon">${APP_ICON_LG}</div>
+          <div>
+            <h1>WeldChat</h1>
+            <p>Team chat, DMs, and calls — without opening a laptop.</p>
+          </div>
+        </div>`,
+    };
+
+    document.getElementById('app').innerHTML = (scenes[scene] || scenes.home)();
+  </script>
+</body>
+</html>

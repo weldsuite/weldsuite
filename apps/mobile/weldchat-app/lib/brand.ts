@@ -2,14 +2,14 @@
  * WeldChat brand tokens.
  *
  * `@weldsuite/mobile-ui`'s theme is deliberately neutral (black/white primary)
- * so each app layers its own accent on top. WeldChat is blue — matching the
- * adaptive-icon tint and the call-screen primary used elsewhere in the app.
+ * so each app layers its own accent on top. WeldChat is green — the same
+ * #00bb67 the platform sidebar mark and the app icon use.
  */
 
-export const BRAND = '#3B82F6';
-export const BRAND_DARK = '#2563EB';
-/** ~12% blue, for icon tiles and selected chips. */
-export const BRAND_TINT = 'rgba(59,130,246,0.12)';
+export const BRAND = '#00bb67';
+export const BRAND_DARK = '#009a54';
+/** ~12% green, for icon tiles and selected chips. */
+export const BRAND_TINT = 'rgba(0,187,103,0.12)';
 
 /**
  * Accent per chat surface / status.
