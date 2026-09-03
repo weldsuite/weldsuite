@@ -1,6 +1,12 @@
-import { useState, useRef, useCallback } from 'react';
+import { useCallback } from 'react';
 import { Platform } from 'react-native';
-import { Audio } from 'expo-av';
+import {
+  useAudioRecorder,
+  useAudioRecorderState,
+  RecordingPresets,
+  setAudioModeAsync,
+  requestRecordingPermissionsAsync,
+} from 'expo-audio';
 
 export interface RecordingResult {
   uri: string;
@@ -9,56 +15,35 @@ export interface RecordingResult {
 }
 
 export function useVoiceRecorder() {
-  const [isRecording, setIsRecording] = useState(false);
-  const [durationMs, setDurationMs] = useState(0);
-  const [meteringDb, setMeteringDb] = useState(-160);
-  const recordingRef = useRef<Audio.Recording | null>(null);
+  const recorder = useAudioRecorder({
+    ...RecordingPresets.HIGH_QUALITY,
+    isMeteringEnabled: true,
+  });
+  const recorderState = useAudioRecorderState(recorder, 80);
 
   const startRecording = useCallback(async (): Promise<boolean> => {
     try {
-      const { status } = await Audio.requestPermissionsAsync();
-      if (status !== 'granted') return false;
+      const { granted } = await requestRecordingPermissionsAsync();
+      if (!granted) return false;
 
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
       });
 
-      const { recording } = await Audio.Recording.createAsync(
-        { ...Audio.RecordingOptionsPresets.HIGH_QUALITY, isMeteringEnabled: true },
-        (status) => {
-          if (status.isRecording) {
-            setDurationMs(status.durationMillis ?? 0);
-            if (typeof status.metering === 'number') {
-              setMeteringDb(status.metering);
-            }
-          }
-        },
-        80,
-      );
-
-      recordingRef.current = recording;
-      setIsRecording(true);
-      setDurationMs(0);
-      setMeteringDb(-160);
+      await recorder.prepareToRecordAsync();
+      recorder.record();
       return true;
     } catch {
       return false;
     }
-  }, []);
+  }, [recorder]);
 
   const stopRecording = useCallback(async (): Promise<RecordingResult | null> => {
-    const recording = recordingRef.current;
-    if (!recording) return null;
-
     try {
-      await recording.stopAndUnloadAsync();
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-      const uri = recording.getURI();
-      recordingRef.current = null;
-      setIsRecording(false);
-      setDurationMs(0);
-
+      await recorder.stop();
+      await setAudioModeAsync({ allowsRecording: false });
+      const uri = recorder.uri;
       if (!uri) return null;
 
       const isIOS = Platform.OS === 'ios';
@@ -66,24 +51,25 @@ export function useVoiceRecorder() {
       const ext = isIOS ? 'm4a' : '3gp';
       return { uri, mimeType, name: `voice_${Date.now()}.${ext}` };
     } catch {
-      recordingRef.current = null;
-      setIsRecording(false);
-      setDurationMs(0);
       return null;
     }
-  }, []);
+  }, [recorder]);
 
   const cancelRecording = useCallback(async () => {
-    const recording = recordingRef.current;
-    if (!recording) return;
     try {
-      await recording.stopAndUnloadAsync();
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-    } catch {}
-    recordingRef.current = null;
-    setIsRecording(false);
-    setDurationMs(0);
-  }, []);
+      await recorder.stop();
+      await setAudioModeAsync({ allowsRecording: false });
+    } catch {
+      // best-effort
+    }
+  }, [recorder]);
 
-  return { isRecording, durationMs, meteringDb, startRecording, stopRecording, cancelRecording };
+  return {
+    isRecording: recorderState.isRecording,
+    durationMs: recorderState.durationMillis,
+    meteringDb: recorderState.metering ?? -160,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+  };
 }

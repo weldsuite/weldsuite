@@ -8,7 +8,8 @@
  * is visually identical to the web meeting room.
  */
 
-import type { ThemeMode } from '@/constants/colors';
+import type { ThemeMode } from '@/lib/theme-colors';
+
 
 export interface CallColors {
   background: string;

@@ -45,6 +45,15 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "WeldChat needs microphone access for voice messages and calls.",
+          "recordAudioAndroid": true,
+          "enableBackgroundPlayback": false,
+          "enableBackgroundRecording": false
+        }
+      ],
       "expo-apple-authentication",
       "expo-font",
       "expo-secure-store",
@@ -62,14 +71,16 @@
             "minSdkVersion": 24,
             "packagingOptions": {
               "pickFirst": [
-                "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+                "META-INF/versions/9/OSGI-INF/MANIFEST.MF",
+                "**/libc++_shared.so"
               ]
             }
           }
         }
       ],
+      "@cloudflare/realtimekit-react-native",
       [
-        "@config-plugins/react-native-webrtc",
+        "@cloudflare/react-native-webrtc",
         {
           "cameraPermission": "WeldChat needs camera access for video calls.",
           "microphonePermission": "WeldChat needs microphone access for voice and video calls."
@@ -88,7 +99,7 @@
         "expo-notifications",
         {
           "icon": "./assets/images/notification-icon.png",
-          "color": "#2563eb"
+          "color": "#3B82F6"
         }
       ]
     ],

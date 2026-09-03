@@ -13,7 +13,7 @@ inputs:
   pnpm-version:
     description: 'pnpm version to use'
     required: false
-    default: '10.4.1'
+    default: '10.34.5'
   install-dependencies:
     description: 'Whether to install dependencies'
     required: false

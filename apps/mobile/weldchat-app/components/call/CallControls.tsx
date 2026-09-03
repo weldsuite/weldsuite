@@ -18,7 +18,8 @@ import {
   useRealtimeKitMeeting,
   useRealtimeKitSelector,
 } from '@cloudflare/realtimekit-react-native';
-import { useTheme } from '@/contexts/ThemeContext';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+
 import { getCallColors, type CallColors } from './call-theme';
 
 /** The exact outline video-camera icon used by the web control bar (Heroicons). */
@@ -35,8 +36,8 @@ function VideoOnIcon({ size, color }: { size: number; color: string }) {
 }
 
 export function CallControls({ onLeave, callType }: { onLeave: () => void; callType?: 'voice' | 'video' }) {
-  const { mode } = useTheme();
-  const colors = getCallColors(mode);
+  const { theme } = useTheme();
+  const colors = getCallColors(theme);
   const insets = useSafeAreaInsets();
   const { meeting } = useRealtimeKitMeeting();
 

@@ -378,6 +378,10 @@ export function useDeleteChannel() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
+      // DMs are chat channels too and the sidebar deletes them through this
+      // same mutation — without this the deleted conversation stays on screen
+      // until a full refetch.
+      queryClient.invalidateQueries({ queryKey: weldchatKeys.dms() });
     },
   });
 }
@@ -583,6 +587,54 @@ export function useDeleteMessage() {
     mutationFn: async ({ messageId }: { channelId: string; messageId: string }) => {
       const client = await getClient();
       return client.delete<unknown>(`/chat-messages/${messageId}`);
+    },
+    onMutate: async (variables) => {
+      const queryKey = weldchatKeys.messages(variables.channelId);
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<MessagesCache>(queryKey);
+      removeMessageFromCache(queryClient, variables.channelId, variables.messageId);
+      return { previous };
+    },
+    onError: (_err, variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(weldchatKeys.messages(variables.channelId), context.previous);
+      }
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: weldchatKeys.messages(variables.channelId) });
+    },
+  });
+}
+
+export function useEditMessage() {
+  const queryClient = useQueryClient();
+  const { getClient } = useAppApiClient();
+  return useMutation({
+    mutationFn: async ({
+      messageId,
+      content,
+    }: {
+      channelId: string;
+      messageId: string;
+      content: string;
+    }) => {
+      const client = await getClient();
+      return client.patch<{ data: ChatMessage }>(`/chat-messages/${messageId}`, { content });
+    },
+    onMutate: async (variables) => {
+      const queryKey = weldchatKeys.messages(variables.channelId);
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<MessagesCache>(queryKey);
+      updateMessageInCache(queryClient, variables.channelId, variables.messageId, {
+        content: variables.content,
+        isEdited: true,
+      });
+      return { previous };
+    },
+    onError: (_err, variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(weldchatKeys.messages(variables.channelId), context.previous);
+      }
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.messages(variables.channelId) });
@@ -1095,13 +1147,7 @@ export function useDeleteSection() {
   return useMutation({
     mutationFn: async (sectionId: string) => {
       const client = await getClient();
-      // Unassign every channel still pointing at this section, or the delete
-      // below trips the FK.
-      const channels = await client.get<ListEnvelope<ChatChannel>>(`/channels?limit=${MAX_PAGE}`);
-      const assigned = (channels.data ?? []).filter((ch) => ch.sectionId === sectionId);
-      for (const ch of assigned) {
-        await client.patch<unknown>(`/channels/${ch.id}`, { sectionId: null });
-      }
+      // Server nulls out channel.sectionId before deleting the section.
       return client.delete<unknown>(`/chat-sections/${sectionId}`);
     },
     onSuccess: () => {

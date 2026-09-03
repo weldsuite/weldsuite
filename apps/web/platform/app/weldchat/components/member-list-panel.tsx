@@ -10,7 +10,6 @@ import { StatusDot } from '@weldsuite/ui/components/status-dot';
 import { usePresence } from '@/contexts/presence-context';
 import { useChatContext } from './chat-context';
 import { useUser } from '@clerk/clerk-react';
-import { InviteAgentDialog } from './invite-agent-dialog';
 import { InviteExternalUserModal } from './invite-external-user-modal';
 import { UserPlus } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
@@ -40,7 +39,6 @@ export function MemberListPanel({ channelId, embedded = false }: MemberListPanel
   const { mutate: removeMember } = useRemoveChannelMember();
 
   const [showAddUI, setShowAddUI] = useState(false);
-  const [inviteAgentOpen, setInviteAgentOpen] = useState(false);
   const [inviteExternalOpen, setInviteExternalOpen] = useState(false);
   const [search, setSearch] = useState('');
   const canInviteExternal = useCan('team:invite_external');
@@ -119,15 +117,6 @@ export function MemberListPanel({ channelId, embedded = false }: MemberListPanel
                 <Plus className="h-4 w-4" />
               </Button>
             )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => setInviteAgentOpen(true)}
-              title={t.weldchat.memberList.inviteAgent}
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
             {canInviteExternal && (
               <Button
                 variant="ghost"
@@ -163,15 +152,6 @@ export function MemberListPanel({ channelId, embedded = false }: MemberListPanel
               <Plus className="h-4 w-4" />
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setInviteAgentOpen(true)}
-            title={t.weldchat.memberList.inviteAgent}
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
           {canInviteExternal && (
             <Button
               variant="ghost"
@@ -382,11 +362,6 @@ export function MemberListPanel({ channelId, embedded = false }: MemberListPanel
         </div>
       </ScrollArea>
 
-      <InviteAgentDialog
-        channelId={channelId}
-        open={inviteAgentOpen}
-        onOpenChange={setInviteAgentOpen}
-      />
       <InviteExternalUserModal
         channelId={channelId}
         open={inviteExternalOpen}

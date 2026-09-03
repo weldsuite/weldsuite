@@ -16,6 +16,11 @@ export interface ReplyTo {
   content: string;
 }
 
+export interface EditingMessage {
+  messageId: string;
+  content: string;
+}
+
 export interface ChatContextValue {
   activeChannelId: string | null;
   setActiveChannelId: (channelId: string | null) => void;
@@ -26,6 +31,8 @@ export interface ChatContextValue {
   closeThread: () => void;
   replyTo: ReplyTo | null;
   setReplyTo: (reply: ReplyTo | null) => void;
+  editingMessage: EditingMessage | null;
+  setEditingMessage: (message: EditingMessage | null) => void;
   filters: ChatFilters;
   setFilters: (filters: ChatFilters) => void;
   selectedProfileUserId: string | null;

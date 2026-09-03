@@ -6,7 +6,7 @@ Read those first. This file only adds cloud-environment caveats.
 
 ## Cursor Cloud specific instructions
 
-Toolchain is already provisioned (Node 22, pnpm 10.4.1). The startup update
+Toolchain is already provisioned (Node 22, pnpm 10.34.5). The startup update
 script runs `pnpm install`; you normally don't need to reinstall.
 
 ### Branches

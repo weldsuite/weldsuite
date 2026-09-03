@@ -1,7 +1,10 @@
 import { useEffect, useState, useMemo } from 'react';
 import { View, Text, TouchableOpacity, FlatList, StyleSheet, Image } from 'react-native';
-import { useTheme } from '@/contexts/ThemeContext';
-import type { ColorScheme } from '@/constants/colors';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { BRAND } from '@/lib/brand';
+
+import type { ThemeColors } from '@/lib/theme-colors';
+
 import { appApi } from '@/services/app-api';
 
 interface Member {
@@ -69,17 +72,17 @@ export function MentionPicker({ query, visible, onSelect }: MentionPickerProps) 
   );
 }
 
-const makeStyles = (c: ColorScheme) =>
+const makeStyles = (c: ThemeColors) =>
   StyleSheet.create({
-    container: { backgroundColor: c.bgSecondary, borderTopWidth: 1, borderTopColor: c.border, maxHeight: 200 },
+    container: { backgroundColor: c.cardBackground, borderTopWidth: 1, borderTopColor: c.border, maxHeight: 200 },
     item: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 16, gap: 10 },
     avatar: { width: 28, height: 28, borderRadius: 14 },
     avatarFallback: {
       width: 28, height: 28, borderRadius: 14,
-      backgroundColor: c.brand, justifyContent: 'center', alignItems: 'center',
+      backgroundColor: BRAND, justifyContent: 'center', alignItems: 'center',
     },
     avatarText: { fontSize: 12, fontWeight: '700', color: '#fff' },
     info: { flex: 1 },
-    name: { fontSize: 14, fontWeight: '600', color: c.textPrimary },
-    email: { fontSize: 12, color: c.textMuted },
+    name: { fontSize: 14, fontWeight: '600', color: c.text },
+    email: { fontSize: 12, color: c.muted },
   });

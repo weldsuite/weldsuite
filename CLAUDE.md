@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-WeldSuite is a pnpm + Turborepo monorepo containing the WeldSuite business platform and its surrounding apps. The main user-facing platform is a **Vite + React 19 SPA** with **TanStack Router** (file-based routing) and **Clerk** auth. Backend services run as **Hono on Cloudflare Workers**, talking to a multi-tenant **Neon Postgres** through Drizzle ORM. Node 20+, pnpm 10.4.1.
+WeldSuite is a pnpm + Turborepo monorepo containing the WeldSuite business platform and its surrounding apps. The main user-facing platform is a **Vite + React 19 SPA** with **TanStack Router** (file-based routing) and **Clerk** auth. Backend services run as **Hono on Cloudflare Workers**, talking to a multi-tenant **Neon Postgres** through Drizzle ORM. Node 20+, pnpm 10.34.5.
 
 Module names use the `weld*` family: **WeldCRM, WeldCommerce, WeldDesk** (helpdesk), **WeldMail, WeldFlow** (projects and personal/my tasks), **WeldConnect** (workspace workflow automation), **WeldStash** (WMS), **WeldHost** (domains), **WeldBooks** (accounting), **WeldMeet** (meetings), **WeldChat** (team chat), **WeldAgent** (AI), **WeldApps** (user-created apps). Some legacy code still uses the old names (`task`, `accounting`, `wms`, `host`); a shim in `use-installed-apps.ts` bridges them.
 
@@ -325,7 +325,7 @@ GitHub Environments `test` and `production` (see `.github/SECRETS.md`).
 (path-gated) → **Workers** (only changed workers) → **Mobile OTA** (path-gated) →
 **Pages** (`weldsuite-test` / `weldsuite`).
 
-`.github/actions/setup-monorepo/action.yml` pins pnpm 10.4.1 + Node 22 and caches the pnpm store + turbo cache.
+`.github/actions/setup-monorepo/action.yml` pins pnpm 10.34.5 + Node 22 and caches the pnpm store + turbo cache.
 
 ### Frontend deploys
 

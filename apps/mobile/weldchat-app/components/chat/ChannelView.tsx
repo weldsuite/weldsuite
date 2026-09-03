@@ -27,8 +27,11 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '@/contexts/ThemeContext';
-import type { ColorScheme } from '@/constants/colors';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { BRAND } from '@/lib/brand';
+
+import type { ThemeColors } from '@/lib/theme-colors';
+
 import { useCall } from '@/contexts/CallContext';
 import { useChatRealtime } from '@/hooks/useChatRealtime';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
@@ -94,7 +97,7 @@ interface Message {
 }
 
 /** Render message text with <@userId> mention badges */
-function renderMessageText(content: string, members: Map<string, string>, colors: ColorScheme) {
+function renderMessageText(content: string, members: Map<string, string>, colors: ThemeColors) {
   const mentionRegex = /<@([^>]+)>/g;
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -102,7 +105,7 @@ function renderMessageText(content: string, members: Map<string, string>, colors
 
   while ((match = mentionRegex.exec(content)) !== null) {
     if (match.index > lastIndex) {
-      parts.push(<Text key={`t${match.index}`} style={{ fontSize: 15, lineHeight: 22, color: colors.textPrimary }}>{content.substring(lastIndex, match.index)}</Text>);
+      parts.push(<Text key={`t${match.index}`} style={{ fontSize: 15, lineHeight: 22, color: colors.text }}>{content.substring(lastIndex, match.index)}</Text>);
     }
     const uid = match[1];
     const name = uid.includes(':') ? uid.split(':')[1] : (members.get(uid) ?? uid);
@@ -113,14 +116,14 @@ function renderMessageText(content: string, members: Map<string, string>, colors
   }
 
   if (lastIndex < content.length) {
-    parts.push(<Text key="end" style={{ fontSize: 15, lineHeight: 22, color: colors.textPrimary }}>{content.substring(lastIndex)}</Text>);
+    parts.push(<Text key="end" style={{ fontSize: 15, lineHeight: 22, color: colors.text }}>{content.substring(lastIndex)}</Text>);
   }
 
   if (parts.length === 0) {
-    return <Text style={{ fontSize: 15, lineHeight: 22, color: colors.textPrimary }}>{content}</Text>;
+    return <Text style={{ fontSize: 15, lineHeight: 22, color: colors.text }}>{content}</Text>;
   }
 
-  return <Text style={{ fontSize: 15, lineHeight: 22, color: colors.textPrimary }}>{parts}</Text>;
+  return <Text style={{ fontSize: 15, lineHeight: 22, color: colors.text }}>{parts}</Text>;
 }
 
 /** Check if text contains <@...> mention tokens */
@@ -150,7 +153,7 @@ function formatFileSize(bytes: number): string {
 }
 
 /** Render input text with inline mention badges (overlay on TextInput) */
-function renderInputWithBadges(text: string, members: Map<string, string>, colors: ColorScheme) {
+function renderInputWithBadges(text: string, members: Map<string, string>, colors: ThemeColors) {
   const mentionRegex = /<@([^>]+)>/g;
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -159,7 +162,7 @@ function renderInputWithBadges(text: string, members: Map<string, string>, color
   while ((match = mentionRegex.exec(text)) !== null) {
     if (match.index > lastIndex) {
       parts.push(
-        <Text key={`t${match.index}`} style={{ fontSize: 16, color: colors.textPrimary }}>
+        <Text key={`t${match.index}`} style={{ fontSize: 16, color: colors.text }}>
           {text.substring(lastIndex, match.index)}
         </Text>
       );
@@ -174,13 +177,13 @@ function renderInputWithBadges(text: string, members: Map<string, string>, color
 
   if (lastIndex < text.length) {
     parts.push(
-      <Text key="end" style={{ fontSize: 16, color: colors.textPrimary }}>
+      <Text key="end" style={{ fontSize: 16, color: colors.text }}>
         {text.substring(lastIndex)}
       </Text>
     );
   }
 
-  return <Text style={{ fontSize: 16, color: colors.textPrimary }}>{parts}</Text>;
+  return <Text style={{ fontSize: 16, color: colors.text }}>{parts}</Text>;
 }
 
 /** Live audio waveform driven by the recorder's meter (dB). Bars shift left
@@ -324,11 +327,11 @@ function SwipeableMessage({
       <View>
         <Animated.View
           pointerEvents="none"
-          style={[swipeReplyStyles.pressHighlight, { backgroundColor: colors.bgSecondary }, highlightStyle]}
+          style={[swipeReplyStyles.pressHighlight, { backgroundColor: colors.cardBackground }, highlightStyle]}
         />
         <Animated.View pointerEvents="none" style={[swipeReplyStyles.iconWrap, iconStyle]}>
-          <View style={[swipeReplyStyles.iconBubble, { backgroundColor: colors.bgSecondary }]}>
-            <Reply size={20} color={colors.textPrimary} strokeWidth={2} />
+          <View style={[swipeReplyStyles.iconBubble, { backgroundColor: colors.cardBackground }]}>
+            <Reply size={20} color={colors.text} strokeWidth={2} />
           </View>
         </Animated.View>
         <Animated.View style={messageStyle}>{children}</Animated.View>
@@ -379,7 +382,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
   const toast = useToast();
   const { startCall, joinCall, activeChannelCalls, setChannelActiveCall, session } = useCall();
   const router = useRouter();
-  const { colors, mode } = useTheme();
+  const { colors, theme } = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(
     () => makeStyles(colors, insets.top, insets.bottom),
@@ -1007,8 +1010,8 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
       if (call) {
         // Missed calls stay red; past/answered calls get a neutral gray theme.
         const isMissed = call.kind === 'missed';
-        const bg = isMissed ? colors.danger : colors.bgTertiary;
-        const fg = isMissed ? '#fff' : colors.textSecondary;
+        const bg = isMissed ? colors.destructive : colors.secondary;
+        const fg = isMissed ? '#fff' : colors.mutedForeground;
         const PhoneIcon = isMissed ? PhoneMissed : Phone;
         return (
           <View style={styles.systemMessage}>
@@ -1113,7 +1116,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
           }
           return (
             <TouchableOpacity key={att.id} style={styles.attachmentFile} onPress={() => openExternalUrl(att.url)}>
-              <FileText size={20} color={colors.textMuted} />
+              <FileText size={20} color={colors.muted} />
               <View style={styles.attachmentFileInfo}>
                 <Text style={styles.attachmentFileName} numberOfLines={1}>{att.fileName}</Text>
                 <Text style={styles.attachmentFileSize}>{formatFileSize(att.fileSize)}</Text>
@@ -1181,7 +1184,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
               )}
               {hasThread && (
                 <TouchableOpacity style={styles.threadLink} onPress={() => openThread(item)}>
-                  <MessageSquare size={14} color={colors.textLink} />
+                  <MessageSquare size={14} color={colors.info} />
                   <Text style={styles.threadText}>
                     {item.threadReplyCount} {item.threadReplyCount === 1 ? 'reply' : 'replies'}
                   </Text>
@@ -1258,7 +1261,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
         <View style={styles.headerContent}>
         {!hideBackButton && (
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <ChevronLeft size={26} color={colors.textPrimary} strokeWidth={2.2} />
+            <ChevronLeft size={26} color={colors.text} strokeWidth={2.2} />
           </TouchableOpacity>
         )}
 
@@ -1292,9 +1295,9 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
           ) : (
             <View style={styles.headerChannelIcon}>
               {isPrivate ? (
-                <Lock size={21} color={colors.textPrimary} strokeWidth={2.25} />
+                <Lock size={21} color={colors.text} strokeWidth={2.25} />
               ) : (
-                <Hash size={21} color={colors.textPrimary} strokeWidth={2.25} />
+                <Hash size={21} color={colors.text} strokeWidth={2.25} />
               )}
             </View>
           )}
@@ -1319,7 +1322,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
             disabled={inCall}
             onPress={() => handleStartCall('video')}
           >
-            <VideoCameraIcon size={30} color={colors.textPrimary} strokeWidth={1.6} />
+            <VideoCameraIcon size={30} color={colors.text} strokeWidth={1.6} />
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.headerAction, inCall && styles.headerActionDisabled]}
@@ -1327,7 +1330,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
             disabled={inCall}
             onPress={() => handleStartCall('voice')}
           >
-            <Phone size={22} color={colors.textPrimary} strokeWidth={2} />
+            <Phone size={22} color={colors.text} strokeWidth={2} />
           </TouchableOpacity>
         </View>
         </View>
@@ -1379,7 +1382,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
                 key={i}
                 style={[
                   styles.pinnedLineSegment,
-                  { backgroundColor: i === (pinnedIndex % pinnedMessages.length) ? colors.brand : colors.bgTertiary },
+                  { backgroundColor: i === (pinnedIndex % pinnedMessages.length) ? BRAND : colors.secondary },
                 ]}
               />
             ))}
@@ -1405,7 +1408,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
             }}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <X size={16} color={colors.textMuted} />
+            <X size={16} color={colors.muted} />
           </TouchableOpacity>
         </TouchableOpacity>
       )}
@@ -1485,18 +1488,18 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
         >
           <BlurView
             intensity={100}
-            tint={mode === 'dark' ? 'dark' : 'light'}
+            tint={theme === 'dark' ? 'dark' : 'light'}
             experimentalBlurMethod="dimezisBlurView"
             style={StyleSheet.absoluteFill}
             pointerEvents="none"
           />
-          <ChevronDown size={21} color={colors.textPrimary} strokeWidth={2.5} />
+          <ChevronDown size={21} color={colors.text} strokeWidth={2.5} />
         </TouchableOpacity>
       )}
       {/* Edit mode banner */}
       {editingMessage && (
         <View style={styles.editBar}>
-          <Pencil size={14} color={colors.brand} strokeWidth={2.5} />
+          <Pencil size={14} color={BRAND} strokeWidth={2.5} />
           <Text style={styles.editBarLabel} numberOfLines={1}>
             Editing message
           </Text>
@@ -1508,7 +1511,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
             }}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <X size={14} color={colors.textPrimary} strokeWidth={3} />
+            <X size={14} color={colors.text} strokeWidth={3} />
           </TouchableOpacity>
         </View>
       )}
@@ -1522,7 +1525,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
               onPress={() => setReplyTo(null)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <X size={14} color={colors.textPrimary} strokeWidth={3} />
+              <X size={14} color={colors.text} strokeWidth={3} />
             </TouchableOpacity>
             <Text style={styles.replyBarLabel} numberOfLines={1}>
               Replying to <Text style={styles.replyBarLabelName}>{replyTo.authorName}</Text>
@@ -1533,8 +1536,8 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               activeOpacity={0.6}
             >
-              <AtSign size={16} color={replyMention ? colors.brand : colors.textMuted} strokeWidth={2.5} />
-              <Text style={[styles.replyBarMentionText, { color: replyMention ? colors.brand : colors.textMuted }]}>
+              <AtSign size={16} color={replyMention ? BRAND : colors.muted} strokeWidth={2.5} />
+              <Text style={[styles.replyBarMentionText, { color: replyMention ? BRAND : colors.muted }]}>
                 {replyMention ? 'ON' : 'OFF'}
               </Text>
             </TouchableOpacity>
@@ -1547,10 +1550,10 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
         <View style={styles.pendingFiles}>
           {pendingFiles.map((f, i) => (
             <View key={i} style={styles.pendingFile}>
-              <Paperclip size={12} color={colors.textMuted} />
+              <Paperclip size={12} color={colors.muted} />
               <Text style={styles.pendingFileName} numberOfLines={1}>{f.name}</Text>
               <TouchableOpacity onPress={() => setPendingFiles((prev) => prev.filter((_, j) => j !== i))}>
-                <X size={14} color={colors.textMuted} />
+                <X size={14} color={colors.muted} />
               </TouchableOpacity>
             </View>
           ))}
@@ -1583,7 +1586,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
       {/* Archived banner or input bar */}
       {isArchived ? (
         <View style={styles.archivedBanner}>
-          <Archive size={16} color={colors.textMuted} />
+          <Archive size={16} color={colors.muted} />
           <Text style={styles.archivedText}>This conversation is archived</Text>
           <TouchableOpacity style={styles.unarchiveBtn} onPress={handleUnarchive}>
             <Text style={styles.unarchiveBtnText}>Unarchive</Text>
@@ -1602,13 +1605,13 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
             >
               <View style={styles.stopSquare} />
             </TouchableOpacity>
-            <Waveform active={isRecording} color={colors.textSecondary} level={meteringDb} />
+            <Waveform active={isRecording} color={colors.mutedForeground} level={meteringDb} />
             <TouchableOpacity
               style={styles.sendBtn}
               onPress={handleSendRecording}
               activeOpacity={0.85}
             >
-              <ArrowUp size={17} color={colors.bgPrimary} strokeWidth={2.5} />
+              <ArrowUp size={17} color={colors.background} strokeWidth={2.5} />
             </TouchableOpacity>
           </View>
         ) : isInputExpanded ? (
@@ -1616,7 +1619,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
           <View style={styles.inputContainer}>
             <BlurView
               intensity={100}
-              tint={mode === 'dark' ? 'dark' : 'light'}
+              tint={theme === 'dark' ? 'dark' : 'light'}
               experimentalBlurMethod="dimezisBlurView"
               style={styles.composerGlass}
               pointerEvents="none"
@@ -1678,7 +1681,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
                 onFocus={() => setIsInputFocused(true)}
                 onBlur={() => setIsInputFocused(false)}
                 placeholder={isDm ? `Message...` : `Message #${channelName}`}
-                placeholderTextColor={colors.textSecondary}
+                placeholderTextColor={colors.mutedForeground}
                 multiline
                 autoFocus
                 scrollEnabled={false}
@@ -1699,7 +1702,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
                 onPress={openAttachmentPicker}
                 activeOpacity={0.6}
               >
-                <Plus size={24} color={colors.textPrimary} strokeWidth={2.1} />
+                <Plus size={24} color={colors.text} strokeWidth={2.1} />
               </TouchableOpacity>
               <View style={styles.composerActionsRight}>
                 <TouchableOpacity
@@ -1709,11 +1712,11 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
                   activeOpacity={0.85}
                 >
                   {uploading ? (
-                    <ActivityIndicator size="small" color={colors.bgPrimary} />
+                    <ActivityIndicator size="small" color={colors.background} />
                   ) : (input.trim() || pendingFiles.length > 0) ? (
-                    <ArrowUp size={20} color={colors.bgPrimary} strokeWidth={2.6} />
+                    <ArrowUp size={20} color={colors.background} strokeWidth={2.6} />
                   ) : (
-                    <AudioLines size={19} color={colors.bgPrimary} strokeWidth={2} />
+                    <AudioLines size={19} color={colors.background} strokeWidth={2} />
                   )}
                 </TouchableOpacity>
               </View>
@@ -1725,13 +1728,13 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
           <View style={styles.inputContainerCollapsed}>
             <BlurView
               intensity={100}
-              tint={mode === 'dark' ? 'dark' : 'light'}
+              tint={theme === 'dark' ? 'dark' : 'light'}
               experimentalBlurMethod="dimezisBlurView"
               style={styles.composerGlass}
               pointerEvents="none"
             />
             <TouchableOpacity style={styles.plainBtn} onPress={openAttachmentPicker}>
-              <Plus size={24} color={colors.textPrimary} strokeWidth={2.1} />
+              <Plus size={24} color={colors.text} strokeWidth={2.1} />
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.collapsedInputArea}
@@ -1747,7 +1750,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
               onPress={handleStartRecording}
               activeOpacity={0.85}
             >
-              <AudioLines size={19} color={colors.bgPrimary} strokeWidth={2} />
+              <AudioLines size={19} color={colors.background} strokeWidth={2} />
             </TouchableOpacity>
           </View>
           </View>
@@ -1821,10 +1824,10 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
               <>
                 <Text style={styles.pinDurationTitle}>Pin for how long?</Text>
                 {[
-                  { label: '24 hours', value: '24h', icon: <Clock size={20} color={colors.textPrimary} /> },
-                  { label: '7 days', value: '7d', icon: <Clock size={20} color={colors.textPrimary} /> },
-                  { label: '30 days', value: '30d', icon: <Clock size={20} color={colors.textPrimary} /> },
-                  { label: 'Always', value: 'forever', icon: <InfinityIcon size={20} color={colors.textPrimary} /> },
+                  { label: '24 hours', value: '24h', icon: <Clock size={20} color={colors.text} /> },
+                  { label: '7 days', value: '7d', icon: <Clock size={20} color={colors.text} /> },
+                  { label: '30 days', value: '30d', icon: <Clock size={20} color={colors.text} /> },
+                  { label: 'Always', value: 'forever', icon: <InfinityIcon size={20} color={colors.text} /> },
                 ].map((opt) => (
                   <Pressable
                     key={opt.value}
@@ -1843,7 +1846,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
                   style={({ pressed }) => [styles.pinDurationOption, pressed && styles.pinDurationOptionPressed]}
                   onPress={() => handlePinConfirm(false)}
                 >
-                  <Bell size={20} color={colors.textPrimary} />
+                  <Bell size={20} color={colors.text} />
                   <View style={styles.pinOptionContent}>
                     <Text style={styles.pinDurationOptionText}>Pin with alert</Text>
                     <Text style={styles.pinOptionDesc}>Members will be notified</Text>
@@ -1853,7 +1856,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
                   style={({ pressed }) => [styles.pinDurationOption, pressed && styles.pinDurationOptionPressed]}
                   onPress={() => handlePinConfirm(true)}
                 >
-                  <BellOff size={20} color={colors.textMuted} />
+                  <BellOff size={20} color={colors.muted} />
                   <View style={styles.pinOptionContent}>
                     <Text style={styles.pinDurationOptionText}>Pin silently</Text>
                     <Text style={styles.pinOptionDesc}>No one will be notified</Text>
@@ -1868,12 +1871,12 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: ChannelVi
   );
 }
 
-const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
+const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
   StyleSheet.create({
-    container: { flex: 1, backgroundColor: c.bgPrimary },
+    container: { flex: 1, backgroundColor: c.background },
     header: {
       paddingTop: topInset,
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: c.border,
     },
@@ -1906,14 +1909,14 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
       flex: 1,
       justifyContent: 'center',
     },
-    headerTitle: { fontSize: 16, fontWeight: '600', color: c.textPrimary, lineHeight: 22 },
-    headerPresenceText: { fontSize: 12, color: c.textSecondary, lineHeight: 15, marginTop: -1 },
+    headerTitle: { fontSize: 16, fontWeight: '600', color: c.text, lineHeight: 22 },
+    headerPresenceText: { fontSize: 12, color: c.mutedForeground, lineHeight: 15, marginTop: -1 },
     headerAvatar: { width: 33, height: 33, borderRadius: 12.5 },
     headerAvatarFallback: {
       width: 33,
       height: 33,
       borderRadius: 12.5,
-      backgroundColor: c.brand,
+      backgroundColor: BRAND,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -1938,8 +1941,8 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
     pinnedBar: {
       flexDirection: 'row', alignItems: 'center', gap: 10,
       paddingHorizontal: 16, paddingVertical: 10,
-      backgroundColor: c.bgPrimary,
-      borderBottomWidth: 1, borderBottomColor: c.bgTertiary,
+      backgroundColor: c.background,
+      borderBottomWidth: 1, borderBottomColor: c.secondary,
     },
     callBanner: {
       flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10,
@@ -1949,7 +1952,7 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
     },
     callBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
     callBannerDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: c.success },
-    callBannerText: { fontSize: 14, fontWeight: '600', color: c.textPrimary, flexShrink: 1 },
+    callBannerText: { fontSize: 14, fontWeight: '600', color: c.text, flexShrink: 1 },
     callBannerJoinBtn: {
       backgroundColor: c.success, borderRadius: 16,
       paddingHorizontal: 16, paddingVertical: 6,
@@ -1958,9 +1961,9 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
     pinnedLineContainer: { width: 3, alignSelf: 'stretch', borderRadius: 2, gap: 2, overflow: 'hidden' },
     pinnedLineSegment: { flex: 1, borderRadius: 2 },
     pinnedContent: { flex: 1 },
-    pinnedAuthor: { fontSize: 12, fontWeight: '700', color: c.brand },
-    pinnedCount: { fontSize: 11, fontWeight: '500', color: c.textMuted },
-    pinnedText: { fontSize: 13, color: c.textSecondary, marginTop: 1 },
+    pinnedAuthor: { fontSize: 12, fontWeight: '700', color: BRAND },
+    pinnedCount: { fontSize: 11, fontWeight: '500', color: c.muted },
+    pinnedText: { fontSize: 13, color: c.mutedForeground, marginTop: 1 },
     listContainer: { flex: 1 },
     list: {
       paddingHorizontal: 16,
@@ -1976,18 +1979,18 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
     // same-author (compact) messages sit tightly under the first one.
     message: { flexDirection: 'row', marginTop: 12, marginBottom: 0 },
     messageCompact: { paddingLeft: 42, marginTop: 3, marginBottom: 0 },
-    messagePressed: { backgroundColor: c.bgSecondary, marginHorizontal: -16, paddingHorizontal: 16 },
+    messagePressed: { backgroundColor: c.cardBackground, marginHorizontal: -16, paddingHorizontal: 16 },
     dateSeparator: {
       flexDirection: 'row', alignItems: 'center', marginVertical: 16, gap: 12,
     },
     dateLine: { flex: 1, height: 1, backgroundColor: c.border + '99' },
-    dateLabel: { fontSize: 12, fontWeight: '600', color: c.textMuted },
+    dateLabel: { fontSize: 12, fontWeight: '600', color: c.muted },
     systemMessage: {
       alignItems: 'center', marginVertical: 12,
     },
     systemText: {
-      fontSize: 13, color: c.textSecondary, fontWeight: '500',
-      backgroundColor: c.bgTertiary,
+      fontSize: 13, color: c.mutedForeground, fontWeight: '500',
+      backgroundColor: c.secondary,
       borderWidth: StyleSheet.hairlineWidth, borderColor: c.border,
       paddingHorizontal: 12, paddingVertical: 6,
       borderRadius: 9, overflow: 'hidden',
@@ -2010,7 +2013,7 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
       borderRadius: 19,
       // Frosted glass: only a faint tint so the clipped BlurView material below
       // stays visible (a high-alpha fill would hide the blur and look solid).
-      backgroundColor: c.bgPrimary + '1f',
+      backgroundColor: c.background + '1f',
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: c.border,
       overflow: 'hidden',
@@ -2025,28 +2028,28 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
     msgAvatarImg: { width: 32, height: 32, borderRadius: 12, marginRight: 10, marginTop: 1 },
     msgAvatar: {
       width: 32, height: 32, borderRadius: 12,
-      backgroundColor: c.brand, justifyContent: 'center', alignItems: 'center', marginRight: 10, marginTop: 1,
+      backgroundColor: BRAND, justifyContent: 'center', alignItems: 'center', marginRight: 10, marginTop: 1,
     },
     msgAvatarText: { fontSize: 15, fontWeight: '700', color: '#fff' },
     msgContent: { flex: 1 },
     msgHeader: { flexDirection: 'row', alignItems: 'baseline', marginBottom: 1 },
-    msgAuthor: { fontSize: 14.5, fontWeight: '600', color: c.textPrimary, marginRight: 8 },
-    msgTime: { fontSize: 12, color: c.textMuted },
+    msgAuthor: { fontSize: 14.5, fontWeight: '600', color: c.text, marginRight: 8 },
+    msgTime: { fontSize: 12, color: c.muted },
     threadLink: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6, minHeight: 32, paddingVertical: 2 },
-    threadText: { fontSize: 13, color: c.textLink, fontWeight: '500' },
+    threadText: { fontSize: 13, color: c.info, fontWeight: '500' },
     empty: { padding: 16 },
-    emptyTitle: { fontSize: 18, fontWeight: '700', color: c.textPrimary, marginBottom: 4 },
-    emptyText: { fontSize: 14, color: c.textMuted },
+    emptyTitle: { fontSize: 18, fontWeight: '700', color: c.text, marginBottom: 4 },
+    emptyText: { fontSize: 14, color: c.muted },
     archivedBanner: {
       flexDirection: 'row', alignItems: 'center', gap: 8,
       paddingHorizontal: 16, paddingVertical: 12,
-      backgroundColor: c.bgSecondary,
-      borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.bgTertiary,
+      backgroundColor: c.cardBackground,
+      borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.secondary,
     },
-    archivedText: { flex: 1, fontSize: 14, color: c.textMuted },
+    archivedText: { flex: 1, fontSize: 14, color: c.muted },
     unarchiveBtn: {
       paddingHorizontal: 12, paddingVertical: 6,
-      backgroundColor: c.brand, borderRadius: 8,
+      backgroundColor: BRAND, borderRadius: 8,
     },
     unarchiveBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
     inputBar: {
@@ -2086,7 +2089,7 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
       // falls back to the translucent tint where blur is unavailable.
       // NOTE: shadow lives on the composerShadow wrapper — overflow:hidden here
       // (needed to clip the blur) would otherwise clip the shadow away.
-      backgroundColor: `${c.bgPrimary}0d`,
+      backgroundColor: `${c.background}0d`,
       overflow: 'hidden',
       paddingHorizontal: 8,
       paddingTop: 6,
@@ -2102,7 +2105,7 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
       borderRadius: 26,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: c.border,
-      backgroundColor: `${c.bgPrimary}0d`,
+      backgroundColor: `${c.background}0d`,
       overflow: 'hidden',
       paddingHorizontal: 8,
       paddingVertical: 5,
@@ -2113,7 +2116,7 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
       borderRadius: 26,
     },
     composerGlass: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
     },
     collapsedInputArea: {
       flex: 1,
@@ -2122,7 +2125,7 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
       justifyContent: 'center',
     },
     collapsedPlaceholder: {
-      fontSize: 17, fontWeight: '500', color: c.textPrimary, opacity: 0.45,
+      fontSize: 17, fontWeight: '500', color: c.text, opacity: 0.45,
     },
     plainBtn: {
       width: 35, height: 35,
@@ -2131,7 +2134,7 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
     inputWrapper: { maxHeight: 140 },
     inputWrapperContent: { position: 'relative' },
     input: {
-      fontSize: 16, lineHeight: 22, color: c.textPrimary,
+      fontSize: 16, lineHeight: 22, color: c.text,
       paddingTop: 4, paddingBottom: 4, paddingHorizontal: 8,
       minHeight: 33,
     },
@@ -2153,12 +2156,12 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
     },
     composerSolidBtn: {
       width: 33, height: 33, borderRadius: 16.5,
-      backgroundColor: c.textPrimary,
+      backgroundColor: c.text,
       justifyContent: 'center', alignItems: 'center',
     },
     sendBtn: {
       width: 33, height: 33, borderRadius: 16.5,
-      backgroundColor: c.textPrimary,
+      backgroundColor: c.text,
       justifyContent: 'center', alignItems: 'center',
       marginRight: 2,
     },
@@ -2170,8 +2173,8 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
       alignItems: 'center',
       borderRadius: 999,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: c.bgTertiary,
-      backgroundColor: c.bgPrimary,
+      borderColor: c.secondary,
+      backgroundColor: c.background,
       marginHorizontal: 12,
       paddingHorizontal: 7,
       paddingVertical: 6,
@@ -2183,39 +2186,39 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
     },
     stopSquare: {
       width: 13, height: 13, borderRadius: 2.5,
-      backgroundColor: c.textPrimary,
+      backgroundColor: c.text,
     },
     editBar: {
       flexDirection: 'row',
       alignItems: 'center',
       paddingHorizontal: 14,
       paddingVertical: 8,
-      backgroundColor: c.bgSecondary,
+      backgroundColor: c.cardBackground,
       gap: 8,
     },
     editBarLabel: {
       flex: 1,
       fontSize: 13,
-      color: c.brand,
+      color: BRAND,
       fontWeight: '600',
     },
     editBarClose: {
       width: 22,
       height: 22,
       borderRadius: 11,
-      backgroundColor: c.bgTertiary,
+      backgroundColor: c.secondary,
       alignItems: 'center',
       justifyContent: 'center',
     },
     editedLabel: {
       fontSize: 12,
-      color: c.textMuted,
+      color: c.muted,
       fontStyle: 'italic',
       marginTop: 2,
     },
     replyBar: {
       position: 'relative',
-      backgroundColor: c.bgSecondary,
+      backgroundColor: c.cardBackground,
       // Solid line at the top of the reply row (doesn't fade out).
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: c.border,
@@ -2231,18 +2234,18 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
       width: 22,
       height: 22,
       borderRadius: 11,
-      backgroundColor: c.bgSecondary,
+      backgroundColor: c.cardBackground,
       alignItems: 'center',
       justifyContent: 'center',
     },
     replyBarLabel: {
       flex: 1,
       fontSize: 14,
-      color: c.textMuted,
+      color: c.muted,
     },
     replyBarLabelName: {
       fontWeight: '700',
-      color: c.textPrimary,
+      color: c.text,
     },
     replyBarMention: {
       flexDirection: 'row',
@@ -2256,49 +2259,49 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
     },
     pendingFiles: {
       flexDirection: 'row', flexWrap: 'wrap', gap: 6,
-      paddingHorizontal: 12, paddingTop: 8, backgroundColor: c.bgPrimary,
+      paddingHorizontal: 12, paddingTop: 8, backgroundColor: c.background,
     },
     pendingFile: {
       flexDirection: 'row', alignItems: 'center', gap: 4,
-      backgroundColor: c.bgAccent, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,
+      backgroundColor: c.secondary, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,
     },
-    pendingFileName: { fontSize: 12, color: c.textSecondary, maxWidth: 100 },
+    pendingFileName: { fontSize: 12, color: c.mutedForeground, maxWidth: 100 },
     attachmentList: { marginTop: 6, gap: 6 },
     attachmentImage: {
-      width: '100%' as any, maxWidth: 280, aspectRatio: 4 / 3, borderRadius: 8, backgroundColor: c.bgSecondary,
+      width: '100%' as any, maxWidth: 280, aspectRatio: 4 / 3, borderRadius: 8, backgroundColor: c.cardBackground,
     },
     attachmentFile: {
       flexDirection: 'row' as const, alignItems: 'center' as const, gap: 8,
-      backgroundColor: c.bgSecondary, borderRadius: 8,
+      backgroundColor: c.cardBackground, borderRadius: 8,
       paddingHorizontal: 12, paddingVertical: 10, maxWidth: 250,
     },
     attachmentFileInfo: { flex: 1 },
-    attachmentFileName: { fontSize: 13, fontWeight: '600' as const, color: c.textPrimary },
-    attachmentFileSize: { fontSize: 11, color: c.textMuted, marginTop: 1 },
+    attachmentFileName: { fontSize: 13, fontWeight: '600' as const, color: c.text },
+    attachmentFileSize: { fontSize: 11, color: c.muted, marginTop: 1 },
     typingRow: {
-      paddingHorizontal: 16, paddingVertical: 4, backgroundColor: c.bgPrimary,
+      paddingHorizontal: 16, paddingVertical: 4, backgroundColor: c.background,
     },
-    typingText: { fontSize: 12, color: c.textMuted, fontStyle: 'italic' },
+    typingText: { fontSize: 12, color: c.muted, fontStyle: 'italic' },
     pinDurationBackdrop: {
       flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end',
     },
     pinDurationSheet: {
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
       borderTopLeftRadius: 14, borderTopRightRadius: 14,
       paddingBottom: 8 + bottomInset,
     },
     pinDurationHandle: { alignItems: 'center', paddingTop: 8, paddingBottom: 6 },
-    pinDurationHandleBar: { width: 36, height: 5, borderRadius: 3, backgroundColor: c.bgAccent },
+    pinDurationHandleBar: { width: 36, height: 5, borderRadius: 3, backgroundColor: c.secondary },
     pinDurationTitle: {
-      fontSize: 15, fontWeight: '700', color: c.textPrimary,
+      fontSize: 15, fontWeight: '700', color: c.text,
       paddingHorizontal: 20, paddingBottom: 8,
     },
     pinDurationOption: {
       flexDirection: 'row', alignItems: 'center', gap: 14,
       paddingVertical: 14, paddingHorizontal: 20,
     },
-    pinDurationOptionPressed: { backgroundColor: c.bgTertiary },
-    pinDurationOptionText: { fontSize: 16, color: c.textPrimary },
+    pinDurationOptionPressed: { backgroundColor: c.secondary },
+    pinDurationOptionText: { fontSize: 16, color: c.text },
     pinOptionContent: { flex: 1 },
-    pinOptionDesc: { fontSize: 13, color: c.textMuted, marginTop: 1 },
+    pinOptionDesc: { fontSize: 13, color: c.muted, marginTop: 1 },
   });

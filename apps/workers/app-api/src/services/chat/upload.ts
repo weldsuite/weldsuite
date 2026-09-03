@@ -34,6 +34,8 @@ export async function uploadChatFile(params: {
   workspaceId: string;
   channelId?: string | null;
   file: File;
+  /** When true, refuse to fall back to the test public URL. */
+  requirePublicUrl?: boolean;
 }): Promise<ChatUploadResult> {
   const { storage, workspaceId, channelId, file } = params;
 
@@ -51,8 +53,11 @@ export async function uploadChatFile(params: {
     httpMetadata: { contentType: file.type || 'application/octet-stream' },
   });
 
-  const r2PublicUrl = params.r2PublicUrl || DEFAULT_R2_PUBLIC_URL;
-  const fileUrl = `${r2PublicUrl}/${storageKey}`;
+  const r2PublicUrl = params.r2PublicUrl || (params.requirePublicUrl ? '' : DEFAULT_R2_PUBLIC_URL);
+  if (!r2PublicUrl) {
+    throw new Error('R2_PUBLIC_URL is required');
+  }
+  const fileUrl = `${r2PublicUrl.replace(/\/$/, '')}/${storageKey}`;
 
   return {
     id: fileId,

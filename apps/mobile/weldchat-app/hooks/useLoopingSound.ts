@@ -2,13 +2,13 @@
  * Plays a bundled sound on a loop for as long as `active` is true — used for the
  * call ringtone (incoming) and ringback "calling…" tone (outgoing). Loads the
  * asset lazily when it first becomes active and tears the player down (stop +
- * unload) the moment it goes inactive or the component unmounts.
+ * release) the moment it goes inactive or the component unmounts.
  */
 import { useEffect, useRef } from 'react';
-import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
+import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 
 export function useLoopingSound(active: boolean, source: number) {
-  const soundRef = useRef<Audio.Sound | null>(null);
+  const playerRef = useRef<AudioPlayer | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -18,20 +18,19 @@ export function useLoopingSound(active: boolean, source: number) {
         try {
           // Ring through the speaker even with the ringer switch off, and mix so
           // we don't fight the WebRTC audio session once the call connects.
-          await Audio.setAudioModeAsync({
-            playsInSilentModeIOS: true,
-            allowsRecordingIOS: false,
-            interruptionModeIOS: InterruptionModeIOS.MixWithOthers,
-            interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
-            shouldDuckAndroid: true,
+          await setAudioModeAsync({
+            playsInSilentMode: true,
+            allowsRecording: false,
+            interruptionMode: 'mixWithOthers',
           });
-          const { sound } = await Audio.Sound.createAsync(source, { isLooping: true, volume: 1.0 });
+          const player = createAudioPlayer(source);
+          player.loop = true;
           if (cancelled) {
-            await sound.unloadAsync();
+            player.release();
             return;
           }
-          soundRef.current = sound;
-          await sound.playAsync();
+          playerRef.current = player;
+          player.play();
         } catch {
           // Best effort — never let a missing audio route break the call flow.
         }
@@ -40,12 +39,15 @@ export function useLoopingSound(active: boolean, source: number) {
 
     return () => {
       cancelled = true;
-      const s = soundRef.current;
-      soundRef.current = null;
-      if (s) {
-        s.stopAsync()
-          .catch(() => {})
-          .finally(() => s.unloadAsync().catch(() => {}));
+      const player = playerRef.current;
+      playerRef.current = null;
+      if (player) {
+        try {
+          player.pause();
+        } catch {
+          // ignore
+        }
+        player.release();
       }
     };
   }, [active, source]);

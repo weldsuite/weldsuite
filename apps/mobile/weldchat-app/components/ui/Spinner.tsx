@@ -13,7 +13,8 @@ import Animated, {
   Easing,
   cancelAnimation,
 } from 'react-native-reanimated';
-import { useTheme } from '@/contexts/ThemeContext';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+
 
 export function Spinner({ size = 22, color }: { size?: number; color?: string }) {
   const { colors } = useTheme();
@@ -32,7 +33,7 @@ export function Spinner({ size = 22, color }: { size?: number; color?: string })
 
   return (
     <Animated.View style={style}>
-      <LoaderCircle size={size} color={color ?? colors.textSecondary} strokeWidth={2.25} />
+      <LoaderCircle size={size} color={color ?? colors.mutedForeground} strokeWidth={2.25} />
     </Animated.View>
   );
 }

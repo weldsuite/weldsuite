@@ -12,8 +12,11 @@ import {
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { Hash, Lock, Check, FolderPlus, X } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '@/contexts/ThemeContext';
-import type { ColorScheme } from '@/constants/colors';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { BRAND } from '@/lib/brand';
+
+import type { ThemeColors } from '@/lib/theme-colors';
+
 import { appApi } from '@/services/app-api';
 
 interface Section {
@@ -113,7 +116,7 @@ export default function NewChannelScreen() {
             style={[styles.headerSide, { alignItems: 'flex-end' }]}
           >
             {creating ? (
-              <ActivityIndicator size="small" color={colors.brand} />
+              <ActivityIndicator size="small" color={BRAND} />
             ) : (
               <Text style={[styles.createBtn, !name.trim() && styles.createBtnDisabled]}>
                 Create
@@ -127,16 +130,16 @@ export default function NewChannelScreen() {
           <View style={styles.inputSection}>
             <View style={styles.inputRow}>
               {type === 'private' ? (
-                <Lock size={20} color={colors.textMuted} />
+                <Lock size={20} color={colors.muted} />
               ) : (
-                <Hash size={20} color={colors.textMuted} />
+                <Hash size={20} color={colors.muted} />
               )}
               <TextInput
                 style={styles.input}
                 value={name}
                 onChangeText={(text) => setName(text.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''))}
                 placeholder="channel-name"
-                placeholderTextColor={colors.textMuted}
+                placeholderTextColor={colors.muted}
                 autoFocus
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -146,12 +149,12 @@ export default function NewChannelScreen() {
 
           {/* Private toggle */}
           <View style={styles.toggleRow}>
-            <Lock size={20} color={colors.textPrimary} />
+            <Lock size={20} color={colors.text} />
             <Text style={styles.toggleTitle}>Private channel</Text>
             <Switch
               value={type === 'private'}
               onValueChange={(val) => setType(val ? 'private' : 'public')}
-              trackColor={{ false: colors.bgTertiary, true: colors.textPrimary }}
+              trackColor={{ false: colors.secondary, true: colors.text }}
               thumbColor="#fff"
             />
           </View>
@@ -171,7 +174,7 @@ export default function NewChannelScreen() {
                 >
                   {sec.name}
                 </Text>
-                {sectionId === sec.id && <Check size={18} color={colors.brand} />}
+                {sectionId === sec.id && <Check size={18} color={BRAND} />}
               </TouchableOpacity>
             ))}
 
@@ -184,14 +187,14 @@ export default function NewChannelScreen() {
                   value={newCategoryName}
                   onChangeText={setNewCategoryName}
                   placeholder="Category name"
-                  placeholderTextColor={colors.textMuted}
+                  placeholderTextColor={colors.muted}
                   autoFocus
                   autoCapitalize="words"
                   returnKeyType="done"
                   onSubmitEditing={handleCreateCategory}
                 />
                 {creatingSec ? (
-                  <ActivityIndicator size="small" color={colors.brand} />
+                  <ActivityIndicator size="small" color={BRAND} />
                 ) : (
                   <>
                     <TouchableOpacity
@@ -199,13 +202,13 @@ export default function NewChannelScreen() {
                       disabled={!newCategoryName.trim()}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                      <Check size={20} color={newCategoryName.trim() ? colors.brand : colors.textMuted} />
+                      <Check size={20} color={newCategoryName.trim() ? BRAND : colors.muted} />
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => { setShowNewCategory(false); setNewCategoryName(''); }}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                      <X size={20} color={colors.textMuted} />
+                      <X size={20} color={colors.muted} />
                     </TouchableOpacity>
                   </>
                 )}
@@ -215,8 +218,8 @@ export default function NewChannelScreen() {
                 style={styles.sectionItem}
                 onPress={() => setShowNewCategory(true)}
               >
-                <FolderPlus size={18} color={colors.brand} />
-                <Text style={[styles.sectionItemText, { color: colors.brand }]}>
+                <FolderPlus size={18} color={BRAND} />
+                <Text style={[styles.sectionItemText, { color: BRAND }]}>
                   New Category
                 </Text>
               </TouchableOpacity>
@@ -228,23 +231,23 @@ export default function NewChannelScreen() {
   );
 }
 
-const makeStyles = (c: ColorScheme, _bottomInset: number) =>
+const makeStyles = (c: ThemeColors, _bottomInset: number) =>
   StyleSheet.create({
-    container: { flex: 1, backgroundColor: c.bgPrimary },
+    container: { flex: 1, backgroundColor: c.background },
     handleBar: { alignItems: 'center', paddingTop: 10, paddingBottom: 4 },
-    handle: { width: 36, height: 5, borderRadius: 3, backgroundColor: c.bgAccent },
+    handle: { width: 36, height: 5, borderRadius: 3, backgroundColor: c.secondary },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       paddingHorizontal: 16,
       paddingVertical: 16,
       borderBottomWidth: 1,
-      borderBottomColor: c.bgTertiary,
+      borderBottomColor: c.secondary,
     },
     headerSide: { width: 60 },
-    headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', color: c.textPrimary, textAlign: 'center' },
-    cancelBtn: { fontSize: 16, color: c.textPrimary, fontWeight: '500' },
-    createBtn: { fontSize: 16, fontWeight: '600', color: c.textPrimary },
+    headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', color: c.text, textAlign: 'center' },
+    cancelBtn: { fontSize: 16, color: c.text, fontWeight: '500' },
+    createBtn: { fontSize: 16, fontWeight: '600', color: c.text },
     createBtnDisabled: { opacity: 0.3 },
     inputSection: {
       marginHorizontal: 16,
@@ -256,14 +259,14 @@ const makeStyles = (c: ColorScheme, _bottomInset: number) =>
       alignItems: 'center',
       gap: 10,
       borderWidth: 1,
-      borderColor: c.bgTertiary,
+      borderColor: c.secondary,
       borderRadius: 10,
       paddingHorizontal: 14,
     },
     input: {
       flex: 1,
       fontSize: 16,
-      color: c.textPrimary,
+      color: c.text,
       paddingVertical: 12,
     },
     toggleRow: {
@@ -275,14 +278,14 @@ const makeStyles = (c: ColorScheme, _bottomInset: number) =>
       marginBottom: 24,
       gap: 14,
       borderWidth: 1,
-      borderColor: c.bgTertiary,
+      borderColor: c.secondary,
       borderRadius: 14,
     },
-    toggleTitle: { flex: 1, fontSize: 16, fontWeight: '600', color: c.textPrimary },
+    toggleTitle: { flex: 1, fontSize: 16, fontWeight: '600', color: c.text },
     sectionLabel: {
       fontSize: 12,
       fontWeight: '700',
-      color: c.textMuted,
+      color: c.muted,
       letterSpacing: 0.5,
       marginHorizontal: 16,
       marginBottom: 8,
@@ -290,7 +293,7 @@ const makeStyles = (c: ColorScheme, _bottomInset: number) =>
     sectionList: {
       marginHorizontal: 16,
       borderWidth: 1,
-      borderColor: c.bgTertiary,
+      borderColor: c.secondary,
       borderRadius: 14,
       overflow: 'hidden',
     },
@@ -301,15 +304,15 @@ const makeStyles = (c: ColorScheme, _bottomInset: number) =>
       paddingHorizontal: 14,
       gap: 12,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.bgTertiary,
+      borderBottomColor: c.secondary,
     },
     sectionItemActive: {
-      backgroundColor: c.bgSecondary,
+      backgroundColor: c.cardBackground,
     },
     sectionItemText: {
       flex: 1,
       fontSize: 16,
-      color: c.textPrimary,
+      color: c.text,
       fontWeight: '500',
     },
     sectionItemTextActive: {
@@ -322,12 +325,12 @@ const makeStyles = (c: ColorScheme, _bottomInset: number) =>
       paddingHorizontal: 14,
       gap: 10,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.bgTertiary,
+      borderBottomColor: c.secondary,
     },
     newCategoryInput: {
       flex: 1,
       fontSize: 16,
-      color: c.textPrimary,
+      color: c.text,
       paddingVertical: 6,
     },
   });

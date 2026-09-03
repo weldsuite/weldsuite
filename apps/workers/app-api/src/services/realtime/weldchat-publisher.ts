@@ -134,3 +134,25 @@ export async function publishChatMessageUnpinned(
   if (!rt) return;
   await rt.chatPin(channelId, messageId, '', 'unpinned');
 }
+
+/** Broadcast a message content edit to the ChatRoom DO. */
+export async function publishChatMessageUpdated(
+  env: Env,
+  channelId: string,
+  data: { id: string; [key: string]: unknown },
+): Promise<void> {
+  const rt = getPublisher(env);
+  if (!rt) return;
+  await rt.chatMessageUpdated(channelId, data);
+}
+
+/** Broadcast a message soft-delete to the ChatRoom DO. */
+export async function publishChatMessageDeleted(
+  env: Env,
+  channelId: string,
+  messageId: string,
+): Promise<void> {
+  const rt = getPublisher(env);
+  if (!rt) return;
+  await rt.chatMessageDeleted(channelId, messageId);
+}

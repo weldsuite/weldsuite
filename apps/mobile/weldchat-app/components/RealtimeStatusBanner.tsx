@@ -10,7 +10,8 @@ import { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRealtimeConnection } from '@weldsuite/realtime/react';
-import { useTheme } from '@/contexts/ThemeContext';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+
 
 /** Only surface a banner after the socket has been down this long (anti-flicker). */
 const SHOW_AFTER_MS = 1500;
@@ -46,12 +47,12 @@ export function RealtimeStatusBanner() {
     <View
       style={[
         styles.bar,
-        { paddingTop: insets.top + 6, backgroundColor: colors.bgTertiary, borderBottomColor: colors.border },
+        { paddingTop: insets.top + 6, backgroundColor: colors.secondary, borderBottomColor: colors.border },
       ]}
       pointerEvents="none"
     >
-      <ActivityIndicator size="small" color={colors.textMuted} />
-      <Text style={[styles.text, { color: colors.textSecondary }]}>{label}</Text>
+      <ActivityIndicator size="small" color={colors.muted} />
+      <Text style={[styles.text, { color: colors.mutedForeground }]}>{label}</Text>
     </View>
   );
 }

@@ -1,7 +1,9 @@
 import { Tabs } from 'expo-router';
 import { Home, MessagesSquare, AtSign, Phone } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '@/contexts/ThemeContext';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { BRAND } from '@/lib/brand';
+
 import { useIsTablet } from '@/hooks/useIsTablet';
 import { useActivityUnreadCount } from '@/hooks/useActivityUnreadCount';
 import { IPadLayout } from '@/components/IPadLayout';
@@ -21,15 +23,15 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: colors.bgPrimary,
-          borderTopColor: colors.bgTertiary,
+          backgroundColor: colors.background,
+          borderTopColor: colors.secondary,
           borderTopWidth: 1,
           height: 56 + insets.bottom,
           paddingBottom: insets.bottom,
           paddingTop: 8,
         },
-        tabBarActiveTintColor: colors.textPrimary,
-        tabBarInactiveTintColor: colors.textMuted,
+        tabBarActiveTintColor: colors.text,
+        tabBarInactiveTintColor: colors.muted,
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: '600',
@@ -56,7 +58,7 @@ export default function TabLayout() {
           title: 'Mentions',
           tabBarIcon: ({ color, size }) => <AtSign size={size} color={color} />,
           tabBarBadge: activityUnread > 0 ? activityUnread : undefined,
-          tabBarBadgeStyle: { backgroundColor: colors.brand, fontSize: 10 },
+          tabBarBadgeStyle: { backgroundColor: BRAND, fontSize: 10 },
         }}
       />
       <Tabs.Screen

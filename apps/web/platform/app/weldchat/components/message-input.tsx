@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
-import { Plus, Smile, AtSign, X, CornerDownRight, FileText, Baseline, Bold, Italic, Underline, Strikethrough, Code, List, ListOrdered, Video, Mic, Square, Loader2 } from 'lucide-react';
+import { Plus, Smile, AtSign, X, CornerDownRight, FileText, Baseline, Bold, Italic, Underline, Strikethrough, Code, List, ListOrdered, Video, Mic, Square, Loader2, Pencil } from 'lucide-react';
 import {
   Popover,
   PopoverContent,
@@ -9,8 +9,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { EmojiPicker } from './emoji-picker';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { useSendMessage, useWorkspaceMembers, useAddChannelMembers } from '@/hooks/queries/use-weldchat-queries';
-import { useAgents } from '@/hooks/queries/use-agent-queries';
+import { useSendMessage, useEditMessage, useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import { useCreateTask } from '@/hooks/queries/use-task-queries';
 import { useTypingPublisher } from '@/hooks/weldchat/use-weldchat-typing';
 import type { RoomClient } from '@weldsuite/realtime/client';
@@ -228,7 +227,7 @@ export function MessageInput({
   const { t } = useI18n();
   const st = useTranslations();
   const { getClient } = useAppApiClient();
-  const { replyTo, setReplyTo } = useChatContext();
+  const { replyTo, setReplyTo, editingMessage, setEditingMessage } = useChatContext();
   const [content, setContent] = useState('');
   const [mentions, setMentions] = useState<string[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -251,10 +250,10 @@ export function MessageInput({
   const [activeFormats, setActiveFormats] = useState<Set<string>>(new Set());
   const editorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { mutate: sendMessage, isPending } = useSendMessage();
-  const { mutate: addChannelMembers } = useAddChannelMembers();
+  const { mutate: sendMessage, isPending: isSendPending } = useSendMessage();
+  const { mutate: editMessage, isPending: isEditPending } = useEditMessage();
+  const isPending = isSendPending || isEditPending;
   const { mutateAsync: createTask } = useCreateTask();
-  const { data: agentsList = [] } = useAgents();
   const { onKeystroke, onSend: onTypingSend } = useTypingPublisher(client ?? null);
   const { data: membersData } = useWorkspaceMembers();
 
@@ -308,48 +307,24 @@ export function MessageInput({
     setMentions([]);
     setAttachments([]);
     setReplyTo(null);
+    setEditingMessage(null);
     setSlashQuery(null);
     if (editorRef.current) {
       editorRef.current.innerHTML = '';
     }
     // Delete the draft now that the message has been sent.
     deleteSavedDraft();
-  }, [setReplyTo, deleteSavedDraft]);
+  }, [setReplyTo, setEditingMessage, deleteSavedDraft]);
 
-  const runInviteAgent = useCallback(
-    (agent: { id: string; name: string }) => {
-      addChannelMembers({
-        channelId,
-        userIds: [agent.id],
-        memberType: 'agent',
-      });
-      clearInput();
-    },
-    [addChannelMembers, channelId, clearInput],
-  );
-
-  const tryHandleInviteCommand = useCallback(
-    (text: string): boolean => {
-      const match = text.match(/^\/invite\s+(.+)$/i);
-      if (!match) return false;
-      const needle = match[1].trim().replace(/^@/, '').toLowerCase();
-      if (!needle) return true; // "/invite " alone — swallow, let the palette guide
-      const agent = agentsList.find((a) => a.name?.toLowerCase() === needle);
-      if (!agent) {
-        // No exact match — fall back to first prefix match
-        const loose = agentsList.find((a) => a.name?.toLowerCase().startsWith(needle));
-        if (!loose) {
-          // Nothing to invite — swallow the command so it doesn't become a message
-          return true;
-        }
-        runInviteAgent({ id: loose.id, name: loose.name });
-        return true;
-      }
-      runInviteAgent({ id: agent.id, name: agent.name });
-      return true;
-    },
-    [agentsList, runInviteAgent],
-  );
+  useEffect(() => {
+    if (!editingMessage) return;
+    setReplyTo(null);
+    if (editorRef.current) {
+      editorRef.current.innerText = editingMessage.content;
+      setContent(editingMessage.content);
+      editorRef.current.focus();
+    }
+  }, [editingMessage?.messageId, setReplyTo]);
 
   const tryHandleCreateTaskCommand = useCallback(
     (text: string): boolean => {
@@ -384,10 +359,6 @@ export function MessageInput({
     if (!trimmed && attachments.length === 0) return;
 
     // Intercept slash commands that should never be posted as a message.
-    if (trimmed.startsWith('/invite')) {
-      tryHandleInviteCommand(trimmed);
-      return;
-    }
     if (trimmed.startsWith('/createtask')) {
       if (tryHandleCreateTaskCommand(trimmed)) {
         clearInput();
@@ -396,6 +367,18 @@ export function MessageInput({
     }
 
     onTypingSend();
+
+    if (editingMessage) {
+      editMessage(
+        { channelId, messageId: editingMessage.messageId, content: trimmed },
+        {
+          onSuccess: () => toast.success(t.weldchat.messageContextMenu.messageEdited),
+          onError: () => toast.error(t.weldchat.messageContextMenu.messageEditFailed),
+        },
+      );
+      clearInput();
+      return;
+    }
 
     if (onSubmitOverride) {
       void Promise.resolve(
@@ -415,7 +398,7 @@ export function MessageInput({
       _optimisticId: `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     });
     clearInput();
-  }, [content, channelId, parentId, mentions, attachments, sendMessage, onTypingSend, replyTo, tryHandleInviteCommand, tryHandleCreateTaskCommand, clearInput, onSubmitOverride]);
+  }, [content, channelId, parentId, mentions, attachments, sendMessage, editMessage, editingMessage, onTypingSend, replyTo, tryHandleCreateTaskCommand, clearInput, onSubmitOverride, t]);
 
   const handleClipReady = useCallback((clipAttachment: ChatClipAttachment) => {
     const replyParentId = replyTo?.messageId || parentId;
@@ -618,10 +601,11 @@ export function MessageInput({
   }, [onKeystroke]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Escape' && replyTo) {
+    if (e.key === 'Escape' && (replyTo || editingMessage)) {
       e.preventDefault();
       e.stopPropagation();
       setReplyTo(null);
+      setEditingMessage(null);
       return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -645,7 +629,7 @@ export function MessageInput({
         sel?.addRange(range);
       }
     }
-  }, [handleSend, replyTo, setReplyTo]);
+  }, [handleSend, replyTo, editingMessage, setReplyTo, setEditingMessage]);
 
   const handleMentionSelect = useCallback((selection: MentionSelection) => {
     if (!editorRef.current) return;
@@ -955,6 +939,25 @@ export function MessageInput({
       >
         {/* ============ Normal Message Input ============ */}
           <>
+            {editingMessage && (
+              <div className="mx-1.5 -mt-1 mb-1 rounded-lg bg-gray-100 dark:bg-secondary/60">
+                <div className="flex items-start gap-2 px-3 py-2.5">
+                  <Pencil className="h-3.5 w-3.5 text-gray-900 dark:text-foreground mt-0.5 shrink-0" />
+                  <p className="flex-1 min-w-0 text-[13px] text-gray-900 dark:text-foreground leading-snug">
+                    {t.weldchat.messageContextMenu.editMessage}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setEditingMessage(null)}
+                    className="shrink-0 p-1.5 -m-1 -mr-[6px] rounded-lg hover:bg-gray-200 dark:hover:bg-accent transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5 text-gray-900 dark:text-foreground" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {/* Reply preview */}
             {replyTo && (
               <div className="mx-1.5 -mt-1 mb-1 rounded-lg bg-gray-100 dark:bg-secondary/60">
@@ -1021,7 +1024,6 @@ export function MessageInput({
               {slashQuery !== null && (
                 <SlashCommandPalette
                   query={slashQuery}
-                  channelId={channelId}
                   onSelect={(cmd) => {
                     setContent(cmd);
                     setSlashQuery(null);
@@ -1030,7 +1032,6 @@ export function MessageInput({
                       editorRef.current.focus();
                     }
                   }}
-                  onInviteAgent={runInviteAgent}
                 />
               )}
 

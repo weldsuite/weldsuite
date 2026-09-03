@@ -1,7 +1,10 @@
 import { useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { useTheme } from '@/contexts/ThemeContext';
-import type { ColorScheme } from '@/constants/colors';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { BRAND } from '@/lib/brand';
+
+import type { ThemeColors } from '@/lib/theme-colors';
+
 
 interface ReactionBarProps {
   reactions: Record<string, string[]>;
@@ -36,17 +39,17 @@ export function ReactionBar({ reactions, currentUserId, onToggle }: ReactionBarP
   );
 }
 
-const makeStyles = (c: ColorScheme) =>
+const makeStyles = (c: ThemeColors) =>
   StyleSheet.create({
     container: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
     pill: {
       flexDirection: 'row', alignItems: 'center', gap: 4,
       paddingHorizontal: 8, paddingVertical: 6, borderRadius: 12,
-      backgroundColor: c.bgAccent, borderWidth: 1, borderColor: 'transparent',
+      backgroundColor: c.secondary, borderWidth: 1, borderColor: 'transparent',
       minHeight: 32,
     },
-    pillActive: { borderColor: c.brand, backgroundColor: `${c.brand}20` },
+    pillActive: { borderColor: BRAND, backgroundColor: `${BRAND}20` },
     emoji: { fontSize: 14 },
-    count: { fontSize: 12, color: c.textMuted, fontWeight: '600' },
-    countActive: { color: c.brand },
+    count: { fontSize: 12, color: c.muted, fontWeight: '600' },
+    countActive: { color: BRAND },
   });

@@ -104,13 +104,6 @@ export function AiChatDropdown({
   const [isLoading, setIsLoading] = React.useState(false)
   const scrollAreaRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
-  
-  console.log("AiChatDropdown received props:", {
-    hasOnStartStream: !!onStartStream,
-    hasOnGetChunks: !!onGetChunks,
-    hasOnAction: !!onAction,
-    hasOnSendMessage: !!onSendMessage
-  })
 
   React.useEffect(() => {
     if (open && inputRef.current) {
@@ -139,7 +132,6 @@ export function AiChatDropdown({
     setIsLoading(true)
 
     // Use streaming if available, otherwise fall back to regular message
-    console.log("Streaming functions available:", !!onStartStream, !!onGetChunks)
     if (onStartStream && onGetChunks) {
       const assistantMessageId = (Date.now() + 1).toString()
       const assistantMessage: Message = {
@@ -156,7 +148,6 @@ export function AiChatDropdown({
       try {
         // Start the stream
         const { streamId } = await onStartStream(content)
-        console.log("Stream started with ID:", streamId)
         
         let lastIndex = 0
         let pollCount = 0

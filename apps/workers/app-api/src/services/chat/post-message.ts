@@ -24,6 +24,21 @@ import { generateId } from '../../lib/id';
 import type { Env } from '../../types';
 import { dispatchAgentMentions } from './agent-mention-dispatch';
 import { parseAgentRoomPolicy } from './agent-room-policy';
+import {
+  checkSlowMode,
+  getChannelFeatureFlags,
+} from './channel-features';
+
+/** Thrown when a channel feature flag / slow-mode check rejects the send. */
+export class ChatFeatureError extends Error {
+  constructor(
+    message: string,
+    public status: 400 | 403 | 404 = 400,
+  ) {
+    super(message);
+    this.name = 'ChatFeatureError';
+  }
+}
 
 // Runtime allow-list used to classify chat mention tokens. Mirrors
 // SEARCH_ENTITY_TYPES in @weldsuite/core-api-client/schemas/search; inlined
@@ -76,6 +91,21 @@ export async function postChatMessage(
   const { db, env, orgId, channelId, authorUserId } = ctx;
   const { chatMessages, chatChannels, chatChannelMembers, workspaceMembers } = schema;
   const rt = getPublisher(env);
+
+  const flags = await getChannelFeatureFlags(db, channelId);
+  if (!flags) {
+    throw new ChatFeatureError('Channel not found', 404);
+  }
+  if (input.parentId && !flags.threadsEnabled) {
+    throw new ChatFeatureError('Threads are disabled in this channel');
+  }
+  if (input.attachments?.length && !flags.attachmentsEnabled) {
+    throw new ChatFeatureError('Attachments are disabled in this channel');
+  }
+  const slowModeError = await checkSlowMode(db, channelId, authorUserId, flags.slowModeSeconds);
+  if (slowModeError) {
+    throw new ChatFeatureError(slowModeError);
+  }
 
   const [author] = await db
     .select({ name: workspaceMembers.name, picture: workspaceMembers.picture })

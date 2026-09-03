@@ -73,9 +73,11 @@ const GroupSettingsDialog = React.lazy(() =>
   import('../components/group-settings-dialog').then((m) => ({ default: m.GroupSettingsDialog })),
 );
 import type { GroupSettingsTarget } from '../components/group-settings-dialog';
+// Not lazy: ConfirmDialog is a thin wrapper over the shared Dialog primitives
+// that are already in this chunk, and a Suspense gap between "user clicks
+// Delete" and "confirmation appears" is exactly where a mis-click lands.
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useChatSections } from './use-chat-sections';
-import { getEntityTypeInfo, listEntityTypes } from '@/lib/entity-channels/registry';
-import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
 import { useUserPreferences } from '@/hooks/queries/use-settings-queries';
 import type { UserPreferences } from '@/hooks/queries/use-settings-queries';
 import {
@@ -102,14 +104,9 @@ function resolveLiveGroupChannels(
   groupKey: string,
   dms: DmChannel[],
   channels: ChatChannel[],
-  entityChannels: ChatChannel[],
   channelSectionMap: Record<string, string | null | undefined>,
 ): ChatChannel[] {
   if (groupKey === 'dm') return dms;
-  if (groupKey.startsWith('entity:')) {
-    const entityType = groupKey.slice('entity:'.length);
-    return entityChannels.filter((ch) => ch.entityType === entityType);
-  }
   if (groupKey.startsWith('section:')) {
     const sectionId = groupKey.slice('section:'.length);
     return channels.filter((ch) => {
@@ -124,8 +121,7 @@ function resolveLiveGroupChannels(
     const channelId = groupKey.slice('channel:'.length);
     const found =
       channels.find((ch) => ch.id === channelId) ??
-      dms.find((ch) => ch.id === channelId) ??
-      entityChannels.find((ch) => ch.id === channelId);
+      dms.find((ch) => ch.id === channelId);
     return found ? [found] : [];
   }
   return [];
@@ -142,6 +138,11 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   const [renamingSectionId, setRenamingSectionId] = React.useState<string | null>(null);
   const [renameValue, setRenameValue] = React.useState('');
   const [settingsTarget, setSettingsTarget] = React.useState<GroupSettingsTarget | null>(null);
+  /** Channel/DM awaiting delete confirmation. Deleting is irreversible and takes
+   * every message with it, so the row action only ever opens this dialog. */
+  const [pendingDelete, setPendingDelete] = React.useState<
+    { id: string; name: string; kind: 'channel' | 'dm' } | null
+  >(null);
   /** Per-group session-level collapse override: undefined = use settings.collapsedByDefault, true/false = user toggled. */
   const [collapseToggles, setCollapseToggles] = React.useState<Map<string, boolean>>(new Map());
   /** Per-group manual reordering: maps groupKey -> array of channel ids in user's chosen order. */
@@ -170,7 +171,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
 
   const { data: channelsData } = useChannels();
   const { data: dmsData } = useDmChannels();
-  const { mutate: deleteChannel } = useDeleteChannel();
+  const { mutate: deleteChannel, isPending: isDeletingChannel } = useDeleteChannel();
   const { mutate: muteChannel } = useMuteChannel();
   const { mutate: archiveChannel } = useArchiveChannel();
   const {
@@ -366,7 +367,8 @@ export function useWeldchatSidebarItems(isActive: boolean): {
         {
           label: st('sweep.weldchat.sidebar.delete'),
           icon: Trash2,
-          onClick: () => deleteChannel(ch.id),
+          onClick: () =>
+            setPendingDelete({ id: ch.id, name: ch.name ?? '', kind: 'channel' }),
         },
       ],
     };
@@ -379,6 +381,18 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     const isGroup = otherMembers.length > 1;
     const hasUnread = dm.lastMessageAt && (!dm.lastReadAt || new Date(dm.lastMessageAt) > new Date(dm.lastReadAt));
     const mentionCount = dm.unreadMentionCount || 0;
+    // Same label the row itself shows, so the confirmation names the
+    // conversation the user actually clicked.
+    const dmLabel = isGroup
+      ? otherMembers
+          .map((m) => m.name || m.email || st('sweep.weldchat.sidebar.unknownMember'))
+          .join(', ') ||
+        dm.name ||
+        st('sweep.weldchat.channelEmptyState.groupFallback')
+      : otherMembers[0]?.name ||
+        otherMembers[0]?.email ||
+        dm.name ||
+        st('sweep.weldchat.sidebar.directMessageDisplayFallback');
     const commonActions = [
       {
         label: dm.isMuted ? st('sweep.weldchat.sidebar.unmute') : st('sweep.weldchat.sidebar.mute'),
@@ -405,19 +419,15 @@ export function useWeldchatSidebarItems(isActive: boolean): {
       {
         label: st('sweep.weldchat.sidebar.delete'),
         icon: Trash2,
-        onClick: () => deleteChannel(dm.id),
+        onClick: () => setPendingDelete({ id: dm.id, name: dmLabel, kind: 'dm' }),
       },
     ];
 
     if (isGroup) {
       if (seenDmUsers.has(dm.id)) continue;
       seenDmUsers.add(dm.id);
-      const displayName =
-        otherMembers.map((m) => m.name || m.email || st('sweep.weldchat.sidebar.unknownMember')).join(', ') ||
-        dm.name ||
-        st('sweep.weldchat.channelEmptyState.groupFallback');
       dmItems.push({
-        title: displayName,
+        title: dmLabel,
         href: `/weldchat/dm/group/${dm.id}`,
         icon: createGroupDmAvatarIcon(otherMembers),
         bold: !!hasUnread,
@@ -433,11 +443,10 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     const key = otherUserId || dm.id;
     if (seenDmUsers.has(key)) continue;
     seenDmUsers.add(key);
-    const displayName = other?.name || other?.email || dm.name || st('sweep.weldchat.sidebar.directMessageDisplayFallback');
     dmItems.push({
-      title: displayName,
+      title: dmLabel,
       href: otherUserId ? `/weldchat/dm/${otherUserId}` : `/weldchat/dm/${dm.id}`,
-      icon: other ? createDmAvatarIcon(displayName, other.picture) : User,
+      icon: other ? createDmAvatarIcon(dmLabel, other.picture) : User,
       bold: !!hasUnread,
       badge: mentionCount > 0 ? `${mentionCount}` : undefined,
       actions: commonActions,
@@ -445,51 +454,11 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     });
   }
 
-  // Entity-linked channels (tasks, tickets, …) — grouped by entityType in the sidebar.
-  const entityChannels = channels.filter((ch) => ch.type === 'entity' && ch.entityType);
-  const entityGroups = new Map<string, MenuItemProps[]>();
-  for (const ch of entityChannels) {
-    const entityType = ch.entityType ?? '';
-    const list = entityGroups.get(entityType) ?? [];
-    const hasUnread = ch.lastMessageAt && (!ch.lastReadAt || new Date(ch.lastMessageAt) > new Date(ch.lastReadAt));
-    const mentionCount = ch.unreadMentionCount || 0;
-    const info = getEntityTypeInfo(entityType);
-    const iconName = info?.icon ?? 'Hash';
-    const Icon: React.ComponentType<{ className?: string }> = (props) => (
-      <LucideDynamicIcon name={iconName} className={props.className} />
-    );
-    list.push({
-      title: ch.entityDisplayName || ch.name || '',
-      href: `/weldchat/${ch.id}`,
-      icon: Icon,
-      bold: !!hasUnread,
-      badge: mentionCount > 0 ? `${mentionCount}` : undefined,
-      id: ch.id,
-      actions: [
-        {
-          label: ch.isMuted ? st('sweep.weldchat.sidebar.unmute') : st('sweep.weldchat.sidebar.mute'),
-          icon: ch.isMuted ? Bell : BellOff,
-          onClick: () => muteChannel({ channelId: ch.id, mute: !ch.isMuted }),
-        },
-        {
-          label: st('sweep.weldchat.sidebar.settings'),
-          icon: Settings,
-          onClick: () =>
-            setSettingsTarget({
-              groupKey: `channel:${ch.id}`,
-              groupLabel: ch.entityDisplayName || ch.name || '',
-              channels: [ch],
-            }),
-        },
-        {
-          label: st('sweep.weldchat.sidebar.delete'),
-          icon: Trash2,
-          onClick: () => deleteChannel(ch.id),
-        },
-      ],
-    });
-    entityGroups.set(entityType, list);
-  }
+  // Entity-linked channels (tasks, projects, companies, …) are intentionally
+  // NOT surfaced here. WeldChat's sidebar lists direct messages, group DMs and
+  // regular channels only; object-attached conversations stay on their object
+  // panels. The `ch.type !== 'entity'` filters above/below keep them from
+  // leaking into the channel sections.
 
   // Helper: apply per-group filter + sort + topN to a list of items, given the
   // underlying source channels (so we can filter on rich metadata like
@@ -688,61 +657,6 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     });
   }
 
-  // Insert one group per entity type that has at least one channel,
-  // using the client-side registry for the label.
-  for (const info of listEntityTypes()) {
-    const groupItems = entityGroups.get(info.type);
-    if (!groupItems || groupItems.length === 0) continue;
-    const sourceChannels = entityChannels.filter((ch) => ch.entityType === info.type);
-    const entityKey = `entity:${info.type}`;
-    const filteredItems = applyFilterAndSort(groupItems, sourceChannels, entityKey);
-    if (!shouldShowGroup(filteredItems, entityKey)) continue;
-    const entityCollapsed = isCollapsed(entityKey);
-    const entityDisplayItems = entityCollapsed
-      ? applyPeekFilter(filteredItems, sourceChannels, entityKey)
-      : filteredItems;
-    menuGroups.push({
-      group: decorateLabel(info.label),
-      groupKey: entityKey,
-      items: entityDisplayItems,
-      collapsed: entityCollapsed,
-      onToggleCollapse: () => toggleGroupCollapse(entityKey),
-      draggable: true,
-      onReorder: makeReorderHandler(entityKey),
-      groupContextMenu: [
-        {
-          label: st('sweep.weldchat.sidebar.muteAll'),
-          icon: BellOff,
-          onClick: () => {
-            for (const ch of sourceChannels) {
-              if (!ch.isMuted) muteChannel({ channelId: ch.id, mute: true });
-            }
-          },
-        },
-        {
-          label: st('sweep.weldchat.sidebar.unmuteAll'),
-          icon: Bell,
-          onClick: () => {
-            for (const ch of sourceChannels) {
-              if (ch.isMuted) muteChannel({ channelId: ch.id, mute: false });
-            }
-          },
-        },
-        {
-          label: st('sweep.weldchat.sidebar.archiveAll'),
-          icon: Archive,
-          onClick: () => {
-            for (const ch of sourceChannels) {
-              archiveChannel(ch.id);
-            }
-          },
-          destructive: true,
-        },
-        makeSettingsAction(entityKey, info.label, sourceChannels),
-      ],
-    });
-  }
-
   // Build all channel sections — default "Channels" is treated as id=null.
   // A channel is unsectioned when it has no sectionId OR its sectionId
   // doesn't match any existing section (e.g. the section was deleted).
@@ -903,7 +817,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
             }
           : undefined,
       onCrossGroupDrop: (channelId, fromKey, toKey) => {
-        // Only handle drops between channel sections (not from/to DM or entity groups).
+        // Only handle drops between channel sections (not from/to the DM group).
         if (!fromKey.startsWith('section:') || !toKey.startsWith('section:')) return;
         const targetSectionId = toKey.slice('section:'.length);
         moveChannelToSection(channelId, targetSectionId === 'default' ? null : targetSectionId);
@@ -916,6 +830,32 @@ export function useWeldchatSidebarItems(isActive: boolean): {
 
   const dialogs = (
     <React.Suspense fallback={null}>
+      {pendingDelete && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => { if (!open) setPendingDelete(null); }}
+          title={
+            pendingDelete.kind === 'dm'
+              ? st('sweep.weldchat.sidebar.deleteDmTitle')
+              : st('sweep.weldchat.sidebar.deleteChannelTitle')
+          }
+          description={(pendingDelete.kind === 'dm'
+            ? st('sweep.weldchat.sidebar.deleteDmDescription')
+            : st('sweep.weldchat.sidebar.deleteChannelDescription')
+          ).replace('{name}', pendingDelete.name)}
+          confirmLabel={st('sweep.weldchat.sidebar.delete')}
+          cancelLabel={st('sweep.weldchat.sidebar.deleteCancel')}
+          variant="destructive"
+          loading={isDeletingChannel}
+          onConfirm={() => {
+            // Close on settle rather than optimistically — a failed delete
+            // (e.g. the API's owner/admin check) must not look like it worked.
+            deleteChannel(pendingDelete.id, {
+              onSettled: () => setPendingDelete(null),
+            });
+          }}
+        />
+      )}
       {showNewChannel && (
         <ChannelCreateDialog open={showNewChannel} onOpenChange={setShowNewChannel} />
       )}
@@ -950,7 +890,6 @@ export function useWeldchatSidebarItems(isActive: boolean): {
                     settingsTarget.groupKey,
                     dms,
                     channels,
-                    entityChannels,
                     channelSectionMap,
                   ),
                 }

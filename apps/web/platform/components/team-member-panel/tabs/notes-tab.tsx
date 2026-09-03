@@ -83,7 +83,12 @@ export function NotesTab({ userId, embedded = false }: NotesTabProps) {
   if (embedded) {
     return (
       <div className="flex flex-col gap-2">
-        <h3 className="text-sm font-medium">{t('sweep.shared.yourPrivateNotes')}</h3>
+        {/* Embedded, this sits beside the Working Hours / Links sections in the
+            member Details tab — match their small-caps muted section heading
+            rather than the standalone tab's title style. */}
+        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {t('sweep.shared.yourPrivateNotes')}
+        </h3>
         <div className="group flex flex-col gap-1">
           <Textarea
             ref={textareaRef}

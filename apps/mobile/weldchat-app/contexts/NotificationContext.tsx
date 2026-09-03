@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import * as Linking from 'expo-linking';
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
@@ -60,15 +60,30 @@ let notifUtils: {
   registerForPushNotificationsAsync: (id: string) => Promise<string | undefined>;
   setupNotificationListeners: (onReceive: (n: any) => void, onTap: (r: any) => void) => () => void;
   setBadgeCount: (count: number) => Promise<void>;
-  createNotificationChannels: (channels: { id: string; name: string; description?: string }[]) => Promise<void>;
+  createNotificationChannels: (channels: { id: string; name: string; description?: string; importance?: number; sound?: string }[]) => Promise<void>;
+  addPushTokenRefreshListener: (cb: (token: string) => void) => () => void;
+  dismissAllPresentedNotifications: () => Promise<void>;
 } | null = null;
 
 if (!isExpoGo) {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- native module is absent in Expo Go; probed synchronously inside try/catch
-    Notifications = require('expo-notifications');
+    const expoNotifications = require('expo-notifications') as typeof import('expo-notifications');
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- native module is absent in Expo Go; probed synchronously inside try/catch
     notifUtils = require('@weldsuite/mobile-ui/services/notifications');
+    Notifications = expoNotifications;
+
+    // Override the shared mobile-ui silent foreground handler so chat banners
+    // remain visible when the app is open but the user is in another channel.
+    expoNotifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+      }),
+    });
   } catch {
     // Not available
   }
@@ -80,6 +95,8 @@ interface NotificationContextType {
   isPermissionGranted: boolean;
   requestPermissions: () => Promise<boolean>;
   openNotificationSettings: () => Promise<void>;
+  unregisterDevice: () => Promise<void>;
+  prepareWorkspaceSwitch: () => Promise<void>;
 }
 
 const NotificationContext = createContext<NotificationContextType>({
@@ -88,6 +105,8 @@ const NotificationContext = createContext<NotificationContextType>({
   isPermissionGranted: false,
   requestPermissions: async () => false,
   openNotificationSettings: async () => {},
+  unregisterDevice: async () => {},
+  prepareWorkspaceSwitch: async () => {},
 });
 
 export const useNotifications = () => useContext(NotificationContext);
@@ -99,6 +118,39 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const [isConnected, setIsConnected] = useState(false);
   const [isPermissionGranted, setIsPermissionGranted] = useState(false);
   const cleanupRef = useRef<(() => void) | null>(null);
+
+  const navigateFromNotificationData = useCallback(
+    (data: Record<string, unknown>) => {
+      const notificationType: string | undefined =
+        typeof data.notificationType === 'string' ? data.notificationType : undefined;
+
+      if (notificationType === 'chat_incoming_call' && data.entityId) {
+        const callId = typeof data.entityId === 'string' ? data.entityId : '';
+        if (/^[A-Za-z0-9_-]+$/.test(callId)) {
+          router.push(`/call-room?callId=${encodeURIComponent(callId)}` as never);
+        }
+        return;
+      }
+
+      if (notificationType === 'chat_missed_call') {
+        const channelId = channelIdFromActionUrl(data.actionUrl);
+        if (channelId) router.push(`/dm/${channelId}` as never);
+        return;
+      }
+
+      const channelId =
+        (typeof data.channelId === 'string' ? data.channelId : null) ??
+        channelIdFromActionUrl(data.actionUrl);
+      if (channelId) {
+        const path =
+          typeof data.actionUrl === 'string' && data.actionUrl.includes('/dm/')
+            ? `/dm/${channelId}`
+            : `/channel/${channelId}`;
+        router.push(path as never);
+      }
+    },
+    [router],
+  );
 
   const requestPermissions = async (): Promise<boolean> => {
     if (!notifUtils || !EAS_PROJECT_ID) return false;
@@ -121,6 +173,34 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     else await Linking.openSettings();
   };
 
+  const unregisterDevice = useCallback(async () => {
+    try {
+      const deviceId = await getDeviceId();
+      await appApi.pushTokens.unregister(deviceId).catch(() => {});
+    } catch {
+      // best-effort
+    }
+    await notifUtils?.dismissAllPresentedNotifications();
+    await notifUtils?.setBadgeCount(0);
+    setUnreadCount(0);
+    setIsPermissionGranted(false);
+    setIsConnected(false);
+  }, []);
+
+  // Deactivate the workspace-scoped token while the JWT still points at the
+  // leaving org; NotificationProvider re-registers after organizationId changes.
+  const prepareWorkspaceSwitch = useCallback(async () => {
+    try {
+      const deviceId = await getDeviceId();
+      await appApi.pushTokens.unregister(deviceId).catch(() => {});
+    } catch {
+      // best-effort
+    }
+    await notifUtils?.dismissAllPresentedNotifications();
+    await notifUtils?.setBadgeCount(0);
+    setUnreadCount(0);
+  }, []);
+
   useEffect(() => {
     if (!user || !organizationId) {
       if (!user && cleanupRef.current) {
@@ -132,7 +212,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     const init = async () => {
       if (!Notifications || !notifUtils) {
-        // Expo Go or notifications not available — skip silently
         setIsConnected(false);
         return;
       }
@@ -140,14 +219,15 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       try {
         await notifUtils.createNotificationChannels([
           { id: 'chat', name: 'Chat Messages', description: 'New messages and mentions' },
-          { id: 'incoming_call', name: 'Incoming Calls', description: 'Ringing for incoming voice and video calls' },
+          {
+            id: 'incoming_call',
+            name: 'Incoming Calls',
+            description: 'Ringing for incoming voice and video calls',
+            importance: Notifications.AndroidImportance?.MAX,
+          },
         ]);
 
         if (EAS_PROJECT_ID) {
-          // Only register when permission is ALREADY granted. We must not call
-          // registerForPushNotificationsAsync on 'undetermined' — that triggers
-          // the OS permission prompt on every cold start. The deliberate prompt
-          // lives in requestPermissions(), invoked from a user action.
           const { status } = await Notifications.getPermissionsAsync();
           if (status === 'granted') {
             const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
@@ -158,67 +238,69 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           }
         }
 
-        const cleanup = notifUtils.setupNotificationListeners(
-          (notification: any) => {
-            const data = notification.request.content.data;
-            if (data?.unreadCount !== undefined) {
+        const cleanupListeners = notifUtils.setupNotificationListeners(
+          (notification: { request: { content: { data?: Record<string, unknown> } } }) => {
+            const data = notification.request.content.data ?? {};
+            if (typeof data.unreadCount === 'number') {
               setUnreadCount(data.unreadCount);
-              notifUtils!.setBadgeCount(data.unreadCount);
+              void notifUtils!.setBadgeCount(data.unreadCount);
             }
           },
-          (response: any) => {
-            const data = response.notification.request.content.data ?? {};
-            const notificationType: string | undefined = data.notificationType;
-
-            // Incoming call → open the call room and join by callId (entityId).
-            // This is the background / locked-screen path; foregrounded calls
-            // ring via the realtime `call_incoming` event + IncomingCallModal.
-            if (notificationType === 'chat_incoming_call' && data.entityId) {
-              // Push payloads are not signed end-to-end — only navigate when the
-              // callId looks like a real id, never a smuggled path/query.
-              const callId = typeof data.entityId === 'string' ? data.entityId : '';
-              if (/^[A-Za-z0-9_-]+$/.test(callId)) {
-                router.push(`/call-room?callId=${encodeURIComponent(callId)}` as any);
-              }
-              return;
-            }
-
-            // Missed call → open the conversation so the user can call back.
-            if (notificationType === 'chat_missed_call') {
-              const channelId = channelIdFromActionUrl(data.actionUrl);
-              if (channelId) router.push(`/dm/${channelId}` as any);
-              return;
-            }
-
-            // Generic chat notification → open the channel/DM.
-            const channelId = data.channelId ?? channelIdFromActionUrl(data.actionUrl);
-            if (channelId) {
-              const path = typeof data.actionUrl === 'string' && data.actionUrl.includes('/dm/')
-                ? `/dm/${channelId}`
-                : `/channel/${channelId}`;
-              router.push(path as any);
-            }
+          (response: { notification: { request: { content: { data?: Record<string, unknown> } } } }) => {
+            navigateFromNotificationData(response.notification.request.content.data ?? {});
           },
         );
-        cleanupRef.current = cleanup;
+
+        // Native FCM/APNs can rotate; re-mint an Expo push token rather than
+        // registering the raw device token (Expo push would reject it).
+        const cleanupTokenRefresh = notifUtils.addPushTokenRefreshListener(() => {
+          if (!EAS_PROJECT_ID) return;
+          void notifUtils!
+            .registerForPushNotificationsAsync(EAS_PROJECT_ID)
+            .then((refreshed) => {
+              if (refreshed) return registerPushToken(refreshed);
+            })
+            .catch(() => {});
+        });
+
+        // Cold start: if the app was launched by tapping a notification, navigate once.
+        const last = await Notifications.getLastNotificationResponseAsync();
+        if (last?.notification?.request?.content?.data) {
+          navigateFromNotificationData(
+            (last.notification.request.content.data ?? {}) as Record<string, unknown>,
+          );
+        }
+
+        cleanupRef.current = () => {
+          cleanupListeners();
+          cleanupTokenRefresh();
+        };
         setIsConnected(true);
       } catch (error) {
         console.error('[Notifications] Error initializing:', error);
       }
     };
 
-    init();
+    void init();
     return () => {
       if (cleanupRef.current) {
         cleanupRef.current();
         cleanupRef.current = null;
       }
     };
-  }, [user, organizationId]);
+  }, [user, organizationId, navigateFromNotificationData]);
 
   return (
     <NotificationContext.Provider
-      value={{ unreadCount, isConnected, isPermissionGranted, requestPermissions, openNotificationSettings }}
+      value={{
+        unreadCount,
+        isConnected,
+        isPermissionGranted,
+        requestPermissions,
+        openNotificationSettings,
+        unregisterDevice,
+        prepareWorkspaceSwitch,
+      }}
     >
       {children}
     </NotificationContext.Provider>

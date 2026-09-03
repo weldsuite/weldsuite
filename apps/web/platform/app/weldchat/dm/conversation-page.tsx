@@ -3,7 +3,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useParams } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { useDmByUser, useMarkChannelAsRead, weldchatKeys, mergeMessageIntoCache, updateMessageInCache, removeMessageFromCache, useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
+import { useDmByUser, useMarkChannelAsRead, weldchatKeys, mergeMessageIntoCache, updateMessageInCache, removeMessageFromCache } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useWeldChatRoom } from '@/hooks/weldchat/use-weldchat-room';
@@ -16,8 +16,7 @@ import { PinnedMessagesBar } from '../components/pinned-messages-bar';
 import { MessageList } from '../components/message-list';
 import { MessageInput } from '../components/message-input';
 import { ChatPageSkeleton } from '../components/chat-page-skeleton';
-import { X } from 'lucide-react';
-import { TeamMemberDetailsPanel, fromTeamMember, type TeamMemberDetail } from '@/components/team-member-details-panel';
+import { useObjectPanel } from '@/components/object-panel';
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
 import { useEntitySheet } from '@/components/entity-sheet/use-entity-sheet';
 // Lazy + dynamic-only — see channel/page.tsx for the why (avoids a mixed
@@ -34,11 +33,10 @@ export default function DmConversationPage() {
   const { data, isLoading } = useDmByUser(targetUserId);
   const queryClient = useQueryClient();
   const { mutate: markAsRead } = useMarkChannelAsRead();
-  const { data: membersData } = useWorkspaceMembers();
+  const { open: openObjectPanel, closeAll: closeAllObjectPanels } = useObjectPanel();
 
   const initialOpen = useRef(localStorage.getItem('weldchat-dm-member-panel') !== 'false');
   const [showMemberPanel, setShowMemberPanel] = useState(initialOpen.current);
-  const [wasToggled, setWasToggled] = useState(false);
 
   const { status: callStatus, channelId: callChannelId, isFullscreen, isPiP } = useWeldChatCall();
   const { isOpen: isEntitySheetOpen, close: closeEntitySheet } = useEntitySheet();
@@ -47,7 +45,6 @@ export default function DmConversationPage() {
 
   const toggleMemberPanel = (open: boolean) => {
     window.dispatchEvent(new CustomEvent('member-detail-panel-user-toggle'));
-    setWasToggled(true);
     setShowMemberPanel(open);
     localStorage.setItem('weldchat-dm-member-panel', String(open));
     // Reopening the member panel while an entity sheet is up would stack
@@ -64,7 +61,6 @@ export default function DmConversationPage() {
   useEffect(() => {
     if (isEntitySheetOpen) {
       setShowMemberPanel(false);
-      setWasToggled(true);
     }
   }, [isEntitySheetOpen]);
 
@@ -76,7 +72,6 @@ export default function DmConversationPage() {
   useEffect(() => {
     if (isOverlayPanelOpen) {
       setShowMemberPanel(false);
-      setWasToggled(true);
     }
   }, [isOverlayPanelOpen]);
 
@@ -101,12 +96,16 @@ export default function DmConversationPage() {
   }, [channelId, setActiveChannelId]);
   const isInCall = callStatus !== 'idle' && callStatus !== 'ended' && callChannelId === channelId && !isFullscreen && !isPiP;
 
-  const targetMember: TeamMemberDetail | null = useMemo(() => {
-    const members = membersData?.data || [];
-    const found = members.find((m) => m.userId === targetUserId);
-    if (!found) return null;
-    return fromTeamMember(found);
-  }, [membersData, targetUserId]);
+  // The member panel is the registered `team-member` object panel, driven
+  // through the object-panel stack like Person / Company / Channel. Keep the
+  // stack in sync with the saved show/hide preference for this page.
+  useEffect(() => {
+    if (showMemberPanel && targetUserId) {
+      openObjectPanel({ type: 'team-member', id: targetUserId });
+    } else {
+      closeAllObjectPanels();
+    }
+  }, [showMemberPanel, targetUserId, openObjectPanel, closeAllObjectPanels]);
 
   const { client } = useWeldChatRoom(channelId ?? null);
 
@@ -155,77 +154,28 @@ export default function DmConversationPage() {
       </div>
     );
 
-  // When panel is saved as open and user hasn't toggled in this session,
-  // bypass the animated TeamMemberDetailsPanel completely and render a
-  // plain fixed div that is present from the very first paint.
-  const useStaticPanel = showMemberPanel && !wasToggled;
-
-  const renderPanel = () => {
-    if (useStaticPanel) {
-      // Static: always render the outer shell so it's in the DOM from frame 1.
-      // Content fills in when member data arrives — no animation, no layout shift.
-      return (
-        <div
-          className="fixed bg-background z-50 flex flex-col border-l border-border inset-0 md:inset-auto md:right-0 md:top-[60px] md:bottom-0"
-          style={{ width: '480px' }}
-        >
-          {targetMember && (
-            <TeamMemberDetailsPanel
-              member={targetMember}
-              isOpen
-              onClose={() => toggleMemberPanel(false)}
-              canManageMembers={false}
-              onRemoveMember={() => {}}
-              onMemberUpdated={() => queryClient.invalidateQueries({ queryKey: weldchatKeys.workspaceMembers() })}
-              context="settings"
-              hideMessages
-              closeIcon={<X className="h-4 w-4 text-gray-500" />}
-              skipAnimation
-              renderContentOnly
-            />
-          )}
-        </div>
-      );
-    }
-
-    // Animated: normal behavior after user manually toggles
-    return (
-      <TeamMemberDetailsPanel
-        member={targetMember}
-        isOpen={showMemberPanel && !!targetMember}
-        onClose={() => toggleMemberPanel(false)}
-        canManageMembers={false}
-        onRemoveMember={() => {}}
-        onMemberUpdated={() => queryClient.invalidateQueries({ queryKey: weldchatKeys.workspaceMembers() })}
-        context="settings"
-        closeIcon={<X className="h-4 w-4 text-gray-500" />}
-      />
-    );
-  };
-
+  // No panel JSX here any more: <ObjectPanelHost /> renders the `team-member`
+  // panel from the object-panel stack that the effect above drives.
   return (
-    <>
-      <div className="flex flex-col h-full">
-        {!isInCall && (
-          <ChannelHeader
-            channel={channel}
-            showMemberPanel={showMemberPanel}
-            onToggleMemberPanel={() => toggleMemberPanel(true)}
-          />
-        )}
-        {isInCall ? (
-          <Suspense fallback={null}>
-            <InlineCallView />
-          </Suspense>
-        ) : (
-          <>
-            <PinnedMessagesBar channelId={channelId} />
-            <MessageList channelId={channelId} client={client} isDm />
-            <MessageInput channelId={channelId} client={client} />
-          </>
-        )}
-      </div>
-      {renderPanel()}
-    </>
+    <div className="flex flex-col h-full">
+      {!isInCall && (
+        <ChannelHeader
+          channel={channel}
+          showMemberPanel={showMemberPanel}
+          onToggleMemberPanel={() => toggleMemberPanel(true)}
+        />
+      )}
+      {isInCall ? (
+        <Suspense fallback={null}>
+          <InlineCallView />
+        </Suspense>
+      ) : (
+        <>
+          <PinnedMessagesBar channelId={channelId} />
+          <MessageList channelId={channelId} client={client} isDm />
+          <MessageInput channelId={channelId} client={client} />
+        </>
+      )}
+    </div>
   );
 }

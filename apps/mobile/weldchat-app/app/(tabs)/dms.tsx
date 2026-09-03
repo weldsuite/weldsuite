@@ -6,8 +6,11 @@ import { FlatList, Swipeable } from 'react-native-gesture-handler';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUser } from '@clerk/expo';
-import { useTheme } from '@/contexts/ThemeContext';
-import type { ColorScheme } from '@/constants/colors';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { BRAND } from '@/lib/brand';
+
+import type { ThemeColors } from '@/lib/theme-colors';
+
 import { appApi } from '@/services/app-api';
 import { useChatUserEvents } from '@/hooks/useChatUserEvents';
 import { SearchField } from '@/components/chat/SearchField';
@@ -204,7 +207,7 @@ export default function DmsTab() {
             activeOpacity={0.7}
             onPress={() => router.push('/new-dm')}
           >
-            <Plus size={20} color={colors.textPrimary} />
+            <Plus size={20} color={colors.text} />
           </TouchableOpacity>
         </View>
         {scrolled && <View style={styles.headerDivider} pointerEvents="none" />}
@@ -228,7 +231,7 @@ export default function DmsTab() {
           <View>
             {Platform.OS === 'ios' && refreshing && (
               <View style={styles.refreshSpinnerRow}>
-                <Spinner size={22} color={colors.textSecondary} />
+                <Spinner size={22} color={colors.mutedForeground} />
               </View>
             )}
             <SearchField
@@ -271,8 +274,8 @@ export default function DmsTab() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor={colors.textMuted}
-              colors={[colors.textMuted]}
+              tintColor={colors.muted}
+              colors={[colors.muted]}
             />
           ) : undefined
         }
@@ -342,7 +345,7 @@ export default function DmsTab() {
             >
               <TouchableHighlight
                 style={[styles.dmItem, hasUnread && styles.dmItemUnread]}
-                underlayColor={colors.bgTertiary}
+                underlayColor={colors.secondary}
                 onPress={() => router.push(`/dm/${item.id}` as any)}
               >
                 <View style={styles.dmItemInner}>
@@ -399,7 +402,7 @@ export default function DmsTab() {
                       >
                         {item.lastMessagePreview || 'No messages yet'}
                       </Text>
-                      {item.isMuted && <BellOff size={12} color={colors.textMuted} style={styles.mutedIcon} />}
+                      {item.isMuted && <BellOff size={12} color={colors.muted} style={styles.mutedIcon} />}
                       {hasUnread && (item.unreadCount ?? 0) > 0 && (
                         <View style={styles.unreadBadge}>
                           <Text style={styles.unreadBadgeText}>{item.unreadCount}</Text>
@@ -421,7 +424,7 @@ export default function DmsTab() {
                     <Path
                       d="M 28 0 L 0 0 0 28"
                       fill="none"
-                      stroke={colors.bgTertiary}
+                      stroke={colors.secondary}
                       strokeWidth={0.5}
                       strokeDasharray="3 3"
                     />
@@ -432,13 +435,13 @@ export default function DmsTab() {
               <Svg width={120} height={120} viewBox="0 0 120 120" fill="none">
                 <Path
                   d="M20 32a10 10 0 0 1 10-10h60a10 10 0 0 1 10 10v40a10 10 0 0 1-10 10H52l-16 14V82H30a10 10 0 0 1-10-10V32z"
-                  fill={colors.bgSecondary}
-                  stroke={colors.bgTertiary}
+                  fill={colors.cardBackground}
+                  stroke={colors.secondary}
                   strokeWidth={1}
                 />
-                <Rect x="38" y="46" width="44" height="4" rx="2" fill={colors.bgTertiary} />
-                <Rect x="38" y="56" width="30" height="4" rx="2" fill={colors.bgTertiary} />
-                <Rect x="38" y="66" width="36" height="4" rx="2" fill={colors.bgTertiary} />
+                <Rect x="38" y="46" width="44" height="4" rx="2" fill={colors.secondary} />
+                <Rect x="38" y="56" width="30" height="4" rx="2" fill={colors.secondary} />
+                <Rect x="38" y="66" width="36" height="4" rx="2" fill={colors.secondary} />
               </Svg>
             </View>
             <Text style={styles.emptyTitle}>No messages yet</Text>
@@ -450,9 +453,9 @@ export default function DmsTab() {
   );
 }
 
-const makeStyles = (c: ColorScheme, topInset: number) =>
+const makeStyles = (c: ThemeColors, topInset: number) =>
   StyleSheet.create({
-    container: { flex: 1, backgroundColor: c.bgPrimary },
+    container: { flex: 1, backgroundColor: c.background },
     // iOS shadcn refresh spinner row — sits above the search while refreshing.
     refreshSpinnerRow: {
       alignItems: 'center',
@@ -467,7 +470,7 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       paddingTop: topInset + 6,
       paddingHorizontal: 16,
       paddingBottom: 8,
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
     },
     headerDivider: {
       position: 'absolute',
@@ -481,7 +484,7 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       width: 40,
       height: 40,
       borderRadius: 13,
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: c.border,
       justifyContent: 'center',
@@ -501,7 +504,7 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       justifyContent: 'center',
       alignItems: 'center',
     },
-    headerTitle: { fontSize: 19, fontWeight: '700', color: c.textPrimary },
+    headerTitle: { fontSize: 19, fontWeight: '700', color: c.text },
     headerRightGroup: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -522,20 +525,20 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       paddingHorizontal: 14,
       height: 32,
       borderRadius: 10,
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: c.border,
       justifyContent: 'center',
       alignItems: 'center',
     },
     filterChipActive: {
-      backgroundColor: c.textPrimary,
-      borderColor: c.textPrimary,
+      backgroundColor: c.text,
+      borderColor: c.text,
     },
     filterChipText: {
       fontSize: 14,
       fontWeight: '500',
-      color: c.textPrimary,
+      color: c.text,
     },
     filterChipTextActive: {
       color: '#fff',
@@ -546,8 +549,8 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       height: StyleSheet.hairlineWidth,
       backgroundColor: c.border,
     },
-    dmItem: { backgroundColor: c.bgPrimary },
-    dmItemUnread: { backgroundColor: c.bgTertiary },
+    dmItem: { backgroundColor: c.background },
+    dmItemUnread: { backgroundColor: c.secondary },
     dmItemInner: {
       flexDirection: 'row',
       alignItems: 'flex-start',
@@ -560,7 +563,7 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       width: 36,
       height: 36,
       borderRadius: 13,
-      backgroundColor: c.brand,
+      backgroundColor: BRAND,
       justifyContent: 'center',
       alignItems: 'center',
     },
@@ -573,11 +576,11 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       width: 26,
       height: 26,
       borderRadius: 10,
-      backgroundColor: c.brand,
+      backgroundColor: BRAND,
       justifyContent: 'center',
       alignItems: 'center',
       borderWidth: 2,
-      borderColor: c.bgPrimary,
+      borderColor: c.background,
       overflow: 'hidden',
     },
     groupAvatarA: { top: 0, left: 0, zIndex: 2 },
@@ -604,12 +607,12 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
     dmName: {
       flex: 1,
       fontSize: 16,
-      color: c.textPrimary,
+      color: c.text,
       fontWeight: '600',
       lineHeight: 21,
     },
     dmTime: { fontSize: 14, color: '#858585' },
-    dmTimeUnread: { color: c.brand, fontWeight: '600' },
+    dmTimeUnread: { color: BRAND, fontWeight: '600' },
     dmBottomRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -620,19 +623,19 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       fontSize: 15,
       // Darker gray than textSecondary, theme-safe (dark in light mode, light in
       // dark mode) via primary text at reduced opacity.
-      color: c.textPrimary,
+      color: c.text,
       opacity: 0.6,
       fontWeight: '400',
       lineHeight: 19,
       minHeight: 38,
     },
-    dmLastMessageUnread: { color: c.textPrimary, opacity: 1, fontWeight: '500' },
+    dmLastMessageUnread: { color: c.text, opacity: 1, fontWeight: '500' },
     mutedIcon: { opacity: 0.7 },
     unreadBadge: {
       minWidth: 22,
       height: 22,
       borderRadius: 11,
-      backgroundColor: c.brand,
+      backgroundColor: BRAND,
       paddingHorizontal: 7,
       justifyContent: 'center',
       alignItems: 'center',
@@ -661,10 +664,10 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
     swipeLeftContainer: { flexDirection: 'row' },
     swipeAction: { width: 72, justifyContent: 'center', alignItems: 'center' },
     swipeActionText: { fontSize: 11, fontWeight: '600', color: '#fff', marginTop: 4 },
-    swipeArchive: { backgroundColor: c.brand },
-    swipeDelete: { backgroundColor: c.danger },
-    swipeMute: { backgroundColor: c.textMuted },
+    swipeArchive: { backgroundColor: BRAND },
+    swipeDelete: { backgroundColor: c.destructive },
+    swipeMute: { backgroundColor: c.muted },
     swipePin: { backgroundColor: c.warning },
-    emptyTitle: { fontSize: 16, fontWeight: '600', color: c.textPrimary },
-    emptyText: { fontSize: 14, color: c.textMuted, textAlign: 'center', maxWidth: 280, lineHeight: 20 },
+    emptyTitle: { fontSize: 16, fontWeight: '600', color: c.text },
+    emptyText: { fontSize: 14, color: c.muted, textAlign: 'center', maxWidth: 280, lineHeight: 20 },
   });

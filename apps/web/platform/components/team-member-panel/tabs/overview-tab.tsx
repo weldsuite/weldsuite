@@ -1,13 +1,33 @@
+/**
+ * Member profile "Details" tab.
+ *
+ * Laid out to match the WeldCRM person panel (components/objects/person/
+ * person-panel.tsx): a `p-4 space-y-1` column of `PropertyRow`s — icon, label,
+ * inline-editable value — rather than the old read-only `<dl>` plus a separate
+ * full-form edit mode. Rows render even when empty so the panel shows a stable
+ * field list with "Set …" affordances, exactly like the person panel.
+ */
+
 import * as React from 'react';
-import { Phone, MapPin, Link as LinkIcon, Briefcase, Save, X, Copy, Check } from 'lucide-react';
+import {
+  Briefcase,
+  Clock,
+  Globe,
+  Link as LinkIcon,
+  Mail,
+  MapPin,
+  Phone,
+  Shield,
+  Smile,
+  StickyNote,
+} from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { Button } from '@weldsuite/ui/components/button';
-import { Input } from '@weldsuite/ui/components/input';
-import { Textarea } from '@weldsuite/ui/components/textarea';
-import { Label } from '@weldsuite/ui/components/label';
+import { Copy, Check } from 'lucide-react';
 import { useUpdateMemberProfile } from '@/hooks/queries/use-team-queries';
 import { toast } from 'sonner';
 import type { MemberProfile, UpdateMemberProfileInput } from '@weldsuite/core-api-client/schemas/member-profile';
+import { PropertyRow } from '@/components/objects/_shared/property-row';
+import { getRoleLabel } from '../role-label';
 import { NotesTab } from './notes-tab';
 import { useComposeSafe } from '@/contexts/compose-context';
 import { useNow, formatLocalTime, formatTimezoneOffset } from '../use-now';
@@ -16,56 +36,34 @@ interface OverviewTabProps {
   profile: MemberProfile;
 }
 
-interface Draft {
-  title: string;
-  bio: string;
-  phone: string;
-  location: string;
-  pronouns: string;
-  hoursPerWeek: string;
-}
-
-function fromProfile(p: MemberProfile): Draft {
-  return {
-    title: p.title ?? '',
-    bio: p.bio ?? '',
-    phone: p.phone ?? '',
-    location: p.location ?? '',
-    pronouns: p.pronouns ?? '',
-    hoursPerWeek: p.hoursPerWeek ?? '',
-  };
-}
-
 export function OverviewTab({ profile }: OverviewTabProps) {
   const t = useTranslations();
-  const [editing, setEditing] = React.useState(false);
-  const [draft, setDraft] = React.useState<Draft>(() => fromProfile(profile));
   const update = useUpdateMemberProfile(profile.userId);
   const now = useNow(30_000);
   const localTime = formatLocalTime(now, profile.timezone);
   const tzOffset = formatTimezoneOffset(now, profile.timezone);
 
-  React.useEffect(() => {
-    if (!editing) setDraft(fromProfile(profile));
-  }, [profile, editing]);
+  // Authoritative edit gate, computed server-side in services/team/profile.ts
+  // as `viewer.userId === subjectUserId || viewer.isAdmin` — the exact rule
+  // PATCH /user/:userId/profile enforces before writing. Read it off the
+  // payload rather than recomputing here so the rows can never offer an edit
+  // the API would reject with FORBIDDEN.
+  const canEdit = profile.canEdit;
 
-  const handleSave = async () => {
-    const patch: UpdateMemberProfileInput = {
-      title: draft.title.trim() || null,
-      bio: draft.bio.trim() || null,
-      phone: draft.phone.trim() || null,
-      location: draft.location.trim() || null,
-      pronouns: draft.pronouns.trim() || null,
-      hoursPerWeek: draft.hoursPerWeek.trim() ? Number(draft.hoursPerWeek) : null,
-    };
-    try {
-      await update.mutateAsync(patch);
-      setEditing(false);
-      toast.success(t('sweep.shared.profileSaved'));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('sweep.shared.failedToSaveProfile'));
-    }
-  };
+  // One shared committer for every inline row — mirrors the person panel's
+  // single `handleUpdateField`. Each row sends only its own key.
+  const saveField = React.useCallback(
+    async (patch: UpdateMemberProfileInput) => {
+      if (!canEdit) return;
+      try {
+        await update.mutateAsync(patch);
+        toast.success(t('sweep.shared.profileSaved'));
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : t('sweep.shared.failedToSaveProfile'));
+      }
+    },
+    [canEdit, update, t],
+  );
 
   const workingHoursSchedule = React.useMemo(() => {
     const days: Array<{ key: keyof NonNullable<MemberProfile['workingHours']>; label: string }> = [
@@ -84,139 +82,111 @@ export function OverviewTab({ profile }: OverviewTabProps) {
     return days.map((d) => ({ ...d, hours: wh[d.key] }));
   }, [profile.workingHours, t]);
 
-  if (editing) {
-    return (
-      <div className="space-y-4 p-6">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-medium">{t('sweep.shared.editProfile')}</h3>
-          <div className="flex gap-1">
-            <Button size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={update.isPending}>
-              <X className="h-4 w-4" />
-            </Button>
-            <Button size="sm" onClick={handleSave} disabled={update.isPending}>
-              <Save className="h-4 w-4 mr-1" />
-              {t('sweep.shared.save')}
-            </Button>
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <Field label={t('sweep.shared.title')}>
-            <Input
-              value={draft.title}
-              onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-              placeholder={t('sweep.shared.titlePlaceholderExample')}
-            />
-          </Field>
-          <Field label={t('sweep.shared.bio')}>
-            <Textarea
-              value={draft.bio}
-              onChange={(e) => setDraft({ ...draft, bio: e.target.value })}
-              rows={4}
-            />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={t('sweep.shared.phone')}>
-              <Input
-                value={draft.phone}
-                onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
-              />
-            </Field>
-            <Field label={t('sweep.shared.location')}>
-              <Input
-                value={draft.location}
-                onChange={(e) => setDraft({ ...draft, location: e.target.value })}
-              />
-            </Field>
-            <Field label={t('sweep.shared.pronouns')}>
-              <Input
-                value={draft.pronouns}
-                onChange={(e) => setDraft({ ...draft, pronouns: e.target.value })}
-              />
-            </Field>
-            <Field label={t('sweep.shared.hoursPerWeek')}>
-              <Input
-                type="number"
-                min={0}
-                max={168}
-                value={draft.hoursPerWeek}
-                onChange={(e) => setDraft({ ...draft, hoursPerWeek: e.target.value })}
-              />
-            </Field>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-8 p-4">
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-medium text-muted-foreground">{t('sweep.shared.about')}</h3>
-        </div>
-        {profile.bio ? (
-          <p className="whitespace-pre-wrap text-sm leading-relaxed">{profile.bio}</p>
-        ) : (
-          <p className="text-sm text-muted-foreground">{t('sweep.shared.noBioYet')}</p>
-        )}
-      </div>
-
-      <dl className="space-y-2 text-sm">
-        {profile.email && (
-          <InfoRow icon={null} label={t('sweep.shared.email')}>
-            <CopyableEmail email={profile.email} />
-          </InfoRow>
-        )}
-        {profile.phone && (
-          <InfoRow icon={<Phone className="h-4 w-4" />} label={t('sweep.shared.phone')}>
-            <a href={`tel:${profile.phone}`} className="hover:underline">{profile.phone}</a>
-          </InfoRow>
-        )}
-        {profile.location && (
-          <InfoRow icon={<MapPin className="h-4 w-4" />} label={t('sweep.shared.location')}>
-            {profile.location}
-          </InfoRow>
-        )}
-        {profile.pronouns && (
-          <InfoRow icon={null} label={t('sweep.shared.pronouns')}>
-            {profile.pronouns}
-          </InfoRow>
-        )}
-        {profile.hoursPerWeek && (
-          <InfoRow icon={<Briefcase className="h-4 w-4" />} label={t('sweep.shared.hoursPerWeek')}>
-            {profile.hoursPerWeek}
-          </InfoRow>
-        )}
-        <InfoRow icon={null} label={t('sweep.shared.role')}>
-          {profile.role}
-        </InfoRow>
-        <InfoRow icon={null} label={t('sweep.shared.timezone')}>
+    <div className="p-4 space-y-1">
+      <PropertyRow
+        icon={Briefcase}
+        label={t('sweep.shared.title')}
+        value={profile.title}
+        readOnly={!canEdit}
+        onSave={(v) => saveField({ title: v })}
+      />
+      <PropertyRow
+        icon={StickyNote}
+        label={t('sweep.shared.bio')}
+        type="address"
+        value={profile.bio}
+        readOnly={!canEdit}
+        onSave={(v) => saveField({ bio: v })}
+      />
+      <PropertyRow
+        icon={Mail}
+        label={t('sweep.shared.email')}
+        type="email"
+        value={profile.email}
+        readOnly
+        renderValue={(v) => (v ? <CopyableEmail email={v} /> : null)}
+      />
+      <PropertyRow
+        icon={Phone}
+        label={t('sweep.shared.phone')}
+        type="phone"
+        value={profile.phone}
+        readOnly={!canEdit}
+        onSave={(v) => saveField({ phone: v })}
+      />
+      <PropertyRow
+        icon={MapPin}
+        label={t('sweep.shared.location')}
+        value={profile.location}
+        readOnly={!canEdit}
+        onSave={(v) => saveField({ location: v })}
+      />
+      <PropertyRow
+        icon={Smile}
+        label={t('sweep.shared.pronouns')}
+        value={profile.pronouns}
+        readOnly={!canEdit}
+        onSave={(v) => saveField({ pronouns: v })}
+      />
+      <PropertyRow
+        icon={Clock}
+        label={t('sweep.shared.hoursPerWeek')}
+        value={profile.hoursPerWeek}
+        // The API takes a number; an unparseable entry clears the field rather
+        // than sending NaN (which the Zod schema would reject).
+        readOnly={!canEdit}
+        onSave={(v) => {
+          const trimmed = v?.trim();
+          const parsed = trimmed ? Number(trimmed) : NaN;
+          saveField({ hoursPerWeek: Number.isFinite(parsed) ? parsed : null });
+        }}
+      />
+      <PropertyRow
+        icon={Shield}
+        label={t('sweep.shared.role')}
+        // Humanised — the raw enum rendered as a shouted "OWNER" next to
+        // sentence-case values everywhere else in the column.
+        value={profile.role ? getRoleLabel(profile.role) : null}
+        readOnly
+      />
+      <PropertyRow
+        icon={Globe}
+        label={t('sweep.shared.timezone')}
+        value={profile.timezone}
+        readOnly
+        renderValue={(v) => (
           <span className="inline-flex items-center gap-1.5">
-            <span>{profile.timezone}</span>
+            <span>{v}</span>
             <span className="text-muted-foreground">·</span>
             <span className="tabular-nums">{localTime}</span>
             {tzOffset && <span className="text-muted-foreground/70">({tzOffset})</span>}
           </span>
-        </InfoRow>
-      </dl>
+        )}
+      />
 
       {workingHoursSchedule && (
-        <div>
+        <div className="pt-6">
           <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {t('sweep.shared.workingHours')}
           </h4>
-          <ul className="divide-y divide-border/50 text-sm">
+          {/* Same 120px label / 1fr value grid and 32px row height as
+              PropertyRow above, so the day rows read as a continuation of the
+              field column instead of a separate table. */}
+          <ul className="space-y-1">
             {workingHoursSchedule.map((d) => (
-              <li key={d.key} className="flex items-center justify-between py-2">
-                <span className="text-foreground">{d.label}</span>
+              <li
+                key={d.key}
+                className="grid grid-cols-[120px_1fr] gap-2 items-center min-h-[32px] text-sm"
+              >
+                <span className="text-muted-foreground">{d.label}</span>
                 {d.hours?.isOpen ? (
-                  <span className="tabular-nums text-muted-foreground">
+                  <span className="tabular-nums">
                     {d.hours.openTime ?? '—'}
                     {' – '}
                     {d.hours.closeTime ?? '—'}
                     {d.hours.breaks?.length ? (
-                      <span className="ml-2 text-xs">
+                      <span className="ml-2 text-xs text-muted-foreground">
                         ({t(d.hours.breaks.length === 1 ? 'sweep.shared.breakCountOne' : 'sweep.shared.breakCountOther', { count: d.hours.breaks.length })}
                         {' '}
                         {d.hours.breaks
@@ -227,7 +197,7 @@ export function OverviewTab({ profile }: OverviewTabProps) {
                     ) : null}
                   </span>
                 ) : (
-                  <span className="tabular-nums text-muted-foreground">{t('sweep.shared.notWorking')}</span>
+                  <span className="text-muted-foreground/70">{t('sweep.shared.notWorking')}</span>
                 )}
               </li>
             ))}
@@ -236,7 +206,7 @@ export function OverviewTab({ profile }: OverviewTabProps) {
       )}
 
       {profile.links && profile.links.length > 0 && (
-        <div>
+        <div className="pt-6">
           <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('sweep.shared.links')}</h4>
           <ul className="space-y-1 text-sm">
             {profile.links.map((link, i) => (
@@ -256,16 +226,9 @@ export function OverviewTab({ profile }: OverviewTabProps) {
         </div>
       )}
 
-      <NotesTab userId={profile.userId} embedded />
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <Label className="text-xs text-muted-foreground">{label}</Label>
-      {children}
+      <div className="pt-6">
+        <NotesTab userId={profile.userId} embedded />
+      </div>
     </div>
   );
 }
@@ -293,42 +256,29 @@ function CopyableEmail({ email }: { email: string }) {
     composeContext?.openCompose({ to: email });
   };
 
+  // Deliberately NOT <Button>: inside a PropertyRow value cell the ghost
+  // Button's own padding and h-9 min-height pushed the address ~12px right of
+  // every other value and made this row taller than its neighbours. Bare
+  // elements keep the address on the same baseline and left edge as the rest
+  // of the column.
   return (
-    <span className="group inline-flex items-center gap-1.5">
-      <Button
+    <span className="group/email inline-flex items-center gap-1.5 min-w-0">
+      <button
         type="button"
-        variant="ghost"
         onClick={handleCompose}
-        className="hover:underline text-left"
+        className="truncate text-left hover:underline focus-visible:outline-none focus-visible:underline"
       >
         {email}
-      </Button>
-      <Button
+      </button>
+      <button
         type="button"
-        variant="ghost"
-        size="icon"
         onClick={handleCopy}
-        className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground p-1 rounded-[6px] hover:bg-muted"
+        className="flex-shrink-0 opacity-0 group-hover/email:opacity-100 focus-visible:opacity-100 transition-opacity text-muted-foreground hover:text-foreground rounded-[6px] p-0.5 hover:bg-muted"
         title={copied ? t('sweep.shared.copied') : t('sweep.shared.copyEmail')}
+        aria-label={copied ? t('sweep.shared.copied') : t('sweep.shared.copyEmail')}
       >
         {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-      </Button>
+      </button>
     </span>
-  );
-}
-
-function InfoRow({
-  icon,
-  label,
-  children,
-}: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-start gap-3">
-      <dt className="flex w-28 shrink-0 items-center gap-2 text-muted-foreground">
-        {icon}
-        <span>{label}</span>
-      </dt>
-      <dd className="flex-1 break-words">{children}</dd>
-    </div>
   );
 }

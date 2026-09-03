@@ -38,6 +38,8 @@ interface MessagesQueryResult {
     data?: ChatMessage[];
   };
   isLoading: boolean;
+  isError?: boolean;
+  refetch?: () => void;
   fetchNextPage?: () => void;
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
@@ -83,7 +85,7 @@ export function MessageList({
   const messagesResult = useMessages(parentId ? '' : channelId);
   const threadResult = useThreadMessages(channelId, parentId || '');
 
-  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
+  const { data, isLoading, isError, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } =
     (parentId ? threadResult : messagesResult) as MessagesQueryResult;
 
   // Channel info — used by the empty state. Hits the same cache the page
@@ -246,6 +248,17 @@ export function MessageList({
         <MessageSkeleton count={8} />
       </div>
     );
+
+  if (isError) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center">
+        <p className="text-sm text-muted-foreground">Could not load messages.</p>
+        <Button variant="outline" size="sm" onClick={() => refetch?.()}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-transparent hover:scrollbar-thumb-muted-foreground/20" style={{ scrollbarWidth: 'thin', scrollbarColor: 'transparent transparent' }} onMouseEnter={(e) => { e.currentTarget.style.scrollbarColor = 'rgba(150,150,150,0.2) transparent'; }} onMouseLeave={(e) => { e.currentTarget.style.scrollbarColor = 'transparent transparent'; }}>

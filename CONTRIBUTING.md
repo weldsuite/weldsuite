@@ -12,7 +12,7 @@ Work lands on **`develop`** (test). Production is a PR from `develop` into **`ma
 
 ## Development setup
 
-Requirements: **Node 20+** and **pnpm 10.4.1** (`corepack enable` will pin the right pnpm).
+Requirements: **Node 20+** and **pnpm 10.34.5** (`corepack enable` will pin the right pnpm).
 
 ```bash
 pnpm install        # install all workspaces

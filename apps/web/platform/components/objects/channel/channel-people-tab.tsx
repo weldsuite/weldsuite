@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Crown, Plus, ShieldCheck, UserMinus, Users } from 'lucide-react';
 import { useUser } from '@clerk/clerk-react';
+import { useCan } from '@weldsuite/permissions/react';
 import {
   useChannel,
   useChannelMembers,
@@ -65,6 +66,7 @@ export function ChannelPeopleTab({ channelId }: ChannelPeopleTabProps) {
 
   const channel = channelData?.data;
   const isPrivate = channel?.type === 'private';
+  const canInviteExternal = useCan('team:invite_external');
 
   const [inviteOpen, setInviteOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -259,12 +261,18 @@ export function ChannelPeopleTab({ channelId }: ChannelPeopleTabProps) {
     ],
   );
 
-  const actionButtons = (
+  // The invite dialog offers "Members" on private channels and "Guest" to
+  // callers holding `team:invite_external`. On a public channel, a caller
+  // without that permission has nothing to invite — anyone in the workspace can
+  // already join — so the button would open an empty dialog. (Its Agents tab
+  // was removed along with the rest of the add-an-agent surfaces.)
+  const canInvite = isPrivate || canInviteExternal;
+  const actionButtons = canInvite ? (
     <Button size="sm" className="h-8 gap-1.5" onClick={() => setInviteOpen(true)}>
       <Plus className="h-3.5 w-3.5" />
       {st('sweep.entities.invitePeople')}
     </Button>
-  );
+  ) : null;
 
   return (
     <div className="flex flex-col h-full">

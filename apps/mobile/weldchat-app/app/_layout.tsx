@@ -1,4 +1,5 @@
 import { ClerkProvider, ClerkLoaded, useOrganizationList } from '@clerk/expo';
+import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
 import { Observe, ObserveRoot, useObserve } from 'expo-observe';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -8,20 +9,22 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import * as SplashScreen from 'expo-splash-screen';
-import { useFonts } from 'expo-font';
 import 'react-native-reanimated';
 
 import { hideAppSplash } from '@/utils/splash';
-import { interFontMap, installInterFont } from '@/lib/fonts';
 
 import { tokenCache } from '@clerk/expo/token-cache';
 import { ClerkAuthProvider, useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
+import { ThemeProvider, useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { ToastProvider } from '@weldsuite/mobile-ui/contexts/ToastContext';
+import { AnalyticsProvider } from '@weldsuite/mobile-ui/contexts/AnalyticsContext';
 import { WorkspaceProvider } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
 import { InstalledAppsProvider } from '@weldsuite/mobile-ui/contexts/InstalledAppsContext';
 import { ErrorBoundary } from '@weldsuite/mobile-ui/components/ErrorBoundary';
+import { Button } from '@weldsuite/mobile-ui/components/Button';
+import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 
-import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
+import { BRAND } from '@/lib/brand';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { CallProvider } from '@/contexts/CallContext';
 import { IncomingCallModal } from '@/components/call/IncomingCallModal';
@@ -36,9 +39,6 @@ Observe.configure({
 });
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
-
-// Render every Text/TextInput with the Instagram-style Inter typeface.
-installInterFont();
 
 const CLERK_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
@@ -143,8 +143,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
   if (isLoading || (user && !isOrgListLoaded) || (user && !orgReady)) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bgPrimary }}>
-        <ActivityIndicator size="large" color={colors.brand} />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
+        <ActivityIndicator size="large" color={BRAND} />
       </View>
     );
   }
@@ -152,25 +152,17 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   // User signed in but has no organizations
   if (user && !organizationId) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bgPrimary, paddingHorizontal: 32 }}>
-        <Text style={{ fontSize: 22, fontWeight: '700', color: colors.textPrimary, marginBottom: 8, textAlign: 'center' }}>
-          No Workspace Found
-        </Text>
-        <Text style={{ fontSize: 15, color: colors.textMuted, textAlign: 'center', lineHeight: 22, marginBottom: 24 }}>
-          You need a WeldSuite workspace to use WeldChat. Create one on the web to get started.
-        </Text>
-        <TouchableOpacity
-          style={{ backgroundColor: colors.brand, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 28 }}
-          onPress={() => Linking.openURL('https://app.weldsuite.org')}
-        >
-          <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>Create Workspace</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={{ marginTop: 16, paddingVertical: 8 }}
-          onPress={() => signOut()}
-        >
-          <Text style={{ color: colors.brand, fontSize: 15 }}>Sign in with a different account</Text>
-        </TouchableOpacity>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background, paddingHorizontal: 32 }}>
+        <EmptyState
+          title="No Workspace Found"
+          description="You need a WeldSuite workspace to use WeldChat. Create one on the web to get started."
+        />
+        <View style={{ marginTop: 8, width: '100%', maxWidth: 320, gap: 12 }}>
+          <Button title="Create Workspace" onPress={() => Linking.openURL('https://app.weldsuite.org')} />
+          <TouchableOpacity style={{ paddingVertical: 8, alignItems: 'center' }} onPress={() => signOut()}>
+            <Text style={{ color: BRAND, fontSize: 15 }}>Sign in with a different account</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -225,65 +217,80 @@ const installedAppsApi = {
 };
 
 function AppStack() {
-  const { mode, colors } = useTheme();
+  const { theme, colors } = useTheme();
+  const navigationTheme = {
+    ...DefaultTheme,
+    dark: theme === 'dark',
+    colors: {
+      ...DefaultTheme.colors,
+      primary: colors.text,
+      background: colors.background,
+      card: colors.cardBackground,
+      text: colors.text,
+      border: colors.divider,
+      notification: colors.text,
+    },
+  };
 
   return (
     <ToastProvider>
       <NotificationProvider>
         <InstalledAppsProvider api={installedAppsApi}>
           <WorkspaceProvider api={workspaceApi}>
-            <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
-            <AuthGuard>
-              <RealtimeProvider>
-                <CallProvider>
-                <CallInsetContainer>
-                <Stack
-                  screenOptions={{
-                    headerShown: false,
-                    contentStyle: { backgroundColor: colors.bgPrimary },
-                    animation: 'slide_from_right',
-                  }}
-                >
-                  <Stack.Screen name="(tabs)" />
-                  <Stack.Screen name="sso-callback" />
-                  <Stack.Screen name="authorisation/index" />
-                  <Stack.Screen
-                    name="channel/[channelId]"
-                    options={{ gestureEnabled: true, fullScreenGestureEnabled: true }}
-                  />
-                  <Stack.Screen
-                    name="dm/[channelId]"
-                    options={{ gestureEnabled: true, fullScreenGestureEnabled: true }}
-                  />
-                  <Stack.Screen
-                    name="thread/[messageId]"
-                    options={{ headerShown: true, title: 'Thread' }}
-                  />
-                  <Stack.Screen
-                    name="new-channel"
-                    options={{ headerShown: false, presentation: 'modal' }}
-                  />
-                  <Stack.Screen
-                    name="new-dm"
-                    options={{ headerShown: false, presentation: 'modal' }}
-                  />
-                  <Stack.Screen name="search" />
-                  <Stack.Screen name="settings" />
-                  <Stack.Screen name="profile" />
-                  <Stack.Screen name="huddles" />
-                  <Stack.Screen name="later" />
-                  <Stack.Screen name="drafts" />
-                  <Stack.Screen
-                    name="call-room"
-                    options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade' }}
-                  />
-                </Stack>
-                </CallInsetContainer>
-                <CallHost />
-                <IncomingCallModal />
-                </CallProvider>
-              </RealtimeProvider>
-            </AuthGuard>
+            <NavigationThemeProvider value={navigationTheme}>
+              <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
+              <AuthGuard>
+                <RealtimeProvider>
+                  <CallProvider>
+                    <CallInsetContainer>
+                      <Stack
+                        screenOptions={{
+                          headerShown: false,
+                          contentStyle: { backgroundColor: colors.background },
+                          animation: 'slide_from_right',
+                        }}
+                      >
+                        <Stack.Screen name="(tabs)" />
+                        <Stack.Screen name="sso-callback" />
+                        <Stack.Screen name="authorisation/index" />
+                        <Stack.Screen
+                          name="channel/[channelId]"
+                          options={{ gestureEnabled: true, fullScreenGestureEnabled: true }}
+                        />
+                        <Stack.Screen
+                          name="dm/[channelId]"
+                          options={{ gestureEnabled: true, fullScreenGestureEnabled: true }}
+                        />
+                        <Stack.Screen
+                          name="thread/[messageId]"
+                          options={{ headerShown: true, title: 'Thread' }}
+                        />
+                        <Stack.Screen
+                          name="new-channel"
+                          options={{ headerShown: false, presentation: 'modal' }}
+                        />
+                        <Stack.Screen
+                          name="new-dm"
+                          options={{ headerShown: false, presentation: 'modal' }}
+                        />
+                        <Stack.Screen name="search" />
+                        <Stack.Screen name="settings" />
+                        <Stack.Screen name="profile" />
+                        <Stack.Screen name="huddles" />
+                        <Stack.Screen name="later" />
+                        <Stack.Screen name="drafts" />
+                        <Stack.Screen
+                          name="call-room"
+                          options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade' }}
+                        />
+                      </Stack>
+                    </CallInsetContainer>
+                    <CallHost />
+                    <IncomingCallModal />
+                  </CallProvider>
+                </RealtimeProvider>
+              </AuthGuard>
+            </NavigationThemeProvider>
           </WorkspaceProvider>
         </InstalledAppsProvider>
       </NotificationProvider>
@@ -294,9 +301,11 @@ function AppStack() {
 function AuthenticatedApp() {
   return (
     <ClerkAuthProvider>
-      <ThemeProvider>
-        <AppStack />
-      </ThemeProvider>
+      <AnalyticsProvider>
+        <ThemeProvider>
+          <AppStack />
+        </ThemeProvider>
+      </AnalyticsProvider>
     </ClerkAuthProvider>
   );
 }
@@ -305,17 +314,21 @@ function RootLayout() {
   // First-launch OTA gate: check for and apply the latest update before the app
   // renders, so first-time installers never see the stale embedded bundle.
   const checkingUpdate = useUpdateGate();
-  const [fontsLoaded] = useFonts(interFontMap);
 
   useEffect(() => {
     const safety = setTimeout(() => hideAppSplash(), 5000);
     return () => clearTimeout(safety);
   }, []);
 
-  // Keep the native splash up until Inter is ready so the very first frame
-  // already renders in the Instagram typeface (no flash of system font).
-  // While the update gate is checking, hold on the native splash too.
-  if (checkingUpdate || !fontsLoaded) return null;
+  if (checkingUpdate) {
+    return (
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' }}>
+          <ActivityIndicator size="large" color={BRAND} />
+        </View>
+      </GestureHandlerRootView>
+    );
+  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

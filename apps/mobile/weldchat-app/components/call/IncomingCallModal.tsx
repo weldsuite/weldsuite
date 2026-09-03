@@ -1,3 +1,4 @@
+import { BRAND } from '@/lib/brand';
 /**
  * Full-screen incoming-call overlay. Rendered globally (under CallProvider) so
  * a ring surfaces over whatever screen the user is on. Driven entirely by
@@ -8,7 +9,8 @@ import React from 'react';
 import { Modal, View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Phone, PhoneOff, Video } from 'lucide-react-native';
-import { useTheme } from '@/contexts/ThemeContext';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+
 import { useCall } from '@/contexts/CallContext';
 
 export function IncomingCallModal() {
@@ -22,25 +24,25 @@ export function IncomingCallModal() {
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={declineCall}>
-      <View style={[styles.backdrop, { backgroundColor: colors.bgTertiary }]}>
+      <View style={[styles.backdrop, { backgroundColor: colors.secondary }]}>
         <View style={[styles.top, { paddingTop: insets.top + 48 }]}>
           {incomingCall?.callerAvatar ? (
             <Image source={{ uri: incomingCall.callerAvatar }} style={styles.avatar} />
           ) : (
-            <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: colors.brand }]}>
+            <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: BRAND }]}>
               <Text style={styles.avatarText}>{initial}</Text>
             </View>
           )}
-          <Text style={[styles.name, { color: colors.textPrimary }]} numberOfLines={1}>
+          <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>
             {incomingCall?.callerName}
           </Text>
           <View style={styles.subtitleRow}>
             {isVideo ? (
-              <Video size={16} color={colors.textMuted} strokeWidth={2} />
+              <Video size={16} color={colors.muted} strokeWidth={2} />
             ) : (
-              <Phone size={16} color={colors.textMuted} strokeWidth={2} />
+              <Phone size={16} color={colors.muted} strokeWidth={2} />
             )}
-            <Text style={[styles.subtitle, { color: colors.textMuted }]}>
+            <Text style={[styles.subtitle, { color: colors.muted }]}>
               {isVideo ? 'Incoming video call' : 'Incoming voice call'}
             </Text>
           </View>
@@ -49,14 +51,14 @@ export function IncomingCallModal() {
         <View style={[styles.actions, { paddingBottom: insets.bottom + 56 }]}>
           <View style={styles.action}>
             <TouchableOpacity
-              style={[styles.button, { backgroundColor: colors.danger }]}
+              style={[styles.button, { backgroundColor: colors.destructive }]}
               onPress={declineCall}
               activeOpacity={0.85}
               accessibilityLabel="Decline call"
             >
               <PhoneOff size={28} color="#fff" strokeWidth={2} />
             </TouchableOpacity>
-            <Text style={[styles.actionLabel, { color: colors.textSecondary }]}>Decline</Text>
+            <Text style={[styles.actionLabel, { color: colors.mutedForeground }]}>Decline</Text>
           </View>
 
           <View style={styles.action}>
@@ -72,7 +74,7 @@ export function IncomingCallModal() {
                 <Phone size={28} color="#fff" strokeWidth={2} />
               )}
             </TouchableOpacity>
-            <Text style={[styles.actionLabel, { color: colors.textSecondary }]}>Accept</Text>
+            <Text style={[styles.actionLabel, { color: colors.mutedForeground }]}>Accept</Text>
           </View>
         </View>
       </View>

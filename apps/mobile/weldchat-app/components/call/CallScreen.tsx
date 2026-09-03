@@ -23,7 +23,8 @@ import {
   useRealtimeKitMeeting,
   useRealtimeKitSelector,
 } from '@cloudflare/realtimekit-react-native';
-import { useTheme } from '@/contexts/ThemeContext';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+
 import { getCallColors, getPersonTheme, getInitials } from './call-theme';
 import { ParticipantTile, type CallParticipant } from './ParticipantTile';
 import { CallControls } from './CallControls';
@@ -55,8 +56,8 @@ function formatDuration(totalSeconds: number): string {
 }
 
 export function CallScreen({ onLeave, onMinimize, isDirect, peerName, peerAvatar, callType, onAddPeople, connected, duration }: CallScreenProps) {
-  const { mode } = useTheme();
-  const colors = getCallColors(mode);
+  const { theme } = useTheme();
+  const colors = getCallColors(theme);
   const insets = useSafeAreaInsets();
   const { meeting } = useRealtimeKitMeeting();
 
@@ -279,11 +280,11 @@ export function OutgoingCallPlaceholder({
   onLeave: () => void;
   onMinimize?: () => void;
 }) {
-  const { mode } = useTheme();
-  const colors = getCallColors(mode);
+  const { theme: colorScheme } = useTheme();
+  const colors = getCallColors(colorScheme);
   const insets = useSafeAreaInsets();
   const displayName = peerName || 'Unknown';
-  const theme = getPersonTheme(peerName || '');
+  const personTheme = getPersonTheme(peerName || '');
   const speakerOn = callType === 'video';
   return (
     <View style={[styles.root, { backgroundColor: colors.background, paddingTop: insets.top }]}>
@@ -306,7 +307,7 @@ export function OutgoingCallPlaceholder({
         {peerAvatar ? (
           <Image source={{ uri: peerAvatar }} style={styles.callingAvatar} />
         ) : (
-          <View style={[styles.callingAvatar, styles.callingAvatarFallback, { backgroundColor: theme.avatar }]}>
+          <View style={[styles.callingAvatar, styles.callingAvatarFallback, { backgroundColor: personTheme.avatar }]}>
             <Text style={styles.callingAvatarText}>{getInitials(peerName || '?')}</Text>
           </View>
         )}

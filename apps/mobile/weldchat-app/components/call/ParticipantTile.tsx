@@ -14,7 +14,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Image, StyleSheet, type LayoutChangeEvent } from 'react-native';
 import { RTCView, MediaStream, type MediaStreamTrack } from '@cloudflare/react-native-webrtc';
 import { MicOff, Hand } from 'lucide-react-native';
-import { useTheme } from '@/contexts/ThemeContext';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+
 import { getCallColors, getPersonTheme, getInitials } from './call-theme';
 
 /** Minimal shape we read off a RealtimeKit participant (self or remote). */
@@ -56,12 +57,12 @@ export function ParticipantTile({
   colorSeed,
   style,
 }: ParticipantTileProps) {
-  const { mode } = useTheme();
-  const colors = getCallColors(mode);
+  const { theme: colorScheme } = useTheme();
+  const colors = getCallColors(colorScheme);
   const { videoTrack, videoEnabled, audioEnabled, name, picture } = participant;
 
   const displayName = isSelf ? 'You' : name || 'Participant';
-  const theme = getPersonTheme(
+  const personTheme = getPersonTheme(
     colorSeed ||
       String(participant.customParticipantId ?? participant.userId ?? participant.id ?? name ?? ''),
   );
@@ -109,7 +110,7 @@ export function ParticipantTile({
       style={[
         styles.tile,
         {
-          backgroundColor: showVideo ? colors.muted : theme.tile,
+          backgroundColor: showVideo ? colors.muted : personTheme.tile,
           borderWidth: ringColor === 'transparent' ? 0 : 2,
           borderColor: ringColor,
         },
@@ -139,7 +140,7 @@ export function ParticipantTile({
                   width: avatarSize,
                   height: avatarSize,
                   borderRadius: avatarSize * 0.2,
-                  backgroundColor: theme.avatar,
+                  backgroundColor: personTheme.avatar,
                 },
               ]}
             >
