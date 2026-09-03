@@ -12,8 +12,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useRouter } from 'expo-router';
 import { Search as SearchIcon, X, Hash, MessageSquare, Users, Clock, Image as ImageIcon, Film, Link2, FileText, Music, Sticker, Paperclip } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '@/contexts/ThemeContext';
-import type { ColorScheme } from '@/constants/colors';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { BRAND } from '@/lib/brand';
+
+import type { ThemeColors } from '@/lib/theme-colors';
+
 import { appApi } from '@/services/app-api';
 import { SearchField } from '@/components/chat/SearchField';
 import type { ChatSearchResult } from '@weldsuite/app-api-client/domains/chat-search';
@@ -253,7 +256,7 @@ export default function SearchScreen() {
                   style={[styles.tab, active && styles.tabActive]}
                   onPress={() => handleTabChange(tab.key)}
                 >
-                  {Icon && <Icon size={14} color={active ? '#fff' : colors.textMuted} />}
+                  {Icon && <Icon size={14} color={active ? '#fff' : colors.muted} />}
                   <Text style={[styles.tabText, active && styles.tabTextActive]}>
                     {tab.label}
                   </Text>
@@ -280,20 +283,20 @@ export default function SearchScreen() {
                   onPress={() => handleRecentTap(term)}
                   activeOpacity={0.7}
                 >
-                  <Clock size={16} color={colors.textMuted} />
+                  <Clock size={16} color={colors.muted} />
                   <Text style={styles.recentText} numberOfLines={1}>{term}</Text>
                   <TouchableOpacity
                     onPress={() => removeRecentSearch(term)}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
-                    <X size={14} color={colors.textMuted} />
+                    <X size={14} color={colors.muted} />
                   </TouchableOpacity>
                 </TouchableOpacity>
               ))}
             </View>
           ) : (
             <View style={styles.emptyState}>
-              <SearchIcon size={40} color={colors.textMuted} />
+              <SearchIcon size={40} color={colors.muted} />
               <Text style={styles.emptyTitle}>Search your workspace</Text>
               <Text style={styles.emptyText}>
                 Find messages, people, files, and more
@@ -327,7 +330,7 @@ export default function SearchScreen() {
             )}
             ListEmptyComponent={showEmpty ? (
               <View style={styles.emptyState}>
-                <Users size={36} color={colors.textMuted} />
+                <Users size={36} color={colors.muted} />
                 <Text style={styles.emptyTitle}>No people found</Text>
               </View>
             ) : null}
@@ -349,9 +352,9 @@ export default function SearchScreen() {
                 <View style={styles.resultHeader}>
                   <View style={styles.resultChannel}>
                     {item.channelType === 'dm' ? (
-                      <MessageSquare size={12} color={colors.textMuted} />
+                      <MessageSquare size={12} color={colors.muted} />
                     ) : (
-                      <Hash size={12} color={colors.textMuted} />
+                      <Hash size={12} color={colors.muted} />
                     )}
                     <Text style={styles.resultChannelName} numberOfLines={1}>
                       {item.channelName || 'Unknown'}
@@ -372,7 +375,7 @@ export default function SearchScreen() {
                 ) : null}
                 {att && (
                   <View style={styles.resultAttachment}>
-                    <Paperclip size={12} color={colors.textMuted} />
+                    <Paperclip size={12} color={colors.muted} />
                     <Text style={styles.resultAttachmentName} numberOfLines={1}>
                       {att.fileName || att.mimeType || 'Attachment'}
                     </Text>
@@ -382,7 +385,7 @@ export default function SearchScreen() {
             );}}
             ListEmptyComponent={showEmpty ? (
               <View style={styles.emptyState}>
-                <SearchIcon size={36} color={colors.textMuted} />
+                <SearchIcon size={36} color={colors.muted} />
                 <Text style={styles.emptyTitle}>No results found</Text>
                 <Text style={styles.emptyText}>Try a different search term</Text>
               </View>
@@ -394,23 +397,23 @@ export default function SearchScreen() {
   );
 }
 
-const makeStyles = (c: ColorScheme, topInset: number) =>
+const makeStyles = (c: ThemeColors, topInset: number) =>
   StyleSheet.create({
-    container: { flex: 1, backgroundColor: c.bgPrimary },
+    container: { flex: 1, backgroundColor: c.background },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       paddingTop: topInset + 12,
       paddingHorizontal: 16,
       paddingBottom: 4,
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
       gap: 12,
     },
-    cancelBtn: { fontSize: 15, color: c.brand, fontWeight: '600' },
+    cancelBtn: { fontSize: 15, color: BRAND, fontWeight: '600' },
     searchFieldFlex: { flex: 1 },
     tabBar: {
       borderBottomWidth: 1,
-      borderBottomColor: c.bgTertiary,
+      borderBottomColor: c.secondary,
     },
     tabScroll: {
       paddingHorizontal: 16,
@@ -424,15 +427,15 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       paddingHorizontal: 14,
       paddingVertical: 8,
       borderRadius: 18,
-      backgroundColor: c.bgTertiary,
+      backgroundColor: c.secondary,
     },
     tabActive: {
-      backgroundColor: c.brand,
+      backgroundColor: BRAND,
     },
     tabText: {
       fontSize: 13,
       fontWeight: '600',
-      color: c.textMuted,
+      color: c.muted,
     },
     tabTextActive: {
       color: '#fff',
@@ -450,13 +453,13 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
     recentTitle: {
       fontSize: 13,
       fontWeight: '700',
-      color: c.textMuted,
+      color: c.muted,
       textTransform: 'uppercase',
       letterSpacing: 0.5,
     },
     recentClear: {
       fontSize: 13,
-      color: c.brand,
+      color: BRAND,
       fontWeight: '600',
     },
     recentItem: {
@@ -469,7 +472,7 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
     recentText: {
       flex: 1,
       fontSize: 15,
-      color: c.textPrimary,
+      color: c.text,
     },
     list: { paddingVertical: 4 },
     emptyListContainer: { flex: 1 },
@@ -480,13 +483,13 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       padding: 32,
       gap: 8,
     },
-    emptyTitle: { fontSize: 18, fontWeight: '600', color: c.textPrimary },
-    emptyText: { fontSize: 14, color: c.textMuted, textAlign: 'center' },
+    emptyTitle: { fontSize: 18, fontWeight: '600', color: c.text },
+    emptyText: { fontSize: 14, color: c.muted, textAlign: 'center' },
     resultItem: {
       paddingHorizontal: 16,
       paddingVertical: 12,
       borderBottomWidth: 1,
-      borderBottomColor: c.bgTertiary,
+      borderBottomColor: c.secondary,
     },
     resultHeader: {
       flexDirection: 'row',
@@ -500,18 +503,18 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       gap: 4,
       flex: 1,
     },
-    resultChannelName: { fontSize: 12, color: c.textMuted, fontWeight: '500' },
-    resultTime: { fontSize: 12, color: c.textMuted },
+    resultChannelName: { fontSize: 12, color: c.muted, fontWeight: '500' },
+    resultTime: { fontSize: 12, color: c.muted },
     resultAuthor: {
       fontSize: 14,
       fontWeight: '600',
-      color: c.textPrimary,
+      color: c.text,
       marginBottom: 2,
     },
     resultContent: {
       fontSize: 14,
       lineHeight: 20,
-      color: c.textSecondary,
+      color: c.mutedForeground,
     },
     resultAttachment: {
       flexDirection: 'row',
@@ -522,7 +525,7 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
     resultAttachmentName: {
       flex: 1,
       fontSize: 13,
-      color: c.textMuted,
+      color: c.muted,
       fontWeight: '500',
     },
     personItem: {
@@ -531,19 +534,19 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       paddingHorizontal: 16,
       paddingVertical: 12,
       borderBottomWidth: 1,
-      borderBottomColor: c.bgTertiary,
+      borderBottomColor: c.secondary,
     },
     personAvatar: {
       width: 40,
       height: 40,
       borderRadius: 20,
-      backgroundColor: c.brand,
+      backgroundColor: BRAND,
       justifyContent: 'center',
       alignItems: 'center',
       marginRight: 12,
     },
     personAvatarText: { fontSize: 16, fontWeight: '700', color: '#fff' },
     personInfo: { flex: 1 },
-    personName: { fontSize: 15, fontWeight: '600', color: c.textPrimary },
-    personEmail: { fontSize: 13, color: c.textMuted, marginTop: 1 },
+    personName: { fontSize: 15, fontWeight: '600', color: c.text },
+    personEmail: { fontSize: 13, color: c.muted, marginTop: 1 },
   });

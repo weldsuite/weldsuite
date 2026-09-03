@@ -14,8 +14,10 @@
 import React from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import { Search, X } from 'lucide-react-native';
-import { useTheme } from '@/contexts/ThemeContext';
-import type { ColorScheme } from '@/constants/colors';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+
+import type { ThemeColors } from '@/lib/theme-colors';
+
 
 interface SearchFieldProps {
   placeholder?: string;
@@ -48,7 +50,7 @@ export function SearchField({
   if (isButton) {
     return (
       <TouchableOpacity style={[styles.container, style]} activeOpacity={0.6} onPress={onPress}>
-        <Search size={20} color={colors.textSecondary} />
+        <Search size={20} color={colors.mutedForeground} />
         <Text style={styles.placeholder} numberOfLines={1}>{placeholder}</Text>
       </TouchableOpacity>
     );
@@ -56,37 +58,37 @@ export function SearchField({
 
   return (
     <View style={[styles.container, style]}>
-      <Search size={20} color={colors.textSecondary} />
+      <Search size={20} color={colors.mutedForeground} />
       <TextInput
         ref={inputRef}
         style={styles.input}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={colors.textSecondary}
+        placeholderTextColor={colors.mutedForeground}
         autoFocus={autoFocus}
         returnKeyType="search"
       />
       {!!value?.length && onClear && (
         <TouchableOpacity onPress={onClear} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <X size={18} color={colors.textSecondary} />
+          <X size={18} color={colors.mutedForeground} />
         </TouchableOpacity>
       )}
     </View>
   );
 }
 
-const makeStyles = (c: ColorScheme) =>
+const makeStyles = (c: ThemeColors) =>
   StyleSheet.create({
     container: {
       flexDirection: 'row',
       alignItems: 'center',
       paddingHorizontal: 16,
       height: 40,
-      backgroundColor: c.searchField,
+      backgroundColor: c.inputBackground,
       borderRadius: 14,
       gap: 10,
     },
-    input: { flex: 1, fontSize: 16, color: c.textPrimary, padding: 0, fontWeight: '500' },
-    placeholder: { flex: 1, fontSize: 16, color: c.textSecondary, fontWeight: '500' },
+    input: { flex: 1, fontSize: 16, color: c.text, padding: 0, fontWeight: '500' },
+    placeholder: { flex: 1, fontSize: 16, color: c.mutedForeground, fontWeight: '500' },
   });

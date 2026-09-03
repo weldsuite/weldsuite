@@ -11,8 +11,11 @@ import {
   ChevronLeft,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '@/contexts/ThemeContext';
-import type { ColorScheme } from '@/constants/colors';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { BRAND } from '@/lib/brand';
+
+import type { ThemeColors } from '@/lib/theme-colors';
+
 import { appApi } from '@/services/app-api';
 import { ChannelView } from '@/components/chat/ChannelView';
 import { useCall } from '@/contexts/CallContext';
@@ -152,7 +155,7 @@ export default function UserDetailsScreen() {
         {/* Back navigation */}
         <View style={styles.navBar}>
           <TouchableOpacity onPress={() => router.back()} style={styles.navBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} activeOpacity={0.6}>
-            <ChevronLeft size={22} color={colors.brand} strokeWidth={2.2} />
+            <ChevronLeft size={22} color={BRAND} strokeWidth={2.2} />
             <Text style={styles.navBackText}>Back</Text>
           </TouchableOpacity>
         </View>
@@ -172,7 +175,7 @@ export default function UserDetailsScreen() {
               <View
                 style={[
                   styles.statusDot,
-                  { backgroundColor: status === 'online' ? colors.online : colors.offline },
+                  { backgroundColor: status === 'online' ? colors.success : colors.muted },
                 ]}
               />
             </View>
@@ -182,21 +185,21 @@ export default function UserDetailsScreen() {
           {/* Right: action icons */}
           <View style={styles.headerActions}>
             <HeaderIconBtn onPress={handleCall} colors={colors}>
-              <Phone size={20} color={colors.textMuted} />
+              <Phone size={20} color={colors.muted} />
             </HeaderIconBtn>
             <HeaderIconBtn onPress={handleVideo} colors={colors}>
-              <Video size={28} color={colors.textMuted} strokeWidth={1.6} />
+              <Video size={28} color={colors.muted} strokeWidth={1.6} />
             </HeaderIconBtn>
             <HeaderIconBtn onPress={handleEmail} colors={colors}>
-              <Mail size={20} color={colors.textMuted} />
+              <Mail size={20} color={colors.muted} />
             </HeaderIconBtn>
           </View>
         </View>
 
         {/* Tab bar — Details / Messages only */}
         <View style={styles.tabs}>
-          <TabBtn label="Details" icon={<LayoutGrid size={16} color={activeTab === 'details' ? colors.textPrimary : colors.textMuted} />} active={activeTab === 'details'} onPress={() => setActiveTab('details')} styles={styles} />
-          <TabBtn label="Messages" icon={<MessageSquare size={16} color={activeTab === 'messages' ? colors.textPrimary : colors.textMuted} />} active={activeTab === 'messages'} onPress={() => setActiveTab('messages')} styles={styles} />
+          <TabBtn label="Details" icon={<LayoutGrid size={16} color={activeTab === 'details' ? colors.text : colors.muted} />} active={activeTab === 'details'} onPress={() => setActiveTab('details')} styles={styles} />
+          <TabBtn label="Messages" icon={<MessageSquare size={16} color={activeTab === 'messages' ? colors.text : colors.muted} />} active={activeTab === 'messages'} onPress={() => setActiveTab('messages')} styles={styles} />
         </View>
         <View style={styles.tabsDivider} />
 
@@ -259,7 +262,7 @@ function HeaderIconBtn({
 }: {
   onPress: () => void;
   children: React.ReactNode;
-  colors: ColorScheme;
+  colors: ThemeColors;
 }) {
   return (
     <TouchableOpacity onPress={onPress} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }} style={styles_iconBtn}>
@@ -316,16 +319,16 @@ const styles_iconBtn = {
   alignItems: 'center' as const,
 };
 
-const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
+const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
   StyleSheet.create({
-    container: { flex: 1, backgroundColor: c.bgPrimary },
+    container: { flex: 1, backgroundColor: c.background },
 
     /* ─── Back nav ─── */
     navBar: {
       paddingTop: topInset + 4,
       paddingHorizontal: 16,
       paddingBottom: 2,
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
     },
     navBack: {
       flexDirection: 'row',
@@ -335,7 +338,7 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
       paddingRight: 8,
       alignSelf: 'flex-start',
     },
-    navBackText: { fontSize: 17, color: c.brand, fontWeight: '400' },
+    navBackText: { fontSize: 17, color: BRAND, fontWeight: '400' },
 
     /* ─── Header ─── */
     header: {
@@ -346,7 +349,7 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
       paddingHorizontal: 16,
       paddingBottom: 8,
       gap: 8,
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
     },
     headerIdentity: {
       flexDirection: 'row',
@@ -367,9 +370,9 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
       height: 10,
       borderRadius: 5,
       borderWidth: 1.5,
-      borderColor: c.bgPrimary,
+      borderColor: c.background,
     },
-    headerName: { fontSize: 17, fontWeight: '600', color: c.textPrimary, flexShrink: 1 },
+    headerName: { fontSize: 17, fontWeight: '600', color: c.text, flexShrink: 1 },
 
     headerActions: {
       flexDirection: 'row',
@@ -392,15 +395,15 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
       gap: 6,
       paddingVertical: 4,
     },
-    tabBtnLabel: { fontSize: 15, fontWeight: '500', color: c.textMuted },
-    tabBtnLabelActive: { color: c.textPrimary, fontWeight: '600' },
+    tabBtnLabel: { fontSize: 15, fontWeight: '500', color: c.muted },
+    tabBtnLabelActive: { color: c.text, fontWeight: '600' },
     tabActiveUnderline: {
       position: 'absolute',
       left: 0,
       right: 0,
       bottom: -12,
       height: 2,
-      backgroundColor: c.textPrimary,
+      backgroundColor: c.text,
     },
     tabsDivider: { height: StyleSheet.hairlineWidth, backgroundColor: c.border },
 
@@ -410,10 +413,10 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
     sectionTitle: {
       fontSize: 14,
       fontWeight: '500',
-      color: c.textPrimary,
+      color: c.text,
       marginBottom: 4,
     },
-    aboutEmpty: { fontSize: 14, color: c.textMuted },
+    aboutEmpty: { fontSize: 14, color: c.muted },
 
     /* Info rows: label-left value-right */
     infoRow: {
@@ -422,19 +425,19 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
       paddingVertical: 4,
       gap: 24,
     },
-    infoLabel: { width: 80, fontSize: 14, color: c.textMuted },
+    infoLabel: { width: 80, fontSize: 14, color: c.muted },
     infoValueWrap: { flex: 1 },
-    infoValue: { fontSize: 14, color: c.textPrimary },
-    timezoneDot: { color: c.textMuted },
+    infoValue: { fontSize: 14, color: c.text },
+    timezoneDot: { color: c.muted },
     timezoneTime: { fontWeight: '600', fontVariant: ['tabular-nums'] },
-    timezoneOffset: { color: c.textMuted },
+    timezoneOffset: { color: c.muted },
 
     emptyState: { paddingVertical: 60, alignItems: 'center', gap: 12 },
-    emptyStateText: { fontSize: 14, color: c.textMuted },
+    emptyStateText: { fontSize: 14, color: c.muted },
     messageBtn: {
       paddingHorizontal: 20,
       paddingVertical: 10,
-      backgroundColor: c.brand,
+      backgroundColor: BRAND,
       borderRadius: 10,
     },
     messageBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },

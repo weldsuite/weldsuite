@@ -2,7 +2,7 @@
   "expo": {
     "name": "WeldChat",
     "slug": "weldchat-app",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "weldchat",
@@ -16,7 +16,8 @@
         "NSCameraUsageDescription": "WeldChat needs camera access for video calls.",
         "NSMicrophoneUsageDescription": "WeldChat needs microphone access for voice and video calls.",
         "NSBluetoothAlwaysUsageDescription": "WeldChat uses Bluetooth to route voice and video call audio to nearby Bluetooth headsets and speakers.",
-        "NSLocalNetworkUsageDescription": "WeldChat uses your local network for low-latency call audio and video."
+        "NSLocalNetworkUsageDescription": "WeldChat uses your local network for low-latency call audio and video.",
+        "UIBackgroundModes": ["remote-notification", "audio"]
       },
       "bitcode": false
     },
@@ -37,6 +38,7 @@
         "android.permission.BLUETOOTH_CONNECT",
         "android.permission.INTERNET",
         "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.USE_FULL_SCREEN_INTENT",
         "android.permission.WAKE_LOCK",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
@@ -45,6 +47,15 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "WeldChat needs microphone access for voice messages and calls.",
+          "recordAudioAndroid": true,
+          "enableBackgroundPlayback": false,
+          "enableBackgroundRecording": false
+        }
+      ],
       "expo-apple-authentication",
       "expo-font",
       "expo-secure-store",
@@ -62,14 +73,16 @@
             "minSdkVersion": 24,
             "packagingOptions": {
               "pickFirst": [
-                "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+                "META-INF/versions/9/OSGI-INF/MANIFEST.MF",
+                "**/libc++_shared.so"
               ]
             }
           }
         }
       ],
+      "@cloudflare/realtimekit-react-native",
       [
-        "@config-plugins/react-native-webrtc",
+        "@cloudflare/react-native-webrtc",
         {
           "cameraPermission": "WeldChat needs camera access for video calls.",
           "microphonePermission": "WeldChat needs microphone access for voice and video calls."
@@ -88,7 +101,7 @@
         "expo-notifications",
         {
           "icon": "./assets/images/notification-icon.png",
-          "color": "#2563eb"
+          "color": "#3B82F6"
         }
       ]
     ],
@@ -107,6 +120,6 @@
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
     },
-    "runtimeVersion": "1.1.0"
+    "runtimeVersion": "1.1.1"
   }
 }

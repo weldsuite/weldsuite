@@ -243,7 +243,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           return next;
         });
       }
-      // Caller hung up before we answered — dismiss the ring.
+      // Caller hung up before we answered — dismiss the ring + any lingering
+      // OS push banner for this call (killed/background delivery path).
       const endedId = (event.data as { callId?: string })?.callId;
       setIncomingCall((cur) => {
         if (cur && (!endedId || endedId === cur.callId)) {
@@ -252,6 +253,22 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
         return cur;
       });
+      if (endedId) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports -- native module absent in Expo Go
+          const { dismissPresentedNotificationsWhere } = require('@weldsuite/mobile-ui/services/notifications') as {
+            dismissPresentedNotificationsWhere: (
+              match: (data: Record<string, unknown>) => boolean,
+            ) => Promise<void>;
+          };
+          void dismissPresentedNotificationsWhere((data) => {
+            if (data.notificationType !== 'chat_incoming_call') return false;
+            return data.entityId === endedId;
+          });
+        } catch {
+          // Expo Go / missing native module — nothing to dismiss.
+        }
+      }
     }
   }, []);
 

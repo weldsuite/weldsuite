@@ -106,6 +106,11 @@ app.delete('/:id', requirePermission('channels:delete'), async (c) => {
   try {
     const [existing] = await db.select().from(t).where(eq(t.id, id)).limit(1);
     if (!existing) return error.notFound(c, 'Chat section', id);
+    // Unassign channels before deleting so the FK (ON DELETE no action) cannot fail.
+    await db
+      .update(schema.chatChannels)
+      .set({ sectionId: null, updatedAt: new Date() })
+      .where(eq(schema.chatChannels.sectionId, id));
     await db.delete(t).where(eq(t.id, id));
     return noContent(c);
   } catch (err) {

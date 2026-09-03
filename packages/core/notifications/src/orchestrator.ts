@@ -11,10 +11,19 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import * as schema from '@weldsuite/db/schema';
 import { getChannelPreferences } from './preferences';
+import { resolveEmailPresence } from './presence';
 import { publishInAppNotification } from './channels/in-app';
 import { sendNotificationEmail } from './channels/email';
 import { sendExpoPush, type ExpoPushMessage } from './channels/push';
 import type { CreateNotificationParams, NotificationEnv } from './types';
+
+/**
+ * How long an absent recipient has to come back before the email goes out.
+ * Two minutes matches Slack's default: long enough to absorb a reload, a
+ * dropped tunnel or a walk to the kettle, short enough that a genuinely-away
+ * colleague still hears about a mention while it is worth hearing about.
+ */
+export const EMAIL_DEFER_MINUTES = 2;
 
 function generateNotificationId(): string {
   const timestamp = Date.now().toString(36);
@@ -118,7 +127,14 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
     }
   }
 
-  if (!channels.inApp && !channels.email && !channels.push) {
+  // Presence gate for email only. A connected recipient does not need mail
+  // about something already on their screen, so resolve this BEFORE the insert
+  // — `deliveredEmail` on the row has to describe what actually happens, and
+  // the deferred path decides that here rather than minutes later.
+  const emailPresence = channels.email ? await resolveEmailPresence(db, userId) : 'suppress';
+  const willEmail = channels.email && emailPresence === 'absent';
+
+  if (!channels.inApp && !willEmail && !channels.push) {
     return null;
   }
 
@@ -139,7 +155,7 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
     actorType: actorType ?? null,
     actorId: actorId ?? null,
     deliveredInApp: channels.inApp,
-    deliveredEmail: channels.email,
+    deliveredEmail: willEmail,
     deliveredPush: channels.push,
     createdAt: now,
   });
@@ -157,7 +173,7 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
     }
   }
 
-  if (channels.email && env.RESEND_API_KEY) {
+  if (willEmail && env.RESEND_API_KEY) {
     try {
       const [member] = await db
         .select({ email: schema.workspaceMembers.email })
@@ -166,13 +182,37 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
         .limit(1);
 
       if (member?.email) {
-        await sendNotificationEmail({
-          apiKey: env.RESEND_API_KEY,
-          to: member.email,
-          subject: title,
-          fallbackText: body,
-          template: emailTemplate,
-        });
+        // Hand the send to the deferred-email workflow when the host worker
+        // binds one: it waits out EMAIL_DEFER_MINUTES and re-checks that the
+        // recipient is still away and the notification still unread, so a user
+        // who comes back and reads it never gets the mail. Workers without the
+        // binding keep the original immediate send — the presence gate above
+        // already spared them the worst of it (mailing someone who is online).
+        if (env.DEFERRED_NOTIFICATION_EMAIL) {
+          await env.DEFERRED_NOTIFICATION_EMAIL.create({
+            // One instance per notification: idempotent under retries, and the
+            // id is enough to find the instance again.
+            id: `email-${id}`,
+            params: {
+              workspaceId,
+              userId,
+              notificationId: id,
+              to: member.email,
+              subject: title,
+              fallbackText: body,
+              sendAfter: new Date(now.getTime() + EMAIL_DEFER_MINUTES * 60_000).toISOString(),
+              template: emailTemplate,
+            },
+          });
+        } else {
+          await sendNotificationEmail({
+            apiKey: env.RESEND_API_KEY,
+            to: member.email,
+            subject: title,
+            fallbackText: body,
+            template: emailTemplate,
+          });
+        }
       }
     } catch (err) {
       console.error('[Notifications] Email send failed:', err);

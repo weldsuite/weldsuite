@@ -12,8 +12,10 @@ import {
 } from 'react-native';
 import { Reply, MessageSquare, Pin, PinOff, Smile, Copy, Trash2, Bookmark, Pencil } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '@/contexts/ThemeContext';
-import type { ColorScheme } from '@/constants/colors';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+
+import type { ThemeColors } from '@/lib/theme-colors';
+
 
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '🙏', '🔥'];
 const SCREEN_HEIGHT = Dimensions.get('window').height;
@@ -153,7 +155,7 @@ export function MessageActions({
             style={styles.emojiBtn}
             onPress={() => { onReact(); dismiss(); }}
           >
-            <Smile size={22} color={colors.textMuted} />
+            <Smile size={22} color={colors.muted} />
           </TouchableOpacity>
         </View>
 
@@ -161,33 +163,33 @@ export function MessageActions({
 
         {/* Actions */}
         <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]} onPress={() => { onReply(); dismiss(); }}>
-          <Reply size={20} color={colors.textPrimary} />
+          <Reply size={20} color={colors.text} />
           <Text style={styles.actionText}>Reply</Text>
         </Pressable>
 
         <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]} onPress={() => { onThread(); dismiss(); }}>
-          <MessageSquare size={20} color={colors.textPrimary} />
+          <MessageSquare size={20} color={colors.text} />
           <Text style={styles.actionText}>Reply in Thread</Text>
         </Pressable>
 
         <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]} onPress={() => { onCopy(); dismiss(); }}>
-          <Copy size={20} color={colors.textPrimary} />
+          <Copy size={20} color={colors.text} />
           <Text style={styles.actionText}>Copy Text</Text>
         </Pressable>
 
         <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]} onPress={() => { onPin(); dismiss(); }}>
-          {isPinned ? <PinOff size={20} color={colors.textPrimary} /> : <Pin size={20} color={colors.textPrimary} />}
+          {isPinned ? <PinOff size={20} color={colors.text} /> : <Pin size={20} color={colors.text} />}
           <Text style={styles.actionText}>{isPinned ? 'Unpin' : 'Pin Message'}</Text>
         </Pressable>
 
         <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]} onPress={() => { onSave?.(); dismiss(); }}>
-          <Bookmark size={20} color={colors.textPrimary} />
+          <Bookmark size={20} color={colors.text} />
           <Text style={styles.actionText}>Save Message</Text>
         </Pressable>
 
         {isOwnMessage && message?.type !== 'system' && onEdit && (
           <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]} onPress={() => { onEdit(); dismiss(); }}>
-            <Pencil size={20} color={colors.textPrimary} />
+            <Pencil size={20} color={colors.text} />
             <Text style={styles.actionText}>Edit Message</Text>
           </Pressable>
         )}
@@ -196,8 +198,8 @@ export function MessageActions({
           <>
             <View style={styles.divider} />
             <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]} onPress={() => { onDelete(); dismiss(); }}>
-              <Trash2 size={20} color={colors.danger} />
-              <Text style={[styles.actionText, { color: colors.danger }]}>Delete</Text>
+              <Trash2 size={20} color={colors.destructive} />
+              <Text style={[styles.actionText, { color: colors.destructive }]}>Delete</Text>
             </Pressable>
           </>
         )}
@@ -206,10 +208,10 @@ export function MessageActions({
   );
 }
 
-const makeStyles = (c: ColorScheme, bottomInset: number) =>
+const makeStyles = (c: ThemeColors, bottomInset: number) =>
   StyleSheet.create({
     backdrop: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: 'rgba(0,0,0,0.4)',
     },
     sheet: {
@@ -217,7 +219,7 @@ const makeStyles = (c: ColorScheme, bottomInset: number) =>
       bottom: 0,
       left: 0,
       right: 0,
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
       borderTopLeftRadius: 14,
       borderTopRightRadius: 14,
       paddingBottom: 8 + bottomInset,
@@ -231,7 +233,7 @@ const makeStyles = (c: ColorScheme, bottomInset: number) =>
       width: 36,
       height: 5,
       borderRadius: 3,
-      backgroundColor: c.bgAccent,
+      backgroundColor: c.secondary,
     },
     emojiRow: {
       flexDirection: 'row',
@@ -244,14 +246,14 @@ const makeStyles = (c: ColorScheme, bottomInset: number) =>
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: c.bgSecondary,
+      backgroundColor: c.cardBackground,
       justifyContent: 'center',
       alignItems: 'center',
     },
     emoji: { fontSize: 22 },
     divider: {
       height: 1,
-      backgroundColor: c.bgTertiary,
+      backgroundColor: c.secondary,
       marginHorizontal: 16,
       marginVertical: 4,
     },
@@ -262,6 +264,6 @@ const makeStyles = (c: ColorScheme, bottomInset: number) =>
       paddingVertical: 13,
       paddingHorizontal: 20,
     },
-    actionPressed: { backgroundColor: c.bgTertiary },
-    actionText: { fontSize: 16, color: c.textPrimary },
+    actionPressed: { backgroundColor: c.secondary },
+    actionText: { fontSize: 16, color: c.text },
   });

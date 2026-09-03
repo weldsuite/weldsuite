@@ -6,7 +6,7 @@ This document explains how to publish the Helpdesk Widget SDK as a private packa
 
 - Access to the WeldCorporation GitHub organization
 - GitHub Personal Access Token (PAT) with `write:packages` permission
-- pnpm installed locally (version 10.4.1+)
+- pnpm installed locally (version 10.34.5+)
 
 ## Publishing Methods
 
@@ -122,7 +122,7 @@ Use semantic versioning with the following dist-tags:
 The GitHub Actions workflow performs the following steps:
 
 1. **Checkout** - Gets the repository code
-2. **Setup Environment** - Configures Node.js 20 and pnpm 10.4.1
+2. **Setup Environment** - Configures Node.js 20 and pnpm 10.34.5
 3. **Cache Dependencies** - Caches pnpm store for faster builds
 4. **Install** - Installs package dependencies
 5. **Version** - Sets the package version based on input or tag

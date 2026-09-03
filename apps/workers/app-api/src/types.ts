@@ -195,6 +195,21 @@ export interface Env {
     messageId: string;
     expiresAt: string;
   }>;
+  /** CF Workflow that holds a notification email until the recipient has been
+   *  away for the defer window, then sends only if they are still away and the
+   *  notification is still unread. Hosted in app-api itself under the
+   *  `deferred-notification-email*` names; dispatched by
+   *  `createAndDeliverNotification` in @weldsuite/notifications. */
+  DEFERRED_NOTIFICATION_EMAIL?: Workflow<{
+    workspaceId: string;
+    userId: string;
+    notificationId: string;
+    to: string;
+    subject: string;
+    fallbackText: string;
+    sendAfter: string;
+    template?: { id: string; variables: Record<string, string | number | boolean> };
+  }>;
   /** CF Workflow that sends one user's daily task digest email. Hosted in
    *  app-api itself under the `send-digest-v2*` names; dispatched by the
    *  hourly digest sweep cron (src/cron/digest-sweep.ts). */

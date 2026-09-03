@@ -247,4 +247,89 @@ describe('/api/channels · pglite integration', () => {
     expect(memIds).toContain(pubId);
     expect(memIds).toContain(privId);
   });
+
+  it('DELETE /:id lets a workspace ADMIN delete a public channel they never joined', async () => {
+    const now = new Date();
+    const wsAdmin = 'user_ws_admin_delete';
+    const channelId = generateId('ch');
+
+    // The admin has NO chatChannelMembers row for this channel — the previous
+    // isChannelModerator() only read that row, so this 403'd.
+    await db.insert(schema.chatChannels).values({
+      id: channelId, name: 'admin-delete', slug: `admin-delete-${channelId}`, type: 'public',
+      memberCount: 0, createdAt: now, updatedAt: now,
+    });
+    await db.insert(schema.workspaceMembers).values({
+      id: generateId('wm'), userId: wsAdmin, email: 'wsadmin@x.io', name: 'WS Admin',
+      role: 'ADMIN', status: 'ACTIVE', memberType: 'INTERNAL', createdAt: now, updatedAt: now,
+    });
+
+    const { request } = createTestApp('/api/channels', channelsRoutes, {
+      context: { userId: wsAdmin, permissions: permissions('channels:delete'), tenantDb: db },
+    });
+    const res = await request(`/api/channels/${channelId}`, { method: 'DELETE' });
+    expect(res.status).toBe(204);
+
+    const [row] = await db
+      .select()
+      .from(schema.chatChannels)
+      .where(eq(schema.chatChannels.id, channelId))
+      .limit(1);
+    expect(row?.deletedAt).not.toBeNull();
+  });
+
+  it('DELETE /:id still refuses a plain MEMBER who is not a channel moderator', async () => {
+    const now = new Date();
+    const plain = 'user_ws_plain_delete';
+    const channelId = generateId('ch');
+
+    await db.insert(schema.chatChannels).values({
+      id: channelId, name: 'member-delete', slug: `member-delete-${channelId}`, type: 'public',
+      memberCount: 0, createdAt: now, updatedAt: now,
+    });
+    await db.insert(schema.workspaceMembers).values({
+      id: generateId('wm'), userId: plain, email: 'plain@x.io', name: 'Plain',
+      role: 'MEMBER', status: 'ACTIVE', memberType: 'INTERNAL', createdAt: now, updatedAt: now,
+    });
+
+    const { request } = createTestApp('/api/channels', channelsRoutes, {
+      context: { userId: plain, permissions: permissions('channels:delete'), tenantDb: db },
+    });
+    const res = await request(`/api/channels/${channelId}`, { method: 'DELETE' });
+    expect(res.status).toBe(403);
+  });
+
+  it('DELETE /:id does not let a workspace ADMIN reach a private channel they are not in', async () => {
+    const now = new Date();
+    const wsAdmin = 'user_ws_admin_private';
+    const insider = 'user_private_insider';
+    const channelId = generateId('ch');
+
+    await db.insert(schema.chatChannels).values({
+      id: channelId, name: 'admin-private', slug: `admin-private-${channelId}`, type: 'private',
+      memberCount: 1, createdAt: now, updatedAt: now,
+    });
+    await db.insert(schema.chatChannelMembers).values({
+      id: generateId('cmb'), channelId, userId: insider, role: 'owner', createdAt: now, joinedAt: now,
+    });
+    await db.insert(schema.workspaceMembers).values({
+      id: generateId('wm'), userId: wsAdmin, email: 'wsadmin2@x.io', name: 'WS Admin 2',
+      role: 'ADMIN', status: 'ACTIVE', memberType: 'INTERNAL', createdAt: now, updatedAt: now,
+    });
+
+    // canAccessChannel() runs first and 404s — the membership boundary on
+    // private channels / DMs is unchanged by the moderator fallback.
+    const { request } = createTestApp('/api/channels', channelsRoutes, {
+      context: { userId: wsAdmin, permissions: permissions('channels:delete'), tenantDb: db },
+    });
+    const res = await request(`/api/channels/${channelId}`, { method: 'DELETE' });
+    expect(res.status).toBe(404);
+
+    const [row] = await db
+      .select()
+      .from(schema.chatChannels)
+      .where(eq(schema.chatChannels.id, channelId))
+      .limit(1);
+    expect(row?.deletedAt).toBeNull();
+  });
 });

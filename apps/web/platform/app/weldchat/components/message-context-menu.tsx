@@ -14,6 +14,7 @@ import {
   Copy,
   Trash2,
   Eye,
+  Pencil,
 } from 'lucide-react';
 import {
   usePinMessage,
@@ -44,6 +45,7 @@ import { ReplacePinDialog } from './replace-pin-dialog';
 import { PinDurationDialog } from './pin-duration-dialog';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
+import { useAuth } from '@clerk/clerk-react';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🎉', '🔥', '👀'];
 
@@ -74,7 +76,9 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Mes
   const { mutate: toggleReaction } = useToggleReaction();
   const { mutate: markUnread } = useMarkChannelUnread();
   const { mutate: sendMessage } = useSendMessage();
-  const { setReplyTo, openThread } = useChatContext();
+  const { setReplyTo, openThread, setEditingMessage } = useChatContext();
+  const { userId } = useAuth();
+  const isOwn = !!userId && message.authorId === userId;
   const [showForwardDialog, setShowForwardDialog] = useState(false);
   const [showReplacePinDialog, setShowReplacePinDialog] = useState(false);
   const [showPinDurationDialog, setShowPinDurationDialog] = useState(false);
@@ -141,8 +145,18 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Mes
   };
 
   const handleDelete = () => {
-    deleteMessage({ channelId, messageId: message.id });
-    toast.success(t.weldchat.messageContextMenu.messageDeleted);
+    deleteMessage(
+      { channelId, messageId: message.id },
+      {
+        onSuccess: () => toast.success(t.weldchat.messageContextMenu.messageDeleted),
+        onError: () => toast.error(t.weldchat.messageContextMenu.messageDeleteFailed),
+      },
+    );
+  };
+
+  const handleEdit = () => {
+    setReplyTo(null);
+    setEditingMessage({ messageId: message.id, content: message.content ?? '' });
   };
 
   return (
@@ -248,6 +262,12 @@ export function MessageContextMenu({ message, channelId, readBy, children }: Mes
             </>
           )}
           <ContextMenuSeparator />
+          {isOwn ? (
+            <ContextMenuItem onClick={handleEdit}>
+              <Pencil className="h-4 w-4 mr-0.5" />
+              {t.weldchat.messageContextMenu.editMessage}
+            </ContextMenuItem>
+          ) : null}
           <ContextMenuItem onClick={handleDelete} className="text-destructive focus:text-destructive focus:bg-red-500/10">
             <Trash2 className="h-4 w-4 mr-0.5 text-red-500" />
             {t.weldchat.messageContextMenu.deleteMessage}

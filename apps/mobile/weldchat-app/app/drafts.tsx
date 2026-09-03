@@ -12,8 +12,11 @@ import { useAuth } from '@clerk/expo';
 import { ChevronLeft, SquarePen, Trash2 } from 'lucide-react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '@/contexts/ThemeContext';
-import type { ColorScheme } from '@/constants/colors';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { BRAND } from '@/lib/brand';
+
+import type { ThemeColors } from '@/lib/theme-colors';
+
 import { appApiClient, appApi } from '@/services/app-api';
 
 interface DraftRecord {
@@ -135,7 +138,7 @@ export default function DraftsScreen() {
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <ChevronLeft size={24} color={colors.textPrimary} />
+            <ChevronLeft size={24} color={colors.text} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Drafts</Text>
         </View>
@@ -144,7 +147,7 @@ export default function DraftsScreen() {
           data={drafts}
           keyExtractor={(item) => item.id}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brand} colors={[colors.brand]} />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={BRAND} colors={[BRAND]} />
           }
           contentContainerStyle={drafts.length === 0 && !loading ? styles.emptyContainer : styles.list}
           renderItem={({ item }) => (
@@ -160,7 +163,7 @@ export default function DraftsScreen() {
                 onPress={() => handleTap(item)}
               >
                 <View style={styles.itemIcon}>
-                  <SquarePen size={16} color={colors.brand} />
+                  <SquarePen size={16} color={BRAND} />
                 </View>
                 <View style={styles.itemBody}>
                   <Text style={styles.itemChannel} numberOfLines={1}>
@@ -175,7 +178,7 @@ export default function DraftsScreen() {
           ListEmptyComponent={
             !loading ? (
               <View style={styles.empty}>
-                <SquarePen size={48} color={colors.textMuted} strokeWidth={1.5} />
+                <SquarePen size={48} color={colors.muted} strokeWidth={1.5} />
                 <Text style={styles.emptyTitle}>No drafts</Text>
                 <Text style={styles.emptyText}>
                   Unfinished messages will show up here so you can pick up where you left off.
@@ -189,22 +192,22 @@ export default function DraftsScreen() {
   );
 }
 
-const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
+const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
   StyleSheet.create({
-    container: { flex: 1, backgroundColor: c.bgPrimary },
+    container: { flex: 1, backgroundColor: c.background },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       paddingTop: topInset + 8,
       paddingHorizontal: 16,
       paddingBottom: 10,
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: c.border,
       gap: 8,
     },
     backBtn: { padding: 4 },
-    headerTitle: { fontSize: 18, fontWeight: '700', color: c.textPrimary },
+    headerTitle: { fontSize: 18, fontWeight: '700', color: c.text },
     list: { paddingBottom: 24 + bottomInset },
     emptyContainer: { flex: 1 },
     empty: {
@@ -214,14 +217,14 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
       padding: 32,
       gap: 12,
     },
-    emptyTitle: { fontSize: 18, fontWeight: '600', color: c.textPrimary },
-    emptyText: { fontSize: 14, color: c.textMuted, textAlign: 'center', maxWidth: 280, lineHeight: 20 },
+    emptyTitle: { fontSize: 18, fontWeight: '600', color: c.text },
+    emptyText: { fontSize: 14, color: c.muted, textAlign: 'center', maxWidth: 280, lineHeight: 20 },
     item: {
       flexDirection: 'row',
       alignItems: 'flex-start',
       paddingHorizontal: 16,
       paddingVertical: 12,
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: c.border,
       gap: 10,
@@ -230,15 +233,15 @@ const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
       width: 32,
       height: 32,
       borderRadius: 10,
-      backgroundColor: c.bgSecondary,
+      backgroundColor: c.cardBackground,
       justifyContent: 'center',
       alignItems: 'center',
       marginTop: 2,
     },
     itemBody: { flex: 1 },
-    itemChannel: { fontSize: 12, color: c.brand, fontWeight: '600', marginBottom: 3 },
-    itemContent: { fontSize: 14, color: c.textSecondary, lineHeight: 19 },
-    itemTime: { fontSize: 12, color: c.textMuted, marginTop: 2 },
+    itemChannel: { fontSize: 12, color: BRAND, fontWeight: '600', marginBottom: 3 },
+    itemContent: { fontSize: 14, color: c.mutedForeground, lineHeight: 19 },
+    itemTime: { fontSize: 12, color: c.muted, marginTop: 2 },
     swipeDelete: {
       width: 80,
       justifyContent: 'center',

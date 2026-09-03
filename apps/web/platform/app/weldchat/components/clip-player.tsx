@@ -6,7 +6,7 @@
  */
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Play, Pause, Volume2, VolumeX, MoreVertical, Download, Share2, Link2, Trash2, Maximize, X, Captions, Loader2 } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, MoreVertical, Download, Share2, Link2, Maximize, X, Captions, Loader2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useTranscribeClip } from '@/hooks/queries/use-weldchat-queries';
 import { cn } from '@/lib/utils';
@@ -253,15 +253,6 @@ function AudioClipPlayer({ attachment, channelId, messageId }: ClipPlayerProps) 
               {t.weldchat.clipPlayer.shareClip}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive focus:bg-red-500/10"
-              onClick={() => {
-                // TODO: wire up delete via API
-              }}
-            >
-              <Trash2 className="h-3.5 w-3.5 mr-0.5 text-red-500" />
-              {t.weldchat.clipPlayer.deleteClip}
-            </DropdownMenuItem>
           </DropdownMenuContent>
           </DropdownMenu>
         </div>

@@ -79,6 +79,31 @@ export default defineConfig(async () => {
       },
     },
   },
+  optimizeDeps: {
+    esbuildOptions: {
+      // Vite's dep pre-bundler defaults to `sourcemap: true`, which writes a
+      // `.map` next to every chunk in node_modules/.vite/deps — here that's
+      // ~3400 files totalling ~54 MB (one chunk alone is 9.5 MB), roughly
+      // double the JS it maps.
+      //
+      // With Chrome DevTools CLOSED nothing ever requests them, so the app
+      // feels fine. Open DevTools and the browser fetches the map for every
+      // loaded dep chunk — a few MB on the sign-in page, tens of MB once the
+      // full app is up — and pays that cost twice: Chrome parses and retains
+      // each map, and Vite's dev server reads, JSON.parses, rewrites the
+      // ignore list and JSON.stringifies each one PER REQUEST with no cache
+      // (the isSourceMap branch of its transform middleware). The Node process
+      // chewing through 9.5 MB JSON documents is what stalls HMR and every
+      // subsequent module request, so the whole app crawls.
+      //
+      // Dropping these maps only affects third-party code — our own sources
+      // keep their inline maps and still resolve to real .ts/.tsx in DevTools.
+      // Set VITE_DEP_SOURCEMAPS=true to get them back for a session where you
+      // genuinely need to step inside a dependency (delete node_modules/.vite
+      // afterwards to force a re-bundle).
+      sourcemap: process.env.VITE_DEP_SOURCEMAPS === 'true',
+    },
+  },
   resolve: {
     alias: { '@': path.resolve(__dirname, '.') },
   },

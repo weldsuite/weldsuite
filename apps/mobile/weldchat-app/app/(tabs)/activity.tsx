@@ -19,8 +19,11 @@ import {
   MailCheck,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '@/contexts/ThemeContext';
-import type { ColorScheme } from '@/constants/colors';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { BRAND } from '@/lib/brand';
+
+import type { ThemeColors } from '@/lib/theme-colors';
+
 import { appApi } from '@/services/app-api';
 import { useChatUserEvents } from '@/hooks/useChatUserEvents';
 
@@ -189,7 +192,7 @@ export default function ActivityTab() {
             pressed && styles.dmItemPressed,
           ]}
           onPress={() => handleTap(item)}
-          android_ripple={{ color: colors.bgTertiary }}
+          android_ripple={{ color: colors.secondary }}
         >
           <View style={styles.dmItemInner}>
             <View style={styles.avatarOuter}>
@@ -226,7 +229,7 @@ export default function ActivityTab() {
         </Pressable>
       );
     },
-    [styles, colors.bgTertiary, handleTap],
+    [styles, colors.secondary, handleTap],
   );
 
   return (
@@ -244,7 +247,7 @@ export default function ActivityTab() {
             onPress={handleMarkAllRead}
             disabled={!hasUnread}
           >
-            <MailCheck size={20} color={hasUnread ? colors.textPrimary : colors.textMuted} />
+            <MailCheck size={20} color={hasUnread ? colors.text : colors.muted} />
           </TouchableOpacity>
         </View>
       </View>
@@ -258,7 +261,7 @@ export default function ActivityTab() {
         )}
         stickySectionHeadersEnabled
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.textMuted} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.muted} />
         }
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
@@ -274,9 +277,9 @@ export default function ActivityTab() {
   );
 }
 
-const makeStyles = (c: ColorScheme, topInset: number) =>
+const makeStyles = (c: ThemeColors, topInset: number) =>
   StyleSheet.create({
-    container: { flex: 1, backgroundColor: c.bgPrimary },
+    container: { flex: 1, backgroundColor: c.background },
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -284,13 +287,13 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       paddingTop: topInset + 6,
       paddingHorizontal: 16,
       paddingBottom: 8,
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
     },
     headerSquareBtn: {
       width: 40,
       height: 40,
       borderRadius: 13,
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: c.border,
       justifyContent: 'center',
@@ -313,7 +316,7 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
     headerTitle: {
       fontSize: 19,
       fontWeight: '700',
-      color: c.textPrimary,
+      color: c.text,
     },
     headerRightGroup: {
       flexDirection: 'row',
@@ -324,17 +327,17 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
     sectionHeaderText: {
       fontSize: 12,
       fontWeight: '600',
-      color: c.textMuted,
+      color: c.muted,
       letterSpacing: 0.4,
       textTransform: 'uppercase',
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
       paddingHorizontal: 16,
       paddingTop: 18,
       paddingBottom: 8,
     },
-    dmItem: { backgroundColor: c.bgPrimary },
-    dmItemUnread: { backgroundColor: c.bgTertiary },
-    dmItemPressed: { backgroundColor: c.bgTertiary },
+    dmItem: { backgroundColor: c.background },
+    dmItemUnread: { backgroundColor: c.secondary },
+    dmItemPressed: { backgroundColor: c.secondary },
     dmItemInner: {
       flexDirection: 'row',
       alignItems: 'flex-start',
@@ -347,7 +350,7 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       width: 36,
       height: 36,
       borderRadius: 13,
-      backgroundColor: c.brand,
+      backgroundColor: BRAND,
       justifyContent: 'center',
       alignItems: 'center',
       overflow: 'hidden',
@@ -363,12 +366,12 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
     dmName: {
       flex: 1,
       fontSize: 16,
-      color: c.textPrimary,
+      color: c.text,
       fontWeight: '600',
       lineHeight: 21,
     },
-    dmTime: { fontSize: 13, color: c.textMuted },
-    dmTimeUnread: { color: c.brand, fontWeight: '600' },
+    dmTime: { fontSize: 13, color: c.muted },
+    dmTimeUnread: { color: BRAND, fontWeight: '600' },
     dmBottomRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -377,17 +380,17 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
     dmLastMessage: {
       flex: 1,
       fontSize: 15,
-      color: c.textPrimary,
+      color: c.text,
       opacity: 0.6,
       fontWeight: '400',
       lineHeight: 19,
     },
-    dmLastMessageUnread: { color: c.textPrimary, opacity: 1, fontWeight: '500' },
+    dmLastMessageUnread: { color: c.text, opacity: 1, fontWeight: '500' },
     unreadDot: {
       width: 8,
       height: 8,
       borderRadius: 4,
-      backgroundColor: c.brand,
+      backgroundColor: BRAND,
     },
     emptyContent: {
       paddingTop: 80,
@@ -395,10 +398,10 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       alignItems: 'center',
       gap: 6,
     },
-    emptyTitle: { fontSize: 16, fontWeight: '600', color: c.textPrimary },
+    emptyTitle: { fontSize: 16, fontWeight: '600', color: c.text },
     emptyText: {
       fontSize: 14,
-      color: c.textMuted,
+      color: c.muted,
       textAlign: 'center',
       maxWidth: 280,
       lineHeight: 20,

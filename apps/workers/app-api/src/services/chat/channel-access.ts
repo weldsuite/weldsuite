@@ -14,7 +14,7 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { schema, type Database } from '../../db';
 
-const { chatChannels, chatChannelMembers, chatMessages } = schema;
+const { chatChannels, chatChannelMembers, chatMessages, workspaceMembers } = schema;
 
 /**
  * True when the caller may read the given channel — i.e. the channel is a
@@ -87,12 +87,42 @@ export async function getChannelRole(
   return row?.role ?? null;
 }
 
-/** True when the caller is an `admin` or `owner` member of the channel. */
+/**
+ * True when the caller is an OWNER or ADMIN of the workspace itself.
+ *
+ * Only the built-in `workspace_members.role` string is consulted — a member on
+ * a custom role (`roleId`) is not treated as an admin here, even if that role
+ * carries `weldchat:*`. Matches `isAdminOrOwner()` in services/mail/access.ts.
+ */
+async function isWorkspaceAdmin(db: Database, userId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ role: workspaceMembers.role })
+    .from(workspaceMembers)
+    .where(and(eq(workspaceMembers.userId, userId), isNull(workspaceMembers.deletedAt)))
+    .limit(1);
+
+  const role = row?.role?.toUpperCase();
+  return role === 'OWNER' || role === 'ADMIN';
+}
+
+/**
+ * True when the caller may moderate the channel — i.e. they are an `admin` or
+ * `owner` member of the channel, OR an admin/owner of the workspace.
+ *
+ * The workspace-level fallback exists because channel membership roles are
+ * assigned per channel: a workspace admin who never joined a channel (or who
+ * joined as a plain `member`) previously could not delete, rename, or moderate
+ * it at all, which contradicts what `weldchat:*` grants them. Every caller
+ * runs canAccessChannel() first, so this does NOT reach into private channels
+ * or DMs the admin is not a member of — the membership boundary is unchanged
+ * and admins still cannot read or moderate other people's DMs.
+ */
 export async function isChannelModerator(
   db: Database,
   channelId: string,
   userId: string,
 ): Promise<boolean> {
   const role = await getChannelRole(db, channelId, userId);
-  return role === 'admin' || role === 'owner';
+  if (role === 'admin' || role === 'owner') return true;
+  return isWorkspaceAdmin(db, userId);
 }

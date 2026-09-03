@@ -67,54 +67,26 @@ export class ChatRoom extends DurableObject<Env> {
     const tags = this.ctx.getTags(ws);
     const userId = this.getTag(tags, 'user:');
     const userName = this.getTag(tags, 'name:');
+    const canPublish = tags.includes('can:publish');
 
     switch (msg.type) {
-      case 'message': {
-        const seq = await this.nextSeq();
-        const outMsg = JSON.stringify({
-          type: 'message',
-          id: crypto.randomUUID(),
-          content: msg.content,
-          senderId: userId,
-          senderName: userName,
-          ts: Date.now(),
-          seq,
-          threadId: msg.threadId ?? undefined,
-          attachments: msg.attachments ?? undefined,
-        });
-        this.broadcastExcept(ws, outMsg);
-        break;
-      }
-
-      case 'reaction:add': {
-        this.broadcastExcept(
-          ws,
-          JSON.stringify({
-            type: 'reaction',
-            messageId: msg.messageId,
-            emoji: msg.emoji,
-            userId,
-            action: 'add',
-          }),
-        );
-        break;
-      }
-
+      // Messages and reactions are server-publish only (REST → /publish).
+      // Accepting client frames here created unpersisted ghost traffic.
+      case 'message':
+      case 'reaction:add':
       case 'reaction:remove': {
-        this.broadcastExcept(
-          ws,
+        ws.send(
           JSON.stringify({
-            type: 'reaction',
-            messageId: msg.messageId,
-            emoji: msg.emoji,
-            userId,
-            action: 'remove',
+            type: 'error',
+            code: 'server_publish_only',
+            message: 'Messages and reactions must be sent via the API',
           }),
         );
         break;
       }
 
       case 'typing:start': {
+        if (!canPublish) break;
         this.broadcastExcept(
           ws,
           JSON.stringify({ type: 'typing', userId, userName, isTyping: true }),
@@ -133,6 +105,7 @@ export class ChatRoom extends DurableObject<Env> {
       }
 
       case 'typing:stop': {
+        if (!canPublish) break;
         this.clearTypingTimer(userId);
         this.broadcastExcept(
           ws,
@@ -159,11 +132,13 @@ export class ChatRoom extends DurableObject<Env> {
       }
 
       case 'call:hand-raised': {
+        if (!canPublish) break;
         this.broadcastExcept(ws, JSON.stringify({ type: 'call:hand-raised', userId }));
         break;
       }
 
       case 'call:hand-lowered': {
+        if (!canPublish) break;
         this.broadcastExcept(ws, JSON.stringify({ type: 'call:hand-lowered', userId }));
         break;
       }

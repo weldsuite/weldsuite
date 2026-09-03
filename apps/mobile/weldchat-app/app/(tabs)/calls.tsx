@@ -11,8 +11,10 @@ import {
 import { useFocusEffect } from 'expo-router';
 import { Phone, Video, PhoneCall } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '@/contexts/ThemeContext';
-import type { ColorScheme } from '@/constants/colors';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+
+import type { ThemeColors } from '@/lib/theme-colors';
+
 import { useCall } from '@/contexts/CallContext';
 import { appApi } from '@/services/app-api';
 
@@ -116,7 +118,7 @@ export default function CallsScreen() {
 
       {loading && calls.length === 0 ? (
         <View style={styles.center}>
-          <ActivityIndicator color={colors.textMuted} />
+          <ActivityIndicator color={colors.muted} />
         </View>
       ) : (
         <FlatList
@@ -125,12 +127,12 @@ export default function CallsScreen() {
           renderItem={renderItem}
           contentContainerStyle={calls.length === 0 && styles.emptyContainer}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.textMuted} />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.muted} />
           }
           ListEmptyComponent={
             <View style={styles.empty}>
               <View style={styles.emptyIcon}>
-                <PhoneCall size={30} color={colors.textMuted} strokeWidth={1.8} />
+                <PhoneCall size={30} color={colors.muted} strokeWidth={1.8} />
               </View>
               <Text style={styles.emptyTitle}>No active calls</Text>
               <Text style={styles.emptyText}>
@@ -144,9 +146,9 @@ export default function CallsScreen() {
   );
 }
 
-function makeStyles(c: ColorScheme) {
+function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
-    container: { flex: 1, backgroundColor: c.bgPrimary },
+    container: { flex: 1, backgroundColor: c.background },
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -154,7 +156,7 @@ function makeStyles(c: ColorScheme) {
       paddingHorizontal: 16,
       paddingVertical: 12,
     },
-    headerTitle: { fontSize: 26, fontWeight: '700', color: c.textPrimary },
+    headerTitle: { fontSize: 26, fontWeight: '700', color: c.text },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     row: {
       flexDirection: 'row',
@@ -167,13 +169,13 @@ function makeStyles(c: ColorScheme) {
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: c.bgSecondary,
+      backgroundColor: c.cardBackground,
       alignItems: 'center',
       justifyContent: 'center',
     },
     rowText: { flex: 1 },
-    rowTitle: { fontSize: 15, fontWeight: '600', color: c.textPrimary },
-    rowSubtitle: { fontSize: 13, color: c.textSecondary, marginTop: 2 },
+    rowTitle: { fontSize: 15, fontWeight: '600', color: c.text },
+    rowSubtitle: { fontSize: 13, color: c.mutedForeground, marginTop: 2 },
     joinBtn: {
       backgroundColor: c.success,
       borderRadius: 999,
@@ -196,12 +198,12 @@ function makeStyles(c: ColorScheme) {
       width: 64,
       height: 64,
       borderRadius: 32,
-      backgroundColor: c.bgSecondary,
+      backgroundColor: c.cardBackground,
       alignItems: 'center',
       justifyContent: 'center',
       marginBottom: 16,
     },
-    emptyTitle: { fontSize: 17, fontWeight: '600', color: c.textPrimary, marginBottom: 6 },
-    emptyText: { fontSize: 14, color: c.textMuted, textAlign: 'center', lineHeight: 20 },
+    emptyTitle: { fontSize: 17, fontWeight: '600', color: c.text, marginBottom: 6 },
+    emptyText: { fontSize: 14, color: c.muted, textAlign: 'center', lineHeight: 20 },
   });
 }

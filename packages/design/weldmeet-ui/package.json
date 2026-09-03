@@ -16,7 +16,7 @@
     "./components/*": "./src/components/*.tsx"
   },
   "dependencies": {
-    "@cloudflare/realtimekit": "^1.2.5",
+    "@cloudflare/realtimekit": "^2.0.2",
     "@cloudflare/realtimekit-virtual-background": "^0.0.2",
     "@weldsuite/ui": "workspace:*",
     "lucide-react": "^0.544.0",

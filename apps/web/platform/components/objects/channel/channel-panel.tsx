@@ -20,6 +20,7 @@ import {
   type ChatContextValue,
   type ChatFilters,
   type ReplyTo,
+  type EditingMessage,
 } from '@/app/weldchat/components/chat-context';
 import { CHANNEL_TABS, type ChannelTab } from './channel-tabs';
 import { ChannelPeopleTab } from './channel-people-tab';
@@ -158,6 +159,7 @@ export function ChannelPanel(props: ObjectPanelComponentProps) {
     type: 'all', search: '', from: [], date: undefined,
   });
   const [localReplyTo, setLocalReplyTo] = useState<ReplyTo | null>(null);
+  const [localEditingMessage, setLocalEditingMessage] = useState<EditingMessage | null>(null);
   const [localProfileUserId, setLocalProfileUserId] = useState<string | null>(null);
   const [localAgentProfileId, setLocalAgentProfileId] = useState<string | null>(null);
 
@@ -174,6 +176,8 @@ export function ChannelPanel(props: ObjectPanelComponentProps) {
     closeThread: parent?.closeThread ?? (() => {}),
     replyTo: parent?.replyTo ?? localReplyTo,
     setReplyTo: parent?.setReplyTo ?? setLocalReplyTo,
+    editingMessage: parent?.editingMessage ?? localEditingMessage,
+    setEditingMessage: parent?.setEditingMessage ?? setLocalEditingMessage,
     filters: parent?.filters ?? localFilters,
     setFilters: parent?.setFilters ?? setLocalFilters,
     selectedProfileUserId: parent?.selectedProfileUserId ?? localProfileUserId,
@@ -184,7 +188,7 @@ export function ChannelPanel(props: ObjectPanelComponentProps) {
     closeAgentProfile: parent?.closeAgentProfile ?? (() => setLocalAgentProfileId(null)),
   }), [
     parent, id, onClose,
-    localFilters, localReplyTo, localProfileUserId, localAgentProfileId,
+    localFilters, localReplyTo, localEditingMessage, localProfileUserId, localAgentProfileId,
   ]);
 
   return (

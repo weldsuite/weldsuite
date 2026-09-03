@@ -18,8 +18,11 @@ import { Image } from 'expo-image';
 import { Hash, Lock, ChevronRight, Search, Check, Bookmark, SquarePen, Plus } from 'lucide-react-native';
 import { useOrganization, useOrganizationList, useUser } from '@clerk/expo';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '@/contexts/ThemeContext';
-import type { ColorScheme } from '@/constants/colors';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { BRAND } from '@/lib/brand';
+
+import type { ThemeColors } from '@/lib/theme-colors';
+
 import { appApi } from '@/services/app-api';
 import { useChatUserEvents } from '@/hooks/useChatUserEvents';
 import { getEntityTypeInfo, listEntityTypes, FallbackEntityIcon } from '@/lib/entity-channels/registry';
@@ -253,17 +256,17 @@ export default function HomeTab() {
           activeOpacity={0.7}
           onPress={() => router.push('/new-channel' as any)}
         >
-          <Plus size={20} color={colors.textPrimary} />
+          <Plus size={20} color={colors.text} />
         </TouchableOpacity>
       </View>
 
       {/* Search */}
       <View style={styles.searchContainer}>
-        <Search size={20} color={colors.textSecondary} />
+        <Search size={20} color={colors.mutedForeground} />
         <TextInput
           style={styles.searchInput}
           placeholder="Search"
-          placeholderTextColor={colors.textSecondary}
+          placeholderTextColor={colors.mutedForeground}
           value={search}
           onChangeText={setSearch}
         />
@@ -276,7 +279,7 @@ export default function HomeTab() {
           activeOpacity={0.7}
           onPress={() => router.push('/later' as any)}
         >
-          <Bookmark size={20} color={colors.textPrimary} strokeWidth={1.75} />
+          <Bookmark size={20} color={colors.text} strokeWidth={1.75} />
           <Text style={styles.quickActionTitle}>Saved</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -284,7 +287,7 @@ export default function HomeTab() {
           activeOpacity={0.7}
           onPress={() => router.push('/drafts' as any)}
         >
-          <SquarePen size={20} color={colors.textPrimary} strokeWidth={1.75} />
+          <SquarePen size={20} color={colors.text} strokeWidth={1.75} />
           <Text style={styles.quickActionTitle}>Drafts</Text>
         </TouchableOpacity>
       </View>
@@ -303,7 +306,7 @@ export default function HomeTab() {
               >
                 <Text style={styles.sectionTitle}>{section.name}</Text>
                 <View style={[styles.sectionTitleChevron, !isCollapsed && styles.sectionTitleChevronOpen]}>
-                  <ChevronRight size={15} color={colors.textPrimary} strokeWidth={2.5} />
+                  <ChevronRight size={15} color={colors.text} strokeWidth={2.5} />
                 </View>
               </TouchableOpacity>
 
@@ -318,7 +321,7 @@ export default function HomeTab() {
                     )
                   }
                 >
-                  <Plus size={18} color={colors.textMuted} strokeWidth={2} />
+                  <Plus size={18} color={colors.muted} strokeWidth={2} />
                   <Text style={styles.addChannelText}>Add channel</Text>
                 </Pressable>
               )}
@@ -331,7 +334,7 @@ export default function HomeTab() {
                     onPress={() => router.push(`/channel/${ch.id}` as any)}
                   >
                     {(() => {
-                      const iconColor = (ch.unreadCount ?? 0) > 0 ? colors.textPrimary : colors.textSecondary;
+                      const iconColor = (ch.unreadCount ?? 0) > 0 ? colors.text : colors.mutedForeground;
                       if (ch.type === 'private') {
                         return <Lock size={20} color={iconColor} strokeWidth={2} style={styles.channelIcon} />;
                       }
@@ -395,14 +398,14 @@ export default function HomeTab() {
                     <Text style={styles.modalOrgName} numberOfLines={1}>
                       {org.name}
                     </Text>
-                    {isActive && <Check size={18} color={colors.brand} />}
+                    {isActive && <Check size={18} color={BRAND} />}
                   </TouchableOpacity>
                 );
               })}
             </ScrollView>
             {switching && (
               <View style={styles.modalLoading}>
-                <ActivityIndicator size="small" color={colors.brand} />
+                <ActivityIndicator size="small" color={BRAND} />
                 <Text style={styles.modalLoadingText}>Switching...</Text>
               </View>
             )}
@@ -440,7 +443,7 @@ export default function HomeTab() {
               }}
               activeOpacity={0.6}
             >
-              <Plus size={20} color={colors.textSecondary} strokeWidth={2} />
+              <Plus size={20} color={colors.mutedForeground} strokeWidth={2} />
               <Text style={styles.sheetRowText}>Create channel</Text>
             </TouchableOpacity>
 
@@ -452,9 +455,9 @@ export default function HomeTab() {
   );
 }
 
-const makeStyles = (c: ColorScheme, topInset: number) =>
+const makeStyles = (c: ThemeColors, topInset: number) =>
   StyleSheet.create({
-    container: { flex: 1, backgroundColor: c.bgPrimary },
+    container: { flex: 1, backgroundColor: c.background },
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -462,13 +465,13 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       paddingTop: topInset + 6,
       paddingHorizontal: 16,
       paddingBottom: 8,
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
     },
     headerSquareBtn: {
       width: 40,
       height: 40,
       borderRadius: 13,
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: c.border,
       justifyContent: 'center',
@@ -488,19 +491,19 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       justifyContent: 'center',
       alignItems: 'center',
     },
-    headerTitle: { fontSize: 19, fontWeight: '700', color: c.textPrimary },
+    headerTitle: { fontSize: 19, fontWeight: '700', color: c.text },
     headerRightGroup: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
     },
-    workspaceLogoFallback: { backgroundColor: c.brand, justifyContent: 'center', alignItems: 'center' },
+    workspaceLogoFallback: { backgroundColor: BRAND, justifyContent: 'center', alignItems: 'center' },
     workspaceLogoText: { fontSize: 14, fontWeight: '700', color: '#fff' },
     headerAvatarBtn: {
       width: 40,
       height: 40,
       borderRadius: 13,
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: c.border,
       padding: 3,
@@ -513,7 +516,7 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       elevation: 1,
     },
     headerAvatarImage: { width: 32, height: 32, borderRadius: 10 },
-    profileAvatarFallback: { backgroundColor: c.brand, justifyContent: 'center', alignItems: 'center' },
+    profileAvatarFallback: { backgroundColor: BRAND, justifyContent: 'center', alignItems: 'center' },
     profileAvatarText: { fontSize: 15, fontWeight: '700', color: '#fff' },
     searchContainer: {
       flexDirection: 'row',
@@ -523,11 +526,11 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       marginBottom: 8,
       paddingHorizontal: 16,
       height: 40,
-      backgroundColor: c.searchField,
+      backgroundColor: c.inputBackground,
       borderRadius: 14,
       gap: 10,
     },
-    searchInput: { flex: 1, fontSize: 16, color: c.textPrimary, padding: 0, fontWeight: '500' },
+    searchInput: { flex: 1, fontSize: 16, color: c.text, padding: 0, fontWeight: '500' },
     quickActions: {
       flexDirection: 'row',
       paddingHorizontal: 16,
@@ -538,22 +541,22 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
     quickActionCard: {
       flex: 1,
       borderWidth: 1,
-      borderColor: c.bgAccent,
+      borderColor: c.secondary,
       borderRadius: 12,
       paddingVertical: 12,
       paddingHorizontal: 12,
       gap: 6,
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
     },
     quickActionTitle: {
       fontSize: 14,
       fontWeight: '600',
-      color: c.textPrimary,
+      color: c.text,
       marginTop: 2,
     },
     quickActionSubtitle: {
       fontSize: 12,
-      color: c.textMuted,
+      color: c.muted,
     },
     scrollArea: { flex: 1, paddingHorizontal: 16 },
     sectionHeader: {
@@ -561,7 +564,7 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       alignItems: 'center',
       paddingVertical: 12,
     },
-    sectionTitle: { fontSize: 15, fontWeight: '700', color: c.textPrimary },
+    sectionTitle: { fontSize: 15, fontWeight: '700', color: c.text },
     sectionTitleChevron: { marginLeft: 5 },
     // Rotate the chevron down when the section is expanded.
     sectionTitleChevronOpen: { transform: [{ rotate: '90deg' }] },
@@ -576,7 +579,7 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       borderRadius: 10,
     },
     channelItemPressed: {
-      backgroundColor: c.bgTertiary,
+      backgroundColor: c.secondary,
     },
     channelIcon: { marginRight: 14, width: 20 },
     // Empty-category placeholder: dashed outline with a + Add channel affordance.
@@ -593,11 +596,11 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       borderColor: c.border,
       borderRadius: 12,
     },
-    addChannelText: { fontSize: 15, color: c.textMuted, fontWeight: '500' },
-    channelName: { flex: 1, fontSize: 15, color: c.textPrimary, opacity: 0.7, fontWeight: '500' },
-    channelNameUnread: { color: c.textPrimary, opacity: 1, fontWeight: '700' },
+    addChannelText: { fontSize: 15, color: c.muted, fontWeight: '500' },
+    channelName: { flex: 1, fontSize: 15, color: c.text, opacity: 0.7, fontWeight: '500' },
+    channelNameUnread: { color: c.text, opacity: 1, fontWeight: '700' },
     badge: {
-      backgroundColor: c.badgeBg,
+      backgroundColor: c.destructive,
       borderRadius: 8,
       minWidth: 18,
       height: 18,
@@ -605,7 +608,7 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       alignItems: 'center',
       paddingHorizontal: 5,
     },
-    badgeText: { color: c.badgeText, fontSize: 11, fontWeight: '700' },
+    badgeText: { color: c.primaryForeground, fontSize: 11, fontWeight: '700' },
     modalOverlay: {
       flex: 1,
       backgroundColor: 'rgba(0,0,0,0.6)',
@@ -613,8 +616,8 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       alignItems: 'center',
       padding: 32,
     },
-    modalContent: { width: '100%', maxHeight: '60%', backgroundColor: c.bgSecondary, borderRadius: 12, padding: 16 },
-    modalTitle: { fontSize: 16, fontWeight: '700', color: c.textPrimary, marginBottom: 12 },
+    modalContent: { width: '100%', maxHeight: '60%', backgroundColor: c.cardBackground, borderRadius: 12, padding: 16 },
+    modalTitle: { fontSize: 16, fontWeight: '700', color: c.text, marginBottom: 12 },
     modalList: { flexGrow: 0 },
     modalItem: {
       flexDirection: 'row',
@@ -624,13 +627,13 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       borderRadius: 8,
       gap: 10,
     },
-    modalItemActive: { backgroundColor: c.channelActive },
+    modalItemActive: { backgroundColor: c.secondary },
     modalOrgLogo: { width: 32, height: 32, borderRadius: 8 },
-    modalOrgName: { flex: 1, fontSize: 15, fontWeight: '600', color: c.textPrimary },
+    modalOrgName: { flex: 1, fontSize: 15, fontWeight: '600', color: c.text },
     modalLoading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingTop: 12 },
-    modalLoadingText: { fontSize: 13, color: c.textMuted },
+    modalLoadingText: { fontSize: 13, color: c.muted },
     sheetBackdrop: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: 'rgba(0,0,0,0.4)',
     },
     sheetOverlay: {
@@ -638,7 +641,7 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       justifyContent: 'flex-end',
     },
     sheet: {
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
       borderTopLeftRadius: 20,
       borderTopRightRadius: 20,
       paddingTop: 8,
@@ -649,7 +652,7 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
       width: 36,
       height: 4,
       borderRadius: 2,
-      backgroundColor: c.bgAccent,
+      backgroundColor: c.secondary,
       alignSelf: 'center',
       marginBottom: 8,
     },
@@ -661,11 +664,11 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
     sheetHeaderTitle: {
       fontSize: 18,
       fontWeight: '700',
-      color: c.textPrimary,
+      color: c.text,
     },
     sheetHeaderSubtitle: {
       fontSize: 13,
-      color: c.textMuted,
+      color: c.muted,
       marginTop: 2,
     },
     sheetRow: {
@@ -678,7 +681,7 @@ const makeStyles = (c: ColorScheme, topInset: number) =>
     sheetRowText: {
       flex: 1,
       fontSize: 16,
-      color: c.textPrimary,
+      color: c.text,
       fontWeight: '500',
     },
   });

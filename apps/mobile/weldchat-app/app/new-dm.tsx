@@ -12,8 +12,11 @@ import { Stack, useRouter } from 'expo-router';
 import { Check } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/expo';
-import { useTheme } from '@/contexts/ThemeContext';
-import type { ColorScheme } from '@/constants/colors';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { BRAND } from '@/lib/brand';
+
+import type { ThemeColors } from '@/lib/theme-colors';
+
 import { appApi } from '@/services/app-api';
 import { SearchField } from '@/components/chat/SearchField';
 
@@ -108,7 +111,7 @@ export default function NewDmScreen() {
             disabled={selected.length === 0 || creating}
           >
             {creating ? (
-              <ActivityIndicator size="small" color={colors.brand} />
+              <ActivityIndicator size="small" color={BRAND} />
             ) : (
               <Text style={[styles.startBtn, selected.length === 0 && styles.startBtnDisabled]}>
                 Start{selected.length > 1 ? ` (${selected.length})` : ''}
@@ -130,7 +133,7 @@ export default function NewDmScreen() {
         {/* Members list */}
         {loading ? (
           <View style={styles.center}>
-            <ActivityIndicator color={colors.brand} />
+            <ActivityIndicator color={BRAND} />
           </View>
         ) : (
           <FlatList
@@ -181,25 +184,25 @@ export default function NewDmScreen() {
   );
 }
 
-const makeStyles = (c: ColorScheme, _bottomInset: number) =>
+const makeStyles = (c: ThemeColors, _bottomInset: number) =>
   StyleSheet.create({
-    container: { flex: 1, backgroundColor: c.bgPrimary },
+    container: { flex: 1, backgroundColor: c.background },
     handleBar: { alignItems: 'center', paddingTop: 10, paddingBottom: 4 },
-    handle: { width: 36, height: 5, borderRadius: 3, backgroundColor: c.bgAccent },
+    handle: { width: 36, height: 5, borderRadius: 3, backgroundColor: c.secondary },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       paddingHorizontal: 16,
       paddingVertical: 16,
       borderBottomWidth: 1,
-      borderBottomColor: c.bgTertiary,
+      borderBottomColor: c.secondary,
     },
     headerSide: { width: 60 },
     headerSideRight: { alignItems: 'flex-end' },
-    headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', color: c.textPrimary, textAlign: 'center' },
-    cancelBtn: { fontSize: 16, color: c.textPrimary, fontWeight: '500' },
-    startBtn: { fontSize: 16, color: c.brand, fontWeight: '600' },
-    startBtnDisabled: { color: c.textMuted },
+    headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', color: c.text, textAlign: 'center' },
+    cancelBtn: { fontSize: 16, color: c.text, fontWeight: '500' },
+    startBtn: { fontSize: 16, color: BRAND, fontWeight: '600' },
+    startBtnDisabled: { color: c.muted },
     // Only outer spacing — the pill look lives in <SearchField>.
     searchRow: {
       marginHorizontal: 16,
@@ -222,7 +225,7 @@ const makeStyles = (c: ColorScheme, _bottomInset: number) =>
       width: 30,
       height: 30,
       borderRadius: 10,
-      backgroundColor: c.brand,
+      backgroundColor: BRAND,
       justifyContent: 'center',
       alignItems: 'center',
     },
@@ -238,12 +241,12 @@ const makeStyles = (c: ColorScheme, _bottomInset: number) =>
       alignItems: 'center',
     },
     checkCircleActive: {
-      backgroundColor: c.brand,
-      borderColor: c.brand,
+      backgroundColor: BRAND,
+      borderColor: BRAND,
     },
     memberInfo: { flex: 1 },
-    memberName: { fontSize: 16, fontWeight: '500', color: c.textPrimary },
-    memberEmail: { fontSize: 13, color: c.textMuted, marginTop: 1 },
-    separator: { height: StyleSheet.hairlineWidth, backgroundColor: c.bgTertiary, marginLeft: 68 },
-    emptyText: { fontSize: 15, color: c.textMuted, textAlign: 'center' },
+    memberName: { fontSize: 16, fontWeight: '500', color: c.text },
+    memberEmail: { fontSize: 13, color: c.muted, marginTop: 1 },
+    separator: { height: StyleSheet.hairlineWidth, backgroundColor: c.secondary, marginLeft: 68 },
+    emptyText: { fontSize: 15, color: c.muted, textAlign: 'center' },
   });

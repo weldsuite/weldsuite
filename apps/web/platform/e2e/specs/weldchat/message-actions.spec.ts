@@ -167,15 +167,11 @@ test.describe('WeldChat · message actions (seed-gated)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Known bugs / gaps — regression sentinels
+  // Message edit / delete
   // -------------------------------------------------------------------------
 
-  test('own message exposes an Edit action [KNOWN GAP: edit UI not wired]', async ({ page, api }) => {
+  test('own message exposes an Edit action', async ({ page, api }) => {
     test.skip(!TEST_USER_ID, 'TEST_USER_ID not set — cannot seed an own-authored message');
-    // useEditMessage() (and the backend PATCH route + an "(edited)" badge) all
-    // exist, but no menu item / trigger invokes it anywhere in the chat UI, so
-    // a user cannot edit a message they sent. Expected-to-fail until wired up.
-    test.fail();
 
     const channel = await api.seedChatChannel({ name: `E2E Edit ${Date.now().toString(36)}` });
     channelId = channel.id;
@@ -189,12 +185,7 @@ test.describe('WeldChat · message actions (seed-gated)', () => {
     await expect(page.getByRole('menuitem', { name: /edit/i })).toBeVisible({ timeout: 5_000 });
   });
 
-  // KNOWN BUG: "Delete message" fires a success toast unconditionally (not in
-  // onSuccess) and the row is not optimistically removed; deletes route through
-  // the legacy api-worker while the list reads app-api, so the message lingers
-  // until a manual reload. Un-fixme once delete is migrated to app-api with an
-  // optimistic cache removal.
-  test.fixme('deleting a message removes it from the list without a reload [KNOWN BUG]', async ({ page, api }) => {
+  test('deleting a message removes it from the list without a reload', async ({ page, api }) => {
     await seedChannelWithMessage(api, page, {
       name: `E2E Delete ${Date.now().toString(36)}`,
       content: 'Delete me',
@@ -203,16 +194,11 @@ test.describe('WeldChat · message actions (seed-gated)', () => {
     await page.getByTestId('chat-message').first().click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Delete message' }).click();
 
-    // Toast appears immediately…
     await expect(page.getByText('Message deleted')).toBeVisible({ timeout: 5_000 });
-    // …and the row should disappear WITHOUT a page reload.
     await expect(page.getByTestId('chat-message')).toHaveCount(0, { timeout: 10_000 });
   });
 
-  // KNOWN BUG: deleting the only reply in a thread does not decrement the
-  // parent's reply count — the "1 reply" indicator persists (and the thread is
-  // empty). Un-fixme once delete updates the parent threadReplyCount.
-  test.fixme('deleting the only thread reply clears the parent reply indicator [KNOWN BUG]', async ({ page, api }) => {
+  test('deleting the only thread reply clears the parent reply indicator', async ({ page, api }) => {
     const channel = await api.seedChatChannel({ name: `E2E ThreadDel ${Date.now().toString(36)}` });
     channelId = channel.id;
     if (TEST_USER_ID) {
@@ -228,12 +214,10 @@ test.describe('WeldChat · message actions (seed-gated)', () => {
     await page.goto(`/weldchat/${channel.id}/thread/${parent.id}`);
     await expect(page.getByText('Only reply')).toBeVisible({ timeout: 15_000 });
 
-    // Delete the reply from the thread view…
     await page.getByText('Only reply').click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Delete message' }).click();
     await expect(page.getByText('Message deleted')).toBeVisible({ timeout: 5_000 });
 
-    // …and the parent's reply indicator should be gone back in the channel.
     void reply;
     await page.goto(`/weldchat/${channel.id}`);
     await expect(page.getByTestId('chat-message-list')).toBeVisible({ timeout: 15_000 });

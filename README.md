@@ -35,7 +35,7 @@ WeldSuite is one platform built from modules that share the same customer, conta
 - **Backend:** Hono on Cloudflare Workers
 - **Database:** Neon Postgres (multi-tenant), Drizzle ORM
 - **Infra:** Cloudflare (Workers, KV, R2, Queues, Durable Objects, Hyperdrive)
-- **Tooling:** pnpm 10.4.1 + Turborepo, Node 20+
+- **Tooling:** pnpm 10.34.5 + Turborepo, Node 20+
 
 ## Repository layout
 

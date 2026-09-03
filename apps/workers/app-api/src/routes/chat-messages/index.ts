@@ -34,12 +34,18 @@ import { schema } from '../../db';
 import { addReaction, removeReaction } from '../../services/chat/reactions';
 import { pinMessage, unpinMessage, listPinnedMessages } from '../../services/chat/pins';
 import { uploadChatFile } from '../../services/chat/upload';
-import { postChatMessage } from '../../services/chat/post-message';
+import { ChatFeatureError, postChatMessage } from '../../services/chat/post-message';
 import {
   canAccessChannel,
   canAccessMessage,
   isChannelModerator,
 } from '../../services/chat/channel-access';
+import { getChannelFeatureFlags } from '../../services/chat/channel-features';
+import { consumeChatRateLimit } from '../../services/chat/rate-limit';
+import {
+  publishChatMessageDeleted,
+  publishChatMessageUpdated,
+} from '../../services/realtime/weldchat-publisher';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.chatMessages;
@@ -66,6 +72,25 @@ const DANGEROUS_UPLOAD_TYPES = new Set([
 
 function isDangerousUploadType(mime: string): boolean {
   return DANGEROUS_UPLOAD_TYPES.has((mime || '').toLowerCase().split(';')[0].trim());
+}
+
+/** Sniff magic bytes so a renamed .html/.svg cannot sneak past MIME spoofing. */
+async function looksLikeDangerousBytes(file: File): Promise<boolean> {
+  const head = new Uint8Array(await file.slice(0, 512).arrayBuffer());
+  if (head.length === 0) return false;
+  const text = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true })
+    .decode(head)
+    .trimStart()
+    .toLowerCase();
+  if (text.startsWith('<!doctype html') || text.startsWith('<html') || text.startsWith('<svg')) {
+    return true;
+  }
+  if (text.startsWith('<?xml') && (text.includes('<svg') || text.includes('<html'))) {
+    return true;
+  }
+  // PE executable
+  if (head[0] === 0x4d && head[1] === 0x5a) return true;
+  return false;
 }
 
 app.get('/', requirePermission('channels:read'), async (c) => {
@@ -184,6 +209,9 @@ app.post('/', requirePermission('channels:create'), zValidator('json', createCha
     return error.forbidden(c, 'You do not have access to this channel');
   }
 
+  const rl = await consumeChatRateLimit(c.env, `msg:${orgId}:${userId}`, 60);
+  if (!rl.ok) return error.badRequest(c, 'Too many messages — slow down and try again');
+
   try {
     // Delegate to the shared send pipeline so this endpoint behaves exactly like
     // the platform's /channels/:id/messages: maps the message body to `content`
@@ -228,6 +256,10 @@ app.post('/', requirePermission('channels:create'), zValidator('json', createCha
     });
     return success(c, { id: message.id }, 201);
   } catch (err) {
+    if (err instanceof ChatFeatureError) {
+      if (err.status === 404) return error.notFound(c, 'Channel', channelId);
+      return error.badRequest(c, err.message);
+    }
     console.error('[app-api/chat-messages] create failed:', err);
     return error.internal(c, 'Failed to create chat message');
   }
@@ -249,9 +281,14 @@ app.patch('/:id', requirePermission('messages:update'), zValidator('json', updat
     if (existing.authorId !== userId) {
       return error.forbidden(c, 'You can only edit your own messages');
     }
-    const update: Record<string, any> = { updatedAt: new Date() };
+    const update: Record<string, any> = {
+      updatedAt: new Date(),
+      isEdited: true,
+      editedAt: new Date(),
+    };
     for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;
     await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
+    const [updated] = await db.select().from(t).where(eq(t.id, id)).limit(1);
     publishEntityEvent({
       c,
       entityType: 'chat_message',
@@ -259,7 +296,17 @@ app.patch('/:id', requirePermission('messages:update'), zValidator('json', updat
       entityId: id,
       data: { id, channelId: existing.channelId },
     });
-    return success(c, { id });
+    try {
+      await publishChatMessageUpdated(c.env, existing.channelId, {
+        id,
+        content: updated?.content ?? existing.content,
+        isEdited: true,
+        updatedAt: updated?.updatedAt?.toISOString?.() ?? new Date().toISOString(),
+      });
+    } catch (e) {
+      console.error('[app-api/chat-messages] message:updated publish failed:', e);
+    }
+    return success(c, updated ?? { id });
   } catch (err) {
     console.error('[app-api/chat-messages] update failed:', err);
     return error.internal(c, 'Failed to update chat message');
@@ -283,6 +330,18 @@ app.delete('/:id', requirePermission('messages:delete'), async (c) => {
       return error.forbidden(c, 'You can only delete your own messages');
     }
     await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));
+
+    // Keep parent thread reply counts accurate after soft-delete.
+    if (existing.parentId) {
+      await db
+        .update(t)
+        .set({
+          threadReplyCount: sql`GREATEST(${t.threadReplyCount} - 1, 0)`,
+          updatedAt: new Date(),
+        })
+        .where(eq(t.id, existing.parentId));
+    }
+
     publishEntityEvent({
       c,
       entityType: 'chat_message',
@@ -290,6 +349,11 @@ app.delete('/:id', requirePermission('messages:delete'), async (c) => {
       entityId: id,
       data: { id, channelId: existing.channelId },
     });
+    try {
+      await publishChatMessageDeleted(c.env, existing.channelId, id);
+    } catch (e) {
+      console.error('[app-api/chat-messages] message:deleted publish failed:', e);
+    }
     return noContent(c);
   } catch (err) {
     console.error('[app-api/chat-messages] delete failed:', err);
@@ -311,13 +375,26 @@ app.post(
   async (c) => {
     const db = c.get('tenantDb');
     const userId = c.get('userId');
+    const orgId = c.get('orgId');
     const id = c.req.param('id');
     const { emoji } = c.req.valid('json');
     // Membership boundary: can't react to messages in a channel you can't see.
     if (!(await canAccessMessage(db, id, userId))) {
       return error.notFound(c, 'Chat message', id);
     }
+    const rl = await consumeChatRateLimit(c.env, `react:${orgId ?? 'x'}:${userId}`, 120);
+    if (!rl.ok) return error.badRequest(c, 'Too many reactions — slow down and try again');
     try {
+      const [msg] = await db
+        .select({ channelId: t.channelId })
+        .from(t)
+        .where(and(eq(t.id, id), isNull(t.deletedAt)))
+        .limit(1);
+      if (!msg) return error.notFound(c, 'Chat message', id);
+      const flags = await getChannelFeatureFlags(db, msg.channelId);
+      if (flags && !flags.reactionsEnabled) {
+        return error.badRequest(c, 'Reactions are disabled in this channel');
+      }
       const result = await addReaction(db, id, emoji, userId);
       if (!result) return error.notFound(c, 'Chat message', id);
       publishEntityEvent({
@@ -496,10 +573,14 @@ app.post('/upload', requirePermission('messages:create'), async (c) => {
       return error.badRequest(c, `File exceeds the ${MAX_UPLOAD_BYTES / (1024 * 1024)}MB limit`);
     }
 
+    if (!c.env.R2_PUBLIC_URL) {
+      return error.internal(c, 'File storage is not configured for this environment');
+    }
+
     // Block active-content types: files are served from a public R2 URL, so an
     // HTML/SVG/XML/JS attachment would be a stored-XSS vector on the storage
     // domain. Everything else (images, audio, video, pdf, docs) is allowed.
-    if (isDangerousUploadType(file.type)) {
+    if (isDangerousUploadType(file.type) || (await looksLikeDangerousBytes(file))) {
       return error.badRequest(c, 'This file type is not allowed');
     }
 
@@ -507,6 +588,15 @@ app.post('/upload', requirePermission('messages:create'), async (c) => {
     if (channelId && !(await canAccessChannel(c.get('tenantDb'), channelId, userId))) {
       return error.forbidden(c, 'You do not have access to this channel');
     }
+    if (channelId) {
+      const flags = await getChannelFeatureFlags(c.get('tenantDb'), channelId);
+      if (flags && !flags.attachmentsEnabled) {
+        return error.badRequest(c, 'Attachments are disabled in this channel');
+      }
+    }
+
+    const rl = await consumeChatRateLimit(c.env, `upload:${workspaceId}:${userId}`, 30);
+    if (!rl.ok) return error.badRequest(c, 'Too many uploads — slow down and try again');
 
     const result = await uploadChatFile({
       storage: c.env.STORAGE,
@@ -514,6 +604,7 @@ app.post('/upload', requirePermission('messages:create'), async (c) => {
       workspaceId,
       channelId,
       file,
+      requirePublicUrl: true,
     });
 
     return success(c, result, 201);

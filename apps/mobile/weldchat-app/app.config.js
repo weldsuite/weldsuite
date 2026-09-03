@@ -1,4 +1,43 @@
+const fs = require('fs');
+const path = require('path');
 const { withAndroidManifest } = require('@expo/config-plugins');
+
+const PROJECT_ROOT = __dirname;
+
+/**
+ * Attach Firebase / FCM config files when present.
+ *
+ * Android push needs `google-services.json` for package `com.weldsuite.weldchat`
+ * (create the Android app in the shared Firebase project `weldsuite`, then drop
+ * the downloaded file here). iOS needs `GoogleService-Info.plist` the same way.
+ * Do NOT copy other WeldSuite app Firebase files — wrong package / bundle id.
+ */
+const withFirebaseConfigFiles = (config) => {
+  const androidFile = path.join(PROJECT_ROOT, 'google-services.json');
+  const iosFile = path.join(PROJECT_ROOT, 'GoogleService-Info.plist');
+
+  if (fs.existsSync(androidFile)) {
+    config.android = {
+      ...config.android,
+      googleServicesFile: './google-services.json',
+    };
+  } else {
+    console.warn(
+      '[weldchat-app] Missing google-services.json — Android Expo push tokens ' +
+        'will fail until you add a Firebase Android app for com.weldsuite.weldchat ' +
+        'and upload the FCM V1 key via `eas credentials`. See store/README.md.',
+    );
+  }
+
+  if (fs.existsSync(iosFile)) {
+    config.ios = {
+      ...config.ios,
+      googleServicesFile: './GoogleService-Info.plist',
+    };
+  }
+
+  return config;
+};
 
 // Strip the FOREGROUND_SERVICE_MEDIA_PROJECTION permission. The RealtimeKit /
 // WebRTC native SDK injects it (for screen-share), but the WeldChat mobile app
@@ -56,11 +95,28 @@ const withSystemAlertWindowRemoved = (config) => {
   });
 };
 
-module.exports = ({ config }) => {
-  // Strip the unused FOREGROUND_SERVICE_MEDIA_PROJECTION permission
-  config = withMediaProjectionPermissionRemoved(config);
-  // Strip the unused SYSTEM_ALERT_WINDOW (draw-over-other-apps) permission
-  config = withSystemAlertWindowRemoved(config);
+/** Ensure USE_FULL_SCREEN_INTENT is declared for heads-up incoming-call notifications. */
+const withFullScreenIntent = (config) => {
+  return withAndroidManifest(config, async (config) => {
+    const manifest = config.modResults.manifest;
+    const PERM = 'android.permission.USE_FULL_SCREEN_INTENT';
+    manifest['uses-permission'] = manifest['uses-permission'] || [];
+    const exists = manifest['uses-permission'].some(
+      (p) => p?.$?.['android:name'] === PERM && !p?.$?.['tools:node'],
+    );
+    if (!exists) {
+      manifest['uses-permission'].push({
+        $: { 'android:name': PERM },
+      });
+    }
+    return config;
+  });
+};
 
+module.exports = ({ config }) => {
+  config = withFirebaseConfigFiles(config);
+  config = withMediaProjectionPermissionRemoved(config);
+  config = withSystemAlertWindowRemoved(config);
+  config = withFullScreenIntent(config);
   return config;
 };

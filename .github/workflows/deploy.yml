@@ -352,13 +352,41 @@ jobs:
           echo "=== Deploying ${{ matrix.worker }} to $TARGET ==="
           pnpm "deploy:${TARGET}"
 
+  # Every OTA job below needs an Expo access token. The `secrets` context is not
+  # available in a job-level `if:`, so this job reads it once and exposes a plain
+  # output the OTA jobs gate on. Without that gate a missing EXPO_TOKEN let each
+  # release job run all the way to `eas update`, fail with "An Expo user account
+  # is required", and turn one absent credential into five red checks per deploy.
+  mobile-preflight:
+    name: Check mobile release credentials
+    needs: prepare
+    if: always() && !failure() && !cancelled()
+    runs-on: ubuntu-latest
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    outputs:
+      expo_token: ${{ steps.check.outputs.configured }}
+    steps:
+      - name: Check EXPO_TOKEN
+        id: check
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          CF_ENV: ${{ needs.prepare.outputs.cf_env }}
+        run: |
+          if [ -n "$EXPO_TOKEN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Mobile OTA skipped::EXPO_TOKEN is not set on the '$CF_ENV' environment, so no mobile OTA update was published. Add it under Settings -> Environments -> $CF_ENV -> Secrets to re-enable mobile releases."
+          fi
+
   mobile-weldmail:
     name: Release WeldMail (OTA)
-    needs: [prepare, workers]
+    needs: [prepare, workers, mobile-preflight]
     if: >-
       always() && !failure() && !cancelled() &&
       (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
-      needs.prepare.outputs.release_weldmail == 'true'
+      needs.prepare.outputs.release_weldmail == 'true' &&
+      needs.mobile-preflight.outputs.expo_token == 'true'
     runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
@@ -383,11 +411,12 @@ jobs:
 
   mobile-weldchat:
     name: Release WeldChat (OTA)
-    needs: [prepare, workers]
+    needs: [prepare, workers, mobile-preflight]
     if: >-
       always() && !failure() && !cancelled() &&
       (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
-      needs.prepare.outputs.release_weldchat == 'true'
+      needs.prepare.outputs.release_weldchat == 'true' &&
+      needs.mobile-preflight.outputs.expo_token == 'true'
     runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
@@ -411,11 +440,12 @@ jobs:
 
   mobile-weldbooks:
     name: Release WeldBooks (OTA)
-    needs: [prepare, workers]
+    needs: [prepare, workers, mobile-preflight]
     if: >-
       always() && !failure() && !cancelled() &&
       (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
-      needs.prepare.outputs.release_weldbooks == 'true'
+      needs.prepare.outputs.release_weldbooks == 'true' &&
+      needs.mobile-preflight.outputs.expo_token == 'true'
     runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
@@ -440,11 +470,12 @@ jobs:
 
   mobile-weldflow:
     name: Release WeldFlow (OTA)
-    needs: [prepare, workers]
+    needs: [prepare, workers, mobile-preflight]
     if: >-
       always() && !failure() && !cancelled() &&
       (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
-      needs.prepare.outputs.release_weldflow == 'true'
+      needs.prepare.outputs.release_weldflow == 'true' &&
+      needs.mobile-preflight.outputs.expo_token == 'true'
     runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:
@@ -469,11 +500,12 @@ jobs:
 
   mobile-weldagent:
     name: Release WeldAgent (OTA)
-    needs: [prepare, workers]
+    needs: [prepare, workers, mobile-preflight]
     if: >-
       always() && !failure() && !cancelled() &&
       (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
-      needs.prepare.outputs.release_weldagent == 'true'
+      needs.prepare.outputs.release_weldagent == 'true' &&
+      needs.mobile-preflight.outputs.expo_token == 'true'
     runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
     steps:

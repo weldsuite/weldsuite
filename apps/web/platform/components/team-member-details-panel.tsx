@@ -26,6 +26,7 @@ import {
   Search,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Switch } from '@weldsuite/ui/components/switch';
 import {
   Select,
@@ -49,7 +50,7 @@ import {
 import { useWeldChatPresence } from '@/hooks/weldchat/use-weldchat-presence';
 import { MessageList } from '@/app/weldchat/components/message-list';
 import { MessageInput } from '@/app/weldchat/components/message-input';
-import { ChatContext, type ReplyTo, type RightPanel, type ChatFilters } from '@/app/weldchat/components/chat-context';
+import { ChatContext, type ReplyTo, type EditingMessage, type RightPanel, type ChatFilters } from '@/app/weldchat/components/chat-context';
 import {
   useMemberApps,
   useMemberPermissions,
@@ -94,6 +95,7 @@ import { usePresence } from '@/contexts/presence-context';
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
 import { useMemberProfile } from '@/hooks/queries/use-team-queries';
 import { OverviewTab as MemberOverviewTab } from '@/components/team-member-panel/tabs/overview-tab';
+import { getRoleLabel } from '@/components/team-member-panel/role-label';
 import { CommonTab as MemberCommonTab } from '@/components/team-member-panel/tabs/common-tab';
 import { ActivityTab as MemberActivityTab } from '@/components/team-member-panel/tabs/activity-tab';
 import { useAuth } from '@clerk/clerk-react';
@@ -221,6 +223,7 @@ function EmbeddedDmChat({ targetUserId }: { targetUserId: string }) {
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
   const [threadMessageId, setThreadMessageId] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ReplyTo | null>(null);
+  const [editingMessage, setEditingMessage] = useState<EditingMessage | null>(null);
   const [filters, setFilters] = useState<ChatFilters>({ type: 'all', search: '', from: [], date: undefined });
 
   const chatContextValue = React.useMemo(() => ({
@@ -233,6 +236,8 @@ function EmbeddedDmChat({ targetUserId }: { targetUserId: string }) {
     closeThread: () => setThreadMessageId(null),
     replyTo,
     setReplyTo,
+    editingMessage,
+    setEditingMessage,
     filters,
     setFilters,
     selectedProfileUserId: null,
@@ -241,7 +246,7 @@ function EmbeddedDmChat({ targetUserId }: { targetUserId: string }) {
     selectedAgentProfileId: null,
     openAgentProfile: () => {},
     closeAgentProfile: () => {},
-  }), [rightPanel, threadMessageId, replyTo, filters]);
+  }), [rightPanel, threadMessageId, replyTo, editingMessage, filters]);
 
   const channel = data?.data;
   const channelId = channel?.id;
@@ -302,19 +307,6 @@ function EmbeddedDmChat({ targetUserId }: { targetUserId: string }) {
   );
 }
 
-function getRoleLabel(role: string) {
-  switch (role) {
-    case 'OWNER': return 'Owner';
-    case 'ADMIN': return 'Admin';
-    case 'MEMBER': return 'Member';
-    case 'VIEWER': return 'Viewer';
-    default:
-      // A custom-role id (e.g. `role_…`) whose name hasn't resolved from the
-      // workspace-roles list yet. Don't masquerade it as "Member" — that made an
-      // assigned custom role look like it had silently fallen back to Member.
-      return role.startsWith('role_') ? 'Custom role' : 'Member';
-  }
-}
 
 export function TeamMemberDetailsPanel({
   member,
@@ -1913,18 +1905,18 @@ function MemberHeaderIdentity({ member }: { member: TeamMemberDetail }) {
 
   return (
     <div className="flex items-center gap-2 min-w-0 flex-1">
+      {/* Avatar treatment matches PersonAvatar in the WeldCRM person panel:
+          h-7 w-7 rounded-lg with a border, and a muted initial as the fallback
+          rather than a tinted generic user glyph. */}
       <div className="relative flex-shrink-0">
-        {member.avatar ? (
-          <img
-            src={member.avatar}
-            alt={member.name ?? ''}
-            className="w-7 h-7 rounded-lg object-cover"
-          />
-        ) : (
-          <div className="w-7 h-7 rounded-lg bg-purple-100 dark:bg-purple-900 flex items-center justify-center">
-            <User className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-          </div>
-        )}
+        <Avatar className="h-7 w-7 rounded-lg border border-border">
+          {member.avatar && (
+            <AvatarImage src={member.avatar} alt={member.name ?? ''} className="rounded-lg object-cover" />
+          )}
+          <AvatarFallback className="rounded-lg bg-muted text-[12px] font-medium">
+            {(member.name?.trim()?.[0] ?? '#').toUpperCase()}
+          </AvatarFallback>
+        </Avatar>
         {member.userId && (
           <StatusDot
             status={status}

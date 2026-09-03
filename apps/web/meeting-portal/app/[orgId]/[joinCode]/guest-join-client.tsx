@@ -34,7 +34,7 @@ const NOISE_SUPPRESSION_ENABLED =
 
 /**
  * Explicitly stop the local camera/mic MediaStreamTracks held by the RTK
- * client. RealtimeKit's `leave()`/`leaveRoom()` does not reliably stop the
+ * client. RealtimeKit's `leave()` does not reliably stop the
  * underlying hardware tracks in the browser, so without this the OS camera/mic
  * indicator stays lit after the guest leaves the meeting. Each getter can throw
  * when the corresponding media is disabled, so every read is guarded.
@@ -758,7 +758,7 @@ export default function GuestJoinClient() {
   const handleWaitlistedLeave = useCallback(() => {
     previewStream?.getTracks().forEach(t => t.stop());
     stopLocalMediaTracks(rtkClient);
-    rtkClient?.leaveRoom();
+    rtkClient?.leave();
     setState('ended');
   }, [previewStream, rtkClient]);
 

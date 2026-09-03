@@ -14,9 +14,10 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '../../lib/response';
 import { schema } from '../../db';
-import { postChatMessage } from '../../services/chat/post-message';
+import { postChatMessage, ChatFeatureError } from '../../services/chat/post-message';
 import { setChannelMuted } from '../../services/chat/dm-membership';
-import { canAccessChannel } from '../../services/chat/channel-access';
+import { canAccessChannel, isChannelModerator } from '../../services/chat/channel-access';
+import { consumeChatRateLimit } from '../../services/chat/rate-limit';
 import { createChannel, slugifyChannelName } from '../../services/chat/create-channel';
 import {
   addChannelMembers,
@@ -259,11 +260,13 @@ app.patch('/:id', requirePermission('channels:update'), zValidator('json', updat
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Channel', id);
-    // Membership boundary: an outsider must not reconfigure a private channel.
-    // (Stricter owner/admin-only moderation is deferred to the channel-role
-    // model — see weldchat-backend-security-audit.)
+    // Membership boundary + moderation: outsiders cannot reconfigure a channel.
+    // Public-channel visibility is not enough — only owners/admins may update.
     if (!(await canAccessChannel(db, id, userId))) {
       return error.notFound(c, 'Channel', id);
+    }
+    if (!(await isChannelModerator(db, id, userId))) {
+      return error.forbidden(c, 'Only channel owners and admins can update this channel');
     }
     const { agentReplyPolicy, agentMaxHops, ...rest } = data;
     const update: Record<string, any> = { updatedAt: new Date() };
@@ -302,11 +305,13 @@ app.delete('/:id', requirePermission('channels:delete'), async (c) => {
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Channel', id);
-    // Membership boundary: an outsider must not delete a private channel.
-    // (Stricter owner/admin-only moderation is deferred to the channel-role
-    // model — see weldchat-backend-security-audit.)
+    // Membership boundary + moderation: outsiders cannot delete a channel.
+    // Public-channel visibility is not enough — only owners/admins may delete.
     if (!(await canAccessChannel(db, id, userId))) {
       return error.notFound(c, 'Channel', id);
+    }
+    if (!(await isChannelModerator(db, id, userId))) {
+      return error.forbidden(c, 'Only channel owners and admins can delete this channel');
     }
     await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));
     // Tell everyone currently in the room it's gone — otherwise open clients
@@ -458,6 +463,8 @@ app.post(
     if (!(await canAccessChannel(c.get('tenantDb'), channelId, c.get('userId')))) {
       return error.forbidden(c, 'You do not have access to this channel');
     }
+    const rl = await consumeChatRateLimit(c.env, `msg:${orgId}:${c.get('userId')}`, 60);
+    if (!rl.ok) return error.badRequest(c, 'Too many messages — slow down and try again');
     try {
       const message = await postChatMessage(
         {
@@ -478,6 +485,10 @@ app.post(
       );
       return success(c, message, 201);
     } catch (err) {
+      if (err instanceof ChatFeatureError) {
+        if (err.status === 404) return error.notFound(c, 'Channel', channelId);
+        return error.badRequest(c, err.message);
+      }
       console.error('[app-api/channels] send message failed:', err);
       return error.internal(c, 'Failed to send message');
     }

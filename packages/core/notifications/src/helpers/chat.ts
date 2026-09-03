@@ -38,6 +38,7 @@ export async function sendChatMentionNotification<Env extends NotificationEnv>(
     severity: 'info',
     actorType: 'user',
     actorId: authorUserId,
+    data: { channelId },
   });
 }
 
@@ -73,6 +74,7 @@ export async function sendChatThreadReplyNotification<Env extends NotificationEn
     severity: 'info',
     actorType: 'user',
     actorId: authorUserId,
+    data: { channelId },
   });
 }
 
@@ -106,6 +108,7 @@ export async function sendChatDmNotification<Env extends NotificationEnv>(
     severity: 'info',
     actorType: 'user',
     actorId: senderUserId,
+    data: { channelId },
   });
 }
 
@@ -143,6 +146,7 @@ export async function sendMissedCallNotification<Env extends NotificationEnv>(
     // A call is a real-time event — deliver only in-app + push (the mobile
     // ring/banner), never email. An emailed "missed call" is pure noise.
     excludeChannels: ['email'],
+    data: { channelId },
   });
 }
 
@@ -181,5 +185,6 @@ export async function sendIncomingCallNotification<Env extends NotificationEnv>(
     // event (in-app banner). Email is pointless for a live ring and is the
     // "you are being called" mail users complained about — never send it.
     excludeChannels: ['email'],
+    data: { channelId },
   });
 }

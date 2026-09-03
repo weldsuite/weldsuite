@@ -13,7 +13,11 @@
  * recipient's `notificationPreferences`.
  */
 
-export { createAndDeliverNotification, appCodesForCategory } from './orchestrator';
+export { createAndDeliverNotification, appCodesForCategory, EMAIL_DEFER_MINUTES } from './orchestrator';
+export { resolveEmailPresence, presenceFromStatus, type EmailPresence } from './presence';
+// Exported for the deferred-email workflow, which sends the same mail on the
+// same `from` address minutes later — it must not grow its own copy.
+export { sendNotificationEmail } from './channels/email';
 export { sendTaskAssignmentNotification } from './helpers/task-assignment';
 export {
   sendChatMentionNotification,
@@ -30,6 +34,8 @@ export {
 } from './helpers/weldagent';
 export type {
   NotificationEnv,
+  DeferredEmailWorkflow,
+  DeferredEmailParams,
   ChannelPreferences,
   CreateNotificationParams,
   NotificationCategory,

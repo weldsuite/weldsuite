@@ -6,3 +6,21 @@ packages:
   - "!apps/mobile/_template"
   - "apps/desktop"
   - "packages/*/*"
+
+# pnpm settings. These used to live in the "pnpm" field of package.json, which
+# pnpm no longer reads: https://pnpm.io/settings
+overrides:
+  "@types/react": 19.2.7
+  "@types/react-dom": 19.2.3
+  react: 19.2.3
+  react-dom: 19.2.3
+  use-sync-external-store: ^1.4.0
+  "@react-native-menu/menu": 2.0.0
+
+onlyBuiltDependencies:
+  - electron
+  - electron-builder
+  - "@parcel/watcher"
+
+ignoredBuiltDependencies:
+  - sharp

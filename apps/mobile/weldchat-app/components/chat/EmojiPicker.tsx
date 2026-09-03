@@ -1,8 +1,10 @@
 import { useMemo } from 'react';
 import { View, Text, TouchableOpacity, Modal, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '@/contexts/ThemeContext';
-import type { ColorScheme } from '@/constants/colors';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+
+import type { ThemeColors } from '@/lib/theme-colors';
+
 
 const EMOJI_LIST = [
   '👍', '❤️', '😂', '😮', '😢', '🔥', '🎉', '👏',
@@ -48,15 +50,15 @@ export function EmojiPicker({ visible, onClose, onSelect }: EmojiPickerProps) {
   );
 }
 
-const makeStyles = (c: ColorScheme, bottomInset: number) =>
+const makeStyles = (c: ThemeColors, bottomInset: number) =>
   StyleSheet.create({
     backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
     container: {
-      backgroundColor: c.bgSecondary,
+      backgroundColor: c.cardBackground,
       borderTopLeftRadius: 16, borderTopRightRadius: 16,
       padding: 16, paddingBottom: 16 + bottomInset, maxHeight: '50%',
     },
-    title: { fontSize: 16, fontWeight: '600', color: c.textPrimary, marginBottom: 12, textAlign: 'center' },
+    title: { fontSize: 16, fontWeight: '600', color: c.text, marginBottom: 12, textAlign: 'center' },
     grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 4 },
     emojiBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center', borderRadius: 8 },
     emoji: { fontSize: 24 },

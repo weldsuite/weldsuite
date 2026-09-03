@@ -22,8 +22,11 @@ import {
 } from 'lucide-react-native';
 import { useUser } from '@clerk/expo';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '@/contexts/ThemeContext';
-import type { ColorScheme } from '@/constants/colors';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { BRAND } from '@/lib/brand';
+
+import type { ThemeColors } from '@/lib/theme-colors';
+
 import { appApi } from '@/services/app-api';
 import { useChatUserEvents } from '@/hooks/useChatUserEvents';
 import { ChannelView } from './chat/ChannelView';
@@ -132,11 +135,11 @@ export function IPadLayout() {
 
         {/* Search */}
         <View style={styles.searchContainer}>
-          <Search size={16} color={colors.textMuted} />
+          <Search size={16} color={colors.muted} />
           <TextInput
             style={styles.searchInput}
             placeholder="Search"
-            placeholderTextColor={colors.textMuted}
+            placeholderTextColor={colors.muted}
             value={search}
             onChangeText={setSearch}
           />
@@ -149,9 +152,9 @@ export function IPadLayout() {
             onPress={() => setChannelsCollapsed(!channelsCollapsed)}
           >
             {channelsCollapsed ? (
-              <ChevronRight size={12} color={colors.textMuted} />
+              <ChevronRight size={12} color={colors.muted} />
             ) : (
-              <ChevronDown size={12} color={colors.textMuted} />
+              <ChevronDown size={12} color={colors.muted} />
             )}
             <Text style={styles.sectionTitle}>CHANNELS</Text>
             <TouchableOpacity
@@ -159,7 +162,7 @@ export function IPadLayout() {
               onPress={() => router.push('/new-channel' as any)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Plus size={16} color={colors.textMuted} />
+              <Plus size={16} color={colors.muted} />
             </TouchableOpacity>
           </TouchableOpacity>
 
@@ -173,9 +176,9 @@ export function IPadLayout() {
                   onPress={() => setSelectedChannelId(ch.id)}
                 >
                   {ch.type === 'private' ? (
-                    <Lock size={16} color={colors.textMuted} style={styles.itemIcon} />
+                    <Lock size={16} color={colors.muted} style={styles.itemIcon} />
                   ) : (
-                    <Hash size={16} color={colors.textMuted} style={styles.itemIcon} />
+                    <Hash size={16} color={colors.muted} style={styles.itemIcon} />
                   )}
                   <Text
                     style={[
@@ -203,9 +206,9 @@ export function IPadLayout() {
             onPress={() => setDmsCollapsed(!dmsCollapsed)}
           >
             {dmsCollapsed ? (
-              <ChevronRight size={12} color={colors.textMuted} />
+              <ChevronRight size={12} color={colors.muted} />
             ) : (
-              <ChevronDown size={12} color={colors.textMuted} />
+              <ChevronDown size={12} color={colors.muted} />
             )}
             <Text style={styles.sectionTitle}>DIRECT MESSAGES</Text>
             <TouchableOpacity
@@ -213,7 +216,7 @@ export function IPadLayout() {
               onPress={() => router.push('/new-dm' as any)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <PenSquare size={14} color={colors.textMuted} />
+              <PenSquare size={14} color={colors.muted} />
             </TouchableOpacity>
           </TouchableOpacity>
 
@@ -287,19 +290,19 @@ export function IPadLayout() {
   );
 }
 
-const makeStyles = (c: ColorScheme, topInset: number, _bottomInset: number) =>
+const makeStyles = (c: ThemeColors, topInset: number, _bottomInset: number) =>
   StyleSheet.create({
     container: {
       flex: 1,
       flexDirection: 'row',
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
     },
     // Sidebar
     sidebar: {
       width: SIDEBAR_WIDTH,
-      backgroundColor: c.bgSecondary,
+      backgroundColor: c.cardBackground,
       borderRightWidth: 1,
-      borderRightColor: c.bgTertiary,
+      borderRightColor: c.secondary,
     },
     sidebarHeader: {
       flexDirection: 'row',
@@ -312,7 +315,7 @@ const makeStyles = (c: ColorScheme, topInset: number, _bottomInset: number) =>
     sidebarTitle: {
       fontSize: 20,
       fontWeight: '700',
-      color: c.textPrimary,
+      color: c.text,
     },
     sidebarHeaderActions: {
       flexDirection: 'row',
@@ -321,7 +324,7 @@ const makeStyles = (c: ColorScheme, topInset: number, _bottomInset: number) =>
     },
     profileAvatar: { width: 28, height: 28, borderRadius: 8 },
     profileAvatarFallback: {
-      backgroundColor: c.brand,
+      backgroundColor: BRAND,
       justifyContent: 'center',
       alignItems: 'center',
     },
@@ -333,14 +336,14 @@ const makeStyles = (c: ColorScheme, topInset: number, _bottomInset: number) =>
       marginBottom: 8,
       paddingHorizontal: 10,
       paddingVertical: 8,
-      backgroundColor: c.bgTertiary,
+      backgroundColor: c.secondary,
       borderRadius: 8,
       gap: 8,
     },
     searchInput: {
       flex: 1,
       fontSize: 14,
-      color: c.textPrimary,
+      color: c.text,
       padding: 0,
     },
     sidebarScroll: { flex: 1, paddingHorizontal: 8 },
@@ -355,14 +358,14 @@ const makeStyles = (c: ColorScheme, topInset: number, _bottomInset: number) =>
     sectionTitle: {
       fontSize: 11,
       fontWeight: '700',
-      color: c.textMuted,
+      color: c.muted,
       letterSpacing: 0.5,
       flex: 1,
       marginLeft: 8,
     },
     sectionDivider: {
       height: 1,
-      backgroundColor: c.bgTertiary,
+      backgroundColor: c.secondary,
       marginHorizontal: 4,
       marginVertical: 8,
     },
@@ -377,27 +380,27 @@ const makeStyles = (c: ColorScheme, topInset: number, _bottomInset: number) =>
       marginVertical: 1,
     },
     sidebarItemActive: {
-      backgroundColor: c.channelActive,
+      backgroundColor: c.secondary,
     },
     itemIcon: { marginRight: 8 },
     itemName: {
       flex: 1,
       fontSize: 14,
-      color: c.textMuted,
+      color: c.muted,
     },
     itemNameUnread: {
-      color: c.textPrimary,
+      color: c.text,
       fontWeight: '600',
     },
     itemNameActive: {
-      color: c.textPrimary,
+      color: c.text,
     },
     // DM-specific
     dmAvatar: {
       width: 28,
       height: 28,
       borderRadius: 10,
-      backgroundColor: c.brand,
+      backgroundColor: BRAND,
       justifyContent: 'center',
       alignItems: 'center',
       marginRight: 8,
@@ -407,12 +410,12 @@ const makeStyles = (c: ColorScheme, topInset: number, _bottomInset: number) =>
     dmInfo: { flex: 1 },
     dmLastMessage: {
       fontSize: 12,
-      color: c.textMuted,
+      color: c.muted,
       marginTop: 1,
     },
     // Badge
     badge: {
-      backgroundColor: c.badgeBg,
+      backgroundColor: c.destructive,
       borderRadius: 8,
       minWidth: 18,
       height: 18,
@@ -420,11 +423,11 @@ const makeStyles = (c: ColorScheme, topInset: number, _bottomInset: number) =>
       alignItems: 'center',
       paddingHorizontal: 5,
     },
-    badgeText: { color: c.badgeText, fontSize: 11, fontWeight: '700' },
+    badgeText: { color: c.primaryForeground, fontSize: 11, fontWeight: '700' },
     // Main content area
     mainContent: {
       flex: 1,
-      backgroundColor: c.bgPrimary,
+      backgroundColor: c.background,
     },
     emptyMain: {
       flex: 1,
@@ -435,12 +438,12 @@ const makeStyles = (c: ColorScheme, topInset: number, _bottomInset: number) =>
     emptyMainTitle: {
       fontSize: 18,
       fontWeight: '600',
-      color: c.textPrimary,
+      color: c.text,
       marginBottom: 8,
     },
     emptyMainText: {
       fontSize: 14,
-      color: c.textMuted,
+      color: c.muted,
       textAlign: 'center',
       maxWidth: 300,
     },

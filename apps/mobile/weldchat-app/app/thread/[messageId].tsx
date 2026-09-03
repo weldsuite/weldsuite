@@ -13,8 +13,11 @@ import {
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import { Send, ChevronLeft } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '@/contexts/ThemeContext';
-import type { ColorScheme } from '@/constants/colors';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { BRAND } from '@/lib/brand';
+
+import type { ThemeColors } from '@/lib/theme-colors';
+
 import { appApi } from '@/services/app-api';
 
 interface Message {
@@ -116,7 +119,7 @@ export default function ThreadScreen() {
       >
         <View style={styles.topBar}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <ChevronLeft size={24} color={colors.textPrimary} />
+            <ChevronLeft size={24} color={colors.text} />
           </TouchableOpacity>
           <Text style={styles.topBarTitle}>Thread</Text>
         </View>
@@ -141,7 +144,7 @@ export default function ThreadScreen() {
             value={input}
             onChangeText={setInput}
             placeholder="Reply..."
-            placeholderTextColor={colors.textMuted}
+            placeholderTextColor={colors.muted}
             multiline
           />
           <TouchableOpacity
@@ -157,45 +160,45 @@ export default function ThreadScreen() {
   );
 }
 
-const makeStyles = (c: ColorScheme, topInset: number, bottomInset: number) =>
+const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
   StyleSheet.create({
-    container: { flex: 1, backgroundColor: c.bgPrimary },
+    container: { flex: 1, backgroundColor: c.background },
     topBar: {
       flexDirection: 'row', alignItems: 'center',
       paddingTop: topInset + 12, paddingHorizontal: 16, paddingBottom: 12,
-      backgroundColor: c.bgTertiary, gap: 12,
+      backgroundColor: c.secondary, gap: 12,
     },
     backBtn: { padding: 8 },
-    topBarTitle: { fontSize: 17, fontWeight: '700', color: c.textPrimary },
+    topBarTitle: { fontSize: 17, fontWeight: '700', color: c.text },
     list: { padding: 16, paddingBottom: 8, flexGrow: 1 },
     message: { flexDirection: 'row', marginBottom: 12 },
     avatarImg: { width: 36, height: 36, borderRadius: 18, marginRight: 10 },
     avatar: {
       width: 36, height: 36, borderRadius: 18,
-      backgroundColor: c.brand, justifyContent: 'center', alignItems: 'center', marginRight: 10,
+      backgroundColor: BRAND, justifyContent: 'center', alignItems: 'center', marginRight: 10,
     },
     avatarText: { fontSize: 14, fontWeight: '700', color: '#fff' },
     content: { flex: 1 },
     header: { flexDirection: 'row', alignItems: 'baseline', marginBottom: 2 },
-    author: { fontSize: 15, fontWeight: '600', color: c.textPrimary, marginRight: 8 },
-    time: { fontSize: 12, color: c.textMuted },
-    text: { fontSize: 15, lineHeight: 22, color: c.textSecondary },
+    author: { fontSize: 15, fontWeight: '600', color: c.text, marginRight: 8 },
+    time: { fontSize: 12, color: c.muted },
+    text: { fontSize: 15, lineHeight: 22, color: c.mutedForeground },
     divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 12, gap: 8 },
     dividerLine: { flex: 1, height: 1, backgroundColor: c.border },
-    dividerText: { fontSize: 12, color: c.textMuted },
+    dividerText: { fontSize: 12, color: c.muted },
     inputBar: {
       flexDirection: 'row', alignItems: 'flex-end',
       padding: 12, paddingBottom: 12 + bottomInset,
-      backgroundColor: c.bgTertiary,
+      backgroundColor: c.secondary,
     },
     input: {
-      flex: 1, backgroundColor: c.inputBg, borderRadius: 20,
+      flex: 1, backgroundColor: c.inputBackground, borderRadius: 20,
       paddingHorizontal: 16, paddingVertical: 10, fontSize: 15,
-      maxHeight: 100, marginRight: 8, color: c.textPrimary,
+      maxHeight: 100, marginRight: 8, color: c.text,
     },
     sendBtn: {
       width: 44, height: 44, borderRadius: 22,
-      backgroundColor: c.brand, justifyContent: 'center', alignItems: 'center',
+      backgroundColor: BRAND, justifyContent: 'center', alignItems: 'center',
     },
     sendBtnDisabled: { opacity: 0.4 },
   });

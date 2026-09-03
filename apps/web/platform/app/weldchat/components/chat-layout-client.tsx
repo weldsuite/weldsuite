@@ -4,17 +4,13 @@ import {
   ReactNode,
   useCallback,
   useEffect,
-  useMemo,
 } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { getTranslations } from '@/lib/i18n';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { useQueryClient } from '@tanstack/react-query';
 import { BreadcrumbProvider } from '@/contexts/breadcrumb-context';
 import { usePathname } from '@/lib/router';
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
-import { useWorkspaceMembers, weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
-import { TeamMemberDetailsPanel, fromTeamMember, type TeamMemberDetail } from '@/components/team-member-details-panel';
 import { AgentProfilePanel } from './agent-profile-panel';
 import { ChatHeader } from './chat-header';
 import { MemberListPanel } from './member-list-panel';
@@ -22,11 +18,11 @@ import { PinnedMessagesPanel } from './pinned-messages-panel';
 import { ThreadPanel } from './thread-panel';
 import { BookmarksPanel } from './bookmarks-panel';
 import { ChatFiltersPanel } from './chat-filters-panel';
-import { ChatContext, type RightPanel, type ReplyTo, type ChatFilters } from './chat-context';
+import { ChatContext, type RightPanel, type ReplyTo, type EditingMessage, type ChatFilters } from './chat-context';
 import { useEntitySheet } from '@/components/entity-sheet/use-entity-sheet';
 import { useObjectPanel } from '@/components/object-panel';
 import { ModuleContent } from '@/components/layout/module-content';
-export { useChatContext, type ReplyTo } from './chat-context';
+export { useChatContext, type ReplyTo, type EditingMessage } from './chat-context';
 
 export function ChatLayoutClient({ children }: { children: ReactNode }) {
   const t = getTranslations('weldchat');
@@ -61,6 +57,7 @@ export function ChatLayoutClient({ children }: { children: ReactNode }) {
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [threadMessageId, setThreadMessageId] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ReplyTo | null>(null);
+  const [editingMessage, setEditingMessage] = useState<EditingMessage | null>(null);
   const [filters, setFilters] = useState<ChatFilters>({ type: 'all', search: '', from: [], date: undefined });
   const [selectedProfileUserId, setSelectedProfileUserId] = useState<string | null>(null);
   const [selectedAgentProfileId, setSelectedAgentProfileId] = useState<string | null>(null);
@@ -124,7 +121,6 @@ export function ChatLayoutClient({ children }: { children: ReactNode }) {
 
   // Pre-read localStorage to know if the member detail panel should be open on mount
   const isDmPage = !!dmMatch?.[1];
-  const isIndividualDmPage = isDmPage && dmMatch?.[1] !== 'group';
   const dmPanelSavedOpen = isDmPage && localStorage.getItem('weldchat-dm-member-panel') !== 'false';
   const [memberDetailWidth, setMemberDetailWidth] = useState(dmPanelSavedOpen ? 480 : 0);
 
@@ -208,51 +204,37 @@ export function ChatLayoutClient({ children }: { children: ReactNode }) {
     setThreadMessageId(null);
     setRightPanel(null);
   }, []);
+  // Clicking a person opens the registered `team-member` object panel — the
+  // same EntityDetailView shell as Person, Company and Channel — rather than
+  // the bespoke TeamMemberDetailsPanel drawer. That drawer positioned itself
+  // `fixed` outside the object-panel stack, so it neither cascaded nor
+  // expanded like its siblings.
   const openUserProfile = useCallback((userId: string) => {
-    // Only one side panel is visible at a time. Close any open object
-    // panel (channel panel, etc.) before opening the user profile so they
-    // don't stack on top of each other.
-    const wasAnotherPanelOpen =
-      objectPanelStack.length > 0 || selectedProfileUserId !== null || selectedAgentProfileId !== null;
-    setSkipProfilePanelAnim(wasAnotherPanelOpen);
+    // Only one side panel is visible at a time — replace whatever is open.
     closeAllObjectPanels();
-    window.dispatchEvent(new CustomEvent('member-detail-panel-user-toggle'));
-    setSelectedProfileUserId(userId);
     setSelectedAgentProfileId(null);
-  }, [closeAllObjectPanels, objectPanelStack.length, selectedProfileUserId, selectedAgentProfileId]);
+    openObjectPanel({ type: 'team-member', id: userId });
+  }, [closeAllObjectPanels, openObjectPanel]);
   const closeUserProfile = useCallback(() => {
-    setSelectedProfileUserId(null);
-    setSkipProfilePanelAnim(false);
-  }, []);
+    closeAllObjectPanels();
+  }, [closeAllObjectPanels]);
   const openAgentProfile = useCallback((agentId: string) => {
-    const wasAnotherPanelOpen =
-      objectPanelStack.length > 0 || selectedProfileUserId !== null || selectedAgentProfileId !== null;
+    const wasAnotherPanelOpen = objectPanelStack.length > 0 || selectedAgentProfileId !== null;
     setSkipProfilePanelAnim(wasAnotherPanelOpen);
     closeAllObjectPanels();
     setSelectedAgentProfileId(agentId);
-    setSelectedProfileUserId(null);
-  }, [closeAllObjectPanels, objectPanelStack.length, selectedProfileUserId, selectedAgentProfileId]);
+  }, [closeAllObjectPanels, objectPanelStack.length, selectedAgentProfileId]);
   const closeAgentProfile = useCallback(() => {
     setSelectedAgentProfileId(null);
     setSkipProfilePanelAnim(false);
   }, []);
 
-  // Clear the selected profile when navigating between channels/DMs
+  // Clear the selected agent profile when navigating between channels/DMs.
+  // The member panel now lives in the object-panel stack, which ObjectPanelHost
+  // already closes on pathname change.
   useEffect(() => {
-    setSelectedProfileUserId(null);
     setSelectedAgentProfileId(null);
   }, [currentChannelId]);
-
-  // Resolve selected user → TeamMemberDetail. Individual DM pages manage
-  // their own panel, so skip there to avoid overlapping panels.
-  const { data: workspaceMembersData } = useWorkspaceMembers();
-  const queryClient = useQueryClient();
-  const profileMember: TeamMemberDetail | null = useMemo(() => {
-    if (!selectedProfileUserId || isIndividualDmPage) return null;
-    const all = workspaceMembersData?.data || [];
-    const found = all.find((m) => m.userId === selectedProfileUserId);
-    return found ? fromTeamMember(found) : null;
-  }, [selectedProfileUserId, isIndividualDmPage, workspaceMembersData]);
 
   return (
     <BreadcrumbProvider defaultBreadcrumbs={[{ label: st('sweep.weldchat.breadcrumb.chat'), href: '/weldchat' }]}>
@@ -267,6 +249,8 @@ export function ChatLayoutClient({ children }: { children: ReactNode }) {
           closeThread,
           replyTo,
           setReplyTo,
+          editingMessage,
+          setEditingMessage,
           filters,
           setFilters,
           selectedProfileUserId,
@@ -326,20 +310,9 @@ export function ChatLayoutClient({ children }: { children: ReactNode }) {
           </ModuleContent>
         </div>
 
-        {profileMember && (
-          <TeamMemberDetailsPanel
-            member={profileMember}
-            isOpen
-            onClose={closeUserProfile}
-            canManageMembers={false}
-            onRemoveMember={() => {}}
-            onMemberUpdated={() =>
-              queryClient.invalidateQueries({ queryKey: weldchatKeys.workspaceMembers() })
-            }
-            context="settings"
-            skipAnimation={skipProfilePanelAnim}
-          />
-        )}
+        {/* The member panel is rendered by <ObjectPanelHost /> at the app-shell
+            level now, from the `team-member` entry openUserProfile pushes onto
+            the object-panel stack — same as Person, Company and Channel. */}
 
         {selectedAgentProfileId && (
           <AgentProfilePanel

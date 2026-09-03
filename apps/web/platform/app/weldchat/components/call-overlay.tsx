@@ -1,10 +1,8 @@
 /**
  * WeldChat in-call views.
  *
- * These render the SAME shared `MeetingRoomView` / `PreviewView` as the WeldMeet
- * experience (via `chat-meeting-room.tsx`), driven by the WeldChat call context.
- * This file only owns the status → view routing and the inline/fullscreen
- * wrappers; the room itself lives in the shared `@weldsuite/weldmeet-ui` package.
+ * Status → view routing for inline / fullscreen wrappers. The room itself is
+ * Cloudflare RealtimeKit's official `RtkMeeting` (via `chat-meeting-room.tsx`).
  *
  * Exports consumed elsewhere:
  *   - InlineCallView  → channel / DM / group-DM conversation pages (inline)
@@ -33,13 +31,13 @@ import { ChatMeetingRoomView } from './chat-meeting-room';
 // ============================================================================
 
 export function InlineCallView() {
-  const { status, isFullscreen, isPiP } = useWeldChatCall();
+  const { status, isFullscreen, isPiP, meeting } = useWeldChatCall();
 
   // Fullscreen is owned by <CallOverlay/>; PiP by <PiPCallWidget/>.
   if (status === 'idle' || status === 'ended' || isFullscreen || isPiP) return null;
 
   // No pre-join preview — a brief connecting spinner, then straight into the room.
-  if (status === 'ringing-outgoing' || status === 'connecting') {
+  if (status === 'ringing-outgoing' || status === 'connecting' || !meeting) {
     return (
       <div className="flex-1 flex min-h-0">
         <ConnectingView />
@@ -47,7 +45,6 @@ export function InlineCallView() {
     );
   }
 
-  // Connected — MeetingRoomView returns plain flex-1 content when not fullscreen.
   return <ChatMeetingRoomView />;
 }
 
@@ -65,13 +62,12 @@ export function CallOverlay() {
 }
 
 function CallOverlayInner() {
-  const { status, isFullscreen } = useWeldChatCall();
+  const { status, isFullscreen, meeting } = useWeldChatCall();
 
   if (status === 'idle' || status === 'ended') return null;
   if (!isFullscreen) return null;
 
-  // No pre-join preview — a brief connecting spinner, then straight into the room.
-  if (status === 'ringing-outgoing' || status === 'connecting') {
+  if (status === 'ringing-outgoing' || status === 'connecting' || !meeting) {
     return (
       <div className="fixed inset-0 z-50 flex bg-background">
         <ConnectingView />
@@ -79,8 +75,6 @@ function CallOverlayInner() {
     );
   }
 
-  // Connected — MeetingRoomView self-wraps in a fixed inset-0 container because
-  // isFullscreen is true.
   return <ChatMeetingRoomView />;
 }
 
