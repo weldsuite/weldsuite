@@ -314,6 +314,11 @@ binding = "UNPIN_EXPIRED_MESSAGE"
 class_name = "UnpinExpiredMessageWorkflow"
 
 [[workflows]]
+name = "deferred-notification-email-dev"
+binding = "DEFERRED_NOTIFICATION_EMAIL"
+class_name = "DeferredNotificationEmailWorkflow"
+
+[[workflows]]
 name = "send-digest-v2-dev"
 binding = "SEND_DIGEST"
 class_name = "SendDigestWorkflow"
@@ -437,6 +442,11 @@ class_name = "TranscribeRecordingWorkflow"
 name = "unpin-expired-message-v2"
 binding = "UNPIN_EXPIRED_MESSAGE"
 class_name = "UnpinExpiredMessageWorkflow"
+
+[[env.test.workflows]]
+name = "deferred-notification-email"
+binding = "DEFERRED_NOTIFICATION_EMAIL"
+class_name = "DeferredNotificationEmailWorkflow"
 
 [[env.test.workflows]]
 name = "send-digest-v2"
@@ -599,6 +609,14 @@ class_name = "TranscribeRecordingWorkflow"
 name = "unpin-expired-message-v2"
 binding = "UNPIN_EXPIRED_MESSAGE"
 class_name = "UnpinExpiredMessageWorkflow"
+
+# Notification email defer window — hosted in this worker. Holds mail back
+# until the recipient has been away for the defer window, so an online user
+# never gets emailed about something already on their screen.
+[[env.production.workflows]]
+name = "deferred-notification-email"
+binding = "DEFERRED_NOTIFICATION_EMAIL"
+class_name = "DeferredNotificationEmailWorkflow"
 
 # Daily task digest — hosted in this worker (W4).
 [[env.production.workflows]]

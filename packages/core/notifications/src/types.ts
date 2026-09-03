@@ -36,6 +36,36 @@ export interface RealtimeBinding {
  * Structural env shape — both workers' `Env` types satisfy this. Any
  * binding/secret the notification service reads goes here.
  */
+/**
+ * Structural shape of a Cloudflare Workflow binding, narrowed to the one
+ * method the orchestrator calls. Declared here rather than importing
+ * `Workflow` from `cloudflare:workers` so the package stays buildable outside
+ * a Worker (tests, tooling) and worker-agnostic as promised above.
+ */
+export interface DeferredEmailWorkflow {
+  create(options: {
+    id?: string;
+    params: DeferredEmailParams;
+  }): Promise<unknown>;
+}
+
+/** Payload handed to the deferred-email workflow. */
+export interface DeferredEmailParams {
+  workspaceId: string;
+  userId: string;
+  /** Row in `notifications`; re-read on wake to check it is still unread. */
+  notificationId: string;
+  to: string;
+  subject: string;
+  fallbackText: string;
+  /** ISO timestamp the workflow sleeps until before re-checking. */
+  sendAfter: string;
+  template?: {
+    id: string;
+    variables: Record<string, string | number | boolean>;
+  };
+}
+
 export interface NotificationEnv {
   /** realtime-worker service binding — fans in-app notifications out to the
    *  user's WorkspaceHub personal topic. Optional: when missing (local dev
@@ -48,6 +78,14 @@ export interface NotificationEnv {
   /** Absolute base URL for action links in email/push, e.g.
    *  `https://app.weldsuite.org`. */
   PUBLIC_APP_URL?: string;
+  /**
+   * CF Workflow that holds a notification email back until the recipient has
+   * been away for `EMAIL_DEFER_MINUTES`, then sends only if they are still
+   * away and the notification is still unread. Optional: a worker that does
+   * not bind it falls back to sending immediately (the presence gate still
+   * applies, so an online user is never mailed either way).
+   */
+  DEFERRED_NOTIFICATION_EMAIL?: DeferredEmailWorkflow;
 }
 
 export interface ChannelPreferences {
