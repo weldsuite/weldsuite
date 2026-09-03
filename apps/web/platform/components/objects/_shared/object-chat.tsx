@@ -33,6 +33,7 @@ import {
   type ChatContextValue,
   type RightPanel,
   type ReplyTo,
+  type EditingMessage,
   type ChatFilters,
 } from '@/app/weldchat/components/chat-context';
 import { EntityChatHeader } from '@/components/entity-chat/entity-chat-header';
@@ -87,6 +88,7 @@ export function ObjectChatShell({
   const queryClient = useQueryClient();
   const { user } = useUser();
   const [replyTo, setReplyTo] = useState<ReplyTo | null>(null);
+  const [editingMessage, setEditingMessage] = useState<EditingMessage | null>(null);
   const [filters, setFilters] = useState<ChatFilters>({
     type: 'all',
     search: '',
@@ -106,6 +108,8 @@ export function ObjectChatShell({
       closeThread: () => {},
       replyTo,
       setReplyTo,
+      editingMessage,
+      setEditingMessage,
       filters,
       setFilters,
       selectedProfileUserId: null,
@@ -115,7 +119,7 @@ export function ObjectChatShell({
       openAgentProfile: () => {},
       closeAgentProfile: () => {},
     }),
-    [replyTo, filters, channel?.id],
+    [replyTo, editingMessage, filters, channel?.id],
   );
 
   if (channelQuery.isLoading) {

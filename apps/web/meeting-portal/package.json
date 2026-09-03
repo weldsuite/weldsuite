@@ -15,7 +15,7 @@
     "postinstall": "df3-install-worklet public/df3-worklet-processor.js && df3-install-rnnoise-worker public/rnnoise-worker.js"
   },
   "dependencies": {
-    "@cloudflare/realtimekit": "^1.2.5",
+    "@cloudflare/realtimekit": "^2.0.2",
     "@cloudflare/realtimekit-virtual-background": "^0.0.2",
     "@hookform/resolvers": "^5.2.1",
     "@neondatabase/serverless": "^1.0.1",

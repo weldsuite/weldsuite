@@ -45,7 +45,16 @@ for (const f of readdirSync(assetsDir)) {
 
 // Matches `assets/<name>.js`, `/assets/<name>.css`, `./<name>.js` — the forms
 // Vite uses in mapDeps tables, import specifiers, and HTML href/src attrs.
-const refRe = /(?:\.?\/)?assets\/([A-Za-z0-9._-]+\.(?:js|css))|(?:^|["'(])\.\/([A-Za-z0-9._-]+\.(?:js|css))/g;
+//
+// Two guards keep it from inventing references that were never local chunks:
+//   * the trailing `(?![A-Za-z0-9._-])` boundary, so a longer extension is not
+//     truncated to a shorter one. Without it the RealtimeKit UI bundle's
+//     `https://rtk-assets.realtime.cloudflare.com/assets/emojis-data.json`
+//     read as a missing `emojis-data.js` and failed every build.
+//   * the leading `https?://` lookbehind, so assets served from a remote origin
+//     are not expected to exist in this dist.
+const refRe =
+  /(?<!https?:\/\/[^"'\s]{0,300})(?:(?:\.?\/)?assets\/([A-Za-z0-9._-]+\.(?:js|css))|(?:^|["'(])\.\/([A-Za-z0-9._-]+\.(?:js|css)))(?![A-Za-z0-9._-])/g;
 
 const missing = new Map(); // missing filename -> Set(referencing files)
 

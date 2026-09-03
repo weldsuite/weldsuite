@@ -50,7 +50,7 @@ import {
 import { useWeldChatPresence } from '@/hooks/weldchat/use-weldchat-presence';
 import { MessageList } from '@/app/weldchat/components/message-list';
 import { MessageInput } from '@/app/weldchat/components/message-input';
-import { ChatContext, type ReplyTo, type RightPanel, type ChatFilters } from '@/app/weldchat/components/chat-context';
+import { ChatContext, type ReplyTo, type EditingMessage, type RightPanel, type ChatFilters } from '@/app/weldchat/components/chat-context';
 import {
   useMemberApps,
   useMemberPermissions,
@@ -223,6 +223,7 @@ function EmbeddedDmChat({ targetUserId }: { targetUserId: string }) {
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
   const [threadMessageId, setThreadMessageId] = useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ReplyTo | null>(null);
+  const [editingMessage, setEditingMessage] = useState<EditingMessage | null>(null);
   const [filters, setFilters] = useState<ChatFilters>({ type: 'all', search: '', from: [], date: undefined });
 
   const chatContextValue = React.useMemo(() => ({
@@ -235,6 +236,8 @@ function EmbeddedDmChat({ targetUserId }: { targetUserId: string }) {
     closeThread: () => setThreadMessageId(null),
     replyTo,
     setReplyTo,
+    editingMessage,
+    setEditingMessage,
     filters,
     setFilters,
     selectedProfileUserId: null,
@@ -243,7 +246,7 @@ function EmbeddedDmChat({ targetUserId }: { targetUserId: string }) {
     selectedAgentProfileId: null,
     openAgentProfile: () => {},
     closeAgentProfile: () => {},
-  }), [rightPanel, threadMessageId, replyTo, filters]);
+  }), [rightPanel, threadMessageId, replyTo, editingMessage, filters]);
 
   const channel = data?.data;
   const channelId = channel?.id;
