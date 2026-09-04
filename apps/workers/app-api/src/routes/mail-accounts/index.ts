@@ -139,6 +139,14 @@ function mapMailAccountError(c: Parameters<typeof error.badRequest>[0], err: Mai
       return error.conflict(c, err.message);
     case 'DOMAIN_NOT_IN_WELDHOST':
       return error.badRequest(c, err.message);
+    // 409 with its own code rather than error.conflict(), which flattens every
+    // conflict to code 'CONFLICT' — the setup dialog branches on this code to
+    // explain the one-inbound-provider rule instead of a generic failure toast.
+    case 'DOMAIN_HAS_EXISTING_MX':
+      return c.json(
+        { error: { code: 'DOMAIN_HAS_EXISTING_MX', message: err.message, details: err.details } },
+        409,
+      );
     case 'NOT_FOUND':
       return error.notFound(c, 'Mail account');
     case 'CLOUDFLARE_PROVISION_FAILED':

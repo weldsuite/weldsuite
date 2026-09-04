@@ -19,6 +19,11 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { Alert, AlertDescription } from '@weldsuite/ui/components/alert';
+import { isApiError } from '@weldsuite/api-client';
+import {
+  MailAccessPicker,
+  useMailAccessSelection,
+} from '@/app/weldmail/components/mail-access-picker';
 import {
   Plus,
   AlertCircle,
@@ -72,6 +77,9 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: SetupAdd
   const { isInstalled: weldhostInstalled, isLoading: weldhostLoading } = useAppAccess('weldhost');
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  // Who can open the account, chosen at create time rather than via a
+  // follow-up trip through settings › Manage access.
+  const access = useMailAccessSelection();
   const [accountType, setAccountType] = useState<AccountType>('select');
 
   // Custom domain state
@@ -157,13 +165,23 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: SetupAdd
         syncFrequency: 5,
         dailySendLimit: 500,
         isDefault: false,
-        isShared: true,
+        ...access.resolve(),
       });
       toast.success(t.mail.addAccount.emailAccountCreatedSuccessfully);
       setOpen(false);
       window.dispatchEvent(new CustomEvent('mail-accounts-changed'));
-    } catch {
-      toast.error(t.mail.addAccount.failedToCreateEmailAccount);
+    } catch (err) {
+      // The domain already routes inbound mail elsewhere. app-api answers 409
+      // with this code so the dialog can say what to fix (a DNS edit) rather
+      // than the generic "failed to create" toast.
+      const code = isApiError(err)
+        ? (err.body as { error?: { code?: string } } | undefined)?.error?.code
+        : undefined;
+      toast.error(
+        code === 'DOMAIN_HAS_EXISTING_MX'
+          ? t.mail.addAccount.domainHasExistingMx.replace('{domain}', selectedDomain)
+          : t.mail.addAccount.failedToCreateEmailAccount,
+      );
     } finally {
       setLoading(false);
     }
@@ -555,6 +573,10 @@ export function SetupAddAccount({ label: labelProp, disabled = false }: SetupAdd
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
                   />
+                </div>
+
+                <div className="border-t pt-4">
+                  <MailAccessPicker selection={access} idPrefix="add-account" />
                 </div>
               </>
             )}
