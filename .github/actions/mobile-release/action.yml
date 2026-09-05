@@ -1,0 +1,137 @@
+name: Mobile release
+description: >-
+  Publish an OTA update, and trigger a native build when the project's
+  fingerprint no longer matches any binary released on the channel.
+
+inputs:
+  app-dir:
+    description: Path to the Expo app, e.g. apps/mobile/weldmail-app.
+    required: true
+  channel:
+    description: >-
+      EAS channel to release to. Doubles as the eas.json build profile name,
+      so `preview` and `production` must exist in both places.
+    required: true
+  message:
+    description: Message recorded on the update and on any build it triggers.
+    required: true
+  auto-submit:
+    description: >-
+      When a native build is triggered, submit it on completion to TestFlight
+      (iOS) and the Play track named in eas.json (Android). Requires a populated
+      `submit` profile plus store credentials on EAS, so it is off by default —
+      turning it on without those makes the step fail immediately. Releasing to
+      the public stays manual either way.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    # An OTA update only reaches a binary whose fingerprint matches it. When the
+    # native surface changes, `eas update` still succeeds but reaches nobody, so
+    # check for a matching binary first and say plainly which case we are in.
+    - name: Check fingerprint against released binaries
+      id: fingerprint
+      shell: bash
+      working-directory: ${{ inputs.app-dir }}
+      env:
+        APP_DIR: ${{ inputs.app-dir }}
+        CHANNEL: ${{ inputs.channel }}
+      run: |
+        set -euo pipefail
+
+        needs_build=false
+        summary=""
+
+        for platform in android ios; do
+          hash="$(eas fingerprint:generate \
+            --platform "$platform" \
+            --build-profile "$CHANNEL" \
+            --json --non-interactive | jq -r '.hash')"
+
+          if [ -z "$hash" ] || [ "$hash" = "null" ]; then
+            echo "::error::Could not compute the $platform fingerprint."
+            exit 1
+          fi
+
+          # --fingerprint-hash asks the question we actually care about: does a
+          # binary that can run this bundle exist on the channel? Comparing
+          # against "the latest build" would give a wrong answer whenever builds
+          # land out of order or only one platform was rebuilt.
+          matches="$(eas build:list \
+            --channel "$CHANNEL" \
+            --platform "$platform" \
+            --status finished \
+            --fingerprint-hash "$hash" \
+            --limit 1 --json --non-interactive | jq 'length')"
+
+          if [ "$matches" -eq 0 ]; then
+            needs_build=true
+            summary="${summary}- \`$platform\`: no released binary matches \`$hash\` — native build required"$'\n'
+          else
+            summary="${summary}- \`$platform\`: matched by a released binary (\`$hash\`) — update applies over the air"$'\n'
+          fi
+        done
+
+        echo "needs-build=$needs_build" >> "$GITHUB_OUTPUT"
+        {
+          echo "### $APP_DIR (\`$CHANNEL\`)"
+          echo ""
+          echo "$summary"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    # Published in both cases. When a build is needed this update carries the new
+    # fingerprint, so it reaches nobody today and is picked up by the binary
+    # queued below once that ships — which is what we want, and is exactly the
+    # incompatible-bundle delivery the fingerprint policy exists to prevent.
+    - name: Publish OTA update
+      shell: bash
+      working-directory: ${{ inputs.app-dir }}
+      env:
+        CHANNEL: ${{ inputs.channel }}
+        MESSAGE: ${{ inputs.message }}
+      run: |
+        set -euo pipefail
+        eas update \
+          --channel "$CHANNEL" \
+          --environment "$CHANNEL" \
+          --message "$MESSAGE" \
+          --non-interactive
+
+    - name: Queue native build
+      if: steps.fingerprint.outputs.needs-build == 'true'
+      shell: bash
+      working-directory: ${{ inputs.app-dir }}
+      env:
+        CHANNEL: ${{ inputs.channel }}
+        MESSAGE: ${{ inputs.message }}
+        AUTO_SUBMIT: ${{ inputs.auto-submit }}
+      run: |
+        set -euo pipefail
+
+        # --no-wait: builds take tens of minutes and nothing downstream depends
+        # on the binary, so the deploy should not hold a runner open for it.
+        args=(build
+          --platform all
+          --profile "$CHANNEL"
+          --message "$MESSAGE"
+          --non-interactive
+          --no-wait)
+
+        if [ "$AUTO_SUBMIT" = "true" ]; then
+          args+=(--auto-submit)
+        fi
+
+        eas "${args[@]}"
+
+        {
+          echo ""
+          if [ "$AUTO_SUBMIT" = "true" ]; then
+            echo "Native build queued and will be submitted to the internal track on completion. Releasing it to the public is still a manual step."
+          else
+            echo "Native build queued. Submitting it to the stores is a manual step (\`auto-submit\` is off for this app)."
+          fi
+          echo ""
+          echo "**The update published above does not reach existing installs until this build ships.**"
+        } >> "$GITHUB_STEP_SUMMARY"
