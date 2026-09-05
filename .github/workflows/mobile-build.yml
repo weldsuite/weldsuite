@@ -135,8 +135,10 @@ jobs:
     name: Build ${{ matrix.app }} ${{ matrix.platform }} (${{ inputs.channel }})
     needs: select
     # iOS needs Xcode; Android is cheaper on Linux. Both are free for public
-    # repositories on GitHub-hosted runners.
-    runs-on: ${{ matrix.platform == 'ios' && 'macos-15' || 'ubuntu-latest' }}
+    # repositories on GitHub-hosted runners. macos-26 rather than macos-15,
+    # whose Xcode 16 cannot resolve the project's Swift package graph, see
+    # "Select Xcode".
+    runs-on: ${{ matrix.platform == 'ios' && 'macos-26' || 'ubuntu-latest' }}
     # Holds EXPO_TOKEN. Add required reviewers here for an approval step.
     environment: ${{ inputs.channel == 'production' && 'production' || 'test' }}
     timeout-minutes: 120
@@ -150,6 +152,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
+
+      # `clerk-ios`, pulled in as a Swift package by `@clerk/expo`, declares
+      # swift-tools-version 6.2, which only Xcode 26 and later understand: under
+      # Xcode 16 `xcodebuild -resolvePackageDependencies` fails with
+      # "'clerk-ios' >= 1.2.0 contains incompatible tools version (6.2.0)"
+      # before a single file is compiled. Select the newest installed Xcode 26
+      # explicitly rather than trusting the image default, for the same reason
+      # the JDK below is pinned.
+      - name: Select Xcode
+        if: matrix.platform == 'ios'
+        run: |
+          set -euo pipefail
+          xcode="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -z "$xcode" ]; then
+            echo "::error title=Xcode 26 missing::The runner image ships no Xcode 26, which clerk-ios needs for swift-tools 6.2."
+            exit 1
+          fi
+          sudo xcode-select --switch "$xcode/Contents/Developer"
+          xcodebuild -version
 
       # Pinned rather than left to the runner image default, so an image bump
       # cannot silently move the Gradle toolchain under us.
