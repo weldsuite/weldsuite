@@ -3,6 +3,13 @@
 # that the update reaches nobody — but which apps are worth a build and a store
 # review is a judgement call, so it is made here, by hand, per app.
 #
+# Builds run on GitHub-hosted runners via `eas build --local`, not on EAS
+# builders, so they cost no EAS build quota. `--local` still talks to EAS for
+# the things that are genuinely hard to self-host: signing credentials, the
+# remote `appVersionSource` counter, and the `expo-channel-name` that gets baked
+# into the binary and decides which OTA channel it subscribes to. Set
+# `builder: eas` to fall back to a cloud build.
+#
 # The job runs in the `test` / `production` GitHub Environment, which is where
 # EXPO_TOKEN lives. Adding required reviewers to that environment turns this
 # into a second approval gate on top of the manual dispatch.
@@ -23,6 +30,12 @@ on:
         required: true
         default: all
         options: [all, android, ios]
+      builder:
+        description: 'local = build on a GitHub runner (no EAS build quota). eas = queue on EAS builders.'
+        type: choice
+        required: true
+        default: local
+        options: [local, eas]
       weldmail:
         description: 'WeldMail'
         type: boolean
@@ -55,11 +68,15 @@ concurrency:
 jobs:
   # Turns the ticked boxes into a matrix. Fails closed when nothing is ticked,
   # rather than starting a run that silently builds nothing.
+  #
+  # The matrix is per app *and* per platform: `--local` cannot build `all` in
+  # one go, and iOS needs a macOS runner while Android is happy on Linux, so the
+  # two platforms have to be separate jobs regardless.
   select:
-    name: Select apps
+    name: Select builds
     runs-on: ubuntu-latest
     outputs:
-      apps: ${{ steps.pick.outputs.apps }}
+      builds: ${{ steps.pick.outputs.builds }}
     steps:
       - name: Collect selected apps
         id: pick
@@ -71,6 +88,7 @@ jobs:
           WELDAGENT: ${{ inputs.weldagent }}
           CHANNEL: ${{ inputs.channel }}
           PLATFORM: ${{ inputs.platform }}
+          BUILDER: ${{ inputs.builder }}
         run: |
           set -euo pipefail
 
@@ -89,28 +107,59 @@ jobs:
             exit 1
           fi
 
-          json="$(printf '%s\n' "${apps[@]}" | jq -R . | jq -sc .)"
-          echo "apps=$json" >> "$GITHUB_OUTPUT"
+          if [ "$PLATFORM" = "all" ]; then
+            platforms=(android ios)
+          else
+            platforms=("$PLATFORM")
+          fi
+
+          json="$(
+            for app in "${apps[@]}"; do
+              for platform in "${platforms[@]}"; do
+                jq -nc --arg app "$app" --arg platform "$platform" \
+                  '{app: $app, platform: $platform}'
+              done
+            done | jq -sc .
+          )"
+          echo "builds=$json" >> "$GITHUB_OUTPUT"
 
           {
-            echo "### Queuing native builds (\`$CHANNEL\`, $PLATFORM)"
+            echo "### Queuing native builds (\`$CHANNEL\`, $PLATFORM, \`$BUILDER\`)"
             echo ""
-            printf -- '- %s\n' "${apps[@]}"
+            for app in "${apps[@]}"; do
+              printf -- '- %s: %s\n' "$app" "${platforms[*]}"
+            done
           } >> "$GITHUB_STEP_SUMMARY"
 
   build:
-    name: Build ${{ matrix.app }} (${{ inputs.channel }})
+    name: Build ${{ matrix.app }} ${{ matrix.platform }} (${{ inputs.channel }})
     needs: select
-    runs-on: ubuntu-latest
+    # iOS needs Xcode; Android is cheaper on Linux. Both are free for public
+    # repositories on GitHub-hosted runners.
+    runs-on: ${{ matrix.platform == 'ios' && 'macos-15' || 'ubuntu-latest' }}
     # Holds EXPO_TOKEN. Add required reviewers here for an approval step.
     environment: ${{ inputs.channel == 'production' && 'production' || 'test' }}
+    timeout-minutes: 120
+    # Records the built fingerprint as a tag, see "Record the built fingerprint".
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
-        app: ${{ fromJSON(needs.select.outputs.apps) }}
+        include: ${{ fromJSON(needs.select.outputs.builds) }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
+
+      # Pinned rather than left to the runner image default, so an image bump
+      # cannot silently move the Gradle toolchain under us.
+      - name: Setup JDK 17
+        if: matrix.platform == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - uses: expo/expo-github-action@v8
         with:
           eas-version: latest
@@ -127,38 +176,171 @@ jobs:
             exit 1
           fi
 
-      - name: Queue native build
+      # EAS's own build caching is disabled for local builds, so cache the
+      # shared caches the underlying tools read from the home directory instead.
+      - name: Cache Gradle
+        if: matrix.platform == 'android' && inputs.builder == 'local'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ matrix.app }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: gradle-${{ matrix.app }}-
+
+      - name: Cache CocoaPods
+        if: matrix.platform == 'ios' && inputs.builder == 'local'
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/CocoaPods
+          key: pods-${{ matrix.app }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pods-${{ matrix.app }}-
+
+      # Computed before the build so it can be recorded afterwards. This is the
+      # same hash `.github/actions/mobile-release` compares against at deploy
+      # time to decide whether an OTA update reaches any installed binary.
+      - name: Compute fingerprint
+        id: fingerprint
+        working-directory: apps/mobile/${{ matrix.app }}-app
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          hash="$(eas fingerprint:generate \
+            --platform "$PLATFORM" \
+            --build-profile "$CHANNEL" \
+            --json --non-interactive | jq -r '.hash')"
+
+          if [ -z "$hash" ] || [ "$hash" = "null" ]; then
+            echo "::error::Could not compute the $PLATFORM fingerprint."
+            exit 1
+          fi
+          echo "hash=$hash" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        id: build
         working-directory: apps/mobile/${{ matrix.app }}-app
         env:
           CHANNEL: ${{ inputs.channel }}
-          PLATFORM: ${{ inputs.platform }}
+          PLATFORM: ${{ matrix.platform }}
+          BUILDER: ${{ inputs.builder }}
           AUTO_SUBMIT: ${{ inputs.auto-submit }}
           APP: ${{ matrix.app }}
+          ARTIFACT_DIR: ${{ runner.temp }}/build
           MESSAGE: manual build of ${{ github.sha }} (${{ inputs.channel }}) by ${{ github.actor }}
         run: |
           set -euo pipefail
 
-          # --no-wait: builds take tens of minutes and nothing downstream depends
-          # on the binary, so the run should not hold a runner open for it.
           args=(build
             --platform "$PLATFORM"
             --profile "$CHANNEL"
             --message "$MESSAGE"
-            --non-interactive
-            --no-wait)
+            --non-interactive)
 
-          if [ "$AUTO_SUBMIT" = "true" ]; then
-            args+=(--auto-submit)
+          if [ "$BUILDER" != "local" ]; then
+            # --no-wait: cloud builds take tens of minutes and nothing
+            # downstream depends on the binary, so the run should not hold a
+            # runner open for it.
+            args+=(--no-wait)
+            if [ "$AUTO_SUBMIT" = "true" ]; then
+              args+=(--auto-submit)
+            fi
+            eas "${args[@]}"
+            exit 0
           fi
 
-          eas "${args[@]}"
+          # `distribution: internal` yields an APK on Android; the default
+          # (production) yields an app bundle.
+          if [ "$PLATFORM" = "ios" ]; then
+            ext=ipa
+          elif [ "$CHANNEL" = "production" ]; then
+            ext=aab
+          else
+            ext=apk
+          fi
 
+          mkdir -p "$ARTIFACT_DIR"
+          output="$ARTIFACT_DIR/$APP-$CHANNEL-$PLATFORM.$ext"
+
+          # --auto-submit is a cloud-build feature; local builds submit from the
+          # artifact on disk in the next step instead.
+          eas "${args[@]}" --local --output "$output"
+
+          echo "artifact=$output" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        if: inputs.builder == 'local'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app }}-${{ inputs.channel }}-${{ matrix.platform }}
+          path: ${{ steps.build.outputs.artifact }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Submit to store
+        if: inputs.builder == 'local' && inputs.auto-submit
+        working-directory: apps/mobile/${{ matrix.app }}-app
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          PLATFORM: ${{ matrix.platform }}
+          ARTIFACT: ${{ steps.build.outputs.artifact }}
+        run: |
+          set -euo pipefail
+          eas submit \
+            --platform "$PLATFORM" \
+            --profile "$CHANNEL" \
+            --path "$ARTIFACT" \
+            --non-interactive
+
+      # A local build never reaches EAS servers, so `eas build:list
+      # --fingerprint-hash` cannot see it and the deploy-time check in
+      # .github/actions/mobile-release would report "native build required"
+      # forever. Record the fingerprint as a tag instead — cheap, immutable,
+      # readable with a single `git ls-remote`, and it does not push a commit
+      # that would re-trigger `deploy.yml`.
+      - name: Record the built fingerprint
+        if: inputs.builder == 'local'
+        env:
+          APP: ${{ matrix.app }}
+          CHANNEL: ${{ inputs.channel }}
+          PLATFORM: ${{ matrix.platform }}
+          HASH: ${{ steps.fingerprint.outputs.hash }}
+        run: |
+          set -euo pipefail
+          tag="mobile-binary/$APP/$CHANNEL/$PLATFORM/$HASH"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "Fingerprint already recorded as $tag."
+            exit 0
+          fi
+
+          git tag "$tag"
+          git push origin "refs/tags/$tag"
+
+      - name: Summary
+        if: steps.build.outcome == 'success'
+        env:
+          APP: ${{ matrix.app }}
+          CHANNEL: ${{ inputs.channel }}
+          PLATFORM: ${{ matrix.platform }}
+          BUILDER: ${{ inputs.builder }}
+          AUTO_SUBMIT: ${{ inputs.auto-submit }}
+          HASH: ${{ steps.fingerprint.outputs.hash }}
+        run: |
+          set -euo pipefail
           {
-            echo "### $APP (\`$CHANNEL\`, $PLATFORM)"
+            echo "### $APP $PLATFORM (\`$CHANNEL\`, \`$BUILDER\`)"
             echo ""
-            if [ "$AUTO_SUBMIT" = "true" ]; then
-              echo "Build queued, and will be submitted to the internal track on completion. Releasing it to the public is still a manual step."
+            echo "- Fingerprint: \`$HASH\`"
+            if [ "$BUILDER" = "local" ]; then
+              echo "- Built on this runner — no EAS build quota used. The binary is attached to this run as an artifact."
             else
-              echo "Build queued. Submitting it to the stores is a manual step."
+              echo "- Queued on EAS builders."
+            fi
+            if [ "$AUTO_SUBMIT" = "true" ]; then
+              echo "- Submitted to the internal track. Releasing it to the public is still a manual step."
+            else
+              echo "- Submitting it to the stores is a manual step."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
