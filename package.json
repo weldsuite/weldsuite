@@ -15,8 +15,6 @@
     "secrets:sync": "npx tsx scripts/secrets/sync.ts",
     "secrets:dev": "npx tsx scripts/secrets/dev-vars.ts",
     "create:mobile-app": "node scripts/create-mobile-app.mjs",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
     "storybook": "turbo run dev --filter=storybook",
     "storybook:build": "turbo run storybook:build --filter=storybook"
   },
@@ -53,7 +51,6 @@
     "color": "^4.2.3",
     "embla-carousel-autoplay": "^8.6.0",
     "emoji-picker-react": "^4.14.0",
-    "expo": "~54.0.30",
     "firebase": "^12.1.0",
     "ioredis": "^5.7.0",
     "jotai": "^2.15.1",
@@ -62,7 +59,6 @@
     "lodash.throttle": "^4.1.1",
     "postmark": "^4.0.5",
     "react": "19.2.3",
-    "react-native": "0.81.5",
     "stripe": "^18.3.0",
     "tunnel-rat": "^0.1.2",
     "zod": "^4.1.0"

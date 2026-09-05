@@ -2,7 +2,7 @@
   "expo": {
     "name": "WeldStash",
     "slug": "weldstash-app",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "weldstash",
@@ -87,6 +87,6 @@
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
     },
-    "runtimeVersion": "1.0.0"
+    "runtimeVersion": "1.0.1"
   }
 }
