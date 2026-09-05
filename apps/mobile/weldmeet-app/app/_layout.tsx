@@ -28,7 +28,6 @@ import { InstalledAppsProvider } from '@weldsuite/mobile-ui/contexts/InstalledAp
 import { appApi, setAppApiTokenGetter } from '@/services/app-api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { RealtimeProvider } from '@/providers/realtime-provider';
-import { useUpdateGate } from '@/hooks/useUpdateGate';
 
 // Must run before any screen mounts — enables per-route TTR/TTI in Observe.
 Observe.configure({
@@ -209,23 +208,10 @@ function AuthenticatedApp() {
 }
 
 function RootLayout() {
-  // First-launch OTA gate: check for and apply the latest update before the app
-  // renders, so first-time installers never see the stale embedded bundle.
-  const checkingUpdate = useUpdateGate();
-
   useEffect(() => {
     const safety = setTimeout(() => hideAppSplash(), 5000);
     return () => clearTimeout(safety);
   }, []);
-
-  if (checkingUpdate) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
-        <ActivityIndicator size="large" color="#7C3AED" />
-        <Text style={{ marginTop: 16, color: '#666' }}>Updating…</Text>
-      </View>
-    );
-  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

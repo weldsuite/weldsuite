@@ -380,7 +380,7 @@ jobs:
           fi
 
   mobile-weldmail:
-    name: Release WeldMail (OTA)
+    name: Release WeldMail (mobile)
     needs: [prepare, workers, mobile-preflight]
     if: >-
       always() && !failure() && !cancelled() &&
@@ -396,21 +396,18 @@ jobs:
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
-      - name: Publish OTA update
-        working-directory: apps/mobile/weldmail-app
+      - name: Release
+        uses: ./.github/actions/mobile-release
         env:
           EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
           EXPO_PUBLIC_PERSONAL_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://personal-api-test.weldsuite.org' || 'https://personal-api.weldsuite.org' }}
-        run: |
-          CHANNEL="${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}"
-          eas update \
-            --channel "$CHANNEL" \
-            --environment "$CHANNEL" \
-            --message "deploy ${{ needs.prepare.outputs.sha }} ($CHANNEL)" \
-            --non-interactive
+        with:
+          app-dir: apps/mobile/weldmail-app
+          channel: ${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}
+          message: deploy ${{ needs.prepare.outputs.sha }} (${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }})
 
   mobile-weldchat:
-    name: Release WeldChat (OTA)
+    name: Release WeldChat (mobile)
     needs: [prepare, workers, mobile-preflight]
     if: >-
       always() && !failure() && !cancelled() &&
@@ -426,20 +423,17 @@ jobs:
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
-      - name: Publish OTA update
-        working-directory: apps/mobile/weldchat-app
+      - name: Release
+        uses: ./.github/actions/mobile-release
         env:
           EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
-        run: |
-          CHANNEL="${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}"
-          eas update \
-            --channel "$CHANNEL" \
-            --environment "$CHANNEL" \
-            --message "deploy ${{ needs.prepare.outputs.sha }} ($CHANNEL)" \
-            --non-interactive
+        with:
+          app-dir: apps/mobile/weldchat-app
+          channel: ${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}
+          message: deploy ${{ needs.prepare.outputs.sha }} (${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }})
 
   mobile-weldbooks:
-    name: Release WeldBooks (OTA)
+    name: Release WeldBooks (mobile)
     needs: [prepare, workers, mobile-preflight]
     if: >-
       always() && !failure() && !cancelled() &&
@@ -455,21 +449,18 @@ jobs:
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
-      - name: Publish OTA update
-        working-directory: apps/mobile/weldbooks-app
+      - name: Release
+        uses: ./.github/actions/mobile-release
         env:
           EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
-        run: |
-          CHANNEL="${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}"
-          eas update \
-            --channel "$CHANNEL" \
-            --environment "$CHANNEL" \
-            --message "deploy ${{ needs.prepare.outputs.sha }} ($CHANNEL)" \
-            --non-interactive
+        with:
+          app-dir: apps/mobile/weldbooks-app
+          channel: ${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}
+          message: deploy ${{ needs.prepare.outputs.sha }} (${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }})
 
   mobile-weldflow:
-    name: Release WeldFlow (OTA)
+    name: Release WeldFlow (mobile)
     needs: [prepare, workers, mobile-preflight]
     if: >-
       always() && !failure() && !cancelled() &&
@@ -485,21 +476,18 @@ jobs:
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
-      - name: Publish OTA update
-        working-directory: apps/mobile/weldflow-app
+      - name: Release
+        uses: ./.github/actions/mobile-release
         env:
           EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
-        run: |
-          CHANNEL="${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}"
-          eas update \
-            --channel "$CHANNEL" \
-            --environment "$CHANNEL" \
-            --message "deploy ${{ needs.prepare.outputs.sha }} ($CHANNEL)" \
-            --non-interactive
+        with:
+          app-dir: apps/mobile/weldflow-app
+          channel: ${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}
+          message: deploy ${{ needs.prepare.outputs.sha }} (${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }})
 
   mobile-weldagent:
-    name: Release WeldAgent (OTA)
+    name: Release WeldAgent (mobile)
     needs: [prepare, workers, mobile-preflight]
     if: >-
       always() && !failure() && !cancelled() &&
@@ -515,20 +503,17 @@ jobs:
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
-      - name: Publish OTA update
-        working-directory: apps/mobile/weldagent-app
+      - name: Release
+        uses: ./.github/actions/mobile-release
         env:
           EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
           EXPO_PUBLIC_EAS_PROJECT_ID: cc1b21b9-17f3-490b-8088-3c62761d1d00
           EAS_PROJECT_ID: cc1b21b9-17f3-490b-8088-3c62761d1d00
-        run: |
-          CHANNEL="${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}"
-          eas update \
-            --channel "$CHANNEL" \
-            --environment "$CHANNEL" \
-            --message "deploy ${{ needs.prepare.outputs.sha }} ($CHANNEL)" \
-            --non-interactive
+        with:
+          app-dir: apps/mobile/weldagent-app
+          channel: ${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}
+          message: deploy ${{ needs.prepare.outputs.sha }} (${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }})
 
   frontend:
     name: Deploy platform (${{ needs.prepare.outputs.cf_env }} Pages)

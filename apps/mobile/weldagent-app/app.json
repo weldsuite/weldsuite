@@ -156,7 +156,7 @@
       "fallbackToCacheTimeout": 0
     },
     "runtimeVersion": {
-      "policy": "appVersion"
+      "policy": "fingerprint"
     }
   }
 }

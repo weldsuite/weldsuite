@@ -75,13 +75,8 @@
       }
     },
     "owner": "weldsuite",
-    "updates": {
-      "url": "https://u.expo.dev/{{EAS_PROJECT_ID}}",
-      "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 0
-    },
     "runtimeVersion": {
-      "policy": "appVersion"
+      "policy": "fingerprint"
     }
   }
 }

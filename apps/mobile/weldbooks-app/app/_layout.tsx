@@ -32,7 +32,6 @@ import { EntityEmptyState } from '@/components/entity-setup';
 import { AdministrationSheet } from '@/components/administration-switcher';
 import { ErrorState } from '@/components/data-states';
 import { Screen } from '@/components/screen';
-import { useUpdateGate } from '@/hooks/useUpdateGate';
 import {
   I18nProvider,
   ProfileLanguageSync,
@@ -254,9 +253,6 @@ function Splash({ label }: { label: string }) {
 }
 
 function RootLayout() {
-  // First-launch OTA gate: check for and apply the latest update before the app
-  // renders, so first-time installers never see the stale embedded bundle.
-  const checkingUpdate = useUpdateGate();
   const persisted = usePersistedLanguage();
 
   useEffect(() => {
@@ -264,7 +260,7 @@ function RootLayout() {
     return () => clearTimeout(safety);
   }, []);
 
-  if (checkingUpdate || !persisted.ready) {
+  if (!persisted.ready) {
     const catalog = persisted.language === 'nl' ? nl : en;
     return <Splash label={catalog.common.updating} />;
   }

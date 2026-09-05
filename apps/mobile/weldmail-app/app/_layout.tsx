@@ -34,7 +34,6 @@ import { OfflineBanner } from '@/components/OfflineBanner';
 import { OutboxFlusher } from '@/components/OutboxFlusher';
 import { useMailRealtime } from '@/hooks/useMailRealtime';
 import { usePersonalMailRealtime } from '@/hooks/usePersonalMailRealtime';
-import { useUpdateGate } from '@/hooks/useUpdateGate';
 import { BRAND } from '@/lib/brand';
 
 // Must run before any screen mounts — enables per-route TTR/TTI in Observe.
@@ -333,8 +332,6 @@ function AuthenticatedApp() {
 }
 
 function RootLayout() {
-  const checkingUpdate = useUpdateGate();
-
   useEffect(() => {
     const safety = setTimeout(() => hideAppSplash(), 5000);
     const early = setTimeout(() => hideAppSplash(), 1500);
@@ -343,16 +340,6 @@ function RootLayout() {
       clearTimeout(early);
     };
   }, []);
-
-  if (checkingUpdate) {
-    return (
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' }}>
-          <ActivityIndicator size="large" color={BRAND} />
-        </View>
-      </GestureHandlerRootView>
-    );
-  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

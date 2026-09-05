@@ -26,7 +26,6 @@ import api from '@/services/api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
 import { RealtimeProvider } from '@/providers/realtime-provider';
 import { STORAGE_KEYS } from '@/types/setup';
-import { useUpdateGate } from '@/hooks/useUpdateGate';
 import { I18nProvider, useI18n, usePersistedLanguage } from '@/lib/i18n';
 import { en } from '@/lib/i18n/locales/en';
 import { nl } from '@/lib/i18n/locales/nl';
@@ -265,7 +264,6 @@ function Splash({ label }: { label: string }) {
 }
 
 function RootLayout() {
-  const checkingUpdate = useUpdateGate();
   const persisted = usePersistedLanguage();
 
   useEffect(() => {
@@ -273,7 +271,7 @@ function RootLayout() {
     return () => clearTimeout(safety);
   }, []);
 
-  if (checkingUpdate || !persisted.ready) {
+  if (!persisted.ready) {
     const catalog = persisted.language === 'nl' ? nl : en;
     return <Splash label={catalog.common.updating} />;
   }
