@@ -123,6 +123,8 @@
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
     },
-    "runtimeVersion": "1.1.1"
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    }
   }
 }

@@ -100,7 +100,7 @@
     },
     "owner": "weldsuite",
     "runtimeVersion": {
-      "policy": "appVersion"
+      "policy": "fingerprint"
     }
   }
 }
