@@ -1,0 +1,164 @@
+# Native builds are never started by a deploy. `deploy.yml` publishes the OTA
+# update and, when the fingerprint no longer matches a released binary, warns
+# that the update reaches nobody — but which apps are worth a build and a store
+# review is a judgement call, so it is made here, by hand, per app.
+#
+# The job runs in the `test` / `production` GitHub Environment, which is where
+# EXPO_TOKEN lives. Adding required reviewers to that environment turns this
+# into a second approval gate on top of the manual dispatch.
+name: Mobile native build
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'EAS channel + eas.json build profile'
+        type: choice
+        required: true
+        default: preview
+        options: [preview, production]
+      platform:
+        description: 'Platforms to build'
+        type: choice
+        required: true
+        default: all
+        options: [all, android, ios]
+      weldmail:
+        description: 'WeldMail'
+        type: boolean
+        default: false
+      weldchat:
+        description: 'WeldChat'
+        type: boolean
+        default: false
+      weldbooks:
+        description: 'WeldBooks'
+        type: boolean
+        default: false
+      weldflow:
+        description: 'WeldFlow'
+        type: boolean
+        default: false
+      weldagent:
+        description: 'WeldAgent'
+        type: boolean
+        default: false
+      auto-submit:
+        description: 'Submit to TestFlight / the Play track in eas.json when the build finishes (needs a populated `submit` profile + store credentials on EAS). Releasing to the public stays manual either way.'
+        type: boolean
+        default: false
+
+concurrency:
+  group: mobile-build-${{ inputs.channel }}
+  cancel-in-progress: false
+
+jobs:
+  # Turns the ticked boxes into a matrix. Fails closed when nothing is ticked,
+  # rather than starting a run that silently builds nothing.
+  select:
+    name: Select apps
+    runs-on: ubuntu-latest
+    outputs:
+      apps: ${{ steps.pick.outputs.apps }}
+    steps:
+      - name: Collect selected apps
+        id: pick
+        env:
+          WELDMAIL: ${{ inputs.weldmail }}
+          WELDCHAT: ${{ inputs.weldchat }}
+          WELDBOOKS: ${{ inputs.weldbooks }}
+          WELDFLOW: ${{ inputs.weldflow }}
+          WELDAGENT: ${{ inputs.weldagent }}
+          CHANNEL: ${{ inputs.channel }}
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          set -euo pipefail
+
+          # `if` rather than `[ … ] && apps+=(…)`: under `set -e` an unticked box
+          # on the final line would make the whole step exit non-zero.
+          apps=()
+          add() { if [ "$1" = "true" ]; then apps+=("$2"); fi; }
+          add "$WELDMAIL"  weldmail
+          add "$WELDCHAT"  weldchat
+          add "$WELDBOOKS" weldbooks
+          add "$WELDFLOW"  weldflow
+          add "$WELDAGENT" weldagent
+
+          if [ ${#apps[@]} -eq 0 ]; then
+            echo "::error title=No apps selected::Tick at least one app to build."
+            exit 1
+          fi
+
+          json="$(printf '%s\n' "${apps[@]}" | jq -R . | jq -sc .)"
+          echo "apps=$json" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Queuing native builds (\`$CHANNEL\`, $PLATFORM)"
+            echo ""
+            printf -- '- %s\n' "${apps[@]}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build ${{ matrix.app }} (${{ inputs.channel }})
+    needs: select
+    runs-on: ubuntu-latest
+    # Holds EXPO_TOKEN. Add required reviewers here for an approval step.
+    environment: ${{ inputs.channel == 'production' && 'production' || 'test' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.select.outputs.apps) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Fail early without EXPO_TOKEN
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          ENV_NAME: ${{ inputs.channel == 'production' && 'production' || 'test' }}
+        run: |
+          set -euo pipefail
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error title=EXPO_TOKEN missing::Add it under Settings -> Environments -> $ENV_NAME -> Secrets."
+            exit 1
+          fi
+
+      - name: Queue native build
+        working-directory: apps/mobile/${{ matrix.app }}-app
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          PLATFORM: ${{ inputs.platform }}
+          AUTO_SUBMIT: ${{ inputs.auto-submit }}
+          APP: ${{ matrix.app }}
+          MESSAGE: manual build of ${{ github.sha }} (${{ inputs.channel }}) by ${{ github.actor }}
+        run: |
+          set -euo pipefail
+
+          # --no-wait: builds take tens of minutes and nothing downstream depends
+          # on the binary, so the run should not hold a runner open for it.
+          args=(build
+            --platform "$PLATFORM"
+            --profile "$CHANNEL"
+            --message "$MESSAGE"
+            --non-interactive
+            --no-wait)
+
+          if [ "$AUTO_SUBMIT" = "true" ]; then
+            args+=(--auto-submit)
+          fi
+
+          eas "${args[@]}"
+
+          {
+            echo "### $APP (\`$CHANNEL\`, $PLATFORM)"
+            echo ""
+            if [ "$AUTO_SUBMIT" = "true" ]; then
+              echo "Build queued, and will be submitted to the internal track on completion. Releasing it to the public is still a manual step."
+            else
+              echo "Build queued. Submitting it to the stores is a manual step."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -405,9 +405,6 @@ jobs:
           app-dir: apps/mobile/weldmail-app
           channel: ${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}
           message: deploy ${{ needs.prepare.outputs.sha }} (${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }})
-          # Requires a populated `submit` profile in eas.json plus store
-          # credentials on EAS. Flip to 'true' per app once those exist.
-          auto-submit: 'false'
 
   mobile-weldchat:
     name: Release WeldChat (mobile)
@@ -434,9 +431,6 @@ jobs:
           app-dir: apps/mobile/weldchat-app
           channel: ${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}
           message: deploy ${{ needs.prepare.outputs.sha }} (${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }})
-          # Requires a populated `submit` profile in eas.json plus store
-          # credentials on EAS. Flip to 'true' per app once those exist.
-          auto-submit: 'false'
 
   mobile-weldbooks:
     name: Release WeldBooks (mobile)
@@ -464,9 +458,6 @@ jobs:
           app-dir: apps/mobile/weldbooks-app
           channel: ${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}
           message: deploy ${{ needs.prepare.outputs.sha }} (${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }})
-          # Requires a populated `submit` profile in eas.json plus store
-          # credentials on EAS. Flip to 'true' per app once those exist.
-          auto-submit: 'false'
 
   mobile-weldflow:
     name: Release WeldFlow (mobile)
@@ -494,9 +485,6 @@ jobs:
           app-dir: apps/mobile/weldflow-app
           channel: ${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}
           message: deploy ${{ needs.prepare.outputs.sha }} (${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }})
-          # Requires a populated `submit` profile in eas.json plus store
-          # credentials on EAS. Flip to 'true' per app once those exist.
-          auto-submit: 'false'
 
   mobile-weldagent:
     name: Release WeldAgent (mobile)
@@ -526,9 +514,6 @@ jobs:
           app-dir: apps/mobile/weldagent-app
           channel: ${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}
           message: deploy ${{ needs.prepare.outputs.sha }} (${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }})
-          # Requires a populated `submit` profile in eas.json plus store
-          # credentials on EAS. Flip to 'true' per app once those exist.
-          auto-submit: 'false'
 
   frontend:
     name: Deploy platform (${{ needs.prepare.outputs.cf_env }} Pages)

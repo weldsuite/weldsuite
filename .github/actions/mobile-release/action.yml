@@ -1,7 +1,9 @@
 name: Mobile release
 description: >-
-  Publish an OTA update, and trigger a native build when the project's
-  fingerprint no longer matches any binary released on the channel.
+  Publish an OTA update, and report whether the project's fingerprint still
+  matches a binary released on the channel. Never starts a native build —
+  that is a deliberate, per-app choice made in the "Mobile native build"
+  workflow.
 
 inputs:
   app-dir:
@@ -13,17 +15,16 @@ inputs:
       so `preview` and `production` must exist in both places.
     required: true
   message:
-    description: Message recorded on the update and on any build it triggers.
+    description: Message recorded on the update.
     required: true
-  auto-submit:
+
+outputs:
+  needs-build:
     description: >-
-      When a native build is triggered, submit it on completion to TestFlight
-      (iOS) and the Play track named in eas.json (Android). Requires a populated
-      `submit` profile plus store credentials on EAS, so it is off by default —
-      turning it on without those makes the step fail immediately. Releasing to
-      the public stays manual either way.
-    required: false
-    default: 'false'
+      'true' when no released binary on the channel matches the current
+      fingerprint, i.e. the update published by this action reaches nobody
+      until a native build ships.
+    value: ${{ steps.fingerprint.outputs.needs-build }}
 
 runs:
   using: composite
@@ -68,7 +69,7 @@ runs:
 
           if [ "$matches" -eq 0 ]; then
             needs_build=true
-            summary="${summary}- \`$platform\`: no released binary matches \`$hash\` — native build required"$'\n'
+            summary="${summary}- \`$platform\`: no released binary matches \`$hash\` — **native build required**"$'\n'
           else
             summary="${summary}- \`$platform\`: matched by a released binary (\`$hash\`) — update applies over the air"$'\n'
           fi
@@ -82,9 +83,9 @@ runs:
         } >> "$GITHUB_STEP_SUMMARY"
 
     # Published in both cases. When a build is needed this update carries the new
-    # fingerprint, so it reaches nobody today and is picked up by the binary
-    # queued below once that ships — which is what we want, and is exactly the
-    # incompatible-bundle delivery the fingerprint policy exists to prevent.
+    # fingerprint, so it reaches nobody today and is picked up by a binary once
+    # one ships — which is what we want, and is exactly the incompatible-bundle
+    # delivery the fingerprint policy exists to prevent.
     - name: Publish OTA update
       shell: bash
       working-directory: ${{ inputs.app-dir }}
@@ -99,39 +100,23 @@ runs:
           --message "$MESSAGE" \
           --non-interactive
 
-    - name: Queue native build
+    # Deliberately a notice, not a build. Which apps are worth spending a build
+    # (and a store review) on is a judgement call, so the deploy reports and a
+    # human picks in the "Mobile native build" workflow.
+    - name: Report that a native build is needed
       if: steps.fingerprint.outputs.needs-build == 'true'
       shell: bash
-      working-directory: ${{ inputs.app-dir }}
       env:
+        APP_DIR: ${{ inputs.app-dir }}
         CHANNEL: ${{ inputs.channel }}
-        MESSAGE: ${{ inputs.message }}
-        AUTO_SUBMIT: ${{ inputs.auto-submit }}
+        REPO_URL: ${{ github.server_url }}/${{ github.repository }}
       run: |
         set -euo pipefail
-
-        # --no-wait: builds take tens of minutes and nothing downstream depends
-        # on the binary, so the deploy should not hold a runner open for it.
-        args=(build
-          --platform all
-          --profile "$CHANNEL"
-          --message "$MESSAGE"
-          --non-interactive
-          --no-wait)
-
-        if [ "$AUTO_SUBMIT" = "true" ]; then
-          args+=(--auto-submit)
-        fi
-
-        eas "${args[@]}"
-
+        app="$(basename "$APP_DIR")"
+        echo "::warning title=Native build needed for $app::The '$CHANNEL' update was published but reaches no existing install, because no released binary matches the current fingerprint. Run the 'Mobile native build' workflow and tick $app to ship one."
         {
           echo ""
-          if [ "$AUTO_SUBMIT" = "true" ]; then
-            echo "Native build queued and will be submitted to the internal track on completion. Releasing it to the public is still a manual step."
-          else
-            echo "Native build queued. Submitting it to the stores is a manual step (\`auto-submit\` is off for this app)."
-          fi
+          echo "**The update above does not reach existing installs.** No released \`$CHANNEL\` binary matches the current fingerprint."
           echo ""
-          echo "**The update published above does not reach existing installs until this build ships.**"
+          echo "To ship one, run [**Mobile native build**]($REPO_URL/actions/workflows/mobile-build.yml) and tick \`$app\` — no build is started automatically."
         } >> "$GITHUB_STEP_SUMMARY"
