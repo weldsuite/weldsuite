@@ -45,6 +45,10 @@ runs:
         needs_build=false
         summary=""
 
+        # `apps/mobile/weldmail-app` -> `weldmail`, matching the app names the
+        # "Mobile native build" workflow uses in its fingerprint tags.
+        app="$(basename "$APP_DIR" | sed 's/-app$//')"
+
         for platform in android ios; do
           hash="$(eas fingerprint:generate \
             --platform "$platform" \
@@ -66,6 +70,17 @@ runs:
             --status finished \
             --fingerprint-hash "$hash" \
             --limit 1 --json --non-interactive | jq 'length')"
+
+          # `eas build:list` only knows about builds that ran on EAS builders.
+          # Since "Mobile native build" defaults to `eas build --local` on a
+          # GitHub runner, those binaries are invisible here and are recorded as
+          # a tag by that workflow instead. Checked in addition to, not instead
+          # of, build:list, so binaries built on EAS keep counting.
+          if [ "$matches" -eq 0 ] && \
+             git ls-remote --exit-code --tags origin \
+               "refs/tags/mobile-binary/$app/$CHANNEL/$platform/$hash" >/dev/null 2>&1; then
+            matches=1
+          fi
 
           if [ "$matches" -eq 0 ]; then
             needs_build=true
