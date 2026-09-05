@@ -2,7 +2,7 @@
   "expo": {
     "name": "WeldSocial",
     "slug": "weldsocial-app",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "weldsocial",
@@ -66,13 +66,8 @@
       }
     },
     "owner": "weldsuite",
-    "updates": {
-      "url": "https://u.expo.dev/00000000-0000-0000-0000-000000000000",
-      "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 0
-    },
     "runtimeVersion": {
-      "policy": "appVersion"
+      "policy": "fingerprint"
     }
   }
 }

@@ -37,6 +37,10 @@ import {
 } from 'lucide-react';
 import { AppIcon } from '@/components/app-icon';
 import {
+  MailAccessPicker,
+  useMailAccessSelection,
+} from '@/app/weldmail/components/mail-access-picker';
+import {
   useCreateMailAccount,
   useCheckWeldMailAvailability,
   useReserveWeldMailAddress,
@@ -279,6 +283,9 @@ function CustomDomainContent({ onSuccess }: { onSuccess: () => void }) {
   const [emailPrefix, setEmailPrefix] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [availableDomains, setAvailableDomains] = useState<string[]>([]);
+  // Who can open the account, chosen at create time rather than via a
+  // follow-up trip through settings › Manage access.
+  const access = useMailAccessSelection();
 
   useEffect(() => {
     if (mailDomainsQuery.data?.data) {
@@ -310,7 +317,7 @@ function CustomDomainContent({ onSuccess }: { onSuccess: () => void }) {
         syncFrequency: 5,
         dailySendLimit: 500,
         isDefault: false,
-        isShared: true,
+        ...access.resolve(),
       });
       toast.success(t.mail.setupPage.emailAccountCreatedSuccessfully);
       window.dispatchEvent(new CustomEvent('mail-accounts-changed'));
@@ -427,6 +434,10 @@ function CustomDomainContent({ onSuccess }: { onSuccess: () => void }) {
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
         />
+      </div>
+
+      <div className="border-t pt-4">
+        <MailAccessPicker selection={access} idPrefix="setup-account" />
       </div>
 
       <Button type="submit" disabled={loading || availableDomains.length === 0} className="w-full">

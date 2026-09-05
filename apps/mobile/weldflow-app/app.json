@@ -2,7 +2,7 @@
   "expo": {
     "name": "WeldFlow",
     "slug": "weldflow-app",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "weldflow",
@@ -62,7 +62,7 @@
     },
     "owner": "weldsuite",
     "runtimeVersion": {
-      "policy": "appVersion"
+      "policy": "fingerprint"
     },
     "updates": {
       "url": "https://u.expo.dev/728d3ec2-f087-42a3-b5bb-74beffc3759c",

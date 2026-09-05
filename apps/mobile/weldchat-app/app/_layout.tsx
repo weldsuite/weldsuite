@@ -31,7 +31,6 @@ import { IncomingCallModal } from '@/components/call/IncomingCallModal';
 import { CallHost, CallInsetContainer } from '@/components/call/CallHost';
 import { RealtimeProvider } from '@/providers/realtime-provider';
 import { appApi, setAppApiTokenGetter } from '@/services/app-api';
-import { useUpdateGate } from '@/hooks/useUpdateGate';
 
 // Must run before any screen mounts — enables per-route TTR/TTI in Observe.
 Observe.configure({
@@ -311,24 +310,10 @@ function AuthenticatedApp() {
 }
 
 function RootLayout() {
-  // First-launch OTA gate: check for and apply the latest update before the app
-  // renders, so first-time installers never see the stale embedded bundle.
-  const checkingUpdate = useUpdateGate();
-
   useEffect(() => {
     const safety = setTimeout(() => hideAppSplash(), 5000);
     return () => clearTimeout(safety);
   }, []);
-
-  if (checkingUpdate) {
-    return (
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' }}>
-          <ActivityIndicator size="large" color={BRAND} />
-        </View>
-      </GestureHandlerRootView>
-    );
-  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

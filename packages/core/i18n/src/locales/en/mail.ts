@@ -943,6 +943,8 @@ export const mail = {
       pleaseEnterEmailAndDomain: 'Please enter an email name and select a domain',
       emailAccountCreatedSuccessfully: 'Email account created successfully',
       failedToCreateEmailAccount: 'Failed to create email account',
+      domainHasExistingMx:
+        '{domain} already has an inbound mail (MX) record. WeldMail supports one inbound provider per domain — remove the existing MX record in your DNS settings and try again.',
       pleaseEnterAddress: 'Please enter an address with at least 3 characters',
       addressNotAvailableError: 'This address is not available',
       emailCreatedSuccessfully: 'Email address {email} created successfully',

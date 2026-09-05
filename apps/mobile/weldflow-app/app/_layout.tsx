@@ -22,7 +22,6 @@ import { ErrorBoundary } from '@weldsuite/mobile-ui/components/ErrorBoundary';
 
 import { setAppApiTokenGetter } from '@/services/app-api';
 import { NotificationProvider } from '@/contexts/NotificationContext';
-import { useUpdateGate } from '@/hooks/useUpdateGate';
 import { BRAND } from '@/lib/brand';
 import { I18nProvider, useI18n, usePersistedLanguage } from '@/lib/i18n';
 
@@ -193,9 +192,8 @@ function AuthenticatedApp() {
 }
 
 function RootLayout() {
-  const checkingUpdate = useUpdateGate();
   const { ready, language } = usePersistedLanguage();
-  const updating = checkingUpdate || !ready;
+  const updating = !ready;
 
   useEffect(() => {
     const safety = setTimeout(() => hideAppSplash(), 5000);

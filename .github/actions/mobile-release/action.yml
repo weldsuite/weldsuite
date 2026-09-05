@@ -1,0 +1,122 @@
+name: Mobile release
+description: >-
+  Publish an OTA update, and report whether the project's fingerprint still
+  matches a binary released on the channel. Never starts a native build —
+  that is a deliberate, per-app choice made in the "Mobile native build"
+  workflow.
+
+inputs:
+  app-dir:
+    description: Path to the Expo app, e.g. apps/mobile/weldmail-app.
+    required: true
+  channel:
+    description: >-
+      EAS channel to release to. Doubles as the eas.json build profile name,
+      so `preview` and `production` must exist in both places.
+    required: true
+  message:
+    description: Message recorded on the update.
+    required: true
+
+outputs:
+  needs-build:
+    description: >-
+      'true' when no released binary on the channel matches the current
+      fingerprint, i.e. the update published by this action reaches nobody
+      until a native build ships.
+    value: ${{ steps.fingerprint.outputs.needs-build }}
+
+runs:
+  using: composite
+  steps:
+    # An OTA update only reaches a binary whose fingerprint matches it. When the
+    # native surface changes, `eas update` still succeeds but reaches nobody, so
+    # check for a matching binary first and say plainly which case we are in.
+    - name: Check fingerprint against released binaries
+      id: fingerprint
+      shell: bash
+      working-directory: ${{ inputs.app-dir }}
+      env:
+        APP_DIR: ${{ inputs.app-dir }}
+        CHANNEL: ${{ inputs.channel }}
+      run: |
+        set -euo pipefail
+
+        needs_build=false
+        summary=""
+
+        for platform in android ios; do
+          hash="$(eas fingerprint:generate \
+            --platform "$platform" \
+            --build-profile "$CHANNEL" \
+            --json --non-interactive | jq -r '.hash')"
+
+          if [ -z "$hash" ] || [ "$hash" = "null" ]; then
+            echo "::error::Could not compute the $platform fingerprint."
+            exit 1
+          fi
+
+          # --fingerprint-hash asks the question we actually care about: does a
+          # binary that can run this bundle exist on the channel? Comparing
+          # against "the latest build" would give a wrong answer whenever builds
+          # land out of order or only one platform was rebuilt.
+          matches="$(eas build:list \
+            --channel "$CHANNEL" \
+            --platform "$platform" \
+            --status finished \
+            --fingerprint-hash "$hash" \
+            --limit 1 --json --non-interactive | jq 'length')"
+
+          if [ "$matches" -eq 0 ]; then
+            needs_build=true
+            summary="${summary}- \`$platform\`: no released binary matches \`$hash\` — **native build required**"$'\n'
+          else
+            summary="${summary}- \`$platform\`: matched by a released binary (\`$hash\`) — update applies over the air"$'\n'
+          fi
+        done
+
+        echo "needs-build=$needs_build" >> "$GITHUB_OUTPUT"
+        {
+          echo "### $APP_DIR (\`$CHANNEL\`)"
+          echo ""
+          echo "$summary"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    # Published in both cases. When a build is needed this update carries the new
+    # fingerprint, so it reaches nobody today and is picked up by a binary once
+    # one ships — which is what we want, and is exactly the incompatible-bundle
+    # delivery the fingerprint policy exists to prevent.
+    - name: Publish OTA update
+      shell: bash
+      working-directory: ${{ inputs.app-dir }}
+      env:
+        CHANNEL: ${{ inputs.channel }}
+        MESSAGE: ${{ inputs.message }}
+      run: |
+        set -euo pipefail
+        eas update \
+          --channel "$CHANNEL" \
+          --environment "$CHANNEL" \
+          --message "$MESSAGE" \
+          --non-interactive
+
+    # Deliberately a notice, not a build. Which apps are worth spending a build
+    # (and a store review) on is a judgement call, so the deploy reports and a
+    # human picks in the "Mobile native build" workflow.
+    - name: Report that a native build is needed
+      if: steps.fingerprint.outputs.needs-build == 'true'
+      shell: bash
+      env:
+        APP_DIR: ${{ inputs.app-dir }}
+        CHANNEL: ${{ inputs.channel }}
+        REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+      run: |
+        set -euo pipefail
+        app="$(basename "$APP_DIR")"
+        echo "::warning title=Native build needed for $app::The '$CHANNEL' update was published but reaches no existing install, because no released binary matches the current fingerprint. Run the 'Mobile native build' workflow and tick $app to ship one."
+        {
+          echo ""
+          echo "**The update above does not reach existing installs.** No released \`$CHANNEL\` binary matches the current fingerprint."
+          echo ""
+          echo "To ship one, run [**Mobile native build**]($REPO_URL/actions/workflows/mobile-build.yml) and tick \`$app\` — no build is started automatically."
+        } >> "$GITHUB_STEP_SUMMARY"

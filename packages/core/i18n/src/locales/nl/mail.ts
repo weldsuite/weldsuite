@@ -943,6 +943,8 @@ export const mail = {
       pleaseEnterEmailAndDomain: 'Voer een e-mailnaam in en selecteer een domein',
       emailAccountCreatedSuccessfully: 'E-mailaccount succesvol aangemaakt',
       failedToCreateEmailAccount: 'Aanmaken van e-mailaccount mislukt',
+      domainHasExistingMx:
+        '{domain} heeft al een inkomend e-mailrecord (MX). WeldMail ondersteunt één inkomende provider per domein — verwijder het bestaande MX-record in je DNS-instellingen en probeer het opnieuw.',
       pleaseEnterAddress: 'Voer een adres in met minimaal 3 tekens',
       addressNotAvailableError: 'Dit adres is niet beschikbaar',
       emailCreatedSuccessfully: 'E-mailadres {email} succesvol aangemaakt',

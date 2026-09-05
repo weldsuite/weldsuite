@@ -44,6 +44,7 @@ export class MailAccountError extends Error {
       | 'WRONG_WELDMAIL_SUBDOMAIN'
       | 'DUPLICATE_EMAIL'
       | 'DOMAIN_NOT_IN_WELDHOST'
+      | 'DOMAIN_HAS_EXISTING_MX'
       | 'CLOUDFLARE_PROVISION_FAILED'
       | 'NOT_FOUND'
       | 'FORBIDDEN'
@@ -54,6 +55,38 @@ export class MailAccountError extends Error {
     super(message);
     this.name = 'MailAccountError';
   }
+}
+
+/**
+ * Turn a Cloudflare provisioning failure into a typed `MailAccountError`.
+ *
+ * WeldMail supports exactly ONE inbound provider per domain, which is also
+ * what Cloudflare enforces: it refuses to enable Email Routing on a zone that
+ * still has third-party MX records (HTTP 409, Cloudflare code 2008), because
+ * enabling would overwrite and lock them and silently break whatever mail flow
+ * they serve. That is a deterministic, user-fixable conflict — a DNS edit, not
+ * a retry — so it gets its own code and a 409, separate from the catch-all
+ * provisioning failure.
+ *
+ * The generic message used to blame nameservers; that was wrong often enough to
+ * be actively misleading, so the Cloudflare detail is now surfaced verbatim.
+ */
+function cloudflareProvisionError(domain: string, cfErr: unknown): MailAccountError {
+  const detail = cfErr instanceof Error ? cfErr.message : String(cfErr);
+
+  if (/Non-Cloudflare MX records exist|\b2008\b/i.test(detail)) {
+    return new MailAccountError(
+      'DOMAIN_HAS_EXISTING_MX',
+      `${domain} already has an inbound mail (MX) record pointing at another provider. WeldMail supports one inbound provider per domain — remove the existing MX record in your DNS settings and try again.`,
+      { domain, cloudflareError: detail },
+    );
+  }
+
+  return new MailAccountError(
+    'CLOUDFLARE_PROVISION_FAILED',
+    `Couldn't enable Cloudflare Email Routing on ${domain}: ${detail}`,
+    detail,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -283,11 +316,7 @@ export async function createMailAccount(
     try {
       await cfEmail.createDomain(env, emailDomain);
     } catch (cfErr) {
-      throw new MailAccountError(
-        'CLOUDFLARE_PROVISION_FAILED',
-        `Couldn't enable Cloudflare Email Routing on ${emailDomain}. Check that the domain's nameservers are on Cloudflare and the zone is active.`,
-        cfErr instanceof Error ? cfErr.message : String(cfErr),
-      );
+      throw cloudflareProvisionError(emailDomain, cfErr);
     }
     const newDomainId = generateId('mdom');
     await db.insert(mailDomains).values({
@@ -322,11 +351,7 @@ export async function createMailAccount(
           .where(eq(mailDomains.id, managedDomain.id));
       }
     } catch (cfErr) {
-      throw new MailAccountError(
-        'CLOUDFLARE_PROVISION_FAILED',
-        `Couldn't enable Cloudflare Email Routing on ${emailDomain}.`,
-        cfErr instanceof Error ? cfErr.message : String(cfErr),
-      );
+      throw cloudflareProvisionError(emailDomain, cfErr);
     }
   }
 
