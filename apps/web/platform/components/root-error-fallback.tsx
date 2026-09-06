@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ErrorComponentProps } from '@tanstack/react-router';
-import { Link } from '@tanstack/react-router';
 import { AlertTriangle, Check, Copy } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { log } from '@/lib/logger';
 import { isStaleChunkError, reloadForStaleChunk } from '@/lib/chunk-reload';
+import { getDesktop } from '@/lib/desktop';
 
 function DevErrorDetails({ error, componentStack }: { error: Error; componentStack?: string }) {
   const [copied, setCopied] = useState(false);
@@ -51,6 +51,16 @@ function DevErrorDetails({ error, componentStack }: { error: Error; componentSta
   );
 }
 
+/** Leave the broken route entirely — SPA Link can fail while the root CatchBoundary is open. */
+export function goHomeFromError(): void {
+  const desktop = getDesktop();
+  if (desktop) {
+    void desktop.reloadApp();
+    return;
+  }
+  window.location.assign('/');
+}
+
 export function RootErrorFallback({ error, info, reset }: ErrorComponentProps) {
   // A stale dynamic import (chunk removed by a redeploy) surfaces here as a
   // render error. Reload once to pick up the latest build rather than showing
@@ -84,9 +94,9 @@ export function RootErrorFallback({ error, info, reset }: ErrorComponentProps) {
         </p>
         <div className="mt-6 flex items-center justify-center gap-3">
           <Button onClick={reset}>Try again</Button>
-          <Link to="/" className="text-sm text-primary underline">
+          <Button variant="outline" onClick={goHomeFromError}>
             Go home
-          </Link>
+          </Button>
         </div>
 
         {import.meta.env.DEV && error instanceof Error && (
