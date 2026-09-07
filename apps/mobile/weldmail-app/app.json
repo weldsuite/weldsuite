@@ -78,9 +78,7 @@
       }
     },
     "owner": "weldsuite",
-    "runtimeVersion": {
-      "policy": "fingerprint"
-    },
+    "runtimeVersion": { "policy": "appVersion" },
     "updates": {
       "url": "https://u.expo.dev/07f1af16-fb8b-4a5d-95c1-0b8554016309",
       "checkAutomatically": "ON_LOAD",

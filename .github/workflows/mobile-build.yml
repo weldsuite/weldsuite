@@ -1,7 +1,6 @@
 # Native builds are never started by a deploy. `deploy.yml` publishes the OTA
-# update and, when the fingerprint no longer matches a released binary, warns
-# that the update reaches nobody — but which apps are worth a build and a store
-# review is a judgement call, so it is made here, by hand, per app.
+# update; which apps are worth a build and a store review is a judgement call,
+# so it is made here, by hand, per app.
 #
 # Builds run on GitHub-hosted runners via `eas build --local`, not on EAS
 # builders, so they cost no EAS build quota. `--local` still talks to EAS for
@@ -9,6 +8,10 @@
 # remote `appVersionSource` counter, and the `expo-channel-name` that gets baked
 # into the binary and decides which OTA channel it subscribes to. Set
 # `builder: eas` to fall back to a cloud build.
+#
+# Apps use `runtimeVersion.policy: appVersion` (not fingerprint) so local
+# builds do not hit the managed-vs-prebuild fingerprint mismatch. Bump
+# `expo.version` when native code changes, then ship a new binary.
 #
 # The job runs in the `test` / `production` GitHub Environment, which is where
 # EXPO_TOKEN lives. Adding required reviewers to that environment turns this
@@ -142,9 +145,6 @@ jobs:
     # Holds EXPO_TOKEN. Add required reviewers here for an approval step.
     environment: ${{ inputs.channel == 'production' && 'production' || 'test' }}
     timeout-minutes: 120
-    # Records the built fingerprint as a tag, see "Record the built fingerprint".
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -216,28 +216,6 @@ jobs:
           path: ~/Library/Caches/CocoaPods
           key: pods-${{ matrix.app }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: pods-${{ matrix.app }}-
-
-      # Computed before the build so it can be recorded afterwards. This is the
-      # same hash `.github/actions/mobile-release` compares against at deploy
-      # time to decide whether an OTA update reaches any installed binary.
-      - name: Compute fingerprint
-        id: fingerprint
-        working-directory: apps/mobile/${{ matrix.app }}-app
-        env:
-          PLATFORM: ${{ matrix.platform }}
-          CHANNEL: ${{ inputs.channel }}
-        run: |
-          set -euo pipefail
-          hash="$(eas fingerprint:generate \
-            --platform "$PLATFORM" \
-            --build-profile "$CHANNEL" \
-            --json --non-interactive | jq -r '.hash')"
-
-          if [ -z "$hash" ] || [ "$hash" = "null" ]; then
-            echo "::error::Could not compute the $PLATFORM fingerprint."
-            exit 1
-          fi
-          echo "hash=$hash" >> "$GITHUB_OUTPUT"
 
       - name: Build
         id: build
@@ -314,31 +292,6 @@ jobs:
             --path "$ARTIFACT" \
             --non-interactive
 
-      # A local build never reaches EAS servers, so `eas build:list
-      # --fingerprint-hash` cannot see it and the deploy-time check in
-      # .github/actions/mobile-release would report "native build required"
-      # forever. Record the fingerprint as a tag instead — cheap, immutable,
-      # readable with a single `git ls-remote`, and it does not push a commit
-      # that would re-trigger `deploy.yml`.
-      - name: Record the built fingerprint
-        if: inputs.builder == 'local'
-        env:
-          APP: ${{ matrix.app }}
-          CHANNEL: ${{ inputs.channel }}
-          PLATFORM: ${{ matrix.platform }}
-          HASH: ${{ steps.fingerprint.outputs.hash }}
-        run: |
-          set -euo pipefail
-          tag="mobile-binary/$APP/$CHANNEL/$PLATFORM/$HASH"
-
-          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
-            echo "Fingerprint already recorded as $tag."
-            exit 0
-          fi
-
-          git tag "$tag"
-          git push origin "refs/tags/$tag"
-
       - name: Summary
         if: steps.build.outcome == 'success'
         env:
@@ -347,13 +300,11 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
           BUILDER: ${{ inputs.builder }}
           AUTO_SUBMIT: ${{ inputs.auto-submit }}
-          HASH: ${{ steps.fingerprint.outputs.hash }}
         run: |
           set -euo pipefail
           {
             echo "### $APP $PLATFORM (\`$CHANNEL\`, \`$BUILDER\`)"
             echo ""
-            echo "- Fingerprint: \`$HASH\`"
             if [ "$BUILDER" = "local" ]; then
               echo "- Built on this runner — no EAS build quota used. The binary is attached to this run as an artifact."
             else
