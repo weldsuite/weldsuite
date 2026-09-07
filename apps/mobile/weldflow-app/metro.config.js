@@ -57,4 +57,44 @@ config.resolver.extraNodeModules = Object.fromEntries(
   singletons.map((pkg) => [pkg, resolvePackageDir(pkg)])
 );
 
+// RN's AbortController polyfill (abort-controller) does EventTarget.call(signal).
+// event-target-shim v6's default export is a native ES6 class, which throws
+// "Class constructor invoked without new" under that pattern. Force the ES5
+// build (same fix as weldchat). Also pin resolution so we don't pick a
+// mismatched hoisted copy from another app in the monorepo.
+const eventTargetShimRoot = resolvePackageDir('event-target-shim');
+const eventTargetShimEntry = path.join(eventTargetShimRoot, 'es5.js');
+config.resolver.extraNodeModules = {
+  ...config.resolver.extraNodeModules,
+  'event-target-shim': eventTargetShimRoot,
+};
+
+// @tanstack/query-core's `exports` field only whitelists "." and "./package.json".
+// With unstable_enablePackageExports on, Metro can miss sibling modules / ignore
+// the package's `react-native` field. Resolve the TS source directly.
+const queryCoreSrc = path.resolve(
+  monorepoRoot,
+  'node_modules/@tanstack/query-core/src/index.ts'
+);
+const defaultResolveRequest = config.resolver.resolveRequest;
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName === 'event-target-shim') {
+    return {
+      type: 'sourceFile',
+      filePath: eventTargetShimEntry,
+    };
+  }
+  if (moduleName === '@tanstack/query-core' && fs.existsSync(queryCoreSrc)) {
+    return context.resolveRequest(
+      { ...context, resolveRequest: undefined },
+      queryCoreSrc,
+      platform
+    );
+  }
+  if (defaultResolveRequest) {
+    return defaultResolveRequest(context, moduleName, platform);
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
+
 module.exports = config;
