@@ -633,6 +633,8 @@ export const common = {
         emptyAction: 'Maak uw eerste agent aan',
         noResultsTitle: 'Geen agenten gevonden',
         noResultsDescription: 'We konden geen agenten vinden die overeenkomen met uw filter.',
+        needsSetupPreview: 'Setup nodig — vertel waar ik voor ben…',
+        readyPreview: 'Klaar om te chatten',
       },
       templates: {
         sectionLabel: 'Sjabloon',
@@ -697,6 +699,67 @@ export const common = {
           thinking: 'Aan het denken…',
           sendFailed: 'Bericht versturen mislukt. Probeer opnieuw.',
         },
+        setup: {
+          badge: 'Setup',
+          headerHint: 'Vertel waar ik voor ben en welke routines ik moet volgen',
+          banner: 'Setup',
+          chatName: 'Setup',
+          typing: 'Aan het typen…',
+          greeting: 'Hoi — leuk je te ontmoeten.',
+          greetingNamed: 'Hoi {name} — leuk je te ontmoeten.',
+          composerPlaceholder: 'Bericht aan {name}',
+          intro1: 'Hoi! Ik ben een nieuwe agent — ik heb nog geen taak of naam.',
+          intro2: 'Vertel wat ik in deze werkruimte moet doen. Kies een of meer presets hieronder, typ je eigen idee, of allebei.',
+          intro3: 'Als ik mijn doel en routines ken, kies ik een naam en ga ik aan de slag — of je hernoemt me zelf in Configureren.',
+          openingMessage:
+            'Hoi! Voordat ik kan helpen, moet ik weten waar ik voor ben.\n\nWat moet ik in deze werkruimte doen, en welke routines of triggers moet ik volgen (bijvoorbeeld nieuwe tickets, stille contacten, of alleen chat)?\n\nAls dat duidelijk is kies ik een naam — of je hernoemt me zelf in Configureren.',
+          inputPlaceholder: 'Of beschrijf het in je eigen woorden…',
+          picker: {
+            title: 'Waarmee wil je dat ik vooral help?',
+            subtitle: 'Kies er één, of typ je eigen antwoord.',
+            freeTextPlaceholder: 'Typ je eigen antwoord',
+            selectedPrefix: 'Zet me op voor:',
+            freeTextPrefix: 'In mijn eigen woorden:',
+            followUpHint:
+              'Stel alle verduidelijkende vragen die je nodig hebt over doel en routines, en sla daarna je setup op met een goede naam.',
+            submit: 'Doorgaan',
+            submitting: 'Versturen…',
+          },
+          presets: {
+            workProjects: {
+              name: 'Werk & projecten',
+              description: 'Taken, projecten en dagelijkse uitvoering.',
+            },
+            customersSales: {
+              name: 'Klanten & sales',
+              description: 'CRM, opvolging en pipeline.',
+            },
+            supportOps: {
+              name: 'Support & operations',
+              description: 'Tickets, bestellingen en de boel draaiende houden.',
+            },
+            everything: {
+              name: 'Een beetje van alles',
+              description: 'Flexibele hulp door de hele werkruimte.',
+            },
+            triageTickets: {
+              name: 'Tickets triëren',
+              description: 'Vat nieuwe helpdesktickets samen en prioriteer ze.',
+            },
+            researchLeads: {
+              name: 'Leads onderzoeken',
+              description: 'Zoek nieuwe contacten uit en markeer kansrijke leads.',
+            },
+            monitorOrders: {
+              name: 'Bestellingen bewaken',
+              description: 'Houd nieuwe of vastgelopen bestellingen in de gaten.',
+            },
+            chatOnly: {
+              name: 'Chatassistent',
+              description: 'Beantwoord vragen in chat — geen achtergrondroutines.',
+            },
+          },
+        },
         general: {
           profilePicture: 'Profielfoto',
           profilePictureHint: 'Upload een nieuw avatar (max. 2MB)',
@@ -709,6 +772,22 @@ export const common = {
         },
         tools: {
           enabledCount: '{enabled} van {total} ingeschakeld',
+        },
+        computer: {
+          title: 'Cloudcomputer',
+          description:
+            'Gedeelde Linux-sandbox en browser voor de agents van deze werkruimte (Cloudflare Sandbox + Browser Run).',
+          statusLoading: 'Controleren…',
+          statusReady: 'Beschikbaar',
+          statusOff: 'Niet geconfigureerd',
+          sandboxLabel: 'Sandbox',
+          refresh: 'Vernieuwen',
+          closeBrowser: 'Browsersessie sluiten',
+          destroy: 'Computer resetten',
+          destroyed: 'Werkruimtecomputer gereset.',
+          browserClosed: 'Browsersessie gesloten.',
+          actionFailed: 'Actie mislukt.',
+          hint: 'Schakel computer:use en browser:use in bij rechten hieronder, en vraag de agent daarna computertools te gebruiken. Alle bots in deze werkruimte delen één sandbox.',
         },
         supervisor: {
           description: 'Laat deze agent taken delegeren aan andere agenten om meerstapsworkflows te orkestreren.',

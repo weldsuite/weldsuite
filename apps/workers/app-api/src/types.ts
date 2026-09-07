@@ -405,6 +405,13 @@ export interface Env {
    *  POST /api/helpdesk-workflows/executions/:executionId/resume to forward
    *  customer responses to its /respond endpoint. */
   HELPDESK_WORKFLOW_WORKER_URL?: string;
+  /**
+   * Base URL for weldsuite-agent-runtime (Cloudflare Sandbox + Browser Run).
+   * Example: http://localhost:8795 or https://agent-runtime-test.weldsuite.org
+   */
+  AGENT_RUNTIME_URL?: string;
+  /** When "false", computer/browser tools refuse calls. Default enabled if URL set. */
+  AGENT_COMPUTER_ENABLED?: string;
 
   // --- Integrations (CRM / calendar OAuth apps + helpdesk channels) -------
   /** Attio OAuth app credentials. */

@@ -49,6 +49,7 @@ app.get('/tools', requirePermission('weldagent:read'), async (c) => {
 /** GET /agents/grantable-permissions — platform permissions assignable to an agent. */
 app.get('/grantable-permissions', requirePermission('weldagent:read'), async (c) => {
   // Exclude weldagent:* self-management and settings noise — agents act on data objects.
+  // Keep computer:* / browser:* so builders can unlock the cloud computer.
   const keys = getAllPermissionKeys().filter(
     (k) =>
       !k.startsWith('weldagent:') &&
@@ -59,6 +60,55 @@ app.get('/grantable-permissions', requirePermission('weldagent:read'), async (c)
       !k.startsWith('general:'),
   );
   return success(c, keys);
+});
+
+/** GET /agents/computer/status — workspace cloud computer availability. */
+app.get('/computer/status', requirePermission('weldagent:read'), async (c) => {
+  try {
+    const { computerStatus, isAgentComputerConfigured } = await import(
+      '../../services/weldagent/computer-client'
+    );
+    if (!isAgentComputerConfigured(c.env)) {
+      return success(c, { enabled: false, reason: 'not_configured' });
+    }
+    const status = await computerStatus(c.env, c.get('workspaceId'));
+    return success(c, status);
+  } catch (err) {
+    return success(c, {
+      enabled: false,
+      reason: err instanceof Error ? err.message : 'unavailable',
+    });
+  }
+});
+
+/** POST /agents/computer/destroy — tear down the workspace sandbox. */
+app.post('/computer/destroy', requirePermission('weldagent:manage', 'weldagent:update'), async (c) => {
+  try {
+    const { computerDestroy } = await import('../../services/weldagent/computer-client');
+    const result = await computerDestroy(c.env, c.get('workspaceId'));
+    return success(c, result);
+  } catch (err) {
+    console.error('[weldagent/computer] destroy failed:', err);
+    return error.internal(c, err instanceof Error ? err.message : 'Failed to destroy computer');
+  }
+});
+
+/** POST /agents/:id/browser/close — close this agent's browser session. */
+app.post('/:id/browser/close', requirePermission('weldagent:update', 'weldagent:manage'), async (c) => {
+  const id = c.req.param('id');
+  const existing = await getAgent(c.get('tenantDb'), id);
+  if (!existing) return error.notFound(c, 'Agent not found');
+  try {
+    const { browserClose } = await import('../../services/weldagent/computer-client');
+    const result = await browserClose(c.env, {
+      workspaceId: c.get('workspaceId'),
+      agentId: id,
+    });
+    return success(c, result);
+  } catch (err) {
+    console.error('[weldagent/browser] close failed:', err);
+    return error.internal(c, err instanceof Error ? err.message : 'Failed to close browser');
+  }
 });
 
 /** POST /agents — create a draft agent. */

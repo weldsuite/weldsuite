@@ -131,6 +131,10 @@ CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 # helpdesk-workflow-worker /respond target for /api/helpdesk-workflows resume.
 HELPDESK_WORKFLOW_WORKER_URL = "http://localhost:8790"
+# WeldAgent cloud computer (agent-runtime worker). Requires matching
+# INTERNAL_API_SECRET on both workers. Set AGENT_COMPUTER_ENABLED=false to disable.
+AGENT_RUNTIME_URL = "http://localhost:8795"
+AGENT_COMPUTER_ENABLED = "true"
 
 # WeldBooks → Belastingdienst SBR filing. 'simulated' builds the SOAP envelope
 # but transmits nothing. Flip to 'preprod' (then 'production') ONLY after the
@@ -352,6 +356,8 @@ CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 WORKSPACE_WORKER_URL = "https://workspace-worker-test.weldsuite.org"
 HELPDESK_WORKFLOW_WORKER_URL = "https://helpdesk-workflow-worker-test.weldsuite.org"
+AGENT_RUNTIME_URL = "https://agent-runtime-test.weldsuite.org"
+AGENT_COMPUTER_ENABLED = "true"
 
 
 [[env.test.flagship]]
@@ -504,6 +510,8 @@ CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
 WORKSPACE_WORKER_URL = "https://workspace-worker.weldsuite.org"
 HELPDESK_WORKFLOW_WORKER_URL = "https://helpdesk-workflow-worker.weldsuite.org"
+AGENT_RUNTIME_URL = "https://agent-runtime.weldsuite.org"
+AGENT_COMPUTER_ENABLED = "true"
 # Cloudflare Flagship feature-flag binding.
 # app id from the dashboard, and create each flag (e.g. `upgrade-button`) there.
 [[env.production.flagship]]

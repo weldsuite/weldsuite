@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { View, ActivityIndicator, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import * as SplashScreen from 'expo-splash-screen';
 import 'react-native-reanimated';
@@ -35,7 +36,9 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 const CLERK_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
 if (!CLERK_PUBLISHABLE_KEY) {
-  console.error('Missing EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY — auth will not work');
+  throw new Error(
+    'Missing EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY — set it in eas.json for this build profile.',
+  );
 }
 
 const queryClient = new QueryClient({
@@ -211,17 +214,19 @@ function RootLayout() {
 
   return (
     <I18nProvider initialLanguage={language}>
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <KeyboardProvider>
-          <ErrorBoundary>
-            <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY || ''} tokenCache={tokenCache}>
-              <ClerkLoaded>
-                <AuthenticatedApp />
-              </ClerkLoaded>
-            </ClerkProvider>
-          </ErrorBoundary>
-        </KeyboardProvider>
-      </GestureHandlerRootView>
+      <SafeAreaProvider>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <KeyboardProvider>
+            <ErrorBoundary>
+              <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} tokenCache={tokenCache}>
+                <ClerkLoaded>
+                  <AuthenticatedApp />
+                </ClerkLoaded>
+              </ClerkProvider>
+            </ErrorBoundary>
+          </KeyboardProvider>
+        </GestureHandlerRootView>
+      </SafeAreaProvider>
     </I18nProvider>
   );
 }

@@ -13,13 +13,28 @@ eas login
 eas project:info
 ```
 
-### 2. Push credentials (required for notifications)
-Upload FCM V1 (Android) and APNs (iOS) credentials to this EAS project:
+### 2. Firebase client file (required for Android not to crash / for push)
+
+`expo-notifications` ships an FCM service. Without a matching `google-services.json`,
+Play installs can die on first open (`Default FirebaseApp is not initialized`).
+
+1. Firebase Console → project **weldsuite** → Add Android app
+2. Package name: `com.weldsuite.weldflow` (exact)
+3. Download `google-services.json` → place at `apps/mobile/weldflow-app/google-services.json`
+4. Do **not** reuse WeldMail / WeldBooks files — wrong `package_name`
+5. Upload the FCM V1 service account to this EAS project:
 ```bash
 eas credentials
 ```
-Select the WeldFlow project → Android → Google Service Account / FCM V1, and iOS → Push Key.
-Without these, Expo push token registration fails on device builds.
+Select WeldFlow → Android → Google Service Account / FCM V1 (and iOS → Push Key).
+
+Until the file exists, `app.config.js` strips `ExpoFirebaseMessagingService` so the app
+can still launch; push stays off until you add the file and rebuild.
+
+### 2b. Clerk Native application
+Clerk Dashboard → **Native applications** → enable Native API and register:
+- Android package: `com.weldsuite.weldflow`
+- iOS bundle: `com.weldsuite.weldflow`
 
 ### 3. Secrets / build env
 Clerk + API URLs are pinned per profile in `eas.json` (same pattern as WeldBooks).

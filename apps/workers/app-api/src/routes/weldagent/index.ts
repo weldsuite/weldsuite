@@ -30,6 +30,8 @@ import {
 } from '@weldsuite/app-api-client/schemas/weldagent';
 import { InsufficientAiCreditsError } from '../../services/ai/billing';
 import {
+  acceptConversationTurn,
+  finishAcceptedTurn,
   completeConversationTurn,
   ConversationNotFoundError,
 } from '../../services/weldagent/complete-turn';
@@ -262,9 +264,10 @@ app.post(
 /**
  * POST /conversations/:conversationId/complete-turn
  *
- * Server-owned chat turn: persist the user message, generate a reply, persist
- * the assistant message, notify the owner. Wrapped in waitUntil so a
- * backgrounded mobile client still gets a completed turn + push.
+ * Server-owned chat turn. By default persists the user message and returns
+ * immediately (`status: accepted`); the assistant reply is generated in the
+ * Worker via `waitUntil`. Pass `{ wait: true }` to block until the reply is
+ * persisted (tests / callers that need the full turn in one response).
  */
 app.post(
   '/conversations/:conversationId/complete-turn',
@@ -272,30 +275,59 @@ app.post(
   zValidator('json', completeTurnSchema),
   async (c) => {
     const conversationId = c.req.param('conversationId');
-    const { content, agentId } = c.req.valid('json');
-
-    const work = completeConversationTurn({
-      db: c.get('tenantDb'),
-      env: c.env,
-      workspaceId: c.get('workspaceId'),
-      userId: c.get('userId'),
-      conversationId,
-      content,
-      agentId,
-    });
-
-    c.executionCtx.waitUntil(
-      work.catch((err) => {
-        if (err instanceof ConversationNotFoundError || err instanceof InsufficientAiCreditsError) {
-          return;
-        }
-        console.error('[app-api/weldagent] complete-turn waitUntil failed:', err);
-      }),
-    );
+    const { content, agentId, wait } = c.req.valid('json');
+    const db = c.get('tenantDb');
+    const env = c.env;
+    const workspaceId = c.get('workspaceId');
+    const userId = c.get('userId');
 
     try {
-      const result = await work;
-      return success(c, result);
+      if (wait) {
+        const work = completeConversationTurn({
+          db,
+          env,
+          workspaceId,
+          userId,
+          conversationId,
+          content,
+          agentId,
+        });
+
+        c.executionCtx.waitUntil(
+          work.catch((err) => {
+            if (err instanceof ConversationNotFoundError || err instanceof InsufficientAiCreditsError) {
+              return;
+            }
+            console.error('[app-api/weldagent] complete-turn waitUntil failed:', err);
+          }),
+        );
+
+        const result = await work;
+        return success(c, result);
+      }
+
+      const accepted = await acceptConversationTurn({
+        db,
+        env,
+        workspaceId,
+        userId,
+        conversationId,
+        content,
+        agentId,
+      });
+
+      c.executionCtx.waitUntil(
+        finishAcceptedTurn({ db, env, accepted }).catch((err) => {
+          console.error('[app-api/weldagent] complete-turn background finish failed:', err);
+        }),
+      );
+
+      return success(c, {
+        status: 'accepted' as const,
+        pending: true,
+        userMessage: accepted.userMessage,
+        assistantMessage: null,
+      });
     } catch (err) {
       if (err instanceof ConversationNotFoundError) {
         return error.notFound(c, 'Conversation', conversationId);

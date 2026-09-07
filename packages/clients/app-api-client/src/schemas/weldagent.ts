@@ -27,6 +27,11 @@ export const completeTurnSchema = z.object({
   content: z.string().min(1).max(20000),
   /** Override the conversation's bound agent for this turn. */
   agentId: z.string().min(1).max(30).optional(),
+  /**
+   * When true, block until the assistant reply is persisted.
+   * Default false — accept the user message and finish generation in the Worker background.
+   */
+  wait: z.boolean().optional(),
 });
 
 export const updateConversationSchema = z.object({
@@ -126,9 +131,13 @@ export interface AutoTitleResult {
 }
 
 export interface CompleteTurnResult {
+  /** `accepted` = user message saved, reply still generating in the cloud. */
+  status?: 'accepted' | 'completed';
+  /** True when the assistant reply is not ready yet. */
+  pending?: boolean;
   userMessage: WeldAgentMessageRow;
-  assistantMessage: WeldAgentMessageRow;
-  creditsUsed: number;
-  success: boolean;
+  assistantMessage?: WeldAgentMessageRow | null;
+  creditsUsed?: number;
+  success?: boolean;
   error?: string;
 }

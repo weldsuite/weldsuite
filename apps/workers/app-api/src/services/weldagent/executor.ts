@@ -85,10 +85,54 @@ export interface AgentExecutorResult {
   steps: number;
 }
 
+/** True when the agent has no saved purpose yet and must interview the user first. */
+export function agentNeedsSetup(systemPrompt: string | null | undefined): boolean {
+  return !systemPrompt?.trim();
+}
+
+const SETUP_INTERVIEW_INSTRUCTIONS =
+  'SETUP MODE — you do not have a job or a real name yet (you may appear as "Untitled").\n' +
+  'You are interviewing the user. A preset choice (e.g. "Work & projects") is ONLY a starting hint — it is NOT enough to finish setup.\n\n' +
+  'HARD RULES:\n' +
+  '- After the user picks a preset or gives a short answer, your reply MUST be a clarifying question. Do not summarise a finished job yet.\n' +
+  '- Ask about ROUTINES next: when should you act (new tickets, quiet contacts, schedules, chat-only, etc.) and what steps you take.\n' +
+  '- Ask one focused question at a time. Keep asking until purpose AND routines are clear.\n' +
+  '- NEVER call save_agent_setup until the user has answered at least one clarifying question about routines.\n' +
+  '- NEVER say you are "active", "ready", or "now helping" until save_agent_setup has succeeded.\n' +
+  '- Set activate=true only if the user explicitly asks you to go live / activate; otherwise save as draft (activate=false).\n' +
+  '- Do not invent workspace data or claim you already run automations.\n\n' +
+  'When both purpose and routines are clear, call save_agent_setup with a short display name, lasting systemPrompt, and description. ' +
+  'After a successful save, briefly confirm your name and what you will do.';
+
+/**
+ * During onboarding, withhold save_agent_setup until the user has answered
+ * at least one follow-up (2+ user turns). A lone preset click is not enough.
+ */
+export function toolsForAgentTurn(input: {
+  permissions: string[];
+  enabledTools: string[];
+  systemPrompt: string;
+  userMessageCount: number;
+}): PlatformToolDefinition[] {
+  const defs = resolveAgentTools(input.permissions, input.enabledTools);
+  if (agentNeedsSetup(input.systemPrompt) && input.userMessageCount < 2) {
+    return defs.filter((tool) => tool.id !== 'agent.save_setup');
+  }
+  return defs;
+}
+
 function buildSystemPrompt(agent: AgentExecutorInput['agent'], extra?: string): string {
+  if (agentNeedsSetup(agent.systemPrompt)) {
+    const setup =
+      `You are "${agent.name}", a workspace AI agent in WeldSuite that is being configured for the first time.\n\n` +
+      SETUP_INTERVIEW_INSTRUCTIONS;
+    return extra ? `${setup}\n\n${extra}` : setup;
+  }
+
   const base =
     `You are "${agent.name}", a workspace AI agent in WeldSuite. ` +
     'You act only through the tools you have been given. Never invent IDs or claim you mutated data without a successful tool result. ' +
+    'Prefer platform tools (people, tickets, tasks, chat) when they fit. Use computer_* / browser_* only when you need a Linux shell, files, code, or a website without an API. ' +
     'Be concise and practical.\n\n' +
     (agent.systemPrompt?.trim() || 'Help the user with their workspace tasks.');
   return extra ? `${base}\n\n${extra}` : base;
@@ -139,7 +183,12 @@ export async function runAgentOnce(input: AgentExecutorInput): Promise<AgentExec
   const metering = await resolveAiMetering(input.env, input.workspaceId, input.actorUserId);
   await assertAiCredits(metering);
 
-  const defs = resolveAgentTools(input.agent.permissions, input.agent.enabledTools);
+  const defs = toolsForAgentTurn({
+    permissions: input.agent.permissions,
+    enabledTools: input.agent.enabledTools,
+    systemPrompt: input.agent.systemPrompt,
+    userMessageCount: input.messages.filter((m) => m.role === 'user').length,
+  });
   const invocations: StoredToolInvocation[] = [];
   const sdkTools = toSdkTools(defs, input.toolContext, invocations);
   const modelId = resolveAgentModelId(input.env, input.agent.modelId);
@@ -172,7 +221,7 @@ export async function runAgentOnce(input: AgentExecutorInput): Promise<AgentExec
         messages: input.messages,
         temperature,
         maxOutputTokens: input.agent.maxTokens,
-    tools: Object.keys(sdkTools).length > 0 ? (sdkTools as never) : undefined,
+        tools: Object.keys(sdkTools).length > 0 ? (sdkTools as never) : undefined,
         stopWhen: stepCountIs(Math.max(1, input.agent.maxIterations)),
         maxRetries: 1,
       }),
@@ -208,7 +257,12 @@ export interface StreamAgentParams extends AgentExecutorInput {
  * Uses toTextStreamResponse for backward-compatible client consumption.
  */
 export async function streamAgentChat(input: StreamAgentParams) {
-  const defs = resolveAgentTools(input.agent.permissions, input.agent.enabledTools);
+  const defs = toolsForAgentTurn({
+    permissions: input.agent.permissions,
+    enabledTools: input.agent.enabledTools,
+    systemPrompt: input.agent.systemPrompt,
+    userMessageCount: input.messages.filter((m) => m.role === 'user').length,
+  });
   const invocations: StoredToolInvocation[] = [];
   const sdkTools = toSdkTools(defs, input.toolContext, invocations);
   const modelId = resolveAgentModelId(input.env, input.agent.modelId);

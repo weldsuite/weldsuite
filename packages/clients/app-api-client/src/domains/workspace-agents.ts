@@ -60,5 +60,17 @@ export function createWorkspaceAgentsApi(api: ClientApi) {
     listGrantablePermissions(): Promise<DataResponse<string[]>> {
       return api.get('/weldagent/agents/grantable-permissions');
     },
+
+    computerStatus(): Promise<DataResponse<Record<string, unknown>>> {
+      return api.get('/weldagent/agents/computer/status');
+    },
+
+    destroyComputer(): Promise<DataResponse<Record<string, unknown>>> {
+      return api.post('/weldagent/agents/computer/destroy', {});
+    },
+
+    closeBrowser(agentId: string): Promise<DataResponse<Record<string, unknown>>> {
+      return api.post(`/weldagent/agents/${agentId}/browser/close`, {});
+    },
   };
 }

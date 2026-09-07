@@ -1,13 +1,13 @@
 /**
  * Server-owned WeldAgent chat turn.
  *
- * Persists the user message, generates a reply (workspace agent or personal
- * assistant), persists the assistant message, and notifies the owner. The
- * route wraps this in `waitUntil` so a backgrounded mobile client still gets
- * a completed turn + push.
+ * Accepts the user message immediately, then generates the assistant reply in
+ * the Worker (via `waitUntil`) so the browser/mobile client does not block on
+ * model latency. Sync `completeConversationTurn` remains for tests / callers
+ * that pass `wait: true`.
  */
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import {
   generateText,
   recommended,
@@ -58,6 +58,15 @@ export type TurnGenerator = (input: {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   agentId: string | null;
 }) => Promise<TurnGeneratorResult>;
+
+export interface AcceptedTurn {
+  conversationId: string;
+  userId: string;
+  workspaceId: string;
+  boundAgentId: string | null;
+  userMessage: WeldAgentMessageRow;
+  chatMessages: Array<{ role: 'user' | 'assistant'; content: string }>;
+}
 
 function serializeMessage(row: typeof schema.weldagentMessages.$inferSelect): WeldAgentMessageRow {
   return {
@@ -179,7 +188,11 @@ export async function defaultTurnGenerator(params: {
   });
 }
 
-export async function completeConversationTurn(params: {
+/**
+ * Persist the user message and prepare generation context. Returns quickly so
+ * the HTTP response can leave before the model runs.
+ */
+export async function acceptConversationTurn(params: {
   db: AgentDb;
   env: Env;
   workspaceId: string;
@@ -187,10 +200,7 @@ export async function completeConversationTurn(params: {
   conversationId: string;
   content: string;
   agentId?: string;
-  generate?: TurnGenerator;
-  /** Skip push (used when the caller already notified, or in tests). */
-  notify?: boolean;
-}): Promise<CompleteTurnResult> {
+}): Promise<AcceptedTurn> {
   const { weldagentConversations, weldagentMessages } = schema;
   const db = params.db;
 
@@ -208,6 +218,12 @@ export async function completeConversationTurn(params: {
 
   if (!conversation) {
     throw new ConversationNotFoundError(params.conversationId);
+  }
+
+  // Fail fast on empty credits before accepting the turn into the background.
+  if (isGatewayConfigured(params.env)) {
+    const metering = await resolveAiMetering(params.env, params.workspaceId, params.userId);
+    await assertAiCredits(metering);
   }
 
   const boundAgentId = params.agentId ?? conversation.agentId ?? null;
@@ -238,45 +254,11 @@ export async function completeConversationTurn(params: {
     content: params.content,
   });
 
-  const chatMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [
-    ...history
-      .filter((m): m is typeof m & { role: 'user' | 'assistant' } => m.role === 'user' || m.role === 'assistant')
-      .map((m) => ({ role: m.role, content: m.content })),
-    { role: 'user', content: params.content },
-  ];
-
-  const generate =
-    params.generate ??
-    ((input) =>
-      defaultTurnGenerator({
-        db,
-        env: params.env,
-        workspaceId: params.workspaceId,
-        userId: params.userId,
-        messages: input.messages,
-        agentId: input.agentId,
-      }));
-
-  const generated = await generate({ messages: chatMessages, agentId: boundAgentId });
-
-  const assistantText = generated.success
-    ? generated.text
-    : generated.error || 'The assistant could not complete this turn.';
-
-  const assistantMessageId = generateId('msg');
-  await db.insert(weldagentMessages).values({
-    id: assistantMessageId,
-    conversationId: conversation.id,
-    role: 'assistant',
-    content: assistantText,
-    toolInvocations: (generated.toolInvocations as typeof weldagentMessages.$inferInsert['toolInvocations']) ?? null,
-  });
-
   await db
     .update(weldagentConversations)
     .set({
       lastMessageAt: new Date(),
-      messageCount: conversation.messageCount + 2,
+      messageCount: sql`${weldagentConversations.messageCount} + 1`,
       updatedAt: new Date(),
     })
     .where(eq(weldagentConversations.id, conversation.id));
@@ -286,6 +268,76 @@ export async function completeConversationTurn(params: {
     .from(weldagentMessages)
     .where(eq(weldagentMessages.id, userMessageId))
     .limit(1);
+
+  const chatMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [
+    ...history
+      .filter((m): m is typeof m & { role: 'user' | 'assistant' } => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({ role: m.role, content: m.content })),
+    { role: 'user', content: params.content },
+  ];
+
+  return {
+    conversationId: conversation.id,
+    userId: params.userId,
+    workspaceId: params.workspaceId,
+    boundAgentId,
+    userMessage: serializeMessage(userRow),
+    chatMessages,
+  };
+}
+
+/**
+ * Generate the assistant reply for an already-accepted user turn and persist it.
+ */
+export async function finishAcceptedTurn(params: {
+  db: AgentDb;
+  env: Env;
+  accepted: AcceptedTurn;
+  generate?: TurnGenerator;
+  notify?: boolean;
+}): Promise<CompleteTurnResult> {
+  const { weldagentConversations, weldagentMessages } = schema;
+  const { accepted, db } = params;
+
+  const generate =
+    params.generate ??
+    ((input) =>
+      defaultTurnGenerator({
+        db,
+        env: params.env,
+        workspaceId: accepted.workspaceId,
+        userId: accepted.userId,
+        messages: input.messages,
+        agentId: input.agentId,
+      }));
+
+  const generated = await generate({
+    messages: accepted.chatMessages,
+    agentId: accepted.boundAgentId,
+  });
+
+  const assistantText = generated.success
+    ? generated.text
+    : generated.error || 'The assistant could not complete this turn.';
+
+  const assistantMessageId = generateId('msg');
+  await db.insert(weldagentMessages).values({
+    id: assistantMessageId,
+    conversationId: accepted.conversationId,
+    role: 'assistant',
+    content: assistantText,
+    toolInvocations: (generated.toolInvocations as typeof weldagentMessages.$inferInsert['toolInvocations']) ?? null,
+  });
+
+  await db
+    .update(weldagentConversations)
+    .set({
+      lastMessageAt: new Date(),
+      messageCount: sql`${weldagentConversations.messageCount} + 1`,
+      updatedAt: new Date(),
+    })
+    .where(eq(weldagentConversations.id, accepted.conversationId));
+
   const [assistantRow] = await db
     .select()
     .from(weldagentMessages)
@@ -294,17 +346,17 @@ export async function completeConversationTurn(params: {
 
   if (params.notify !== false && generated.success) {
     let agentName: string | null = null;
-    if (boundAgentId) {
-      const agent = await getAgent(db, boundAgentId);
+    if (accepted.boundAgentId) {
+      const agent = await getAgent(db, accepted.boundAgentId);
       agentName = agent?.name ?? null;
     }
     try {
       await sendWeldAgentReplyNotification({
         db: db as unknown as NotificationDatabase,
         env: params.env as unknown as NotificationEnv,
-        workspaceId: params.workspaceId,
-        userId: params.userId,
-        conversationId: conversation.id,
+        workspaceId: accepted.workspaceId,
+        userId: accepted.userId,
+        conversationId: accepted.conversationId,
         agentName,
         previewText: assistantText,
       });
@@ -314,10 +366,44 @@ export async function completeConversationTurn(params: {
   }
 
   return {
-    userMessage: serializeMessage(userRow),
+    status: 'completed',
+    pending: false,
+    userMessage: accepted.userMessage,
     assistantMessage: serializeMessage(assistantRow),
     creditsUsed: generated.creditsUsed,
     success: generated.success,
     error: generated.error,
   };
+}
+
+/** Full synchronous turn (tests / wait:true). */
+export async function completeConversationTurn(params: {
+  db: AgentDb;
+  env: Env;
+  workspaceId: string;
+  userId: string;
+  conversationId: string;
+  content: string;
+  agentId?: string;
+  generate?: TurnGenerator;
+  /** Skip push (used when the caller already notified, or in tests). */
+  notify?: boolean;
+}): Promise<CompleteTurnResult> {
+  const accepted = await acceptConversationTurn({
+    db: params.db,
+    env: params.env,
+    workspaceId: params.workspaceId,
+    userId: params.userId,
+    conversationId: params.conversationId,
+    content: params.content,
+    agentId: params.agentId,
+  });
+
+  return finishAcceptedTurn({
+    db: params.db,
+    env: params.env,
+    accepted,
+    generate: params.generate,
+    notify: params.notify,
+  });
 }

@@ -1,12 +1,12 @@
 # Workspace AI Agents (WeldAgent)
 
-Named, permission-scoped AI agents that act **inside the WeldSuite platform** — not
-virtual desktops or computer-use bots.
+Named, permission-scoped AI agents that act **inside the WeldSuite platform**,
+with an optional **Cloudflare cloud computer** (Sandbox Linux + Browser Run).
 
 ## Product model
 
 - Multiple agents per workspace (`weldagent_agents`)
-- Each agent has **platform object:action grants** (`people:read`, `tickets:create`, …)
+- Each agent has **platform object:action grants** (`people:read`, `tickets:create`, `computer:use`, `browser:use`, …)
 - Tools are registered only when the agent's grants cover the tool's `requiredPermissions`
 - Chat (interactive) and autonomous runs (manual / entity-event) share one executor in `app-api`
 - Metered via the workspace credits wallet (`@weldsuite/ai` + Cloudflare AI Gateway)
@@ -21,6 +21,7 @@ virtual desktops or computer-use bots.
 | Chat with agent picker | WeldAgent drawer (`Cmd/Ctrl+J`) |
 | Multi-agent rooms | WeldChat channels with agent members + @mentions |
 | API | `/api/weldagent/agents/*`, `/api/weldagent/conversations?agentId=`, `/api/ai/chat` (+ `agentId`), `/api/channels/*` |
+| Cloud computer | `agent-runtime` worker + tools `computer_*` / `browser_*` |
 
 ## Per-bot chat history (Grok-style)
 
@@ -51,9 +52,33 @@ Runtime: `postChatMessage` → `dispatchAgentMentions` → `runAgentOnce` → `p
 
 Agent tools for rooms: `message_agent`, `create_agent_group_chat`.
 
+## Cloud computer (Cloudflare-only)
+
+One **Linux sandbox per workspace** (shared by that workspace’s bots) plus
+**Browser Run** sessions keyed per agent.
+
+| Piece | Where |
+|---|---|
+| Brain / tool loop | `app-api` `executor.ts` |
+| Computer + browser API | `apps/workers/agent-runtime` |
+| Client | `computer-client.ts` → `AGENT_RUNTIME_URL` + `INTERNAL_API_SECRET` |
+| Grants | `computer:use`, `browser:use` (assign on the agent) |
+| UI | Configure → Cloud computer panel |
+
+Tools:
+
+- `computer_exec`, `computer_read_file`, `computer_write_file`, `computer_list_files`, `computer_run_code`
+- `browser_open`, `browser_act`, `browser_close`
+
+Ops:
+
+- Local: run Docker + `pnpm --filter agent-runtime dev` (port 8795)
+- Env: `AGENT_RUNTIME_URL`, `AGENT_COMPUTER_ENABLED`, matching `INTERNAL_API_SECRET`
+- Not a full GUI desktop — headless Chrome + Linux container (Grok-like capabilities without Hetzner)
+
 ## Permissions
 
-Human RBAC (new object, distinct from helpdesk `agents`):
+Human RBAC (new object, distinct from helpdesk agents):
 
 - `weldagent:read|create|update|delete|use|manage`
 
@@ -63,17 +88,19 @@ The chatting user being Owner does **not** widen what the agent can do.
 ## Runtime
 
 - Executor: `apps/workers/app-api/src/services/weldagent/executor.ts` (`generateText` / `streamText` + `stopWhen: stepCountIs(n)`)
-- Tools: `…/services/weldagent/tools.ts` (people, tickets, tasks, chat room tools)
+- Tools: `…/services/weldagent/tools.ts` (people, tickets, tasks, chat, computer, browser)
+- Computer: `apps/workers/agent-runtime` (Sandbox + Browser Run)
 - Event dispatch: `registerWeldAgentEventRunner` in `@weldsuite/entity-events` → `dispatchWeldAgentsForEvent`
 - Room dispatch: `services/chat/agent-mention-dispatch.ts`
 - Activation extracts `eventSubscriptions` from instructions (`subscriptions.ts`)
 
-## Out of scope (v1)
+## Out of scope (for now)
 
-- Computer-use / browsing / “own PC”
 - Per-agent Stripe packages (use workspace credits)
 - Full MCP tool parity
 - Supervisor orchestration outside WeldChat (no separate agent bus)
+- Persistent GUI desktop / Hetzner VMs
+- Local machine control (laptop bridge)
 
 ## Schema
 

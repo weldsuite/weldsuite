@@ -242,6 +242,8 @@ jobs:
               - 'packages/core/social-publishing/**'
               - 'packages/core/credits/**'
               - 'packages/core/realtime/**'
+            agent-runtime:
+              - 'apps/workers/agent-runtime/**'
 
       - name: Build worker matrix
         id: matrix
@@ -259,12 +261,13 @@ jobs:
           W_WORKSPACE: ${{ steps.changes.outputs.workspace-worker }}
           W_WORKFLOW: ${{ steps.changes.outputs.workflow-worker }}
           W_MCP: ${{ steps.changes.outputs.mcp-server }}
+          W_AGENT_RUNTIME: ${{ steps.changes.outputs.agent-runtime }}
         run: |
           set -euo pipefail
-          ALL='["app-api","billing-worker","audit-log-worker","external-api","integration-webhook-worker","integration-sync-worker","mail-inbound-worker","personal-api","realtime-worker","workspace-worker","workflow-worker","mcp-server"]'
+          ALL='["app-api","billing-worker","audit-log-worker","external-api","integration-webhook-worker","integration-sync-worker","mail-inbound-worker","personal-api","realtime-worker","workspace-worker","workflow-worker","mcp-server","agent-runtime"]'
           if [ "$ALL_WORKERS" = "true" ]; then
             echo "workers=$ALL" >> "$GITHUB_OUTPUT"
-            echo "Deploying all 12 workers (lockfile, workspace graph, or @weldsuite/db graph changed)"
+            echo "Deploying all 13 workers (lockfile, workspace graph, or @weldsuite/db graph changed)"
             exit 0
           fi
 
@@ -282,6 +285,7 @@ jobs:
           add workspace-worker "$W_WORKSPACE"
           add workflow-worker "$W_WORKFLOW"
           add mcp-server "$W_MCP"
+          add agent-runtime "$W_AGENT_RUNTIME"
 
           if [ ${#selected[@]} -eq 0 ]; then
             echo 'workers=[]' >> "$GITHUB_OUTPUT"
@@ -342,6 +346,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
+      - name: Set up Docker (agent-runtime containers)
+        if: matrix.worker == 'agent-runtime'
+        uses: docker/setup-buildx-action@v3
       - name: Deploy ${{ matrix.worker }}
         working-directory: apps/workers/${{ matrix.worker }}
         env:
