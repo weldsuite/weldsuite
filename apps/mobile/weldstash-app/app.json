@@ -82,8 +82,6 @@
       }
     },
     "owner": "weldsuite",
-    "runtimeVersion": {
-      "policy": "fingerprint"
-    }
+    "runtimeVersion": { "policy": "appVersion" }
   }
 }

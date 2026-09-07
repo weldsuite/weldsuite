@@ -32,6 +32,21 @@
       "expo-apple-authentication",
       "expo-secure-store",
       [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "17.0",
+            "extraPods": [
+              { "name": "GoogleUtilities", "modular_headers": true },
+              { "name": "RecaptchaInterop", "modular_headers": true }
+            ]
+          },
+          "android": {
+            "minSdkVersion": 24
+          }
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
@@ -61,9 +76,7 @@
       }
     },
     "owner": "weldsuite",
-    "runtimeVersion": {
-      "policy": "fingerprint"
-    },
+    "runtimeVersion": { "policy": "appVersion" },
     "updates": {
       "url": "https://u.expo.dev/728d3ec2-f087-42a3-b5bb-74beffc3759c",
       "checkAutomatically": "ON_LOAD",
