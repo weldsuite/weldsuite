@@ -644,6 +644,8 @@ export const common = {
         emptyAction: 'Crea tu primer agente',
         noResultsTitle: 'No se encontraron agentes',
         noResultsDescription: 'No encontramos ningún agente que coincida con tu filtro.',
+        needsSetupPreview: 'Necesita configuración — dime para qué soy…',
+        readyPreview: 'Listo para chatear',
       },
       createDialog: {
         title: 'Crear agente',
@@ -685,6 +687,67 @@ export const common = {
           thinking: 'Pensando…',
           sendFailed: 'No se pudo enviar el mensaje. Inténtalo de nuevo.',
         },
+        setup: {
+          badge: 'Configuración',
+          headerHint: 'Dime para qué soy y qué rutinas debo seguir',
+          banner: 'Configuración',
+          chatName: 'Configuración',
+          typing: 'Escribiendo…',
+          greeting: 'Hola — encantado de conocerte.',
+          greetingNamed: 'Hola {name} — encantado de conocerte.',
+          composerPlaceholder: 'Mensaje para {name}',
+          intro1: '¡Hola! Soy un agente nuevo — todavía no tengo trabajo ni nombre.',
+          intro2: 'Dime qué debo hacer en este espacio de trabajo. Puedes elegir uno o más presets, escribir tu idea, o ambas cosas.',
+          intro3: 'Cuando sepa mi propósito y rutinas, elegiré un nombre y me pondré a trabajar — o puedes renombrarme en Configurar.',
+          openingMessage:
+            '¡Hola! Antes de poder ayudar, necesito saber para qué soy.\n\n¿Qué debo hacer en este espacio de trabajo, y qué rutinas o desencadenantes debo seguir (por ejemplo tickets nuevos, contactos inactivos, o solo chat)?\n\nCuando esté claro elegiré un nombre — o puedes renombrarme en Configurar.',
+          inputPlaceholder: 'O descríbelo con tus propias palabras…',
+          picker: {
+            title: '¿En qué quieres que te ayude principalmente?',
+            subtitle: 'Elige una, o escribe la tuya.',
+            freeTextPlaceholder: 'Escribe tu propia respuesta',
+            selectedPrefix: 'Configúrame para:',
+            freeTextPrefix: 'Con mis palabras:',
+            followUpHint:
+              'Haz las preguntas de aclaración que necesites sobre propósito y rutinas, y luego guarda tu configuración con un buen nombre.',
+            submit: 'Continuar',
+            submitting: 'Enviando…',
+          },
+          presets: {
+            workProjects: {
+              name: 'Trabajo y proyectos',
+              description: 'Tareas, proyectos y el día a día.',
+            },
+            customersSales: {
+              name: 'Clientes y ventas',
+              description: 'CRM, seguimientos y pipeline.',
+            },
+            supportOps: {
+              name: 'Soporte y operaciones',
+              description: 'Tickets, pedidos y mantener todo en marcha.',
+            },
+            everything: {
+              name: 'Un poco de todo',
+              description: 'Ayuda flexible en todo el espacio de trabajo.',
+            },
+            triageTickets: {
+              name: 'Clasificar tickets',
+              description: 'Resumir y priorizar tickets nuevos de helpdesk.',
+            },
+            researchLeads: {
+              name: 'Investigar leads',
+              description: 'Investigar contactos nuevos y marcar leads prometedores.',
+            },
+            monitorOrders: {
+              name: 'Monitorizar pedidos',
+              description: 'Vigilar pedidos nuevos o bloqueados y avisar al equipo.',
+            },
+            chatOnly: {
+              name: 'Asistente de chat',
+              description: 'Responder preguntas en chat — sin rutinas en segundo plano.',
+            },
+          },
+        },
         general: {
           profilePicture: 'Foto de perfil',
           profilePictureHint: 'Sube un nuevo avatar (máx. 2 MB)',
@@ -697,6 +760,22 @@ export const common = {
         },
         tools: {
           enabledCount: '{enabled} de {total} activados',
+        },
+        computer: {
+          title: 'Ordenador en la nube',
+          description:
+            'Sandbox Linux y navegador compartidos para los agentes de este espacio (Cloudflare Sandbox + Browser Run).',
+          statusLoading: 'Comprobando…',
+          statusReady: 'Disponible',
+          statusOff: 'No configurado',
+          sandboxLabel: 'Sandbox',
+          refresh: 'Actualizar',
+          closeBrowser: 'Cerrar sesión del navegador',
+          destroy: 'Restablecer ordenador',
+          destroyed: 'Ordenador del espacio restablecido.',
+          browserClosed: 'Sesión del navegador cerrada.',
+          actionFailed: 'La acción falló.',
+          hint: 'Activa computer:use y browser:use en los permisos de abajo y pide al agente que use sus herramientas de ordenador. Todos los bots de este espacio comparten un sandbox.',
         },
         supervisor: {
           description: 'Permite que este agente delegue tareas a otros agentes para orquestar flujos de trabajo de varios pasos.',

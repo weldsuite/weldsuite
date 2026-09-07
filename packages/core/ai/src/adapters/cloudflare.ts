@@ -40,14 +40,71 @@ export function toGatewayModelId(nativeId: string, useGateway: boolean): string 
   return nativeId.startsWith('@cf/') ? `workers-ai/${nativeId}` : nativeId;
 }
 
+/**
+ * Workers AI chat schemas reject OpenAI content-part arrays (`[{type:'text',...}]`)
+ * and often reject `content: null` on assistant tool-call turns. Flatten to plain
+ * strings before the request leaves the adapter.
+ *
+ * @see https://github.com/cloudflare/cloudflare-os/issues/54
+ */
+export function flattenWorkersAiRequestBody(args: Record<string, unknown>): Record<string, unknown> {
+  const messages = args.messages;
+  if (!Array.isArray(messages)) return args;
+
+  return {
+    ...args,
+    messages: messages.map((msg) => {
+      if (!msg || typeof msg !== 'object') return msg;
+      const m = { ...(msg as Record<string, unknown>) };
+      const content = m.content;
+
+      if (Array.isArray(content)) {
+        m.content = content
+          .map((part) => {
+            if (typeof part === 'string') return part;
+            if (part && typeof part === 'object') {
+              const p = part as Record<string, unknown>;
+              if (typeof p.text === 'string') return p.text;
+              if (p.type === 'text' && typeof p.text === 'string') return p.text;
+            }
+            return '';
+          })
+          .filter((s) => s.length > 0)
+          .join('\n');
+      } else if (content === null || content === undefined) {
+        // Assistant messages with tool_calls often arrive as content:null.
+        m.content = '';
+      }
+
+      return m;
+    }),
+  };
+}
+
+function openAiCompatibleProvider(
+  name: string,
+  opts: {
+    baseURL: string;
+    apiKey?: string;
+    headers?: Record<string, string>;
+  },
+) {
+  return createOpenAICompatible({
+    name,
+    baseURL: opts.baseURL,
+    ...(opts.apiKey ? { apiKey: opts.apiKey } : {}),
+    ...(opts.headers ? { headers: opts.headers } : {}),
+    transformRequestBody: flattenWorkersAiRequestBody,
+  });
+}
+
 /** Direct Workers AI provider (Authorization bearer). Used for embeddings, and for
  *  everything when no gateway is configured. */
 function directProvider(config: CloudflareGatewayConfig) {
-  return createOpenAICompatible({
-    name: 'weldsuite-cloudflare-workers-ai',
+  return openAiCompatibleProvider('weldsuite-cloudflare-workers-ai', {
     baseURL: config.baseURL ?? restApiBaseUrl(config.accountId),
-    ...(config.apiKey ? { apiKey: config.apiKey } : {}),
-    ...(config.headers ? { headers: config.headers } : {}),
+    apiKey: config.apiKey,
+    headers: config.headers,
   });
 }
 
@@ -55,8 +112,7 @@ export function createCloudflareAdapter(config: CloudflareGatewayConfig): Adapte
   const useGateway = Boolean(config.gateway);
 
   const languageProvider = useGateway
-    ? createOpenAICompatible({
-        name: 'weldsuite-cloudflare-ai-gateway',
+    ? openAiCompatibleProvider('weldsuite-cloudflare-ai-gateway', {
         baseURL: config.baseURL ?? compatBaseUrl(config.accountId, config.gateway!),
         // Gateway-scoped bearer ONLY — no provider Authorization header (see header).
         headers: {

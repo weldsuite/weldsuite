@@ -20,6 +20,7 @@ const agentKeys = {
   runs: (agentId: string) => [...AGENT_ROOT, 'runs', agentId] as const,
   tools: [...AGENT_ROOT, 'tools'] as const,
   grantable: [...AGENT_ROOT, 'grantable'] as const,
+  computer: [...AGENT_ROOT, 'computer'] as const,
 };
 
 /** @deprecated Use WorkspaceAgent — kept for sidebar consumers. */
@@ -99,6 +100,35 @@ export function useGrantablePermissions() {
       const res = await api.workspaceAgents.listGrantablePermissions();
       return res.data ?? [];
     },
+  });
+}
+
+export function useAgentComputerStatus() {
+  const api = useAppApi();
+  return useQuery({
+    queryKey: agentKeys.computer,
+    queryFn: async () => {
+      const res = await api.workspaceAgents.computerStatus();
+      return res.data ?? { enabled: false };
+    },
+  });
+}
+
+export function useDestroyAgentComputer() {
+  const api = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.workspaceAgents.destroyComputer(),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: agentKeys.computer });
+    },
+  });
+}
+
+export function useCloseAgentBrowser(agentId: string) {
+  const api = useAppApi();
+  return useMutation({
+    mutationFn: () => api.workspaceAgents.closeBrowser(agentId),
   });
 }
 

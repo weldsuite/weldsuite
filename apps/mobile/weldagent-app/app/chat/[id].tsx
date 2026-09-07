@@ -72,7 +72,27 @@ export default function ChatThreadScreen() {
     setCreditsEmpty(false);
     try {
       const res = await appApi.weldagent.completeTurn(id, { content });
-      setMessages((prev) => [...prev, res.data.userMessage, res.data.assistantMessage]);
+      const userMsg = res.data.userMessage;
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === userMsg.id)) return prev;
+        return [...prev, userMsg];
+      });
+
+      if (res.data.pending || !res.data.assistantMessage) {
+        // Cloud is generating — poll until the assistant reply appears.
+        const started = Date.now();
+        while (Date.now() - started < 90_000) {
+          await new Promise((r) => setTimeout(r, 1200));
+          const msgs = await appApi.weldagent.listMessages(id, { limit: 200 });
+          const list = msgs.data ?? [];
+          setMessages(list);
+          const idx = list.findIndex((m) => m.id === userMsg.id);
+          if (idx >= 0 && list.slice(idx + 1).some((m) => m.role === 'assistant')) break;
+        }
+      } else {
+        setMessages((prev) => [...prev, res.data.assistantMessage!]);
+      }
+
       if (messages.length === 0) {
         void appApi.weldagent.autoTitleConversation(id, { firstUserMessage: content }).then((r) => {
           if (r.data?.name) setTitle(r.data.name);

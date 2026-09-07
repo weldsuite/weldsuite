@@ -347,6 +347,26 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
     ],
   },
 
+  // ── Agent computer (grants assigned to WeldAgents, not human roles) ───
+  // Exposed via GET /api/weldagent/agents/grantable-permissions so builders
+  // can unlock Cloudflare Sandbox / Browser Run tools on a bot.
+  {
+    key: 'computer',
+    label: 'Agent computer',
+    permissions: [
+      {
+        key: 'computer:use',
+        label: 'Use workspace computer',
+        description: 'Shell, files, and code interpreter on the workspace’s Cloudflare Sandbox.',
+      },
+      {
+        key: 'browser:use',
+        label: 'Use cloud browser',
+        description: 'Navigate and automate pages with Cloudflare Browser Run.',
+      },
+    ],
+  },
+
   // ── WeldObjects (user-defined custom objects) ─────────────────────────
   // Only the MODULE-level keys live here. The per-object keys
   // (`weldobjects:<slug>:read` etc.) are generated at runtime from the

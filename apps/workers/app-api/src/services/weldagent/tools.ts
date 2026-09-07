@@ -102,7 +102,112 @@ const createAgentGroupChatParams = z.object({
   replyPolicy: z.enum(['mentions', 'always', 'none']).optional(),
 });
 
+const computerExecParams = z.object({
+  command: z.string().min(1).max(8000).describe('Shell command to run in the workspace computer'),
+  cwd: z.string().max(500).optional().describe('Working directory under /workspace'),
+});
+
+const computerPathParams = z.object({
+  path: z.string().min(1).max(500).describe('Absolute path under /workspace or relative path'),
+});
+
+const computerWriteParams = computerPathParams.extend({
+  content: z.string().max(500_000),
+});
+
+const computerCodeParams = z.object({
+  code: z.string().min(1).max(100_000),
+  language: z.enum(['python', 'javascript']).optional(),
+});
+
+const browserOpenParams = z.object({
+  url: z.string().url().max(2000),
+});
+
+const browserActParams = z.object({
+  action: z.enum(['goto', 'click', 'type', 'press', 'wait', 'screenshot', 'extract', 'live_view']),
+  url: z.string().url().max(2000).optional(),
+  selector: z.string().max(500).optional(),
+  text: z.string().max(5000).optional(),
+  key: z.string().max(50).optional(),
+  waitMs: z.number().int().min(0).max(30_000).optional(),
+});
+
+const saveAgentSetupParams = z.object({
+  name: z
+    .string()
+    .min(2)
+    .max(80)
+    .describe('Short display name for this agent based on its purpose (e.g. "Lead Qualifier", "Support Digest").'),
+  systemPrompt: z
+    .string()
+    .min(20)
+    .max(10000)
+    .describe('Lasting instructions: purpose, when to act, and what steps to take.'),
+  description: z.string().max(500).optional().describe('Short one-line summary of what this agent does.'),
+  activate: z
+    .boolean()
+    .optional()
+    .describe(
+      'Set true ONLY if the user explicitly asked to activate / go live. Otherwise omit or set false (stay draft).',
+    ),
+});
+
 export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
+  {
+    id: 'agent.save_setup',
+    name: 'save_agent_setup',
+    description:
+      'Save purpose + routines + display name AFTER interviewing the user. ' +
+      'Do not call this after only a preset click — you must have clarified routines first. ' +
+      'Never claim you are active unless activate=true and the user asked for that.',
+    requiredPermissions: [],
+    parameters: saveAgentSetupParams,
+    async execute(ctx, raw) {
+      const args = saveAgentSetupParams.parse(raw);
+      const { updateAgent, getAgent } = await import('./agents');
+      const { extractEventSubscriptions } = await import('./subscriptions');
+
+      const existing = await getAgent(ctx.db, ctx.agentId);
+      if (!existing) return { error: 'Agent not found' };
+
+      const prompt = args.systemPrompt.trim();
+      // Lightweight guard: lasting instructions must mention when/how the agent acts.
+      const mentionsRoutine =
+        /\b(when|whenever|schedule|daily|weekly|ticket|contact|order|chat|trigger|routine|event|listen)\b/i.test(
+          prompt,
+        );
+      if (!mentionsRoutine) {
+        return {
+          error:
+            'systemPrompt is missing routines (when to act). Ask the user about triggers/routines, then try again.',
+        };
+      }
+
+      const eventSubscriptions = extractEventSubscriptions(prompt);
+      const nextName = args.name.trim();
+      const updated = await updateAgent(ctx.db, ctx.agentId, {
+        name: nextName,
+        systemPrompt: prompt,
+        description: args.description?.trim() || existing.description,
+        eventSubscriptions,
+        ...(args.activate ? { status: 'active' as const } : { status: 'draft' as const }),
+      });
+      if (!updated) return { error: 'Failed to save agent setup' };
+
+      return {
+        ok: true,
+        agentId: updated.id,
+        name: updated.name,
+        status: updated.status,
+        description: updated.description,
+        eventSubscriptions: updated.eventSubscriptions,
+        hint: args.activate
+          ? 'Setup saved and activated. Confirm briefly with the user.'
+          : 'Setup saved as draft. Confirm briefly; ask if they want you activated.',
+      };
+    },
+  },
   {
     id: 'people.list',
     name: 'list_people',
@@ -459,6 +564,135 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
       };
     },
   },
+  {
+    id: 'computer.exec',
+    name: 'computer_exec',
+    description:
+      'Run a shell command on the workspace cloud computer (Linux sandbox). Prefer platform tools for CRM/tickets; use this for scripts, files, and general compute.',
+    requiredPermissions: ['computer:use'],
+    parameters: computerExecParams,
+    async execute(ctx, raw) {
+      if (!ctx.env) return { error: 'Computer runtime unavailable' };
+      const args = computerExecParams.parse(raw);
+      const { computerExec } = await import('./computer-client');
+      return computerExec(ctx.env, {
+        workspaceId: ctx.workspaceId,
+        command: args.command,
+        cwd: args.cwd,
+      });
+    },
+  },
+  {
+    id: 'computer.read_file',
+    name: 'computer_read_file',
+    description: 'Read a file from the workspace cloud computer under /workspace.',
+    requiredPermissions: ['computer:use'],
+    parameters: computerPathParams,
+    async execute(ctx, raw) {
+      if (!ctx.env) return { error: 'Computer runtime unavailable' };
+      const args = computerPathParams.parse(raw);
+      const { computerReadFile } = await import('./computer-client');
+      return computerReadFile(ctx.env, { workspaceId: ctx.workspaceId, path: args.path });
+    },
+  },
+  {
+    id: 'computer.write_file',
+    name: 'computer_write_file',
+    description: 'Write a file on the workspace cloud computer under /workspace.',
+    requiredPermissions: ['computer:use'],
+    parameters: computerWriteParams,
+    async execute(ctx, raw) {
+      if (!ctx.env) return { error: 'Computer runtime unavailable' };
+      const args = computerWriteParams.parse(raw);
+      const { computerWriteFile } = await import('./computer-client');
+      return computerWriteFile(ctx.env, {
+        workspaceId: ctx.workspaceId,
+        path: args.path,
+        content: args.content,
+      });
+    },
+  },
+  {
+    id: 'computer.list_files',
+    name: 'computer_list_files',
+    description: 'List files in a directory on the workspace cloud computer.',
+    requiredPermissions: ['computer:use'],
+    parameters: computerPathParams,
+    async execute(ctx, raw) {
+      if (!ctx.env) return { error: 'Computer runtime unavailable' };
+      const args = computerPathParams.parse(raw);
+      const { computerListFiles } = await import('./computer-client');
+      return computerListFiles(ctx.env, { workspaceId: ctx.workspaceId, path: args.path });
+    },
+  },
+  {
+    id: 'computer.run_code',
+    name: 'computer_run_code',
+    description: 'Run Python or JavaScript on the workspace cloud computer.',
+    requiredPermissions: ['computer:use'],
+    parameters: computerCodeParams,
+    async execute(ctx, raw) {
+      if (!ctx.env) return { error: 'Computer runtime unavailable' };
+      const args = computerCodeParams.parse(raw);
+      const { computerRunCode } = await import('./computer-client');
+      return computerRunCode(ctx.env, {
+        workspaceId: ctx.workspaceId,
+        code: args.code,
+        language: args.language,
+      });
+    },
+  },
+  {
+    id: 'browser.open',
+    name: 'browser_open',
+    description:
+      'Open a URL in the cloud browser for this agent. Returns title, text extract, screenshot, and optional Live View URL. Prefer connectors/platform tools when available.',
+    requiredPermissions: ['browser:use'],
+    parameters: browserOpenParams,
+    async execute(ctx, raw) {
+      if (!ctx.env) return { error: 'Browser runtime unavailable' };
+      const args = browserOpenParams.parse(raw);
+      const { browserOpen } = await import('./computer-client');
+      return browserOpen(ctx.env, {
+        workspaceId: ctx.workspaceId,
+        agentId: ctx.agentId,
+        url: args.url,
+      });
+    },
+  },
+  {
+    id: 'browser.act',
+    name: 'browser_act',
+    description:
+      'Continue a cloud browser session: goto, click, type, press, wait, screenshot, extract, or live_view.',
+    requiredPermissions: ['browser:use'],
+    parameters: browserActParams,
+    async execute(ctx, raw) {
+      if (!ctx.env) return { error: 'Browser runtime unavailable' };
+      const args = browserActParams.parse(raw);
+      const { browserAct } = await import('./computer-client');
+      return browserAct(ctx.env, {
+        workspaceId: ctx.workspaceId,
+        agentId: ctx.agentId,
+        ...args,
+      });
+    },
+  },
+  {
+    id: 'browser.close',
+    name: 'browser_close',
+    description: 'Close this agent’s cloud browser session.',
+    requiredPermissions: ['browser:use'],
+    parameters: z.object({}),
+    async execute(ctx) {
+      if (!ctx.env) return { error: 'Browser runtime unavailable' };
+      const { browserClose } = await import('./computer-client');
+      return browserClose(ctx.env, {
+        workspaceId: ctx.workspaceId,
+        agentId: ctx.agentId,
+      });
+    },
+  },
 ];
 
 export function listToolCatalog(): Array<{
@@ -478,12 +712,14 @@ export function listToolCatalog(): Array<{
 /**
  * Filter the registry to tools the agent may use given its grants and optional
  * explicit enabledTools allow-list.
+ * `agent.save_setup` is always available so unfinished agents can finish onboarding.
  */
 export function resolveAgentTools(
   agentPermissions: string[],
   enabledTools: string[] = [],
 ): PlatformToolDefinition[] {
   return PLATFORM_TOOLS.filter((tool) => {
+    if (tool.id === 'agent.save_setup') return true;
     if (enabledTools.length > 0 && !enabledTools.includes(tool.id)) return false;
     return agentHasGrants(agentPermissions, tool.requiredPermissions);
   });

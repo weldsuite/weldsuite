@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 
-import { createCloudflareAdapter, toGatewayModelId } from './cloudflare.js';
+import {
+  createCloudflareAdapter,
+  flattenWorkersAiRequestBody,
+  toGatewayModelId,
+} from './cloudflare.js';
 import { compatBaseUrl, restApiBaseUrl, type CloudflareGatewayConfig } from '../config.js';
 
 describe('toGatewayModelId', () => {
@@ -19,6 +23,44 @@ describe('toGatewayModelId', () => {
     expect(toGatewayModelId('@cf/meta/llama-3.3-70b-instruct-fp8-fast', false)).toBe(
       '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
     );
+  });
+});
+
+describe('flattenWorkersAiRequestBody', () => {
+  it('flattens OpenAI content-part arrays to plain strings', () => {
+    const out = flattenWorkersAiRequestBody({
+      model: 'workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+      messages: [
+        { role: 'system', content: [{ type: 'text', text: 'You are helpful.' }] },
+        { role: 'user', content: [{ type: 'text', text: 'Hello' }, { type: 'text', text: 'there' }] },
+        { role: 'assistant', content: 'Already a string' },
+      ],
+    });
+
+    expect(out.messages).toEqual([
+      { role: 'system', content: 'You are helpful.' },
+      { role: 'user', content: 'Hello\nthere' },
+      { role: 'assistant', content: 'Already a string' },
+    ]);
+  });
+
+  it('replaces null/undefined content with empty string', () => {
+    const out = flattenWorkersAiRequestBody({
+      messages: [
+        { role: 'assistant', content: null, tool_calls: [{ id: '1' }] },
+        { role: 'tool', content: undefined },
+      ],
+    });
+
+    expect(out.messages).toEqual([
+      { role: 'assistant', content: '', tool_calls: [{ id: '1' }] },
+      { role: 'tool', content: '' },
+    ]);
+  });
+
+  it('leaves non-message payloads untouched', () => {
+    const body = { input: 'embed me' };
+    expect(flattenWorkersAiRequestBody(body)).toEqual(body);
   });
 });
 

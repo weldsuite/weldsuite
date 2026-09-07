@@ -1,0 +1,106 @@
+# WeldAgent cloud computer — Cloudflare Sandbox (Linux) + Browser Run.
+# Called only by app-api with INTERNAL_API_SECRET. One sandbox per workspace.
+#
+# Secrets (wrangler secret put):
+# - INTERNAL_API_SECRET (must match app-api)
+#
+# Local: Docker must be running for Sandbox. Browser binding uses remote = true.
+
+name = "weldsuite-agent-runtime"
+main = "src/index.ts"
+compatibility_date = "2025-09-07"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT = "development"
+AGENT_COMPUTER_ENABLED = "true"
+
+[[containers]]
+class_name = "Sandbox"
+image = "./Dockerfile"
+instance_type = "lite"
+max_instances = 50
+
+[[durable_objects.bindings]]
+name = "Sandbox"
+class_name = "Sandbox"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Sandbox"]
+
+[browser]
+binding = "BROWSER"
+remote = true
+
+[[kv_namespaces]]
+binding = "BROWSER_SESSIONS"
+id = "00000000000000000000000000000000"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ TEST ============
+[env.test]
+name = "weldsuite-agent-runtime-test"
+routes = [{ pattern = "agent-runtime-test.weldsuite.org/*", zone_name = "weldsuite.org" }]
+vars = { ENVIRONMENT = "test", AGENT_COMPUTER_ENABLED = "true" }
+
+[[env.test.containers]]
+class_name = "Sandbox"
+image = "./Dockerfile"
+instance_type = "lite"
+max_instances = 100
+
+[[env.test.durable_objects.bindings]]
+name = "Sandbox"
+class_name = "Sandbox"
+
+[[env.test.migrations]]
+tag = "v1"
+new_sqlite_classes = ["Sandbox"]
+
+[env.test.browser]
+binding = "BROWSER"
+remote = true
+
+# Replace with a real KV id before first deploy.
+[[env.test.kv_namespaces]]
+binding = "BROWSER_SESSIONS"
+id = "00000000000000000000000000000000"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ============
+[env.production]
+name = "weldsuite-agent-runtime"
+routes = [{ pattern = "agent-runtime.weldsuite.org/*", zone_name = "weldsuite.org" }]
+vars = { ENVIRONMENT = "production", AGENT_COMPUTER_ENABLED = "true" }
+
+[[env.production.containers]]
+class_name = "Sandbox"
+image = "./Dockerfile"
+instance_type = "standard-1"
+max_instances = 500
+
+[[env.production.durable_objects.bindings]]
+name = "Sandbox"
+class_name = "Sandbox"
+
+[[env.production.migrations]]
+tag = "v1"
+new_sqlite_classes = ["Sandbox"]
+
+[env.production.browser]
+binding = "BROWSER"
+
+[[env.production.kv_namespaces]]
+binding = "BROWSER_SESSIONS"
+id = "00000000000000000000000000000000"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

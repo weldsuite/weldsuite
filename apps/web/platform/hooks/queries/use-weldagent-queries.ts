@@ -80,7 +80,11 @@ export function useWeldAgentConversations(limit = 50, agentId?: string | null) {
   });
 }
 
-export function useWeldAgentConversationMessages(conversationId: string | null, limit = 100) {
+export function useWeldAgentConversationMessages(
+  conversationId: string | null,
+  limit = 100,
+  opts?: { refetchInterval?: number | false },
+) {
   const { weldAgent } = useAppApi();
   return useQuery({
     queryKey: weldagentKeys.conversationMessages(conversationId || ''),
@@ -90,6 +94,7 @@ export function useWeldAgentConversationMessages(conversationId: string | null, 
       return (result.data || []) as unknown as WeldAgentMessage[];
     },
     enabled: !!conversationId,
+    refetchInterval: opts?.refetchInterval,
   });
 }
 
@@ -114,7 +119,13 @@ export function useCompleteConversationTurn() {
   const { weldAgent } = useAppApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (params: { conversationId: string; content: string; agentId?: string }) => {
+    mutationFn: async (params: {
+      conversationId: string;
+      content: string;
+      agentId?: string;
+      /** When true, block until the assistant reply is ready. Default: cloud async. */
+      wait?: boolean;
+    }) => {
       const { conversationId, ...body } = params;
       const result = await weldAgent.completeTurn(conversationId, body);
       return result.data;

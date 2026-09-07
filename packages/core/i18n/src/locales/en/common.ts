@@ -633,6 +633,8 @@ export const common = {
         emptyAction: 'Create your first agent',
         noResultsTitle: 'No agents found',
         noResultsDescription: "We couldn't find any agents matching your filter.",
+        needsSetupPreview: 'Needs setup — tell me what I\'m for…',
+        readyPreview: 'Ready to chat',
       },
       templates: {
         sectionLabel: 'Template',
@@ -697,6 +699,67 @@ export const common = {
           thinking: 'Thinking…',
           sendFailed: 'Could not send message. Try again.',
         },
+        setup: {
+          badge: 'Setup',
+          headerHint: 'Tell me what I\'m for and which routines to follow',
+          banner: 'Setup',
+          chatName: 'Setup',
+          typing: 'Typing…',
+          greeting: 'Hey — good to meet you.',
+          greetingNamed: 'Hey {name} — good to meet you.',
+          composerPlaceholder: 'Message {name}',
+          intro1: "Hi! I'm a new agent — I don't have a job or a name yet.",
+          intro2: 'Tell me what I should do in this workspace. You can pick one or more presets below, type your own idea, or both.',
+          intro3: "Once I know my purpose and routines, I'll name myself and get to work — or you can rename me anytime in Configure.",
+          openingMessage:
+            "Hi! Before I can help, I need to know what I'm for.\n\nWhat should I do in this workspace, and what routines or triggers should I follow (for example new tickets, quiet contacts, or chat-only)?\n\nOnce that's clear I'll pick a name — or you can rename me anytime in Configure.",
+          inputPlaceholder: 'Or describe it in your own words…',
+          picker: {
+            title: 'What do you mainly want me helping with?',
+            subtitle: 'Pick one, or type your own.',
+            freeTextPlaceholder: 'Type your own answer',
+            selectedPrefix: 'Please set me up for:',
+            freeTextPrefix: 'In my own words:',
+            followUpHint:
+              'Ask any clarifying questions you need about purpose and routines, then save your setup with a good name when you know enough.',
+            submit: 'Continue',
+            submitting: 'Sending…',
+          },
+          presets: {
+            workProjects: {
+              name: 'Work & projects',
+              description: 'Tasks, projects, and day-to-day execution.',
+            },
+            customersSales: {
+              name: 'Customers & sales',
+              description: 'CRM, follow-ups, and pipeline work.',
+            },
+            supportOps: {
+              name: 'Support & operations',
+              description: 'Tickets, orders, and keeping things running.',
+            },
+            everything: {
+              name: 'A bit of everything',
+              description: 'Flexible help across the workspace.',
+            },
+            triageTickets: {
+              name: 'Triage tickets',
+              description: 'Summarise and prioritise new helpdesk tickets.',
+            },
+            researchLeads: {
+              name: 'Research leads',
+              description: 'Look up new contacts and flag high-potential leads.',
+            },
+            monitorOrders: {
+              name: 'Monitor orders',
+              description: 'Watch new or stuck orders and alert the team.',
+            },
+            chatOnly: {
+              name: 'Chat assistant',
+              description: 'Answer questions in chat — no background routines.',
+            },
+          },
+        },
         general: {
           profilePicture: 'Profile Picture',
           profilePictureHint: 'Upload a new avatar (max 2MB)',
@@ -709,6 +772,22 @@ export const common = {
         },
         tools: {
           enabledCount: '{enabled} of {total} enabled',
+        },
+        computer: {
+          title: 'Cloud computer',
+          description:
+            'Shared Linux sandbox and browser for this workspace’s agents (Cloudflare Sandbox + Browser Run).',
+          statusLoading: 'Checking…',
+          statusReady: 'Available',
+          statusOff: 'Not configured',
+          sandboxLabel: 'Sandbox',
+          refresh: 'Refresh',
+          closeBrowser: 'Close browser session',
+          destroy: 'Reset computer',
+          destroyed: 'Workspace computer reset.',
+          browserClosed: 'Browser session closed.',
+          actionFailed: 'Action failed.',
+          hint: 'Enable computer:use and browser:use in permissions below, then ask the agent to use its computer tools. All bots in this workspace share one sandbox.',
         },
         supervisor: {
           description: 'Allow this agent to delegate tasks to other agents to orchestrate multi-step workflows.',
