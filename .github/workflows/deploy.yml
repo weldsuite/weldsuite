@@ -67,7 +67,8 @@ jobs:
       ref: ${{ steps.ctx.outputs.ref }}
       cf_env: ${{ steps.ctx.outputs.cf_env }}
       run_migrations: ${{ steps.changes.outputs.migrations }}
-      run_d1_migrations: ${{ steps.changes.outputs.d1_migrations }}
+      run_d1_connector_migrations: ${{ steps.changes.outputs.d1_connector_migrations }}
+      run_d1_schedule_migrations: ${{ steps.changes.outputs.d1_schedule_migrations }}
       release_weldmail: ${{ steps.changes.outputs.weldmail }}
       release_weldmail_web: ${{ steps.changes.outputs.weldmail-web }}
       release_weldchat: ${{ steps.changes.outputs.weldchat }}
@@ -124,10 +125,11 @@ jobs:
               - 'packages/core/db/drizzle/**'
               - 'packages/core/db/src/schema/**'
               - 'apps/tools/migrate-databases/**'
-            d1_migrations:
+            d1_connector_migrations:
               - 'apps/workers/integration-sync-worker/migrations/d1/**'
-              - 'apps/workers/workflow-worker/migrations/d1/**'
               - 'apps/workers/integration-sync-worker/wrangler.toml'
+            d1_schedule_migrations:
+              - 'apps/workers/workflow-worker/migrations/d1/**'
               - 'apps/workers/workflow-worker/wrangler.toml'
             weldmail:
               - 'apps/mobile/weldmail-app/**'
@@ -357,15 +359,15 @@ jobs:
         run: pnpm migrate
 
   # Cloudflare D1 schema (connector catch-up / CRM due-index / schedule index).
-  # Idempotent via wrangler's d1_migrations table. Runs before workers whenever
-  # D1 SQL/config changed or any worker is deploying (so a first bind never
-  # races an unmigrated database).
+  # Idempotent via wrangler's d1_migrations table. D1 occasionally returns
+  # transient 7429 / 504 on apply — we retry with backoff.
   d1-migrations:
     name: D1 Migrations
     needs: prepare
     if: >-
       always() && !failure() && !cancelled() &&
-      (needs.prepare.outputs.run_d1_migrations == 'true' ||
+      (needs.prepare.outputs.run_d1_connector_migrations == 'true' ||
+       needs.prepare.outputs.run_d1_schedule_migrations == 'true' ||
        needs.prepare.outputs.workers != '[]')
     runs-on: ubuntu-latest
     environment: ${{ needs.prepare.outputs.cf_env }}
@@ -373,6 +375,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo
       - name: Apply connector sync index migrations
+        if: >-
+          needs.prepare.outputs.run_d1_connector_migrations == 'true' ||
+          contains(needs.prepare.outputs.workers, 'integration-sync-worker') ||
+          contains(needs.prepare.outputs.workers, 'integration-webhook-worker') ||
+          contains(needs.prepare.outputs.workers, 'app-api')
         working-directory: apps/workers/integration-sync-worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -380,9 +387,13 @@ jobs:
           CF_ENV: ${{ needs.prepare.outputs.cf_env }}
         run: |
           set -euo pipefail
-          echo "=== D1 CONNECTOR_SYNC_INDEX ($CF_ENV) ==="
-          pnpm "d1:migrate:${CF_ENV}"
+          # shellcheck disable=SC1091
+          source ../../../.github/scripts/d1-migrate-retry.sh
+          d1_migrate_with_retry "CONNECTOR_SYNC_INDEX ($CF_ENV)" pnpm "d1:migrate:${CF_ENV}"
       - name: Apply schedule index migrations
+        if: >-
+          needs.prepare.outputs.run_d1_schedule_migrations == 'true' ||
+          contains(needs.prepare.outputs.workers, 'workflow-worker')
         working-directory: apps/workers/workflow-worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -390,8 +401,9 @@ jobs:
           CF_ENV: ${{ needs.prepare.outputs.cf_env }}
         run: |
           set -euo pipefail
-          echo "=== D1 SCHEDULE_INDEX ($CF_ENV) ==="
-          pnpm "d1:migrate:${CF_ENV}"
+          # shellcheck disable=SC1091
+          source ../../../.github/scripts/d1-migrate-retry.sh
+          d1_migrate_with_retry "SCHEDULE_INDEX ($CF_ENV)" pnpm "d1:migrate:${CF_ENV}"
 
   workers:
     name: Deploy ${{ matrix.worker }}
