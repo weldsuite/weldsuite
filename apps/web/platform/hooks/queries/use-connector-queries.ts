@@ -30,8 +30,8 @@ export interface ConnectorAuthField {
 export interface ConnectorSyncDef {
   syncName: string;
   model: string;
-  internalEntity: 'product' | 'order' | 'person' | 'party' | 'invoice' | 'bill' | 'bank_account' | 'bank_transaction';
-  settingKey: 'products' | 'orders' | 'customers' | 'contacts' | 'invoices' | 'bills' | 'bankAccounts' | 'bankTransactions';
+  internalEntity: string;
+  settingKey: string;
 }
 
 export interface ConnectorConnection {

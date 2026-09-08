@@ -6,7 +6,7 @@
  * `index.test.ts` never touch a database, which is why that gap went unseen.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { productsRoutes } from './index';
 import { createTestApp, permissions } from '../../test/harness';
@@ -248,39 +248,49 @@ describe('/api/products · pglite integration', () => {
   });
 
   it('DELETE /:id/sales-channels/:channelId unlinks locally', async () => {
-    const { request } = createTestApp('/api/products', productsRoutes, {
-      context: { permissions: permissions('products:create', 'products:read', 'products:update'), tenantDb: db },
-    });
+    // Unlink tries a remote delete first; stub the store so we never hang on DNS.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{"code":"woocommerce_rest_product_invalid_id"}', { status: 404 })),
+    );
+    try {
+      const { request } = createTestApp('/api/products', productsRoutes, {
+        context: { permissions: permissions('products:create', 'products:read', 'products:update'), tenantDb: db },
+      });
 
-    const created = await request('/api/products', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Unlink me', slug: 'unlink-me-1' }),
-    });
-    const { data: product } = (await created.json()) as { data: { id: string } };
+      const created = await request('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Unlink me', slug: 'unlink-me-1' }),
+      });
+      const { data: product } = (await created.json()) as { data: { id: string } };
 
-    await db.insert(schema.connectorConnections).values({
-      id: 'conn_unlink',
-      provider: 'woocommerce',
-      displayName: 'Unlink store',
-      status: 'active',
-      externalAccountId: 'https://unlink.example',
-    });
-    await db.insert(schema.productSalesChannels).values({
-      id: 'psch_unlink_1',
-      productId: product.id,
-      connectionId: 'conn_unlink',
-      provider: 'woocommerce',
-      displayName: 'Unlink store',
-      externalId: '77',
-      status: 'active',
-    });
+      await db.insert(schema.connectorConnections).values({
+        id: 'conn_unlink',
+        provider: 'woocommerce',
+        displayName: 'Unlink store',
+        status: 'active',
+        direction: 'bidirectional',
+        externalAccountId: 'https://unlink.example',
+      });
+      await db.insert(schema.productSalesChannels).values({
+        id: 'psch_unlink_1',
+        productId: product.id,
+        connectionId: 'conn_unlink',
+        provider: 'woocommerce',
+        displayName: 'Unlink store',
+        externalId: '77',
+        status: 'active',
+      });
 
-    const res = await request(`/api/products/${product.id}/sales-channels/psch_unlink_1`, { method: 'DELETE' });
-    expect(res.status).toBe(204);
+      const res = await request(`/api/products/${product.id}/sales-channels/psch_unlink_1`, { method: 'DELETE' });
+      expect(res.status).toBe(204);
 
-    const listRes = await request(`/api/products/${product.id}/sales-channels`);
-    const listBody = (await listRes.json()) as { data: Array<{ id: string }> };
-    expect(listBody.data).toHaveLength(0);
+      const listRes = await request(`/api/products/${product.id}/sales-channels`);
+      const listBody = (await listRes.json()) as { data: Array<{ id: string }> };
+      expect(listBody.data).toHaveLength(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

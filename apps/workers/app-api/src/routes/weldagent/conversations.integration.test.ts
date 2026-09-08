@@ -103,7 +103,7 @@ describe('weldagent conversations', () => {
 
     expect(result.success).toBe(true);
     expect(result.userMessage.content).toBe('What is 2+2?');
-    expect(result.assistantMessage.content).toBe('4');
+    expect(result.assistantMessage?.content).toBe('4');
     expect(result.creditsUsed).toBe(1);
 
     const rows = await db

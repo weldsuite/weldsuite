@@ -341,8 +341,9 @@ async function upsertProductVariants(
     .from(schema.productVariants)
     .where(and(eq(schema.productVariants.productId, productId), isNull(schema.productVariants.deletedAt)));
 
-  const bySku = new Map<string, (typeof existingRows)[number]>();
-  const byExternal = new Map<string, (typeof existingRows)[number]>();
+  type VariantIndex = { id: string; sku: string | null; attributes: unknown };
+  const bySku = new Map<string, VariantIndex>();
+  const byExternal = new Map<string, VariantIndex>();
   for (const row of existingRows) {
     if (row.sku) bySku.set(row.sku, row);
     const externalId = (row.attributes as { externalId?: string } | null)?.externalId;
@@ -381,7 +382,7 @@ async function upsertProductVariants(
         productId,
         ...fields,
       });
-      const created = { id, sku: variant.sku, attributes: fields.attributes } as (typeof existingRows)[number];
+      const created: VariantIndex = { id, sku: variant.sku, attributes: fields.attributes };
       if (variant.sku) bySku.set(variant.sku, created);
       byExternal.set(variant.externalId, created);
     }

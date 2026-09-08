@@ -37,6 +37,7 @@ beforeAll(async () => {
     provider: 'woocommerce',
     displayName: 'Main store',
     status: 'active',
+    direction: 'bidirectional',
     externalAccountId: 'https://shop.example',
   });
 }, 60_000);

@@ -125,8 +125,10 @@ function runLabel(run: ConnectorSyncRun, connection: ConnectorConnection, t: Ret
   const tc = t.weldconnect.connectors;
   if (run.syncName.includes('receipt')) return tc.types.receipts;
   const sync = connection.syncs.find((item) => item.syncName === run.syncName || item.model === run.model);
-  if (sync) return tc.settings[sync.settingKey];
-  return run.model.replace(/^(Moneybird|Shopify|WooCommerce)/, '').replace(/([A-Z])/g, ' $1').trim();
+  if (sync) {
+    return (tc.settings as Record<string, string>)[sync.settingKey] ?? sync.settingKey;
+  }
+  return run.model.replace(/^(Moneybird|Shopify|WooCommerce|Picqer)/, '').replace(/([A-Z])/g, ' $1').trim();
 }
 
 function triggerLabel(trigger: string, t: ReturnType<typeof useI18n>['t']): string {
@@ -465,7 +467,9 @@ export function ConnectionDetails({ connectionId, onOpenChange, onDisconnect, ca
                     return (
                       <div key={sync.settingKey} className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                          <p className="text-sm">{tc.settings[sync.settingKey]}</p>
+                          <p className="text-sm">
+                            {(tc.settings as Record<string, string>)[sync.settingKey] ?? sync.settingKey}
+                          </p>
                           <Switch
                             checked={on}
                             disabled={!canManage}

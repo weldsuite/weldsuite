@@ -35,7 +35,7 @@ function BrandLogo({ slug, alt }: { slug: string; alt: string }) {
 export function EcommerceConnectorSettingsPage({
   provider,
 }: {
-  provider: 'woocommerce' | 'shopify' | 'moneybird';
+  provider: 'woocommerce' | 'shopify' | 'moneybird' | 'picqer';
 }) {
   const { t, format } = useI18n();
   const copy = t.settings.integrations[provider];
@@ -82,16 +82,37 @@ export function EcommerceConnectorSettingsPage({
     return <PageLoader fullScreen={false} />;
   }
 
+  const category =
+    provider === 'moneybird' ? 'Accounting' : provider === 'picqer' ? 'Warehouse' : 'E-Commerce';
+
+  const docsHref =
+    provider === 'woocommerce'
+      ? 'https://developer.woocommerce.com/docs/apis/rest-api/authentication/#auto-generating-api-keys-using-our-application-authentication-endpoint'
+      : provider === 'shopify'
+        ? 'https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/generate-app-access-tokens-admin'
+        : provider === 'picqer'
+          ? 'https://picqer.com/en/api'
+          : 'https://developer.moneybird.com/authentication/';
+
+  const websiteHref =
+    provider === 'woocommerce'
+      ? 'https://woocommerce.com'
+      : provider === 'shopify'
+        ? 'https://www.shopify.com'
+        : provider === 'picqer'
+          ? 'https://picqer.com'
+          : 'https://www.moneybird.com';
+
   return (
     <>
       <IntegrationDetailLayout
         name={copy.title}
         description={copy.description}
-        category={provider === 'moneybird' ? 'Accounting' : 'E-Commerce'}
+        category={category}
         icon={
-          provider === 'moneybird' ? (
+          provider === 'moneybird' || provider === 'picqer' ? (
             <img
-              src="https://icons.duckduckgo.com/ip3/moneybird.com.ico"
+              src={`https://icons.duckduckgo.com/ip3/${provider}.com.ico`}
               alt={copy.title}
               className="h-7 w-7 rounded-[4px]"
             />
@@ -105,20 +126,12 @@ export function EcommerceConnectorSettingsPage({
         resources={[
           {
             label: t.settings.integrations.documentation,
-            href: provider === 'woocommerce'
-              ? 'https://developer.woocommerce.com/docs/apis/rest-api/authentication/#auto-generating-api-keys-using-our-application-authentication-endpoint'
-              : provider === 'shopify'
-                ? 'https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/generate-app-access-tokens-admin'
-                : 'https://developer.moneybird.com/authentication/',
+            href: docsHref,
             icon: FileText,
           },
           {
             label: t.settings.integrations.website,
-            href: provider === 'woocommerce'
-              ? 'https://woocommerce.com'
-              : provider === 'shopify'
-                ? 'https://www.shopify.com'
-                : 'https://www.moneybird.com',
+            href: websiteHref,
             icon: Globe,
           },
         ]}

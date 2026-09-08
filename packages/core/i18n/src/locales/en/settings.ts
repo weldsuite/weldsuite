@@ -722,6 +722,13 @@ export const settings = {
         overview:
           'Connect with OAuth and choose the WeldBooks entity to sync into. After the first import, Moneybird pushes most changes over webhooks, with a periodic catch-up for bank transactions. Imported invoices and bills keep Moneybird’s numbers and do not post to the WeldSuite ledger — Moneybird stays the book of record.',
       },
+      picqer: {
+        title: 'Picqer',
+        description:
+          'Bidirectional sync of products, stock, warehouses, orders, pick lists, and purchases with Picqer WMS.',
+        overview:
+          'Enter your Picqer subdomain and API key. After the first import, Picqer pushes stock, pick list, order, and purchase changes over webhooks, with a periodic catch-up. Stock quantities treat Picqer as warehouse truth unless you override the object direction.',
+      },
       sendcloud: {
         title: 'Sendcloud',
         description: 'Connect your Sendcloud account to create shipping labels from WeldStash pick lists.',

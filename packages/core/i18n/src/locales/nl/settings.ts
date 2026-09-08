@@ -722,6 +722,13 @@ export const settings = {
         overview:
           'Verbind via OAuth en kies de WeldBooks-entiteit. Na de eerste import pusht Moneybird de meeste wijzigingen via webhooks, met een periodieke inhaal-sync voor banktransacties. Geïmporteerde facturen en rekeningen behouden Moneybird-nummers en boeken niet in het WeldSuite-grootboek — Moneybird blijft de boekhouding.',
       },
+      picqer: {
+        title: 'Picqer',
+        description:
+          'Tweezijdige sync van producten, voorraad, magazijnen, orders, picklijsten en inkopen met Picqer WMS.',
+        overview:
+          'Vul je Picqer-subdomein en API-sleutel in. Na de eerste import pusht Picqer voorraad-, picklijst-, order- en inkoopwijzigingen via webhooks, met een periodieke inhaal-sync. Voorraadhoeveelheden behandelen Picqer als magazijnwaarheid tenzij je de objectrichting overschrijft.',
+      },
       sendcloud: {
         title: 'Sendcloud',
         description: 'Koppel je Sendcloud-account om verzendlabels te maken vanuit WeldStash-picklijsten.',

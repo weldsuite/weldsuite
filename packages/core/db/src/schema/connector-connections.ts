@@ -49,7 +49,7 @@ export type ConnectorCredentials = Record<string, string>;
 export type ConnectorSyncDirection = 'inbound' | 'outbound' | 'bidirectional';
 
 /** Per-object sync direction overrides keyed by `ConnectorSyncSettingKey`. */
-export type ConnectorObjectSyncDirections = Record<string, ConnectorSyncDirection>;
+export type ConnectorObjectSyncDirections = Partial<Record<string, ConnectorSyncDirection>>;
 
 /** Remote webhook the connector registered so the store can push changes. */
 export interface ConnectorWebhookRegistration {
