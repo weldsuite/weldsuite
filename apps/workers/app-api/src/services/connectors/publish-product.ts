@@ -5,7 +5,7 @@
  * item on that connection, then writes `product_sales_channels` + an
  * `integration_entity_mappings` row so later webhooks update the same product.
  *
- * Removing a sales channel is local only: the remote listing is left alone.
+ * Removing a sales channel deletes the remote listing first, then the local row.
  */
 
 import { and, eq, inArray, isNull } from 'drizzle-orm';
@@ -40,6 +40,7 @@ export interface ProductWriteClient {
   findProductBySku(sku: string): Promise<ExternalProductRef | null>;
   createProduct(product: OutboundCatalogProduct): Promise<ExternalProductRef>;
   updateProduct(id: string, product: OutboundCatalogProduct): Promise<ExternalProductRef>;
+  deleteProduct(id: string): Promise<void>;
 }
 
 const WRITABLE_STATUSES = new Set(['active', 'sync_error']);
@@ -100,6 +101,8 @@ function toOutboundProduct(
     length: product.length != null ? String(product.length) : null,
     width: product.width != null ? String(product.width) : null,
     height: product.height != null ? String(product.height) : null,
+    trackInventory: product.trackInventory ?? undefined,
+    inventoryQuantity: product.inventoryQuantity ?? null,
   };
 }
 
@@ -463,12 +466,16 @@ export async function updateProductSalesChannel(args: {
 }
 
 /**
- * Drop the local listing only. The product stays on the remote store.
+ * Delete the remote listing (ignore 404), then drop the local sales-channel row.
+ * Non-404 remote errors throw sync_failed before local delete so the user can retry.
  */
 export async function unlinkProductSalesChannel(args: {
   db: Database;
+  env: Env;
   productId: string;
   channelId: string;
+  /** Test seam — production builds the client from the channel's connection. */
+  client?: ProductWriteClient;
 }): Promise<void> {
   const product = await loadProduct(args.db, args.productId);
   if (!product) {
@@ -476,7 +483,7 @@ export async function unlinkProductSalesChannel(args: {
   }
 
   const [channel] = await args.db
-    .select({ id: schema.productSalesChannels.id })
+    .select()
     .from(schema.productSalesChannels)
     .where(
       and(
@@ -487,6 +494,28 @@ export async function unlinkProductSalesChannel(args: {
     .limit(1);
   if (!channel) {
     throw new ProductSalesChannelError('not_found', 'Sales channel listing not found');
+  }
+
+  if (channel.externalId) {
+    try {
+      let client = args.client;
+      if (!client) {
+        const connection = await getConnectionById(args.db, channel.connectionId);
+        if (!connection) {
+          throw new ProductSalesChannelError('not_found', 'Sales channel connection not found');
+        }
+        const keyring = keyringFromEnv(args.env);
+        const credentials = await decryptCredentials(connection.credentials ?? undefined, keyring);
+        client = createProductWriteClient(connection.provider, credentials, connection.externalAccountId);
+      }
+      await client.deleteProduct(channel.externalId);
+    } catch (err) {
+      if (err instanceof ProductSalesChannelError) throw err;
+      if (!(err instanceof ConnectorApiError && err.status === 404)) {
+        const message = err instanceof ConnectorApiError ? err.message : 'Failed to delete the product on the store';
+        throw new ProductSalesChannelError('sync_failed', message);
+      }
+    }
   }
 
   await args.db.delete(schema.productSalesChannels).where(eq(schema.productSalesChannels.id, channel.id));

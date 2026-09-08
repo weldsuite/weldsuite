@@ -26,6 +26,12 @@ new_classes = ["DiscordGateway"]
 # - DISCORD_APPLICATION_ID: Discord application ID
 # - MANAGEMENT_SECRET: Bearer token to protect /manage/* endpoints
 # - BETTERSTACK_TOKEN: (optional) Better Stack source token
+#
+# After production deploy:
+#   curl -X POST -H "Authorization: Bearer $MANAGEMENT_SECRET" \
+#     https://discord-bot-worker.weldsuite.org/manage/connect
+#   curl -X POST -H "Authorization: Bearer $MANAGEMENT_SECRET" \
+#     https://discord-bot-worker.weldsuite.org/manage/register-commands
 
 [vars]
 ENVIRONMENT = "development"
@@ -35,6 +41,29 @@ HELPDESK_WIDGET_API_URL = "http://localhost:8790"
 [[services]]
 binding = "WORKFLOW_WORKER"
 service = "helpdesk-workflow-worker"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "discord-bot-worker-test"
+routes = [
+  { pattern = "discord-bot-worker-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.durable_objects]
+bindings = [{ name = "DISCORD_GATEWAY", class_name = "DiscordGateway" }]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+HELPDESK_WIDGET_API_URL = "https://helpdesk-widget-api-test.weldsuite.org"
+
+[[env.test.services]]
+binding = "WORKFLOW_WORKER"
+service = "helpdesk-workflow-worker-test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
 
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]

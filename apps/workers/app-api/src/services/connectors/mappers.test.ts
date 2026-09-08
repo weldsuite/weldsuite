@@ -36,6 +36,72 @@ describe('WooCommerce product mapper', () => {
     });
     expect(mapped?.values).toMatchObject({ status: 'inactive', price: '20.00' });
   });
+
+  it('maps stock quantity and variable-product variations', () => {
+    const mapped = mapConnectorRecord('product', {
+      id: 20,
+      name: 'Variable tee',
+      slug: 'variable-tee',
+      type: 'variable',
+      status: 'publish',
+      manage_stock: false,
+      stock_quantity: null,
+      _variations: [
+        {
+          id: 201,
+          sku: 'VT-S',
+          price: '10.00',
+          manage_stock: true,
+          stock_quantity: 3,
+          status: 'publish',
+          attributes: [{ name: 'Size', option: 'S' }],
+        },
+        {
+          id: 202,
+          sku: 'VT-L',
+          price: '12.00',
+          manage_stock: true,
+          stock_quantity: 0,
+          status: 'publish',
+          attributes: [{ name: 'Size', option: 'L' }],
+        },
+      ],
+    });
+    expect(mapped?.entity).toBe('product');
+    if (mapped?.entity !== 'product') return;
+    expect(mapped.values).toMatchObject({
+      hasVariants: true,
+      variantCount: 2,
+      trackInventory: false,
+    });
+    expect(mapped.variants).toHaveLength(2);
+    expect(mapped.variants?.[0]).toMatchObject({
+      externalId: '201',
+      sku: 'VT-S',
+      inventoryQuantity: 3,
+      trackInventory: true,
+      optionValues: { Size: 'S' },
+    });
+  });
+
+  it('maps simple Woo stock onto the product', () => {
+    const mapped = mapConnectorRecord('product', {
+      id: 21,
+      name: 'Simple mug',
+      slug: 'simple-mug',
+      type: 'simple',
+      status: 'publish',
+      manage_stock: true,
+      stock_quantity: 8,
+      price: '5.00',
+    });
+    expect(mapped?.values).toMatchObject({
+      inventoryQuantity: 8,
+      trackInventory: true,
+      hasVariants: false,
+    });
+    expect(mapped?.entity === 'product' && mapped.variants).toBeFalsy();
+  });
 });
 
 describe('WooCommerce order mapper', () => {
@@ -92,7 +158,7 @@ describe('Shopify mappers', () => {
         title: 'Weld helmet',
         handle: 'weld-helmet',
         status: 'active',
-        variants: [{ price: '129.00', sku: 'WH-1', compare_at_price: '149.00' }],
+        variants: [{ price: '129.00', sku: 'WH-1', compare_at_price: '149.00', inventory_quantity: 4, inventory_management: 'shopify' }],
         images: [{ src: 'https://cdn.example/h.jpg', alt: 'Helmet' }],
       },
       'shopify',
@@ -104,6 +170,36 @@ describe('Shopify mappers', () => {
       sku: 'WH-1',
       price: '129.00',
       status: 'active',
+      inventoryQuantity: 4,
+      trackInventory: true,
+      hasVariants: false,
+    });
+  });
+
+  it('maps multi-variant Shopify products', () => {
+    const mapped = mapConnectorRecord(
+      'product',
+      {
+        id: 102,
+        title: 'Gloves',
+        handle: 'gloves',
+        status: 'active',
+        options: [{ name: 'Size' }],
+        variants: [
+          { id: 1, price: '9.00', sku: 'G-S', option1: 'S', inventory_quantity: 2, inventory_management: 'shopify' },
+          { id: 2, price: '9.00', sku: 'G-L', option1: 'L', inventory_quantity: 5, inventory_management: 'shopify' },
+        ],
+      },
+      'shopify',
+    );
+    expect(mapped?.entity).toBe('product');
+    if (mapped?.entity !== 'product') return;
+    expect(mapped.values).toMatchObject({ hasVariants: true, variantCount: 2 });
+    expect(mapped.variants?.[1]).toMatchObject({
+      externalId: '2',
+      sku: 'G-L',
+      inventoryQuantity: 5,
+      optionValues: { Size: 'L' },
     });
   });
 

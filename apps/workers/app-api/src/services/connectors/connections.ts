@@ -366,7 +366,13 @@ export async function finishSyncRun(args: {
   applied?: { created: number; modified: number; skipped: number; deleted: number; failed: number };
   error?: string | null;
   errorSamples?: Array<{ externalId: string; message: string }>;
+  /** @deprecated Prefer syncWatermarksPatch. Applied only when status is success and no patch is given. */
   watermark?: { model: string; at: string } | null;
+  /**
+   * Merge into connection.syncWatermarks. `null` removes a key.
+   * Applied for any run status so truncated backfills can persist a page cursor.
+   */
+  syncWatermarksPatch?: Record<string, string | null>;
 }): Promise<void> {
   const now = new Date();
   const [run] = await args.db
@@ -400,7 +406,27 @@ export async function finishSyncRun(args: {
     .where(eq(schema.connectorConnections.id, args.connectionId))
     .limit(1);
 
-  const advanceWatermark = args.watermark && args.status === 'success';
+  const patch: Record<string, string | null> = { ...(args.syncWatermarksPatch ?? {}) };
+  if (
+    args.watermark
+    && args.status === 'success'
+    && args.syncWatermarksPatch === undefined
+  ) {
+    patch[args.watermark.model] = args.watermark.at;
+  }
+
+  const setEntries = Object.entries(patch).filter(([, v]) => v !== null) as Array<[string, string]>;
+  const removeKeys = Object.entries(patch).filter(([, v]) => v === null).map(([k]) => k);
+  let watermarksSql: ReturnType<typeof sql> | undefined;
+  if (setEntries.length > 0 || removeKeys.length > 0) {
+    watermarksSql = sql`COALESCE(${schema.connectorConnections.syncWatermarks}, '{}'::jsonb)`;
+    if (setEntries.length > 0) {
+      watermarksSql = sql`${watermarksSql} || ${JSON.stringify(Object.fromEntries(setEntries))}::jsonb`;
+    }
+    for (const key of removeKeys) {
+      watermarksSql = sql`${watermarksSql} - ${key}`;
+    }
+  }
 
   await args.db
     .update(schema.connectorConnections)
@@ -410,13 +436,7 @@ export async function finishSyncRun(args: {
       lastError: args.error ? args.error.slice(0, 2000) : null,
       lastErrorAt: args.error ? now : null,
       recordsSynced: sql`${schema.connectorConnections.recordsSynced} + ${applied}`,
-      ...(advanceWatermark
-        ? {
-            syncWatermarks: sql`COALESCE(${schema.connectorConnections.syncWatermarks}, '{}'::jsonb) || ${JSON.stringify(
-              { [args.watermark!.model]: args.watermark!.at },
-            )}::jsonb`,
-          }
-        : {}),
+      ...(watermarksSql ? { syncWatermarks: watermarksSql } : {}),
       status:
         connection?.status === 'auth_error'
           ? 'auth_error'

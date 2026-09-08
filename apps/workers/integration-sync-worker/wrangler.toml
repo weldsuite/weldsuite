@@ -1,8 +1,7 @@
 # Integration Sync Scheduler Worker
 #
-# Cron is parked: the previous */15 sweep opened every tenant Neon DB to check
-# CRM due-ness (and ran D1 connector catch-up on the same tick). Re-enable only
-# after a due-index rewrite that opens a tenant when a row is actually due.
+# Every 15 minutes: D1 connector catch-up + D1 CRM due-index + master WeldAds
+# due rows. Quiet ticks never open tenant Neon for due-ness checks.
 # Manual sync via app-api is unaffected.
 
 name = "integration-sync-scheduler"
@@ -11,7 +10,7 @@ compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
 
 [triggers]
-crons = []
+crons = ["*/15 * * * *"]
 
 [vars]
 ENVIRONMENT = "development"
@@ -30,14 +29,17 @@ localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:
 binding = "APP_API"
 service = "weldsuite-app-api"
 
-# D1 connector catch-up index — shared with app-api. The sweep probes store
-# APIs from rows here and only calls app-api when the remote has new data.
-# DATABASE_ENCRYPTION_KEY / DATABASE_ENCRYPTION_KEY_V2 must match app-api
-# (wrangler secret put) so probes can decrypt the D1 credential copy.
+# D1 connector catch-up index — shared with app-api + integration-webhook-worker.
+# The sweep probes store APIs from rows here and only calls app-api when the
+# remote has new data. DATABASE_ENCRYPTION_KEY / DATABASE_ENCRYPTION_KEY_V2 must
+# match app-api (wrangler secret put) so probes can decrypt the D1 credential copy.
+# Schema migrations live in ./migrations/d1 and are applied by deploy.yml via
+# `wrangler d1 migrations apply`.
 [[d1_databases]]
 binding = "CONNECTOR_SYNC_INDEX"
 database_name = "weldsuite-connector-sync-index-test"
 database_id = "5d4f220f-a1cc-4ec0-9e4c-dbaca5647370"
+migrations_dir = "migrations/d1"
 
 # ============ TEST ENVIRONMENT ============
 [env.test]
@@ -54,9 +56,10 @@ service = "weldsuite-app-api-test"
 binding = "CONNECTOR_SYNC_INDEX"
 database_name = "weldsuite-connector-sync-index-test"
 database_id = "5d4f220f-a1cc-4ec0-9e4c-dbaca5647370"
+migrations_dir = "migrations/d1"
 
 [env.test.triggers]
-crons = []
+crons = ["*/15 * * * *"]
 
 [env.test.observability]
 enabled = true
@@ -82,9 +85,10 @@ service = "weldsuite-app-api"
 binding = "CONNECTOR_SYNC_INDEX"
 database_name = "weldsuite-connector-sync-index-production"
 database_id = "bcf01cc5-c2a0-4a29-9881-ecb380e94832"
+migrations_dir = "migrations/d1"
 
 [env.production.triggers]
-crons = []
+crons = ["*/15 * * * *"]
 
 [observability]
 enabled = true

@@ -2,8 +2,10 @@
  * First-party connector sync runner.
  *
  * Pulls pages from the provider, ingests them, and writes a sync-run row.
- * Page ceiling keeps a Worker invocation bounded; an unfinished run leaves the
- * watermark put so the next pass re-reads (checksums skip unchanged records).
+ * Page ceiling keeps a Worker invocation bounded; a truncated run persists a
+ * `${model}__page` (and optional `${model}__cursor`) watermark so the next
+ * pass continues. The modified-at watermark advances only when a full scan
+ * finishes successfully.
  *
  * Ongoing updates do not use this runner — stores push via webhooks. This is
  * for the initial backfill and an explicit "Sync now".
@@ -66,6 +68,14 @@ function latestModified(records: Array<Record<string, unknown>>): string | null 
   return latest;
 }
 
+function pageWatermarkKey(model: string): string {
+  return `${model}__page`;
+}
+
+function cursorWatermarkKey(model: string): string {
+  return `${model}__cursor`;
+}
+
 export async function syncConnection(args: SyncConnectionArgs): Promise<{ triggered: string[] }> {
   const connector = getConnector(args.connection.provider);
   if (!connector) {
@@ -98,32 +108,52 @@ export async function syncConnection(args: SyncConnectionArgs): Promise<{ trigge
   );
 
   for (const sync of syncs) {
+    const pageKey = pageWatermarkKey(sync.model);
+    const cursorKey = cursorWatermarkKey(sync.model);
+    const savedPage = args.full ? undefined : args.connection.syncWatermarks?.[pageKey];
+    const continuing = Boolean(savedPage);
     const runId = await startSyncRun({
       db: args.db,
       connectionId: args.connection.id,
       syncName: sync.syncName,
       model: sync.model,
       trigger: args.trigger === 'webhook' ? 'webhook' : args.trigger,
-      syncType: args.full ? 'FULL' : args.connection.syncWatermarks?.[sync.model] ? 'INCREMENTAL' : 'INITIAL',
+      syncType: args.full
+        ? 'FULL'
+        : continuing
+          ? 'INITIAL'
+          : args.connection.syncWatermarks?.[sync.model]
+            ? 'INCREMENTAL'
+            : 'INITIAL',
     });
 
-    const modifiedAfter = args.full ? undefined : args.connection.syncWatermarks?.[sync.model];
-    let page = 1;
-    let cursor: string | null = null;
+    // While a page cursor is open, ignore modifiedAfter so we finish the full scan.
+    const modifiedAfter =
+      args.full || continuing ? undefined : args.connection.syncWatermarks?.[sync.model];
+    let page = continuing ? Math.max(1, Number(savedPage) || 1) : 1;
+    let cursor: string | null = continuing
+      ? (args.connection.syncWatermarks?.[cursorKey] ?? null)
+      : null;
     let truncated = false;
+    let done = false;
+    let pagesFetched = 0;
     let lastWatermark: string | null = modifiedAfter ?? null;
     const applied = emptyCounts();
     const errorSamples: Array<{ externalId: string; message: string }> = [];
 
     try {
-      while (page <= MAX_PAGES) {
+      while (pagesFetched < MAX_PAGES) {
         const result = await client.listSync(sync, {
           page,
           cursor,
           limit: PER_PAGE,
           modifiedAfter,
         });
-        if (result.items.length === 0) break;
+        pagesFetched += 1;
+        if (result.items.length === 0) {
+          done = true;
+          break;
+        }
 
         const ingested = await ingestRecords({
           db: args.db,
@@ -144,9 +174,14 @@ export async function syncConnection(args: SyncConnectionArgs): Promise<{ trigge
         const pageWatermark = latestModified(result.items);
         if (pageWatermark) lastWatermark = pageWatermark;
 
-        if (result.done) break;
-        if (page === MAX_PAGES) {
+        if (result.done) {
+          done = true;
+          break;
+        }
+        if (pagesFetched === MAX_PAGES) {
           truncated = true;
+          page += 1;
+          cursor = result.nextCursor;
           break;
         }
         page += 1;
@@ -155,15 +190,32 @@ export async function syncConnection(args: SyncConnectionArgs): Promise<{ trigge
 
       const failed = applied.failed > 0;
       const status = failed || truncated ? 'partial' : 'success';
+      const syncWatermarksPatch: Record<string, string | null> = {};
+      if (truncated) {
+        // Persist continuation; do not advance the modified-at watermark yet.
+        syncWatermarksPatch[pageKey] = String(page);
+        syncWatermarksPatch[cursorKey] = cursor;
+      } else if (done || !continuing) {
+        syncWatermarksPatch[pageKey] = null;
+        syncWatermarksPatch[cursorKey] = null;
+        if (!failed && lastWatermark) {
+          syncWatermarksPatch[sync.model] = lastWatermark;
+        }
+      }
+
       await finishSyncRun({
         db: args.db,
         runId,
         connectionId: args.connection.id,
         status,
         applied,
-        error: failed ? `${applied.failed} record(s) failed to import` : truncated ? 'Page ceiling reached — run again to continue' : null,
+        error: failed
+          ? `${applied.failed} record(s) failed to import`
+          : truncated
+            ? 'Page ceiling reached — run again to continue'
+            : null,
         errorSamples,
-        watermark: lastWatermark ? { model: sync.model, at: lastWatermark } : null,
+        syncWatermarksPatch,
       });
     } catch (err) {
       const auth = err instanceof ConnectorApiError && err.kind === 'auth';

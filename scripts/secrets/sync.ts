@@ -15,7 +15,7 @@ import { execSync } from "node:child_process";
 import { existsSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { manifest } from "./manifest";
+import { manifest, resolveEntry } from "./manifest";
 
 const DOPPLER_PROJECT = process.env.DOPPLER_PROJECT || "weldsuite";
 const VALID_ENVS = ["test", "preview", "production"] as const;
@@ -155,11 +155,16 @@ async function main() {
     const workerSecrets: Record<string, string> = {};
     const missing: string[] = [];
 
-    for (const name of secretNames) {
-      if (name in allSecrets) {
-        workerSecrets[name] = allSecrets[name];
+    for (const entry of secretNames) {
+      const { dopplerKey, workerSecret } = resolveEntry(entry);
+      if (dopplerKey in allSecrets) {
+        workerSecrets[workerSecret] = allSecrets[dopplerKey];
       } else {
-        missing.push(name);
+        missing.push(
+          dopplerKey === workerSecret
+            ? workerSecret
+            : `${dopplerKey}→${workerSecret}`,
+        );
       }
     }
 

@@ -56,6 +56,8 @@ export interface OutboundCatalogProduct {
   length?: string | null;
   width?: string | null;
   height?: string | null;
+  trackInventory?: boolean;
+  inventoryQuantity?: number | null;
 }
 
 /** Remote listing created or matched during an outbound product push. */

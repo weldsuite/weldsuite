@@ -67,6 +67,7 @@ jobs:
       ref: ${{ steps.ctx.outputs.ref }}
       cf_env: ${{ steps.ctx.outputs.cf_env }}
       run_migrations: ${{ steps.changes.outputs.migrations }}
+      run_d1_migrations: ${{ steps.changes.outputs.d1_migrations }}
       release_weldmail: ${{ steps.changes.outputs.weldmail }}
       release_weldmail_web: ${{ steps.changes.outputs.weldmail-web }}
       release_weldchat: ${{ steps.changes.outputs.weldchat }}
@@ -123,6 +124,11 @@ jobs:
               - 'packages/core/db/drizzle/**'
               - 'packages/core/db/src/schema/**'
               - 'apps/tools/migrate-databases/**'
+            d1_migrations:
+              - 'apps/workers/integration-sync-worker/migrations/d1/**'
+              - 'apps/workers/workflow-worker/migrations/d1/**'
+              - 'apps/workers/integration-sync-worker/wrangler.toml'
+              - 'apps/workers/workflow-worker/wrangler.toml'
             weldmail:
               - 'apps/mobile/weldmail-app/**'
               - 'packages/clients/app-api-client/**'
@@ -204,8 +210,10 @@ jobs:
               - 'packages/core/entity-events/**'
               - 'packages/core/workflow-integrations/**'
               - 'packages/core/realtime/**'
+              - 'packages/core/connectors/**'
             integration-sync-worker:
               - 'apps/workers/integration-sync-worker/**'
+              - 'packages/core/connectors/**'
             mail-inbound-worker:
               - 'apps/workers/mail-inbound-worker/**'
               - 'packages/core/email/**'
@@ -244,6 +252,17 @@ jobs:
               - 'packages/core/realtime/**'
             agent-runtime:
               - 'apps/workers/agent-runtime/**'
+            discord-bot-worker:
+              - 'apps/workers/discord-bot-worker/**'
+            helpdesk-widget-api:
+              - 'apps/workers/helpdesk-widget-api/**'
+              - 'packages/core/db/**'
+              - 'packages/core/realtime/**'
+            helpdesk-workflow-worker:
+              - 'apps/workers/helpdesk-workflow-worker/**'
+              - 'packages/core/db/**'
+              - 'packages/core/realtime/**'
+              - 'packages/core/entity-events/**'
 
       - name: Build worker matrix
         id: matrix
@@ -262,12 +281,15 @@ jobs:
           W_WORKFLOW: ${{ steps.changes.outputs.workflow-worker }}
           W_MCP: ${{ steps.changes.outputs.mcp-server }}
           W_AGENT_RUNTIME: ${{ steps.changes.outputs.agent-runtime }}
+          W_DISCORD_BOT: ${{ steps.changes.outputs.discord-bot-worker }}
+          W_HELPDESK_WIDGET: ${{ steps.changes.outputs.helpdesk-widget-api }}
+          W_HELPDESK_WORKFLOW: ${{ steps.changes.outputs.helpdesk-workflow-worker }}
         run: |
           set -euo pipefail
-          ALL='["app-api","billing-worker","audit-log-worker","external-api","integration-webhook-worker","integration-sync-worker","mail-inbound-worker","personal-api","realtime-worker","workspace-worker","workflow-worker","mcp-server","agent-runtime"]'
+          ALL='["app-api","billing-worker","audit-log-worker","external-api","integration-webhook-worker","integration-sync-worker","mail-inbound-worker","personal-api","realtime-worker","workspace-worker","workflow-worker","mcp-server","agent-runtime","discord-bot-worker","helpdesk-widget-api","helpdesk-workflow-worker"]'
           if [ "$ALL_WORKERS" = "true" ]; then
             echo "workers=$ALL" >> "$GITHUB_OUTPUT"
-            echo "Deploying all 13 workers (lockfile, workspace graph, or @weldsuite/db graph changed)"
+            echo "Deploying all 16 workers (lockfile, workspace graph, or @weldsuite/db graph changed)"
             exit 0
           fi
 
@@ -286,6 +308,9 @@ jobs:
           add workflow-worker "$W_WORKFLOW"
           add mcp-server "$W_MCP"
           add agent-runtime "$W_AGENT_RUNTIME"
+          add discord-bot-worker "$W_DISCORD_BOT"
+          add helpdesk-widget-api "$W_HELPDESK_WIDGET"
+          add helpdesk-workflow-worker "$W_HELPDESK_WORKFLOW"
 
           if [ ${#selected[@]} -eq 0 ]; then
             echo 'workers=[]' >> "$GITHUB_OUTPUT"
@@ -331,9 +356,46 @@ jobs:
           NODE_TLS_REJECT_UNAUTHORIZED: '0'
         run: pnpm migrate
 
+  # Cloudflare D1 schema (connector catch-up / CRM due-index / schedule index).
+  # Idempotent via wrangler's d1_migrations table. Runs before workers whenever
+  # D1 SQL/config changed or any worker is deploying (so a first bind never
+  # races an unmigrated database).
+  d1-migrations:
+    name: D1 Migrations
+    needs: prepare
+    if: >-
+      always() && !failure() && !cancelled() &&
+      (needs.prepare.outputs.run_d1_migrations == 'true' ||
+       needs.prepare.outputs.workers != '[]')
+    runs-on: ubuntu-latest
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Apply connector sync index migrations
+        working-directory: apps/workers/integration-sync-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ENV: ${{ needs.prepare.outputs.cf_env }}
+        run: |
+          set -euo pipefail
+          echo "=== D1 CONNECTOR_SYNC_INDEX ($CF_ENV) ==="
+          pnpm "d1:migrate:${CF_ENV}"
+      - name: Apply schedule index migrations
+        working-directory: apps/workers/workflow-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ENV: ${{ needs.prepare.outputs.cf_env }}
+        run: |
+          set -euo pipefail
+          echo "=== D1 SCHEDULE_INDEX ($CF_ENV) ==="
+          pnpm "d1:migrate:${CF_ENV}"
+
   workers:
     name: Deploy ${{ matrix.worker }}
-    needs: [prepare, migrations]
+    needs: [prepare, migrations, d1-migrations]
     if: >-
       always() && !failure() && !cancelled() &&
       needs.prepare.outputs.workers != '[]'
@@ -358,6 +420,32 @@ jobs:
           TARGET="${{ needs.prepare.outputs.cf_env }}"
           echo "=== Deploying ${{ matrix.worker }} to $TARGET ==="
           pnpm "deploy:${TARGET}"
+
+      # Discord Gateway DO must be connected after each deploy (session is not
+      # auto-started). Also re-register slash commands so /setup-support exists.
+      - name: Connect Discord Gateway
+        if: matrix.worker == 'discord-bot-worker'
+        env:
+          MANAGEMENT_SECRET: ${{ secrets.MANAGEMENT_SECRET }}
+          CF_ENV: ${{ needs.prepare.outputs.cf_env }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MANAGEMENT_SECRET:-}" ]; then
+            echo "::warning title=Discord Gateway not connected::MANAGEMENT_SECRET is unset; call POST /manage/connect manually after secrets are configured."
+            exit 0
+          fi
+          if [ "$CF_ENV" = "test" ]; then
+            BASE="https://discord-bot-worker-test.weldsuite.org"
+          else
+            BASE="https://discord-bot-worker.weldsuite.org"
+          fi
+          echo "Connecting Gateway at $BASE ..."
+          curl -fsS -X POST -H "Authorization: Bearer $MANAGEMENT_SECRET" "$BASE/manage/connect"
+          echo
+          curl -fsS -X POST -H "Authorization: Bearer $MANAGEMENT_SECRET" "$BASE/manage/register-commands"
+          echo
+          curl -fsS -H "Authorization: Bearer $MANAGEMENT_SECRET" "$BASE/manage/status"
+          echo
 
   # Every OTA job below needs an Expo access token. The `secrets` context is not
   # available in a job-level `if:`, so this job reads it once and exposes a plain

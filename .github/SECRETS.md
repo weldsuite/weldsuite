@@ -24,8 +24,8 @@ workflow reads `PERSONAL_DATABASE_URL`.
 | `PERSONAL_DATABASE_URL` | `DATABASE_URL_PERSONAL` | Shared personal Neon migrations |
 | `DATABASE_ENCRYPTION_KEY` | `DATABASE_ENCRYPTION_KEY` | Tenant migrations |
 | `NEON_API_KEY` | `NEON_API_KEY` | Tenant migrations |
-| `CLOUDFLARE_API_TOKEN` | `CLOUDFLARE_API_TOKEN` | Workers + Pages |
-| `CLOUDFLARE_ACCOUNT_ID` | `CLOUDFLARE_ACCOUNT_ID` | Workers + Pages |
+| `CLOUDFLARE_API_TOKEN` | `CLOUDFLARE_API_TOKEN` | Workers + Pages + D1 migrations |
+| `CLOUDFLARE_ACCOUNT_ID` | `CLOUDFLARE_ACCOUNT_ID` | Workers + Pages + D1 migrations |
 | `EXPO_TOKEN` | not in Doppler | WeldMail / WeldChat / WeldBooks OTA (repo-level is fine) |
 
 Optional frontend build secrets (on both environments if used):

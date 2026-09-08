@@ -78,6 +78,9 @@ export const manifest: Record<string, SecretEntry[]> = {
   ],
 
   "helpdesk-widget-api": [
+    // Same value as discord-bot-worker DISCORD_PUBLIC_KEY — validates X-Bot-Secret
+    // on /webhook/discord/* ingest routes.
+    "DISCORD_BOT_SECRET",
     ["BETTERSTACK_TOKEN_HELPDESK_WIDGET_API", "BETTERSTACK_TOKEN"],
   ],
 
@@ -88,6 +91,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     "NEON_API_KEY",
     "FIREBASE_SERVICE_ACCOUNT",
     "DATABASE_ENCRYPTION_KEY",
+    // Outbound Discord embeds/buttons for interactive workflow steps.
+    "DISCORD_BOT_TOKEN",
     ["BETTERSTACK_TOKEN_HELPDESK_WORKFLOW_WORKER", "BETTERSTACK_TOKEN"],
   ],
 
@@ -197,6 +202,10 @@ export const manifest: Record<string, SecretEntry[]> = {
     "FACEBOOK_APP_ID",
     "FACEBOOK_APP_SECRET",
     "FACEBOOK_WEBHOOK_VERIFY_TOKEN",
+    // WeldDesk Discord OAuth + outbound REST (ticket panel, agent replies).
+    "DISCORD_CLIENT_ID",
+    "DISCORD_CLIENT_SECRET",
+    "DISCORD_BOT_TOKEN",
     // Moneybird first-party connector (WeldConnect). Test app redirect:
     // `{PUBLIC_APP_URL}/weldconnect/connectors/callback`.
     "MONEYBIRD_CLIENT_ID",

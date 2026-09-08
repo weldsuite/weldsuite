@@ -3,6 +3,8 @@ export * from './catalog';
 export * from './webhooks';
 export * from './probe';
 export * from './sync-index';
+export * from './crm-sync-index';
+export * from './tenant-work-index';
 export * from './provider-client';
 export { createConnectorProviderClient } from './factory';
 export { WooCommerceClient, createWooCommerceClient, normalizeStoreUrl } from './woocommerce/client';

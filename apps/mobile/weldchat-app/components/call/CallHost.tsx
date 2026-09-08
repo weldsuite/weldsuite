@@ -5,27 +5,25 @@
  * navigation — the user can minimize the call to a top bar and move between
  * chats while the WebRTC connection stays alive, exactly like WhatsApp.
  *
- * In-call UI is Cloudflare RealtimeKit's official `RtkMeeting` (same path as
- * WeldMeet mobile). This host owns init / join / leave, room lifecycle
- * bridging, the minimize bar, and releasing local camera/mic tracks.
+ * In-call UI is WeldChat's branded `InCallRoom` (RealtimeKit grid + custom
+ * chrome). This host owns init / join / leave, room lifecycle bridging, the
+ * minimize bar, and releasing local camera/mic tracks.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets, SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Phone, Mic, MicOff, ChevronDown } from 'lucide-react-native';
+import { Phone, Mic, MicOff } from 'lucide-react-native';
 import {
   RealtimeKitProvider,
   useRealtimeKitClient,
 } from '@cloudflare/realtimekit-react-native';
-import {
-  RtkUIProvider,
-  RtkMeeting,
-  RtkWaitingScreen,
-} from '@cloudflare/realtimekit-react-native-ui';
 import { useCall, type CallSession } from '@/contexts/CallContext';
 import { useLoopingSound } from '@/hooks/useLoopingSound';
+import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { BRAND } from '@/lib/brand';
+import { InCallRoom } from './InCallRoom';
 
 const RINGBACK = require('@/assets/sounds/ringback.wav');
 
@@ -67,12 +65,8 @@ function formatDuration(totalSeconds: number): string {
 
 /** Height of the minimized call bar's body (below the status-bar inset). */
 export const CALL_BAR_BODY_HEIGHT = 60;
-/** "Very light black" backdrop of the WhatsApp ongoing-call bar. */
-const CALL_BAR_BG = '#1c1c1e';
 /** Rounded top corners of the app page peeking out below the bar. */
 const PAGE_CORNER_RADIUS = 30;
-const CALL_GREEN = '#25d366';
-const HANGUP_RED = '#ff3b30';
 
 /**
  * Wraps the app's navigator. When a call is minimized it reserves space at the
@@ -83,6 +77,7 @@ const HANGUP_RED = '#ff3b30';
  */
 export function CallInsetContainer({ children }: { children: React.ReactNode }) {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
   const { minimized, session } = useCall();
   const showBar = minimized && !!session;
   const childInsets = useMemo(
@@ -93,7 +88,7 @@ export function CallInsetContainer({ children }: { children: React.ReactNode }) 
     <View
       style={[
         { flex: 1 },
-        showBar && { backgroundColor: CALL_BAR_BG, paddingTop: insets.top + CALL_BAR_BODY_HEIGHT },
+        showBar && { backgroundColor: colors.card, paddingTop: insets.top + CALL_BAR_BODY_HEIGHT },
       ]}
     >
       <View
@@ -262,40 +257,36 @@ function ActiveCall({ session }: { session: CallSession }) {
     };
   }, []);
 
-  const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
 
   return (
     <>
       <View
-        style={[styles.overlay, minimized && styles.hidden]}
+        style={[styles.overlay, minimized && styles.hidden, { backgroundColor: colors.background }]}
         pointerEvents={minimized ? 'none' : 'auto'}
       >
         {meeting ? (
-          <RealtimeKitProvider value={meeting as never} fallback={<RtkWaitingScreen />}>
-            <RtkUIProvider>
-              <RtkMeeting meeting={meeting as never} showSetupScreen={false} />
-            </RtkUIProvider>
+          <RealtimeKitProvider value={meeting as never}>
+            <InCallRoom
+              meeting={meeting}
+              peerName={session.peerName}
+              peerAvatar={session.peerAvatar ?? undefined}
+              callType={session.callType}
+              duration={duration}
+              onMinimize={minimizeCall}
+              onLeave={handleLeave}
+            />
           </RealtimeKitProvider>
         ) : (
-          <View style={styles.connecting}>
-            <ActivityIndicator size="large" color="#0095f6" />
-            <Text style={styles.connectingText}>
+          <View style={[styles.connecting, { backgroundColor: colors.background }]}>
+            <ActivityIndicator size="large" color={BRAND} />
+            <Text style={[styles.connectingText, { color: colors.text }]}>
               {session.isDirect
                 ? `Calling${session.peerName ? ` ${session.peerName}` : ''}…`
                 : 'Connecting…'}
             </Text>
           </View>
         )}
-
-        {/* Minimize — WeldChat chrome outside RTK UI */}
-        <TouchableOpacity
-          style={[styles.minimizeBtn, { top: insets.top + 8 }]}
-          onPress={minimizeCall}
-          hitSlop={10}
-          accessibilityLabel="Minimize call"
-        >
-          <ChevronDown size={22} color="#fff" />
-        </TouchableOpacity>
       </View>
 
       {minimized && (
@@ -328,24 +319,35 @@ function MinimizedCallBar({
   onLeave: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
   return (
-    <View style={[styles.bar, { paddingTop: insets.top }]}>
-      <StatusBar style="light" />
+    <View style={[styles.bar, { paddingTop: insets.top, backgroundColor: colors.card }]}>
+      <StatusBar style="auto" />
       <View style={styles.barRow}>
-        <TouchableOpacity style={styles.circleBtn} onPress={onToggleMute} hitSlop={6} accessibilityLabel={isMuted ? 'Unmute' : 'Mute'}>
-          {isMuted ? <MicOff size={17} color="#fff" /> : <Mic size={17} color="#fff" />}
+        <TouchableOpacity
+          style={[styles.circleBtn, { backgroundColor: colors.secondary }]}
+          onPress={onToggleMute}
+          hitSlop={6}
+          accessibilityLabel={isMuted ? 'Unmute' : 'Mute'}
+        >
+          {isMuted ? <MicOff size={17} color={colors.text} /> : <Mic size={17} color={colors.text} />}
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.barCenter} onPress={onExpand} activeOpacity={0.7} accessibilityLabel="Return to call">
-          <Phone size={15} color={CALL_GREEN} fill={CALL_GREEN} />
-          <Text style={styles.barText} numberOfLines={1}>
+          <Phone size={15} color={BRAND} fill={BRAND} />
+          <Text style={[styles.barText, { color: BRAND }]} numberOfLines={1}>
             {peerName ? `${peerName} - ${status}` : status}
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.circleBtn} onPress={onLeave} hitSlop={6} accessibilityLabel="End call">
+        <TouchableOpacity
+          style={[styles.circleBtn, { backgroundColor: colors.secondary }]}
+          onPress={onLeave}
+          hitSlop={6}
+          accessibilityLabel="End call"
+        >
           <View style={styles.hangupIcon}>
-            <Phone size={17} color={HANGUP_RED} fill={HANGUP_RED} />
+            <Phone size={17} color={colors.destructive} fill={colors.destructive} />
           </View>
         </TouchableOpacity>
       </View>
@@ -362,22 +364,10 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 1000,
     elevation: 1000,
-    backgroundColor: '#000',
   },
   hidden: { display: 'none' },
-  connecting: { flex: 1, backgroundColor: '#1c1d1f', justifyContent: 'center', alignItems: 'center', gap: 12 },
-  connectingText: { color: '#fff', fontSize: 14, marginTop: 8 },
-  minimizeBtn: {
-    position: 'absolute',
-    left: 12,
-    zIndex: 10,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  connecting: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+  connectingText: { fontSize: 14, marginTop: 8 },
   bar: {
     position: 'absolute',
     top: 0,
@@ -385,7 +375,6 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 1001,
     elevation: 1001,
-    backgroundColor: CALL_BAR_BG,
   },
   barRow: {
     flexDirection: 'row',
@@ -398,7 +387,6 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: '#2c2c2e',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -411,5 +399,5 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 8,
   },
-  barText: { color: CALL_GREEN, fontSize: 15, fontWeight: '600', flexShrink: 1 },
+  barText: { fontSize: 15, fontWeight: '600', flexShrink: 1 },
 });

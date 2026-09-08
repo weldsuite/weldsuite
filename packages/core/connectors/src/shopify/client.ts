@@ -273,6 +273,10 @@ export class ShopifyClient implements ConnectorProviderClient {
     return shopifyProductRef(data.product, this.storeUrl);
   }
 
+  async deleteProduct(id: string): Promise<void> {
+    await this.request(`products/${id}.json`, { method: 'DELETE' });
+  }
+
   async getOrder(id: string) {
     const { data } = await this.request<{ order: Record<string, unknown> }>(`orders/${id}.json`);
     return data.order;
@@ -343,6 +347,17 @@ function toShopifyProductBody(product: OutboundCatalogProduct): Record<string, u
   const images = (product.images ?? [])
     .filter((img) => img.url)
     .map((img) => ({ src: img.url, alt: img.altText || undefined }));
+  const variant: Record<string, unknown> = {
+    price: product.price,
+    sku: product.sku?.trim() || undefined,
+    weight: product.weight ? Number(product.weight) : undefined,
+  };
+  if (product.trackInventory === true) {
+    variant.inventory_management = 'shopify';
+    variant.inventory_quantity = product.inventoryQuantity ?? 0;
+  } else if (product.trackInventory === false) {
+    variant.inventory_management = null;
+  }
   return {
     title: product.name,
     body_html: product.description ?? '',
@@ -350,13 +365,7 @@ function toShopifyProductBody(product: OutboundCatalogProduct): Record<string, u
     product_type: product.productType || undefined,
     handle: product.slug || undefined,
     status: toShopifyStatus(product.status),
-    variants: [
-      {
-        price: product.price,
-        sku: product.sku?.trim() || undefined,
-        weight: product.weight ? Number(product.weight) : undefined,
-      },
-    ],
+    variants: [variant],
     images: images.length ? images : undefined,
   };
 }

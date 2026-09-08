@@ -3,10 +3,9 @@
 -- this table every 15 minutes instead of opening every tenant Neon; app-api
 -- keeps it in sync on connect / pause / resume / disconnect / ingest.
 --
--- Apply with: wrangler d1 execute weldsuite-connector-sync-index-<env> --remote \
---   --file apps/workers/integration-sync-worker/migrations/d1/0001_connector_sync_index.sql
--- (already applied to test + production at creation time; database_id values
--- live in app-api and integration-sync-worker wrangler.toml).
+-- Applied automatically on deploy via:
+--   pnpm --filter integration-sync-worker d1:migrate:<env>
+-- (wrangler d1 migrations apply; tracked in d1_migrations).
 
 CREATE TABLE IF NOT EXISTS connector_sync_index (
   connection_id          TEXT PRIMARY KEY,

@@ -49,23 +49,28 @@ The same SKU across two stores is one product with two channel rows. Deleting a
 listing from one store marks that channel `deleted_remote` and only soft-deletes
 the product when no active channels remain.
 
-### Webhook-only updates (do not poll)
+### Hybrid updates (webhooks + D1 catch-up)
 
-Tenant Neon databases autosuspend. Opening every workspace on a 10-minute or
-30-minute cron would keep them awake. Ecommerce connectors therefore:
+Tenant Neon databases autosuspend. Opening every workspace on a timer would keep
+them awake. Ecommerce / accounting connectors therefore use **hybrid** delivery:
 
 1. Run **one initial backfill** when the store is connected (`trigger: 'initial'`).
 2. Register store webhooks on connect. Delivery URL:
    `https://integration-webhooks[-test].weldsuite.org/webhooks/connectors/:connectionId`.
-3. After that, **only a store push** opens the tenant database:
-   store → `integration-webhook-worker` (KV `connconn:` lookup, no tenant DB) →
-   app-api `POST /api/integrations/connections/:id/connector-event` (HMAC + ingest).
-4. **Sync now** remains a manual backfill. It is never scheduled.
+3. Live path: store push → `integration-webhook-worker` (KV `connconn:` lookup,
+   no tenant DB) → app-api `POST /api/integrations/connections/:id/connector-event`
+   (HMAC + ingest).
+4. Catch-up path: `integration-sync-worker` (`*/15`) reads due rows from D1
+   `connector_sync_index`, decrypts the credential copy, probes the store
+   (`hasUpdatesSince` / reconcile fingerprint), and **only then** calls app-api
+   to open the tenant. A no-op tick never touches master or tenant Neon.
+5. **Sync now** remains a manual backfill (and resumes truncated catalogues via
+   page cursors in `sync_watermarks`).
 
-Ecommerce providers are excluded from `integration-sync-worker` (`*/30`) and from
-the webhook-worker poll cron (`*/10`). Those timers still exist for CRM OAuth
-connections and Sheets/Gmail workflow polls; they must not grow a connector
-sweep. Do not add `woocommerce` or `shopify` to `SYNCABLE_PROVIDERS`.
+Do **not** add `woocommerce` / `shopify` / `moneybird` to CRM
+`SYNCABLE_PROVIDERS`. CRM OAuth connections use a separate D1 `crm_sync_index`
+with the same wake-avoidance rule. Outbound catalogue publish (sales channels)
+is supported; full bidirectional order/customer push is still open.
 
 Local `wrangler` has no public HTTPS URL. WooCommerce **refuses a non-HTTPS
 callback**, so `POST /connectors/authorize` returns 400 until this worker is
@@ -82,4 +87,5 @@ with a warning when the delivery URL is `http://`.
   `integration_entity_mappings`.
 - Adding a connector is a catalog entry, a provider client, mappers, webhook
   topics, and settings toggles — not a Nango integration plus a poller.
-- Outbound sync (Weld → store) is still open.
+- Outbound catalogue publish via sales channels is supported; order/customer
+  push and full bidirectional conflict handling remain open.

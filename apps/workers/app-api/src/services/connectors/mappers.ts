@@ -7,11 +7,24 @@
 
 import type { ConnectorEntity } from '@weldsuite/connectors';
 
+export interface MappedProductVariant {
+  externalId: string;
+  sku: string | null;
+  name: string | null;
+  price: string | null;
+  inventoryQuantity: number | null;
+  trackInventory: boolean;
+  optionValues: Record<string, string> | null;
+  status: string;
+  position: number;
+}
+
 export interface MappedProduct {
   entity: 'product';
   externalId: string;
   externalUrl: string | null;
   values: Record<string, unknown>;
+  variants?: MappedProductVariant[];
 }
 
 export interface MappedOrder {
@@ -172,6 +185,75 @@ function shopifyImages(record: Record<string, unknown>): Array<{ url: string; al
     .filter((img) => img.url);
 }
 
+function mapProductOptionValues(
+  record: Record<string, unknown>,
+  productOptions: Array<{ name: string }>,
+): Record<string, string> | null {
+  const fromAttrs = Array.isArray(record.attributes) ? (record.attributes as Array<Record<string, unknown>>) : [];
+  if (fromAttrs.length > 0) {
+    const values: Record<string, string> = {};
+    for (const attr of fromAttrs) {
+      const attrName = pickString(attr, ['name']);
+      const option = pickString(attr, ['option']);
+      if (attrName && option) values[attrName] = option;
+    }
+    return Object.keys(values).length ? values : null;
+  }
+
+  const values: Record<string, string> = {};
+  for (let i = 0; i < 3; i++) {
+    const optionName = productOptions[i]?.name;
+    const optionValue = pickString(record, [`option${i + 1}`]);
+    if (optionName && optionValue) values[optionName] = optionValue;
+  }
+  return Object.keys(values).length ? values : null;
+}
+
+function mapProductVariants(record: Record<string, unknown>): MappedProductVariant[] {
+  const wooRaw = Array.isArray(record._variations)
+    ? (record._variations as Array<Record<string, unknown>>)
+    : Array.isArray(record.variations) && record.variations.some((v) => v && typeof v === 'object')
+      ? (record.variations as Array<Record<string, unknown>>)
+      : null;
+  const shopifyRaw = !wooRaw && Array.isArray(record.variants)
+    ? (record.variants as Array<Record<string, unknown>>)
+    : null;
+  const raw = wooRaw ?? shopifyRaw ?? [];
+  if (raw.length === 0) return [];
+
+  const productOptions = Array.isArray(record.options)
+    ? (record.options as Array<Record<string, unknown>>)
+        .map((opt) => ({ name: pickString(opt, ['name']) ?? '' }))
+        .filter((opt) => opt.name)
+    : [];
+
+  const mapped: MappedProductVariant[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const variant = raw[i]!;
+    const externalId = variant.id !== undefined && variant.id !== null ? String(variant.id) : null;
+    if (!externalId) continue;
+    const optionValues = mapProductOptionValues(variant, productOptions);
+    const status = PRODUCT_STATUS[pickString(variant, ['status']) ?? ''] ?? 'active';
+    const trackInventory =
+      variant.manage_stock === true
+      || pickString(variant, ['inventory_management']) === 'shopify';
+    mapped.push({
+      externalId,
+      sku: pickString(variant, ['sku'], 100),
+      name:
+        pickString(variant, ['name', 'title'], 255)
+        ?? (optionValues ? Object.values(optionValues).join(' / ') : null),
+      price: pickString(variant, ['price', 'regular_price']),
+      inventoryQuantity: pickNumber(variant, ['stock_quantity', 'inventory_quantity']),
+      trackInventory,
+      optionValues,
+      status,
+      position: pickNumber(variant, ['menu_order', 'position']) ?? i,
+    });
+  }
+  return mapped;
+}
+
 function mapProduct(record: Record<string, unknown>, externalId: string): MappedProduct | null {
   const name = pickString(record, ['name', 'title'], 255);
   if (!name) return null;
@@ -181,6 +263,10 @@ function mapProduct(record: Record<string, unknown>, externalId: string): Mapped
   const price = pickString(record, ['price', 'regular_price', 'variants.0.price']) ?? '0';
   const sku = pickString(record, ['sku', 'identifier', 'variants.0.sku'], 100);
   const compareAt = pickString(record, ['regular_price', 'variants.0.compare_at_price']);
+  const shopifyVariantCount = Array.isArray(record.variants) ? record.variants.length : 0;
+  const hasVariants = record.type === 'variable' || shopifyVariantCount > 1;
+  const variants = mapProductVariants(record);
+  const inventoryQuantity = pickNumber(record, ['stock_quantity', 'variants.0.inventory_quantity']);
 
   return {
     entity: 'product',
@@ -203,12 +289,16 @@ function mapProduct(record: Record<string, unknown>, externalId: string): Mapped
       width: pickString(record, ['dimensions.width']),
       height: pickString(record, ['dimensions.height']),
       trackInventory: record.manage_stock === true || pickString(record, ['variants.0.inventory_management']) === 'shopify',
+      inventoryQuantity,
+      hasVariants,
+      variantCount: hasVariants ? variants.length : 0,
       productType: pickString(record, ['type', 'product_type'], 100),
       vendor: pickString(record, ['vendor'], 255),
       publishedAt: pickString(record, ['date_created_gmt', 'date_created', 'created_at'])
         ? new Date(pickString(record, ['date_created_gmt', 'date_created', 'created_at'])!)
         : null,
     }),
+    ...(hasVariants && variants.length ? { variants } : {}),
   };
 }
 

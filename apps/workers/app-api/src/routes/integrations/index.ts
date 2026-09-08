@@ -41,6 +41,7 @@ import {
   type IntegrationsEnv,
 } from '../../services/integrations/connections';
 import { getOAuthAdapter, hasOAuthAdapter } from '../../services/integrations/oauth-providers';
+import { removeCrmIndex, upsertCrmIndex } from '../../lib/crm-sync-index';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.integrationConnections;
@@ -283,6 +284,16 @@ app.post('/connections/attio/callback', requirePermission('integrations:create')
       { expirationTtl: 86400 * 365 }, // Long TTL (renewed on sync)
     );
 
+    await upsertCrmIndex({
+      env: c.env,
+      connectionId,
+      workspaceId: internalWorkspaceId,
+      clerkOrgId: orgId,
+      provider: 'attio',
+      syncIntervalHours: 6,
+      dueNow: true,
+    });
+
     // 7. Trigger initial full sync via the CRM_SYNC workflow (non-fatal)
     try {
       await triggerCrmSync(env, {
@@ -480,6 +491,32 @@ app.post('/connections/:provider/callback', requirePermission('integrations:crea
       { expirationTtl: 86400 * 365 },
     );
 
+    let renewWatchAt: number | null = null;
+    if (isGoogleCalendar && typeof webhookSecret === 'string') {
+      try {
+        const watchInfo = JSON.parse(webhookSecret) as { expiration?: string };
+        if (watchInfo.expiration) {
+          const expiresAt = Number(watchInfo.expiration);
+          if (Number.isFinite(expiresAt)) {
+            renewWatchAt = expiresAt - 24 * 60 * 60 * 1000;
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    await upsertCrmIndex({
+      env: c.env,
+      connectionId,
+      workspaceId: internalWorkspaceId,
+      clerkOrgId: orgId,
+      provider,
+      syncIntervalHours: isGoogleCalendar ? 1 : 6,
+      renewWatchAt,
+      dueNow: true,
+    });
+
     // Trigger initial sync (non-fatal)
     try {
       await triggerCrmSync(env, {
@@ -637,6 +674,9 @@ app.delete('/connections/:id', requirePermission('integrations:delete'), async (
 
     // 2. Remove KV mapping
     await env.WORKSPACE_CACHE.delete(`intconn:${id}`);
+
+    // 2b. Drop CRM due-index row (best-effort)
+    await removeCrmIndex(c.env, id);
 
     // 3. Soft-delete connection
     await db

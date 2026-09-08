@@ -30,6 +30,7 @@ import {
   type MappedInvoice,
   type MappedOrder,
   type MappedParty,
+  type MappedProductVariant,
 } from './mappers';
 
 export interface IngestCounts {
@@ -290,6 +291,72 @@ async function replaceOrderItems(
       total: item.total,
     });
   }
+}
+
+async function upsertProductVariants(
+  db: Database,
+  productId: string,
+  variants: MappedProductVariant[],
+): Promise<void> {
+  const existingRows = await db
+    .select()
+    .from(schema.productVariants)
+    .where(and(eq(schema.productVariants.productId, productId), isNull(schema.productVariants.deletedAt)));
+
+  const bySku = new Map<string, (typeof existingRows)[number]>();
+  const byExternal = new Map<string, (typeof existingRows)[number]>();
+  for (const row of existingRows) {
+    if (row.sku) bySku.set(row.sku, row);
+    const externalId = (row.attributes as { externalId?: string } | null)?.externalId;
+    if (externalId) byExternal.set(externalId, row);
+  }
+
+  for (const variant of variants) {
+    const match = (variant.sku ? bySku.get(variant.sku) : undefined) ?? byExternal.get(variant.externalId);
+    const optionValues = variant.optionValues
+      ? Object.entries(variant.optionValues).map(([name, value]) => ({ name, value }))
+      : null;
+    const fields = {
+      name: variant.name?.trim() || optionValues?.map((o) => o.value).join(' / ') || 'Variant',
+      sku: variant.sku,
+      price: variant.price,
+      inventoryQuantity: variant.inventoryQuantity ?? 0,
+      trackInventory: variant.trackInventory,
+      optionValues,
+      status: variant.status || 'active',
+      position: variant.position,
+      attributes: { externalId: variant.externalId },
+      updatedAt: new Date(),
+    };
+
+    if (match) {
+      await db
+        .update(schema.productVariants)
+        .set(fields)
+        .where(eq(schema.productVariants.id, match.id));
+      if (variant.sku) bySku.set(variant.sku, match);
+      byExternal.set(variant.externalId, match);
+    } else {
+      const id = generateId('pvr');
+      await db.insert(schema.productVariants).values({
+        id,
+        productId,
+        ...fields,
+      });
+      const created = { id, sku: variant.sku, attributes: fields.attributes } as (typeof existingRows)[number];
+      if (variant.sku) bySku.set(variant.sku, created);
+      byExternal.set(variant.externalId, created);
+    }
+  }
+
+  await db
+    .update(schema.products)
+    .set({
+      hasVariants: true,
+      variantCount: variants.length,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.products.id, productId));
 }
 
 async function upsertSalesChannel(args: {
@@ -1149,6 +1216,9 @@ export async function ingestRecords(args: IngestArgs): Promise<IngestResult> {
           price: mapped.values.price != null ? String(mapped.values.price) : null,
           listingStatus: typeof mapped.values.status === 'string' ? mapped.values.status : null,
         });
+        if (mapped.variants?.length && outcome.action !== 'skipped') {
+          await upsertProductVariants(args.db, outcome.internalId, mapped.variants);
+        }
       }
 
       if (outcome.action === 'created') counts.created++;

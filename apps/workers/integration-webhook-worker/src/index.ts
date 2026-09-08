@@ -18,6 +18,12 @@ import { getValidAccessToken } from './lib/token';
 import { encryptField, maybeDecryptField, keyringFromEnv, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
 import { publishEntityEventRaw, matchAndDispatchIntegrationTriggers, retryFailedWebhookDeliveries } from '@weldsuite/entity-events';
 import {
+  listDueTenantWorkIndex,
+  markTenantWorkIndexRan,
+  upsertTenantWorkIndex,
+  type TenantWorkIndexDb,
+} from '@weldsuite/connectors';
+import {
   verifySlackSignature,
   parseSlackEventCallback,
   parseSlackSlashCommand,
@@ -27,6 +33,9 @@ import { verifyTwilioSignature, parseTwilioSms } from './lib/workflow-events/twi
 import { verifyGithubSignature, parseGithubEvent } from './lib/workflow-events/github';
 import { githubAppWebhookRoutes } from './github/webhook';
 import type { OAuthTokens } from '@weldsuite/db/schema';
+
+const WORKFLOW_POLL_INTERVAL_MS = 10 * 60_000;
+const WEBHOOK_RETRY_INTERVAL_MS = 10 * 60_000;
 
 // ============ Env interface ============
 
@@ -69,6 +78,12 @@ export interface Env {
   /** Google OAuth client — refreshes expired Sheets/Workspace tokens during the poll. */
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  /**
+   * Shared D1 with integration-sync-worker / app-api — CRM due rows + tenant
+   * work queue (workflow polls, webhook retries). Quiet ticks never fan out
+   * every Neon.
+   */
+  CONNECTOR_SYNC_INDEX?: D1Database;
   /** OAuth client credentials for refreshing expired provider tokens. */
   ATTIO_CLIENT_ID?: string;
   ATTIO_CLIENT_SECRET?: string;
@@ -1257,248 +1272,396 @@ interface IntegrationRow {
  * active workflows' `*.new_*` triggers so a resource is only polled while a
  * workflow listens.
  */
+async function seedTenantWorkKindIfEmpty(
+  d1: TenantWorkIndexDb,
+  env: Env,
+  kind: 'workflow_poll' | 'webhook_retry',
+): Promise<number> {
+  const existing = await d1
+    .prepare(`SELECT 1 AS ok FROM tenant_work_index WHERE kind = ? LIMIT 1`)
+    .bind(kind)
+    .all<{ ok: number }>();
+  if ((existing.results?.length ?? 0) > 0) return 0;
+
+  const masterDb = getMasterDb(env);
+  const workspaces = await masterDb
+    .select({ id: masterSchema.workspaces.id, clerkOrgId: masterSchema.workspaces.clerkOrgId })
+    .from(masterSchema.workspaces);
+  const now = Date.now();
+  let seeded = 0;
+  for (const workspace of workspaces) {
+    if (!workspace.clerkOrgId) continue;
+    await upsertTenantWorkIndex(d1, {
+      workspaceId: workspace.id,
+      clerkOrgId: workspace.clerkOrgId,
+      kind,
+      nextDueAt: now,
+      now,
+    });
+    seeded += 1;
+  }
+  console.log(`[TenantWork] Seeded ${seeded} ${kind} rows (cold start)`);
+  return seeded;
+}
+
+/**
+ * Poll Google Workspace / Airtable triggers for due workspaces only.
+ */
 async function runIntegrationPolls(env: Env): Promise<void> {
   if (!env.EXECUTE_WORKFLOW) {
     console.warn('[Poll] EXECUTE_WORKFLOW binding absent — skipping');
     return;
   }
+  if (!env.CONNECTOR_SYNC_INDEX) {
+    console.warn('[Poll] CONNECTOR_SYNC_INDEX binding absent — skipping');
+    return;
+  }
+
   console.log(`[Poll] Starting (${env.ENVIRONMENT})`);
-  const masterDb = getMasterDb(env);
-  const workspaces = await masterDb
-    .select({ id: masterSchema.workspaces.id, clerkOrgId: masterSchema.workspaces.clerkOrgId })
-    .from(masterSchema.workspaces);
+  const d1 = env.CONNECTOR_SYNC_INDEX;
+  await seedTenantWorkKindIfEmpty(d1, env, 'workflow_poll');
+
+  const due = await listDueTenantWorkIndex(d1, 'workflow_poll');
+  let dispatched = 0;
+
+  for (const row of due) {
+    const now = Date.now();
+    try {
+      const count = await pollWorkspaceIntegrations(env, row.workspace_id, row.clerk_org_id);
+      dispatched += count;
+      await markTenantWorkIndexRan(d1, {
+        workspaceId: row.workspace_id,
+        kind: 'workflow_poll',
+        // Keep polling workspaces that may gain triggers later on a slower cadence
+        // when none fired; active pollers stay on the 10-minute interval.
+        nextDueAt: now + WORKFLOW_POLL_INTERVAL_MS,
+        now,
+      });
+    } catch (err) {
+      console.error(`[Poll] Failed for workspace ${row.workspace_id}:`, err);
+      await markTenantWorkIndexRan(d1, {
+        workspaceId: row.workspace_id,
+        kind: 'workflow_poll',
+        nextDueAt: now + WORKFLOW_POLL_INTERVAL_MS,
+        error: err instanceof Error ? err.message : 'poll failed',
+        now,
+      });
+    }
+  }
+
+  console.log(`[Poll] Done. Workspaces: ${due.length}, Dispatched: ${dispatched}`);
+}
+
+async function pollWorkspaceIntegrations(
+  env: Env,
+  workspaceId: string,
+  clerkOrgId: string,
+): Promise<number> {
+  const db = await getTenantDbForWorkspaceById(env, workspaceId);
+  const activeWorkflows = await db
+    .select({ triggers: tenantSchema.workflows.triggers })
+    .from(tenantSchema.workflows)
+    .where(and(eq(tenantSchema.workflows.status, 'active'), isNull(tenantSchema.workflows.deletedAt)));
+
+  const triggers = activeWorkflows.flatMap((wf) => (wf.triggers as any[]) || []);
+  if (triggers.length === 0) return 0;
+
+  const polls = {
+    google_sheets: triggers.filter((t) => isPollTrigger(t, 'google_sheets', 'google_sheets.new_row')),
+    gmail: triggers.filter((t) => isPollTrigger(t, 'gmail', 'gmail.new_email')),
+    google_calendar: triggers.filter((t) => isPollTrigger(t, 'google_calendar', 'google_calendar.new_event')),
+    airtable: triggers.filter((t) => isPollTrigger(t, 'airtable', 'airtable.new_record')),
+  };
+  if (Object.values(polls).every((arr) => arr.length === 0)) return 0;
+
+  const connected = (await db
+    .select()
+    .from(tenantSchema.workflowIntegrations)
+    .where(
+      and(
+        eq(tenantSchema.workflowIntegrations.status, 'connected'),
+        isNull(tenantSchema.workflowIntegrations.deletedAt),
+      ),
+    )) as unknown as IntegrationRow[];
+
+  const pick = (type: string, integrationId?: string) =>
+    integrationId
+      ? connected.find((i) => i.id === integrationId && i.type === type)
+      : connected.find((i) => i.type === type);
+
+  const dispatch = (integrationId: string, provider: string, event: string, data: Record<string, unknown>) =>
+    matchAndDispatchIntegrationTriggers({
+      env,
+      db,
+      workspaceId: clerkOrgId,
+      userId: 'system',
+      provider,
+      event,
+      integrationId,
+      data,
+    });
+
+  const saveSettings = (integration: IntegrationRow, settings: Record<string, unknown>) =>
+    db
+      .update(tenantSchema.workflowIntegrations)
+      .set({ settings, updatedAt: new Date() })
+      .where(eq(tenantSchema.workflowIntegrations.id, integration.id));
 
   let dispatched = 0;
 
-  for (const workspace of workspaces) {
-    if (!workspace.clerkOrgId) continue;
-    const clerkOrgId = workspace.clerkOrgId;
-    try {
-      const db = await getTenantDbForWorkspaceById(env, workspace.id);
-      const activeWorkflows = await db
-        .select({ triggers: tenantSchema.workflows.triggers })
-        .from(tenantSchema.workflows)
-        .where(and(eq(tenantSchema.workflows.status, 'active'), isNull(tenantSchema.workflows.deletedAt)));
+  // --- Google Sheets: diff row count per watched sheet ---
+  for (const t of polls.google_sheets) {
+    const spreadsheetId = triggerField(t, 'spreadsheetId');
+    if (!spreadsheetId) continue;
+    const sheetName = triggerField(t, 'sheetName') ?? 'Sheet1';
+    const integration = pick('google_sheets', triggerIntegrationId(t));
+    if (!integration) continue;
+    const token = await resolveGoogleToken(env, db, integration);
+    if (!token) continue;
 
-      const triggers = activeWorkflows.flatMap((wf) => (wf.triggers as any[]) || []);
-      if (triggers.length === 0) continue;
-
-      const polls = {
-        google_sheets: triggers.filter((t) => isPollTrigger(t, 'google_sheets', 'google_sheets.new_row')),
-        gmail: triggers.filter((t) => isPollTrigger(t, 'gmail', 'gmail.new_email')),
-        google_calendar: triggers.filter((t) => isPollTrigger(t, 'google_calendar', 'google_calendar.new_event')),
-        airtable: triggers.filter((t) => isPollTrigger(t, 'airtable', 'airtable.new_record')),
-      };
-      if (Object.values(polls).every((arr) => arr.length === 0)) continue;
-
-      const connected = (await db
-        .select()
-        .from(tenantSchema.workflowIntegrations)
-        .where(
-          and(
-            eq(tenantSchema.workflowIntegrations.status, 'connected'),
-            isNull(tenantSchema.workflowIntegrations.deletedAt),
-          ),
-        )) as unknown as IntegrationRow[];
-
-      const pick = (type: string, integrationId?: string) =>
-        integrationId
-          ? connected.find((i) => i.id === integrationId && i.type === type)
-          : connected.find((i) => i.type === type);
-
-      const dispatch = (integrationId: string, provider: string, event: string, data: Record<string, unknown>) =>
-        matchAndDispatchIntegrationTriggers({ env, db, workspaceId: clerkOrgId, userId: 'system', provider, event, integrationId, data });
-
-      const saveSettings = (integration: IntegrationRow, settings: Record<string, unknown>) =>
-        db
-          .update(tenantSchema.workflowIntegrations)
-          .set({ settings, updatedAt: new Date() })
-          .where(eq(tenantSchema.workflowIntegrations.id, integration.id));
-
-      // --- Google Sheets: diff row count per watched sheet ---
-      for (const t of polls.google_sheets) {
-        const spreadsheetId = triggerField(t, 'spreadsheetId');
-        if (!spreadsheetId) continue;
-        const sheetName = triggerField(t, 'sheetName') ?? 'Sheet1';
-        const integration = pick('google_sheets', triggerIntegrationId(t));
-        if (!integration) continue;
-        const token = await resolveGoogleToken(env, db, integration);
-        if (!token) continue;
-
-        const res = await fetch(
-          `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        );
-        if (!res.ok) continue;
-        const rows = ((await res.json()) as { values?: unknown[][] }).values ?? [];
-        const settings = (integration.settings as Record<string, any>) || {};
-        const cursors: Record<string, number> = settings.sheetsCursors || {};
-        const cursorKey = `${spreadsheetId}!${sheetName}`;
-        const prev = cursors[cursorKey];
-        if (prev === undefined) {
-          cursors[cursorKey] = rows.length;
-        } else if (rows.length > prev) {
-          for (let i = prev; i < rows.length; i++) {
-            await dispatch(integration.id, 'google_sheets', 'google_sheets.new_row', { rowNumber: i + 1, values: rows[i] ?? [] });
-            dispatched++;
-          }
-          cursors[cursorKey] = rows.length;
-        }
-        if (cursors[cursorKey] !== prev) {
-          integration.settings = { ...settings, sheetsCursors: cursors };
-          await saveSettings(integration, integration.settings);
-        }
-      }
-
-      // --- Gmail: dispatch inbox messages newer than the last seen timestamp ---
-      for (const t of polls.gmail) {
-        const integration = pick('gmail', triggerIntegrationId(t));
-        if (!integration) continue;
-        const token = await resolveGoogleToken(env, db, integration);
-        if (!token) continue;
-        const query = triggerField(t, 'query') ?? 'newer_than:1d';
-        const settings = (integration.settings as Record<string, any>) || {};
-        let lastTs = Number(settings.gmailLastTs ?? 0);
-        let maxTs = lastTs;
-
-        const listRes = await fetch(
-          `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&labelIds=INBOX&q=${encodeURIComponent(query)}`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        );
-        if (!listRes.ok) continue;
-        const list = (await listRes.json()) as { messages?: Array<{ id: string }> };
-        for (const m of list.messages ?? []) {
-          const msgRes = await fetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`,
-            { headers: { Authorization: `Bearer ${token}` } },
-          );
-          if (!msgRes.ok) continue;
-          const msg = (await msgRes.json()) as {
-            id: string; threadId: string; internalDate?: string; snippet?: string;
-            payload?: { headers?: Array<{ name: string; value: string }> };
-          };
-          const ts = Number(msg.internalDate ?? 0);
-          if (ts > maxTs) maxTs = ts;
-          if (lastTs !== 0 && ts > lastTs) {
-            const header = (n: string) => msg.payload?.headers?.find((h) => h.name === n)?.value;
-            await dispatch(integration.id, 'gmail', 'gmail.new_email', {
-              id: msg.id, threadId: msg.threadId, from: header('From'), subject: header('Subject'), snippet: msg.snippet,
-            });
-            dispatched++;
-          }
-        }
-        if (maxTs !== lastTs) {
-          integration.settings = { ...settings, gmailLastTs: maxTs };
-          await saveSettings(integration, integration.settings);
-        }
-      }
-
-      // --- Google Calendar: dispatch upcoming events created since last seen ---
-      for (const t of polls.google_calendar) {
-        const integration = pick('google_calendar', triggerIntegrationId(t));
-        if (!integration) continue;
-        const token = await resolveGoogleToken(env, db, integration);
-        if (!token) continue;
-        const calendarId = triggerField(t, 'calendarId') ?? 'primary';
-        const settings = (integration.settings as Record<string, any>) || {};
-        let lastCreated = settings.calendarLastCreated ? Date.parse(settings.calendarLastCreated) : 0;
-        let maxCreated = lastCreated;
-
-        const res = await fetch(
-          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?timeMin=${encodeURIComponent(new Date().toISOString())}&singleEvents=true&orderBy=startTime&maxResults=10`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        );
-        if (!res.ok) continue;
-        const data = (await res.json()) as {
-          items?: Array<{ id: string; summary?: string; start?: unknown; end?: unknown; htmlLink?: string; created?: string }>;
-        };
-        for (const ev of data.items ?? []) {
-          const created = ev.created ? Date.parse(ev.created) : 0;
-          if (created > maxCreated) maxCreated = created;
-          if (lastCreated !== 0 && created > lastCreated) {
-            await dispatch(integration.id, 'google_calendar', 'google_calendar.new_event', {
-              id: ev.id, summary: ev.summary, start: ev.start, end: ev.end, htmlLink: ev.htmlLink,
-            });
-            dispatched++;
-          }
-        }
-        if (maxCreated !== lastCreated) {
-          integration.settings = { ...settings, calendarLastCreated: new Date(maxCreated).toISOString() };
-          await saveSettings(integration, integration.settings);
-        }
-      }
-
-      // --- Airtable: dispatch records created since last seen createdTime ---
-      for (const t of polls.airtable) {
-        const baseId = triggerField(t, 'baseId');
-        const tableId = triggerField(t, 'tableId');
-        if (!baseId || !tableId) continue;
-        const integration = pick('airtable', triggerIntegrationId(t));
-        if (!integration) continue;
-        const token = await decryptConnectionCred(env, integration, 'token');
-        if (!token) continue;
-        const settings = (integration.settings as Record<string, any>) || {};
-        const cursors: Record<string, string> = settings.airtableCursors || {};
-        const key = `${baseId}:${tableId}`;
-        const prev = cursors[key] ? Date.parse(cursors[key]) : 0;
-        let maxCreated = prev;
-
-        const res = await fetch(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}?pageSize=50`, {
-          headers: { Authorization: `Bearer ${token}` },
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(sheetName)}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) continue;
+    const rows = ((await res.json()) as { values?: unknown[][] }).values ?? [];
+    const settings = (integration.settings as Record<string, any>) || {};
+    const cursors: Record<string, number> = settings.sheetsCursors || {};
+    const cursorKey = `${spreadsheetId}!${sheetName}`;
+    const prev = cursors[cursorKey];
+    if (prev === undefined) {
+      cursors[cursorKey] = rows.length;
+    } else if (rows.length > prev) {
+      for (let i = prev; i < rows.length; i++) {
+        await dispatch(integration.id, 'google_sheets', 'google_sheets.new_row', {
+          rowNumber: i + 1,
+          values: rows[i] ?? [],
         });
-        if (!res.ok) continue;
-        const data = (await res.json()) as { records?: Array<{ id: string; fields: unknown; createdTime: string }> };
-        const sorted = [...(data.records ?? [])].sort((a, b) => Date.parse(a.createdTime) - Date.parse(b.createdTime));
-        for (const r of sorted) {
-          const created = Date.parse(r.createdTime);
-          if (created > maxCreated) maxCreated = created;
-          if (prev !== 0 && created > prev) {
-            await dispatch(integration.id, 'airtable', 'airtable.new_record', { id: r.id, fields: r.fields, createdTime: r.createdTime });
-            dispatched++;
-          }
-        }
-        if (maxCreated !== prev) {
-          cursors[key] = new Date(maxCreated).toISOString();
-          integration.settings = { ...settings, airtableCursors: cursors };
-          await saveSettings(integration, integration.settings);
-        }
+        dispatched++;
       }
-    } catch (err) {
-      console.error(`[Poll] Failed for workspace ${workspace.id}:`, err);
+      cursors[cursorKey] = rows.length;
+    }
+    if (cursors[cursorKey] !== prev) {
+      integration.settings = { ...settings, sheetsCursors: cursors };
+      await saveSettings(integration, integration.settings);
     }
   }
-  console.log(`[Poll] Done. Items dispatched: ${dispatched}`);
+
+  // Continue with remaining poll providers.
+  dispatched += await pollGmailCalendarAirtable(env, db, polls, pick, dispatch, saveSettings);
+  return dispatched;
+}
+
+type PollBuckets = {
+  google_sheets: unknown[];
+  gmail: unknown[];
+  google_calendar: unknown[];
+  airtable: unknown[];
+};
+
+async function pollGmailCalendarAirtable(
+  env: Env,
+  db: TenantDatabase,
+  polls: PollBuckets,
+  pick: (type: string, integrationId?: string) => IntegrationRow | undefined,
+  dispatch: (
+    integrationId: string,
+    provider: string,
+    event: string,
+    data: Record<string, unknown>,
+  ) => Promise<unknown>,
+  saveSettings: (integration: IntegrationRow, settings: Record<string, unknown>) => Promise<unknown>,
+): Promise<number> {
+  let dispatched = 0;
+
+  // --- Gmail: dispatch inbox messages newer than the last seen timestamp ---
+  for (const t of polls.gmail) {
+    const integration = pick('gmail', triggerIntegrationId(t));
+    if (!integration) continue;
+    const token = await resolveGoogleToken(env, db, integration);
+    if (!token) continue;
+    const query = triggerField(t, 'query') ?? 'newer_than:1d';
+    const settings = (integration.settings as Record<string, any>) || {};
+    let lastTs = Number(settings.gmailLastTs ?? 0);
+    let maxTs = lastTs;
+
+    const listRes = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&labelIds=INBOX&q=${encodeURIComponent(query)}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!listRes.ok) continue;
+    const list = (await listRes.json()) as { messages?: Array<{ id: string }> };
+    for (const m of list.messages ?? []) {
+      const msgRes = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!msgRes.ok) continue;
+      const msg = (await msgRes.json()) as {
+        id: string;
+        threadId: string;
+        internalDate?: string;
+        snippet?: string;
+        payload?: { headers?: Array<{ name: string; value: string }> };
+      };
+      const ts = Number(msg.internalDate ?? 0);
+      if (ts > maxTs) maxTs = ts;
+      if (lastTs !== 0 && ts > lastTs) {
+        const header = (n: string) => msg.payload?.headers?.find((h) => h.name === n)?.value;
+        await dispatch(integration.id, 'gmail', 'gmail.new_email', {
+          id: msg.id,
+          threadId: msg.threadId,
+          from: header('From'),
+          subject: header('Subject'),
+          snippet: msg.snippet,
+        });
+        dispatched++;
+      }
+    }
+    if (maxTs !== lastTs) {
+      integration.settings = { ...settings, gmailLastTs: maxTs };
+      await saveSettings(integration, integration.settings);
+    }
+  }
+
+  // --- Google Calendar: dispatch upcoming events created since last seen ---
+  for (const t of polls.google_calendar) {
+    const integration = pick('google_calendar', triggerIntegrationId(t));
+    if (!integration) continue;
+    const token = await resolveGoogleToken(env, db, integration);
+    if (!token) continue;
+    const calendarId = triggerField(t, 'calendarId') ?? 'primary';
+    const settings = (integration.settings as Record<string, any>) || {};
+    const lastCreated = settings.calendarLastCreated ? Date.parse(settings.calendarLastCreated) : 0;
+    let maxCreated = lastCreated;
+
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?timeMin=${encodeURIComponent(new Date().toISOString())}&singleEvents=true&orderBy=startTime&maxResults=10`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) continue;
+    const data = (await res.json()) as {
+      items?: Array<{
+        id: string;
+        summary?: string;
+        start?: unknown;
+        end?: unknown;
+        htmlLink?: string;
+        created?: string;
+      }>;
+    };
+    for (const ev of data.items ?? []) {
+      const created = ev.created ? Date.parse(ev.created) : 0;
+      if (created > maxCreated) maxCreated = created;
+      if (lastCreated !== 0 && created > lastCreated) {
+        await dispatch(integration.id, 'google_calendar', 'google_calendar.new_event', {
+          id: ev.id,
+          summary: ev.summary,
+          start: ev.start,
+          end: ev.end,
+          htmlLink: ev.htmlLink,
+        });
+        dispatched++;
+      }
+    }
+    if (maxCreated !== lastCreated) {
+      integration.settings = { ...settings, calendarLastCreated: new Date(maxCreated).toISOString() };
+      await saveSettings(integration, integration.settings);
+    }
+  }
+
+  // --- Airtable: dispatch records created since last seen createdTime ---
+  for (const t of polls.airtable) {
+    const baseId = triggerField(t, 'baseId');
+    const tableId = triggerField(t, 'tableId');
+    if (!baseId || !tableId) continue;
+    const integration = pick('airtable', triggerIntegrationId(t));
+    if (!integration) continue;
+    const token = await decryptConnectionCred(env, integration, 'token');
+    if (!token) continue;
+    const settings = (integration.settings as Record<string, any>) || {};
+    const cursors: Record<string, string> = settings.airtableCursors || {};
+    const key = `${baseId}:${tableId}`;
+    const prev = cursors[key] ? Date.parse(cursors[key]) : 0;
+    let maxCreated = prev;
+
+    const res = await fetch(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableId)}?pageSize=50`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) continue;
+    const data = (await res.json()) as {
+      records?: Array<{ id: string; fields: unknown; createdTime: string }>;
+    };
+    const sorted = [...(data.records ?? [])].sort(
+      (a, b) => Date.parse(a.createdTime) - Date.parse(b.createdTime),
+    );
+    for (const r of sorted) {
+      const created = Date.parse(r.createdTime);
+      if (created > maxCreated) maxCreated = created;
+      if (prev !== 0 && created > prev) {
+        await dispatch(integration.id, 'airtable', 'airtable.new_record', {
+          id: r.id,
+          fields: r.fields,
+          createdTime: r.createdTime,
+        });
+        dispatched++;
+      }
+    }
+    if (maxCreated !== prev) {
+      cursors[key] = new Date(maxCreated).toISOString();
+      integration.settings = { ...settings, airtableCursors: cursors };
+      await saveSettings(integration, integration.settings);
+    }
+  }
+
+  return dispatched;
 }
 
 // ============ Outbound webhook delivery retry sweep (cron) ============
-//
-// Piggy-backs on the existing 10-minute poll cron (`INTEGRATION_POLL_CRON`) —
-// a dedicated cron trigger would mean another wrangler.toml entry per
-// environment, and the existing 10-minute cadence is a fine retry interval
-// for the failure backoff windows `retryFailedWebhookDeliveries` computes.
 
 async function runWebhookRetrySweep(env: Env): Promise<void> {
-  const masterDb = getMasterDb(env);
-  const workspaces = await masterDb
-    .select({ id: masterSchema.workspaces.id })
-    .from(masterSchema.workspaces);
+  if (!env.CONNECTOR_SYNC_INDEX) {
+    console.warn('[WebhookRetrySweep] CONNECTOR_SYNC_INDEX binding absent — skipping');
+    return;
+  }
+  const d1 = env.CONNECTOR_SYNC_INDEX;
+  await seedTenantWorkKindIfEmpty(d1, env, 'webhook_retry');
 
+  const due = await listDueTenantWorkIndex(d1, 'webhook_retry');
   let attempted = 0;
   let succeeded = 0;
 
-  for (const workspace of workspaces) {
+  for (const row of due) {
+    const now = Date.now();
     try {
-      const db = await getTenantDbForWorkspaceById(env, workspace.id);
+      const db = await getTenantDbForWorkspaceById(env, row.workspace_id);
       const result = await retryFailedWebhookDeliveries(db);
       attempted += result.attempted;
       succeeded += result.succeeded;
+      await markTenantWorkIndexRan(d1, {
+        workspaceId: row.workspace_id,
+        kind: 'webhook_retry',
+        // Keep a slow pulse so newly failed deliveries are picked up without
+        // requiring a write-path upsert from every delivery failure.
+        nextDueAt: now + WEBHOOK_RETRY_INTERVAL_MS,
+        now,
+      });
     } catch (err) {
-      console.error(`[WebhookRetrySweep] Failed for workspace ${workspace.id}:`, err);
+      console.error(`[WebhookRetrySweep] Failed for workspace ${row.workspace_id}:`, err);
+      await markTenantWorkIndexRan(d1, {
+        workspaceId: row.workspace_id,
+        kind: 'webhook_retry',
+        nextDueAt: now + WEBHOOK_RETRY_INTERVAL_MS,
+        error: err instanceof Error ? err.message : 'retry failed',
+        now,
+      });
     }
   }
 
-  if (attempted > 0) {
-    console.log(`[WebhookRetrySweep] Done. Attempted: ${attempted}, Succeeded: ${succeeded}`);
+  if (attempted > 0 || due.length > 0) {
+    console.log(
+      `[WebhookRetrySweep] Done. Workspaces: ${due.length}, Attempted: ${attempted}, Succeeded: ${succeeded}`,
+    );
   }
 }
 
@@ -1511,22 +1674,13 @@ export { GithubProjectOutboundSyncWorkflow } from './workflows/github-project-ou
 export default {
   fetch: app.fetch,
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    // Parked until a due-index rewrite: polls + webhook-retry opened every tenant
-    // Neon. wrangler.toml crons = [] as well. Inbound webhooks (fetch) are unaffected.
-    const disabled = true as boolean;
-    if (disabled) {
-      console.log(`[Cron] Disabled (${env.ENVIRONMENT}); ignoring ${controller.cron}`);
-      return;
-    }
-    // Branch by cron pattern so the Sheets poll and the (disabled) CRM auto-sync
-    // stay decoupled — only the poll cron is enabled in wrangler.toml today.
-    // Ecommerce connectors (WooCommerce / Shopify) are webhook-only: they must
-    // not be added to either sweep. Those paths open every tenant database.
+    // Due-index sweeps only (D1). CRM auto-sync lives on integration-sync-worker.
+    // Inbound webhooks (fetch) are unaffected.
     if (controller.cron === INTEGRATION_POLL_CRON) {
       ctx.waitUntil(runIntegrationPolls(env));
       ctx.waitUntil(runWebhookRetrySweep(env));
     } else {
-      ctx.waitUntil(runScheduledSync(env));
+      console.log(`[Cron] Ignoring unused schedule ${controller.cron}`);
     }
   },
 } satisfies ExportedHandler<Env>;

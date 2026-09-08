@@ -204,7 +204,7 @@ export const commerce = {
         salesChannelAdded: 'Synced to {name}',
         salesChannelRemoved: 'Removed from {name}',
         removeSalesChannel: 'Remove sales channel',
-        removeSalesChannelHint: 'Removes the listing here. The product stays in the store.',
+        removeSalesChannelHint: 'Removes the listing here and deletes the product on the store.',
         noSalesChannelTargets: 'No connected stores yet. Connect WooCommerce or Shopify in WeldConnect.',
         salesChannelAlreadyAdded: 'Added',
         salesChannelsNone: '—',

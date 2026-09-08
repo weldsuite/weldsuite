@@ -226,7 +226,7 @@ describe('WooCommerceClient', () => {
     }
     const client = new WooCommerceClient(
       { storeUrl: 'https://shop.example', consumerKey: 'ck_a', consumerSecret: 'cs_b' },
-      { fetchImpl: workersFetch as typeof fetch },
+      { fetchImpl: workersFetch as unknown as typeof fetch },
     );
     await expect(client.listProducts()).resolves.toMatchObject({ items: [] });
   });
@@ -247,7 +247,14 @@ describe('WooCommerceClient', () => {
       { fetchImpl },
     );
 
-    const created = await client.createProduct({ name: 'Helmet', price: '19.00', status: 'active', sku: 'WH-1' });
+    const created = await client.createProduct({
+      name: 'Helmet',
+      price: '19.00',
+      status: 'active',
+      sku: 'WH-1',
+      trackInventory: true,
+      inventoryQuantity: 4,
+    });
     expect(created).toEqual({ id: '99', url: 'https://shop.example/?p=99' });
     expect(calls[0]?.method).toBe('POST');
     expect(JSON.parse(calls[0]?.body ?? '{}')).toMatchObject({
@@ -256,6 +263,8 @@ describe('WooCommerceClient', () => {
       status: 'publish',
       sku: 'WH-1',
       regular_price: '19.00',
+      manage_stock: true,
+      stock_quantity: 4,
     });
 
     const draft = await client.createProduct({ name: 'Gloves', price: '9.00', status: 'inactive' });
@@ -265,6 +274,56 @@ describe('WooCommerceClient', () => {
     const found = await client.findProductBySku('WH-1');
     expect(found).toEqual({ id: '12', url: 'https://shop.example/?p=12' });
     expect(await client.findProductBySku('  ')).toBeNull();
+  });
+
+  it('lists variations and attaches them for variable products during listSync', async () => {
+    const urls: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.includes('/variations')) {
+        return jsonResponse([{ id: 9, sku: 'V-S', price: '5.00', manage_stock: true, stock_quantity: 2 }]);
+      }
+      return jsonResponse([{ id: 1, type: 'variable', name: 'Tee' }, { id: 2, type: 'simple', name: 'Mug' }], {
+        headers: { 'x-wp-totalpages': '1', 'x-wp-total': '2' },
+      });
+    };
+    const client = new WooCommerceClient(
+      { storeUrl: 'https://shop.example', consumerKey: 'ck_a', consumerSecret: 'cs_b' },
+      { fetchImpl },
+    );
+    const variations = await client.listVariations('1');
+    expect(variations).toHaveLength(1);
+    expect(urls[0]).toContain('/products/1/variations');
+
+    const page = await client.listSync(
+      {
+        syncName: 'products',
+        model: 'product',
+        internalEntity: 'product',
+        externalEntityType: 'woocommerce_product',
+        settingKey: 'products',
+      },
+      { page: 1, cursor: null, limit: 100 },
+    );
+    expect(page.items[0]).toMatchObject({ id: 1, _variations: [{ id: 9, sku: 'V-S' }] });
+    expect(page.items[1]).not.toHaveProperty('_variations');
+  });
+
+  it('deletes a product with force=true', async () => {
+    const calls: Array<{ url: string; method: string }> = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      calls.push({ url: String(input), method: String(init?.method ?? 'GET') });
+      return jsonResponse({});
+    };
+    const client = new WooCommerceClient(
+      { storeUrl: 'https://shop.example', consumerKey: 'ck_a', consumerSecret: 'cs_b' },
+      { fetchImpl },
+    );
+    await client.deleteProduct('99');
+    expect(calls[0]?.method).toBe('DELETE');
+    expect(calls[0]?.url).toContain('/products/99');
+    expect(calls[0]?.url).toContain('force=true');
   });
 
   it('probes hasUpdatesSince with per_page=1 and treats an empty page as no changes', async () => {
